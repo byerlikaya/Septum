@@ -1,17 +1,15 @@
 export default function ChatPage(): JSX.Element {
   return (
-    <div className="flex h-full flex-col gap-4">
-      <header className="flex items-center justify-between border-b border-border pb-4">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">
-            Chat
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Interact with Septum&apos;s privacy-preserving assistant.
-          </p>
-        </div>
+    <div className="flex h-full min-w-0 flex-col gap-4">
+      <header className="shrink-0 border-b border-slate-800 pb-4">
+        <h1 className="text-xl font-semibold tracking-tight text-slate-50">
+          Chat
+        </h1>
+        <p className="mt-1 text-sm text-slate-400">
+          Interact with Septum&apos;s privacy-preserving assistant.
+        </p>
       </header>
-      <div className="flex-1 rounded-lg border border-border bg-card/40 p-4 text-sm text-muted-foreground">
+      <div className="min-h-0 flex-1 rounded-lg border border-slate-800 bg-slate-900/40 p-4 text-sm text-slate-300">
         Chat UI coming soon.
       </div>
     </div>

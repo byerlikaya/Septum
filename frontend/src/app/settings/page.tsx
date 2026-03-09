@@ -239,20 +239,18 @@ export default function SettingsPage(): JSX.Element {
   };
 
   return (
-    <div className="flex h-full flex-col gap-4">
-      <header className="flex items-center justify-between border-b border-border pb-4 text-slate-50">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">
-            Settings
-          </h1>
-          <p className="text-sm text-slate-300">
-            Configure cloud LLMs, privacy layers, local models, RAG, and ingestion.
-          </p>
-        </div>
+    <div className="flex h-full min-w-0 flex-col gap-4">
+      <header className="shrink-0 border-b border-slate-800 pb-4 text-slate-50">
+        <h1 className="text-xl font-semibold tracking-tight">
+          Settings
+        </h1>
+        <p className="mt-1 text-sm text-slate-300">
+          Configure cloud LLMs, privacy layers, local models, RAG, and ingestion.
+        </p>
       </header>
 
       <div className="flex min-h-0 flex-1 gap-4">
-        <div className="w-52 shrink-0 space-y-1 rounded-lg border border-border bg-slate-950 p-2 text-sm">
+        <div className="w-52 shrink-0 space-y-1 rounded-lg border border-slate-800 bg-slate-950/80 p-2 text-sm">
           <SettingsTabButton
             label="Cloud LLM"
             description="Provider & model"

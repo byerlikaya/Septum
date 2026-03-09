@@ -38,3 +38,7 @@ export interface Chunk {
   section_title: string | null;
 }
 
+export interface ChunkListResponse {
+  items: Chunk[];
+}
+

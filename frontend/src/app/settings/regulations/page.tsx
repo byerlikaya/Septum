@@ -199,20 +199,17 @@ export default function RegulationsPage(): JSX.Element {
   };
 
   return (
-    <div className="flex h-full flex-col gap-4 text-slate-50">
-      <header className="flex items-center justify-between border-b border-border pb-4">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">
-            Regulation Rules &amp; Custom Rules
-          </h1>
-          <p className="text-sm text-slate-300">
-            Activate built-in regulation packs and define custom recognizers for
-            your specific privacy policies.
-          </p>
-        </div>
+    <div className="flex h-full min-w-0 flex-col gap-4 text-slate-50">
+      <header className="shrink-0 border-b border-slate-800 pb-4">
+        <h1 className="text-xl font-semibold tracking-tight">
+          Regulation Rules &amp; Custom Rules
+        </h1>
+        <p className="mt-1 text-sm text-slate-300">
+          Activate built-in regulation packs and define custom recognizers for your specific privacy policies.
+        </p>
       </header>
 
-      <div className="flex flex-1 flex-col gap-6 overflow-y-auto pb-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto pb-4">
         <section className="space-y-3">
           <div className="flex items-center justify-between gap-4">
             <div>
@@ -242,7 +239,7 @@ export default function RegulationsPage(): JSX.Element {
           )}
 
           {rulesetsLoading ? (
-            <div className="flex items-center justify-center rounded-md border border-border bg-slate-900 py-8 text-xs text-slate-200">
+            <div className="flex items-center justify-center rounded-md border border-slate-800 bg-slate-900/60 py-8 text-xs text-slate-200">
               Regulation rules are loading...
             </div>
           ) : (
@@ -254,7 +251,7 @@ export default function RegulationsPage(): JSX.Element {
                 return (
                   <article
                     key={ruleset.id}
-                    className="flex flex-col justify-between rounded-lg border border-border bg-slate-950/60 p-3 text-xs"
+                    className="flex flex-col justify-between rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs"
                   >
                     <div className="mb-3 flex items-start justify-between gap-2">
                       <div className="space-y-0.5">

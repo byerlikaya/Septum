@@ -126,17 +126,17 @@ export default function DocumentsPage(): JSX.Element {
   }, []);
 
   return (
-    <div className="flex h-full flex-col gap-4">
-      <header className="flex items-center justify-between border-b border-border pb-4">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Documents</h1>
-          <p className="text-sm text-muted-foreground">
-            Upload, inspect, and manage ingested documents.
-          </p>
-        </div>
+    <div className="flex h-full min-w-0 flex-col gap-4">
+      <header className="shrink-0 border-b border-slate-800 pb-4">
+        <h1 className="text-xl font-semibold tracking-tight text-slate-50">
+          Documents
+        </h1>
+        <p className="mt-1 text-sm text-slate-400">
+          Upload, inspect, and manage ingested documents.
+        </p>
       </header>
 
-      <div className="flex flex-col gap-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
         <DocumentUploader disabled={isUploading} onFilesSelected={handleFilesSelected} />
         {isUploading && uploadTotal > 0 && (
           <div className="space-y-1 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">
@@ -155,7 +155,7 @@ export default function DocumentsPage(): JSX.Element {
           </div>
         )}
         {error && (
-          <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+          <div className="rounded-lg border border-rose-800 bg-rose-950/70 px-3 py-2 text-xs text-rose-200">
             {error}
           </div>
         )}
