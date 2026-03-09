@@ -42,3 +42,100 @@ export interface ChunkListResponse {
   items: Chunk[];
 }
 
+// --- Chat & approval ---
+
+export type ChatMessageRole = "user" | "assistant";
+
+export interface ChatMessage {
+  id: string;
+  role: ChatMessageRole;
+  content: string;
+}
+
+export type OutputMode = "chat" | "json";
+
+export interface ApprovalChunkPayload {
+  id: number | null;
+  document_id: number | null;
+  text: string;
+  source_page: number | null;
+  source_slide: number | null;
+  source_sheet: number | null;
+  source_timestamp_start: number | null;
+  source_timestamp_end: number | null;
+  section_title: string | null;
+}
+
+export interface SSEMetaEvent {
+  type: "meta";
+  session_id: string;
+  document_id: number;
+  language: string;
+  require_approval: boolean;
+  retrieved_chunk_count: number;
+  active_regulations: string[];
+}
+
+export interface SSEApprovalRequiredEvent {
+  type: "approval_required";
+  session_id: string;
+  masked_prompt?: string;
+  chunks: ApprovalChunkPayload[];
+}
+
+export interface SSEApprovalRejectedEvent {
+  type: "approval_rejected";
+  session_id: string;
+  reason?: string;
+  timed_out: boolean;
+}
+
+export interface SSEAnswerChunkEvent {
+  type: "answer_chunk";
+  text: string;
+}
+
+export interface SSEEndEvent {
+  type: "end";
+}
+
+export interface SSEErrorEvent {
+  type: "error";
+  message: string;
+}
+
+export type SSEChatEvent =
+  | SSEMetaEvent
+  | SSEApprovalRequiredEvent
+  | SSEApprovalRejectedEvent
+  | SSEAnswerChunkEvent
+  | SSEEndEvent
+  | SSEErrorEvent;
+
+export interface AppSettingsResponse {
+  id: number;
+  llm_provider: string;
+  llm_model: string;
+  ollama_base_url: string;
+  ollama_chat_model: string;
+  ollama_deanon_model: string;
+  deanon_enabled: boolean;
+  deanon_strategy: string;
+  require_approval: boolean;
+  show_json_output: boolean;
+  use_presidio_layer: boolean;
+  use_ner_layer: boolean;
+  use_ollama_layer: boolean;
+  chunk_size: number;
+  chunk_overlap: number;
+  top_k_retrieval: number;
+  pdf_chunk_size: number;
+  audio_chunk_size: number;
+  spreadsheet_chunk_size: number;
+  whisper_model: string;
+  image_ocr_languages: string[];
+  extract_embedded_images: boolean;
+  recursive_email_attachments: boolean;
+  default_active_regulations: string[];
+}
+

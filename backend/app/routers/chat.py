@@ -130,7 +130,12 @@ async def _retrieve_chunks(
     query: str,
     top_k: int,
 ) -> List[Chunk]:
-    """Retrieve top-k chunks for a sanitized query using FAISS indexes."""
+    """Retrieve top-k chunks for a sanitized query using FAISS indexes.
+
+    If the vector index is missing or returns no results, falls back to the
+    first top_k chunks of the document (by chunk index) so the LLM still
+    receives context when the document has chunks.
+    """
     from ..services.vector_store import VectorStore
 
     vector_store = VectorStore()
@@ -139,18 +144,25 @@ async def _retrieve_chunks(
         query=query,
         top_k=top_k,
     )
-    if not results:
-        return []
 
-    chunk_ids = [cid for cid, _ in results]
-    # Preserve ranking by ordering manually after fetching.
-    id_to_rank = {cid: rank for rank, cid in enumerate(chunk_ids)}
+    if results:
+        chunk_ids = [cid for cid, _ in results]
+        id_to_rank = {cid: rank for rank, cid in enumerate(chunk_ids)}
+        stmt = select(Chunk).where(Chunk.id.in_(chunk_ids))
+        db_result = await db.execute(stmt)
+        chunks = list(db_result.scalars().all())
+        chunks.sort(key=lambda c: id_to_rank.get(c.id, len(chunk_ids)))
+        return chunks
 
-    stmt = select(Chunk).where(Chunk.id.in_(chunk_ids))
-    db_result = await db.execute(stmt)
-    chunks = list(db_result.scalars().all())
-    chunks.sort(key=lambda c: id_to_rank.get(c.id, len(chunk_ids)))
-    return chunks
+    # Fallback: no index or empty search; use first top_k chunks by order
+    fallback_stmt = (
+        select(Chunk)
+        .where(Chunk.document_id == document_id)
+        .order_by(Chunk.index)
+        .limit(top_k)
+    )
+    db_result = await db.execute(fallback_stmt)
+    return list(db_result.scalars().all())
 
 
 def _build_approval_chunks(chunks: List[Chunk]) -> List[ApprovalChunk]:
@@ -185,6 +197,7 @@ async def _run_llm_and_deanonymize(
     sanitized_query: str,
     context_chunks: List[str],
     regulation_names: List[str],
+    output_mode: str = "chat",
 ) -> str:
     """Call the LLM and apply local de-anonymization."""
     llm = LLMRouter(settings)
@@ -196,6 +209,16 @@ async def _run_llm_and_deanonymize(
         for idx, chunk in enumerate(context_chunks, start=1):
             lines.append(f"Chunk {idx}:\n{chunk}")
         context_text = "\n\n".join(lines)
+
+    output_instruction = ""
+    if (output_mode or "chat").strip().lower() == "json":
+        output_instruction = (
+            "\n\n---\n"
+            "REQUIRED: Reply with ONLY a single valid JSON object. No markdown headings, no bullet lists, "
+            "no code fences, no text before or after. Example format:\n"
+            '{"summary": "one paragraph", "type": "document type", "key_points": ["point1", "point2"]}\n'
+            "Use only double quotes. Output nothing but this JSON object.\n---\n\n"
+        )
 
     # For maximum compatibility across providers (especially Anthropic's
     # Messages API, which expects only ``user`` / ``assistant`` roles),
@@ -211,6 +234,7 @@ async def _run_llm_and_deanonymize(
         f"{sanitized_query}\n\n"
         "Relevant context (sanitized):\n"
         f"{context_text or '[no retrieved context]'}"
+        f"{output_instruction}"
     )
 
     messages = [
@@ -330,6 +354,7 @@ async def chat_ask(
                     {
                         "type": "approval_required",
                         "session_id": session_id,
+                        "masked_prompt": sanitized_query,
                         "chunks": [
                             {
                                 "id": c.id,
@@ -361,12 +386,14 @@ async def chat_ask(
             else:
                 context_texts = [c.sanitized_text for c in chunks]
 
+            output_mode = (request.output_mode or "chat").strip().lower()
             answer = await _run_llm_and_deanonymize(
                 settings=effective_settings,
                 anon_map=anon_map,
                 sanitized_query=sanitized_query,
                 context_chunks=context_texts,
                 regulation_names=regulation_names,
+                output_mode=output_mode,
             )
 
             for piece in _chunk_text(answer, max_chunk_size=256):
