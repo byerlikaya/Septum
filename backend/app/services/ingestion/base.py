@@ -16,9 +16,9 @@ otherwise expose any raw PII. Only non-sensitive metadata (sizes, counts,
 formats) may be logged by callers.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Dict, List, Optional, Protocol
 
 
 @dataclass(slots=True)
@@ -34,10 +34,22 @@ class IngestionResult:
             such as page counts, slide counts, or sheet names. This MUST
             NOT contain any raw personal data; clients are responsible for
             enforcing this constraint.
+        confidence: Optional aggregate confidence score for the extraction
+            (e.g., average OCR confidence for images). This is intended
+            purely as a quality signal and MUST NOT include any raw content.
+        warnings: Optional, human-readable warnings about the ingestion
+            process (e.g., "no text detected"); these messages must never
+            echo back raw document content.
+        raw_segments: Optional, structured representation of the extraction
+            output (e.g., Whisper segments). This field is intended purely
+            for in-memory consumers and must not be logged or persisted.
     """
 
     text: str
     metadata: Dict[str, Any]
+    confidence: Optional[float] = None
+    warnings: List[str] = field(default_factory=list)
+    raw_segments: Optional[List[Dict[str, Any]]] = None
 
 
 class BaseIngester(Protocol):
