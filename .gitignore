@@ -49,6 +49,9 @@ backend/documents/
 backend/uploads/
 backend/storage/
 
+# Encrypted per-document anonymization maps (local only, never in repo)
+backend/anon_maps/
+
 # Test fixtures (do not commit local sample files)
 backend/tests/fixtures/
 

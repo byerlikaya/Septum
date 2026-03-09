@@ -111,7 +111,7 @@ export default function ChunksPage(): JSX.Element {
   const documentsWithChunksHint = documents.filter(doc => doc.chunk_count > 0);
 
   return (
-    <div className="flex h-full min-w-0 flex-col gap-4">
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-4">
       <header className="shrink-0 border-b border-slate-800 pb-4">
         <h1 className="text-xl font-semibold tracking-tight text-slate-50">
           Chunks

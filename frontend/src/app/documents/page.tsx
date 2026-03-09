@@ -126,7 +126,7 @@ export default function DocumentsPage(): JSX.Element {
   }, []);
 
   return (
-    <div className="flex h-full min-w-0 flex-col gap-4">
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-4">
       <header className="shrink-0 border-b border-slate-800 pb-4">
         <h1 className="text-xl font-semibold tracking-tight text-slate-50">
           Documents
@@ -136,7 +136,7 @@ export default function DocumentsPage(): JSX.Element {
         </p>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
         <DocumentUploader disabled={isUploading} onFilesSelected={handleFilesSelected} />
         {isUploading && uploadTotal > 0 && (
           <div className="space-y-1 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">

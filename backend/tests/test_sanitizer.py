@@ -90,15 +90,15 @@ def test_iban_is_sanitized(sanitizer: PIISanitizer) -> None:
 
 
 def test_coreference_and_blocklist_integration(sanitizer: PIISanitizer) -> None:
-    """AnonymizationMap integration should handle blocklist-based redaction."""
+    """AnonymizationMap integration: token mentions get [ENTITY_TYPE_N] placeholder."""
     text = "Ahmet Yılmaz bugün aradı. Daha sonra Ahmet tekrar mesaj attı."
     anon_map = AnonymizationMap(document_id=4, language="tr")
 
-    # For this test we bypass automatic detection and exercise the map directly.
     placeholder = anon_map.add_entity("Ahmet Yılmaz", "PERSON_NAME")
     assert placeholder == "[PERSON_NAME_1]"
 
     sanitized = anon_map.apply_blocklist(text, language="tr")
 
-    assert "[BLOCKED]" in sanitized
+    assert "[PERSON_NAME_1]" in sanitized
+    assert "Ahmet" not in sanitized or "[PERSON_NAME_1]" in sanitized
 

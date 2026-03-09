@@ -4,8 +4,8 @@ from __future__ import annotations
 Session-scoped anonymization map with language-aware coreference resolution.
 
 This module keeps an in-memory mapping between original PII values and
-placeholder tokens, plus a lightweight blocklist mechanism for catching
-residual occurrences that were not detected as structured entities.
+placeholder tokens, plus a token-to-placeholder map so residual token
+mentions are redacted with the correct [ENTITY_TYPE_N] placeholder.
 
 The map is intentionally kept local to the current process and is never
 persisted to disk in order to avoid leaking raw PII.
@@ -17,7 +17,8 @@ import re
 
 from ..utils.text_utils import normalize_for_comparison
 
-BLOCKLIST_PLACEHOLDER = "[BLOCKED]"
+# Short common English words that must never be masked (no [BLOCKED], no entity).
+SANITIZER_STOPWORDS: frozenset[str] = frozenset({"the", "a", "an", "of", "in", "at"})
 
 
 @dataclass
@@ -25,16 +26,17 @@ class AnonymizationMap:
     """In-memory anonymization map with language-aware coreference support.
 
     The map tracks original entity strings and the placeholder assigned to
-    them, while also maintaining a token-level blocklist used as a final
-    safety net. Coreference is handled by matching normalized tokens so that
-    shorter mentions (for example, a first name) can be resolved to an
-    existing placeholder created for a longer span (for example, a full name).
+    them, plus a token-to-placeholder mapping used when applying the blocklist:
+    residual token mentions are replaced with the correct [ENTITY_TYPE_N]
+    placeholder, never with a generic [BLOCKED]. Tokens in SANITIZER_STOPWORDS
+    are never added to the blocklist and are never redacted.
     """
 
     document_id: int
     language: str = "en"
     entity_map: Dict[str, str] = field(default_factory=dict)
     blocklist: Set[str] = field(default_factory=set)
+    token_to_placeholder: Dict[str, str] = field(default_factory=dict)
     token_counter: Dict[str, int] = field(default_factory=dict)
 
     def add_entity(self, original: str, entity_type: str) -> str:
@@ -51,26 +53,23 @@ class AnonymizationMap:
 
         existing = self._find_existing(original)
         if existing is not None:
-            # Track this surface form as an alias for the same placeholder.
             self.entity_map.setdefault(original, existing)
-            self._update_blocklist(original)
+            self._update_blocklist(original, existing)
             return existing
 
         placeholder = self._next_placeholder(entity_type)
         self.entity_map[original] = placeholder
-        self._update_blocklist(original)
+        self._update_blocklist(original, placeholder)
         return placeholder
 
     def apply_blocklist(self, text: str, language: Optional[str] = None) -> str:
-        """Apply blocklist-based redaction to ``text`` and return the result.
+        """Apply token-level redaction using token_to_placeholder.
 
-        The blocklist is built from normalized tokens using
-        :func:`normalize_for_comparison`, which itself relies on
-        locale-aware lowercasing. This method performs a best-effort scan
-        over the input text and replaces matching tokens with a generic
-        placeholder, without touching already anonymized placeholders.
+        Tokens that match a known entity token are replaced with the
+        corresponding [ENTITY_TYPE_N] placeholder. Placeholder format only.
+        SANITIZER_STOPWORDS are never redacted.
         """
-        if not text or not self.blocklist:
+        if not text or not self.token_to_placeholder:
             return text
 
         lang = language or self.language
@@ -81,24 +80,23 @@ class AnonymizationMap:
 
         for match in pattern.finditer(text):
             start, end = match.span()
-            # Copy any non-token text between the last match and this one.
             if start > last_end:
                 parts.append(text[last_end:start])
 
             token = match.group(0)
             if token.startswith("[") and token.endswith("]"):
-                # Preserve existing placeholders verbatim.
                 parts.append(token)
             else:
                 normalized = normalize_for_comparison(token, lang)
-                if normalized in self.blocklist:
-                    parts.append(BLOCKLIST_PLACEHOLDER)
+                if normalized in SANITIZER_STOPWORDS:
+                    parts.append(token)
+                elif normalized in self.token_to_placeholder:
+                    parts.append(self.token_to_placeholder[normalized])
                 else:
                     parts.append(token)
 
             last_end = end
 
-        # Append any trailing text after the final match.
         if last_end < len(text):
             parts.append(text[last_end:])
 
@@ -110,14 +108,16 @@ class AnonymizationMap:
         self.token_counter[entity_type] = count
         return f"[{entity_type}_{count}]"
 
-    def _update_blocklist(self, original: str) -> None:
-        """Update the blocklist with tokens derived from ``original``."""
+    def _update_blocklist(self, original: str, placeholder: str) -> None:
+        """Update blocklist and token_to_placeholder from ``original``."""
         normalized = normalize_for_comparison(original, self.language)
         for token in normalized.split():
-            # Exclude very short tokens globally to avoid noisy matches.
             if len(token) <= 2:
                 continue
+            if token in SANITIZER_STOPWORDS:
+                continue
             self.blocklist.add(token)
+            self.token_to_placeholder[token] = placeholder
 
     def _find_existing(self, original: str) -> Optional[str]:
         """Try to find an existing placeholder for ``original``.

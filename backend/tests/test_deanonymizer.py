@@ -1,41 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Dict
-
 import pytest
 
 from backend.app.models.settings import AppSettings
 from backend.app.services.anonymization_map import AnonymizationMap
 from backend.app.services.deanonymizer import Deanonymizer
-
-
-class _DummyOllamaClient:
-    def __init__(self, payload: Dict[str, Any]) -> None:
-        self._payload = payload
-        self.last_url: str | None = None
-        self.last_json: Dict[str, Any] | None = None
-
-    async def __aenter__(self) -> "_DummyOllamaClient":
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb) -> None:  # type: ignore[no-untyped-def]
-        return None
-
-    async def post(self, url: str, json: Dict[str, Any] | None = None) -> "_DummyOllamaResponse":
-        self.last_url = url
-        self.last_json = json or {}
-        return _DummyOllamaResponse(self._payload)
-
-
-class _DummyOllamaResponse:
-    def __init__(self, payload: Dict[str, Any]) -> None:
-        self._payload = payload
-
-    def json(self) -> Dict[str, Any]:
-        return self._payload
-
-    def raise_for_status(self) -> None:
-        return None
 
 
 def _base_settings(strategy: str, enabled: bool = True) -> AppSettings:
@@ -85,6 +54,22 @@ async def test_deanonymizer_simple_strategy_replaces_placeholders() -> None:
 
 
 @pytest.mark.asyncio
+async def test_deanonymizer_simple_replaces_short_form_person_alias() -> None:
+    """When the map has [PERSON_NAME_N], LLM may return [PERSON_N]; both must be deanon'd."""
+    settings = _base_settings(strategy="simple", enabled=True)
+    deanonymizer = Deanonymizer(settings=settings)
+
+    amap = AnonymizationMap(document_id=1, language="en")
+    amap.add_entity("Ahmet Yılmaz", "PERSON_NAME")
+    amap.add_entity("Ayşe Kaya", "PERSON_NAME")
+    # Map has [PERSON_NAME_1], [PERSON_NAME_2]; LLM often returns [PERSON_1], [PERSON_2].
+    text = "- [PERSON_1]\n- [PERSON_2]"
+    result = await deanonymizer.deanonymize(text, anon_map=amap)
+
+    assert result == "- Ahmet Yılmaz\n- Ayşe Kaya"
+
+
+@pytest.mark.asyncio
 async def test_deanonymizer_disabled_returns_original_text() -> None:
     """When de-anonymization is disabled, the input text must be returned."""
     settings = _base_settings(strategy="simple", enabled=False)
@@ -101,16 +86,21 @@ async def test_deanonymizer_disabled_returns_original_text() -> None:
 
 @pytest.mark.asyncio
 async def test_deanonymizer_ollama_strategy_uses_local_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ollama strategy should call the local Ollama HTTP API."""
+    """Ollama strategy should call the local Ollama HTTP API (via ollama_client)."""
     from backend.app.services import deanonymizer as deanonymizer_module
 
-    payload = {"response": "Refined answer with Alice."}
-    dummy_client = _DummyOllamaClient(payload)
+    async def _fake_call_ollama_async(
+        prompt: str,
+        base_url: str | None = None,
+        model: str | None = None,
+        timeout: float = 30.0,
+    ) -> str:
+        _fake_call_ollama_async.last_prompt = prompt  # type: ignore[attr-defined]
+        _fake_call_ollama_async.last_model = model  # type: ignore[attr-defined]
+        return "Refined answer with Alice."
 
-    def _client_factory(*args: Any, **kwargs: Any) -> _DummyOllamaClient:
-        return dummy_client
-
-    monkeypatch.setattr(deanonymizer_module.httpx, "AsyncClient", _client_factory)
+    monkeypatch.setattr(deanonymizer_module, "call_ollama_async", _fake_call_ollama_async)
+    monkeypatch.setattr(deanonymizer_module, "use_ollama_enabled", lambda: True)
 
     settings = _base_settings(strategy="ollama", enabled=True)
     dean = Deanonymizer(settings=settings)
@@ -122,8 +112,7 @@ async def test_deanonymizer_ollama_strategy_uses_local_model(monkeypatch: pytest
     result = await dean.deanonymize(text, anon_map=amap)
 
     assert result == "Refined answer with Alice."
-    assert dummy_client.last_url is not None
-    assert dummy_client.last_url.endswith("/api/generate")
-    assert dummy_client.last_json is not None
-    assert dummy_client.last_json["model"] == settings.ollama_deanon_model
+    assert getattr(_fake_call_ollama_async, "last_prompt", "")
+    assert "[PERSON_NAME_1]" in getattr(_fake_call_ollama_async, "last_prompt", "")
+    assert getattr(_fake_call_ollama_async, "last_model", None) == settings.ollama_deanon_model
 

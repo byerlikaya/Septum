@@ -33,6 +33,7 @@ from ..models.document import Chunk, Document
 from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
 from ..services.anonymization_map import AnonymizationMap
+from ..services.document_anon_store import pop_document_map, set_document_map
 from ..services.ingestion.pdf_ingester import PdfIngester
 from ..services.ingestion.docx_ingester import DocxIngester
 from ..services.ingestion.xlsx_ingester import XlsxIngester
@@ -384,6 +385,9 @@ async def upload_document(
         await db.commit()
         await db.refresh(document)
 
+        # Store anonymization map in memory for chat-time deanonymization.
+        set_document_map(document.id, anon_map)
+
         # Build the FAISS index in a worker thread to keep the event loop
         # responsive.
         if chunks:
@@ -503,6 +507,9 @@ async def delete_document(
     except Exception:
         # Best-effort; ignore index deletion errors.
         pass
+
+    # Drop in-memory anonymization map for this document.
+    pop_document_map(document_id)
 
     await db.delete(document)
     await db.commit()

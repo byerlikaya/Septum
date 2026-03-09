@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from backend.app.services.anonymization_map import (
-    AnonymizationMap,
-    BLOCKLIST_PLACEHOLDER,
-)
+from backend.app.services.anonymization_map import AnonymizationMap
 
 
 def test_coreference_full_name_and_first_name_share_placeholder() -> None:
@@ -25,13 +22,14 @@ def test_locale_lower_for_turkish_istanbul() -> None:
     """Locale-aware lowercasing must work correctly for Turkish dotted I."""
     amap = AnonymizationMap(document_id=2, language="tr")
 
-    amap.add_entity("İstanbul", "CITY")
+    ph = amap.add_entity("İstanbul", "CITY")
+    assert ph == "[CITY_1]"
 
-    # Blocklist should contain the normalized, locale-lowered token.
     assert "istanbul" in amap.blocklist
+    assert amap.token_to_placeholder.get("istanbul") == "[CITY_1]"
 
     redacted = amap.apply_blocklist("İSTANBUL çok güzel bir şehir.", language="tr")
-    assert BLOCKLIST_PLACEHOLDER in redacted
+    assert "[CITY_1]" in redacted
     assert "İSTANBUL" not in redacted
 
 
@@ -39,13 +37,13 @@ def test_multilingual_german_umlaut_preserved_in_blocklist() -> None:
     """German umlaut characters should be preserved after normalization."""
     amap = AnonymizationMap(document_id=3, language="de")
 
-    amap.add_entity("Müller", "PERSON_NAME")
+    ph = amap.add_entity("Müller", "PERSON_NAME")
+    assert ph == "[PERSON_NAME_1]"
 
-    # Normalization should preserve the umlaut while lowercasing.
     assert "müller" in amap.blocklist
 
     redacted = amap.apply_blocklist("Herr Müller ist hier.", language="de")
-    assert BLOCKLIST_PLACEHOLDER in redacted
+    assert "[PERSON_NAME_1]" in redacted
     assert "Müller" not in redacted
 
 
@@ -61,15 +59,15 @@ def test_short_tokens_not_added_to_blocklist() -> None:
 
 
 def test_apply_blocklist_does_not_touch_placeholders() -> None:
-    """Existing placeholders must remain intact when applying the blocklist."""
+    """Existing placeholders must remain intact; token mentions get real placeholder."""
     amap = AnonymizationMap(document_id=5, language="en")
-    amap.blocklist.add("john")
+    amap.add_entity("John", "PERSON_NAME")
 
     text = "User [PERSON_NAME_1] is actually John."
     redacted = amap.apply_blocklist(text, language="en")
 
-    # Placeholder must remain unchanged, while the raw name is redacted.
     assert "[PERSON_NAME_1]" in redacted
     assert "John" not in redacted
-    assert BLOCKLIST_PLACEHOLDER in redacted
+    # Redaction uses [ENTITY_TYPE_N] only, not [BLOCKED].
+    assert "[BLOCKED]" not in redacted
 

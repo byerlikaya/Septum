@@ -9,6 +9,8 @@ echo "Project root: $PROJECT_ROOT"
 echo "Starting backend on http://localhost:8000 ..."
 (
   cd "$PROJECT_ROOT/backend"
+  # Avoid OMP Error #179 (pthread_mutex_init) on macOS with PyTorch/MPS
+  export OMP_NUM_THREADS=1
   python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ) &
 

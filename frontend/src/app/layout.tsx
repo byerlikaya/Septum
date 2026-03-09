@@ -17,12 +17,12 @@ export default function RootLayout(
   const { children } = props;
 
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
-      <body className="min-h-screen bg-slate-950 text-foreground antialiased">
-        <div className="flex min-h-screen min-w-0">
+    <html lang="en" className="dark suppressHydrationWarning">
+      <body className="h-screen overflow-hidden bg-slate-950 text-foreground antialiased">
+        <div className="flex h-full min-w-0">
           <Sidebar />
-          <main className="min-w-0 flex-1 bg-slate-950">
-            <div className="h-full min-w-0 w-full px-4 py-5 sm:px-6 lg:px-8">
+          <main className="min-h-0 min-w-0 flex-1 overflow-hidden bg-slate-950">
+            <div className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden px-4 py-5 sm:px-6 lg:px-8">
               {children}
             </div>
           </main>

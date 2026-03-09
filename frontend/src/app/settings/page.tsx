@@ -239,7 +239,7 @@ export default function SettingsPage(): JSX.Element {
   };
 
   return (
-    <div className="flex h-full min-w-0 flex-col gap-4">
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-4">
       <header className="shrink-0 border-b border-slate-800 pb-4 text-slate-50">
         <h1 className="text-xl font-semibold tracking-tight">
           Settings
@@ -289,7 +289,7 @@ export default function SettingsPage(): JSX.Element {
           />
         </div>
 
-        <div className="flex-1 rounded-lg border border-border bg-slate-900 p-4 text-slate-50">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto rounded-lg border border-border bg-slate-900 p-4 text-slate-50">
           {loading ? (
             <div className="flex h-full items-center justify-center text-sm text-slate-200">
               Settings are loading...
@@ -299,7 +299,7 @@ export default function SettingsPage(): JSX.Element {
               {error}
             </div>
           ) : (
-            <div className="flex h-full flex-col gap-4">{renderTabContent()}</div>
+            <div className="flex flex-col gap-4">{renderTabContent()}</div>
           )}
         </div>
       </div>

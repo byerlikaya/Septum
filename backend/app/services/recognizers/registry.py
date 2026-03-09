@@ -16,12 +16,14 @@ from dataclasses import dataclass
 import importlib
 import logging
 import re
-from typing import Iterable, List, Sequence
+from typing import List, Sequence
 
 from presidio_analyzer import EntityRecognizer, Pattern, PatternRecognizer, RecognizerResult
 
 from ...models.regulation import CustomRecognizer as CustomRecognizerModel
 from ...models.regulation import RegulationRuleset
+
+from ..ollama_client import call_ollama_sync, extract_json_array, use_ollama_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -38,13 +40,9 @@ class LLMContextConfig:
 
 class LLMContextRecognizer(EntityRecognizer):
     """
-    Placeholder recognizer which will eventually delegate detection to a local
-    LLM (for example via Ollama).
-
-    For now this class only logs invocations and returns no detections so that
-    the rest of the pipeline can be wired and tested without requiring a
-    running LLM backend. Once the LLM router is implemented, the `analyze`
-    method can be extended accordingly.
+    Recognizer that delegates detection to a local Ollama model using the
+    custom rule's llm_prompt. Used when detection_method='llm_prompt'.
+    Skipped when USE_OLLAMA=false.
     """
 
     def __init__(self, config: LLMContextConfig) -> None:
@@ -62,14 +60,51 @@ class LLMContextRecognizer(EntityRecognizer):
     ) -> List[RecognizerResult]:
         if entities and not set(entities).intersection(self.supported_entities):
             return []
+        if not use_ollama_enabled() or not text or not self._config.llm_prompt:
+            return []
 
-        logger.debug(
-            "LLMContextRecognizer '%s' invoked for entity '%s'. "
-            "LLM integration is not yet implemented; returning no matches.",
-            self._config.name,
-            self._config.entity_type,
+        prompt = (
+            "You are a PII detection assistant. For the following instruction, "
+            "find all matching spans in the text. Return a JSON array of objects "
+            "with keys: start, end, text, entity_type. Use entity_type "
+            f"\"{self._config.entity_type}\". Only return the JSON array, nothing else.\n\n"
+            f"Instruction: {self._config.llm_prompt}\n\nText:\n{text}"
         )
-        return []
+        response = call_ollama_sync(prompt=prompt)
+        items = extract_json_array(response)
+        results: List[RecognizerResult] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            start = item.get("start")
+            end = item.get("end")
+            span_text = item.get("text")
+            if span_text is None or span_text == "":
+                continue
+            start_int: int
+            end_int: int
+            if isinstance(start, int) and isinstance(end, int):
+                if 0 <= start < end <= len(text) and text[start:end].strip() == str(span_text).strip():
+                    start_int, end_int = start, end
+                else:
+                    idx = text.find(str(span_text))
+                    if idx < 0:
+                        continue
+                    start_int, end_int = idx, idx + len(str(span_text))
+            else:
+                idx = text.find(str(span_text))
+                if idx < 0:
+                    continue
+                start_int, end_int = idx, idx + len(str(span_text))
+            results.append(
+                RecognizerResult(
+                    entity_type=self._config.entity_type,
+                    start=start_int,
+                    end=end_int,
+                    score=0.8,
+                )
+            )
+        return results
 
 
 class RecognizerRegistry:

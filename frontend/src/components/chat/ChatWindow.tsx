@@ -220,7 +220,7 @@ export function ChatWindow({
     messages.filter((m) => m.role === "assistant").pop()?.content ?? "";
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex min-h-0 h-full flex-col">
       <div className="shrink-0 flex items-center gap-2 border-b border-slate-800 pb-3">
         <span className="text-sm font-medium text-slate-400">Output:</span>
         <button

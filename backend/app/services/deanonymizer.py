@@ -12,17 +12,18 @@ Two strategies are supported via ``AppSettings.deanon_strategy``:
 
 * ``simple`` – direct string replacement of placeholders using the in-memory
   :class:`AnonymizationMap`.
-* ``ollama`` – first applies the simple strategy, then passes the resulting
-  text to a local Ollama model for light post-processing (for example,
-  improving fluency) via the HTTP API configured in
-  ``AppSettings.ollama_base_url`` and ``AppSettings.ollama_deanon_model``.
+* ``ollama`` – sends the masked LLM response and a placeholder→value map to
+  local Ollama; the model returns the final text with placeholders replaced.
+  All processing is local (OLLAMA_BASE_URL). Skipped when USE_OLLAMA=false.
 """
 
+import json
 from typing import Any
 import asyncio
-import httpx
+import re
 
 from .anonymization_map import AnonymizationMap
+from .ollama_client import call_ollama_async, use_ollama_enabled
 from ..models.settings import AppSettings
 
 
@@ -44,11 +45,18 @@ class Deanonymizer:
         strategy = (self._settings.deanon_strategy or "simple").strip().lower()
         if strategy == "simple":
             return self._simple(text, anon_map)
-        if strategy == "ollama":
+        if strategy == "ollama" and use_ollama_enabled():
             return await self._ollama(text, anon_map)
 
-        # Unknown strategies fall back to simple replacement for safety.
+        # Unknown strategies or USE_OLLAMA=false fall back to simple replacement.
         return self._simple(text, anon_map)
+
+    # LLMs often return short forms (e.g. [PERSON_1]) while we store [PERSON_NAME_1].
+    # (regex matching stored placeholder, short prefix for alias e.g. "PERSON" -> [PERSON_1])
+    _PLACEHOLDER_SHORT_ALIASES = (
+        (re.compile(r"^\[PERSON_NAME_(\d+)\]$"), "PERSON"),
+        (re.compile(r"^\[ORGANIZATION_NAME_(\d+)\]$"), "ORGANIZATION"),
+    )
 
     def _simple(self, text: str, anon_map: AnonymizationMap) -> str:
         """Simple placeholder replacement using the anonymization map."""
@@ -56,51 +64,50 @@ class Deanonymizer:
             return text
 
         result = text
-        # entity_map is original → placeholder; we invert it on the fly.
+        # entity_map is original → placeholder; replace stored placeholder first.
         for original, placeholder in anon_map.entity_map.items():
             if not placeholder:
                 continue
             if placeholder in result:
                 result = result.replace(placeholder, original)
+            # Also replace common short forms the LLM may return (e.g. [PERSON_1] vs [PERSON_NAME_1]).
+            for pattern, short_prefix in self._PLACEHOLDER_SHORT_ALIASES:
+                match = pattern.match(placeholder)
+                if match:
+                    short_form = f"[{short_prefix}_{match.group(1)}]"
+                    if short_form in result:
+                        result = result.replace(short_form, original)
+                    break
         return result
 
     async def _ollama(self, text: str, anon_map: AnonymizationMap) -> str:
-        """De-anonymize and lightly post-process text using a local Ollama model.
+        """De-anonymize using local Ollama: send placeholder→value map and masked text.
 
-        This strategy first performs local placeholder replacement and then sends
-        the fully de-anonymized text to the Ollama HTTP API running on the local
-        machine. No anonymization map or additional metadata is transmitted.
+        Ollama returns the final text with placeholders replaced. All processing
+        is local; no original values are sent to the cloud.
         """
-        base_text = self._simple(text, anon_map)
-        if not base_text:
-            return base_text
+        # Build map as placeholder -> original for the prompt (no cloud; local only).
+        placeholder_to_original: dict[str, str] = {}
+        for original, placeholder in anon_map.entity_map.items():
+            if placeholder and original:
+                placeholder_to_original[placeholder] = original
+        if not placeholder_to_original:
+            return self._simple(text, anon_map)
 
-        url = f"{self._settings.ollama_base_url.rstrip('/')}/api/generate"
-        payload: dict[str, Any] = {
-            "model": self._settings.ollama_deanon_model,
-            "prompt": (
-                "You are a post-processor for de-anonymized chat responses. "
-                "Improve readability and fix minor grammatical issues, but do not "
-                "change the factual content of the answer.\n\n"
-                "Response:\n"
-                f"{base_text}"
-            ),
-            "stream": False,
-        }
-
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
-        except httpx.HTTPError:
-            # If the local model is unavailable, fall back to the simple strategy.
-            return base_text
-
-        generated = data.get("response")
-        if isinstance(generated, str) and generated.strip():
-            return generated
-        return base_text
+        entity_map_json = json.dumps(placeholder_to_original, ensure_ascii=False)
+        prompt = (
+            "Replace every placeholder token in the text with its corresponding "
+            "value from the map. Return ONLY the final text, no explanation.\n\n"
+            f"Map: {entity_map_json}\n\nText: {text}"
+        )
+        result = await call_ollama_async(
+            prompt=prompt,
+            base_url=self._settings.ollama_base_url,
+            model=self._settings.ollama_deanon_model,
+        )
+        if result and result.strip():
+            return result.strip()
+        return self._simple(text, anon_map)
 
 
 class DeAnonymizer:

@@ -69,7 +69,7 @@ export default function ChatPage(): JSX.Element {
   }, []);
 
   return (
-    <div className="flex h-full min-w-0 flex-col gap-4">
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-4">
       <header className="shrink-0 border-b border-slate-800 pb-4">
         <h1 className="text-xl font-semibold tracking-tight text-slate-50">
           Chat
@@ -107,7 +107,7 @@ export default function ChatPage(): JSX.Element {
           />
         </aside>
 
-        <section className="min-w-0 flex-1 flex flex-col rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-800 bg-slate-900/40 p-4">
           {loadingSettings ? (
             <p className="text-sm text-slate-500">Loading settings…</p>
           ) : (

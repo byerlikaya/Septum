@@ -41,5 +41,6 @@ sqlalchemy
 aiosqlite
 greenlet
 pytest
+pytest-cov
 pytest-asyncio
 httpx

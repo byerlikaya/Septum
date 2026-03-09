@@ -20,11 +20,12 @@ from typing import List, Optional
 
 from presidio_analyzer import AnalyzerEngine, EntityRecognizer, RecognizerResult
 
-from .anonymization_map import AnonymizationMap
+from .anonymization_map import AnonymizationMap, SANITIZER_STOPWORDS
 from .ner_model_registry import NERModelRegistry
+from .ollama_client import extract_json_array, call_ollama_sync
 from .national_ids import IBANValidator, TCKNValidator
 from ..models.settings import AppSettings
-from ..utils.text_utils import normalize_unicode
+from ..utils.text_utils import normalize_unicode, normalize_for_comparison
 
 logger = logging.getLogger(__name__)
 
@@ -230,15 +231,27 @@ class PIISanitizer:
             ner_results = ner_pipeline(normalized_text)
             spans.extend(self._from_ner_results(ner_results))
 
-        # Layer 3: Ollama-based context-aware detection.
-        # The concrete LLMContextRecognizer lives in the recognizer registry and
-        # is wired through settings; here we only leave a placeholder hook for
-        # future integration, to keep this class decoupled from any LLM client.
+        # Layer 3: Ollama-based PII detection (gated only by settings.use_ollama_layer).
         if self._settings.use_ollama_layer:
-            logger.debug("Ollama layer is enabled, but no LLM recognizer is wired yet.")
+            ollama_spans = self._ollama_pii_detection(normalized_text)
+            logger.debug(
+                "Layer 3 Ollama returned %d spans: %s",
+                len(ollama_spans),
+                [(s.start, s.end, normalized_text[s.start : s.end], s.entity_type) for s in ollama_spans],
+            )
+            spans.extend(ollama_spans)
 
         # Deduplicate and apply anonymization map.
         spans = self._deduplicate(spans)
+        # Never mask spans that are exactly a stopword (e.g. "The", "a", "an").
+        spans = [
+            s
+            for s in spans
+            if normalize_for_comparison(
+                normalized_text[s.start : s.end].strip(), language
+            )
+            not in SANITIZER_STOPWORDS
+        ]
         sanitized, count = self._apply_replacements(
             normalized_text, spans, anon_map, language
         )
@@ -246,6 +259,74 @@ class PIISanitizer:
         self._log_low_confidence(spans)
 
         return SanitizeResult(sanitized_text=sanitized, entity_count=count)
+
+    def _ollama_pii_detection(self, normalized_text: str) -> List[DetectedSpan]:
+        """Call local Ollama to detect PII (aliases, nicknames); return spans for Layer 1/2 merge."""
+        if not normalized_text:
+            return []
+        system_part = (
+            "You are a PII detection assistant. Your ONLY job is to find "
+            "entities that normal NER models miss: nicknames, aliases, codenames, "
+            "indirect references to people, organizations referred to by informal names. "
+            "Return ONLY valid JSON, no explanation. "
+            "IMPORTANT: Always include leading articles (The, A, An) if they are "
+            "part of the nickname or alias. For example 'The Big Fish' should be "
+            "returned as 'The Big Fish', not 'Big Fish'."
+        )
+        user_part = (
+            "Find all aliases, nicknames, and indirect person references in this text. "
+            'Return JSON array: [{"text": "...", "start": N, "end": N, "type": "ALIAS"}]. '
+            "If nothing found return [].\n\nText:\n"
+            f"{normalized_text}"
+        )
+        prompt = f"System: {system_part}\n\nUser: {user_part}"
+        logger.debug("OLLAMA PROMPT: %s", prompt)
+        response = call_ollama_sync(
+            prompt=prompt,
+            base_url=self._settings.ollama_base_url,
+            model=self._settings.ollama_deanon_model,
+        )
+        logger.debug("OLLAMA RESPONSE: %s", (response or "")[:1000])
+        if not response or not response.strip():
+            logger.warning("Layer 3 Ollama returned empty response")
+        items = extract_json_array(response)
+        logger.info("Layer 3 Ollama parsed %d JSON items", len(items))
+        spans_list: List[DetectedSpan] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            text = item.get("text")
+            entity_type = item.get("entity_type") or item.get("type") or "ALIAS"
+            if text is None or text == "":
+                continue
+            text_str = str(text).strip()
+            # Derive character positions from the text field; do not trust Ollama's start/end.
+            # If Ollama returns "Big Fish" but the alias in text is "The Big Fish", extend span to include leading article.
+            _LEADING_ARTICLES = ("The ", "A ", "An ")
+            start_idx = -1
+            end_idx = -1
+            for article in _LEADING_ARTICLES:
+                extended = article + text_str
+                idx = normalized_text.find(extended)
+                if idx >= 0:
+                    start_idx = idx
+                    end_idx = idx + len(extended)
+                    break
+            if start_idx < 0:
+                idx = normalized_text.find(text_str)
+                if idx >= 0:
+                    start_idx = idx
+                    end_idx = idx + len(text_str)
+            if start_idx >= 0:
+                spans_list.append(
+                    DetectedSpan(
+                        start=start_idx,
+                        end=end_idx,
+                        entity_type=str(entity_type).upper().replace(" ", "_"),
+                        score=0.85,
+                    )
+                )
+        return spans_list
 
     @staticmethod
     def _from_presidio_results(

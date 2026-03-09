@@ -10,9 +10,13 @@ Pipeline:
 import asyncio
 import copy
 import json
+import logging
 import os
+import re
 from typing import Any, AsyncGenerator, List, Optional
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -27,6 +31,7 @@ from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
 from ..services.anonymization_map import AnonymizationMap
 from ..services.approval_gate import ApprovalChunk, ApprovalGate, get_approval_gate
+from ..services.document_anon_store import get_document_map
 from ..services.deanonymizer import Deanonymizer
 from ..services.llm_router import LLMRouter, LLMRouterError, _chunk_text
 from ..services.sanitizer import PIISanitizer
@@ -165,6 +170,19 @@ async def _retrieve_chunks(
     return list(db_result.scalars().all())
 
 
+async def _get_all_document_chunks(
+    db: AsyncSession, document_id: int
+) -> List[Chunk]:
+    """Return all chunks for a document (by index order). Used for full-doc placeholder list."""
+    stmt = (
+        select(Chunk)
+        .where(Chunk.document_id == document_id)
+        .order_by(Chunk.index)
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
 def _build_approval_chunks(chunks: List[Chunk]) -> List[ApprovalChunk]:
     """Convert database chunks into ApprovalChunk payloads."""
     approval_chunks: List[ApprovalChunk] = []
@@ -183,6 +201,44 @@ def _build_approval_chunks(chunks: List[Chunk]) -> List[ApprovalChunk]:
             )
         )
     return approval_chunks
+
+
+# Placeholder format: [ENTITY_TYPE_N] e.g. [PERSON_1], [ORGANIZATION_2]
+_PLACEHOLDER_PATTERN = re.compile(r"\[[A-Za-z_]+\d+\]")
+
+# Intent: user wants a list of persons/entities in the document (no LLM needed).
+_LIST_PERSONS_OR_ENTITIES_KEYWORDS = re.compile(
+    r"\b("
+    r"kimler|kim var|adı geçen|geçen kişiler|belgede kim|belgede geçen|"
+    r"who\s+(is|are|appears|mentioned)|list\s+(the\s+)?(people|persons|names|entities)|"
+    r"which\s+(people|persons|names|entities)|"
+    r"names?\s+in\s+(the\s+)?document|people\s+in\s+(the\s+)?document|"
+    r"entities?\s+in\s+(the\s+)?document"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _is_list_persons_or_entities_query(sanitized_query: str) -> bool:
+    """True if the user is asking for a list of who/which persons or entities appear in the document."""
+    if not sanitized_query or not sanitized_query.strip():
+        return False
+    q = sanitized_query.strip()
+    return bool(_LIST_PERSONS_OR_ENTITIES_KEYWORDS.search(q))
+
+
+def _extract_placeholders_from_context(context_text: str) -> List[str]:
+    """Return unique placeholders found in context, in order of first appearance."""
+    if not context_text:
+        return []
+    seen: set[str] = set()
+    ordered: List[str] = []
+    for m in _PLACEHOLDER_PATTERN.finditer(context_text):
+        token = m.group(0)
+        if token not in seen:
+            seen.add(token)
+            ordered.append(token)
+    return ordered
 
 
 def _encode_sse(payload: dict[str, Any]) -> bytes:
@@ -210,6 +266,32 @@ async def _run_llm_and_deanonymize(
             lines.append(f"Chunk {idx}:\n{chunk}")
         context_text = "\n\n".join(lines)
 
+    placeholders_in_context = _extract_placeholders_from_context(context_text)
+
+    # When user asks "who/which persons or entities are in the document", return
+    # the exact placeholder list (then deanonymized) without calling the LLM, so
+    # we never get document fragments or wrong format.
+    if placeholders_in_context and _is_list_persons_or_entities_query(sanitized_query):
+        bullet_list = "\n".join(f"- {p}" for p in placeholders_in_context)
+        deanonymizer = Deanonymizer(settings=settings)
+        result = await deanonymizer.deanonymize(bullet_list, anon_map)
+        if not anon_map.entity_map:
+            result += (
+                "\n\n(İsimler ve diğer değerler yüklenemedi. "
+                "Backend .env dosyasında ENCRYPTION_KEY tanımlayıp belgeyi yeniden yükleyin.)"
+            )
+        return result
+
+    placeholder_list_str = ""
+    if placeholders_in_context:
+        placeholder_list_str = (
+            "\n\nIMPORTANT: The context contains exactly these placeholder tokens: "
+            + ", ".join(placeholders_in_context)
+            + ". When the user asks who or which persons/entities appear in the document, "
+            "your answer must be ONLY a list of these tokens (one per line, e.g. '- [PERSON_1]'). "
+            "Do not list any other words, phrases, or document fragments. Only the tokens above.\n\n"
+        )
+
     output_instruction = ""
     if (output_mode or "chat").strip().lower() == "json":
         output_instruction = (
@@ -225,10 +307,14 @@ async def _run_llm_and_deanonymize(
     # embed the system-style instructions into a single ``user`` message
     # instead of using a separate ``system`` role.
     user_prompt = (
-        "You are a privacy-preserving assistant sitting behind a local PII "
-        "sanitization layer. All personal data has been replaced by opaque "
-        "placeholders such as [PERSON_NAME_1] or [EMAIL_ADDRESS_2]. "
-        "Never attempt to guess or reconstruct the original values.\n\n"
+        "You are a privacy-preserving assistant. Personal data in the context "
+        "is replaced by placeholders in square brackets, e.g. [PERSON_1], "
+        "[PERSON_2]. Never guess or reconstruct real values.\n\n"
+        "RULES: When the user asks who or which persons/entities appear in the "
+        "document, reply with ONLY a bullet list of the placeholder tokens (one per line). "
+        "Do NOT list document phrases, clause fragments, or any other text. "
+        "Only tokens in the form [NAME_N]. The system will replace them with real names.\n"
+        f"{placeholder_list_str}"
         f"Active privacy regulations: {regulations_str}.\n\n"
         "User question (sanitized):\n"
         f"{sanitized_query}\n\n"
@@ -291,7 +377,23 @@ async def chat_ask(
     base_language = document.language_override or document.detected_language
     language = await _detect_language(message_text, fallback=base_language)
 
-    anon_map = AnonymizationMap(document_id=0, language=language)
+    # Use document's in-memory map so we can deanonymize the LLM answer.
+    anon_map = get_document_map(document.id) or AnonymizationMap(
+        document_id=document.id, language=language
+    )
+    map_entries = len(anon_map.entity_map)
+    logger.info(
+        "chat document_id=%s anon_map_entries=%s deanon_enabled=%s",
+        document.id,
+        map_entries,
+        getattr(settings, "deanon_enabled", True),
+    )
+    if map_entries == 0 and getattr(settings, "deanon_enabled", True):
+        logger.warning(
+            "Deanonymization will have no effect: no map for document_id=%s. "
+            "Set ENCRYPTION_KEY in .env and re-upload the document so the map can be loaded after restart.",
+            document.id,
+        )
     sanitized_query, entity_count = await _sanitize_query(
         message=message_text,
         language=language,
@@ -385,6 +487,12 @@ async def chat_ask(
                 context_texts = [c.text for c in decision.chunks]
             else:
                 context_texts = [c.sanitized_text for c in chunks]
+
+            # For "who/which persons or entities in the document" queries, use
+            # all document chunks so we list every placeholder (not just retrieved).
+            if _is_list_persons_or_entities_query(sanitized_query):
+                all_chunks = await _get_all_document_chunks(db, document.id)
+                context_texts = [c.sanitized_text for c in all_chunks]
 
             output_mode = (request.output_mode or "chat").strip().lower()
             answer = await _run_llm_and_deanonymize(
