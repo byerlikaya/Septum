@@ -105,7 +105,7 @@ export default function RegulationsPage(): JSX.Element {
       } catch (error) {
         // eslint-disable-next-line no-console
         console.error(error);
-        const message = "Regulation ayarları yüklenirken bir hata oluştu.";
+        const message = "An error occurred while loading regulation settings.";
         setRulesetsError(message);
         setCustomError(message);
       } finally {
@@ -150,7 +150,7 @@ export default function RegulationsPage(): JSX.Element {
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error(error);
-      setRulesetsError("Kurallar güncellenirken bir hata oluştu.");
+      setRulesetsError("An error occurred while updating regulation rules.");
     } finally {
       setTogglingId(null);
     }
@@ -243,7 +243,7 @@ export default function RegulationsPage(): JSX.Element {
 
           {rulesetsLoading ? (
             <div className="flex items-center justify-center rounded-md border border-border bg-slate-900 py-8 text-xs text-slate-200">
-              Regulation kuralları yükleniyor...
+              Regulation rules are loading...
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -378,13 +378,13 @@ export default function RegulationsPage(): JSX.Element {
           <div className="overflow-hidden rounded-lg border border-border bg-slate-950/60">
             {customLoading ? (
               <div className="flex items-center justify-center py-8 text-xs text-slate-200">
-                Custom kurallar yükleniyor...
+                Custom rules are loading...
               </div>
             ) : customRecognizers.length === 0 ? (
               <div className="flex items-center justify-between px-4 py-6 text-xs text-slate-300">
                 <span>
-                  Henüz tanımlanmış bir custom rule yok. &ldquo;Add New
-                  Rule&rdquo; ile ilk kuralınızı oluşturun.
+                  No custom rules have been defined yet. Use &ldquo;Add New
+                  Rule&rdquo; to create your first rule.
                 </span>
               </div>
             ) : (
@@ -621,10 +621,10 @@ function CustomRuleBuilderPanel({
   };
 
   const handleTestRule = async (): Promise<void> => {
-    if (!form.sample_text.trim()) {
+      if (!form.sample_text.trim()) {
       setTestStatus({
         state: "error",
-        message: "Lütfen test için sample text girin."
+        message: "Please provide sample text before running a test."
       });
       setTestMatches([]);
       return;
@@ -634,7 +634,7 @@ function CustomRuleBuilderPanel({
       setTestStatus({
         state: "error",
         message:
-          "Testten önce Name, Entity Type ve Placeholder Label alanlarını doldurun."
+          "Please fill in Name, Entity Type, and Placeholder Label before testing."
       });
       setTestMatches([]);
       return;
@@ -669,7 +669,7 @@ function CustomRuleBuilderPanel({
       if (!ruleId) {
         setTestStatus({
           state: "error",
-          message: "Kural ID'si bulunamadı, test çalıştırılamadı."
+          message: "Rule ID could not be resolved; the test cannot be executed."
         });
         setTestMatches([]);
         return;
@@ -689,18 +689,18 @@ function CustomRuleBuilderPanel({
           setTestStatus({
             state: "success",
             message:
-              "LLM prompt tabanlı custom recognizer'lar şu anda backend'de placeholder olarak tanımlı; bu yüzden eşleşme dönmeyebilir."
+              "LLM-prompt-based custom recognizers are currently implemented as placeholders in the backend, so matches may not be returned yet."
           });
         } else {
           setTestStatus({
             state: "success",
-            message: "Herhangi bir eşleşme bulunamadı."
+            message: "No matches were found."
           });
         }
       } else {
         setTestStatus({
           state: "success",
-          message: `${matches.length} adet eşleşme bulundu.`
+          message: `${matches.length} match(es) found.`
         });
       }
     } catch (error) {
@@ -709,7 +709,7 @@ function CustomRuleBuilderPanel({
       setTestStatus({
         state: "error",
         message:
-          "Kural test edilirken bir hata oluştu. Regex ise pattern'in geçerli olduğundan emin olun."
+          "An error occurred while testing the rule. If this is a regex rule, please ensure the pattern is valid."
       });
       setTestMatches([]);
     } finally {
@@ -722,7 +722,7 @@ function CustomRuleBuilderPanel({
       setTestStatus({
         state: "error",
         message:
-          "Kaydetmeden önce Name, Entity Type ve Placeholder Label alanlarını doldurun."
+          "Please fill in Name, Entity Type, and Placeholder Label before saving."
       });
       return;
     }
@@ -755,7 +755,7 @@ function CustomRuleBuilderPanel({
       console.error(error);
       setTestStatus({
         state: "error",
-        message: "Kural kaydedilirken bir hata oluştu."
+        message: "An error occurred while saving the rule."
       });
     } finally {
       setSaving(false);
@@ -779,7 +779,7 @@ function CustomRuleBuilderPanel({
       console.error(error);
       setTestStatus({
         state: "error",
-        message: "Kural silinirken bir hata oluştu."
+        message: "An error occurred while deleting the rule."
       });
     } finally {
       setDeletePending(false);
@@ -795,8 +795,7 @@ function CustomRuleBuilderPanel({
               {isCreateMode ? "New Custom Rule" : "Edit Custom Rule"}
             </h2>
             <p className="text-[11px] text-slate-400">
-              Entity label, detection method ve context kelimelerini tanımlayın.
-              Kuralı kaydetmeden önce sample text üzerinde test edebilirsiniz.
+              Define the entity label, detection method, and context words. You can test the rule on sample text before saving.
             </p>
           </div>
           <button
@@ -857,7 +856,7 @@ function CustomRuleBuilderPanel({
                 placeholder="PATIENT_FILE"
               />
               <p className="text-[10px] text-slate-400">
-                Placeholders bu label ile üretilir, örneğin [PATIENT_FILE_1].
+                Placeholders are generated from this label, for example [PATIENT_FILE_1].
               </p>
             </div>
           </div>
@@ -867,15 +866,15 @@ function CustomRuleBuilderPanel({
               Detection Method
             </label>
             <div className="grid grid-cols-3 gap-2">
-              <DetectionMethodButton
+                <DetectionMethodButton
                 label="Regex Pattern"
-                description="Gelişmiş desenler"
+                description="Advanced patterns"
                 active={form.detection_method === "regex"}
                 onClick={() => handleFieldChange("detection_method", "regex")}
               />
               <DetectionMethodButton
                 label="Keyword List"
-                description="Sabit kelimeler"
+                description="Fixed terms"
                 active={form.detection_method === "keyword_list"}
                 onClick={() =>
                   handleFieldChange("detection_method", "keyword_list")
@@ -883,7 +882,7 @@ function CustomRuleBuilderPanel({
               />
               <DetectionMethodButton
                 label="LLM Prompt"
-                description="Ollama tabanlı"
+                description="Ollama-based"
                 active={form.detection_method === "llm_prompt"}
                 onClick={() =>
                   handleFieldChange("detection_method", "llm_prompt")
@@ -904,8 +903,7 @@ function CustomRuleBuilderPanel({
                 placeholder="[A-Z]{2}-\\d{4}"
               />
               <p className="text-[10px] text-slate-400">
-                Python regex ile uyumlu olmalıdır; backend kaydetmeden önce
-                pattern&apos;i doğrular.
+                Must be compatible with Python regex; the backend validates the pattern before saving.
               </p>
             </div>
           )}
@@ -924,7 +922,7 @@ function CustomRuleBuilderPanel({
                 placeholder="Acme Corp, GlobalTech, Internal Project X"
               />
               <p className="text-[10px] text-slate-400">
-                Metinde birebir geçmesi beklenen kelimeleri girin.
+                Enter the exact keywords expected to appear in the text.
               </p>
             </div>
           )}
@@ -943,8 +941,7 @@ function CustomRuleBuilderPanel({
                 placeholder="Find all salary amounts mentioned in the text."
               />
               <p className="text-[10px] text-slate-400">
-                Bu açıklama Ollama üzerinden LLM tabanlı bir recognizer
-                oluşturmak için kullanılır.
+                This description is used to build an LLM-based recognizer via Ollama.
               </p>
             </div>
           )}
@@ -963,8 +960,7 @@ function CustomRuleBuilderPanel({
               placeholder="patient, file, ref, account"
             />
             <p className="text-[10px] text-slate-400">
-              Etrafında geçtiğinde skorun artmasını istediğiniz yardımcı
-              kelimeler (virgülle ayırın).
+              Helper words that should increase the score when they appear nearby (separate with commas).
             </p>
           </div>
 

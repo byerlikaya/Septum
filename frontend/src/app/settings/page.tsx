@@ -79,7 +79,7 @@ export default function SettingsPage(): JSX.Element {
       } catch (err) {
         // eslint-disable-next-line no-console
         console.error(err);
-        setError("Ayarlar yüklenirken bir hata oluştu.");
+        setError("An error occurred while loading settings.");
       } finally {
         setLoading(false);
       }
@@ -105,7 +105,7 @@ export default function SettingsPage(): JSX.Element {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(err);
-      setError("Ayar güncellenirken bir hata oluştu.");
+      setError("An error occurred while updating the setting.");
     } finally {
       setSaving((prev) => ({ ...prev, [key as string]: false }));
     }
@@ -129,13 +129,13 @@ export default function SettingsPage(): JSX.Element {
         message:
           response.data.message ??
           (response.data.ok
-            ? "Cloud LLM bağlantı testi başarılı."
-            : "Cloud LLM bağlantı testi başarısız.")
+            ? "Cloud LLM connectivity test succeeded."
+            : "Cloud LLM connectivity test failed.")
       });
     } catch (err: unknown) {
       // eslint-disable-next-line no-console
       console.error(err);
-      let message = "Cloud LLM bağlantı testi başarısız.";
+      let message = "Cloud LLM connectivity test failed.";
       const anyErr = err as {
         response?: { data?: { detail?: string; message?: string } };
       };
@@ -165,13 +165,13 @@ export default function SettingsPage(): JSX.Element {
         message:
           response.data.message ??
           (response.data.ok
-            ? "Local model bağlantı testi başarılı."
-            : "Local model bağlantı testi başarısız.")
+            ? "Local model connectivity test succeeded."
+            : "Local model connectivity test failed.")
       });
     } catch (err: unknown) {
       // eslint-disable-next-line no-console
       console.error(err);
-      let message = "Local model bağlantı testi başarısız.";
+      let message = "Local model connectivity test failed.";
       const anyErr = err as {
         response?: { data?: { detail?: string; message?: string } };
       };
@@ -294,7 +294,7 @@ export default function SettingsPage(): JSX.Element {
         <div className="flex-1 rounded-lg border border-border bg-slate-900 p-4 text-slate-50">
           {loading ? (
             <div className="flex h-full items-center justify-center text-sm text-slate-200">
-              Ayarlar yükleniyor...
+              Settings are loading...
             </div>
           ) : error ? (
             <div className="rounded-md border border-red-500/40 bg-red-950/40 p-3 text-sm text-red-200">
@@ -860,6 +860,58 @@ function IngestionTab({
   onChange,
   isSaving
 }: IngestionTabProps): JSX.Element {
+  type AudioHealth = {
+    ffmpeg: string;
+    whisper_package: string;
+    whisper_model: string;
+    message?: string;
+  };
+
+  const [audioHealth, setAudioHealth] = useState<AudioHealth | null>(null);
+  const [audioHealthStatus, setAudioHealthStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [audioHealthError, setAudioHealthError] = useState<string | null>(null);
+  const [installingWhisper, setInstallingWhisper] = useState(false);
+
+  useEffect(() => {
+    const fetchHealth = async (): Promise<void> => {
+      setAudioHealthStatus("loading");
+      setAudioHealthError(null);
+      try {
+        const response = await api.get<AudioHealth>("/api/settings/ingestion/health");
+        setAudioHealth(response.data);
+        setAudioHealthStatus("ready");
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error(err);
+        setAudioHealthStatus("error");
+        setAudioHealthError("Failed to read ingestion health status.");
+      }
+    };
+
+    void fetchHealth();
+  }, []);
+
+  const handleInstallWhisper = async (): Promise<void> => {
+    setInstallingWhisper(true);
+    try {
+      await api.post("/api/settings/ingestion/install-whisper-model");
+      // Refresh health after installation.
+      const response = await api.get<AudioHealth>("/api/settings/ingestion/health");
+      setAudioHealth(response.data);
+      setAudioHealthStatus("ready");
+      setAudioHealthError(null);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(err);
+      setAudioHealthStatus("error");
+      setAudioHealthError("Failed to install or load the Whisper model.");
+    } finally {
+      setInstallingWhisper(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -870,6 +922,84 @@ function IngestionTab({
           Control Whisper transcription, OCR languages, and how attachments and
           embedded assets are handled.
         </p>
+      </div>
+
+      <div className="rounded-lg border border-border bg-slate-950/60 p-3 text-xs">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div>
+            <p className="text-xs font-semibold text-slate-50">
+              Audio pipeline health
+            </p>
+            <p className="text-[11px] text-slate-400">
+              Checks whether ffmpeg and the configured Whisper model are available.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleInstallWhisper}
+            disabled={installingWhisper}
+            className="inline-flex items-center rounded-md bg-sky-600 px-3 py-1.5 text-[11px] font-medium text-white shadow-sm transition-colors hover:bg-sky-500 disabled:opacity-60"
+          >
+            {installingWhisper ? "Installing…" : "Install Whisper model"}
+          </button>
+        </div>
+        <div className="space-y-1">
+          <p className="text-[11px] text-slate-300">
+            ffmpeg:&nbsp;
+            <span
+              className={
+                audioHealth?.ffmpeg === "ok" ? "text-emerald-300" : "text-red-300"
+              }
+            >
+              {audioHealthStatus === "loading"
+                ? "Checking…"
+                : audioHealth?.ffmpeg ?? "unknown"}
+            </span>
+          </p>
+          <p className="text-[11px] text-slate-300">
+            Whisper package:&nbsp;
+            <span
+              className={
+                audioHealth?.whisper_package === "ok"
+                  ? "text-emerald-300"
+                  : "text-red-300"
+              }
+            >
+              {audioHealthStatus === "loading"
+                ? "Checking…"
+                : audioHealth?.whisper_package ?? "unknown"}
+            </span>
+          </p>
+          <p className="text-[11px] text-slate-300">
+            Whisper model:&nbsp;
+            <span
+              className={
+                audioHealth?.whisper_model === "ok"
+                  ? "text-emerald-300"
+                  : audioHealth?.whisper_model === "missing"
+                  ? "text-amber-300"
+                  : "text-slate-300"
+              }
+            >
+              {audioHealthStatus === "loading"
+                ? "Checking…"
+                : audioHealth?.whisper_model ?? "unknown"}
+            </span>
+          </p>
+          {audioHealth?.message && (
+            <p className="text-[11px] text-slate-400">{audioHealth.message}</p>
+          )}
+          {audioHealthStatus === "error" && audioHealthError && (
+            <p className="text-[11px] text-red-300">{audioHealthError}</p>
+          )}
+          {audioHealth && audioHealth.ffmpeg === "missing" && (
+            <p className="text-[11px] text-slate-400">
+              Install ffmpeg manually (for example on macOS:
+              <span className="font-mono"> brew install ffmpeg</span>) and then
+              refresh this page.
+            </p>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

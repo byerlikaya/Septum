@@ -145,7 +145,7 @@ class AudioIngester(BaseIngester):
         audio_bytes = decrypt(encrypted_bytes)
 
         try:
-            waveform = self._decode_audio(audio_bytes)
+            waveform = self._decode_audio(audio_bytes, mime_type=mime_type)
         except FileNotFoundError as exc:
             if isinstance(exc.filename, str) and "ffmpeg" in exc.filename:
                 warnings.append(
@@ -193,14 +193,22 @@ class AudioIngester(BaseIngester):
             raw_segments=segments,
         )
 
-    def _decode_audio(self, audio_bytes: bytes) -> np.ndarray:
+    def _decode_audio(self, audio_bytes: bytes, *, mime_type: str) -> np.ndarray:
         """Decode arbitrary encoded audio bytes into a mono float waveform."""
 
         # The implementation mirrors Whisper's own load_audio helper, but reads
         # from in-memory bytes via ffmpeg pipes instead of a file path so that
         # decrypted audio never hits disk.
+        input_kwargs: Dict[str, Any] = {}
+
+        # Hint container format for streams that often arrive as application/octet-stream
+        # (for example .m4a / MP4 audio). This helps ffmpeg correctly detect the
+        # stream when reading from stdin.
+        if mime_type in ("audio/mp4", "audio/x-m4a", "application/octet-stream"):
+            input_kwargs["f"] = "mp4"
+
         out, _ = (
-            ffmpeg.input("pipe:0")
+            ffmpeg.input("pipe:0", **input_kwargs)
             .output(
                 "-",
                 format="s16le",

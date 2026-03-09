@@ -10,6 +10,9 @@ supported via a dedicated PATCH schema.
 
 from typing import Optional
 import os
+import asyncio
+import shutil
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -20,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.settings import AppSettings
 from ..services.llm_router import LLMRouter, LLMRouterError
+from ..utils.device import get_device
 
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -124,6 +128,22 @@ class TestConnectionResponse(BaseModel):
     """Simple success/error envelope for connection test endpoints."""
 
     ok: bool
+    message: Optional[str] = None
+
+
+class AudioPipelineHealthResponse(BaseModel):
+    """Health information for the local audio ingestion pipeline."""
+
+    ffmpeg: str
+    whisper_package: str
+    whisper_model: str
+    message: Optional[str] = None
+
+
+class WhisperInstallResponse(BaseModel):
+    """Result envelope for installing or downloading a Whisper model."""
+
+    status: str
     message: Optional[str] = None
 
 
@@ -272,5 +292,111 @@ async def test_local_models_endpoint(
     return TestConnectionResponse(
         ok=True,
         message="Local model server is reachable.",
+    )
+
+
+@router.get(
+    "/ingestion/health",
+    response_model=AudioPipelineHealthResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_ingestion_health_endpoint(
+    db: AsyncSession = Depends(get_db),
+) -> AudioPipelineHealthResponse:
+    """Return health information for the local ingestion pipeline.
+
+    This endpoint performs lightweight checks only – it verifies that:
+
+    * The ``ffmpeg`` binary is available on PATH.
+    * The ``openai-whisper`` Python package is importable.
+    * The configured Whisper model appears to be downloaded in the cache
+      directory (best-effort check).
+    """
+    settings = await _load_settings(db)
+
+    ffmpeg_status = "ok" if shutil.which("ffmpeg") is not None else "missing"
+
+    whisper_package_status = "ok"
+    whisper_model_status = "unknown"
+    messages: list[str] = []
+
+    try:
+        import whisper  # type: ignore[import]
+    except ImportError:
+        whisper_package_status = "missing"
+        whisper_model_status = "missing"
+        messages.append(
+            "Python package 'openai-whisper' is not installed in the backend environment."
+        )
+    else:
+        model_name = (settings.whisper_model or "base").strip()
+        # Best-effort check: Whisper stores models in ~/.cache/whisper/{model}.pt
+        cache_dir = Path(os.path.expanduser("~")) / ".cache" / "whisper"
+        model_path = cache_dir / f"{model_name}.pt"
+        if model_path.exists():
+            whisper_model_status = "ok"
+        else:
+            whisper_model_status = "missing"
+            messages.append(
+                f"Whisper model '{model_name}' has not been downloaded yet."
+            )
+
+    if ffmpeg_status == "missing":
+        messages.append("The 'ffmpeg' binary was not found on PATH.")
+
+    message = " ".join(messages) if messages else None
+
+    return AudioPipelineHealthResponse(
+        ffmpeg=ffmpeg_status,
+        whisper_package=whisper_package_status,
+        whisper_model=whisper_model_status,
+        message=message,
+    )
+
+
+@router.post(
+    "/ingestion/install-whisper-model",
+    response_model=WhisperInstallResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def install_whisper_model_endpoint(
+    db: AsyncSession = Depends(get_db),
+) -> WhisperInstallResponse:
+    """Download and cache the configured Whisper model.
+
+    This endpoint loads the Whisper model specified in settings using the local
+    device (CPU, CUDA, or MPS). If the model is not present, it will be
+    downloaded to the standard Whisper cache directory.
+    """
+    settings = await _load_settings(db)
+    model_name = (settings.whisper_model or "base").strip()
+
+    try:
+        import whisper  # type: ignore[import]
+    except ImportError as exc:  # pragma: no cover - environment dependent
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                "Python package 'openai-whisper' is not installed. "
+                "Install it in the backend environment to enable audio transcription."
+            ),
+        ) from exc
+
+    def _load_model_sync() -> None:
+        device = get_device()
+        # Loading the model will download it if it is not already cached.
+        whisper.load_model(model_name, device=device)
+
+    try:
+        await asyncio.to_thread(_load_model_sync)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download or load Whisper model '{model_name}': {exc}",
+        ) from exc
+
+    return WhisperInstallResponse(
+        status="ok",
+        message=f"Whisper model '{model_name}' is available for ingestion.",
     )
 

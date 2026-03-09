@@ -152,14 +152,34 @@ async def _detect_language(text: str) -> str:
 
 
 def _mime_to_format(mime_type: str) -> str:
-    """Map a MIME type to an internal file format identifier."""
+    """Map a MIME type to an internal file format identifier.
+
+    The mapping is primarily driven by ``_MIME_TO_FORMAT`` but falls back to
+    generic handlers for whole MIME families such as ``audio/*`` and
+    ``image/*`` so that less common subtypes (for example ``audio/m4a``) are
+    still ingested correctly.
+    """
     fmt = _MIME_TO_FORMAT.get(mime_type)
-    if fmt is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported MIME type: {mime_type}",
-        )
-    return fmt
+    if fmt is not None:
+        return fmt
+
+    # Generic fallbacks for MIME families where the ingester only cares about
+    # the high-level category rather than the exact subtype.
+    if mime_type.startswith("audio/"):
+        return "audio"
+    if mime_type.startswith("image/"):
+        return "image"
+
+    # Some browsers/uploaders default to application/octet-stream for audio
+    # uploads. Treat this as audio so that common formats such as .m4a are
+    # still handled by the audio ingester.
+    if mime_type == "application/octet-stream":
+        return "audio"
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Unsupported MIME type: {mime_type}",
+    )
 
 
 async def _snapshot_active_regulations(db: AsyncSession) -> List[str]:
@@ -169,12 +189,14 @@ async def _snapshot_active_regulations(db: AsyncSession) -> List[str]:
     return [row[0] for row in result.all()]
 
 
-def _detect_mime_type(raw_bytes: bytes) -> str:
+def _detect_mime_type(raw_bytes: bytes, fallback_mime_type: Optional[str] = None) -> str:
     """Detect MIME type from raw bytes using content-based heuristics.
 
     Preference order:
     1. python-magic/libmagic if available.
-    2. Lightweight manual signatures for common formats (PDF, PNG, JPEG).
+    2. Lightweight manual signatures for common formats (PDF, PNG, JPEG, audio).
+    3. Fallback to the provided ``fallback_mime_type`` (typically the client-
+       supplied ``Content-Type``) if detection fails.
     """
     # 1) Best-effort: python-magic if the environment provides libmagic.
     if _magic is not None:
@@ -187,12 +209,39 @@ def _detect_mime_type(raw_bytes: bytes) -> str:
             pass
 
     # 2) Minimal manual signatures (still content-based, no extensions used).
+    # Documents / images
     if raw_bytes.startswith(b"%PDF-"):
         return "application/pdf"
     if raw_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
     if raw_bytes.startswith(b"\xff\xd8"):
         return "image/jpeg"
+
+    # Audio formats
+    # WAV: "RIFF" .... "WAVE"
+    if raw_bytes.startswith(b"RIFF") and raw_bytes[8:12] == b"WAVE":
+        return "audio/wav"
+    # OGG: "OggS"
+    if raw_bytes.startswith(b"OggS"):
+        return "audio/ogg"
+    # FLAC: "fLaC"
+    if raw_bytes.startswith(b"fLaC"):
+        return "audio/flac"
+    # MP3: ID3 header or MPEG frame sync (0xFFE)
+    if raw_bytes.startswith(b"ID3"):
+        return "audio/mpeg"
+    if len(raw_bytes) > 2 and raw_bytes[0] == 0xFF and (raw_bytes[1] & 0xE0) == 0xE0:
+        return "audio/mpeg"
+    # MP4/M4A and similar ISO-BMFF containers: "ftyp" box near the start.
+    if len(raw_bytes) > 12 and raw_bytes[4:8] == b"ftyp":
+        return "audio/mp4"
+
+    # 3) Last-resort: trust the provided fallback MIME type (usually the
+    # Content-Type header from the upload). This keeps detection primarily
+    # content-based, while still allowing ingestion of formats our simple
+    # signatures do not yet recognize.
+    if fallback_mime_type and fallback_mime_type.strip():
+        return fallback_mime_type.strip()
 
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
@@ -225,8 +274,9 @@ async def upload_document(
         )
 
     # Detect MIME type from content only (python-magic if available, otherwise
-    # a small set of manual signatures for common formats such as PDF).
-    mime_type = _detect_mime_type(raw_bytes)
+    # a small set of manual signatures for common formats such as PDF and audio).
+    # As a last resort, fall back to the client-provided Content-Type header.
+    mime_type = _detect_mime_type(raw_bytes, getattr(file, "content_type", None))
 
     file_format = _mime_to_format(mime_type)
 
@@ -283,6 +333,10 @@ async def upload_document(
 
         sanitized_text = sanitize_result.sanitized_text
         entity_count = sanitize_result.entity_count
+
+        # Persist sanitized transcription text for downstream consumers such as
+        # audio preview UIs. This never stores raw PII, only the sanitized form.
+        document.transcription_text = sanitized_text
 
         # Simple character-based chunking; can be replaced with a more
         # structure-aware chunker without changing API contracts.
