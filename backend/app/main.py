@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .database import get_db, init_db
 from .models.settings import AppSettings
+from .routers import approval as approval_router
 from .utils.device import get_device
 
 
@@ -22,6 +23,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Septum API", lifespan=lifespan)
+
+
+app.include_router(approval_router.router)
 
 
 @app.get("/health")
