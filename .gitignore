@@ -40,6 +40,7 @@ out/
 
 # Project-specific
 .cursor/
+backend/vector_indexes/
 
 # Test fixtures (do not commit local sample files)
 backend/tests/fixtures/
