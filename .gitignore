@@ -1,0 +1,43 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.venv/
+venv/
+env/
+.env
+.env.*
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Databases & local state
+*.db
+*.sqlite3
+septum.db
+
+# Build artifacts
+dist/
+build/
+
+# Node / Next.js / frontend
+node_modules/
+.next/
+out/
+.turbo/
+*.log
+
+# IDE / Editor
+.vscode/
+.idea/
+*.iml
+
+# Project-specific
+.cursor/
+
