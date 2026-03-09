@@ -13,6 +13,7 @@ env/
 .env
 .env.*
 !.env.example
+!backend/.env.example
 .pytest_cache/
 .mypy_cache/
 .coverage
