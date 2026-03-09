@@ -3,11 +3,18 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const navItems = [
-  { href: "/chat", label: "Chat" },
+type NavItem = {
+  href: string;
+  label: string;
+  exact?: boolean;
+};
+
+const navItems: NavItem[] = [
+  { href: "/chat", label: "Chat", exact: true },
   { href: "/documents", label: "Documents" },
   { href: "/chunks", label: "Chunks" },
-  { href: "/settings", label: "Settings" }
+  { href: "/settings", label: "Settings", exact: true },
+  { href: "/settings/regulations", label: "Regulations" }
 ];
 
 export function Sidebar(): JSX.Element {
@@ -28,9 +35,12 @@ export function Sidebar(): JSX.Element {
       </div>
       <nav className="flex-1 space-y-1 px-2 py-4">
         {navItems.map((item) => {
-          const isActive =
-            pathname === item.href ||
-            (item.href !== "/chat" && pathname?.startsWith(item.href));
+          const isActive = item.exact
+            ? pathname === item.href
+            : pathname === item.href ||
+              pathname?.startsWith(
+                item.href.endsWith("/") ? item.href : `${item.href}/`
+              );
 
           return (
             <Link
