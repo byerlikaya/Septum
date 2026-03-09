@@ -39,6 +39,7 @@ python-dotenv
 cryptography
 sqlalchemy
 aiosqlite
+greenlet
 pytest
 pytest-asyncio
 httpx
