@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 import os
 
 from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +29,16 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Septum API", lifespan=lifespan)
+
+frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[frontend_origin],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 app.include_router(approval_router.router)

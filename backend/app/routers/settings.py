@@ -11,6 +11,7 @@ supported via a dedicated PATCH schema.
 from typing import Optional
 import os
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.settings import AppSettings
+from ..services.llm_router import LLMRouter, LLMRouterError
 
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -105,8 +107,33 @@ class SettingsUpdatePayload(BaseModel):
     default_active_regulations: Optional[list[str]] = None
 
 
+class TestLLMRequest(BaseModel):
+    """Request body for testing the configured cloud LLM connection."""
+
+    provider: Optional[str] = None
+    model: Optional[str] = None
+
+
+class TestLocalModelsRequest(BaseModel):
+    """Request body for testing connectivity to the local model server."""
+
+    base_url: Optional[str] = None
+
+
+class TestConnectionResponse(BaseModel):
+    """Simple success/error envelope for connection test endpoints."""
+
+    ok: bool
+    message: Optional[str] = None
+
+
 async def _load_settings(session: AsyncSession) -> AppSettings:
-    """Return the singleton :class:`AppSettings` row or raise HTTP 500."""
+    """Return the singleton :class:`AppSettings` row or raise HTTP 500.
+
+    Environment variables are used when seeding defaults in the database layer
+    (see :func:`init_db`). Once the row exists, this helper simply returns the
+    persisted values so that updates made via the Settings API remain stable.
+    """
     result = await session.execute(select(AppSettings).where(AppSettings.id == 1))
     settings = result.scalar_one_or_none()
     if settings is None:
@@ -114,27 +141,6 @@ async def _load_settings(session: AsyncSession) -> AppSettings:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Application settings have not been initialized.",
         )
-
-    # On startup or first access, allow certain fields to be overridden by
-    # environment variables and persist those overrides back to the database.
-    # This keeps .env as the single source of truth for defaults while still
-    # exposing a consistent view via the REST API and ORM.
-    env_llm_model = os.getenv("LLM_MODEL")
-    env_llm_provider = os.getenv("LLM_PROVIDER")
-    changed = False
-
-    if env_llm_model and env_llm_model != settings.llm_model:
-        settings.llm_model = env_llm_model
-        changed = True
-
-    if env_llm_provider and env_llm_provider != settings.llm_provider:
-        settings.llm_provider = env_llm_provider
-        changed = True
-
-    if changed:
-        await session.commit()
-        await session.refresh(settings)
-
     return settings
 
 
@@ -171,4 +177,100 @@ async def update_settings_endpoint(
     await db.refresh(settings)
 
     return SettingsResponse.model_validate(settings)
+
+
+@router.post(
+    "/test-llm",
+    response_model=TestConnectionResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def test_llm_connection_endpoint(
+    payload: TestLLMRequest,
+    db: AsyncSession = Depends(get_db),
+) -> TestConnectionResponse:
+    """Validate connectivity to the configured cloud LLM provider.
+
+    This endpoint performs a minimal completion call using :class:`LLMRouter`
+    and reports whether the provider is reachable and correctly configured.
+    No user PII is ever sent – the prompt is a fixed, non-sensitive string.
+    """
+    settings = await _load_settings(db)
+
+    # Apply transient overrides without persisting them to the database.
+    if payload.provider is not None:
+        settings.llm_provider = payload.provider
+    if payload.model is not None:
+        settings.llm_model = payload.model
+
+    router = LLMRouter(settings)
+    try:
+        await router.complete(
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Connection test from Septum settings UI.",
+                }
+            ],
+            max_tokens=8,
+        )
+    except LLMRouterError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cloud LLM connection test failed due to an unexpected error.",
+        ) from exc
+
+    return TestConnectionResponse(
+        ok=True,
+        message="Cloud LLM connection test succeeded.",
+    )
+
+
+@router.post(
+    "/test-local-models",
+    response_model=TestConnectionResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def test_local_models_endpoint(
+    payload: TestLocalModelsRequest,
+    db: AsyncSession = Depends(get_db),
+) -> TestConnectionResponse:
+    """Check that the local model server (for example Ollama) is reachable.
+
+    The check is intentionally lightweight and only verifies that the HTTP
+    endpoint responds successfully; it does not load or run any specific
+    model to avoid unnecessary resource usage.
+    """
+    settings = await _load_settings(db)
+
+    base_url = (payload.base_url or settings.ollama_base_url or "").rstrip("/")
+    if not base_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OLLAMA_BASE_URL is not configured.",
+        )
+
+    url = f"{base_url}/api/tags"
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(url)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Local model server is not reachable. "
+                "Please ensure Ollama is running and the base URL is correct."
+            ),
+        ) from exc
+
+    return TestConnectionResponse(
+        ok=True,
+        message="Local model server is reachable.",
+    )
 
