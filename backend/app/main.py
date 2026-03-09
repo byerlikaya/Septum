@@ -12,6 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .database import get_db, init_db
 from .models.settings import AppSettings
 from .routers import approval as approval_router
+from .routers import chat as chat_router
+from .routers import chunks as chunks_router
+from .routers import documents as documents_router
+from .routers import regulations as regulations_router
+from .routers import settings as settings_router
 from .utils.device import get_device
 
 
@@ -26,6 +31,11 @@ app = FastAPI(title="Septum API", lifespan=lifespan)
 
 
 app.include_router(approval_router.router)
+app.include_router(documents_router.router)
+app.include_router(chunks_router.router)
+app.include_router(chat_router.router)
+app.include_router(settings_router.router)
+app.include_router(regulations_router.router)
 
 
 @app.get("/health")

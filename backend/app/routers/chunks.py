@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+"""FastAPI router for accessing sanitized document chunks."""
+
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..database import get_db
+from ..models.document import Chunk, Document
+
+
+router = APIRouter(prefix="/api/chunks", tags=["chunks"])
+
+
+class ChunkResponse(BaseModel):
+    """Serialized view of a sanitized chunk."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    document_id: int
+    index: int
+    sanitized_text: str
+    char_count: int
+    source_page: Optional[int]
+    source_slide: Optional[int]
+    source_sheet: Optional[int]
+    source_timestamp_start: Optional[float]
+    source_timestamp_end: Optional[float]
+    section_title: Optional[str]
+
+
+class ChunkListResponse(BaseModel):
+    """Wrapper for listing chunks."""
+
+    items: List[ChunkResponse]
+
+
+@router.get(
+    "",
+    response_model=ChunkListResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def list_chunks(
+    document_id: Optional[int] = Query(
+        default=None,
+        description="If provided, only chunks for this document are returned.",
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> ChunkListResponse:
+    """Return sanitized chunks, optionally filtered by document."""
+    stmt = select(Chunk)
+    if document_id is not None:
+        # Ensure the document exists to provide a clearer error on invalid IDs.
+        doc_result = await db.execute(
+            select(Document).where(Document.id == document_id)
+        )
+        doc = doc_result.scalar_one_or_none()
+        if doc is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document not found.",
+            )
+        stmt = stmt.where(Chunk.document_id == document_id)
+
+    stmt = stmt.order_by(Chunk.document_id, Chunk.index)
+    result = await db.execute(stmt)
+    chunks = list(result.scalars().all())
+
+    return ChunkListResponse(
+        items=[ChunkResponse.model_validate(c) for c in chunks]
+    )
+
+
+@router.get(
+    "/{chunk_id}",
+    response_model=ChunkResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_chunk(
+    chunk_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> ChunkResponse:
+    """Return a single sanitized chunk by id."""
+    result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
+    chunk = result.scalar_one_or_none()
+    if chunk is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chunk not found.",
+        )
+    return ChunkResponse.model_validate(chunk)
+

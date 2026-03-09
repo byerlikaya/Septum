@@ -41,6 +41,11 @@ out/
 # Project-specific
 .cursor/
 backend/vector_indexes/
+backend/documents/
+
+# Any other local data/uploads
+backend/uploads/
+backend/storage/
 
 # Test fixtures (do not commit local sample files)
 backend/tests/fixtures/

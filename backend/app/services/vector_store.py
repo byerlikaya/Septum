@@ -29,6 +29,7 @@ from sentence_transformers import SentenceTransformer
 
 from ..utils.crypto import decrypt, encrypt
 from ..utils.device import get_device
+from cryptography.exceptions import InvalidTag
 
 
 def _normalize_embeddings(embeddings: np.ndarray) -> np.ndarray:
@@ -208,10 +209,20 @@ class VectorStore:
         path = self._index_path(document_id)
         if not path.exists():
             return None
-
         encrypted = path.read_bytes()
         associated_data = str(document_id).encode("utf-8")
-        raw_bytes = decrypt(encrypted, associated_data=associated_data)
+        try:
+            raw_bytes = decrypt(encrypted, associated_data=associated_data)
+        except InvalidTag:
+            # The index file was created with a different encryption key or
+            # associated data. Treat it as corrupted and act as if no index
+            # exists, allowing callers to trigger a reindex on the next run.
+            try:
+                path.unlink()
+            except OSError:
+                # Best-effort cleanup; decryption failure should not crash.
+                pass
+            return None
 
         # faiss.deserialize_index expects a 1D uint8 array, not raw bytes.
         buffer = np.frombuffer(raw_bytes, dtype="uint8")
