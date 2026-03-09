@@ -41,3 +41,6 @@ out/
 # Project-specific
 .cursor/
 
+# Test fixtures (do not commit local sample files)
+backend/tests/fixtures/
+
