@@ -77,7 +77,7 @@ The common theme: **leverage LLMs while keeping personal data encrypted and on�
 ## How It Works (Short Scenario)
 
 1. **Upload your documents**  
-   Use the dashboard to upload PDFs, Office files, images or audio files into Septum.
+   Use the Documents page or the upload area in the Chat sidebar to add PDFs, Office files, images or audio files into Septum.
 
 2. **Septum processes and anonymises**  
    - Automatically detects file type, language and personal data inside.  
@@ -86,7 +86,8 @@ The common theme: **leverage LLMs while keeping personal data encrypted and on�
 3. **Ask questions**  
    - Example: “What are the termination conditions in this contract?”,  
      “Which products does this customer have?”,  
-     “How many recent cases mention X in the last 6 months?”.
+     “How many recent cases mention X in the last 6 months?”.  
+   - When you upload a document from the chat screen, that document is selected by default so your questions are scoped to it immediately.
 
 4. **Approve before sending**  
    - Septum shows you what anonymised content is about to be sent to the LLM.  

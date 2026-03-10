@@ -11,6 +11,9 @@ export const enMessages = {
   "chat.title": "Chat",
   "chat.subtitle":
     "Interact with Septum's privacy-preserving assistant. Select documents and ask questions; responses stream in real time.",
+  "chat.uploading": "Uploading document…",
+  "chat.uploadSuccess": "Document uploaded successfully.",
+  "chat.uploadError": "Document upload failed. Please try again.",
   "chat.loadingSettings": "Loading settings…",
 
   "documents.title": "Documents",
@@ -34,8 +37,12 @@ export const enMessages = {
   "documents.actions.preview": "Preview",
   "documents.actions.transcription": "Transcription",
   "documents.actions.delete": "Delete",
+  "documents.actions.deleteAll": "Delete all documents",
+  "documents.actions.deletingAll": "Deleting all…",
   "documents.confirm.delete":
     'Are you sure you want to delete "{name}"?',
+  "documents.confirm.deleteAll":
+    "Are you sure you want to delete all documents? This action cannot be undone.",
 
   "chunks.title": "Chunks",
   "chunks.subtitle": "Expand a document below to view and edit its sanitized chunks.",
@@ -230,6 +237,8 @@ export const enMessages = {
   "chat.input.placeholder": "Ask about your document…",
   "chat.button.stop": "Stop",
   "chat.button.send": "Send",
+  "chat.button.upload": "Attach document",
+  "chat.status.thinking": "Thinking",
   "chat.copy": "Copy",
   "chat.copied": "Copied",
   "chat.copyAnswer": "Copy answer",

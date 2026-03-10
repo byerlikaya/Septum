@@ -7,11 +7,13 @@ import { useI18n } from "@/lib/i18n";
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  isThinking?: boolean;
   onDebugClick?: (sessionId: string) => void;
 }
 
 export function MessageBubble({
   message,
+  isThinking = false,
   onDebugClick
 }: MessageBubbleProps): JSX.Element {
   const isUser = message.role === "user";
@@ -40,7 +42,18 @@ export function MessageBubble({
             : "bg-slate-800 text-slate-200 border border-slate-700"
         }`}
       >
-        <p className="whitespace-pre-wrap break-words">{message.content}</p>
+        {isThinking && !isUser ? (
+          <div className="flex items-center gap-2 text-xs text-slate-300">
+            <span>{t("chat.status.thinking")}</span>
+            <span className="flex gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-slate-300 animate-pulse [animation-delay:0ms]" />
+              <span className="h-1.5 w-1.5 rounded-full bg-slate-300 animate-pulse [animation-delay:150ms]" />
+              <span className="h-1.5 w-1.5 rounded-full bg-slate-300 animate-pulse [animation-delay:300ms]" />
+            </span>
+          </div>
+        ) : (
+          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+        )}
       </div>
       {!isUser && message.content.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-2">

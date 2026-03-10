@@ -1,19 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import api, { getDocuments } from "@/lib/api";
+import { api, getDocuments } from "@/lib/api";
 import type { Document } from "@/lib/types";
 import { DocumentUploader } from "@/components/documents/DocumentUploader";
 import { DocumentList } from "@/components/documents/DocumentList";
 import { TranscriptionPreview } from "@/components/documents/TranscriptionPreview";
 import { DocumentPreview } from "@/components/documents/DocumentPreview";
+import { BlockingLoader } from "@/components/common/BlockingLoader";
 import { useI18n } from "@/lib/i18n";
+import { uploadDocuments } from "@/lib/uploadDocuments";
 
 export default function DocumentsPage(): JSX.Element {
   const t = useI18n();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [isDeletingAll, setIsDeletingAll] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [duplicateNotice, setDuplicateNotice] = useState<string | null>(null);
   const [uploadTotal, setUploadTotal] = useState<number>(0);
@@ -45,58 +48,46 @@ export default function DocumentsPage(): JSX.Element {
       if (!files.length) {
         return;
       }
-
-      // Skip files that were already uploaded (by original filename).
-      const existingNames = new Set(
-        documents.map(doc => doc.original_filename || doc.filename)
-      );
-      const uniqueFiles = files.filter(file => !existingNames.has(file.name));
-      const duplicateFiles = files.filter(file => existingNames.has(file.name));
-
-      if (duplicateFiles.length > 0) {
-        const names = duplicateFiles.map(file => `"${file.name}"`).join(", ");
-        setDuplicateNotice(
-          t("documents.upload.duplicates").replace("{names}", names)
-        );
-      } else {
-        setDuplicateNotice(null);
-      }
-
-      if (!uniqueFiles.length) {
-        return;
-      }
-
       setIsUploading(true);
       setError(null);
-      setUploadTotal(uniqueFiles.length);
+      setUploadTotal(0);
       setUploadCompleted(0);
       setUploadProgress(0);
 
       try {
-        let completed = 0;
-        for (const file of uniqueFiles) {
-          const formData = new FormData();
-          formData.append("file", file);
+        const { uploaded, uniqueFiles, duplicateFiles } = await uploadDocuments({
+          files,
+          existingDocuments: documents
+        });
 
-          // Upload sequentially to keep error handling simple.
-          const response = await api.post<Document>("/api/documents/upload", formData, {
-            headers: {
-              "Content-Type": "multipart/form-data"
-            }
-          });
-
-          completed += 1;
-          setDocuments(prev => [response.data, ...prev]);
-          setUploadCompleted(completed);
-          setUploadProgress(Math.round((completed / uniqueFiles.length) * 100));
+        if (duplicateFiles.length > 0) {
+          const names = duplicateFiles.map((file) => `"${file.name}"`).join(", ");
+          setDuplicateNotice(
+            t("documents.upload.duplicates").replace("{names}", names)
+          );
+        } else {
+          setDuplicateNotice(null);
         }
-      } catch (err) {
+
+        if (uniqueFiles.length > 0) {
+          setUploadTotal(uniqueFiles.length);
+          let completed = 0;
+          for (const doc of uploaded) {
+            completed += 1;
+            setDocuments((prev) => [doc, ...prev]);
+            setUploadCompleted(completed);
+            setUploadProgress(
+              Math.round((completed / uniqueFiles.length) * 100)
+            );
+          }
+        }
+      } catch {
         setError(t("errors.documents.upload"));
       } finally {
         setIsUploading(false);
       }
     },
-    [documents]
+    [documents, t]
   );
 
   const handleDeleteDocument = useCallback(
@@ -120,8 +111,30 @@ export default function DocumentsPage(): JSX.Element {
         setError(t("errors.documents.delete"));
       }
     },
-    []
+    [t]
   );
+
+  const handleDeleteAllDocuments = useCallback(async (): Promise<void> => {
+    if (!documents.length) {
+      return;
+    }
+
+    // eslint-disable-next-line no-alert
+    const confirmed = window.confirm(t("documents.confirm.deleteAll"));
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setIsDeletingAll(true);
+      await Promise.all(documents.map(doc => api.delete(`/api/documents/${doc.id}`)));
+      setDocuments([]);
+    } catch {
+      setError(t("errors.documents.deleteAll"));
+    } finally {
+      setIsDeletingAll(false);
+    }
+  }, [documents, t]);
 
   const handlePreviewDocument = useCallback((doc: Document): void => {
     setPreviewDoc(doc);
@@ -133,34 +146,42 @@ export default function DocumentsPage(): JSX.Element {
   }, []);
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col gap-4">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-col gap-4">
+      <BlockingLoader
+        visible={isUploading}
+        label={
+          uploadTotal > 0
+            ? `${t("documents.uploading")} ${uploadCompleted}/${uploadTotal} · ${uploadProgress}%`
+            : t("documents.uploading")
+        }
+      />
       <header className="shrink-0 border-b border-slate-800 pb-4">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-50">
-          {t("documents.title")}
-        </h1>
-        <p className="mt-1 text-sm text-slate-400">
-          {t("documents.subtitle")}
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-50">
+              {t("documents.title")}
+            </h1>
+            <p className="mt-1 text-sm text-slate-400">
+              {t("documents.subtitle")}
+            </p>
+          </div>
+          {documents.length > 0 && (
+            <button
+              type="button"
+              onClick={handleDeleteAllDocuments}
+              disabled={isUploading || isDeletingAll}
+              className="inline-flex items-center rounded-md border border-rose-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-rose-300 shadow-sm hover:bg-rose-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isDeletingAll
+                ? t("documents.actions.deletingAll")
+                : t("documents.actions.deleteAll")}
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
         <DocumentUploader disabled={isUploading} onFilesSelected={handleFilesSelected} />
-        {isUploading && uploadTotal > 0 && (
-          <div className="space-y-1 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">
-            <div className="flex items-center justify-between">
-              <span>{t("documents.uploading")}</span>
-              <span>
-                {uploadCompleted}/{uploadTotal} · {uploadProgress}%
-              </span>
-            </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-              <div
-                className="h-full rounded-full bg-sky-500 transition-[width] duration-200 ease-out"
-                style={{ width: `${uploadProgress}%` }}
-              />
-            </div>
-          </div>
-        )}
         {error && (
           <div className="rounded-lg border border-rose-800 bg-rose-950/70 px-3 py-2 text-xs text-rose-200">
             {error}

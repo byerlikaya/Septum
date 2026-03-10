@@ -10,11 +10,14 @@ export const trMessages: Record<string, string> = {
   "chat.title": "Sohbet",
   "chat.subtitle":
     "Septum'un gizlilik odaklı asistanıyla etkileşime geç. Doküman seç, sorular sor; yanıtlar anlık olarak akar.",
+  "chat.uploading": "Doküman yükleniyor…",
+  "chat.uploadSuccess": "Doküman başarıyla yüklendi.",
+  "chat.uploadError": "Doküman yüklenirken bir hata oluştu. Lütfen tekrar deneyin.",
   "chat.loadingSettings": "Ayarlar yükleniyor…",
 
   "documents.title": "Dokümanlar",
   "documents.subtitle": "Yükle, incele ve işlenmiş dokümanları yönet.",
-  "documents.uploading": "Dokümanlar yükleniyor…",
+  "documents.uploading": "Doküman yükleniyor…",
   "documents.table.loading": "Doküman listesi yükleniyor…",
   "documents.table.empty": "Henüz doküman yüklenmedi.",
   "documents.table.column.document": "Doküman",
@@ -35,6 +38,10 @@ export const trMessages: Record<string, string> = {
   "documents.actions.delete": "Sil",
   "documents.confirm.delete":
     '"{name}" dokümanını silmek istediğinizden emin misiniz?',
+  "documents.actions.deleteAll": "Tüm dokümanları sil",
+  "documents.actions.deletingAll": "Tüm dokümanlar siliniyor…",
+  "documents.confirm.deleteAll":
+    "Tüm dokümanları silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.",
 
   "chunks.title": "Parçalar",
   "chunks.subtitle":
@@ -254,6 +261,8 @@ export const trMessages: Record<string, string> = {
   "chat.input.placeholder": "Dokümanınız hakkında soru sorun…",
   "chat.button.stop": "Durdur",
   "chat.button.send": "Gönder",
+  "chat.button.upload": "Doküman ekle",
+  "chat.status.thinking": "Düşünüyor",
   "chat.copy": "Kopyala",
   "chat.copied": "Kopyalandı",
   "chat.copyAnswer": "Cevabı kopyala",

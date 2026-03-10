@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { Paperclip } from "lucide-react";
 import { streamChatAsk, approvalApprove, approvalReject, getChatDebug } from "@/lib/api";
 import type {
   ApprovalChunkPayload,
@@ -22,6 +23,7 @@ export interface ChatWindowProps {
   activeRegulations: string[];
   showJsonOutput: boolean;
   onResponseComplete?: (deanonApplied: boolean) => void;
+  onUploadFiles?: (files: File[]) => void;
 }
 
 function generateId(): string {
@@ -34,7 +36,8 @@ export function ChatWindow({
   deanonEnabled,
   activeRegulations,
   showJsonOutput,
-  onResponseComplete
+  onResponseComplete,
+  onUploadFiles
 }: ChatWindowProps): JSX.Element {
   const { language } = useLanguage();
   const t = useI18n();
@@ -62,6 +65,7 @@ export function ChatWindow({
   const currentSessionIdRef = useRef<string | null>(null);
   /** Accumulated streamed text; updated in SSE callback, read in setState to avoid stale closure */
   const streamedContentRef = useRef<string>("");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleApprove = useCallback(
     async (sessionId: string, editedChunks: ApprovalChunkPayload[]) => {
@@ -305,6 +309,12 @@ export function ChatWindow({
               <MessageBubble
                 key={msg.id}
                 message={msg}
+                isThinking={
+                  streaming &&
+                  msg.role === "assistant" &&
+                  msg.id === pendingAssistantIdRef.current &&
+                  msg.content.length === 0
+                }
                 onDebugClick={(sessionId) => {
                   setDebugSessionId(sessionId);
                   void handleOpenDebug();
@@ -328,6 +338,19 @@ export function ChatWindow({
       <div className="shrink-0 pt-3">
         <div className="flex gap-2">
           <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              const files = Array.from(event.target.files ?? []);
+              if (files.length > 0 && onUploadFiles) {
+                void onUploadFiles(files);
+              }
+              event.target.value = "";
+            }}
+          />
+          <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -336,6 +359,16 @@ export function ChatWindow({
             disabled={streaming}
             className="min-w-0 flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-50"
           />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={streaming}
+            className="shrink-0 inline-flex items-center justify-center rounded-md border border-slate-600 bg-slate-900 px-2 py-2 text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+            title={t("chat.button.upload")}
+            aria-label={t("chat.button.upload")}
+          >
+            <Paperclip className="h-4 w-4" />
+          </button>
           {streaming ? (
             <button
               type="button"

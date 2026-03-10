@@ -77,6 +77,12 @@ export function DocumentList({
   onPreviewTranscription
 }: DocumentListProps): JSX.Element {
   const t = useI18n();
+
+  // Collapse any duplicate document IDs to avoid React key collisions.
+  const uniqueDocuments: Document[] = Array.from(
+    new Map(documents.map((doc) => [doc.id, doc])).values()
+  );
+
   if (isLoading) {
     return (
       <div className="flex flex-1 items-center justify-center rounded-lg border border-slate-800 bg-slate-950/40">
@@ -87,7 +93,7 @@ export function DocumentList({
     );
   }
 
-  if (!documents.length) {
+  if (!uniqueDocuments.length) {
     return (
       <div className="flex flex-1 items-center justify-center rounded-lg border border-slate-800 bg-slate-950/40">
         <div className="text-center text-sm text-slate-400">
@@ -127,7 +133,7 @@ export function DocumentList({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/80">
-            {documents.map(doc => {
+            {uniqueDocuments.map((doc) => {
               const isAudio =
                 doc.file_format.toLowerCase() === "audio" ||
                 doc.file_type.startsWith("audio/");
