@@ -160,6 +160,118 @@ High‑level flow:
 
 ---
 
+## PII Detection & Anonymisation Pipeline
+
+Septum’s core is a **multi‑layer PII detection pipeline** that combines regulation‑aware recognisers, language‑specific NER models and country‑specific validators under the active policies.
+
+At a high level:
+
+1. **Policy composition**
+   - Active regulation rulesets (e.g. GDPR, KVKK, HIPAA, CCPA, LGPD, etc.) are merged into a single **composed policy** via the `PolicyComposer`.
+   - The composed policy contains:
+     - The union of all entity types that must be protected.
+     - A list of recognisers (built‑in + custom) that should run for the current configuration.
+   - Custom recognisers (regex, keyword list, LLM‑prompt based) are also injected into this policy.
+
+2. **Layer 1 — Presidio recognisers**
+   - Septum uses **Microsoft Presidio** as the first line of detection, with recogniser packs organised by regulation.
+   - Each regulation pack contributes recognisers for:
+     - Identity (names, national IDs, passports, etc.)
+     - Contact details (emails, phones, addresses, IPs, URLs, social handles)
+     - Financial identifiers (credit cards, bank accounts, IBAN/SWIFT, tax IDs)
+     - Health, demographic and organisational attributes
+   - Only recognisers that are relevant for the active regulations are loaded into the Presidio registry.
+
+3. **Layer 2 — Language‑specific NER**
+   - For each document and query, Septum detects the language and loads a **language‑appropriate HuggingFace NER model**, with a multilingual fallback when needed.
+   - The NER layer:
+     - Complements Presidio by catching entities that are context‑dependent or language‑specific.
+     - Runs device‑aware (CUDA → MPS → CPU) and uses cached pipelines for efficiency.
+   - This layer is configurable per language via the **NER Model Settings** screen.
+
+4. **Layer 3 — Custom recognisers**
+   - Users can define their own rules via the UI or API:
+     - **Regex** patterns (e.g. internal account numbers, project codes).
+     - **Keyword lists** (e.g. VIP client names, internal labels).
+     - **LLM‑prompt based** rules using a local LLM (e.g. “find all salary‑related amounts”).
+   - Each custom rule is converted into a compatible recogniser and participates in the same pipeline as built‑in regulations.
+
+5. **Layer 4 — National ID validators**
+   - Certain identifiers (e.g. national IDs, tax numbers, IBAN) are validated using **country‑specific checksum algorithms**, not just regex patterns.
+   - A dedicated `national_ids` module contains validator implementations that:
+     - Pre‑filter candidates via pattern.
+     - Confirm validity via algorithmic checks.
+   - This significantly reduces false positives for numeric identifiers and sensitive ID numbers.
+
+6. **Anonymisation & coreference**
+   - All spans from the above layers are merged, deduplicated and fed into the `AnonymizationMap`:
+     - Each unique entity is replaced with a stable placeholder (e.g. `[PERSON_1]`, `[EMAIL_2]`).
+     - Coreference handling ensures that repeated mentions (e.g. full name → first name) are mapped to the **same** placeholder.
+     - A configurable blocklist can enforce extra replacements beyond detected entities.
+   - The anonymisation map never leaves memory and is never written to disk.
+
+7. **Multi‑regulation conflict handling**
+   - When multiple regulations are active at the same time, Septum always applies the **most restrictive** masking behaviour:
+     - If any regulation considers a value PII, it is treated as PII.
+     - Overlapping entities are merged into a single placeholder while retaining metadata about which regulations required masking.
+
+In practice, this means Septum does not rely on a single heuristic: it combines regulation packs, NER, custom rules and algorithmic validators into one consistent anonymisation step before anything can leave your environment.
+
+---
+
+## Septum as an AI Privacy Gateway
+
+Beyond the web UI, Septum can act as an **HTTP gateway in front of any LLM‑powered application**. Instead of calling a cloud LLM directly, your app can call Septum, which:
+
+1. Sanitises the request (masking PII according to active regulations and custom rules).
+2. Retrieves anonymised context from the vector store when RAG is enabled.
+3. Forwards only **masked text** to the configured LLM provider.
+4. De‑anonymises the response locally before returning it to the caller.
+
+Conceptually:
+
+Your app → **Septum (sanitise + RAG + approval)** → Cloud LLM  
+Your data and raw PII never leave your environment.
+
+A simplified example flow:
+
+1. **Your app** sends a chat request:
+
+   ```json
+   POST /api/chat/ask
+   {
+     "messages": [
+       { "role": "user", "content": "Summarise the last 3 contracts for Ahmet Yılmaz at ACME Corp." }
+     ],
+     "document_ids": [123, 124, 125],
+     "metadata": {
+       "regulations": ["gdpr", "kvkk"],
+       "require_approval": true
+     }
+   }
+   ```
+
+2. **Septum**:
+   - Detects language and relevant PII in the query and related documents.
+   - Replaces identifiers with placeholders (e.g. `[PERSON_1]`, `[ORG_1]`).
+   - Retrieves anonymised chunks from the vector store (RAG).
+   - Optionally shows an **approval view** of what will be sent upstream.
+   - Calls the configured LLM provider with masked context only.
+
+3. **Cloud LLM** responds with an answer that only contains placeholders.
+
+4. **Septum**:
+   - Uses the in‑memory anonymisation map to replace placeholders back to original values.
+   - Streams the final, human‑readable answer back to your app over HTTP/SSE.
+
+In this mode, Septum behaves as a **drop‑in privacy layer**:
+
+- Existing tools keep their own UI and logic.
+- You centralise PII handling, regulation rules and auditability in one place.
+- You can switch or mix LLM providers behind Septum without changing how your app handles personal data.
+
+---
+
 ## Backend (FastAPI) Structure
 
 Backend root: `backend/`

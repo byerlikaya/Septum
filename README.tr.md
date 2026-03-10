@@ -162,6 +162,116 @@ Yüksek seviye akış:
 
 ---
 
+## PII Tespiti ve Anonimleştirme Akışı
+
+Septum’un kalbinde, aktif regülasyon ve kurallara göre çalışan **çok katmanlı bir PII tespit pipeline’ı** bulunur. Bu yapı; regülasyon odaklı tanıyıcılar, dile duyarlı NER modelleri ve ülke‑spesifik doğrulayıcıları tek bir politika altında birleştirir.
+
+Yüksek seviyede akış:
+
+1. **Politika bileşimi**
+   - Aktif regülasyon ruleset’leri (ör. GDPR, KVKK, HIPAA, CCPA, LGPD vb.) `PolicyComposer` üzerinden tek bir **bileşik politika** hâline getirilir.
+   - Bu politika:
+     - Korunması gereken tüm varlık tiplerinin birleşimini,
+     - Çalıştırılması gereken (yerleşik + kullanıcı tanımlı) tanıyıcıların listesini içerir.
+   - Regex, anahtar kelime veya LLM‑tabanlı tüm custom recognizer’lar da bu politika içine enjekte edilir.
+
+2. **Katman 1 — Presidio tanıyıcıları**
+   - Septum, ilk savunma hattı olarak **Microsoft Presidio** kullanır ve tanıyıcı paketlerini regülasyon bazında organize eder.
+   - Her bir regülasyon paketi şu alanlar için tanıyıcılar sağlar:
+     - Kimlik (isimler, ulusal kimlik numaraları, pasaport vb.)
+     - İletişim (e‑posta, telefon, adres, IP, URL, sosyal medya hesabı)
+     - Finansal tanımlayıcılar (kredi kartı, banka hesabı, IBAN/SWIFT, vergi no)
+     - Sağlık, demografik ve kurumsal öznitelikler
+   - Sadece aktif regülasyonlara ait tanıyıcılar Presidio registry’sine yüklenir.
+
+3. **Katman 2 — Dile özgü NER**
+   - Her doküman ve sorgu için dil tespiti yapılır ve gerekirse çok dilli bir yedek modelle birlikte **dile uygun HuggingFace NER modeli** yüklenir.
+   - Bu katman:
+     - Presidio’yu, bağlama ve dile göre değişen varlıkları yakalayarak tamamlar.
+     - Cihaz farkında çalışır (CUDA → MPS → CPU) ve cache’lenmiş pipeline’lar sayesinde performanslıdır.
+   - Hangi dil için hangi modelin kullanılacağı, **NER Models** ayar ekranı üzerinden yapılandırılabilir.
+
+4. **Katman 3 — Kullanıcı tanımlı tanıyıcılar**
+   - Kullanıcılar arayüz veya API üzerinden kendi kurallarını tanımlayabilir:
+     - **Regex** desenleri (ör. iç referans kodları, proje kodları).
+     - **Anahtar kelime listeleri** (ör. VIP müşteri isimleri, dahili etiketler).
+     - Yerel bir LLM kullanan **LLM‑prompt tabanlı** kurallar (ör. “tüm maaş ifadelerini bul”).
+   - Bu kurallar, uyumlu tanıyıcı nesnelerine dönüştürülerek yerleşik regülasyon tanıyıcılarıyla aynı pipeline içinde çalıştırılır.
+
+5. **Katman 4 — Ulusal kimlik doğrulayıcıları**
+   - Bazı tanımlayıcılar (ör. ulusal kimlik, vergi numarası, IBAN) sadece regex ile değil, **ülke‑spesifik checksum algoritmaları** ile doğrulanır.
+   - Ayrı bir `national_ids` modülü; adayları önce desenle süzüp, ardından algoritmik kontrolle doğrulayan validator implementasyonları içerir.
+   - Bu sayede sayısal kimlik ve hesap numaralarında yalancı pozitif oranı ciddi biçimde azalır.
+
+6. **Anonimleştirme ve coreference**
+   - Yukarıdaki katmanlardan çıkan tüm span’ler birleştirilir, yinelenenler ayıklanır ve `AnonymizationMap` içine aktarılır:
+     - Her benzersiz varlık için kararlı bir placeholder atanır (ör. `[PERSON_1]`, `[EMAIL_2]`).
+     - Coreference mantığı sayesinde aynı kişiye ait tekrar eden atıflar (tam isim → sadece isim gibi) **aynı** placeholder ile eşleştirilir.
+     - İsteğe bağlı blocklist yapısı, tespit edilen varlıkların ötesinde de ek maskeleme uygulanmasına izin verir.
+   - Anonymization map asla belleğin dışına çıkmaz ve diske yazılmaz.
+
+7. **Çoklu regülasyon çatışmalarının ele alınması**
+   - Birden fazla regülasyon aynı anda aktif olduğunda Septum her zaman **en kısıtlayıcı** maskeleme davranışını uygular:
+     - Herhangi bir regülasyon bir değeri PII olarak işaretliyorsa, o değer PII kabul edilir.
+     - Çakışan varlıklar tek bir placeholder altında birleştirilirken, hangi regülasyonların bu kararı tetiklediğine dair metadata korunur.
+
+Pratikte bu, Septum’un tek bir sezgiye değil; regülasyon paketleri, NER, kullanıcı tanımlı kurallar ve algoritmik doğrulayıcıların birleşimine dayanarak anonimleştirme yapması anlamına gelir. Böylece ortamınızdan çıkmadan önce veriler tek bir tutarlı adımda maskelenir.
+
+---
+
+## Septum’u Bir AI Gizlilik Geçidi Olarak Kullanmak
+
+Web arayüzünün ötesinde Septum, **herhangi bir LLM tabanlı uygulamanın önüne konumlanabilen bir HTTP geçidi (gateway)** olarak da çalışabilir. Uygulamanız bulut LLM’e doğrudan çağrı yapmak yerine, tüm trafiği önce Septum’a yönlendirir:
+
+1. Gelen istek, etkin regülasyonlar ve özel kurallara göre PII’den arındırılır.
+2. RAG etkinse, anonimleştirilmiş context chunk’ları vektör veritabanından çekilir.
+3. Yalnızca **maskelenmiş metin** yapılandırılmış LLM sağlayıcısına iletilir.
+4. Dönen cevap, yerelde tekrar anonimleştirme haritası kullanılarak gerçek değerlere map edilir.
+
+Kavramsal akış:
+
+Uygulamanız → **Septum (anonimleştir + RAG + onay)** → Bulut LLM  
+Ham veri ve kişisel bilgiler ortamınızı terketmez.
+
+Basitleştirilmiş bir örnek akış:
+
+1. **Uygulamanız**, sohbet isteği gönderir:
+
+   ```json
+   POST /api/chat/ask
+   {
+     "messages": [
+       { "role": "user", "content": "ACME Corp için son 3 sözleşmeyi özetle ve Ahmet Yılmaz ile ilgili kritik maddeleri çıkar." }
+     ],
+     "document_ids": [123, 124, 125],
+     "metadata": {
+       "regulations": ["gdpr", "kvkk"],
+       "require_approval": true
+     }
+   }
+   ```
+
+2. **Septum**:
+   - Sorgunun ve ilgili dokümanların dilini ve PII içeriğini tespit eder.
+   - Kimlik bilgilerini placeholder’larla değiştirir (ör. `[PERSON_1]`, `[ORG_1]`).
+   - Gerekirse anonimleştirilmiş chunk’ları vektör veritabanından çeker.
+   - Hangi bilgilerin buluta gideceğini gösteren bir **onay ekranı** sunabilir.
+   - Yalnızca maskeli içeriği, yapılandırılmış LLM sağlayıcısına iletir.
+
+3. **Bulut LLM**, sadece placeholder içeren bir cevap döner.
+
+4. **Septum**:
+   - Bellekteki anonimleştirme haritasını kullanarak placeholder’ları tekrar gerçek değerlere çevirir.
+   - Nihai, okunabilir cevabı HTTP/SSE üzerinden uygulamanıza iletir.
+
+Bu modda Septum, uygulamalarınız için **tak‑çalıştır bir gizlilik katmanı** gibi davranır:
+
+- Mevcut araçlar kendi arayüz ve iş mantıklarını korur.
+- PII yönetimi, regülasyon kuralları ve denetlenebilirlik tek bir merkezi noktada toplanır.
+- Arkada LLM sağlayıcısını değiştirmek veya birden fazla sağlayıcıyı karıştırmak, uygulama tarafındaki gizlilik modelini bozmaz.
+
+---
+
 ## Güvenlik ve Gizlilik (Önemli Noktalar)
 
 - Ham PII asla log’lanmaz ve buluta gönderilmez.
