@@ -62,7 +62,6 @@ class XlsxIngester(BaseIngester):
 
             for row in sheet.iter_rows(values_only=True):
                 row_count += 1
-                # Convert all cell values in the row to strings, skipping None.
                 cells = [str(value) for value in row if value is not None]
                 if cells:
                     rows_text.append("\t".join(cells))

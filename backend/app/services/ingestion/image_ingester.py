@@ -116,8 +116,6 @@ class ImageIngester(BaseIngester):
         encrypted_bytes = file_path.read_bytes()
         image_bytes = decrypt(encrypted_bytes)
 
-        # Open the image from decrypted bytes to capture basic, non-PII metadata
-        # such as dimensions without ever touching disk in plaintext.
         with Image.open(BytesIO(image_bytes)) as img:
             width, height = img.size
 
@@ -141,19 +139,13 @@ class ImageIngester(BaseIngester):
     def _run_ocr(self, image_bytes: bytes) -> Tuple[List[str], List[float]]:
         """Run EasyOCR on the given image bytes and return text + confidences."""
 
-        # Import locally so that environments without EasyOCR installed
-        # can still import the module without immediate failure.
         import easyocr  # type: ignore[import]
 
         device = get_device()
-        # EasyOCR currently exposes a simple GPU toggle; treat CUDA as GPU and
-        # fall back to CPU for MPS and other environments.
         use_gpu = device == "cuda"
 
         reader = easyocr.Reader(self._languages, gpu=use_gpu)
 
-        # Convert decrypted bytes to a NumPy array via Pillow so that the
-        # plaintext image data never needs to be written back to disk.
         with Image.open(BytesIO(image_bytes)) as img:
             image_array = np.array(img.convert("RGB"))
 
@@ -166,7 +158,6 @@ class ImageIngester(BaseIngester):
             if not text:
                 continue
             texts.append(text)
-            # Confidence values are expected to be in [0.0, 1.0]; cast defensively.
             try:
                 confidences.append(float(confidence))
             except (TypeError, ValueError):

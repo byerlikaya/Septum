@@ -13,11 +13,13 @@ from . import Base
 
 
 class RegulationRuleset(Base):
-    """Represents a built-in or custom privacy regulation ruleset."""
+    """Represents a built-in or custom privacy regulation ruleset.
+
+    Uses a string primary key (e.g. regulation id like \"gdpr\") instead of an integer.
+    """
 
     __tablename__ = "regulation_rulesets"
 
-    # Override the default integer id from Base with a string identifier.
     id: Mapped[str] = mapped_column(String, primary_key=True)
     display_name: Mapped[str] = mapped_column(String, nullable=False)
     region: Mapped[str] = mapped_column(String, nullable=False)

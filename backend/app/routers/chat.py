@@ -40,7 +40,6 @@ from ..services.sanitizer import PIISanitizer
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
-# Make langdetect deterministic.
 DetectorFactory.seed = 42
 
 
@@ -52,13 +51,11 @@ class ChatRequest(BaseModel):
     payload shape (``query``, ``document_ids``, etc.).
     """
 
-    # New v5-style fields
     message: Optional[str] = None
     document_id: Optional[int] = None
     top_k: Optional[int] = None
     session_id: Optional[str] = None
 
-    # Legacy v4/STEP 14 fields for backwards compatibility
     query: Optional[str] = None
     document_ids: Optional[List[int]] = None
     output_mode: Optional[str] = "chat"
@@ -74,8 +71,6 @@ async def _load_settings(db: AsyncSession) -> AppSettings:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Application settings have not been initialized.",
         )
-    # Allow environment variables to override selected runtime settings
-    # without requiring a database migration.
     env_llm_model = os.getenv("LLM_MODEL")
     if env_llm_model:
         settings.llm_model = env_llm_model
@@ -140,6 +135,10 @@ async def _retrieve_chunks(
     If the vector index is missing or returns no results, falls back to the
     first top_k chunks of the document (by chunk index) so the LLM still
     receives context when the document has chunks.
+
+    The first chunk (index 0) is always included when the document has multiple
+    chunks, so that document-opening content (e.g. titles, parties, key facts)
+    is available regardless of query wording or language.
     """
     from ..services.vector_store import VectorStore
 
@@ -157,17 +156,26 @@ async def _retrieve_chunks(
         db_result = await db.execute(stmt)
         chunks = list(db_result.scalars().all())
         chunks.sort(key=lambda c: id_to_rank.get(c.id, len(chunk_ids)))
-        return chunks
+    else:
+        fallback_stmt = (
+            select(Chunk)
+            .where(Chunk.document_id == document_id)
+            .order_by(Chunk.index)
+            .limit(top_k)
+        )
+        db_result = await db.execute(fallback_stmt)
+        chunks = list(db_result.scalars().all())
 
-    # Fallback: no index or empty search; use first top_k chunks by order
-    fallback_stmt = (
-        select(Chunk)
-        .where(Chunk.document_id == document_id)
-        .order_by(Chunk.index)
-        .limit(top_k)
-    )
-    db_result = await db.execute(fallback_stmt)
-    return list(db_result.scalars().all())
+    if len(chunks) > 1:
+        first_stmt = (
+            select(Chunk).where(Chunk.document_id == document_id, Chunk.index == 0)
+        )
+        first_result = await db.execute(first_stmt)
+        first_chunk = first_result.scalar_one_or_none()
+        if first_chunk and first_chunk.id is not None and first_chunk.id not in (c.id for c in chunks):
+            chunks = [first_chunk] + [c for c in chunks if c.id != first_chunk.id][: top_k - 1]
+
+    return chunks
 
 
 def _build_approval_chunks(chunks: List[Chunk]) -> List[ApprovalChunk]:
@@ -190,7 +198,6 @@ def _build_approval_chunks(chunks: List[Chunk]) -> List[ApprovalChunk]:
     return approval_chunks
 
 
-# Placeholder format: [ENTITY_TYPE_N] e.g. [PERSON_1], [ORGANIZATION_2]
 _PLACEHOLDER_PATTERN = re.compile(r"\[[A-Za-z_]+\d+\]")
 
 
@@ -238,15 +245,14 @@ async def _run_llm_and_deanonymize(
     placeholder_list_str = ""
     if placeholders_in_context:
         placeholder_list_str = (
-            "\n\nThe user question may be in any language (e.g. Turkish, English). "
-            "Interpret it by intent: if they are asking which persons, organizations, or "
-            "other named entities appear or are mentioned in the document, reply with ONLY "
-            "a bullet list of these placeholder tokens (one per line): "
+            "\n\nThe user question may be in any language. Interpret by intent. "
+            "If they ask for a specific piece of information (e.g. a person's name, a date, a single value), "
+            "reply with only the placeholder token(s) from the context that directly answer that question. "
+            "If they ask which persons, organizations, or other named entities appear in the document, "
+            "reply with a bullet list of the relevant placeholder tokens from: "
             + ", ".join(placeholders_in_context)
-            + ". Do not list document wording, clause fragments, or any other text—only "
-            "the tokens above. Do not say you cannot answer or that something is \"not defined\"; "
-            "answer with the token list when the question is about who/what entities are in the document. "
-            "For any other question, answer using the context as usual.\n\n"
+            + ". Do not list document wording, clause fragments, or other text—only placeholder tokens. "
+            "Do not refuse; answer from the context. For any other question, use the context as usual.\n\n"
         )
 
     output_instruction = ""
@@ -259,10 +265,6 @@ async def _run_llm_and_deanonymize(
             "Use only double quotes. Output nothing but this JSON object.\n---\n\n"
         )
 
-    # For maximum compatibility across providers (especially Anthropic's
-    # Messages API, which expects only ``user`` / ``assistant`` roles),
-    # embed the system-style instructions into a single ``user`` message
-    # instead of using a separate ``system`` role.
     user_prompt = (
         "You are a privacy-preserving assistant. Personal data in the context is "
         "replaced by placeholders in square brackets (e.g. [PERSON_1], [ORGANIZATION_2]). "
@@ -282,9 +284,6 @@ async def _run_llm_and_deanonymize(
 
     masked_answer = await llm.complete(messages=messages)
 
-    # If the LLM returned no placeholder tokens but we have placeholders in context,
-    # substitute with the actual list when the response is clearly wrong: document
-    # fragments (long bullet list) or "I cannot answer" / "not defined" refusals.
     if placeholders_in_context and not _PLACEHOLDER_PATTERN.search(masked_answer):
         refusal_phrases = (
             "cannot answer",
@@ -306,8 +305,8 @@ async def _run_llm_and_deanonymize(
     result = await deanonymizer.deanonymize(masked_answer, anon_map)
     if not anon_map.entity_map and _PLACEHOLDER_PATTERN.search(result):
         result += (
-            "\n\n(İsimler ve diğer değerler yüklenemedi. "
-            "Backend .env dosyasında ENCRYPTION_KEY tanımlayıp belgeyi yeniden yükleyin.)"
+            "\n\n(Names and other values could not be loaded. "
+            "Set ENCRYPTION_KEY in the backend .env file and re-upload the document.)"
         )
     return result
 
@@ -322,8 +321,6 @@ async def chat_ask(
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """Chat endpoint that streams an SSE response for a single turn."""
-    # Support both new (message, document_id) and legacy
-    # (query, document_ids) payload shapes.
     message_text = request.message or request.query
     if not message_text:
         raise HTTPException(
@@ -339,7 +336,6 @@ async def chat_ask(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="At least one document_id must be provided.",
             )
-        # For now, support a single document by taking the first ID.
         document_id = request.document_ids[0]
     else:
         raise HTTPException(
@@ -351,12 +347,9 @@ async def chat_ask(
     document = await _load_document(db, document_id)
     regulation_names = await _active_regulation_names(db)
 
-    # Prefer per-document language override if present; otherwise, detect from
-    # the incoming query text as a best-effort refinement.
     base_language = document.language_override or document.detected_language
     language = await _detect_language(message_text, fallback=base_language)
 
-    # Use document's in-memory map so we can deanonymize the LLM answer.
     anon_map = get_document_map(document.id) or AnonymizationMap(
         document_id=document.id, language=language
     )
@@ -396,8 +389,6 @@ async def chat_ask(
         else settings.require_approval
     )
 
-    # Allow per-request override of de-anonymization without mutating
-    # the persisted application settings.
     effective_settings = settings
     if request.deanon_enabled is not None:
         effective_settings = copy.copy(settings)
@@ -405,7 +396,6 @@ async def chat_ask(
 
     async def event_stream() -> AsyncGenerator[bytes, None]:
         try:
-            # Initial metadata event.
             yield _encode_sse(
                 {
                     "type": "meta",
@@ -422,7 +412,6 @@ async def chat_ask(
 
             if require_approval and chunks:
                 approval_chunks = _build_approval_chunks(chunks)
-                # Register the approval session with masked prompt and chunks.
                 gate.create(
                     session_id=session_id,
                     masked_prompt=sanitized_query,
@@ -430,7 +419,6 @@ async def chat_ask(
                     entity_count=entity_count,
                 )
 
-                # Notify the frontend that approval is required.
                 yield _encode_sse(
                     {
                         "type": "approval_required",
@@ -482,8 +470,6 @@ async def chat_ask(
 
             yield _encode_sse({"type": "end"})
         except LLMRouterError as exc:
-            # Surface LLM configuration errors (for example missing API keys)
-            # to the client in a controlled, non-PII-leaking manner.
             yield _encode_sse(
                 {
                     "type": "error",
@@ -491,7 +477,6 @@ async def chat_ask(
                 }
             )
         except Exception:
-            # Avoid leaking internal error details to the client.
             yield _encode_sse(
                 {
                     "type": "error",

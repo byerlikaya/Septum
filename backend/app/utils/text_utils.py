@@ -2,7 +2,7 @@
 
 These utilities provide Unicode normalization and simple locale-aware
 lowercasing suitable for case-insensitive comparisons in a multilingual
-environment.
+environment. Turkish is special-cased for dotted and dotless I.
 """
 
 from __future__ import annotations
@@ -10,11 +10,7 @@ from __future__ import annotations
 import unicodedata
 from typing import Dict
 
-# Locale-specific transforms used before lowercasing. The keys are ISO 639-1
-# language codes. The values are translation maps for str.translate.
 _LOCALE_TRANSFORMS: Dict[str, Dict[int, int]] = {
-    # Turkish has special casing rules for dotted and dotless I.
-    # This transform maps the problematic uppercase characters before .lower().
     "tr": str.maketrans("İI", "ii"),
 }
 

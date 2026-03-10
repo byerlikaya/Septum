@@ -10,8 +10,6 @@ from ..base_recognizer import RegexPatternConfig, ValidatedPatternRecognizer
 
 
 def _medical_record_number_recognizer() -> EntityRecognizer:
-    # Highly simplified medical record number pattern; in real deployments this
-    # should be specialized per institution.
     return ValidatedPatternRecognizer(
         entity_type="MEDICAL_RECORD_NUMBER",
         config=RegexPatternConfig(

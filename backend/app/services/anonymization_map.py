@@ -17,7 +17,6 @@ import re
 
 from ..utils.text_utils import normalize_for_comparison
 
-# Short common English words that must never be masked (no [BLOCKED], no entity).
 SANITIZER_STOPWORDS: frozenset[str] = frozenset({"the", "a", "an", "of", "in", "at"})
 
 

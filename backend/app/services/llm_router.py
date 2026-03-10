@@ -137,8 +137,6 @@ class LLMRouter:
 
         response = await _post_with_retries(url=url, headers=headers, json=body)
         data = response.json()
-
-        # Anthropic returns content as a list of blocks; we concatenate text.
         blocks = data.get("content") or []
         parts: List[str] = []
         for block in blocks:
@@ -245,25 +243,18 @@ async def _post_with_retries(
             response.raise_for_status()
             return response
         except httpx.HTTPStatusError as exc:
-            # HTTP-level error from provider (4xx/5xx). We do not log the request
-            # body to avoid leaking prompt contents, but we *do* log status code
-            # and a truncated version of the response body for easier debugging.
             last_error = exc
             status_code = exc.response.status_code
-            body_preview: str
             try:
-                # Provider error payloads should not contain user PII; still,
-                # defensively truncate to keep logs small.
-                raw_text = exc.response.text
-                body_preview = raw_text[:512]
+                body_len = len(exc.response.text)
             except Exception:  # noqa: BLE001
-                body_preview = "<unavailable>"
+                body_len = -1
 
             logger.error(
-                "LLM HTTP error while calling provider: url=%s status=%s body_preview=%s",
+                "LLM HTTP error while calling provider: url=%s status=%s body_len=%s",
                 url,
                 status_code,
-                body_preview,
+                body_len,
             )
 
             if attempt >= max_attempts:
@@ -271,7 +262,6 @@ async def _post_with_retries(
             backoff = base_backoff_seconds * (2 ** (attempt - 1))
             await asyncio.sleep(backoff)
         except httpx.HTTPError as exc:
-            # Transport-level error (DNS failure, timeout, etc.).
             last_error = exc
             logger.error("LLM transport error while calling provider: url=%s error=%s", url, exc)
             if attempt >= max_attempts:
@@ -279,8 +269,6 @@ async def _post_with_retries(
             backoff = base_backoff_seconds * (2 ** (attempt - 1))
             await asyncio.sleep(backoff)
 
-    # Preserve the original exception chain but surface a message that includes
-    # the last HTTP status code when available.
     if isinstance(last_error, httpx.HTTPStatusError):
         status_code = last_error.response.status_code
         raise LLMRouterError(

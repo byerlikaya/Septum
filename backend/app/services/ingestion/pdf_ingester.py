@@ -80,9 +80,6 @@ class PdfIngester(BaseIngester):
         """Synchronous part of PDF ingestion, run in a worker thread."""
 
         encrypted_bytes = file_path.read_bytes()
-        # Decrypt the entire PDF file in memory. Associated data is not used
-        # for file payloads; if this changes in the future, the caller should
-        # supply it and this implementation can be adjusted accordingly.
         pdf_bytes = decrypt(encrypted_bytes)
 
         with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:

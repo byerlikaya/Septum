@@ -48,11 +48,8 @@ class Deanonymizer:
         if strategy == "ollama" and use_ollama_enabled():
             return await self._ollama(text, anon_map)
 
-        # Unknown strategies or USE_OLLAMA=false fall back to simple replacement.
         return self._simple(text, anon_map)
 
-    # LLMs often return short forms (e.g. [PERSON_1]) while we store [PERSON_NAME_1].
-    # (regex matching stored placeholder, short prefix for alias e.g. "PERSON" -> [PERSON_1])
     _PLACEHOLDER_SHORT_ALIASES = (
         (re.compile(r"^\[PERSON_NAME_(\d+)\]$"), "PERSON"),
         (re.compile(r"^\[ORGANIZATION_NAME_(\d+)\]$"), "ORGANIZATION"),
@@ -64,13 +61,11 @@ class Deanonymizer:
             return text
 
         result = text
-        # entity_map is original → placeholder; replace stored placeholder first.
         for original, placeholder in anon_map.entity_map.items():
             if not placeholder:
                 continue
             if placeholder in result:
                 result = result.replace(placeholder, original)
-            # Also replace common short forms the LLM may return (e.g. [PERSON_1] vs [PERSON_NAME_1]).
             for pattern, short_prefix in self._PLACEHOLDER_SHORT_ALIASES:
                 match = pattern.match(placeholder)
                 if match:
@@ -86,7 +81,6 @@ class Deanonymizer:
         Ollama returns the final text with placeholders replaced. All processing
         is local; no original values are sent to the cloud.
         """
-        # Build map as placeholder -> original for the prompt (no cloud; local only).
         placeholder_to_original: dict[str, str] = {}
         for original, placeholder in anon_map.entity_map.items():
             if placeholder and original:
@@ -135,14 +129,11 @@ class DeAnonymizer:
             return text
 
         amap = AnonymizationMap(document_id=0, language="en")
-        # Convert placeholder→original into the original→placeholder mapping used
-        # by :class:`AnonymizationMap` and :class:`Deanonymizer`.
         for placeholder, original in entity_map.items():
             if not placeholder or not original:
                 continue
             amap.entity_map[original] = placeholder
 
-        # Delegate to the async implementation using a temporary event loop.
         return asyncio.run(self._inner.deanonymize(text, anon_map=amap))
 
 

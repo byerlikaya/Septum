@@ -29,9 +29,6 @@ from ..utils.text_utils import normalize_unicode, normalize_for_comparison
 
 logger = logging.getLogger(__name__)
 
-# Entity types which should take precedence over more generic detections when
-# spans overlap. These are typically high-sensitivity identifiers where false
-# negatives are less acceptable than over-masking surrounding context.
 _HIGH_PRIORITY_ENTITY_TYPES: set[str] = {
     "PHONE_NUMBER",
     "NATIONAL_ID",
@@ -59,17 +56,13 @@ class SanitizeResult:
 
 
 class TurkishPhoneRecognizer(EntityRecognizer):
-    """Presidio recognizer for Turkish phone numbers."""
+    """Presidio recognizer for Turkish phone numbers (mobile/landline, optional +90/0)."""
 
     def __init__(self) -> None:
         super().__init__(
             supported_entities=["PHONE_NUMBER"],
-            # Presidio in this project is currently configured with an English
-            # SpaCy model only. We therefore register this recognizer under
-            # 'en' and route non-English texts through the English pipeline.
             supported_language="en",
         )
-        # Accept common Turkish mobile/landline formats, with optional +90 / 0.
         self._pattern = re.compile(
             r"\b(?:\+?90\s*)?(?:0\s*)?(?:\d{3})[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}\b"
         )
@@ -103,8 +96,6 @@ class TCKNEntityRecognizer(EntityRecognizer):
     def __init__(self, validator: Optional[TCKNValidator] = None) -> None:
         super().__init__(
             supported_entities=["NATIONAL_ID"],
-            # See note in TurkishPhoneRecognizer: we currently bind all
-            # Presidio recognizers to the English pipeline.
             supported_language="en",
         )
         self._validator = validator or TCKNValidator()
@@ -142,13 +133,9 @@ class IBANEntityRecognizer(EntityRecognizer):
     def __init__(self, validator: Optional[IBANValidator] = None) -> None:
         super().__init__(
             supported_entities=["IBAN"],
-            # IBAN structure is language-agnostic; we still bind it to the
-            # English pipeline for compatibility with the current Presidio
-            # configuration.
             supported_language="en",
         )
         self._validator = validator or IBANValidator()
-        # Basic structural pattern: country code + 13–32 alphanumerics.
         self._pattern = re.compile(r"\b[A-Za-z]{2}[0-9A-Za-z]{13,32}\b")
 
     def analyze(  # type: ignore[override]
@@ -187,8 +174,6 @@ class PIISanitizer:
     ) -> None:
         self._settings = settings
         self._ner_registry = ner_registry or NERModelRegistry()
-
-        # Base Presidio analyzer with custom recognizers.
         self._analyzer = AnalyzerEngine()
         self._register_custom_recognizers()
 
@@ -205,33 +190,29 @@ class PIISanitizer:
         language: str,
         anon_map: AnonymizationMap,
     ) -> SanitizeResult:
-        """Run the multi-layer sanitizer on the given text."""
+        """Run the multi-layer sanitizer on the given text.
+
+        Presidio is invoked with language='en' because the project uses a single
+        English SpaCy pipeline; regex- and validator-based recognizers still apply.
+        """
         if not text:
             return SanitizeResult(sanitized_text=text, entity_count=0)
 
         normalized_text = normalize_unicode(text)
         spans: List[DetectedSpan] = []
 
-        # Layer 1: Presidio AnalyzerEngine.
         if self._settings.use_presidio_layer:
-            # Presidio is wired with an English SpaCy model. To avoid runtime
-            # errors for languages without dedicated models (for example "tr"),
-            # we always analyze using the "en" pipeline here. Regex- and
-            # validator-based recognizers (such as Turkish phone, TCKN, IBAN)
-            # remain fully effective under this configuration.
             presidio_results = self._analyzer.analyze(
                 text=normalized_text,
                 language="en",
             )
             spans.extend(self._from_presidio_results(presidio_results))
 
-        # Layer 2: HuggingFace NER.
         if self._settings.use_ner_layer:
             ner_pipeline = self._ner_registry.get_pipeline(language)
             ner_results = ner_pipeline(normalized_text)
             spans.extend(self._from_ner_results(ner_results))
 
-        # Layer 3: Ollama-based PII detection (gated only by settings.use_ollama_layer).
         if self._settings.use_ollama_layer:
             ollama_spans = self._ollama_pii_detection(normalized_text)
             logger.debug(
@@ -241,9 +222,7 @@ class PIISanitizer:
             )
             spans.extend(ollama_spans)
 
-        # Deduplicate and apply anonymization map.
         spans = self._deduplicate(spans)
-        # Never mask spans that are exactly a stopword (e.g. "The", "a", "an").
         spans = [
             s
             for s in spans
@@ -261,7 +240,11 @@ class PIISanitizer:
         return SanitizeResult(sanitized_text=sanitized, entity_count=count)
 
     def _ollama_pii_detection(self, normalized_text: str) -> List[DetectedSpan]:
-        """Call local Ollama to detect PII (aliases, nicknames); return spans for Layer 1/2 merge."""
+        """Call local Ollama to detect PII (aliases, nicknames); return spans for Layer 1/2 merge.
+
+        Character positions are derived from the text field (Ollama start/end may not
+        match when leading articles like 'The' are part of the alias).
+        """
         if not normalized_text:
             return []
         system_part = (
@@ -280,17 +263,15 @@ class PIISanitizer:
             f"{normalized_text}"
         )
         prompt = f"System: {system_part}\n\nUser: {user_part}"
-        logger.debug("OLLAMA PROMPT: %s", prompt)
         response = call_ollama_sync(
             prompt=prompt,
             base_url=self._settings.ollama_base_url,
             model=self._settings.ollama_deanon_model,
         )
-        logger.debug("OLLAMA RESPONSE: %s", (response or "")[:1000])
         if not response or not response.strip():
             logger.warning("Layer 3 Ollama returned empty response")
         items = extract_json_array(response)
-        logger.info("Layer 3 Ollama parsed %d JSON items", len(items))
+        logger.debug("Layer 3 Ollama parsed %d JSON items", len(items))
         spans_list: List[DetectedSpan] = []
         for item in items:
             if not isinstance(item, dict):
@@ -300,8 +281,6 @@ class PIISanitizer:
             if text is None or text == "":
                 continue
             text_str = str(text).strip()
-            # Derive character positions from the text field; do not trust Ollama's start/end.
-            # If Ollama returns "Big Fish" but the alias in text is "The Big Fish", extend span to include leading article.
             _LEADING_ARTICLES = ("The ", "A ", "An ")
             start_idx = -1
             end_idx = -1
@@ -335,7 +314,6 @@ class PIISanitizer:
         """Convert Presidio RecognizerResult objects to DetectedSpan."""
         spans: List[DetectedSpan] = []
         for r in results:
-            # Normalize certain entity labels to match the global master list.
             entity_type = r.entity_type
             if entity_type == "IBAN_CODE":
                 entity_type = "IBAN"
@@ -361,7 +339,6 @@ class PIISanitizer:
             score = float(item.get("score", 0.0))
             if not entity:
                 continue
-            # Map model-specific labels to generic entity types when possible.
             entity_type = PIISanitizer._map_ner_label(entity)
             if entity_type is None:
                 continue
@@ -379,7 +356,6 @@ class PIISanitizer:
     def _map_ner_label(label: str) -> Optional[str]:
         """Map model-specific NER labels to global entity types."""
         upper = label.upper()
-        # Simple heuristics; these can be extended per model family.
         if "PER" in upper or upper.startswith("B-PER") or upper.startswith("I-PER"):
             return "PERSON_NAME"
         if "ORG" in upper:
@@ -388,7 +364,6 @@ class PIISanitizer:
             return "LOCATION"
         if "EMAIL" in upper:
             return "EMAIL_ADDRESS"
-        # Unknown label: let it fall through.
         return None
 
     @staticmethod
@@ -421,7 +396,6 @@ class PIISanitizer:
 
         high_dedup = _dedup_simple(high_priority)
 
-        # Filter out low-priority spans that overlap with any high-priority span.
         filtered_low: List[DetectedSpan] = []
         for span in low_priority:
             overlaps_high = any(

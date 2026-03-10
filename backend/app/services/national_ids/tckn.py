@@ -19,7 +19,6 @@ class TCKNValidator(BaseIDValidator):
 
         digits: List[int] = [int(ch) for ch in normalized]
 
-        # Basic structural rule: last two digits are checksums.
         d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11 = digits
 
         odd_sum = d1 + d3 + d5 + d7 + d9

@@ -21,8 +21,9 @@ def get_device() -> DeviceType:
     1. Apple Metal Performance Shaders (MPS) on Apple Silicon.
     2. NVIDIA CUDA.
     3. CPU as a safe fallback.
+
+    Uses getattr for MPS so that environments without the backend do not raise.
     """
-    # Some environments may not expose the mps backend; guard with getattr.
     mps_backend = getattr(torch.backends, "mps", None)
     if mps_backend is not None and mps_backend.is_available():
         return "mps"

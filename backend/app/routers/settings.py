@@ -36,25 +36,21 @@ class SettingsResponse(BaseModel):
 
     id: int
 
-    # LLM configuration
     llm_provider: str
     llm_model: str
     ollama_base_url: str
     ollama_chat_model: str
     ollama_deanon_model: str
 
-    # De-anonymization & approval
     deanon_enabled: bool
     deanon_strategy: str
     require_approval: bool
     show_json_output: bool
 
-    # Sanitization layers
     use_presidio_layer: bool
     use_ner_layer: bool
     use_ollama_layer: bool
 
-    # RAG / chunking
     chunk_size: int
     chunk_overlap: int
     top_k_retrieval: int
@@ -62,38 +58,32 @@ class SettingsResponse(BaseModel):
     audio_chunk_size: int
     spreadsheet_chunk_size: int
 
-    # Ingestion / models
     whisper_model: str
     image_ocr_languages: list[str]
     extract_embedded_images: bool
     recursive_email_attachments: bool
 
-    # Regulations
     default_active_regulations: list[str]
 
 
 class SettingsUpdatePayload(BaseModel):
     """PATCH payload for partially updating application settings."""
 
-    # LLM configuration
     llm_provider: Optional[str] = None
     llm_model: Optional[str] = None
     ollama_base_url: Optional[str] = None
     ollama_chat_model: Optional[str] = None
     ollama_deanon_model: Optional[str] = None
 
-    # De-anonymization & approval
     deanon_enabled: Optional[bool] = None
     deanon_strategy: Optional[str] = None
     require_approval: Optional[bool] = None
     show_json_output: Optional[bool] = None
 
-    # Sanitization layers
     use_presidio_layer: Optional[bool] = None
     use_ner_layer: Optional[bool] = None
     use_ollama_layer: Optional[bool] = None
 
-    # RAG / chunking
     chunk_size: Optional[int] = None
     chunk_overlap: Optional[int] = None
     top_k_retrieval: Optional[int] = None
@@ -101,13 +91,11 @@ class SettingsUpdatePayload(BaseModel):
     audio_chunk_size: Optional[int] = None
     spreadsheet_chunk_size: Optional[int] = None
 
-    # Ingestion / models
     whisper_model: Optional[str] = None
     image_ocr_languages: Optional[list[str]] = None
     extract_embedded_images: Optional[bool] = None
     recursive_email_attachments: Optional[bool] = None
 
-    # Regulations
     default_active_regulations: Optional[list[str]] = None
 
 
@@ -216,7 +204,6 @@ async def test_llm_connection_endpoint(
     """
     settings = await _load_settings(db)
 
-    # Apply transient overrides without persisting them to the database.
     if payload.provider is not None:
         settings.llm_provider = payload.provider
     if payload.model is not None:
@@ -330,7 +317,6 @@ async def get_ingestion_health_endpoint(
         )
     else:
         model_name = (settings.whisper_model or "base").strip()
-        # Best-effort check: Whisper stores models in ~/.cache/whisper/{model}.pt
         cache_dir = Path(os.path.expanduser("~")) / ".cache" / "whisper"
         model_path = cache_dir / f"{model_name}.pt"
         if model_path.exists():
@@ -384,7 +370,6 @@ async def install_whisper_model_endpoint(
 
     def _load_model_sync() -> None:
         device = get_device()
-        # Loading the model will download it if it is not already cached.
         whisper.load_model(model_name, device=device)
 
     try:

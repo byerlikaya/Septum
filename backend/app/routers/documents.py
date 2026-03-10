@@ -59,17 +59,13 @@ _DOC_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 _MIME_TO_FORMAT: dict[str, str] = {
     "application/pdf": "pdf",
-    # Word / text-like
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
-    # Spreadsheets
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
-    # Images
     "image/png": "image",
     "image/jpeg": "image",
     "image/jpg": "image",
     "image/tiff": "image",
     "image/bmp": "image",
-    # Audio
     "audio/mpeg": "audio",
     "audio/mp3": "audio",
     "audio/wav": "audio",
@@ -89,8 +85,6 @@ _INGESTION_ROUTER = IngestionRouter(
     }
 )
 
-
-# langdetect is non-deterministic by default; fix the seed for stability.
 DetectorFactory.seed = 42
 
 
@@ -164,16 +158,11 @@ def _mime_to_format(mime_type: str) -> str:
     if fmt is not None:
         return fmt
 
-    # Generic fallbacks for MIME families where the ingester only cares about
-    # the high-level category rather than the exact subtype.
     if mime_type.startswith("audio/"):
         return "audio"
     if mime_type.startswith("image/"):
         return "image"
 
-    # Some browsers/uploaders default to application/octet-stream for audio
-    # uploads. Treat this as audio so that common formats such as .m4a are
-    # still handled by the audio ingester.
     if mime_type == "application/octet-stream":
         return "audio"
 
@@ -199,18 +188,14 @@ def _detect_mime_type(raw_bytes: bytes, fallback_mime_type: Optional[str] = None
     3. Fallback to the provided ``fallback_mime_type`` (typically the client-
        supplied ``Content-Type``) if detection fails.
     """
-    # 1) Best-effort: python-magic if the environment provides libmagic.
     if _magic is not None:
         try:
             mime = _magic.from_buffer(raw_bytes, mime=True)  # type: ignore[arg-type]
             if isinstance(mime, str) and mime:
                 return mime
         except Exception:  # noqa: BLE001
-            # Fall through to manual detection.
             pass
 
-    # 2) Minimal manual signatures (still content-based, no extensions used).
-    # Documents / images
     if raw_bytes.startswith(b"%PDF-"):
         return "application/pdf"
     if raw_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -218,29 +203,19 @@ def _detect_mime_type(raw_bytes: bytes, fallback_mime_type: Optional[str] = None
     if raw_bytes.startswith(b"\xff\xd8"):
         return "image/jpeg"
 
-    # Audio formats
-    # WAV: "RIFF" .... "WAVE"
     if raw_bytes.startswith(b"RIFF") and raw_bytes[8:12] == b"WAVE":
         return "audio/wav"
-    # OGG: "OggS"
     if raw_bytes.startswith(b"OggS"):
         return "audio/ogg"
-    # FLAC: "fLaC"
     if raw_bytes.startswith(b"fLaC"):
         return "audio/flac"
-    # MP3: ID3 header or MPEG frame sync (0xFFE)
     if raw_bytes.startswith(b"ID3"):
         return "audio/mpeg"
     if len(raw_bytes) > 2 and raw_bytes[0] == 0xFF and (raw_bytes[1] & 0xE0) == 0xE0:
         return "audio/mpeg"
-    # MP4/M4A and similar ISO-BMFF containers: "ftyp" box near the start.
     if len(raw_bytes) > 12 and raw_bytes[4:8] == b"ftyp":
         return "audio/mp4"
 
-    # 3) Last-resort: trust the provided fallback MIME type (usually the
-    # Content-Type header from the upload). This keeps detection primarily
-    # content-based, while still allowing ingestion of formats our simple
-    # signatures do not yet recognize.
     if fallback_mime_type and fallback_mime_type.strip():
         return fallback_mime_type.strip()
 
@@ -274,14 +249,10 @@ async def upload_document(
             detail="Uploaded file is empty.",
         )
 
-    # Detect MIME type from content only (python-magic if available, otherwise
-    # a small set of manual signatures for common formats such as PDF and audio).
-    # As a last resort, fall back to the client-provided Content-Type header.
     mime_type = _detect_mime_type(raw_bytes, getattr(file, "content_type", None))
 
     file_format = _mime_to_format(mime_type)
 
-    # Encrypt and persist the file.
     encrypted_bytes = encrypt(raw_bytes)
     safe_name = f"{uuid4().hex}"
     encrypted_path = _DOC_STORAGE_DIR / safe_name
@@ -289,10 +260,8 @@ async def upload_document(
 
     active_reg_ids = await _snapshot_active_regulations(db)
 
-    # Ingest, sanitize, chunk, and index.
     settings = await _load_settings(db)
 
-    # Use the ingestion router to extract raw text and metadata.
     ingestion_result = await _INGESTION_ROUTER.ingest(
         file_path=encrypted_path,
         mime_type=mime_type,
@@ -321,7 +290,6 @@ async def upload_document(
     await db.refresh(document)
 
     try:
-        # Build anonymization map and sanitizer.
         anon_map = AnonymizationMap(document_id=document.id, language=detected_language)
         sanitizer = PIISanitizer(settings=settings)
 
@@ -335,12 +303,8 @@ async def upload_document(
         sanitized_text = sanitize_result.sanitized_text
         entity_count = sanitize_result.entity_count
 
-        # Persist sanitized transcription text for downstream consumers such as
-        # audio preview UIs. This never stores raw PII, only the sanitized form.
         document.transcription_text = sanitized_text
 
-        # Simple character-based chunking; can be replaced with a more
-        # structure-aware chunker without changing API contracts.
         chunks: List[Chunk] = []
         chunk_size = max(settings.chunk_size, 1)
         overlap = max(min(settings.chunk_overlap, chunk_size - 1), 0)
@@ -377,7 +341,6 @@ async def upload_document(
         for chunk in chunks:
             await db.refresh(chunk)
 
-        # Update document statistics.
         document.chunk_count = len(chunks)
         document.entity_count = entity_count
         document.ingestion_status = "completed"
@@ -385,11 +348,8 @@ async def upload_document(
         await db.commit()
         await db.refresh(document)
 
-        # Store anonymization map in memory for chat-time deanonymization.
         set_document_map(document.id, anon_map)
 
-        # Build the FAISS index in a worker thread to keep the event loop
-        # responsive.
         if chunks:
             vector_store = VectorStore()
             await asyncio.to_thread(
@@ -400,8 +360,6 @@ async def upload_document(
             )
 
     except Exception as exc:  # noqa: BLE001
-        # Best-effort error handling: mark the document as failed without
-        # leaking any raw content in the stored message.
         document.ingestion_status = "failed"
         document.ingestion_error = f"{type(exc).__name__}: {exc}"
         await db.commit()
@@ -491,24 +449,19 @@ async def delete_document(
             detail="Document not found.",
         )
 
-    # Remove encrypted file from disk.
     try:
         path = Path(document.encrypted_path)
         if path.exists():
             path.unlink()
     except OSError:
-        # Best-effort; failures should not prevent DB cleanup.
         pass
 
-    # Remove FAISS index for this document.
     try:
         vector_store = VectorStore()
         vector_store.delete_index(document_id)
     except Exception:
-        # Best-effort; ignore index deletion errors.
         pass
 
-    # Drop in-memory anonymization map for this document.
     pop_document_map(document_id)
 
     await db.delete(document)

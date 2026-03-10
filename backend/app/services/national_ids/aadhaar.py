@@ -6,14 +6,13 @@ from .validator_base import BaseIDValidator
 
 
 class AadhaarValidator(BaseIDValidator):
-    """Validator for Indian Aadhaar numbers using the Verhoeff checksum algorithm."""
+    """Validator for Indian Aadhaar numbers using the Verhoeff checksum algorithm.
+
+    Aadhaar is 12 digits; validation is purely algorithmic (no regex pattern).
+    """
 
     name: Final[str] = "AADHAAR"
-    # Aadhaar numbers are 12 digits after normalization.
-    # Pattern is defined implicitly via algorithmic checks.
-    # We reuse BaseIDValidator's normalization but override pattern logic via algorithm.
 
-    # Verhoeff tables (multiplication and permutation).
     _D_TABLE: Final[List[List[int]]] = [
         [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
         [1, 2, 3, 4, 0, 6, 7, 8, 9, 5],
@@ -39,8 +38,6 @@ class AadhaarValidator(BaseIDValidator):
     ]
 
     def __init__(self) -> None:
-        # Aadhaar does not use a simple regex pattern; algorithmic validation
-        # is performed directly on the normalized digits.
         self.pattern = None  # type: ignore[assignment]
         super().__init__()
 
@@ -69,7 +66,6 @@ class AadhaarValidator(BaseIDValidator):
         if len(partial) != 11 or not partial.isdigit():
             raise ValueError("Aadhaar base must be 11 digits.")
 
-        # Brute-force search for a digit that makes the full number checksum zero.
         for candidate in range(10):
             full = f"{partial}{candidate}"
             if self._verhoeff_checksum(full) == 0:

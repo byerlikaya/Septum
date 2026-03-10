@@ -63,7 +63,6 @@ async def list_chunks(
     """Return sanitized chunks, optionally filtered by document."""
     stmt = select(Chunk)
     if document_id is not None:
-        # Ensure the document exists to provide a clearer error on invalid IDs.
         doc_result = await db.execute(
             select(Document).where(Document.id == document_id)
         )

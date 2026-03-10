@@ -58,6 +58,7 @@ class LLMContextRecognizer(EntityRecognizer):
         entities: List[str] | None = None,
         nlp_artifacts: object | None = None,
     ) -> List[RecognizerResult]:
+        """Run Ollama with the rule's llm_prompt and return RecognizerResult spans."""
         if entities and not set(entities).intersection(self.supported_entities):
             return []
         if not use_ollama_enabled() or not text or not self._config.llm_prompt:
@@ -131,9 +132,8 @@ class RecognizerRegistry:
         self,
         active_regs: Sequence[RegulationRuleset],
     ) -> List[EntityRecognizer]:
+        """Load recognizers from built-in packs; package path is derived from __name__."""
         recognizers: List[EntityRecognizer] = []
-        # Derive the base package from this module's name so it works whether
-        # the application is imported as `app.*` or `backend.app.*`.
         base_pkg = __name__.rsplit(".", 1)[0]
         for reg in active_regs:
             module_path = f"{base_pkg}.{reg.id}.recognizers"
@@ -173,6 +173,7 @@ class RecognizerRegistry:
         self,
         custom_recognizers: Sequence[CustomRecognizerModel],
     ) -> List[EntityRecognizer]:
+        """Build Presidio recognizers from custom recognizer models."""
         recognizers: List[EntityRecognizer] = []
         for custom in custom_recognizers:
             if not custom.is_active:
@@ -199,6 +200,7 @@ class RecognizerRegistry:
     def _build_regex_recognizer(
         custom: CustomRecognizerModel,
     ) -> PatternRecognizer | None:
+        """Build a PatternRecognizer from a regex-based custom recognizer."""
         try:
             compiled = re.compile(custom.pattern or "")
         except re.error:
@@ -225,9 +227,8 @@ class RecognizerRegistry:
     def _build_keyword_recognizer(
         custom: CustomRecognizerModel,
     ) -> PatternRecognizer:
+        """Build a PatternRecognizer from a keyword-list custom recognizer."""
         keywords: List[str] = list(custom.keywords or [])
-        # Build a simple alternation pattern with word boundaries. Keywords are
-        # escaped to avoid unintended regex behavior.
         escaped = [re.escape(k) for k in keywords if k]
         if not escaped:
             raise ValueError("Keyword recognizer requires at least one keyword.")
@@ -248,6 +249,7 @@ class RecognizerRegistry:
     def _build_llm_recognizer(
         custom: CustomRecognizerModel,
     ) -> LLMContextRecognizer:
+        """Build an LLMContextRecognizer from an llm_prompt custom recognizer."""
         config = LLMContextConfig(
             name=custom.name,
             entity_type=custom.entity_type,

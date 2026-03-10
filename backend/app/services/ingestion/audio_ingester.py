@@ -63,12 +63,6 @@ class AudioIngester(BaseIngester):
 
     def _extract_sync(self, data: bytes, filename: str) -> IngestionResult:
         """Synchronous helper for :meth:`extract`, run in a worker thread."""
-
-        # For ad-hoc extraction from raw bytes, we delegate to Whisper's own
-        # loading pipeline by writing to a temporary file and calling
-        # ``model.transcribe`` with a file path. This helper is intended only
-        # for local/manual usage and MUST NOT be used for the main encrypted
-        # ingestion pipeline.
         import tempfile
 
         suffix = Path(filename).suffix or ".m4a"
@@ -94,8 +88,6 @@ class AudioIngester(BaseIngester):
         if not text.strip():
             warnings.append("No transcription produced by Whisper.")
 
-        # If segment timings are available, approximate duration from the last
-        # segment's ``end`` field.
         duration_seconds = 0.0
         if segments:
             last_end = segments[-1].get("end")
@@ -170,7 +162,6 @@ class AudioIngester(BaseIngester):
                 raw_segments=[],
             )
 
-        # Approximate duration in seconds based on Whisper's sample rate.
         duration_seconds = float(len(waveform) / _WHISPER_SAMPLE_RATE)
 
         text, language, segments = self._transcribe(waveform)
@@ -195,15 +186,7 @@ class AudioIngester(BaseIngester):
 
     def _decode_audio(self, audio_bytes: bytes, *, mime_type: str) -> np.ndarray:
         """Decode arbitrary encoded audio bytes into a mono float waveform."""
-
-        # The implementation mirrors Whisper's own load_audio helper, but reads
-        # from in-memory bytes via ffmpeg pipes instead of a file path so that
-        # decrypted audio never hits disk.
         input_kwargs: Dict[str, Any] = {}
-
-        # Hint container format for streams that often arrive as application/octet-stream
-        # (for example .m4a / MP4 audio). This helps ffmpeg correctly detect the
-        # stream when reading from stdin.
         if mime_type in ("audio/mp4", "audio/x-m4a", "application/octet-stream"):
             input_kwargs["f"] = "mp4"
 
@@ -236,8 +219,6 @@ class AudioIngester(BaseIngester):
         import whisper  # type: ignore[import]
 
         device = get_device()
-        # Whisper accepts any torch device string; MPS and CUDA are both
-        # accelerated backends, CPU is the safe fallback.
         self._model = whisper.load_model(self._model_name, device=device)
         return self._model
 
@@ -248,23 +229,17 @@ class AudioIngester(BaseIngester):
         """Run Whisper transcription on the given waveform."""
 
         model = self._load_model()
-        # Let Whisper perform automatic language detection; this returns
-        # a language code such as "en" or "tr" alongside the transcript.
         result = model.transcribe(audio)
 
         text = result.get("text") or ""
         language = result.get("language")
         segments_raw = result.get("segments") or []
 
-        # Normalise segments into plain dictionaries to avoid carrying
-        # any non-serialisable objects around the pipeline. These may
-        # still contain raw text, so they must not be logged or persisted.
         segments: List[Dict[str, Any]] = []
         for seg in segments_raw:
             if isinstance(seg, dict):
                 segments.append(seg)
             else:
-                # Fallback: best-effort conversion.
                 segments.append(dict(seg))  # type: ignore[arg-type]
 
         return text, language, segments

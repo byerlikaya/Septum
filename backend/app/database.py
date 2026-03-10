@@ -40,9 +40,10 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
-    """Create all tables and seed default application settings and regulations."""
-    # Import models so that metadata is fully populated before create_all
-    # (Base is already imported above; this call ensures mappings are registered)
+    """Create all tables and seed default application settings and regulations.
+
+    Model metadata must be fully populated (via imports) before create_all.
+    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -54,7 +55,6 @@ async def _seed_defaults() -> None:
     from sqlalchemy import func
 
     async with async_session_maker() as session:
-        # Seed AppSettings (single row with id=1)
         settings_result = await session.execute(
             select(AppSettings).where(AppSettings.id == 1)
         )
@@ -112,7 +112,6 @@ async def _seed_defaults() -> None:
             )
             session.add(settings)
 
-        # Seed built-in regulations if not present
         existing_regs = await session.execute(
             select(RegulationRuleset.id)
             .where(RegulationRuleset.is_builtin.is_(True))
@@ -228,7 +227,7 @@ def _builtin_regulations() -> list[RegulationRuleset]:
         ),
         RegulationRuleset(
             id="kvkk",
-            display_name="Kişisel Verileri Koruma Kanunu",
+            display_name="Personal Data Protection Law (Turkey)",
             region="Turkey",
             description="Turkish Personal Data Protection Law (KVKK).",
             official_url="https://kvkk.gov.tr/",

@@ -31,7 +31,6 @@ class NERModelRegistry:
 
     _loaded_models: Dict[str, object] = field(default_factory=dict)
 
-    # Default language → model mapping. Keys are ISO 639-1 language codes.
     DEFAULT_MODEL_MAP: Dict[str, str] = field(
         default_factory=lambda: {
             "en": "dslim/bert-base-NER",
@@ -55,7 +54,6 @@ class NERModelRegistry:
         if lang not in self._loaded_models:
             model_name = self._get_model_name(lang)
             device = get_device()
-            # transformers expects -1 for CPU, integer index otherwise.
             device_index = -1 if device == "cpu" else 0
             self._loaded_models[lang] = pipeline(
                 "ner",

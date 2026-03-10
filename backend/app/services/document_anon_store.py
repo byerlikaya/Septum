@@ -23,10 +23,8 @@ from .anonymization_map import AnonymizationMap
 
 logger = logging.getLogger(__name__)
 
-# In-memory cache (document_id -> AnonymizationMap).
 _document_maps: Dict[int, AnonymizationMap] = {}
 
-# Directory for encrypted map files; shared across workers.
 _ANON_MAP_DIR = Path(
     os.getenv("ANON_MAP_STORAGE_DIR", "./anon_maps")
 ).resolve()
@@ -66,7 +64,6 @@ def set_document_map(document_id: int, anon_map: AnonymizationMap) -> None:
         encrypted_bytes = encrypt(plaintext, associated_data=associated_data)
         _map_path(document_id).write_bytes(encrypted_bytes)
     except OSError:
-        # Best-effort persistence; in-memory map still works in single process.
         pass
 
 

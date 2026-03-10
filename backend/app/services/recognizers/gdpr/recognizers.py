@@ -21,7 +21,6 @@ def _email_recognizer() -> EntityRecognizer:
 
 
 def _ip_address_recognizer() -> EntityRecognizer:
-    # Simple IPv4 matcher; IPv6 and edge cases are handled by other layers.
     return ValidatedPatternRecognizer(
         entity_type="IP_ADDRESS",
         config=RegexPatternConfig(
@@ -36,8 +35,6 @@ def _ip_address_recognizer() -> EntityRecognizer:
 
 
 def _phone_recognizer() -> EntityRecognizer:
-    # Generic international phone number pattern; more specific country-level
-    # logic (for example TCKN validators) lives in dedicated recognizers.
     return ValidatedPatternRecognizer(
         entity_type="PHONE_NUMBER",
         config=RegexPatternConfig(

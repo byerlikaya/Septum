@@ -10,7 +10,6 @@ class CPFValidator(BaseIDValidator):
     """Validator for Brazilian CPF (Cadastro de Pessoas Físicas) numbers."""
 
     name: Final[str] = "CPF"
-    # Normalized form is 11 digits.
     pattern: Final[Pattern[str]] = re.compile(r"^\d{11}$")
 
     def _validate_algorithmically(self, normalized: str) -> bool:
@@ -20,7 +19,6 @@ class CPFValidator(BaseIDValidator):
 
         digits: List[int] = [int(ch) for ch in normalized]
 
-        # Reject CPFs with all digits equal (e.g., 000..., 111...).
         if len(set(digits)) == 1:
             return False
 
@@ -35,12 +33,10 @@ class CPFValidator(BaseIDValidator):
         if len(first_nine) != 9:
             raise ValueError("CPF check digit computation requires exactly 9 digits.")
 
-        # First check digit.
         sum1 = sum(d * weight for d, weight in zip(first_nine, range(10, 1, -1)))
         rem1 = (sum1 * 10) % 11
         d10 = 0 if rem1 == 10 else rem1
 
-        # Second check digit.
         extended = first_nine + [d10]
         sum2 = sum(d * weight for d, weight in zip(extended, range(11, 1, -1)))
         rem2 = (sum2 * 10) % 11

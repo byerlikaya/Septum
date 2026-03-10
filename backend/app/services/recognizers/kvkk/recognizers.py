@@ -10,8 +10,6 @@ from ..base_recognizer import RegexPatternConfig, ValidatedPatternRecognizer
 
 
 def _turkish_national_id_recognizer() -> EntityRecognizer:
-    # Structural pattern only; algorithmic validation is handled by the
-    # dedicated TCKN validator-based recognizer in the sanitizer layer.
     return ValidatedPatternRecognizer(
         entity_type="NATIONAL_ID",
         config=RegexPatternConfig(

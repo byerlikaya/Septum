@@ -92,15 +92,11 @@ def extract_json_array(text: str) -> list[dict[str, Any]]:
     stripped = text.strip()
     match = re.search(r"\[[\s\S]*\]", stripped)
     if not match:
-        logger.warning("Ollama response contained no JSON array; raw (first 300 chars): %s", stripped[:300])
+        logger.warning("Ollama response contained no JSON array; length=%d", len(stripped))
         return []
     try:
         parsed = json.loads(match.group(0))
         return parsed if isinstance(parsed, list) else []
     except json.JSONDecodeError as e:
-        logger.warning(
-            "Ollama JSON parse failed: %s; snippet: %s",
-            e,
-            match.group(0)[:200],
-        )
+        logger.warning("Ollama JSON parse failed: %s", e)
         return []

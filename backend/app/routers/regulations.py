@@ -224,7 +224,6 @@ async def create_custom_recognizer(
     data = payload.model_dump()
     detection_method = data["detection_method"]
 
-    # Validate regex syntax eagerly.
     if detection_method == "regex" and data.get("pattern"):
         import re
 
@@ -268,8 +267,6 @@ async def update_custom_recognizer(
     recognizer = await _get_custom_or_404(db, recognizer_id)
     update_data = payload.model_dump(exclude_unset=True)
 
-    # If detection_method or pattern is changing and we end up with a regex
-    # configuration, validate the pattern before saving.
     detection_method = update_data.get("detection_method", recognizer.detection_method)
     pattern = update_data.get("pattern", recognizer.pattern)
     if detection_method == "regex" and pattern:
@@ -326,8 +323,6 @@ async def test_custom_recognizer(
     recognizer_model = await _get_custom_or_404(db, recognizer_id)
 
     registry = RecognizerRegistry()
-    # Reuse the internal helper for building recognizers from CustomRecognizer
-    # models to avoid duplicating mapping logic.
     recognizers = registry._from_custom_recognizers(  # type: ignore[attr-defined]
         [recognizer_model]
     )
@@ -335,8 +330,6 @@ async def test_custom_recognizer(
         return CustomRecognizerTestResponse(matches=[])
 
     recognizer = recognizers[0]
-    # We intentionally use 'en' here; the recognizer itself may perform
-    # language-agnostic matching (e.g. regex, keyword).
     results = recognizer.analyze(
         text=payload.sample_text,
         entities=[recognizer_model.entity_type],

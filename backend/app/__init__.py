@@ -8,8 +8,6 @@ LLM provider API keys are picked up automatically in development.
 
 from dotenv import load_dotenv
 
-
-# Load variables from `.env` in the backend directory (and parents) if present.
 load_dotenv()
 
 

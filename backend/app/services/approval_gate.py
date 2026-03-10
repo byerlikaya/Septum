@@ -67,7 +67,6 @@ class _ApprovalSession:
     created_at: datetime
     event: asyncio.Event
     decision: Optional[ApprovalDecision] = None
-    # Legacy metadata kept for compatibility with the v4-style API.
     masked_prompt: Optional[str] = None
     entity_count: Optional[int] = None
 
@@ -96,9 +95,6 @@ class ApprovalGate:
         self._sessions: Dict[str, _ApprovalSession] = {}
         self._lock = asyncio.Lock()
 
-    # ------------------------------------------------------------------
-    # Session lifecycle
-    # ------------------------------------------------------------------
     async def open_session(
         self,
         session_id: str,
@@ -125,15 +121,10 @@ class ApprovalGate:
         )
 
         async with self._lock:
-            # Replacing an existing session is allowed but logged, as it
-            # typically indicates a retried request.
             if session_id in self._sessions:
                 logger.warning("Replacing existing approval session: %s", session_id)
             self._sessions[session_id] = session
 
-    # ------------------------------------------------------------------
-    # Backwards-compatible helpers (v4-style API)
-    # ------------------------------------------------------------------
     def create(
         self,
         session_id: str,
@@ -148,16 +139,10 @@ class ApprovalGate:
         event loop so that a subsequent ``wait_for_approval`` call can always
         find it.
         """
-
-        # Represent each masked chunk as a simple ApprovalChunk instance.
         chunks: List[ApprovalChunk] = [
             ApprovalChunk(id=None, document_id=None, text=chunk)
             for chunk in masked_chunks
         ]
-
-        # Because this method performs no ``await`` operations, it executes
-        # atomically within the current event loop tick and is safe to update
-        # the session map without acquiring the asyncio lock.
         event = asyncio.Event()
         created_at = datetime.now(tz=timezone.utc)
         session = _ApprovalSession(

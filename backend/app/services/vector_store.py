@@ -33,11 +33,10 @@ from cryptography.exceptions import InvalidTag
 
 
 def _normalize_embeddings(embeddings: np.ndarray) -> np.ndarray:
-    """L2-normalize embedding vectors along the last dimension."""
+    """L2-normalize embedding vectors along the last dimension; zero vectors unchanged."""
     if embeddings.ndim != 2:
         raise ValueError("embeddings must be a 2D array of shape (n_samples, dim).")
     norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-    # Avoid division by zero; zero vectors remain zero.
     norms[norms == 0.0] = 1.0
     return embeddings / norms
 
@@ -68,9 +67,6 @@ class VectorStore:
         """Ensure the base directory exists."""
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
-    # -------------------------------------------------------------------------
-    # Public API
-    # -------------------------------------------------------------------------
     def index_document(
         self,
         document_id: int,
@@ -96,14 +92,11 @@ class VectorStore:
             raise ValueError("chunk_ids and texts must have the same length.")
 
         if not chunk_ids:
-            # Nothing to index; remove any existing index file.
             self.delete_index(document_id)
             return
 
         embeddings = self._encode_texts(texts)
         dim = embeddings.shape[1]
-
-        # Use inner-product over normalized vectors for cosine similarity.
         base_index = faiss.IndexFlatIP(dim)
         index = faiss.IndexIDMap(base_index)
 
@@ -159,17 +152,12 @@ class VectorStore:
             try:
                 path.unlink()
             except OSError:
-                # Best-effort; failures here should not crash callers.
                 pass
 
-    # -------------------------------------------------------------------------
-    # Internal helpers
-    # -------------------------------------------------------------------------
     def _get_model(self) -> SentenceTransformer:
         """Return the lazy-loaded multilingual MiniLM encoder."""
         if self._model is None:
             device = get_device()
-            # SentenceTransformer accepts device identifiers like "cpu", "cuda", "mps".
             self._model = SentenceTransformer(self.model_name, device=device)
         return self._model
 
@@ -192,12 +180,8 @@ class VectorStore:
 
     def _save_index(self, document_id: int, index: faiss.Index) -> None:
         """Serialize, encrypt, and write a FAISS index to disk."""
-        # Serialize the index to a bytes blob.
         raw_bytes = faiss.serialize_index(index)
-        # Ensure we pass a concrete bytes object into the crypto layer.
         raw_bytes_b = bytes(raw_bytes)
-
-        # Bind the ciphertext to the document_id as associated data.
         associated_data = str(document_id).encode("utf-8")
         encrypted = encrypt(raw_bytes_b, associated_data=associated_data)
 
@@ -214,17 +198,12 @@ class VectorStore:
         try:
             raw_bytes = decrypt(encrypted, associated_data=associated_data)
         except InvalidTag:
-            # The index file was created with a different encryption key or
-            # associated data. Treat it as corrupted and act as if no index
-            # exists, allowing callers to trigger a reindex on the next run.
             try:
                 path.unlink()
             except OSError:
-                # Best-effort cleanup; decryption failure should not crash.
                 pass
             return None
 
-        # faiss.deserialize_index expects a 1D uint8 array, not raw bytes.
         buffer = np.frombuffer(raw_bytes, dtype="uint8")
         return faiss.deserialize_index(buffer)
 
@@ -272,7 +251,6 @@ class VectorStoreService:
             self.vector_store.delete_index(document_id)
             return
 
-        # The underlying VectorStore is synchronous; call it directly.
         self.vector_store.index_document(document_id=document_id, chunk_ids=chunk_ids, texts=texts)
 
     async def retrieve(
@@ -290,8 +268,6 @@ class VectorStoreService:
         results = self.vector_store.search(document_id=document_id, query=query, top_k=k)
         retrieved: List[object] = []
         for chunk_id, score in results:
-            # Simple container; callers can re-resolve the full chunk
-            # content from the database using ``chunk_id`` if needed.
             doc = type(
                 "RetrievedChunk",
                 (),
