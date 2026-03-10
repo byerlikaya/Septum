@@ -39,6 +39,7 @@ out/
 .vscode/
 .idea/
 *.iml
+*.swp
 
 # Project-specific
 .cursor/
