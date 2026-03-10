@@ -1,9 +1,9 @@
 ![Backend](https://img.shields.io/badge/backend-FastAPI-blue)
-![Frontend](https://img.shields.io/badge/frontend-Next.js%2014-black)
+![Frontend](https://img.shields.io/badge/frontend-Next.js%2016-black)
 ![Testler](https://img.shields.io/badge/testler-pytest-informational)
 ![Kapsam](https://img.shields.io/badge/kapsam-pytest--cov-lightgrey)
 ![Odak](https://img.shields.io/badge/odak-Gizlilik--Öncelikli-green)
-[![English](https://img.shields.io/badge/lang-EN-blue)](README.md)
+[![İngilizce](https://img.shields.io/badge/lang-EN-blue)](README.md)
 
 ## Septum — Gizlilik Odaklı Yapay Zekâ Asistanı
 
@@ -103,7 +103,7 @@ Her yerde ortak amaç: **LLM gücünden faydalanırken, kişisel veriyi kurum s�
   - Doküman işleme, anonimleştirme, şifreleme ve LLM entegrasyonu burada çalışır.
   - Tüm veri işleme ve PII koruma mantığı sunucu tarafındadır.
 
-- **Frontend**: Next.js 14 + React  
+- **Frontend**: Next.js 16 + React 19  
   - Chat, doküman yönetimi, ayarlar ve regülasyon ekranlarını sunan web arayüzü.
   - Backend ile HTTP ve SSE (stream) üzerinden haberleşir.
 
