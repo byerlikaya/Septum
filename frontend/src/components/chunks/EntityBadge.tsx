@@ -1,4 +1,5 @@
 import { Settings2 } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 
 const MASTER_ENTITY_TYPES: Set<string> = new Set([
   "PERSON_NAME",
@@ -105,13 +106,16 @@ export function EntityBadge({
   entityType,
   regulations
 }: EntityBadgeProps): JSX.Element {
+  const t = useI18n();
   const isCustom = !MASTER_ENTITY_TYPES.has(entityType.toUpperCase());
   const classes = getEntityBadgeClasses(entityType);
 
   const tooltip =
     regulations.length > 0
-      ? `Detected under: ${regulations.join(", ")}`
-      : "Detected entity placeholder";
+      ? t("chunks.entity.detectedUnder", {
+          regs: regulations.join(", ")
+        })
+      : t("chunks.entity.placeholder");
 
   return (
     <span

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 
 type RegulationRuleset = {
   id: string;
@@ -69,6 +70,7 @@ type TestStatus =
   | { state: "error"; message: string };
 
 export default function RegulationsPage(): JSX.Element {
+  const t = useI18n();
   const [rulesets, setRulesets] = useState<RegulationRuleset[]>([]);
   const [rulesetsLoading, setRulesetsLoading] = useState<boolean>(true);
   const [rulesetsError, setRulesetsError] = useState<string | null>(null);
@@ -105,7 +107,7 @@ export default function RegulationsPage(): JSX.Element {
       } catch (error) {
         // eslint-disable-next-line no-console
         console.error(error);
-        const message = "An error occurred while loading regulation settings.";
+        const message = t("errors.regulations.load");
         setRulesetsError(message);
         setCustomError(message);
       } finally {
@@ -150,7 +152,7 @@ export default function RegulationsPage(): JSX.Element {
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error(error);
-      setRulesetsError("An error occurred while updating regulation rules.");
+      setRulesetsError(t("errors.regulations.update"));
     } finally {
       setTogglingId(null);
     }
@@ -202,10 +204,10 @@ export default function RegulationsPage(): JSX.Element {
     <div className="flex h-full min-w-0 flex-col gap-4 text-slate-50">
       <header className="shrink-0 border-b border-slate-800 pb-4">
         <h1 className="text-xl font-semibold tracking-tight">
-          Regulation Rules &amp; Custom Rules
+          {t("regulations.page.title")}
         </h1>
         <p className="mt-1 text-sm text-slate-300">
-          Activate built-in regulation packs and define custom recognizers for your specific privacy policies.
+          {t("regulations.page.subtitle")}
         </p>
       </header>
 
@@ -214,20 +216,21 @@ export default function RegulationsPage(): JSX.Element {
           <div className="flex items-center justify-between gap-4">
             <div>
               <h2 className="text-sm font-semibold text-slate-50">
-                Built-in Regulation Rulesets
+                {t("regulations.builtin.title")}
               </h2>
               <p className="text-xs text-slate-400">
-                Toggle global privacy regulations on or off. Active regulations
-                are merged into a single sanitizer policy.
+                {t("regulations.builtin.subtitle")}
               </p>
             </div>
             <div className="rounded-md border border-border bg-slate-900 px-3 py-1.5 text-[11px] text-slate-200">
               <span className="font-medium">
-                Active: {activeEntitySummary.activeCount}
+                {t("regulations.builtin.summary.active")}:{" "}
+                {activeEntitySummary.activeCount}
               </span>
               <span className="mx-2 text-slate-500">•</span>
               <span className="font-medium">
-                Combined entity types: {activeEntitySummary.combinedEntityCount}
+                {t("regulations.builtin.summary.entities")}:{" "}
+                {activeEntitySummary.combinedEntityCount}
               </span>
             </div>
           </div>
@@ -240,7 +243,7 @@ export default function RegulationsPage(): JSX.Element {
 
           {rulesetsLoading ? (
             <div className="flex items-center justify-center rounded-md border border-slate-800 bg-slate-900/60 py-8 text-xs text-slate-200">
-              Regulation rules are loading...
+              {t("regulations.builtin.loading")}
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -261,16 +264,16 @@ export default function RegulationsPage(): JSX.Element {
                           </h3>
                           {ruleset.is_builtin && (
                             <span className="rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-300">
-                              Built‑in
+                              {t("regulations.builtin.badge.builtin")}
                             </span>
                           )}
                         </div>
                         <p className="text-[11px] text-slate-400">
-                          Region: {ruleset.region}
+                          {t("regulations.builtin.region")}: {ruleset.region}
                         </p>
-                        {ruleset.description && (
+                        {ruleset.is_builtin && (
                           <p className="line-clamp-2 text-[11px] text-slate-400">
-                            {ruleset.description}
+                            {t(`regulations.desc.${ruleset.id}` as never)}
                           </p>
                         )}
                       </div>
@@ -291,7 +294,7 @@ export default function RegulationsPage(): JSX.Element {
                     <div className="space-y-1 text-[11px] text-slate-300">
                       <p>
                         <span className="font-medium">{entityCount}</span>{" "}
-                        entity types covered.
+                        {t("regulations.builtin.entityCountSuffix")}
                       </p>
                       {ruleset.official_url && (
                         <a
@@ -300,7 +303,7 @@ export default function RegulationsPage(): JSX.Element {
                           rel="noreferrer"
                           className="inline-flex items-center text-[11px] text-sky-400 hover:text-sky-300"
                         >
-                          View official text
+                          {t("regulations.builtin.officialLink")}
                         </a>
                       )}
                     </div>
@@ -312,8 +315,8 @@ export default function RegulationsPage(): JSX.Element {
                     >
                       <span>
                         {isExpanded
-                          ? "Hide entity types"
-                          : "View entity types"}
+                          ? t("regulations.builtin.hideEntities")
+                          : t("regulations.builtin.viewEntities")}
                       </span>
                       <span
                         className={`ml-1 inline-block transform transition-transform ${
@@ -349,12 +352,10 @@ export default function RegulationsPage(): JSX.Element {
           <div className="flex items-center justify-between gap-4">
             <div>
               <h2 className="text-sm font-semibold text-slate-50">
-                Custom Rules
+                {t("regulations.custom.title")}
               </h2>
               <p className="text-xs text-slate-400">
-                Define organization-specific entities using regex, keyword
-                lists, or local LLM prompts. Custom rules are merged with
-                built-in regulations.
+                {t("regulations.custom.subtitle")}
               </p>
             </div>
             <button
@@ -362,7 +363,7 @@ export default function RegulationsPage(): JSX.Element {
               onClick={handleOpenCreatePanel}
               className="inline-flex items-center rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-sky-500"
             >
-              Add New Rule
+              {t("regulations.custom.addButton")}
             </button>
           </div>
 
@@ -375,26 +376,33 @@ export default function RegulationsPage(): JSX.Element {
           <div className="overflow-hidden rounded-lg border border-border bg-slate-950/60">
             {customLoading ? (
               <div className="flex items-center justify-center py-8 text-xs text-slate-200">
-                Custom rules are loading...
+                {t("regulations.custom.loading")}
               </div>
             ) : customRecognizers.length === 0 ? (
               <div className="flex items-center justify-between px-4 py-6 text-xs text-slate-300">
-                <span>
-                  No custom rules have been defined yet. Use &ldquo;Add New
-                  Rule&rdquo; to create your first rule.
-                </span>
+                <span>{t("regulations.custom.empty")}</span>
               </div>
             ) : (
               <table className="min-w-full text-left text-xs text-slate-200">
                 <thead className="border-b border-border/80 bg-slate-950/80 text-[11px] uppercase tracking-wide text-slate-400">
                   <tr>
-                    <th className="px-3 py-2 font-medium">Name</th>
-                    <th className="px-3 py-2 font-medium">Entity Type</th>
-                    <th className="px-3 py-2 font-medium">Method</th>
-                    <th className="px-3 py-2 font-medium">Placeholder</th>
-                    <th className="px-3 py-2 font-medium">Status</th>
+                    <th className="px-3 py-2 font-medium">
+                      {t("regulations.custom.table.name")}
+                    </th>
+                    <th className="px-3 py-2 font-medium">
+                      {t("regulations.custom.table.entityType")}
+                    </th>
+                    <th className="px-3 py-2 font-medium">
+                      {t("regulations.custom.table.method")}
+                    </th>
+                    <th className="px-3 py-2 font-medium">
+                      {t("regulations.custom.table.placeholder")}
+                    </th>
+                    <th className="px-3 py-2 font-medium">
+                      {t("regulations.custom.table.status")}
+                    </th>
                     <th className="px-3 py-2 text-right font-medium">
-                      Actions
+                      {t("regulations.custom.table.actions")}
                     </th>
                   </tr>
                 </thead>
@@ -411,11 +419,12 @@ export default function RegulationsPage(): JSX.Element {
                         {rule.entity_type}
                       </td>
                       <td className="px-3 py-2 align-top text-[11px] text-slate-200">
-                        {rule.detection_method === "regex" && "Regex pattern"}
+                        {rule.detection_method === "regex" &&
+                          t("regulations.custom.method.regex")}
                         {rule.detection_method === "keyword_list" &&
-                          "Keyword list"}
+                          t("regulations.custom.method.keyword")}
                         {rule.detection_method === "llm_prompt" &&
-                          "LLM prompt"}
+                          t("regulations.custom.method.llm")}
                       </td>
                       <td className="px-3 py-2 align-top font-mono text-[10px] text-slate-300">
                         [{rule.placeholder_label}_1]
@@ -428,7 +437,9 @@ export default function RegulationsPage(): JSX.Element {
                               : "bg-slate-700/40 text-slate-300"
                           }`}
                         >
-                          {rule.is_active ? "Active" : "Inactive"}
+                          {rule.is_active
+                            ? t("regulations.custom.status.active")
+                            : t("regulations.custom.status.inactive")}
                         </span>
                       </td>
                       <td className="px-3 py-2 align-top text-right text-[11px]">
@@ -437,7 +448,7 @@ export default function RegulationsPage(): JSX.Element {
                           onClick={() => handleOpenEditPanel(rule)}
                           className="rounded-md px-2 py-0.5 text-[11px] text-sky-400 hover:bg-slate-800 hover:text-sky-300"
                         >
-                          Edit
+                          {t("regulations.custom.action.edit")}
                         </button>
                       </td>
                     </tr>
@@ -469,6 +480,7 @@ function CustomRuleBuilderPanel({
   onSaved,
   onDeleted
 }: CustomRuleBuilderPanelProps): JSX.Element | null {
+  const t = useI18n();
   const [form, setForm] = useState<CustomRuleFormState | null>(null);
   const [ephemeralId, setEphemeralId] = useState<number | undefined>(undefined);
   const [saving, setSaving] = useState<boolean>(false);
@@ -618,20 +630,23 @@ function CustomRuleBuilderPanel({
   };
 
   const handleTestRule = async (): Promise<void> => {
-      if (!form.sample_text.trim()) {
+    if (!form.sample_text.trim()) {
       setTestStatus({
         state: "error",
-        message: "Please provide sample text before running a test."
+        message: t("regulations.panel.test.noSample")
       });
       setTestMatches([]);
       return;
     }
 
-    if (!form.name.trim() || !form.entity_type.trim() || !form.placeholder_label.trim()) {
+    if (
+      !form.name.trim() ||
+      !form.entity_type.trim() ||
+      !form.placeholder_label.trim()
+    ) {
       setTestStatus({
         state: "error",
-        message:
-          "Please fill in Name, Entity Type, and Placeholder Label before testing."
+        message: t("regulations.panel.test.missingRequired")
       });
       setTestMatches([]);
       return;
@@ -666,7 +681,7 @@ function CustomRuleBuilderPanel({
       if (!ruleId) {
         setTestStatus({
           state: "error",
-          message: "Rule ID could not be resolved; the test cannot be executed."
+          message: t("regulations.panel.test.noRuleId")
         });
         setTestMatches([]);
         return;
@@ -685,19 +700,21 @@ function CustomRuleBuilderPanel({
         if (form.detection_method === "llm_prompt") {
           setTestStatus({
             state: "success",
-            message:
-              "LLM-prompt-based custom recognizers are currently implemented as placeholders in the backend, so matches may not be returned yet."
+            message: t("regulations.panel.test.noMatchesLlm")
           });
         } else {
           setTestStatus({
             state: "success",
-            message: "No matches were found."
+            message: t("regulations.panel.test.noMatches")
           });
         }
       } else {
         setTestStatus({
           state: "success",
-          message: `${matches.length} match(es) found.`
+          message: t("regulations.panel.test.successWithCount").replace(
+            "{count}",
+            String(matches.length)
+          )
         });
       }
     } catch (error) {
@@ -705,8 +722,7 @@ function CustomRuleBuilderPanel({
       console.error(error);
       setTestStatus({
         state: "error",
-        message:
-          "An error occurred while testing the rule. If this is a regex rule, please ensure the pattern is valid."
+        message: t("regulations.panel.test.error.generic")
       });
       setTestMatches([]);
     } finally {
@@ -715,11 +731,14 @@ function CustomRuleBuilderPanel({
   };
 
   const handleSave = async (): Promise<void> => {
-    if (!form.name.trim() || !form.entity_type.trim() || !form.placeholder_label.trim()) {
+    if (
+      !form.name.trim() ||
+      !form.entity_type.trim() ||
+      !form.placeholder_label.trim()
+    ) {
       setTestStatus({
         state: "error",
-        message:
-          "Please fill in Name, Entity Type, and Placeholder Label before saving."
+        message: t("regulations.panel.save.missingRequired")
       });
       return;
     }
@@ -752,7 +771,7 @@ function CustomRuleBuilderPanel({
       console.error(error);
       setTestStatus({
         state: "error",
-        message: "An error occurred while saving the rule."
+        message: t("regulations.panel.save.error")
       });
     } finally {
       setSaving(false);
@@ -776,7 +795,7 @@ function CustomRuleBuilderPanel({
       console.error(error);
       setTestStatus({
         state: "error",
-        message: "An error occurred while deleting the rule."
+        message: t("regulations.panel.delete.error")
       });
     } finally {
       setDeletePending(false);
@@ -789,10 +808,12 @@ function CustomRuleBuilderPanel({
         <div className="mb-3 flex items-center justify-between gap-3 border-b border-border pb-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-50">
-              {isCreateMode ? "New Custom Rule" : "Edit Custom Rule"}
+              {isCreateMode
+                ? t("regulations.panel.createTitle")
+                : t("regulations.panel.editTitle")}
             </h2>
             <p className="text-[11px] text-slate-400">
-              Define the entity label, detection method, and context words. You can test the rule on sample text before saving.
+              {t("regulations.panel.description")}
             </p>
           </div>
           <button
@@ -802,28 +823,28 @@ function CustomRuleBuilderPanel({
             }}
             className="rounded-md px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
           >
-            Close
+            {t("regulations.panel.close")}
           </button>
         </div>
 
         <div className="flex h-full flex-col gap-3 overflow-y-auto pb-4">
           <div className="space-y-1.5">
             <label className="text-[11px] font-medium text-slate-200">
-              Rule Name
+              {t("regulations.panel.field.ruleName")}
             </label>
             <input
               type="text"
               className="w-full rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
               value={form.name}
               onChange={(event) => handleFieldChange("name", event.target.value)}
-              placeholder="Patient File Number"
+              placeholder={t("regulations.panel.field.ruleName.placeholder")}
             />
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <label className="text-[11px] font-medium text-slate-200">
-                Entity Type
+                {t("regulations.panel.field.entityType")}
               </label>
               <input
                 type="text"
@@ -832,16 +853,18 @@ function CustomRuleBuilderPanel({
                 onChange={(event) =>
                   handleFieldChange("entity_type", event.target.value)
                 }
-                placeholder="PATIENT_FILE_NUMBER"
+                placeholder={t(
+                  "regulations.panel.field.entityType.placeholder"
+                )}
               />
               <p className="text-[10px] text-slate-400">
-                Uppercase, underscore-separated entity identifier.
+                {t("regulations.panel.field.entityType.helper")}
               </p>
             </div>
 
             <div className="space-y-1.5">
               <label className="text-[11px] font-medium text-slate-200">
-                Placeholder Label
+                {t("regulations.panel.field.placeholderLabel")}
               </label>
               <input
                 type="text"
@@ -850,36 +873,40 @@ function CustomRuleBuilderPanel({
                 onChange={(event) =>
                   handleFieldChange("placeholder_label", event.target.value)
                 }
-                placeholder="PATIENT_FILE"
+                placeholder={t(
+                  "regulations.panel.field.placeholderLabel.placeholder"
+                )}
               />
               <p className="text-[10px] text-slate-400">
-                Placeholders are generated from this label, for example [PATIENT_FILE_1].
+                {t("regulations.panel.field.placeholderLabel.helper")}
               </p>
             </div>
           </div>
 
           <div className="space-y-1.5">
             <label className="text-[11px] font-medium text-slate-200">
-              Detection Method
+              {t("regulations.panel.field.detectionMethod")}
             </label>
             <div className="grid grid-cols-3 gap-2">
                 <DetectionMethodButton
-                label="Regex Pattern"
-                description="Advanced patterns"
+                label={t("regulations.panel.method.regex.title")}
+                description={t("regulations.panel.method.regex.description")}
                 active={form.detection_method === "regex"}
                 onClick={() => handleFieldChange("detection_method", "regex")}
               />
               <DetectionMethodButton
-                label="Keyword List"
-                description="Fixed terms"
+                label={t("regulations.panel.method.keyword.title")}
+                description={t(
+                  "regulations.panel.method.keyword.description"
+                )}
                 active={form.detection_method === "keyword_list"}
                 onClick={() =>
                   handleFieldChange("detection_method", "keyword_list")
                 }
               />
               <DetectionMethodButton
-                label="LLM Prompt"
-                description="Ollama-based"
+                label={t("regulations.panel.method.llm.title")}
+                description={t("regulations.panel.method.llm.description")}
                 active={form.detection_method === "llm_prompt"}
                 onClick={() =>
                   handleFieldChange("detection_method", "llm_prompt")
@@ -891,16 +918,16 @@ function CustomRuleBuilderPanel({
           {form.detection_method === "regex" && (
             <div className="space-y-1.5">
               <label className="text-[11px] font-medium text-slate-200">
-                Regex Pattern
+                {t("regulations.panel.method.regex.title")}
               </label>
               <textarea
                 className="h-16 w-full resize-none rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
                 value={form.pattern}
                 onChange={(event) => handleFieldChange("pattern", event.target.value)}
-                placeholder="[A-Z]{2}-\\d{4}"
+                placeholder={t("regulations.panel.method.regex.placeholder")}
               />
               <p className="text-[10px] text-slate-400">
-                Must be compatible with Python regex; the backend validates the pattern before saving.
+                {t("regulations.panel.method.regex.helper")}
               </p>
             </div>
           )}
@@ -908,7 +935,7 @@ function CustomRuleBuilderPanel({
           {form.detection_method === "keyword_list" && (
             <div className="space-y-1.5">
               <label className="text-[11px] font-medium text-slate-200">
-                Keywords (comma-separated)
+                {t("regulations.panel.field.contextWords")}
               </label>
               <textarea
                 className="h-16 w-full resize-none rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
@@ -916,10 +943,12 @@ function CustomRuleBuilderPanel({
                 onChange={(event) =>
                   handleFieldChange("keywordsText", event.target.value)
                 }
-                placeholder="Acme Corp, GlobalTech, Internal Project X"
+                placeholder={t(
+                  "regulations.panel.method.keyword.placeholder"
+                )}
               />
               <p className="text-[10px] text-slate-400">
-                Enter the exact keywords expected to appear in the text.
+                {t("regulations.panel.method.keyword.helper")}
               </p>
             </div>
           )}
@@ -927,7 +956,7 @@ function CustomRuleBuilderPanel({
           {form.detection_method === "llm_prompt" && (
             <div className="space-y-1.5">
               <label className="text-[11px] font-medium text-slate-200">
-                LLM Prompt
+                {t("regulations.panel.method.llm.title")}
               </label>
               <textarea
                 className="h-24 w-full resize-none rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
@@ -935,17 +964,19 @@ function CustomRuleBuilderPanel({
                 onChange={(event) =>
                   handleFieldChange("llm_prompt", event.target.value)
                 }
-                placeholder="Find all salary amounts mentioned in the text."
+                placeholder={t(
+                  "regulations.panel.method.llm.placeholder"
+                )}
               />
               <p className="text-[10px] text-slate-400">
-                This description is used to build an LLM-based recognizer via Ollama.
+                {t("regulations.panel.method.llm.helper")}
               </p>
             </div>
           )}
 
           <div className="space-y-1.5">
             <label className="text-[11px] font-medium text-slate-200">
-              Context Words (optional)
+              {t("regulations.panel.field.contextWords")}
             </label>
             <input
               type="text"
@@ -954,16 +985,18 @@ function CustomRuleBuilderPanel({
               onChange={(event) =>
                 handleFieldChange("contextWordsText", event.target.value)
               }
-              placeholder="patient, file, ref, account"
+              placeholder={t(
+                "regulations.panel.field.contextWords.placeholder"
+              )}
             />
             <p className="text-[10px] text-slate-400">
-              Helper words that should increase the score when they appear nearby (separate with commas).
+              {t("regulations.panel.field.contextWords.helper")}
             </p>
           </div>
 
           <div className="space-y-1.5">
             <label className="text-[11px] font-medium text-slate-200">
-              Test Sample
+              {t("regulations.panel.field.sample")}
             </label>
             <textarea
               className="h-24 w-full resize-none rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
@@ -971,7 +1004,9 @@ function CustomRuleBuilderPanel({
               onChange={(event) =>
                 handleFieldChange("sample_text", event.target.value)
               }
-              placeholder="Paste a sample text here to test your rule before saving."
+              placeholder={t(
+                "regulations.panel.field.sample.placeholder"
+              )}
             />
           </div>
 
@@ -985,7 +1020,9 @@ function CustomRuleBuilderPanel({
                 }}
                 ariaLabel="Toggle rule active"
               />
-              <span className="text-[11px] text-slate-200">Rule active</span>
+              <span className="text-[11px] text-slate-200">
+                {t("regulations.panel.ruleActive")}
+              </span>
             </div>
 
             <div className="flex items-center gap-2">
@@ -998,7 +1035,9 @@ function CustomRuleBuilderPanel({
                   disabled={deletePending}
                   className="rounded-md border border-red-500/60 px-2 py-1 text-[11px] text-red-200 hover:bg-red-950/40 disabled:opacity-60"
                 >
-                  {deletePending ? "Deleting..." : "Delete"}
+                  {deletePending
+                    ? t("regulations.panel.button.deletePending")
+                    : t("regulations.panel.button.delete")}
                 </button>
               )}
               <button
@@ -1009,7 +1048,9 @@ function CustomRuleBuilderPanel({
                 disabled={testing}
                 className="rounded-md bg-slate-800 px-3 py-1 text-[11px] font-medium text-slate-50 hover:bg-slate-700 disabled:opacity-60"
               >
-                {testing ? "Testing..." : "Test Rule"}
+                {testing
+                  ? t("regulations.panel.button.testPending")
+                  : t("regulations.panel.button.test")}
               </button>
               <button
                 type="button"
@@ -1020,10 +1061,10 @@ function CustomRuleBuilderPanel({
                 className="rounded-md bg-sky-600 px-3 py-1 text-[11px] font-medium text-white shadow-sm hover:bg-sky-500 disabled:opacity-60"
               >
                 {saving
-                  ? "Saving..."
+                  ? t("regulations.panel.button.savePending")
                   : isCreateMode
-                  ? "Save & Activate"
-                  : "Save Changes"}
+                  ? t("regulations.panel.button.saveCreate")
+                  : t("regulations.panel.button.saveEdit")}
               </button>
             </div>
           </div>
@@ -1039,7 +1080,7 @@ function CustomRuleBuilderPanel({
               }`}
             >
               {testStatus.state === "pending"
-                ? "Rule test is running..."
+                ? t("regulations.panel.test.pending")
                 : testStatus.message}
             </div>
           )}
@@ -1047,7 +1088,8 @@ function CustomRuleBuilderPanel({
           {testMatches.length > 0 && (
             <div className="mt-2 space-y-1.5 rounded-md border border-slate-700 bg-slate-950/80 p-2 text-[11px] text-slate-100">
               <p className="font-medium">
-                Test matches ({testMatches.length}):
+                {t("regulations.panel.test.matchesTitle")} (
+                {testMatches.length}):
               </p>
               <ul className="space-y-1">
                 {testMatches.map((match, index) => (
@@ -1060,7 +1102,8 @@ function CustomRuleBuilderPanel({
                         {match.text}
                       </span>
                       <span className="text-[10px] text-slate-400">
-                        [{match.start} - {match.end}] • score{" "}
+                        [{match.start} - {match.end}] •{" "}
+                        {t("regulations.panel.match.scoreLabel")}{" "}
                         {match.score.toFixed(2)}
                       </span>
                     </div>

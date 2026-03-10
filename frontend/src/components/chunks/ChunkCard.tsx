@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Edit3, Save, Trash2, X, ChevronDown, ChevronRight } from "lucide-react";
 import type { Chunk, Document } from "@/lib/types";
 import { EntityBadge } from "./EntityBadge";
+import { useI18n } from "@/lib/i18n";
 
 interface ChunkCardProps {
   chunk: Chunk;
@@ -47,6 +48,7 @@ export function ChunkCard({
   onUpdate,
   onDelete
 }: ChunkCardProps): JSX.Element {
+  const t = useI18n();
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [editValue, setEditValue] = useState<string>(chunk.sanitized_text);
@@ -64,7 +66,7 @@ export function ChunkCard({
       await onUpdate(chunk.id, { sanitized_text: editValue });
       setIsEditing(false);
     } catch {
-      setError("Unable to save changes to this chunk.");
+      setError(t("chunks.error.save"));
     } finally {
       setIsSaving(false);
     }
@@ -72,7 +74,7 @@ export function ChunkCard({
 
   const handleDelete = async (): Promise<void> => {
     // eslint-disable-next-line no-alert
-    const confirmed = window.confirm("Are you sure you want to delete this chunk?");
+    const confirmed = window.confirm(t("chunks.confirm.delete"));
     if (!confirmed) {
       return;
     }
@@ -81,7 +83,7 @@ export function ChunkCard({
     try {
       await onDelete(chunk.id);
     } catch {
-      setError("Unable to delete this chunk.");
+      setError(t("chunks.error.delete"));
     } finally {
       setIsDeleting(false);
     }
@@ -106,21 +108,23 @@ export function ChunkCard({
           ) : (
             <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
           )}
-          <span className="inline-flex min-w-0 items-center gap-2">
-            <span className="shrink-0 rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-slate-200">
-              Chunk #{chunk.index}
-            </span>
+            <span className="inline-flex min-w-0 items-center gap-2">
+              <span className="shrink-0 rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-slate-200">
+                {t("chunks.card.label", { index: chunk.index })}
+              </span>
             {chunk.section_title && (
               <span className="truncate text-xs text-slate-200">{chunk.section_title}</span>
             )}
             <span className="shrink-0 text-slate-500">
-              {isExpanded ? "Show less" : "Show more"}
+              {isExpanded
+                ? t("chunks.card.showLess")
+                : t("chunks.card.showMore")}
             </span>
           </span>
         </button>
         <div className="flex items-center gap-2">
           <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[11px] text-slate-300">
-            {chunk.char_count} chars
+            {t("chunks.card.charCount", { count: chunk.char_count })}
           </span>
           <div className="flex gap-1">
             {isEditing ? (
@@ -132,7 +136,9 @@ export function ChunkCard({
                   disabled={isSaving}
                 >
                   <Save className="h-3.5 w-3.5" />
-                  <span>{isSaving ? "Saving…" : "Save"}</span>
+                  <span>
+                    {isSaving ? t("common.saving") : t("common.save")}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -144,7 +150,7 @@ export function ChunkCard({
                   disabled={isSaving}
                 >
                   <X className="h-3.5 w-3.5" />
-                  <span>Cancel</span>
+                  <span>{t("common.cancel")}</span>
                 </button>
               </>
             ) : (
@@ -155,7 +161,7 @@ export function ChunkCard({
                   onClick={() => setIsEditing(true)}
                 >
                   <Edit3 className="h-3.5 w-3.5" />
-                  <span>Edit</span>
+                  <span>{t("common.edit")}</span>
                 </button>
                 <button
                   type="button"
@@ -164,7 +170,9 @@ export function ChunkCard({
                   disabled={isDeleting}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
-                  <span>{isDeleting ? "Deleting…" : "Delete"}</span>
+                  <span>
+                    {isDeleting ? t("common.deleting") : t("common.delete")}
+                  </span>
                 </button>
               </>
             )}
@@ -177,11 +185,15 @@ export function ChunkCard({
             {document.original_filename || document.filename}
           </span>
           <span className="rounded-full bg-slate-900 px-2 py-0.5">
-            Lang: {document.language_override ?? document.detected_language}
+            {t("chunks.card.lang", {
+              lang: document.language_override ?? document.detected_language
+            })}
           </span>
           {document.active_regulation_ids.length > 0 && (
             <span className="rounded-full bg-slate-900 px-2 py-0.5">
-              Regs: {document.active_regulation_ids.join(", ")}
+              {t("chunks.card.regs", {
+                regs: document.active_regulation_ids.join(", ")
+              })}
             </span>
           )}
         </div>

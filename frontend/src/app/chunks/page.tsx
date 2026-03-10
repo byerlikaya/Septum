@@ -22,7 +22,7 @@ export default function ChunksPage(): JSX.Element {
       const items = await getDocuments();
       setDocuments(items);
     } catch {
-      setError("An error occurred while loading documents.");
+      setError(t("errors.chunks.loadDocuments"));
     } finally {
       setIsLoadingDocuments(false);
     }
@@ -42,7 +42,7 @@ export default function ChunksPage(): JSX.Element {
           [documentId]: response.data.items
         }));
       } catch {
-        setError("An error occurred while loading chunks.");
+        setError(t("errors.chunks.loadChunks"));
       } finally {
         setLoadingChunksByDocument(prev => ({ ...prev, [documentId]: false }));
       }
@@ -177,7 +177,9 @@ export default function ChunksPage(): JSX.Element {
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
                         {isLoadingChunks && (
-                          <span className="text-xs text-slate-500">Loading…</span>
+                          <span className="text-xs text-slate-500">
+                            {t("chunks.card.loadingChunks")}
+                          </span>
                         )}
                         <span
                           className={`inline-block text-slate-400 transition-transform ${isExpanded ? "rotate-0" : "-rotate-90"}`}
@@ -192,9 +194,13 @@ export default function ChunksPage(): JSX.Element {
                       <div className="border-t border-slate-800 bg-slate-950/70">
                         <div className="px-4 py-3 pl-6">
                           {isLoadingChunks ? (
-                            <p className="text-sm text-slate-500">Loading chunks…</p>
+                            <p className="text-sm text-slate-500">
+                              {t("chunks.card.loadingChunks")}
+                            </p>
                           ) : chunksForDoc.length === 0 ? (
-                            <p className="text-sm text-slate-500">No chunks for this document.</p>
+                            <p className="text-sm text-slate-500">
+                              {t("chunks.card.noChunks")}
+                            </p>
                           ) : (
                             <ul className="space-y-3">
                               {chunksForDoc.map(chunk => (

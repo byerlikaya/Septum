@@ -58,7 +58,7 @@ export default function SettingsPage(): JSX.Element {
       } catch (err) {
         // eslint-disable-next-line no-console
         console.error(err);
-        setError("An error occurred while loading settings.");
+        setError(t("errors.settings.load"));
       } finally {
         setLoading(false);
       }
@@ -84,7 +84,7 @@ export default function SettingsPage(): JSX.Element {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(err);
-      setError("An error occurred while updating the setting.");
+      setError(t("errors.settings.update"));
     } finally {
       setSaving((prev) => ({ ...prev, [key as string]: false }));
     }
@@ -108,13 +108,13 @@ export default function SettingsPage(): JSX.Element {
         message:
           response.data.message ??
           (response.data.ok
-            ? "Cloud LLM connectivity test succeeded."
-            : "Cloud LLM connectivity test failed.")
+            ? t("settings.cloud.test.success")
+            : t("settings.cloud.test.failed"))
       });
     } catch (err: unknown) {
       // eslint-disable-next-line no-console
       console.error(err);
-      let message = "Cloud LLM connectivity test failed.";
+      let message = t("settings.cloud.test.failed");
       const anyErr = err as {
         response?: { data?: { detail?: string; message?: string } };
       };
@@ -144,13 +144,13 @@ export default function SettingsPage(): JSX.Element {
         message:
           response.data.message ??
           (response.data.ok
-            ? "Local model connectivity test succeeded."
-            : "Local model connectivity test failed.")
+            ? t("settings.local.test.success")
+            : t("settings.local.test.failed"))
       });
     } catch (err: unknown) {
       // eslint-disable-next-line no-console
       console.error(err);
-      let message = "Local model connectivity test failed.";
+      let message = t("settings.local.test.failed");
       const anyErr = err as {
         response?: { data?: { detail?: string; message?: string } };
       };
@@ -279,21 +279,6 @@ export default function SettingsPage(): JSX.Element {
             </div>
           ) : (
             <div className="flex flex-col gap-4">
-              <div className="flex items-center justify-end gap-2 border-b border-slate-800 pb-3 text-xs">
-                <span className="text-slate-400">
-                  {t("language.label")}
-                </span>
-                <select
-                  className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100"
-                  value={language}
-                  onChange={(event) =>
-                    setLanguage(event.target.value === "tr" ? "tr" : "en")
-                  }
-                >
-                  <option value="en">{t("language.english")}</option>
-                  <option value="tr">{t("language.turkish")}</option>
-                </select>
-              </div>
               {renderTabContent()}
             </div>
           )}
@@ -353,16 +338,16 @@ function CloudLLMTab({
   onTestConnection,
   testStatus
 }: CloudLLMTabProps): JSX.Element {
+  const t = useI18n();
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-sm font-semibold text-slate-50">
-            Cloud LLM Settings
+            {t("settings.cloud.sectionTitle")}
           </h2>
           <p className="text-xs text-slate-400">
-            Configure your primary cloud LLM provider and model. These settings
-            are used for all remote completions.
+            {t("settings.cloud.sectionDescription")}
           </p>
         </div>
         <div className="flex flex-col items-end gap-1">
@@ -373,8 +358,8 @@ function CloudLLMTab({
             className="inline-flex items-center justify-center rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-sky-500 disabled:opacity-60"
           >
             {testStatus.status === "pending"
-              ? "Testing..."
-              : "Test Connection"}
+              ? t("settings.common.testing")
+              : t("settings.common.testConnection")}
           </button>
           {testStatus.status !== "idle" && testStatus.message && (
             <p
@@ -405,7 +390,7 @@ function CloudLLMTab({
             }}
             placeholder="anthropic | openai | openrouter"
           />
-          <FieldHint text="Provider identifier used by the backend router." />
+          <FieldHint text={t("settings.cloud.provider.hint")} />
           {isSaving("llm_provider") && <SavingIndicator />}
         </div>
 
@@ -423,7 +408,7 @@ function CloudLLMTab({
             }}
             placeholder="claude-3-5-sonnet-latest"
           />
-          <FieldHint text="Exact model ID as expected by your provider." />
+          <FieldHint text={t("settings.cloud.model.hint")} />
           {isSaving("llm_model") && <SavingIndicator />}
         </div>
       </div>
@@ -450,22 +435,22 @@ function PrivacyTab({
   onChange,
   isSaving
 }: PrivacyTabProps): JSX.Element {
+  const t = useI18n();
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-sm font-semibold text-slate-50">
-          Privacy & Sanitization
+          {t("settings.privacy.sectionTitle")}
         </h2>
         <p className="text-xs text-slate-400">
-          Control de-anonymization behaviour, approval gating, and which
-          sanitization layers are active.
+          {t("settings.privacy.sectionDescription")}
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <ToggleField
-          label="De-anonymization enabled"
-          description="Allow local de-anonymization of placeholders before responses are shown."
+          label={t("settings.privacy.deanon.label")}
+          description={t("settings.privacy.deanon.description")}
           checked={settings.deanon_enabled}
           onToggle={async (value) => {
             onLocalFieldChange(settings, "deanon_enabled", value);
@@ -476,7 +461,7 @@ function PrivacyTab({
 
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-slate-200">
-            De-anonymization strategy
+            {t("settings.privacy.deanonStrategy.label")}
           </label>
           <input
             type="text"
@@ -487,13 +472,13 @@ function PrivacyTab({
               await onChange("deanon_strategy", value);
             }}
           />
-          <FieldHint text="Strategy identifier (for example 'simple')." />
+          <FieldHint text={t("settings.privacy.deanonStrategy.hint")} />
           {isSaving("deanon_strategy") && <SavingIndicator />}
         </div>
 
         <ToggleField
-          label="Require approval by default"
-          description="Ask for explicit approval before sending masked chunks to cloud LLMs."
+          label={t("settings.privacy.requireApproval.label")}
+          description={t("settings.privacy.requireApproval.description")}
           checked={settings.require_approval}
           onToggle={async (value) => {
             onLocalFieldChange(settings, "require_approval", value);
@@ -503,8 +488,8 @@ function PrivacyTab({
         />
 
         <ToggleField
-          label="Show JSON output"
-          description="Expose raw JSON payloads alongside chat responses for debugging."
+          label={t("settings.privacy.showJson.label")}
+          description={t("settings.privacy.showJson.description")}
           checked={settings.show_json_output}
           onToggle={async (value) => {
             onLocalFieldChange(settings, "show_json_output", value);
@@ -516,12 +501,12 @@ function PrivacyTab({
 
       <div>
         <h3 className="mb-2 text-xs font-semibold text-slate-200">
-          Sanitization layers
+          {t("settings.privacy.layers.title")}
         </h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <ToggleField
-            label="Presidio layer"
-            description="Rule-based recognizers and national ID validators."
+            label={t("settings.privacy.layers.presidio.label")}
+            description={t("settings.privacy.layers.presidio.description")}
             checked={settings.use_presidio_layer}
             onToggle={async (value) => {
               onLocalFieldChange(settings, "use_presidio_layer", value);
@@ -530,8 +515,8 @@ function PrivacyTab({
             saving={isSaving("use_presidio_layer")}
           />
           <ToggleField
-            label="NER layer"
-            description="Language-specific HuggingFace NER models."
+            label={t("settings.privacy.layers.ner.label")}
+            description={t("settings.privacy.layers.ner.description")}
             checked={settings.use_ner_layer}
             onToggle={async (value) => {
               onLocalFieldChange(settings, "use_ner_layer", value);
@@ -540,8 +525,8 @@ function PrivacyTab({
             saving={isSaving("use_ner_layer")}
           />
           <ToggleField
-            label="Ollama layer"
-            description="Optional local LLM recognizers (future)."
+            label={t("settings.privacy.layers.ollama.label")}
+            description={t("settings.privacy.layers.ollama.description")}
             checked={settings.use_ollama_layer}
             onToggle={async (value) => {
               onLocalFieldChange(settings, "use_ollama_layer", value);
@@ -610,16 +595,16 @@ function LocalModelsTab({
   onTestConnection,
   testStatus
 }: LocalModelsTabProps): JSX.Element {
+  const t = useI18n();
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-sm font-semibold text-slate-50">
-            Local Model Settings
+            {t("settings.local.sectionTitle")}
           </h2>
           <p className="text-xs text-slate-400">
-            Configure the local Ollama endpoint and models used for chat and
-            de-anonymization.
+            {t("settings.local.sectionDescription")}
           </p>
         </div>
         <div className="flex flex-col items-end gap-1">
@@ -630,8 +615,8 @@ function LocalModelsTab({
             className="inline-flex items-center justify-center rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-sky-500 disabled:opacity-60"
           >
             {testStatus.status === "pending"
-              ? "Testing..."
-              : "Test Connection"}
+              ? t("settings.common.testing")
+              : t("settings.common.testConnection")}
           </button>
           {testStatus.status !== "idle" && testStatus.message && (
             <p
@@ -662,7 +647,7 @@ function LocalModelsTab({
             }}
             placeholder="http://localhost:11434"
           />
-          <FieldHint text="Base URL for your local Ollama instance." />
+          <FieldHint text={t("settings.local.baseUrl.hint")} />
           {isSaving("ollama_base_url") && <SavingIndicator />}
         </div>
 
@@ -680,7 +665,7 @@ function LocalModelsTab({
             }}
             placeholder="llama3.2:3b"
           />
-          <FieldHint text="Ollama model name used for local chat." />
+          <FieldHint text={t("settings.local.chatModel.hint")} />
           {isSaving("ollama_chat_model") && <SavingIndicator />}
         </div>
 
@@ -698,7 +683,7 @@ function LocalModelsTab({
             }}
             placeholder="llama3.2:3b"
           />
-          <FieldHint text="Ollama model name used for local de-anonymization." />
+          <FieldHint text={t("settings.local.deanonModel.hint")} />
           {isSaving("ollama_deanon_model") && <SavingIndicator />}
         </div>
       </div>
@@ -713,6 +698,7 @@ function RagTab({
   onChange,
   isSaving
 }: RagTabProps): JSX.Element {
+  const t = useI18n();
   const handleNumberBlur = async (
     key: keyof SettingsUpdatePayload,
     rawValue: string,
@@ -730,17 +716,17 @@ function RagTab({
     <div className="space-y-6">
       <div>
         <h2 className="text-sm font-semibold text-slate-50">
-          RAG Settings
+          {t("settings.rag.sectionTitle")}
         </h2>
         <p className="text-xs text-slate-400">
-          Tune chunk sizes and retrieval parameters for the vector store.
+          {t("settings.rag.sectionDescription")}
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <NumberField
-          label="Default chunk size"
-          description="Approximate character length for text chunks."
+          label={t("settings.rag.defaultChunkSize.label")}
+          description={t("settings.rag.defaultChunkSize.description")}
           value={settings.chunk_size}
           onBlur={async (raw) =>
             handleNumberBlur("chunk_size", raw, settings.chunk_size)
@@ -749,8 +735,8 @@ function RagTab({
         />
 
         <NumberField
-          label="Chunk overlap"
-          description="Number of overlapping characters between consecutive chunks."
+          label={t("settings.rag.chunkOverlap.label")}
+          description={t("settings.rag.chunkOverlap.description")}
           value={settings.chunk_overlap}
           onBlur={async (raw) =>
             handleNumberBlur("chunk_overlap", raw, settings.chunk_overlap)
@@ -759,8 +745,8 @@ function RagTab({
         />
 
         <NumberField
-          label="Top‑K retrieval"
-          description="Default number of chunks retrieved per query."
+          label={t("settings.rag.topK.label")}
+          description={t("settings.rag.topK.description")}
           value={settings.top_k_retrieval}
           onBlur={async (raw) =>
             handleNumberBlur("top_k_retrieval", raw, settings.top_k_retrieval)
@@ -771,12 +757,12 @@ function RagTab({
 
       <div>
         <h3 className="mb-2 text-xs font-semibold text-slate-200">
-          Format-specific chunk sizes
+          {t("settings.rag.formatSpecific.title")}
         </h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <NumberField
-            label="PDF chunk size"
-            description="Chunk size override for PDFs."
+            label={t("settings.rag.pdfChunkSize.label")}
+            description={t("settings.rag.pdfChunkSize.description")}
             value={settings.pdf_chunk_size}
             onBlur={async (raw) =>
               handleNumberBlur("pdf_chunk_size", raw, settings.pdf_chunk_size)
@@ -785,8 +771,8 @@ function RagTab({
           />
 
           <NumberField
-            label="Audio chunk size (seconds)"
-            description="Audio window length for transcription chunks."
+            label={t("settings.rag.audioChunkSize.label")}
+            description={t("settings.rag.audioChunkSize.description")}
             value={settings.audio_chunk_size}
             onBlur={async (raw) =>
               handleNumberBlur("audio_chunk_size", raw, settings.audio_chunk_size)
@@ -795,8 +781,8 @@ function RagTab({
           />
 
           <NumberField
-            label="Spreadsheet chunk size"
-            description="Maximum cell count per spreadsheet chunk."
+            label={t("settings.rag.spreadsheetChunkSize.label")}
+            description={t("settings.rag.spreadsheetChunkSize.description")}
             value={settings.spreadsheet_chunk_size}
             onBlur={async (raw) =>
               handleNumberBlur(
@@ -867,6 +853,7 @@ function IngestionTab({
   >("idle");
   const [audioHealthError, setAudioHealthError] = useState<string | null>(null);
   const [installingWhisper, setInstallingWhisper] = useState(false);
+  const t = useI18n();
 
   useEffect(() => {
     const fetchHealth = async (): Promise<void> => {
@@ -880,7 +867,7 @@ function IngestionTab({
         // eslint-disable-next-line no-console
         console.error(err);
         setAudioHealthStatus("error");
-        setAudioHealthError("Failed to read ingestion health status.");
+        setAudioHealthError(t("settings.ingestion.health.readFailed"));
       }
     };
 
@@ -896,11 +883,11 @@ function IngestionTab({
       setAudioHealth(response.data);
       setAudioHealthStatus("ready");
       setAudioHealthError(null);
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error(err);
-      setAudioHealthStatus("error");
-      setAudioHealthError("Failed to install or load the Whisper model.");
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error(err);
+        setAudioHealthStatus("error");
+        setAudioHealthError(t("settings.ingestion.health.installFailed"));
     } finally {
       setInstallingWhisper(false);
     }
@@ -910,11 +897,10 @@ function IngestionTab({
     <div className="space-y-6">
       <div>
         <h2 className="text-sm font-semibold text-slate-50">
-          Ingestion Settings
+          {t("settings.ingestion.sectionTitle")}
         </h2>
         <p className="text-xs text-slate-400">
-          Control Whisper transcription, OCR languages, and how attachments and
-          embedded assets are handled.
+          {t("settings.ingestion.sectionDescription")}
         </p>
       </div>
 
@@ -922,10 +908,10 @@ function IngestionTab({
         <div className="mb-2 flex items-center justify-between gap-2">
           <div>
             <p className="text-xs font-semibold text-slate-50">
-              Audio pipeline health
+              {t("settings.ingestion.audioHealth.title")}
             </p>
             <p className="text-[11px] text-slate-400">
-              Checks whether ffmpeg and the configured Whisper model are available.
+              {t("settings.ingestion.audioHealth.description")}
             </p>
           </div>
           <button
@@ -934,7 +920,9 @@ function IngestionTab({
             disabled={installingWhisper}
             className="inline-flex items-center rounded-md bg-sky-600 px-3 py-1.5 text-[11px] font-medium text-white shadow-sm transition-colors hover:bg-sky-500 disabled:opacity-60"
           >
-            {installingWhisper ? "Installing…" : "Install Whisper model"}
+            {installingWhisper
+              ? t("settings.ingestion.audioHealth.installPending")
+              : t("settings.ingestion.audioHealth.installButton")}
           </button>
         </div>
         <div className="space-y-1">
@@ -946,8 +934,9 @@ function IngestionTab({
               }
             >
               {audioHealthStatus === "loading"
-                ? "Checking…"
-                : audioHealth?.ffmpeg ?? "unknown"}
+                ? t("settings.ingestion.audioHealth.checking")
+                : audioHealth?.ffmpeg ??
+                  t("settings.ingestion.audioHealth.unknown")}
             </span>
           </p>
           <p className="text-[11px] text-slate-300">
@@ -960,8 +949,9 @@ function IngestionTab({
               }
             >
               {audioHealthStatus === "loading"
-                ? "Checking…"
-                : audioHealth?.whisper_package ?? "unknown"}
+                ? t("settings.ingestion.audioHealth.checking")
+                : audioHealth?.whisper_package ??
+                  t("settings.ingestion.audioHealth.unknown")}
             </span>
           </p>
           <p className="text-[11px] text-slate-300">
@@ -976,8 +966,9 @@ function IngestionTab({
               }
             >
               {audioHealthStatus === "loading"
-                ? "Checking…"
-                : audioHealth?.whisper_model ?? "unknown"}
+                ? t("settings.ingestion.audioHealth.checking")
+                : audioHealth?.whisper_model ??
+                  t("settings.ingestion.audioHealth.unknown")}
             </span>
           </p>
           {audioHealth?.message && (
@@ -988,9 +979,8 @@ function IngestionTab({
           )}
           {audioHealth && audioHealth.ffmpeg === "missing" && (
             <p className="text-[11px] text-slate-400">
-              Install ffmpeg manually (for example on macOS:
-              <span className="font-mono"> brew install ffmpeg</span>) and then
-              refresh this page.
+              {t("settings.ingestion.audioHealth.ffmpegHint")}{" "}
+              <span className="font-mono">brew install ffmpeg</span>
             </p>
           )}
         </div>
@@ -999,7 +989,7 @@ function IngestionTab({
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-slate-200">
-            Whisper model
+            {t("settings.ingestion.whisperModel.label")}
           </label>
           <input
             type="text"
@@ -1011,13 +1001,13 @@ function IngestionTab({
             }}
             placeholder="tiny | base | small | medium | large"
           />
-          <FieldHint text="Local Whisper model size for audio transcription." />
+          <FieldHint text={t("settings.ingestion.whisperModel.hint")} />
           {isSaving("whisper_model") && <SavingIndicator />}
         </div>
 
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-slate-200">
-            OCR languages (comma-separated)
+            {t("settings.ingestion.ocrLanguages.label")}
           </label>
           <input
             type="text"
@@ -1036,15 +1026,15 @@ function IngestionTab({
             }}
             placeholder="en, tr, de, fr"
           />
-          <FieldHint text="EasyOCR language codes to enable during ingestion." />
+          <FieldHint text={t("settings.ingestion.ocrLanguages.hint")} />
           {isSaving("image_ocr_languages") && <SavingIndicator />}
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <ToggleField
-          label="Extract embedded images"
-          description="Extract and process images embedded in documents where possible."
+          label={t("settings.ingestion.extractImages.label")}
+          description={t("settings.ingestion.extractImages.description")}
           checked={settings.extract_embedded_images}
           onToggle={async (value) => {
             onLocalFieldChange(settings, "extract_embedded_images", value);
@@ -1054,8 +1044,10 @@ function IngestionTab({
         />
 
         <ToggleField
-          label="Recursive email attachments"
-          description="Recursively ingest attachments found inside email archives."
+          label={t("settings.ingestion.recursiveEmail.label")}
+          description={t(
+            "settings.ingestion.recursiveEmail.description"
+          )}
           checked={settings.recursive_email_attachments}
           onToggle={async (value) => {
             onLocalFieldChange(
@@ -1074,16 +1066,16 @@ function IngestionTab({
 
 function NerModelsTab(): JSX.Element {
   const entries = Object.entries(NER_MODEL_DEFAULTS);
+  const t = useI18n();
 
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-sm font-semibold text-slate-50">
-          NER Model Settings
+          {t("settings.tabs.ner.label")}
         </h2>
         <p className="text-xs text-slate-400">
-          View the default mapping from language codes to HuggingFace NER
-          models. Persistence of overrides will be added in a later step.
+          {t("settings.ner.sectionDescription")}
         </p>
       </div>
 
@@ -1091,8 +1083,12 @@ function NerModelsTab(): JSX.Element {
         <table className="min-w-full text-left text-xs text-slate-200">
           <thead className="border-b border-border/80 bg-slate-950/60 text-[11px] uppercase tracking-wide text-slate-400">
             <tr>
-              <th className="px-3 py-2 font-medium">Language</th>
-              <th className="px-3 py-2 font-medium">Model</th>
+              <th className="px-3 py-2 font-medium">
+                {t("settings.ner.table.language")}
+              </th>
+              <th className="px-3 py-2 font-medium">
+                {t("settings.ner.table.model")}
+              </th>
             </tr>
           </thead>
           <tbody>

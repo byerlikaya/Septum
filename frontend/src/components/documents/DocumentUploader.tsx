@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { UploadCloud } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 
 interface DocumentUploaderProps {
   disabled?: boolean;
@@ -13,6 +14,7 @@ export function DocumentUploader({
   disabled = false,
   onFilesSelected
 }: DocumentUploaderProps): JSX.Element {
+  const t = useI18n();
   const handleDrop = useCallback(
     (acceptedFiles: File[]) => {
       if (!acceptedFiles.length || disabled) {
@@ -47,10 +49,10 @@ export function DocumentUploader({
       <input {...getInputProps()} />
       <UploadCloud className="mb-3 h-8 w-8 text-slate-300" />
       <p className="mb-1 font-medium text-slate-50">
-        Drag and drop your files here
+        {t("uploader.title")}
       </p>
       <p className="mb-4 text-xs text-slate-400">
-        PDF, Word, Excel, images, audio files, and other supported formats
+        {t("uploader.subtitle")}
       </p>
       <button
         type="button"
@@ -62,7 +64,7 @@ export function DocumentUploader({
           }
         }}
       >
-        Browse files
+        {t("uploader.button")}
       </button>
     </div>
   );

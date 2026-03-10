@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import api from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 import type { Chunk, Document } from "@/lib/types";
 
 interface TranscriptionPreviewProps {
@@ -16,6 +17,7 @@ export function TranscriptionPreview({
   open,
   onOpenChange
 }: TranscriptionPreviewProps): JSX.Element | null {
+  const t = useI18n();
   const [chunks, setChunks] = useState<Chunk[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +41,7 @@ export function TranscriptionPreview({
         }
       } catch (err) {
         if (!isCancelled) {
-          setError("An error occurred while loading the transcription preview.");
+          setError(t("errors.preview.transcription"));
         }
       } finally {
         if (!isCancelled) {
@@ -70,7 +72,7 @@ export function TranscriptionPreview({
         <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/80 px-4 py-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-50">
-              Audio Transcription
+              {t("preview.transcription.title")}
             </h2>
             <p className="text-xs text-slate-400">
               {document.original_filename || document.filename}
@@ -87,7 +89,7 @@ export function TranscriptionPreview({
         <div className="flex-1 overflow-hidden px-4 py-3">
           {isLoading && (
             <div className="flex h-full items-center justify-center text-sm text-slate-400">
-              Transcription is loading…
+              {t("preview.transcription.loading")}
             </div>
           )}
           {!isLoading && error && (
@@ -101,7 +103,7 @@ export function TranscriptionPreview({
                 combinedText
               ) : (
                 <span className="text-slate-400">
-                  No transcription text is available yet.
+                  {t("preview.transcription.empty")}
                 </span>
               )}
             </div>
@@ -113,7 +115,7 @@ export function TranscriptionPreview({
             className="inline-flex items-center rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-slate-100 shadow-sm hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
             onClick={() => onOpenChange(false)}
           >
-            Kapat
+            {t("preview.close")}
           </button>
         </div>
       </div>

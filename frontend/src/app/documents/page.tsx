@@ -30,7 +30,7 @@ export default function DocumentsPage(): JSX.Element {
       const items = await getDocuments();
       setDocuments(items);
     } catch {
-      setError("An error occurred while loading documents.");
+      setError(t("errors.documents.load"));
     } finally {
       setIsLoading(false);
     }
@@ -55,7 +55,9 @@ export default function DocumentsPage(): JSX.Element {
 
       if (duplicateFiles.length > 0) {
         const names = duplicateFiles.map(file => `"${file.name}"`).join(", ");
-        setDuplicateNotice(`Skipped already uploaded file(s): ${names}.`);
+        setDuplicateNotice(
+          t("documents.upload.duplicates").replace("{names}", names)
+        );
       } else {
         setDuplicateNotice(null);
       }
@@ -89,7 +91,7 @@ export default function DocumentsPage(): JSX.Element {
           setUploadProgress(Math.round((completed / uniqueFiles.length) * 100));
         }
       } catch (err) {
-        setError("An error occurred while uploading the file(s).");
+        setError(t("errors.documents.upload"));
       } finally {
         setIsUploading(false);
       }
@@ -102,7 +104,10 @@ export default function DocumentsPage(): JSX.Element {
       // Simple confirmation dialog; can be replaced with a custom modal later.
       // eslint-disable-next-line no-alert
       const confirmed = window.confirm(
-        `Are you sure you want to delete "${doc.original_filename || doc.filename}"?`
+        t("documents.confirm.delete").replace(
+          "{name}",
+          doc.original_filename || doc.filename
+        )
       );
       if (!confirmed) {
         return;
@@ -112,7 +117,7 @@ export default function DocumentsPage(): JSX.Element {
         await api.delete(`/api/documents/${doc.id}`);
         setDocuments(prev => prev.filter(d => d.id !== doc.id));
       } catch (err) {
-        setError("An error occurred while deleting the document.");
+        setError(t("errors.documents.delete"));
       }
     },
     []
