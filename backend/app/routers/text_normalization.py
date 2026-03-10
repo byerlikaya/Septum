@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api/text-normalization", tags=["text-normalization"]
 class TextNormalizationRulePayload(BaseModel):
     """Request/response schema for text normalization rules."""
 
+    id: int | None = None
     name: str
     pattern: str
     replacement: str
@@ -42,6 +43,7 @@ async def list_rules(db: AsyncSession = Depends(get_db)) -> List[TextNormalizati
     rules = list(result.scalars().all())
     return [
         TextNormalizationRulePayload(
+            id=r.id,
             name=r.name,
             pattern=r.pattern,
             replacement=r.replacement,
@@ -75,7 +77,14 @@ async def create_rule(
     db.add(rule)
     await db.commit()
     await db.refresh(rule)
-    return payload
+    return TextNormalizationRulePayload(
+        id=rule.id,
+        name=rule.name,
+        pattern=rule.pattern,
+        replacement=rule.replacement,
+        is_active=rule.is_active,
+        priority=rule.priority,
+    )
 
 
 @router.patch(
@@ -109,7 +118,14 @@ async def update_rule(
 
     await db.commit()
     await db.refresh(rule)
-    return payload
+    return TextNormalizationRulePayload(
+        id=rule.id,
+        name=rule.name,
+        pattern=rule.pattern,
+        replacement=rule.replacement,
+        is_active=rule.is_active,
+        priority=rule.priority,
+    )
 
 
 @router.delete(

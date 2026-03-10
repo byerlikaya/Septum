@@ -1122,6 +1122,7 @@ function NerModelsTab(): JSX.Element {
 }
 
 type TextNormalizationRuleDto = {
+  id: number;
   name: string;
   pattern: string;
   replacement: string;
@@ -1169,7 +1170,7 @@ function TextNormalizationTab(): JSX.Element {
     setCreating(true);
     setError(null);
     try {
-      const payload: TextNormalizationRuleDto = {
+      const payload = {
         ...newRule,
         priority: Number.isFinite(newRule.priority) ? newRule.priority : 0
       };
@@ -1191,6 +1192,18 @@ function TextNormalizationTab(): JSX.Element {
       setError("Failed to create rule. Please check the regex pattern.");
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleDelete = async (rule: TextNormalizationRuleDto): Promise<void> => {
+    setError(null);
+    try {
+      await rawApi.delete(`/api/text-normalization/${rule.id}`);
+      setRules((prev) => prev.filter((r) => r.id !== rule.id));
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(err);
+      setError("Failed to delete rule.");
     }
   };
 
@@ -1326,6 +1339,9 @@ function TextNormalizationTab(): JSX.Element {
               <th className="px-3 py-2 font-medium">
                 {t("settings.textNormalization.table.active")}
               </th>
+              <th className="px-3 py-2 font-medium">
+                {t("regulations.custom.table.actions")}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -1350,7 +1366,7 @@ function TextNormalizationTab(): JSX.Element {
             ) : (
               rules.map((rule) => (
                 <tr
-                  key={`${rule.name}-${rule.pattern}-${rule.priority}`}
+                  key={rule.id}
                   className="border-b border-border/40 last:border-b-0 odd:bg-slate-900/40"
                 >
                   <td className="px-3 py-2 align-top text-[11px] text-slate-50">
@@ -1375,6 +1391,17 @@ function TextNormalizationTab(): JSX.Element {
                         ? t("settings.textNormalization.status.active")
                         : t("settings.textNormalization.status.inactive")}
                     </span>
+                  </td>
+                  <td className="px-3 py-2 align-top text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleDelete(rule);
+                      }}
+                      className="rounded-md border border-red-500/50 px-2 py-0.5 text-[11px] text-red-200 hover:bg-red-900/40"
+                    >
+                      {t("common.delete")}
+                    </button>
                   </td>
                 </tr>
               ))

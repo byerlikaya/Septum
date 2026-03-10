@@ -200,6 +200,8 @@ export const trMessages: Record<string, string> = {
   "settings.textNormalization.table.active": "Aktif",
   "settings.textNormalization.empty":
     "Henüz tanımlanmış bir metin normalizasyon kuralı yok.",
+  "settings.textNormalization.status.active": "Aktif",
+  "settings.textNormalization.status.inactive": "Pasif",
 
   "language.label": "Dil",
   "language.english": "İngilizce",

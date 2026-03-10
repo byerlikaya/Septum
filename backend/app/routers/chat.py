@@ -36,6 +36,7 @@ from ..services.deanonymizer import Deanonymizer
 from ..services.llm_router import LLMRouter, LLMRouterError, _chunk_text
 from ..services.policy_composer import PolicyComposer
 from ..services.sanitizer import PIISanitizer
+from ..services.text_normalizer import TextNormalizer
 from ..services.chat_debug_store import set_chat_debug_record, get_chat_debug_record, ChatDebugRecord
 
 
@@ -268,6 +269,7 @@ def _encode_sse(payload: dict[str, Any]) -> bytes:
 
 
 async def _run_llm_and_deanonymize(
+    db: AsyncSession,
     settings: AppSettings,
     anon_map: AnonymizationMap,
     sanitized_query: str,
@@ -360,7 +362,10 @@ async def _run_llm_and_deanonymize(
             masked_answer = "\n".join(f"- {p}" for p in placeholders_in_context)
 
     deanonymizer = Deanonymizer(settings=settings)
-    result = await deanonymizer.deanonymize(masked_answer, anon_map)
+    deanonymized = await deanonymizer.deanonymize(masked_answer, anon_map)
+
+    normalizer = TextNormalizer()
+    result = await normalizer.normalize(db, deanonymized)
     if session_id is not None:
         set_chat_debug_record(
             session_id=session_id,
@@ -540,6 +545,7 @@ async def chat_ask(
 
             output_mode = (request.output_mode or "chat").strip().lower()
             answer = await _run_llm_and_deanonymize(
+                db=db,
                 settings=effective_settings,
                 anon_map=anon_map,
                 sanitized_query=sanitized_query,

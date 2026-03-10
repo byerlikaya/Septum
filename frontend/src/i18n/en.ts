@@ -186,6 +186,8 @@ export const enMessages = {
   "settings.textNormalization.table.replacement": "Replacement",
   "settings.textNormalization.table.priority": "Priority",
   "settings.textNormalization.table.active": "Active",
+  "settings.textNormalization.status.active": "Active",
+  "settings.textNormalization.status.inactive": "Inactive",
   "settings.textNormalization.empty":
     "No text normalization rules have been defined yet.",
 
