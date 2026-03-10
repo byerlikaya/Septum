@@ -111,7 +111,10 @@ def e2e_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     asyncio.run(init_db())
 
-    yield TestClient(app), mock_llm_return
+    try:
+        yield TestClient(app), mock_llm_return
+    finally:
+        asyncio.run(test_engine.dispose())
 
 
 def test_e2e_turkish_pii_upload_ask_approve_deanonymized(
