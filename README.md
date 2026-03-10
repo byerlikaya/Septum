@@ -7,6 +7,8 @@
 ![Tests](https://img.shields.io/badge/tests-pytest-informational)
 ![Coverage](https://img.shields.io/badge/coverage-via%20pytest--cov-lightgrey)
 ![Focus](https://img.shields.io/badge/focus-Privacy--First-green)
+![Security Scan](https://img.shields.io/badge/security_scan-passing_(2026--03--10)-2ea44f?labelColor=1b1f23&style=for-the-badge)
+![Deps Security](https://img.shields.io/badge/deps-npm_audit_✓_pip_audit_✓-2ea44f?labelColor=1b1f23&style=for-the-badge)
 [![Turkish](https://img.shields.io/badge/lang-TR-red)](README.tr.md)
 
 ## Septum — Privacy‑First AI Assistant

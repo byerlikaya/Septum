@@ -7,6 +7,8 @@
 ![Testler](https://img.shields.io/badge/testler-pytest-informational)
 ![Kapsam](https://img.shields.io/badge/kapsam-pytest--cov-lightgrey)
 ![Odak](https://img.shields.io/badge/odak-Gizlilik--Öncelikli-green)
+![Güvenlik Taraması](https://img.shields.io/badge/guvenlik_taramasi-passing_(2026--03--10)-2ea44f?labelColor=1b1f23&style=for-the-badge)
+![Bağımlılık Güvenliği](https://img.shields.io/badge/bagimlilikler-npm_audit_✓_pip_audit_✓-2ea44f?labelColor=1b1f23&style=for-the-badge)
 [![İngilizce](https://img.shields.io/badge/lang-EN-blue)](README.md)
 
 ## Septum — Gizlilik Odaklı Yapay Zekâ Asistanı
