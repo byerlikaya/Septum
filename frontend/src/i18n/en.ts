@@ -210,6 +210,8 @@ export const enMessages = {
   "chat.copy": "Copy",
   "chat.copied": "Copied",
   "chat.copyAnswer": "Copy answer",
+  "chat.deanonBanner":
+    "Responses are de-anonymized locally. Placeholders in the answer have been replaced with original values on your device only.",
 
   "chat.debug.title": "Data sent to and returned from the cloud",
   "chat.debug.button": "Show data sent to cloud",

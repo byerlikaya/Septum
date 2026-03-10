@@ -234,6 +234,8 @@ export const trMessages: Record<string, string> = {
   "chat.copy": "Kopyala",
   "chat.copied": "Kopyalandı",
   "chat.copyAnswer": "Cevabı kopyala",
+  "chat.deanonBanner":
+    "Yanıtlar cihazınızda yerel olarak de-anonimleştirilir. Cevaptaki yer tutucular yalnızca sizin cihazınızda özgün değerlerle değiştirilmiştir.",
 
   "chat.debug.title": "Buluta giden ve gelen veri",
   "chat.debug.button": "Buluta giden veriyi göster",
