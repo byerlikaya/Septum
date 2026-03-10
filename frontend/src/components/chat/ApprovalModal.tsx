@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { APPROVAL_TIMEOUT_SECONDS } from "./DocumentSelector";
 import type { ApprovalChunkPayload } from "@/lib/types";
+import { useI18n } from "@/lib/i18n";
 
 export interface ApprovalModalProps {
   open: boolean;
@@ -27,6 +28,7 @@ export function ApprovalModal({
   onClose,
   timedOut = false
 }: ApprovalModalProps): JSX.Element {
+  const t = useI18n();
   const [secondsLeft, setSecondsLeft] = useState(APPROVAL_TIMEOUT_SECONDS);
   const [editedTexts, setEditedTexts] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -74,8 +76,10 @@ export function ApprovalModal({
 
   const regulationText =
     activeRegulations.length > 0
-      ? `This request is being processed under: ${activeRegulations.join(", ")}.`
-      : "No specific regulations are active.";
+      ? t("chat.approval.regulations", {
+          regs: activeRegulations.join(", ")
+        })
+      : t("chat.approval.noRegulations");
 
   return (
     <div
@@ -87,7 +91,7 @@ export function ApprovalModal({
       <div className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-xl">
         <div className="shrink-0 border-b border-slate-700 px-4 py-3">
           <h2 id="approval-modal-title" className="text-lg font-semibold text-slate-100">
-            Approve context before sending to LLM
+            {t("chat.approval.title")}
           </h2>
           <p className="mt-1 text-sm text-slate-400">{regulationText}</p>
           <div className="mt-2 flex items-center gap-2">
@@ -96,7 +100,7 @@ export function ApprovalModal({
                 secondsLeft <= 10 ? "text-amber-400" : "text-slate-400"
               }`}
             >
-              Time remaining: {secondsLeft}s
+              {t("chat.approval.timeRemaining", { seconds: secondsLeft })}
             </span>
           </div>
         </div>
@@ -104,29 +108,33 @@ export function ApprovalModal({
         <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
           <div>
             <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              Masked prompt (sanitized)
+              {t("chat.approval.maskedPrompt.title")}
             </h3>
             <pre className="mt-1 rounded border border-slate-700 bg-slate-800/60 p-3 text-sm text-slate-300 whitespace-pre-wrap break-words">
-              {maskedPrompt || "(empty)"}
+              {maskedPrompt || t("chat.approval.maskedPrompt.empty")}
             </pre>
           </div>
 
           <div>
             <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              Retrieved chunks (editable)
+              {t("chat.approval.chunks.title")}
             </h3>
             <p className="mt-0.5 text-xs text-slate-500">
-              You may edit the sanitized chunk text before sending to the LLM.
+              {t("chat.approval.chunks.helper")}
             </p>
             <ul className="mt-2 space-y-3">
               {chunks.map((chunk, i) => (
                 <li key={chunk.id ?? i}>
                   <label className="block text-xs text-slate-500">
-                    Chunk {i + 1}
+                    {t("chat.approval.chunks.label", { index: i + 1 })}{" "}
                     {chunk.section_title != null && chunk.section_title !== ""
                       ? ` · ${chunk.section_title}`
                       : ""}
-                    {chunk.source_page != null ? ` · Page ${chunk.source_page}` : ""}
+                    {chunk.source_page != null
+                      ? ` · ${t("chat.approval.chunks.page", {
+                          page: chunk.source_page
+                        })}`
+                      : ""}
                   </label>
                   <textarea
                     className="mt-1 w-full rounded border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
@@ -151,7 +159,7 @@ export function ApprovalModal({
             disabled={submitting}
             className="rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-50"
           >
-            Reject
+            {t("chat.approval.button.reject")}
           </button>
           <button
             type="button"
@@ -159,7 +167,7 @@ export function ApprovalModal({
             disabled={submitting || secondsLeft <= 0}
             className="rounded-md bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
           >
-            Approve &amp; continue
+            {t("chat.approval.button.approve")}
           </button>
         </div>
       </div>

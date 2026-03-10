@@ -2,6 +2,7 @@
 
 import { FileText } from "lucide-react";
 import type { Document } from "@/lib/types";
+import { useI18n } from "@/lib/i18n";
 
 export const APPROVAL_TIMEOUT_SECONDS = 60;
 
@@ -18,6 +19,7 @@ export function DocumentSelector({
   selectedIds,
   onSelectionChange
 }: DocumentSelectorProps): JSX.Element {
+  const t = useI18n();
   function toggle(id: number) {
     const next = new Set(selectedIds);
     if (next.has(id)) {
@@ -35,17 +37,21 @@ export function DocumentSelector({
   return (
     <div className="flex h-full flex-col border-r border-slate-800 bg-slate-900/30">
       <div className="shrink-0 border-b border-slate-800 px-3 py-3">
-        <h2 className="text-sm font-medium text-slate-200">Documents</h2>
+        <h2 className="text-sm font-medium text-slate-200">
+          {t("documents.title")}
+        </h2>
         <p className="mt-0.5 text-xs text-slate-500">
-          Select at least one document to query. Only ready documents are listed.
+          {t("chat.documentSelector.hint")}
         </p>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {isLoading ? (
-          <p className="px-2 py-4 text-sm text-slate-500">Loading documents…</p>
+          <p className="px-2 py-4 text-sm text-slate-500">
+            {t("documents.table.loading")}
+          </p>
         ) : readyDocuments.length === 0 ? (
           <p className="px-2 py-4 text-sm text-slate-500">
-            No documents ready for chat. Upload and process documents first.
+            {t("chat.documentSelector.empty")}
           </p>
         ) : (
           <ul className="space-y-1">

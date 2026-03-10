@@ -1,5 +1,7 @@
 "use client";
 
+import { useI18n } from "@/lib/i18n";
+
 interface JsonOutputPanelProps {
   content: string;
   visible: boolean;
@@ -44,6 +46,7 @@ function markdownToStructured(content: string): { summary: string; key_points: s
 }
 
 export function JsonOutputPanel({ content, visible }: JsonOutputPanelProps): JSX.Element {
+  const t = useI18n();
   if (!visible) return <></>;
 
   let parsed: unknown = null;
@@ -55,23 +58,27 @@ export function JsonOutputPanel({ content, visible }: JsonOutputPanelProps): JSX
       try {
         parsed = JSON.parse(toParse);
       } catch (e) {
-        parseError = e instanceof Error ? e.message : "Invalid JSON";
+        parseError = e instanceof Error ? e.message : t("chat.json.invalid");
       }
     } else {
-      parseError = "No JSON found in response";
+      parseError = t("chat.json.notFound");
       fallbackStructured = markdownToStructured(content);
     }
   }
 
   return (
     <div className="rounded-lg border border-slate-700 bg-slate-900/60 p-3 font-mono text-xs">
-      <div className="mb-2 text-slate-400">JSON output</div>
+      <div className="mb-2 text-slate-400">
+        {t("chat.json.title")}
+      </div>
       {parseError ? (
         <div className="space-y-2">
           <p className="text-amber-400">{parseError}</p>
           {fallbackStructured != null && (
             <div className="rounded border border-slate-600 bg-slate-800/40 p-2">
-              <p className="mb-1 text-slate-400">Structured view (from markdown):</p>
+              <p className="mb-1 text-slate-400">
+                {t("chat.json.structuredTitle")}
+              </p>
               <pre className="overflow-x-auto whitespace-pre-wrap break-all text-slate-300">
                 {JSON.stringify(fallbackStructured, null, 2)}
               </pre>
@@ -79,7 +86,7 @@ export function JsonOutputPanel({ content, visible }: JsonOutputPanelProps): JSX
           )}
           <details className="mt-2">
             <summary className="cursor-pointer text-slate-500 hover:text-slate-400">
-              Raw response
+              {t("chat.json.rawTitle")}
             </summary>
             <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap break-all rounded border border-slate-600 bg-slate-800/60 p-2 text-slate-300">
               {content}
@@ -91,7 +98,7 @@ export function JsonOutputPanel({ content, visible }: JsonOutputPanelProps): JSX
           {JSON.stringify(parsed, null, 2)}
         </pre>
       ) : (
-        <p className="text-slate-500">No content yet.</p>
+        <p className="text-slate-500">{t("chat.json.empty")}</p>
       )}
     </div>
   );

@@ -98,8 +98,8 @@ export default function ChatPage(): JSX.Element {
         )}
       </header>
 
-      <div className="flex min-h-0 flex-1 gap-4 min-w-0">
-        <aside className="w-64 shrink-0 overflow-hidden rounded-lg border border-slate-800">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 lg:flex-row">
+        <aside className="w-full shrink-0 overflow-hidden rounded-lg border border-slate-800 lg:w-72">
           <DocumentSelector
             documents={documents}
             isLoading={loadingDocs}

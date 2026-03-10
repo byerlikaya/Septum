@@ -9,6 +9,7 @@ import type {
   SSEChatEvent
 } from "@/lib/types";
 import { useLanguage } from "@/lib/language";
+import { useI18n } from "@/lib/i18n";
 import { MessageBubble } from "./MessageBubble";
 import { JsonOutputPanel } from "./JsonOutputPanel";
 import { ApprovalModal } from "./ApprovalModal";
@@ -36,6 +37,7 @@ export function ChatWindow({
   onResponseComplete
 }: ChatWindowProps): JSX.Element {
   const { language } = useLanguage();
+  const t = useI18n();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [outputMode, setOutputMode] = useState<OutputMode>("chat");
@@ -232,7 +234,9 @@ export function ChatWindow({
   return (
     <div className="flex min-h-0 h-full flex-col">
       <div className="shrink-0 flex items-center gap-2 border-b border-slate-800 pb-3">
-        <span className="text-sm font-medium text-slate-400">Output:</span>
+        <span className="text-sm font-medium text-slate-400">
+          {t("chat.output.label")}
+        </span>
         <button
           type="button"
           onClick={() => setOutputMode("chat")}
@@ -242,7 +246,7 @@ export function ChatWindow({
               : "bg-slate-800 text-slate-400 hover:text-slate-200"
           }`}
         >
-          Chat
+          {t("chat.output.tab.chat")}
         </button>
         {showJsonOutput && (
           <button
@@ -254,7 +258,7 @@ export function ChatWindow({
                 : "bg-slate-800 text-slate-400 hover:text-slate-200"
             }`}
           >
-            JSON
+            {t("chat.output.tab.json")}
           </button>
         )}
       </div>
@@ -263,7 +267,7 @@ export function ChatWindow({
         <div className="min-h-0 flex-1 overflow-y-auto space-y-3 py-3">
           {messages.length === 0 ? (
             <p className="text-sm text-slate-500">
-              Select a document and type a message to start. Responses stream word by word.
+              {t("chat.emptyState")}
             </p>
           ) : (
             messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)
@@ -288,7 +292,7 @@ export function ChatWindow({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
-            placeholder="Ask about your document…"
+            placeholder={t("chat.input.placeholder")}
             disabled={documentId == null || streaming}
             className="min-w-0 flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-50"
           />
@@ -298,7 +302,7 @@ export function ChatWindow({
               onClick={stopStreaming}
               className="shrink-0 rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500"
             >
-              Stop
+              {t("chat.button.stop")}
             </button>
           ) : (
             <button
@@ -307,7 +311,7 @@ export function ChatWindow({
               disabled={documentId == null || !input.trim()}
               className="shrink-0 rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
             >
-              Send
+              {t("chat.button.send")}
             </button>
           )}
         </div>
