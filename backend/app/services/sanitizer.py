@@ -180,39 +180,6 @@ class ValidatedIBANRecognizer(EntityRecognizer):
         return results
 
 
-class PIISanitizer:
-    """High-level orchestrator for multi-layer PII detection and masking."""
-
-    def __init__(
-        self,
-        settings: AppSettings,
-        ner_registry: Optional[NERModelRegistry] = None,
-        policy: Optional[ComposedPolicy] = None,
-    ) -> None:
-        self._settings = settings
-        self._ner_registry = ner_registry or NERModelRegistry()
-        self._analyzer = AnalyzerEngine()
-        # Increase SpaCy max_length on all underlying models to better handle long texts.
-        # Presidio's default SpacyNlpEngine stores models in a dict: nlp_engine.nlp[language].
-        try:
-            nlp_engine = getattr(self._analyzer, "nlp_engine", None)
-            nlp_store = getattr(nlp_engine, "nlp", None) if nlp_engine is not None else None
-            # nlp_store is expected to be a dict[str, Language] for SpacyNlpEngine.
-            if isinstance(nlp_store, dict):
-                for model in nlp_store.values():
-                    if hasattr(model, "max_length"):
-                        current_max = getattr(model, "max_length", 0)
-                        if current_max < 2_000_000:
-                            model.max_length = 2_000_000
-        except Exception:  # pragma: no cover - defensive, analyzer internals may change
-            logger.debug("Could not adjust SpaCy max_length on AnalyzerEngine.nlp_engine")
-        self._entity_types: Optional[List[str]] = None
-        self._non_pii_filter: Optional[NonPiiFilter] = None
-        self._register_custom_recognizers()
-        if policy is not None:
-            self._apply_policy(policy)
-
-
 class HeuristicPersonNameRecognizer(EntityRecognizer):
     """Lightweight, language-agnostic recognizer for person-like names.
 
@@ -256,6 +223,38 @@ class HeuristicPersonNameRecognizer(EntityRecognizer):
                 )
             )
         return results
+
+class PIISanitizer:
+    """High-level orchestrator for multi-layer PII detection and masking."""
+
+    def __init__(
+        self,
+        settings: AppSettings,
+        ner_registry: Optional[NERModelRegistry] = None,
+        policy: Optional[ComposedPolicy] = None,
+    ) -> None:
+        self._settings = settings
+        self._ner_registry = ner_registry or NERModelRegistry()
+        self._analyzer = AnalyzerEngine()
+        # Increase SpaCy max_length on all underlying models to better handle long texts.
+        # Presidio's default SpacyNlpEngine stores models in a dict: nlp_engine.nlp[language].
+        try:
+            nlp_engine = getattr(self._analyzer, "nlp_engine", None)
+            nlp_store = getattr(nlp_engine, "nlp", None) if nlp_engine is not None else None
+            # nlp_store is expected to be a dict[str, Language] for SpacyNlpEngine.
+            if isinstance(nlp_store, dict):
+                for model in nlp_store.values():
+                    if hasattr(model, "max_length"):
+                        current_max = getattr(model, "max_length", 0)
+                        if current_max < 2_000_000:
+                            model.max_length = 2_000_000
+        except Exception:  # pragma: no cover - defensive, analyzer internals may change
+            logger.debug("Could not adjust SpaCy max_length on AnalyzerEngine.nlp_engine")
+        self._entity_types: Optional[List[str]] = None
+        self._non_pii_filter: Optional[NonPiiFilter] = None
+        self._register_custom_recognizers()
+        if policy is not None:
+            self._apply_policy(policy)
 
     def _apply_policy(self, policy: ComposedPolicy) -> None:
         """
