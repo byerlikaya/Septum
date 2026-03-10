@@ -57,6 +57,8 @@ export const enMessages = {
   "settings.tabs.rag.description": "Chunking & retrieval",
   "settings.tabs.ingestion.label": "Ingestion",
   "settings.tabs.ingestion.description": "Whisper & OCR",
+  "settings.tabs.textNormalization.label": "Text normalization",
+  "settings.tabs.textNormalization.description": "Regex-based fixes",
   "settings.tabs.ner.label": "NER Models",
   "settings.tabs.ner.description": "Language model map",
   "settings.ner.sectionDescription":
@@ -167,6 +169,25 @@ export const enMessages = {
   "settings.ingestion.recursiveEmail.label": "Recursive email attachments",
   "settings.ingestion.recursiveEmail.description":
     "Recursively ingest attachments found inside email archives.",
+
+  "settings.textNormalization.sectionTitle": "Text normalization rules",
+  "settings.textNormalization.sectionDescription":
+    "Define regex-based text normalization rules that are applied after sanitization. Use this to fix systematic OCR errors or apply project-specific text cleanups without changing raw content.",
+  "settings.textNormalization.newRuleTitle": "New normalization rule",
+  "settings.textNormalization.fields.name": "Rule name",
+  "settings.textNormalization.fields.pattern": "Regex pattern",
+  "settings.textNormalization.fields.replacement": "Replacement",
+  "settings.textNormalization.fields.priority": "Priority",
+  "settings.textNormalization.fields.isActive": "Rule is active",
+  "settings.textNormalization.actions.create": "Create rule",
+  "settings.textNormalization.actions.creating": "Creating…",
+  "settings.textNormalization.table.name": "Name",
+  "settings.textNormalization.table.pattern": "Pattern",
+  "settings.textNormalization.table.replacement": "Replacement",
+  "settings.textNormalization.table.priority": "Priority",
+  "settings.textNormalization.table.active": "Active",
+  "settings.textNormalization.empty":
+    "No text normalization rules have been defined yet.",
 
   "errors.generic.load": "An error occurred while loading data.",
   "errors.documents.load": "An error occurred while loading documents.",

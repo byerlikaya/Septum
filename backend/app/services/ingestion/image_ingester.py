@@ -144,7 +144,14 @@ class ImageIngester(BaseIngester):
         device = get_device()
         use_gpu = device == "cuda"
 
-        reader = easyocr.Reader(self._languages, gpu=use_gpu)
+        effective_languages = sorted({*self._languages, "en"})
+
+        try:
+            reader_languages = effective_languages
+            reader = easyocr.Reader(reader_languages, gpu=use_gpu)
+        except ValueError:
+            reader_languages = ["en"]
+            reader = easyocr.Reader(reader_languages, gpu=use_gpu)
 
         with Image.open(BytesIO(image_bytes)) as img:
             image_array = np.array(img.convert("RGB"))

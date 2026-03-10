@@ -57,6 +57,8 @@ export const trMessages: Record<string, string> = {
   "settings.tabs.rag.description": "Parçalama ve getirme",
   "settings.tabs.ingestion.label": "İçe Aktarım",
   "settings.tabs.ingestion.description": "Whisper ve OCR",
+  "settings.tabs.textNormalization.label": "Metin normalizasyonu",
+  "settings.tabs.textNormalization.description": "Regex tabanlı düzeltmeler",
   "settings.tabs.ner.label": "NER Modelleri",
   "settings.tabs.ner.description": "Dil → model eşlemesi",
   "settings.ner.sectionDescription":
@@ -179,6 +181,25 @@ export const trMessages: Record<string, string> = {
     "Özyinelemeli e-posta ekleri",
   "settings.ingestion.recursiveEmail.description":
     "E-posta arşivlerinde bulunan ekleri özyinelemeli olarak içe aktar.",
+
+  "settings.textNormalization.sectionTitle": "Metin normalizasyon kuralları",
+  "settings.textNormalization.sectionDescription":
+    "Anonimleştirmeden sonra uygulanan regex tabanlı metin normalizasyon kurallarını tanımlayın. Bunu sistematik OCR hatalarını düzeltmek veya ham içeriği bozmadan projeye özel temizlemeler uygulamak için kullanın.",
+  "settings.textNormalization.newRuleTitle": "Yeni normalizasyon kuralı",
+  "settings.textNormalization.fields.name": "Kural adı",
+  "settings.textNormalization.fields.pattern": "Regex deseni",
+  "settings.textNormalization.fields.replacement": "Yerine geçecek metin",
+  "settings.textNormalization.fields.priority": "Öncelik",
+  "settings.textNormalization.fields.isActive": "Kural aktif",
+  "settings.textNormalization.actions.create": "Kural oluştur",
+  "settings.textNormalization.actions.creating": "Oluşturuluyor…",
+  "settings.textNormalization.table.name": "Ad",
+  "settings.textNormalization.table.pattern": "Desen",
+  "settings.textNormalization.table.replacement": "Yerine geçen",
+  "settings.textNormalization.table.priority": "Öncelik",
+  "settings.textNormalization.table.active": "Aktif",
+  "settings.textNormalization.empty":
+    "Henüz tanımlanmış bir metin normalizasyon kuralı yok.",
 
   "language.label": "Dil",
   "language.english": "İngilizce",

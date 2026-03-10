@@ -18,6 +18,7 @@ from .routers import chunks as chunks_router
 from .routers import documents as documents_router
 from .routers import regulations as regulations_router
 from .routers import settings as settings_router
+from .routers import text_normalization as text_normalization_router
 from .utils.device import get_device
 
 
@@ -47,6 +48,7 @@ app.include_router(chunks_router.router)
 app.include_router(chat_router.router)
 app.include_router(settings_router.router)
 app.include_router(regulations_router.router)
+app.include_router(text_normalization_router.router)
 
 
 @app.get("/health")

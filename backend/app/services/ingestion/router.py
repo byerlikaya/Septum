@@ -9,7 +9,7 @@ can depend on without needing to know about individual ingester classes.
 """
 
 from pathlib import Path
-from typing import Dict, Mapping, Optional, Type
+from typing import Any, Dict, Mapping, Optional, Type
 
 from .base import BaseIngester, IngestionResult
 
@@ -55,6 +55,7 @@ class IngestionRouter:
         *,
         mime_type: str,
         file_format: str,
+        ingester_kwargs: Optional[Mapping[str, Any]] = None,
     ) -> IngestionResult:
         """Dispatch ingestion to the appropriate ingester.
 
@@ -72,6 +73,11 @@ class IngestionRouter:
         if ingester_cls is None:
             raise ValueError(f"No ingester registered for format '{file_format}'.")
 
-        ingester = ingester_cls()
-        return await ingester.ingest(file_path=file_path, mime_type=mime_type, file_format=file_format)
+        init_kwargs: Dict[str, Any] = dict(ingester_kwargs or {})
+        ingester = ingester_cls(**init_kwargs)
+        return await ingester.ingest(
+            file_path=file_path,
+            mime_type=mime_type,
+            file_format=file_format,
+        )
 

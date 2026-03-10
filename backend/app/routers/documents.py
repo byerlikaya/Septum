@@ -48,6 +48,7 @@ from ..services.ingestion.router import IngestionRouter
 from ..services.sanitizer import PIISanitizer
 from ..services.policy_composer import PolicyComposer
 from ..services.vector_store import VectorStore
+from ..services.text_normalizer import TextNormalizer
 from ..utils.crypto import encrypt
 
 try:  # python-magic with system libmagic; may fail if libmagic is missing.
@@ -271,10 +272,15 @@ async def upload_document(
 
     settings = await _load_settings(db)
 
+    image_ocr_languages: Optional[List[str]] = None
+    if file_format == "image":
+        image_ocr_languages = list(settings.image_ocr_languages or [])
+
     ingestion_result = await _INGESTION_ROUTER.ingest(
         file_path=encrypted_path,
         mime_type=mime_type,
         file_format=file_format,
+        ingester_kwargs={"languages": image_ocr_languages} if image_ocr_languages else None,
     )
 
     detected_language = await _detect_language(ingestion_result.text)
@@ -325,10 +331,14 @@ async def upload_document(
             anon_map,
         )
 
-        sanitized_text = sanitize_result.sanitized_text
-        entity_count = sanitize_result.entity_count
+        normalizer = TextNormalizer()
+        normalized_text = await normalizer.normalize(
+            db,
+            sanitize_result.sanitized_text,
+        )
 
-        document.transcription_text = sanitized_text
+        document.transcription_text = normalized_text
+        entity_count = sanitize_result.entity_count
 
         # Use semantic chunking for structured documents (PDF, DOCX)
         # and sliding window for unstructured formats
@@ -342,7 +352,7 @@ async def upload_document(
                 overlap=max(min(settings.chunk_overlap, settings.chunk_size - 1), 0),
             )
 
-        semantic_chunks = await asyncio.to_thread(chunker.chunk, sanitized_text)
+        semantic_chunks = await asyncio.to_thread(chunker.chunk, normalized_text)
 
         merged_chunks: List[SemanticChunk] = []
         i = 0
