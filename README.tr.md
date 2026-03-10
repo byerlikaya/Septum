@@ -18,6 +18,10 @@
   <img src="https://img.shields.io/badge/bagimlilikler-denetim_temiz-brightgreen" alt="Bağımlılıklar: denetim temiz" />
 </p>
 
+<p align="center">
+  <a href="#ekran-görüntüleri"><strong>Ekran görüntülerini gör</strong></a>
+</p>
+
 ## Septum — Gizlilik Odaklı Yapay Zekâ Asistanı
 
 Septum, kurumların **kendi verilerini** büyük dil modelleri (LLM) ile kullanırken gizliliği koruması için tasarlanmış bir **ara katman (middleware)** ve web uygulamasıdır.
@@ -174,4 +178,74 @@ Yüksek seviye akış:
 - Yeni ulusal kimlik formatları için national ID modülünde yeni validator ve recognizer eklenebilir.
 - Yeni doküman formatları için ingestion katmanında özel ingester implementasyonları eklenebilir.
 - NER model haritası, Settings → NER Models ekranından kullanıcı tarafından güncellenebilir.
+
+---
+
+## Ekran Görüntüleri
+
+**1. Sohbet deneyimi**
+
+<p align="center">
+  <img src="screenshots/1-chat.png" alt="Onay adımlı sohbet ekranı" width="900" />
+</p>
+
+**2. Dokümanlar görünümü**
+
+<p align="center">
+  <img src="screenshots/2-documents.png" alt="Doküman listesi ve yükleme ekranı" width="900" />
+</p>
+
+**3. Chunk ve varlıklar**
+
+<p align="center">
+  <img src="screenshots/3-chunks.png" alt="Tespit edilen varlıklarla chunk görünümü" width="900" />
+</p>
+
+**4. Bulut LLM ayarları**
+
+<p align="center">
+  <img src="screenshots/4-cloudllm.png" alt="Bulut LLM yapılandırma ayarları" width="900" />
+</p>
+
+**5. Gizlilik ve anonimleştirme katmanları**
+
+<p align="center">
+  <img src="screenshots/5-privacySanitization.png" alt="Gizlilik ve anonimleştirme ayarları" width="900" />
+</p>
+
+**6. Lokal model yapılandırması**
+
+<p align="center">
+  <img src="screenshots/6-localmodels.png" alt="Yerel model ayarları" width="900" />
+</p>
+
+**7. RAG yapılandırması**
+
+<p align="center">
+  <img src="screenshots/7-rag.png" alt="RAG yapılandırma ayarları" width="900" />
+</p>
+
+**8. Ingestion / içe aktarma ayarları**
+
+<p align="center">
+  <img src="screenshots/8-ingestion.png" alt="Ingestion, OCR ve transkripsiyon ayarları" width="900" />
+</p>
+
+**9. Metin normalizasyon kuralları**
+
+<p align="center">
+  <img src="screenshots/9-textNormalizationRules.png" alt="Metin normalizasyon kuralı yapılandırması" width="900" />
+</p>
+
+**10. NER model eşleştirmeleri**
+
+<p align="center">
+  <img src="screenshots/10-NERModels.png" alt="Dil → NER modeli eşleştirme ayarları" width="900" />
+</p>
+
+**11. Regülasyon yönetimi**
+
+<p align="center">
+  <img src="screenshots/11-regulations.png" alt="Regülasyon ruleset yönetimi ekranı" width="900" />
+</p>
 

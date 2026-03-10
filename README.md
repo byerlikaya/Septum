@@ -18,6 +18,10 @@
   <img src="https://img.shields.io/badge/deps-audit_clean-brightgreen" alt="Dependencies: audit clean" />
 </p>
 
+<p align="center">
+  <a href="#screenshots"><strong>View screenshots</strong></a>
+</p>
+
 ## Septum — Privacy‑First AI Assistant
 
 Septum is a **privacy‑first middleware and web app** that lets organisations use their **own data** with large language models (LLMs) without exposing raw personal data to the cloud.
@@ -345,4 +349,74 @@ Any tests that would send real requests to a cloud LLM **must be mocked**; tests
 - Add new national ID formats by adding validators and recognisers in the national ID module.  
 - Add new document formats by implementing dedicated ingesters in the ingestion layer.  
 - Update NER model mappings from the Settings → NER Models screen.
+
+---
+
+## Screenshots
+
+**1. Chat experience**
+
+<p align="center">
+  <img src="screenshots/1-chat.png" alt="Chat screen with approval-based sharing" width="900" />
+</p>
+
+**2. Documents overview**
+
+<p align="center">
+  <img src="screenshots/2-documents.png" alt="Documents list and upload view" width="900" />
+</p>
+
+**3. Chunks and entities**
+
+<p align="center">
+  <img src="screenshots/3-chunks.png" alt="Chunks view with detected entities" width="900" />
+</p>
+
+**4. Cloud LLM settings**
+
+<p align="center">
+  <img src="screenshots/4-cloudllm.png" alt="Cloud LLM configuration settings" width="900" />
+</p>
+
+**5. Privacy & sanitisation layers**
+
+<p align="center">
+  <img src="screenshots/5-privacySanitization.png" alt="Privacy and sanitisation settings" width="900" />
+</p>
+
+**6. Local model configuration**
+
+<p align="center">
+  <img src="screenshots/6-localmodels.png" alt="Local model settings" width="900" />
+</p>
+
+**7. RAG configuration**
+
+<p align="center">
+  <img src="screenshots/7-rag.png" alt="RAG configuration settings" width="900" />
+</p>
+
+**8. Ingestion pipeline settings**
+
+<p align="center">
+  <img src="screenshots/8-ingestion.png" alt="Ingestion and OCR/transcription settings" width="900" />
+</p>
+
+**9. Text normalisation rules**
+
+<p align="center">
+  <img src="screenshots/9-textNormalizationRules.png" alt="Text normalisation rule configuration" width="900" />
+</p>
+
+**10. NER model mappings**
+
+<p align="center">
+  <img src="screenshots/10-NERModels.png" alt="Language to NER model mapping settings" width="900" />
+</p>
+
+**11. Regulation manager**
+
+<p align="center">
+  <img src="screenshots/11-regulations.png" alt="Regulation ruleset management view" width="900" />
+</p>
 
