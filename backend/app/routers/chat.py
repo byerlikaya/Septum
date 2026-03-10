@@ -34,7 +34,9 @@ from ..services.approval_gate import ApprovalChunk, ApprovalGate, get_approval_g
 from ..services.document_anon_store import get_document_map
 from ..services.deanonymizer import Deanonymizer
 from ..services.llm_router import LLMRouter, LLMRouterError, _chunk_text
+from ..services.policy_composer import PolicyComposer
 from ..services.sanitizer import PIISanitizer
+from ..services.chat_debug_store import set_chat_debug_record, get_chat_debug_record, ChatDebugRecord
 
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -61,6 +63,15 @@ class ChatRequest(BaseModel):
     output_mode: Optional[str] = "chat"
     require_approval: Optional[bool] = None
     deanon_enabled: Optional[bool] = None
+
+
+class ChatDebugResponse(BaseModel):
+    """Debug payload describing what was sent to and received from the cloud LLM."""
+
+    session_id: str
+    masked_prompt: str
+    masked_answer: str
+    final_answer: str
 
 
 async def _load_settings(db: AsyncSession) -> AppSettings:
@@ -112,9 +123,12 @@ async def _sanitize_query(
     language: str,
     settings: AppSettings,
     anon_map: AnonymizationMap,
+    db: AsyncSession,
 ) -> tuple[str, int]:
     """Run the sanitizer on the incoming user message."""
-    sanitizer = PIISanitizer(settings=settings)
+    composer = PolicyComposer()
+    policy = await composer.compose(db)
+    sanitizer = PIISanitizer(settings=settings, policy=policy)
     result = await asyncio.to_thread(
         sanitizer.sanitize,
         message,
@@ -228,6 +242,7 @@ async def _run_llm_and_deanonymize(
     context_chunks: List[str],
     regulation_names: List[str],
     output_mode: str = "chat",
+    session_id: Optional[str] = None,
 ) -> str:
     """Call the LLM and apply local de-anonymization."""
     llm = LLMRouter(settings)
@@ -303,6 +318,13 @@ async def _run_llm_and_deanonymize(
 
     deanonymizer = Deanonymizer(settings=settings)
     result = await deanonymizer.deanonymize(masked_answer, anon_map)
+    if session_id is not None:
+        set_chat_debug_record(
+            session_id=session_id,
+            masked_prompt=user_prompt,
+            masked_answer=masked_answer,
+            final_answer=result,
+        )
     if not anon_map.entity_map and _PLACEHOLDER_PATTERN.search(result):
         result += (
             "\n\n(Names and other values could not be loaded. "
@@ -328,6 +350,8 @@ async def chat_ask(
             detail="Either 'message' or 'query' must be provided.",
         )
 
+    # Determine whether this request is document-backed (RAG) or pure free-text.
+    document_id: Optional[int]
     if request.document_id is not None:
         document_id = request.document_id
     elif request.document_ids:
@@ -338,48 +362,63 @@ async def chat_ask(
             )
         document_id = request.document_ids[0]
     else:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Either 'document_id' or 'document_ids' must be provided.",
-        )
+        document_id = None
 
     settings = await _load_settings(db)
-    document = await _load_document(db, document_id)
+    composer = PolicyComposer()
+    policy = await composer.compose(db)
     regulation_names = await _active_regulation_names(db)
 
-    base_language = document.language_override or document.detected_language
+    document: Document | None = None
+    if document_id is not None:
+        document = await _load_document(db, document_id)
+
+    base_language = (document.language_override or document.detected_language) if document else "en"
     language = await _detect_language(message_text, fallback=base_language)
 
-    anon_map = get_document_map(document.id) or AnonymizationMap(
-        document_id=document.id, language=language
-    )
-    map_entries = len(anon_map.entity_map)
-    logger.info(
-        "chat document_id=%s anon_map_entries=%s deanon_enabled=%s",
-        document.id,
-        map_entries,
-        getattr(settings, "deanon_enabled", True),
-    )
-    if map_entries == 0 and getattr(settings, "deanon_enabled", True):
-        logger.warning(
-            "Deanonymization will have no effect: no map for document_id=%s. "
-            "Set ENCRYPTION_KEY in .env and re-upload the document so the map can be loaded after restart.",
-            document.id,
+    if document is not None:
+        anon_map = get_document_map(document.id) or AnonymizationMap(
+            document_id=document.id,
+            language=language,
         )
+        map_entries = len(anon_map.entity_map)
+        logger.info(
+            "chat document_id=%s anon_map_entries=%s deanon_enabled=%s",
+            document.id,
+            map_entries,
+            getattr(settings, "deanon_enabled", True),
+        )
+        if map_entries == 0 and getattr(settings, "deanon_enabled", True):
+            logger.warning(
+                "Deanonymization will have no effect: no map for document_id=%s. "
+                "Set ENCRYPTION_KEY in .env and re-upload the document so the map can be loaded after restart.",
+                document.id,
+            )
+    else:
+        anon_map = AnonymizationMap(document_id=0, language=language)
+        logger.info(
+            "chat document_id=None anon_map_entries=%s deanon_enabled=%s",
+            len(anon_map.entity_map),
+            getattr(settings, "deanon_enabled", True),
+        )
+
     sanitized_query, entity_count = await _sanitize_query(
         message=message_text,
         language=language,
         settings=settings,
         anon_map=anon_map,
+        db=db,
     )
 
     top_k = request.top_k or settings.top_k_retrieval
-    chunks = await _retrieve_chunks(
-        db=db,
-        document_id=document.id,
-        query=sanitized_query,
-        top_k=top_k,
-    )
+    chunks: List[Chunk] = []
+    if document is not None:
+        chunks = await _retrieve_chunks(
+            db=db,
+            document_id=document.id,
+            query=sanitized_query,
+            top_k=top_k,
+        )
 
     session_id = request.session_id or uuid4().hex
     gate: ApprovalGate = get_approval_gate()
@@ -400,7 +439,7 @@ async def chat_ask(
                 {
                     "type": "meta",
                     "session_id": session_id,
-                    "document_id": document.id,
+                    "document_id": document.id if document is not None else None,
                     "language": language,
                     "require_approval": require_approval,
                     "retrieved_chunk_count": len(chunks),
@@ -410,7 +449,7 @@ async def chat_ask(
 
             context_texts: List[str] = []
 
-            if require_approval and chunks:
+            if document is not None and require_approval and chunks:
                 approval_chunks = _build_approval_chunks(chunks)
                 gate.create(
                     session_id=session_id,
@@ -452,8 +491,10 @@ async def chat_ask(
                     return
 
                 context_texts = [c.text for c in decision.chunks]
-            else:
+            elif document is not None:
                 context_texts = [c.sanitized_text for c in chunks]
+            else:
+                context_texts = []
 
             output_mode = (request.output_mode or "chat").strip().lower()
             answer = await _run_llm_and_deanonymize(
@@ -463,6 +504,7 @@ async def chat_ask(
                 context_chunks=context_texts,
                 regulation_names=regulation_names,
                 output_mode=output_mode,
+                session_id=session_id,
             )
 
             for piece in _chunk_text(answer, max_chunk_size=256):
@@ -485,4 +527,30 @@ async def chat_ask(
             )
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.get(
+    "/debug/{session_id}",
+    response_model=ChatDebugResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def chat_debug(session_id: str) -> ChatDebugResponse:
+    """Return masked prompt/answer and final answer for a given chat session.
+
+    This endpoint is intended only for local debugging and never exposes the
+    anonymization map or any raw PII. The `masked_prompt` and `masked_answer`
+    fields contain only sanitized content with placeholders.
+    """
+    record: ChatDebugRecord | None = get_chat_debug_record(session_id)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No debug information found for this session_id.",
+        )
+    return ChatDebugResponse(
+        session_id=record.session_id,
+        masked_prompt=record.masked_prompt,
+        masked_answer=record.masked_answer,
+        final_answer=record.final_answer,
+    )
 

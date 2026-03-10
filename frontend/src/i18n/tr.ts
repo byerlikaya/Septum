@@ -231,6 +231,15 @@ export const trMessages: Record<string, string> = {
   "chat.input.placeholder": "Dokümanınız hakkında soru sorun…",
   "chat.button.stop": "Durdur",
   "chat.button.send": "Gönder",
+  "chat.copy": "Kopyala",
+  "chat.copied": "Kopyalandı",
+  "chat.copyAnswer": "Cevabı kopyala",
+
+  "chat.debug.title": "Buluta giden ve gelen veri",
+  "chat.debug.button": "Buluta giden veriyi göster",
+  "chat.debug.maskedPrompt": "Buluta giden istem (maskelenmiş)",
+  "chat.debug.maskedAnswer": "Buluttan gelen yanıt (maskelenmiş)",
+  "chat.debug.finalAnswer": "Yerelde işlenmiş ve gösterilen yanıt",
 
   "chat.documentSelector.hint":
     "Sorgulamak için en az bir doküman seçin. Yalnızca hazır dokümanlar listelenir.",
@@ -285,6 +294,7 @@ export const trMessages: Record<string, string> = {
   "common.edit": "Düzenle",
   "common.deleting": "Siliniyor…",
   "common.delete": "Sil",
+  "common.close": "Kapat",
 
   "regulations.page.title": "Regülasyon Kuralları ve Özel Kurallar",
   "regulations.page.subtitle":

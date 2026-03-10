@@ -44,13 +44,20 @@ export async function getRegulations(): Promise<RegulationRulesetItem[]> {
 
 export interface ChatAskParams {
   message: string;
-  document_id: number;
+  document_id?: number;
   document_ids?: number[];
   top_k?: number;
   session_id?: string;
   output_mode?: "chat" | "json";
   require_approval?: boolean;
   deanon_enabled?: boolean;
+}
+
+export interface ChatDebugPayload {
+  session_id: string;
+  masked_prompt: string;
+  masked_answer: string;
+  final_answer: string;
 }
 
 /**
@@ -62,16 +69,19 @@ export function streamChatAsk(
   onEvent: (event: SSEChatEvent) => void
 ): { abort: () => void } {
   const controller = new AbortController();
-  const body = {
+  const body: Record<string, unknown> = {
     message: params.message,
-    document_id: params.document_id,
-    document_ids: params.document_ids ?? [params.document_id],
     top_k: params.top_k,
     session_id: params.session_id,
     output_mode: params.output_mode ?? "chat",
     require_approval: params.require_approval,
     deanon_enabled: params.deanon_enabled
   };
+
+  if (typeof params.document_id === "number") {
+    body.document_id = params.document_id;
+    body.document_ids = params.document_ids ?? [params.document_id];
+  }
 
   (async () => {
     try {
@@ -137,6 +147,11 @@ export function streamChatAsk(
   return {
     abort: () => controller.abort()
   };
+}
+
+export async function getChatDebug(sessionId: string): Promise<ChatDebugPayload> {
+  const { data } = await api.get<ChatDebugPayload>(`/api/chat/debug/${sessionId}`);
+  return data;
 }
 
 export async function approvalApprove(

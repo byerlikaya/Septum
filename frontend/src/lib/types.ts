@@ -50,6 +50,7 @@ export interface ChatMessage {
   id: string;
   role: ChatMessageRole;
   content: string;
+  sessionId?: string;
 }
 
 export type OutputMode = "chat" | "json";
@@ -69,7 +70,7 @@ export interface ApprovalChunkPayload {
 export interface SSEMetaEvent {
   type: "meta";
   session_id: string;
-  document_id: number;
+  document_id: number | null;
   language: string;
   require_approval: boolean;
   retrieved_chunk_count: number;

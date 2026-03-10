@@ -24,6 +24,7 @@ from .anonymization_map import AnonymizationMap, SANITIZER_STOPWORDS
 from .ner_model_registry import NERModelRegistry
 from .ollama_client import extract_json_array, call_ollama_sync
 from .national_ids import IBANValidator, TCKNValidator
+from .policy_composer import ComposedPolicy
 from ..models.settings import AppSettings
 from ..utils.text_utils import normalize_unicode, normalize_for_comparison
 
@@ -171,14 +172,32 @@ class PIISanitizer:
         self,
         settings: AppSettings,
         ner_registry: Optional[NERModelRegistry] = None,
+        policy: Optional[ComposedPolicy] = None,
     ) -> None:
         self._settings = settings
         self._ner_registry = ner_registry or NERModelRegistry()
         self._analyzer = AnalyzerEngine()
+        self._entity_types: Optional[List[str]] = None
         self._register_custom_recognizers()
+        if policy is not None:
+            self._apply_policy(policy)
+
+    def _apply_policy(self, policy: ComposedPolicy) -> None:
+        """
+        Configure the Presidio analyzer with recognizers from the composed policy.
+
+        Regulation-aware recognizers from ``policy.recognizers`` are registered
+        in addition to the project-specific baseline recognizers defined in
+        this module. The union of entity types from the policy is stored so
+        that ``analyze`` can limit detection to the active set.
+        """
+        registry = self._analyzer.registry
+        for recognizer in policy.recognizers:
+            registry.add_recognizer(recognizer)
+        self._entity_types = list(policy.entity_types)
 
     def _register_custom_recognizers(self) -> None:
-        """Register Turkish-specific recognizers on the analyzer registry."""
+        """Register project-specific Presidio recognizers on the analyzer registry."""
         registry = self._analyzer.registry
         registry.add_recognizer(TurkishPhoneRecognizer())
         registry.add_recognizer(TCKNEntityRecognizer())
@@ -205,6 +224,7 @@ class PIISanitizer:
             presidio_results = self._analyzer.analyze(
                 text=normalized_text,
                 language="en",
+                entities=self._entity_types,
             )
             spans.extend(self._from_presidio_results(presidio_results))
 
