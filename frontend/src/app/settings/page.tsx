@@ -2,35 +2,12 @@
 
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
+import type { AppSettingsResponse } from "@/lib/types";
+import { useLanguage } from "@/lib/language";
+import { useI18n } from "@/lib/i18n";
 
-type SettingsResponse = {
-  id: number;
-  llm_provider: string;
-  llm_model: string;
-  ollama_base_url: string;
-  ollama_chat_model: string;
-  ollama_deanon_model: string;
-  deanon_enabled: boolean;
-  deanon_strategy: string;
-  require_approval: boolean;
-  show_json_output: boolean;
-  use_presidio_layer: boolean;
-  use_ner_layer: boolean;
-  use_ollama_layer: boolean;
-  chunk_size: number;
-  chunk_overlap: number;
-  top_k_retrieval: number;
-  pdf_chunk_size: number;
-  audio_chunk_size: number;
-  spreadsheet_chunk_size: number;
-  whisper_model: string;
-  image_ocr_languages: string[];
-  extract_embedded_images: boolean;
-  recursive_email_attachments: boolean;
-  default_active_regulations: string[];
-};
-
-type SettingsUpdatePayload = Partial<Omit<SettingsResponse, "id">>;
+type SettingsResponse = AppSettingsResponse;
+type SettingsUpdatePayload = Partial<Omit<AppSettingsResponse, "id">>;
 
 type SettingsTab =
   | "cloud-llm"
@@ -61,6 +38,8 @@ const NER_MODEL_DEFAULTS: Record<string, string> = {
 };
 
 export default function SettingsPage(): JSX.Element {
+  const { language, setLanguage } = useLanguage();
+  const t = useI18n();
   const [activeTab, setActiveTab] = useState<SettingsTab>("cloud-llm");
   const [settings, setSettings] = useState<SettingsResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -242,48 +221,48 @@ export default function SettingsPage(): JSX.Element {
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-4">
       <header className="shrink-0 border-b border-slate-800 pb-4 text-slate-50">
         <h1 className="text-xl font-semibold tracking-tight">
-          Settings
+          {t("settings.title")}
         </h1>
         <p className="mt-1 text-sm text-slate-300">
-          Configure cloud LLMs, privacy layers, local models, RAG, and ingestion.
+          {t("settings.subtitle")}
         </p>
       </header>
 
       <div className="flex min-h-0 flex-1 gap-4">
         <div className="w-52 shrink-0 space-y-1 rounded-lg border border-slate-800 bg-slate-950/80 p-2 text-sm">
           <SettingsTabButton
-            label="Cloud LLM"
-            description="Provider & model"
+            label={t("settings.tabs.cloud.label")}
+            description={t("settings.tabs.cloud.description")}
             active={activeTab === "cloud-llm"}
             onClick={() => setActiveTab("cloud-llm")}
           />
           <SettingsTabButton
-            label="Privacy & Sanitization"
-            description="Approval & masking"
+            label={t("settings.tabs.privacy.label")}
+            description={t("settings.tabs.privacy.description")}
             active={activeTab === "privacy"}
             onClick={() => setActiveTab("privacy")}
           />
           <SettingsTabButton
-            label="Local Models"
-            description="Ollama & de-anon"
+            label={t("settings.tabs.local.label")}
+            description={t("settings.tabs.local.description")}
             active={activeTab === "local-models"}
             onClick={() => setActiveTab("local-models")}
           />
           <SettingsTabButton
-            label="RAG"
-            description="Chunking & retrieval"
+            label={t("settings.tabs.rag.label")}
+            description={t("settings.tabs.rag.description")}
             active={activeTab === "rag"}
             onClick={() => setActiveTab("rag")}
           />
           <SettingsTabButton
-            label="Ingestion"
-            description="Whisper & OCR"
+            label={t("settings.tabs.ingestion.label")}
+            description={t("settings.tabs.ingestion.description")}
             active={activeTab === "ingestion"}
             onClick={() => setActiveTab("ingestion")}
           />
           <SettingsTabButton
-            label="NER Models"
-            description="Language model map"
+            label={t("settings.tabs.ner.label")}
+            description={t("settings.tabs.ner.description")}
             active={activeTab === "ner-models"}
             onClick={() => setActiveTab("ner-models")}
           />
@@ -292,14 +271,31 @@ export default function SettingsPage(): JSX.Element {
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto rounded-lg border border-border bg-slate-900 p-4 text-slate-50">
           {loading ? (
             <div className="flex h-full items-center justify-center text-sm text-slate-200">
-              Settings are loading...
+              {t("settings.loading")}
             </div>
           ) : error ? (
             <div className="rounded-md border border-red-500/40 bg-red-950/40 p-3 text-sm text-red-200">
               {error}
             </div>
           ) : (
-            <div className="flex flex-col gap-4">{renderTabContent()}</div>
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center justify-end gap-2 border-b border-slate-800 pb-3 text-xs">
+                <span className="text-slate-400">
+                  {t("language.label")}
+                </span>
+                <select
+                  className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100"
+                  value={language}
+                  onChange={(event) =>
+                    setLanguage(event.target.value === "tr" ? "tr" : "en")
+                  }
+                >
+                  <option value="en">{t("language.english")}</option>
+                  <option value="tr">{t("language.turkish")}</option>
+                </select>
+              </div>
+              {renderTabContent()}
+            </div>
           )}
         </div>
       </div>

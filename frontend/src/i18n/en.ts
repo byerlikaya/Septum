@@ -1,0 +1,65 @@
+export const enMessages = {
+  "sidebar.appName": "Septum",
+  "sidebar.tagline": "AI Privacy Gateway",
+  "sidebar.chat": "Chat",
+  "sidebar.documents": "Documents",
+  "sidebar.chunks": "Chunks",
+  "sidebar.settings": "Settings",
+  "sidebar.regulations": "Regulations",
+  "sidebar.footer": "Privacy-first · Local-first",
+
+  "chat.title": "Chat",
+  "chat.subtitle":
+    "Interact with Septum's privacy-preserving assistant. Select documents and ask questions; responses stream in real time.",
+  "chat.loadingSettings": "Loading settings…",
+
+  "documents.title": "Documents",
+  "documents.subtitle": "Upload, inspect, and manage ingested documents.",
+  "documents.uploading": "Uploading documents…",
+  "documents.table.loading": "Documents are loading…",
+  "documents.table.empty": "No documents uploaded yet.",
+  "documents.table.column.document": "Document",
+  "documents.table.column.type": "Type",
+  "documents.table.column.size": "Size",
+  "documents.table.column.status": "Status",
+  "documents.table.column.chunks": "Chunks",
+  "documents.table.column.entities": "Entities",
+  "documents.table.column.actions": "Actions",
+  "documents.table.languageLabel": "Language",
+  "documents.table.regulationsLabel": "Regulations",
+  "documents.status.completed": "Completed",
+  "documents.status.processing": "Processing",
+  "documents.status.pending": "Pending",
+  "documents.status.failed": "Failed",
+  "documents.actions.preview": "Preview",
+  "documents.actions.transcription": "Transcription",
+  "documents.actions.delete": "Delete",
+
+  "chunks.title": "Chunks",
+  "chunks.subtitle": "Expand a document below to view and edit its sanitized chunks.",
+  "chunks.loadingDocuments": "Loading documents…",
+  "chunks.emptyHint":
+    "No documents with chunks yet. Upload and ingest a document from the Documents page first.",
+
+  "settings.title": "Settings",
+  "settings.subtitle":
+    "Configure cloud LLMs, privacy layers, local models, RAG, and ingestion.",
+  "settings.loading": "Settings are loading...",
+  "settings.tabs.cloud.label": "Cloud LLM",
+  "settings.tabs.cloud.description": "Provider & model",
+  "settings.tabs.privacy.label": "Privacy & Sanitization",
+  "settings.tabs.privacy.description": "Approval & masking",
+  "settings.tabs.local.label": "Local Models",
+  "settings.tabs.local.description": "Ollama & de-anon",
+  "settings.tabs.rag.label": "RAG",
+  "settings.tabs.rag.description": "Chunking & retrieval",
+  "settings.tabs.ingestion.label": "Ingestion",
+  "settings.tabs.ingestion.description": "Whisper & OCR",
+  "settings.tabs.ner.label": "NER Models",
+  "settings.tabs.ner.description": "Language model map",
+
+  "language.label": "Language",
+  "language.english": "English",
+  "language.turkish": "Turkish"
+} as const;
+

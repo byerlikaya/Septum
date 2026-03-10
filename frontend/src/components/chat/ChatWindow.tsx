@@ -1,17 +1,14 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import {
-  streamChatAsk,
-  approvalApprove,
-  approvalReject
-} from "@/lib/api";
+import { streamChatAsk, approvalApprove, approvalReject } from "@/lib/api";
 import type {
   ApprovalChunkPayload,
   ChatMessage,
   OutputMode,
   SSEChatEvent
 } from "@/lib/types";
+import { useLanguage } from "@/lib/language";
 import { MessageBubble } from "./MessageBubble";
 import { JsonOutputPanel } from "./JsonOutputPanel";
 import { ApprovalModal } from "./ApprovalModal";
@@ -38,6 +35,7 @@ export function ChatWindow({
   showJsonOutput,
   onResponseComplete
 }: ChatWindowProps): JSX.Element {
+  const { language } = useLanguage();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [outputMode, setOutputMode] = useState<OutputMode>("chat");
@@ -88,6 +86,9 @@ export function ChatWindow({
   const sendMessage = useCallback(() => {
     const text = input.trim();
     if (!text || documentId == null || streaming) return;
+
+    const languagePrefixedText =
+      language === "tr" ? `Please answer in Turkish. ${text}` : text;
 
     setInput("");
     setStreamError(null);
@@ -194,7 +195,7 @@ export function ChatWindow({
     const startStream = () => {
       abortRef.current = streamChatAsk(
         {
-          message: text,
+          message: languagePrefixedText,
           document_id: documentId,
           require_approval: requireApproval,
           deanon_enabled: deanonEnabled,
@@ -204,7 +205,16 @@ export function ChatWindow({
       );
     };
     setTimeout(startStream, 0);
-  }, [input, documentId, streaming, deanonEnabled, requireApproval, onResponseComplete, outputMode]
+  }, [
+    input,
+    documentId,
+    streaming,
+    deanonEnabled,
+    requireApproval,
+    onResponseComplete,
+    outputMode,
+    language
+  ]
   );
 
   const stopStreaming = useCallback(() => {

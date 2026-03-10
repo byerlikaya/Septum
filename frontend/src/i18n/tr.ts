@@ -1,0 +1,65 @@
+export const trMessages: Record<string, string> = {
+  "sidebar.appName": "Septum",
+  "sidebar.tagline": "Yapay Zeka Gizlilik Geçidi",
+  "sidebar.chat": "Sohbet",
+  "sidebar.documents": "Dokümanlar",
+  "sidebar.chunks": "Parçalar",
+  "sidebar.settings": "Ayarlar",
+  "sidebar.regulations": "Regülasyonlar",
+  "sidebar.footer": "Gizlilik-öncelikli · Yerel-öncelikli",
+  "chat.title": "Sohbet",
+  "chat.subtitle":
+    "Septum'un gizlilik odaklı asistanıyla etkileşime geç. Doküman seç, sorular sor; yanıtlar anlık olarak akar.",
+  "chat.loadingSettings": "Ayarlar yükleniyor…",
+
+  "documents.title": "Dokümanlar",
+  "documents.subtitle": "Yükle, incele ve işlenmiş dokümanları yönet.",
+  "documents.uploading": "Dokümanlar yükleniyor…",
+  "documents.table.loading": "Doküman listesi yükleniyor…",
+  "documents.table.empty": "Henüz doküman yüklenmedi.",
+  "documents.table.column.document": "Doküman",
+  "documents.table.column.type": "Tür",
+  "documents.table.column.size": "Boyut",
+  "documents.table.column.status": "Durum",
+  "documents.table.column.chunks": "Parçalar",
+  "documents.table.column.entities": "Varlıklar",
+  "documents.table.column.actions": "İşlemler",
+  "documents.table.languageLabel": "Dil",
+  "documents.table.regulationsLabel": "Regülasyonlar",
+  "documents.status.completed": "Tamamlandı",
+  "documents.status.processing": "İşleniyor",
+  "documents.status.pending": "Beklemede",
+  "documents.status.failed": "Hata",
+  "documents.actions.preview": "Önizleme",
+  "documents.actions.transcription": "Transkripsiyon",
+  "documents.actions.delete": "Sil",
+
+  "chunks.title": "Parçalar",
+  "chunks.subtitle":
+    "Aşağıdan bir dokümanı genişleterek anonimize edilmiş parçalarını görüntüleyip düzenleyin.",
+  "chunks.loadingDocuments": "Dokümanlar yükleniyor…",
+  "chunks.emptyHint":
+    "Henüz parçalara ayrılmış bir doküman yok. Önce Dokümanlar sayfasından bir dosya yükleyip içe aktarın.",
+
+  "settings.title": "Ayarlar",
+  "settings.subtitle":
+    "Bulut LLM'leri, gizlilik katmanlarını, yerel modelleri ve RAG davranışını yapılandırın.",
+  "settings.loading": "Ayarlar yükleniyor...",
+  "settings.tabs.cloud.label": "Bulut LLM",
+  "settings.tabs.cloud.description": "Sağlayıcı ve model",
+  "settings.tabs.privacy.label": "Gizlilik ve Anonimleştirme",
+  "settings.tabs.privacy.description": "Onay ve maskeleme",
+  "settings.tabs.local.label": "Yerel Modeller",
+  "settings.tabs.local.description": "Ollama ve de-anon",
+  "settings.tabs.rag.label": "RAG",
+  "settings.tabs.rag.description": "Parçalama ve getirme",
+  "settings.tabs.ingestion.label": "İçe Aktarım",
+  "settings.tabs.ingestion.description": "Whisper ve OCR",
+  "settings.tabs.ner.label": "NER Modelleri",
+  "settings.tabs.ner.description": "Dil → model eşlemesi",
+
+  "language.label": "Dil",
+  "language.english": "İngilizce",
+  "language.turkish": "Türkçe"
+};
+

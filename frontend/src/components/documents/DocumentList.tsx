@@ -10,6 +10,7 @@ import {
   Eye
 } from "lucide-react";
 import type { Document } from "@/lib/types";
+import { useI18n } from "@/lib/i18n";
 
 interface DocumentListProps {
   documents: Document[];
@@ -75,10 +76,13 @@ export function DocumentList({
   onPreview,
   onPreviewTranscription
 }: DocumentListProps): JSX.Element {
+  const t = useI18n();
   if (isLoading) {
     return (
       <div className="flex flex-1 items-center justify-center rounded-lg border border-slate-800 bg-slate-950/40">
-        <p className="text-sm text-slate-400">Documents are loading…</p>
+        <p className="text-sm text-slate-400">
+          {t("documents.table.loading")}
+        </p>
       </div>
     );
   }
@@ -86,7 +90,9 @@ export function DocumentList({
   if (!documents.length) {
     return (
       <div className="flex flex-1 items-center justify-center rounded-lg border border-slate-800 bg-slate-950/40">
-        <div className="text-center text-sm text-slate-400">No documents uploaded yet.</div>
+        <div className="text-center text-sm text-slate-400">
+          {t("documents.table.empty")}
+        </div>
       </div>
     );
   }
@@ -97,13 +103,27 @@ export function DocumentList({
         <table className="min-w-full text-left text-sm">
           <thead className="sticky top-0 z-10 border-b border-slate-800 bg-slate-900/90 backdrop-blur">
             <tr className="text-xs uppercase tracking-wide text-slate-400">
-              <th className="px-4 py-2 font-medium">Document</th>
-              <th className="px-4 py-2 font-medium">Type</th>
-              <th className="px-4 py-2 font-medium">Size</th>
-              <th className="px-4 py-2 font-medium">Status</th>
-              <th className="px-4 py-2 font-medium text-right">Chunks</th>
-              <th className="px-4 py-2 font-medium text-right">Entities</th>
-              <th className="px-4 py-2 font-medium text-right">Actions</th>
+              <th className="px-4 py-2 font-medium">
+                {t("documents.table.column.document")}
+              </th>
+              <th className="px-4 py-2 font-medium">
+                {t("documents.table.column.type")}
+              </th>
+              <th className="px-4 py-2 font-medium">
+                {t("documents.table.column.size")}
+              </th>
+              <th className="px-4 py-2 font-medium">
+                {t("documents.table.column.status")}
+              </th>
+              <th className="px-4 py-2 font-medium text-right">
+                {t("documents.table.column.chunks")}
+              </th>
+              <th className="px-4 py-2 font-medium text-right">
+                {t("documents.table.column.entities")}
+              </th>
+              <th className="px-4 py-2 font-medium text-right">
+                {t("documents.table.column.actions")}
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/80">
@@ -128,11 +148,13 @@ export function DocumentList({
                         </div>
                         <div className="flex flex-wrap items-center gap-1 text-xs text-slate-400">
                           <span className="rounded-full bg-slate-900 px-2 py-0.5">
-                            Language: {doc.language_override ?? doc.detected_language}
+                            {t("documents.table.languageLabel")}:{" "}
+                            {doc.language_override ?? doc.detected_language}
                           </span>
                           {doc.active_regulation_ids.length > 0 && (
                             <span className="rounded-full bg-slate-900 px-2 py-0.5">
-                              Regulations: {doc.active_regulation_ids.join(", ")}
+                              {t("documents.table.regulationsLabel")}:{" "}
+                              {doc.active_regulation_ids.join(", ")}
                             </span>
                           )}
                         </div>
@@ -154,10 +176,14 @@ export function DocumentList({
                         doc.ingestion_status
                       )}`}
                     >
-                      {doc.ingestion_status === "completed" && "Completed"}
-                      {doc.ingestion_status === "processing" && "Processing"}
-                      {doc.ingestion_status === "pending" && "Pending"}
-                      {doc.ingestion_status === "failed" && "Failed"}
+                      {doc.ingestion_status === "completed" &&
+                        t("documents.status.completed")}
+                      {doc.ingestion_status === "processing" &&
+                        t("documents.status.processing")}
+                      {doc.ingestion_status === "pending" &&
+                        t("documents.status.pending")}
+                      {doc.ingestion_status === "failed" &&
+                        t("documents.status.failed")}
                     </span>
                   </td>
                   <td className="px-4 py-2 text-right align-middle text-xs text-slate-300">
@@ -174,7 +200,7 @@ export function DocumentList({
                         onClick={() => onPreview(doc)}
                       >
                         <Eye className="h-3.5 w-3.5" />
-                        <span>Preview</span>
+                        <span>{t("documents.actions.preview")}</span>
                       </button>
                       {isAudio && (
                         <button
@@ -183,7 +209,7 @@ export function DocumentList({
                           onClick={() => onPreviewTranscription(doc)}
                         >
                           <Eye className="h-3.5 w-3.5" />
-                          <span>Transcription</span>
+                          <span>{t("documents.actions.transcription")}</span>
                         </button>
                       )}
                       <button
@@ -192,7 +218,7 @@ export function DocumentList({
                         onClick={() => onDelete(doc)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
-                        <span>Delete</span>
+                        <span>{t("documents.actions.delete")}</span>
                       </button>
                     </div>
                     {doc.ingestion_status === "failed" && doc.ingestion_error && (

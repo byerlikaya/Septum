@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useI18n } from "@/lib/i18n";
 
 type NavItem = {
   href: string;
@@ -19,6 +20,7 @@ const navItems: NavItem[] = [
 
 export function Sidebar(): JSX.Element {
   const pathname = usePathname();
+  const t = useI18n();
 
   return (
     <aside className="flex h-screen w-64 flex-col border-r bg-slate-950 text-slate-50">
@@ -28,9 +30,11 @@ export function Sidebar(): JSX.Element {
         </div>
         <div className="flex flex-col">
           <span className="text-sm font-semibold tracking-wide">
-            Septum
+            {t("sidebar.appName")}
           </span>
-          <span className="text-xs text-slate-400">AI Privacy Gateway</span>
+          <span className="text-xs text-slate-400">
+            {t("sidebar.tagline")}
+          </span>
         </div>
       </div>
       <nav className="flex-1 space-y-1 px-2 py-4">
@@ -52,13 +56,13 @@ export function Sidebar(): JSX.Element {
                   : "text-slate-300 hover:bg-slate-900 hover:text-slate-50"
               }`}
             >
-              {item.label}
+              {t(`sidebar.${item.label.toLowerCase()}` as never)}
             </Link>
           );
         })}
       </nav>
       <div className="border-t px-4 py-3 text-xs text-slate-500">
-        Privacy-first · Local-first
+        <span>{t("sidebar.footer")}</span>
       </div>
     </aside>
   );

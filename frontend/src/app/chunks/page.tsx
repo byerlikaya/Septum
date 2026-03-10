@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import api from "@/lib/api";
-import type { Chunk, ChunkListResponse, Document, DocumentListResponse } from "@/lib/types";
+import api, { getDocuments } from "@/lib/api";
+import type { Chunk, ChunkListResponse, Document } from "@/lib/types";
 import { ChunkCard } from "@/components/chunks/ChunkCard";
+import { useI18n } from "@/lib/i18n";
 
 export default function ChunksPage(): JSX.Element {
+  const t = useI18n();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState<boolean>(true);
   const [expandedDocIds, setExpandedDocIds] = useState<Set<number>>(new Set());
@@ -17,8 +19,8 @@ export default function ChunksPage(): JSX.Element {
     try {
       setIsLoadingDocuments(true);
       setError(null);
-      const response = await api.get<DocumentListResponse>("/api/documents");
-      setDocuments(response.data.items);
+      const items = await getDocuments();
+      setDocuments(items);
     } catch {
       setError("An error occurred while loading documents.");
     } finally {
@@ -114,10 +116,10 @@ export default function ChunksPage(): JSX.Element {
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-4">
       <header className="shrink-0 border-b border-slate-800 pb-4">
         <h1 className="text-xl font-semibold tracking-tight text-slate-50">
-          Chunks
+          {t("chunks.title")}
         </h1>
         <p className="mt-1 text-sm text-slate-400">
-          Expand a document below to view and edit its sanitized chunks.
+          {t("chunks.subtitle")}
         </p>
       </header>
 
@@ -130,12 +132,14 @@ export default function ChunksPage(): JSX.Element {
       <div className="min-h-0 min-w-0 flex-1 overflow-auto">
         {isLoadingDocuments ? (
           <div className="flex h-48 items-center justify-center rounded-lg border border-slate-800 bg-slate-900/40">
-            <p className="text-sm text-slate-400">Loading documents…</p>
+            <p className="text-sm text-slate-400">
+              {t("chunks.loadingDocuments")}
+            </p>
           </div>
         ) : documentsWithChunksHint.length === 0 ? (
           <div className="flex h-48 items-center justify-center rounded-lg border border-slate-800 bg-slate-900/40">
             <p className="max-w-sm text-center text-sm text-slate-400">
-              No documents with chunks yet. Upload and ingest a document from the Documents page first.
+              {t("chunks.emptyHint")}
             </p>
           </div>
         ) : (

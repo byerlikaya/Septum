@@ -1,14 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import api from "@/lib/api";
-import type { Document, DocumentListResponse } from "@/lib/types";
+import api, { getDocuments } from "@/lib/api";
+import type { Document } from "@/lib/types";
 import { DocumentUploader } from "@/components/documents/DocumentUploader";
 import { DocumentList } from "@/components/documents/DocumentList";
 import { TranscriptionPreview } from "@/components/documents/TranscriptionPreview";
 import { DocumentPreview } from "@/components/documents/DocumentPreview";
+import { useI18n } from "@/lib/i18n";
 
 export default function DocumentsPage(): JSX.Element {
+  const t = useI18n();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isUploading, setIsUploading] = useState<boolean>(false);
@@ -25,9 +27,9 @@ export default function DocumentsPage(): JSX.Element {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await api.get<DocumentListResponse>("/api/documents");
-      setDocuments(response.data.items);
-    } catch (err) {
+      const items = await getDocuments();
+      setDocuments(items);
+    } catch {
       setError("An error occurred while loading documents.");
     } finally {
       setIsLoading(false);
@@ -129,10 +131,10 @@ export default function DocumentsPage(): JSX.Element {
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-4">
       <header className="shrink-0 border-b border-slate-800 pb-4">
         <h1 className="text-xl font-semibold tracking-tight text-slate-50">
-          Documents
+          {t("documents.title")}
         </h1>
         <p className="mt-1 text-sm text-slate-400">
-          Upload, inspect, and manage ingested documents.
+          {t("documents.subtitle")}
         </p>
       </header>
 
@@ -141,7 +143,7 @@ export default function DocumentsPage(): JSX.Element {
         {isUploading && uploadTotal > 0 && (
           <div className="space-y-1 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">
             <div className="flex items-center justify-between">
-              <span>Uploading documents…</span>
+              <span>{t("documents.uploading")}</span>
               <span>
                 {uploadCompleted}/{uploadTotal} · {uploadProgress}%
               </span>

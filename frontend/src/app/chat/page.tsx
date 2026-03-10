@@ -6,8 +6,10 @@ import type { AppSettingsResponse, Document } from "@/lib/types";
 import { DocumentSelector } from "@/components/chat/DocumentSelector";
 import { ChatWindow } from "@/components/chat/ChatWindow";
 import { DeanonymizationBanner } from "@/components/chat/DeanonymizationBanner";
+import { useI18n } from "@/lib/i18n";
 
 export default function ChatPage(): JSX.Element {
+  const t = useI18n();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [settings, setSettings] = useState<AppSettingsResponse | null>(null);
   const [regulationPills, setRegulationPills] = useState<string[]>([]);
@@ -72,11 +74,10 @@ export default function ChatPage(): JSX.Element {
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-4">
       <header className="shrink-0 border-b border-slate-800 pb-4">
         <h1 className="text-xl font-semibold tracking-tight text-slate-50">
-          Chat
+          {t("chat.title")}
         </h1>
         <p className="mt-1 text-sm text-slate-400">
-          Interact with Septum&apos;s privacy-preserving assistant. Select
-          documents and ask questions; responses stream in real time.
+          {t("chat.subtitle")}
         </p>
         {regulationPills.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-2">
@@ -109,7 +110,9 @@ export default function ChatPage(): JSX.Element {
 
         <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-800 bg-slate-900/40 p-4">
           {loadingSettings ? (
-            <p className="text-sm text-slate-500">Loading settings…</p>
+            <p className="text-sm text-slate-500">
+              {t("chat.loadingSettings")}
+            </p>
           ) : (
             <>
               <DeanonymizationBanner visible={showDeanonBanner} />
