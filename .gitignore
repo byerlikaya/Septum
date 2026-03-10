@@ -27,6 +27,7 @@ septum.db
 # Build artifacts
 dist/
 build/
+coverage.xml
 
 # Generated / environment-specific (do not commit)
 backend/requirements.lock.txt
