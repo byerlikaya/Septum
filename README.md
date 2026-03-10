@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="septum_logo.png" alt="Septum logo" width="220" />
+</p>
+
 ![Backend](https://img.shields.io/badge/backend-FastAPI-blue)
 ![Frontend](https://img.shields.io/badge/frontend-Next.js%2016-black)
 ![Tests](https://img.shields.io/badge/tests-pytest-informational)
