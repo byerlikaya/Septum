@@ -197,7 +197,10 @@ def _detect_mime_type(raw_bytes: bytes, fallback_mime_type: Optional[str] = None
     if _magic is not None:
         try:
             mime = _magic.from_buffer(raw_bytes, mime=True)  # type: ignore[arg-type]
-            if isinstance(mime, str) and mime:
+            # Treat "application/octet-stream" as low-confidence and fall through
+            # to structural signature checks so that containers such as MP4/M4A
+            # are still detected correctly by content.
+            if isinstance(mime, str) and mime and mime != "application/octet-stream":
                 return mime
         except Exception:  # noqa: BLE001
             pass
@@ -296,6 +299,18 @@ async def upload_document(
     await db.refresh(document)
 
     try:
+        # Short-circuit for audio documents with no transcription.
+        if file_format == "audio" and not (ingestion_result.text or "").strip():
+            document.ingestion_status = "failed"
+            document.ingestion_error = (
+                "Audio transcription failed: decoder produced no samples or text."
+            )
+            document.chunk_count = 0
+            document.entity_count = 0
+            await db.commit()
+            await db.refresh(document)
+            return DocumentResponse.model_validate(document)
+
         anon_map = AnonymizationMap(document_id=document.id, language=detected_language)
         
         policy_composer = PolicyComposer()
@@ -329,8 +344,6 @@ async def upload_document(
 
         semantic_chunks = await asyncio.to_thread(chunker.chunk, sanitized_text)
 
-        # Merge heading-only chunks with subsequent content chunks to improve
-        # embedding quality and retrieval accuracy without any language-specific logic.
         merged_chunks: List[SemanticChunk] = []
         i = 0
         while i < len(semantic_chunks):

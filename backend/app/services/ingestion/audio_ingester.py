@@ -136,35 +136,55 @@ class AudioIngester(BaseIngester):
         warnings: List[str] = []
         audio_bytes = decrypt(encrypted_bytes)
 
-        try:
-            waveform = self._decode_audio(audio_bytes, mime_type=mime_type)
-        except FileNotFoundError as exc:
-            if isinstance(exc.filename, str) and "ffmpeg" in exc.filename:
+        # Use a temporary file + Whisper's internal decoding pipeline instead of
+        # manually decoding via ffmpeg. This mirrors the approach used in the
+        # SmartRAG project, where the model operates directly on the container
+        # file and has proven robust for the same audio sample.
+        import tempfile
+
+        suffix = Path(file_path.name).suffix or ".m4a"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
+            tmp.write(audio_bytes)
+            tmp.flush()
+
+            model = self._load_model()
+            try:
+                result = model.transcribe(tmp.name)
+            except Exception as exc:  # noqa: BLE001
                 warnings.append(
-                    "Audio decoding failed: ffmpeg binary not found on PATH. "
-                    "Install ffmpeg to enable transcription."
+                    "Audio transcription failed: Whisper could not process the file."
                 )
+                metadata = {
+                    "mime_type": mime_type,
+                    "file_format": file_format,
+                    "duration_seconds": 0.0,
+                    "whisper_model": self._model_name,
+                    "detected_language": None,
+                }
+
+                return IngestionResult(
+                    text="",
+                    metadata=metadata,
+                    warnings=warnings,
+                    raw_segments=[],
+                )
+
+        text = result.get("text") or ""
+        language = result.get("language")
+        segments_raw = result.get("segments") or []
+
+        segments: List[Dict[str, Any]] = []
+        for seg in segments_raw:
+            if isinstance(seg, dict):
+                segments.append(seg)
             else:
-                warnings.append("Audio decoding failed due to a missing binary.")
+                segments.append(dict(seg))  # type: ignore[arg-type]
 
-            metadata: Dict[str, Any] = {
-                "mime_type": mime_type,
-                "file_format": file_format,
-                "duration_seconds": 0.0,
-                "whisper_model": self._model_name,
-                "detected_language": None,
-            }
-
-            return IngestionResult(
-                text="",
-                metadata=metadata,
-                warnings=warnings,
-                raw_segments=[],
-            )
-
-        duration_seconds = float(len(waveform) / _WHISPER_SAMPLE_RATE)
-
-        text, language, segments = self._transcribe(waveform)
+        duration_seconds = 0.0
+        if segments:
+            last_end = segments[-1].get("end")
+            if isinstance(last_end, (int, float)):
+                duration_seconds = float(last_end)
 
         if not text.strip():
             warnings.append("No transcription produced by Whisper.")
@@ -186,12 +206,8 @@ class AudioIngester(BaseIngester):
 
     def _decode_audio(self, audio_bytes: bytes, *, mime_type: str) -> np.ndarray:
         """Decode arbitrary encoded audio bytes into a mono float waveform."""
-        input_kwargs: Dict[str, Any] = {}
-        if mime_type in ("audio/mp4", "audio/x-m4a", "application/octet-stream"):
-            input_kwargs["f"] = "mp4"
-
         out, _ = (
-            ffmpeg.input("pipe:0", **input_kwargs)
+            ffmpeg.input("pipe:0")
             .output(
                 "-",
                 format="s16le",
@@ -241,6 +257,5 @@ class AudioIngester(BaseIngester):
                 segments.append(seg)
             else:
                 segments.append(dict(seg))  # type: ignore[arg-type]
-
         return text, language, segments
 
