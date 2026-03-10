@@ -1,5 +1,6 @@
 'use client';
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
@@ -31,19 +32,23 @@ export function Sidebar(): JSX.Element {
   };
 
   return (
-    <aside className="flex w-full flex-col border-b border-slate-800 bg-slate-950 text-slate-50 md:h-screen md:w-64 md:border-b-0 md:border-r">
+    <aside className="flex w-full flex-col border-b border-slate-800 bg-slate-950 text-slate-50 md:h-screen md:w-72 md:border-b-0 md:border-r">
       {/* Mobile layout */}
       <div className="md:hidden">
-        <div className="flex items-center justify-between gap-2 px-4 py-4">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500 text-xs font-bold">
-              S
-            </div>
-            <div className="flex flex-col">
-              <span className="text-sm font-semibold tracking-wide">
-                {t("sidebar.appName")}
-              </span>
-              <span className="text-xs text-slate-400">
+        <div className="flex items-center justify-between gap-2 px-4 py-5">
+          <div className="flex items-center gap-3">
+            <div className="flex flex-col gap-1">
+              <div className="w-full max-w-[170px]">
+                <Image
+                  src="/septum_logo.png"
+                  alt={t("sidebar.appName")}
+                  width={340}
+                  height={110}
+                  className="h-auto w-full"
+                  priority
+                />
+              </div>
+              <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-slate-400">
                 {t("sidebar.tagline")}
               </span>
             </div>
@@ -110,20 +115,22 @@ export function Sidebar(): JSX.Element {
       </div>
 
       {/* Desktop layout */}
-      <div className="hidden h-full flex-col md:flex">
-        <div className="flex items-center gap-2 border-b border-slate-800 px-4 py-4">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500 text-xs font-bold">
-            S
-          </div>
-          <div className="flex flex-col">
-            <span className="text-sm font-semibold tracking-wide">
-              {t("sidebar.appName")}
-            </span>
-            <span className="text-xs text-slate-400">
+        <div className="hidden h-full flex-col md:flex">
+          <div className="flex min-h-[130px] flex-col items-center justify-center gap-3 border-b border-slate-800 px-4 py-6">
+            <div className="w-full max-w-[190px]">
+              <Image
+                src="/septum_logo.png"
+                alt={t("sidebar.appName")}
+                width={380}
+                height={120}
+                className="h-auto w-full"
+                priority
+              />
+            </div>
+            <span className="text-[11px] font-medium uppercase tracking-[0.26em] text-slate-400">
               {t("sidebar.tagline")}
             </span>
           </div>
-        </div>
         <nav className="flex-1 space-y-1 px-2 py-4">
           {navItems.map(item => {
             const isActive = item.exact
