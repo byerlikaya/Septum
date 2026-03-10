@@ -156,6 +156,8 @@ async def _retrieve_chunks(
     """
     from ..services.vector_store import VectorStore
 
+    import re
+
     vector_store = VectorStore()
     results = vector_store.search(
         document_id=document_id,
@@ -165,11 +167,41 @@ async def _retrieve_chunks(
 
     if results:
         chunk_ids = [cid for cid, _ in results]
-        id_to_rank = {cid: rank for rank, cid in enumerate(chunk_ids)}
+
+        # Fetch initially retrieved chunks.
         stmt = select(Chunk).where(Chunk.id.in_(chunk_ids))
         db_result = await db.execute(stmt)
-        chunks = list(db_result.scalars().all())
-        chunks.sort(key=lambda c: id_to_rank.get(c.id, len(chunk_ids)))
+        base_chunks = list(db_result.scalars().all())
+
+        # Derive numeric section prefixes (e.g., "2." from "2.4.") in a language-agnostic way.
+        section_prefixes: set[str] = set()
+        for c in base_chunks:
+            if not c.section_title:
+                continue
+            match = re.match(r"^(\d+)\.", c.section_title.strip())
+            if match:
+                section_prefixes.add(match.group(1))
+
+        # If no numeric prefixes are present, fall back to the base chunks only.
+        if not section_prefixes:
+            chunks = base_chunks
+        else:
+            # Fetch all chunks for the document once and expand the retrieval set
+            # with any chunks that share the same top-level numeric section prefix.
+            all_stmt = select(Chunk).where(Chunk.document_id == document_id)
+            all_result = await db.execute(all_stmt)
+            all_chunks = list(all_result.scalars().all())
+
+            expanded_chunks: dict[int, Chunk] = {c.id: c for c in base_chunks}
+            for c in all_chunks:
+                if not c.section_title:
+                    continue
+                match = re.match(r"^(\d+)\.", c.section_title.strip())
+                if match and match.group(1) in section_prefixes:
+                    expanded_chunks.setdefault(c.id, c)
+
+            # Sort expanded set by document index to keep section ordering natural.
+            chunks = sorted(expanded_chunks.values(), key=lambda c: c.index)
     else:
         fallback_stmt = (
             select(Chunk)
@@ -241,6 +273,7 @@ async def _run_llm_and_deanonymize(
     sanitized_query: str,
     context_chunks: List[str],
     regulation_names: List[str],
+    language: str,
     output_mode: str = "chat",
     session_id: Optional[str] = None,
 ) -> str:
@@ -280,7 +313,17 @@ async def _run_llm_and_deanonymize(
             "Use only double quotes. Output nothing but this JSON object.\n---\n\n"
         )
 
+    # Language instruction (generic, ISO 639-1 based)
+    # Only add language instruction for non-English queries to preserve semantic relevance
+    language_instruction = ""
+    if language and language != "en":
+        language_instruction = (
+            f"IMPORTANT: The user's query is in {language.upper()} language. "
+            f"You MUST respond in the same language ({language.upper()}).\n\n"
+        )
+    
     user_prompt = (
+        f"{language_instruction}"
         "You are a privacy-preserving assistant. Personal data in the context is "
         "replaced by placeholders in square brackets (e.g. [PERSON_1], [ORGANIZATION_2]). "
         "Never guess or reconstruct real values.\n\n"
@@ -409,7 +452,6 @@ async def chat_ask(
         anon_map=anon_map,
         db=db,
     )
-
     top_k = request.top_k or settings.top_k_retrieval
     chunks: List[Chunk] = []
     if document is not None:
@@ -503,6 +545,7 @@ async def chat_ask(
                 sanitized_query=sanitized_query,
                 context_chunks=context_texts,
                 regulation_names=regulation_names,
+                language=language,
                 output_mode=output_mode,
                 session_id=session_id,
             )

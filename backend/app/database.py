@@ -124,11 +124,12 @@ async def _seed_defaults() -> None:
             if reg.id not in existing_ids:
                 session.add(reg)
 
-        # Seed default Non-PII rules (conservative, language-agnostic).
+        # Seed minimal Non-PII rules (language-agnostic examples only).
+        # Users should define language-specific rules through the UI/API.
         existing_non_pii = await session.execute(select(NonPiiRule.id))
         has_non_pii = existing_non_pii.first() is not None
         if not has_non_pii:
-            # Example: treat isolated exclamation marks as non-PII when misdetected.
+            # Example: treat isolated punctuation as non-PII when misdetected.
             session.add(
                 NonPiiRule(
                     pattern_type="token",

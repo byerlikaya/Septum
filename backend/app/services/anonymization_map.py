@@ -17,6 +17,10 @@ import re
 
 from ..utils.text_utils import normalize_for_comparison
 
+# Minimal stopwords for technical filtering only.
+# These are ultra-common function words that should never be treated as PII.
+# FUTURE: Move to database-driven NonPiiRule table for full user control.
+# Current list covers English; users can add language-specific stopwords via NonPiiRule.
 SANITIZER_STOPWORDS: frozenset[str] = frozenset({"the", "a", "an", "of", "in", "at"})
 
 

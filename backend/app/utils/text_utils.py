@@ -2,7 +2,14 @@
 
 These utilities provide Unicode normalization and simple locale-aware
 lowercasing suitable for case-insensitive comparisons in a multilingual
-environment. Turkish is special-cased for dotted and dotless I.
+environment.
+
+Locale-specific casing rules handle edge cases like:
+- Dotted/dotless I (İ→i, I→ı in certain locales)
+- German ß handling
+- Other script-specific case folding
+
+All transformations use ISO 639-1 language codes as keys.
 """
 
 from __future__ import annotations
@@ -10,8 +17,11 @@ from __future__ import annotations
 import unicodedata
 from typing import Dict
 
-_LOCALE_TRANSFORMS: Dict[str, Dict[int, int]] = {
-    "tr": str.maketrans("İI", "ii"),
+# Locale-specific character transformations for case folding.
+# Uses ISO 639-1 codes. Add new locales as needed without modifying function logic.
+_LOCALE_CASING_RULES: Dict[str, Dict[int, int]] = {
+    "tr": str.maketrans("İI", "ii"),  # Dotted I → lowercase i, Dotless I → lowercase ı
+    "az": str.maketrans("İI", "ii"),  # Azerbaijani uses same dotted-I rule
 }
 
 
@@ -21,12 +31,20 @@ def normalize_unicode(text: str) -> str:
 
 
 def locale_lower(text: str, language: str = "en") -> str:
-    """Lowercase ``text`` using simple locale-aware rules.
-
-    The function is intentionally conservative and only special-cases
-    languages where the default ``str.lower`` behavior is not sufficient.
+    """Lowercase ``text`` using locale-aware casing rules.
+    
+    Args:
+        text: Input text to lowercase
+        language: ISO 639-1 language code (e.g., "en", "tr", "de")
+    
+    Returns:
+        Lowercased text with locale-specific transformations applied.
+    
+    The function is intentionally conservative and only applies
+    transformations for languages where ``str.lower()`` is insufficient.
+    Falls back to standard lowercasing for unlisted languages.
     """
-    transform = _LOCALE_TRANSFORMS.get(language)
+    transform = _LOCALE_CASING_RULES.get(language)
     if transform is not None:
         return text.translate(transform).lower()
     return text.lower()

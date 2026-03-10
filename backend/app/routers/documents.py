@@ -29,10 +29,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models.document import Chunk, Document
+from ..models.document import Chunk as DocumentChunk, Document
 from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
 from ..services.anonymization_map import AnonymizationMap
+from ..services.chunking_strategy import (
+    StructuredDocumentChunker,
+    SlidingWindowChunker,
+    Chunk as SemanticChunk,
+)
 from ..services.document_anon_store import pop_document_map, set_document_map
 from ..services.ingestion.pdf_ingester import PdfIngester
 from ..services.ingestion.docx_ingester import DocxIngester
@@ -41,6 +46,7 @@ from ..services.ingestion.audio_ingester import AudioIngester
 from ..services.ingestion.image_ingester import ImageIngester
 from ..services.ingestion.router import IngestionRouter
 from ..services.sanitizer import PIISanitizer
+from ..services.policy_composer import PolicyComposer
 from ..services.vector_store import VectorStore
 from ..utils.crypto import encrypt
 
@@ -291,7 +297,11 @@ async def upload_document(
 
     try:
         anon_map = AnonymizationMap(document_id=document.id, language=detected_language)
-        sanitizer = PIISanitizer(settings=settings)
+        
+        policy_composer = PolicyComposer()
+        policy = await policy_composer.compose(db)
+        
+        sanitizer = PIISanitizer(settings=settings, policy=policy)
 
         sanitize_result = await asyncio.to_thread(
             sanitizer.sanitize,
@@ -305,37 +315,68 @@ async def upload_document(
 
         document.transcription_text = sanitized_text
 
-        chunks: List[Chunk] = []
-        chunk_size = max(settings.chunk_size, 1)
-        overlap = max(min(settings.chunk_overlap, chunk_size - 1), 0)
+        # Use semantic chunking for structured documents (PDF, DOCX)
+        # and sliding window for unstructured formats
+        if file_format in {"pdf", "docx"}:
+            chunker = StructuredDocumentChunker(
+                max_chunk_size=max(settings.pdf_chunk_size, 800)
+            )
+        else:
+            chunker = SlidingWindowChunker(
+                chunk_size=max(settings.chunk_size, 1),
+                overlap=max(min(settings.chunk_overlap, settings.chunk_size - 1), 0),
+            )
 
-        text_len = len(sanitized_text)
-        index = 0
-        chunk_index = 0
+        semantic_chunks = await asyncio.to_thread(chunker.chunk, sanitized_text)
 
-        while index < text_len:
-            end = min(index + chunk_size, text_len)
-            segment = sanitized_text[index:end]
-            chunk = Chunk(
+        # Merge heading-only chunks with subsequent content chunks to improve
+        # embedding quality and retrieval accuracy without any language-specific logic.
+        merged_chunks: List[SemanticChunk] = []
+        i = 0
+        while i < len(semantic_chunks):
+            current = semantic_chunks[i]
+
+            # Detect very short, title-like chunks and merge them with the next chunk.
+            if (
+                current.char_count < 50
+                and current.section_title
+                and i + 1 < len(semantic_chunks)
+            ):
+                next_chunk = semantic_chunks[i + 1]
+                merged_text = f"{current.text.strip()}\n{next_chunk.text}"
+                merged_title = current.section_title or next_chunk.section_title
+
+                merged_chunk = SemanticChunk(
+                    text=merged_text,
+                    index=current.index,
+                    source_page=current.source_page or next_chunk.source_page,
+                    section_title=merged_title,
+                    char_count=len(merged_text),
+                )
+                merged_chunks.append(merged_chunk)
+                i += 2
+            else:
+                merged_chunks.append(current)
+                i += 1
+
+        semantic_chunks = merged_chunks
+
+        chunks: List[DocumentChunk] = []
+        for semantic_chunk in semantic_chunks:
+            chunk = DocumentChunk(
                 document_id=document.id,
-                index=chunk_index,
-                sanitized_text=segment,
-                char_count=len(segment),
-                source_page=None,
+                index=semantic_chunk.index,
+                sanitized_text=semantic_chunk.text,
+                char_count=semantic_chunk.char_count,
+                source_page=semantic_chunk.source_page,
                 source_slide=None,
                 source_sheet=None,
                 source_timestamp_start=None,
                 source_timestamp_end=None,
-                section_title=None,
+                section_title=semantic_chunk.section_title,
             )
             db.add(chunk)
             chunks.append(chunk)
-
-            if end >= text_len:
-                break
-
-            index = end - overlap
-            chunk_index += 1
 
         await db.commit()
         for chunk in chunks:

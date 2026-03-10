@@ -97,9 +97,6 @@ export function ChatWindow({
     const text = input.trim();
     if (!text || streaming) return;
 
-    const languagePrefixedText =
-      language === "tr" ? `Please answer in Turkish. ${text}` : text;
-
     setInput("");
     setStreamError(null);
     const userMsg: ChatMessage = {
@@ -214,7 +211,7 @@ export function ChatWindow({
     const startStream = () => {
       abortRef.current = streamChatAsk(
         {
-          message: languagePrefixedText,
+          message: text,
           document_id: documentId ?? undefined,
           require_approval: requireApproval,
           deanon_enabled: deanonEnabled,

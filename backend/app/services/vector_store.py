@@ -143,6 +143,7 @@ class VectorStore:
             if idx == -1:
                 continue
             results.append((int(idx), float(score)))
+        
         return results
 
     def delete_index(self, document_id: int) -> None:

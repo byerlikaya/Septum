@@ -57,16 +57,21 @@ class SanitizeResult:
     entity_count: int
 
 
-class TurkishPhoneRecognizer(EntityRecognizer):
-    """Presidio recognizer for Turkish phone numbers (mobile/landline, optional +90/0)."""
+class ExtendedPhoneRecognizer(EntityRecognizer):
+    """Presidio recognizer for phone numbers with international format support.
+    
+    Detects phone numbers with country codes and various formatting patterns.
+    Pattern accommodates multiple regional formats without hardcoding countries.
+    """
 
     def __init__(self) -> None:
         super().__init__(
             supported_entities=["PHONE_NUMBER"],
             supported_language="en",
         )
+        # Pattern: optional country code (+XX or 0), followed by 10 digits with flexible separators
         self._pattern = re.compile(
-            r"\b(?:\+?90\s*)?(?:0\s*)?(?:\d{3})[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}\b"
+            r"\b(?:\+?\d{1,3}\s*)?(?:0\s*)?(?:\d{3})[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}\b"
         )
 
     def analyze(  # type: ignore[override]
@@ -92,8 +97,13 @@ class TurkishPhoneRecognizer(EntityRecognizer):
         return results
 
 
-class TCKNEntityRecognizer(EntityRecognizer):
-    """Presidio recognizer for Turkish national ID numbers (TCKN)."""
+class ValidatedNationalIDRecognizer(EntityRecognizer):
+    """Presidio recognizer for algorithmically validated national ID numbers.
+    
+    Uses pluggable validator for checksum-based validation.
+    Default validator handles 11-digit IDs with specific checksum algorithm.
+    Validator can be swapped to support different countries' ID formats.
+    """
 
     def __init__(self, validator: Optional[TCKNValidator] = None) -> None:
         super().__init__(
@@ -129,8 +139,12 @@ class TCKNEntityRecognizer(EntityRecognizer):
         return results
 
 
-class IBANEntityRecognizer(EntityRecognizer):
-    """Presidio recognizer for IBAN values using algorithmic validation."""
+class ValidatedIBANRecognizer(EntityRecognizer):
+    """Presidio recognizer for IBAN values using ISO 7064 algorithmic validation.
+    
+    Supports all country prefixes globally through ISO 7064 MOD 97-10 checksum.
+    No country-specific logic in this class - validator handles all variations.
+    """
 
     def __init__(self, validator: Optional[IBANValidator] = None) -> None:
         super().__init__(
@@ -202,9 +216,9 @@ class PIISanitizer:
     def _register_custom_recognizers(self) -> None:
         """Register project-specific Presidio recognizers on the analyzer registry."""
         registry = self._analyzer.registry
-        registry.add_recognizer(TurkishPhoneRecognizer())
-        registry.add_recognizer(TCKNEntityRecognizer())
-        registry.add_recognizer(IBANEntityRecognizer())
+        registry.add_recognizer(ExtendedPhoneRecognizer())
+        registry.add_recognizer(ValidatedNationalIDRecognizer())
+        registry.add_recognizer(ValidatedIBANRecognizer())
 
     def sanitize(
         self,
@@ -275,6 +289,7 @@ class PIISanitizer:
             spans = keep_spans
 
         spans = self._deduplicate(spans)
+
         spans = [
             s
             for s in spans
@@ -283,6 +298,7 @@ class PIISanitizer:
             )
             not in SANITIZER_STOPWORDS
         ]
+
         sanitized, count = self._apply_replacements(
             normalized_text, spans, anon_map, language
         )
@@ -382,7 +398,12 @@ class PIISanitizer:
 
     @staticmethod
     def _from_ner_results(raw_results: List[dict]) -> List[DetectedSpan]:
-        """Convert HuggingFace NER pipeline outputs to DetectedSpan."""
+        """Convert HuggingFace NER pipeline outputs to DetectedSpan.
+        
+        Applies stricter confidence thresholds for generic entity types
+        (PERSON_NAME, ORGANIZATION_NAME, LOCATION) to avoid false positives
+        on common nouns and general terms.
+        """
         spans: List[DetectedSpan] = []
         for item in raw_results:
             entity = item.get("entity_group") or item.get("entity")
@@ -394,6 +415,12 @@ class PIISanitizer:
             entity_type = PIISanitizer._map_ner_label(entity)
             if entity_type is None:
                 continue
+            
+            # Stricter threshold for generic entity types to reduce false positives
+            if entity_type in {"PERSON_NAME", "ORGANIZATION_NAME", "LOCATION"}:
+                if score < 0.85:
+                    continue
+            
             spans.append(
                 DetectedSpan(
                     start=start,
