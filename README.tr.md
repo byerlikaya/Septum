@@ -2,14 +2,21 @@
   <img src="septum_logo.png" alt="Septum logosu" width="220" />
 </p>
 
-![Backend](https://img.shields.io/badge/backend-FastAPI-blue)
-![Frontend](https://img.shields.io/badge/frontend-Next.js%2016-black)
-![Testler](https://img.shields.io/badge/testler-pytest-informational)
-![Kapsam](https://img.shields.io/badge/kapsam-pytest--cov-lightgrey)
-![Odak](https://img.shields.io/badge/odak-Gizlilik--Öncelikli-green)
-![Güvenlik Taraması](https://img.shields.io/badge/guvenlik_taramasi-passing_(2026--03--10)-2ea44f?labelColor=1b1f23&style=for-the-badge)
-![Bağımlılık Güvenliği](https://img.shields.io/badge/bagimlilikler-npm_audit_✓_pip_audit_✓-2ea44f?labelColor=1b1f23&style=for-the-badge)
-[![İngilizce](https://img.shields.io/badge/lang-EN-blue)](README.md)
+<p align="center">
+  <img src="https://img.shields.io/badge/backend-FastAPI-blue" alt="Backend: FastAPI" />
+  <img src="https://img.shields.io/badge/frontend-Next.js%2016-black" alt="Frontend: Next.js 16" />
+  <img src="https://img.shields.io/badge/testler-pytest-informational" alt="Testler: pytest" />
+  <a href="https://codecov.io/gh/byerlikaya/Septum">
+    <img src="https://codecov.io/gh/byerlikaya/Septum/branch/main/graph/badge.svg" alt="Kapsam: Codecov" />
+  </a>
+  <img src="https://img.shields.io/badge/odak-Gizlilik--Öncelikli-green" alt="Odak: Gizlilik-Öncelikli" />
+  <a href="README.md">
+    <img src="https://img.shields.io/badge/lang-EN-blue" alt="English README" />
+  </a>
+  <br />
+  <img src="https://img.shields.io/badge/guvenlik_taramasi-passing_(2026--03--10)-brightgreen" alt="Güvenlik taraması: passing (2026-03-10)" />
+  <img src="https://img.shields.io/badge/bagimlilikler-denetim_temiz-brightgreen" alt="Bağımlılıklar: denetim temiz" />
+</p>
 
 ## Septum — Gizlilik Odaklı Yapay Zekâ Asistanı
 

@@ -31,6 +31,8 @@ build/
 # Generated / environment-specific (do not commit)
 backend/requirements.lock.txt
 backend/pip-audit-backend.json
+coverage/
+frontend/coverage/
 
 # Node / Next.js / frontend
 node_modules/

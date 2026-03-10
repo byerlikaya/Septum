@@ -2,14 +2,21 @@
   <img src="septum_logo.png" alt="Septum logo" width="220" />
 </p>
 
-![Backend](https://img.shields.io/badge/backend-FastAPI-blue)
-![Frontend](https://img.shields.io/badge/frontend-Next.js%2016-black)
-![Tests](https://img.shields.io/badge/tests-pytest-informational)
-![Coverage](https://img.shields.io/badge/coverage-via%20pytest--cov-lightgrey)
-![Focus](https://img.shields.io/badge/focus-Privacy--First-green)
-![Security Scan](https://img.shields.io/badge/security_scan-passing_(2026--03--10)-2ea44f?labelColor=1b1f23&style=for-the-badge)
-![Deps Security](https://img.shields.io/badge/deps-npm_audit_✓_pip_audit_✓-2ea44f?labelColor=1b1f23&style=for-the-badge)
-[![Turkish](https://img.shields.io/badge/lang-TR-red)](README.tr.md)
+<p align="center">
+  <img src="https://img.shields.io/badge/backend-FastAPI-blue" alt="Backend: FastAPI" />
+  <img src="https://img.shields.io/badge/frontend-Next.js%2016-black" alt="Frontend: Next.js 16" />
+  <img src="https://img.shields.io/badge/tests-pytest-informational" alt="Tests: pytest" />
+  <a href="https://codecov.io/gh/byerlikaya/Septum">
+    <img src="https://codecov.io/gh/byerlikaya/Septum/branch/main/graph/badge.svg" alt="Coverage: Codecov" />
+  </a>
+  <img src="https://img.shields.io/badge/focus-Privacy--First-green" alt="Focus: Privacy-First" />
+  <a href="README.tr.md">
+    <img src="https://img.shields.io/badge/lang-TR-red" alt="Turkish README" />
+  </a>
+  <br />
+  <img src="https://img.shields.io/badge/security_scan-passing_(2026--03--10)-brightgreen" alt="Security Scan: passing (2026-03-10)" />
+  <img src="https://img.shields.io/badge/deps-audit_clean-brightgreen" alt="Dependencies: audit clean" />
+</p>
 
 ## Septum — Privacy‑First AI Assistant
 
