@@ -22,6 +22,7 @@ from presidio_analyzer import AnalyzerEngine, EntityRecognizer, RecognizerResult
 
 from .anonymization_map import AnonymizationMap, SANITIZER_STOPWORDS
 from .ner_model_registry import NERModelRegistry
+from .non_pii_filter import NonPiiFilter, SpanView
 from .ollama_client import extract_json_array, call_ollama_sync
 from .national_ids import IBANValidator, TCKNValidator
 from .policy_composer import ComposedPolicy
@@ -178,6 +179,7 @@ class PIISanitizer:
         self._ner_registry = ner_registry or NERModelRegistry()
         self._analyzer = AnalyzerEngine()
         self._entity_types: Optional[List[str]] = None
+        self._non_pii_filter: Optional[NonPiiFilter] = None
         self._register_custom_recognizers()
         if policy is not None:
             self._apply_policy(policy)
@@ -195,6 +197,7 @@ class PIISanitizer:
         for recognizer in policy.recognizers:
             registry.add_recognizer(recognizer)
         self._entity_types = list(policy.entity_types)
+        self._non_pii_filter = NonPiiFilter.from_rules(policy.non_pii_rules)
 
     def _register_custom_recognizers(self) -> None:
         """Register project-specific Presidio recognizers on the analyzer registry."""
@@ -241,6 +244,35 @@ class PIISanitizer:
                 [(s.start, s.end, normalized_text[s.start : s.end], s.entity_type) for s in ollama_spans],
             )
             spans.extend(ollama_spans)
+
+        if self._non_pii_filter is not None:
+            span_views = [
+                SpanView(
+                    start=s.start,
+                    end=s.end,
+                    entity_type=s.entity_type,
+                    score=s.score,
+                )
+                for s in spans
+            ]
+            filtered_views = self._non_pii_filter.filter_spans(
+                text=normalized_text,
+                language=language,
+                spans=span_views,
+            )
+            # Map filtered views back to DetectedSpan objects.
+            keep_spans: List[DetectedSpan] = []
+            for view in filtered_views:
+                for original in spans:
+                    if (
+                        original.start == view.start
+                        and original.end == view.end
+                        and original.entity_type == view.entity_type
+                        and original.score == view.score
+                    ):
+                        keep_spans.append(original)
+                        break
+            spans = keep_spans
 
         spans = self._deduplicate(spans)
         spans = [

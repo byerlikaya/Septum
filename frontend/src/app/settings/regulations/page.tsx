@@ -1,5 +1,6 @@
-'use client';
+"use client";
 
+import type { JSX } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
@@ -49,6 +50,16 @@ type CustomRuleBuilderPanelProps = {
   onDeleted: (id: number) => void;
 };
 
+type NonPiiRule = {
+  id: number;
+  pattern_type: "token" | "regex";
+  pattern: string;
+  languages: string[];
+  entity_types: string[];
+  min_score?: number | null;
+  is_active: boolean;
+};
+
 type CustomRuleFormState = {
   id?: number;
   name: string;
@@ -85,6 +96,10 @@ export default function RegulationsPage(): JSX.Element {
   const [customLoading, setCustomLoading] = useState<boolean>(true);
   const [customError, setCustomError] = useState<string | null>(null);
 
+  const [nonPiiRules, setNonPiiRules] = useState<NonPiiRule[]>([]);
+  const [nonPiiLoading, setNonPiiLoading] = useState<boolean>(true);
+  const [nonPiiError, setNonPiiError] = useState<string | null>(null);
+
   const [panelOpen, setPanelOpen] = useState<boolean>(false);
   const [panelMode, setPanelMode] = useState<CustomRuleBuilderMode>("create");
   const [panelRule, setPanelRule] = useState<CustomRecognizer | undefined>(
@@ -95,24 +110,30 @@ export default function RegulationsPage(): JSX.Element {
     const fetchData = async (): Promise<void> => {
       setRulesetsLoading(true);
       setCustomLoading(true);
+      setNonPiiLoading(true);
       try {
-        const [rulesetsResponse, customResponse] = await Promise.all([
+        const [rulesetsResponse, customResponse, nonPiiResponse] = await Promise.all([
           api.get<RegulationRuleset[]>("/api/regulations"),
-          api.get<CustomRecognizer[]>("/api/regulations/custom")
+          api.get<CustomRecognizer[]>("/api/regulations/custom"),
+          api.get<NonPiiRule[]>("/api/regulations/non-pii")
         ]);
         setRulesets(rulesetsResponse.data);
         setCustomRecognizers(customResponse.data);
+        setNonPiiRules(nonPiiResponse.data);
         setRulesetsError(null);
         setCustomError(null);
+        setNonPiiError(null);
       } catch (error) {
         // eslint-disable-next-line no-console
         console.error(error);
         const message = t("errors.regulations.load");
         setRulesetsError(message);
         setCustomError(message);
+        setNonPiiError(message);
       } finally {
         setRulesetsLoading(false);
         setCustomLoading(false);
+        setNonPiiLoading(false);
       }
     };
 
@@ -450,6 +471,103 @@ export default function RegulationsPage(): JSX.Element {
                         >
                           {t("regulations.custom.action.edit")}
                         </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
+
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-50">
+                {t("regulations.nonPii.title" as never)}
+              </h2>
+              <p className="text-xs text-slate-400">
+                {t("regulations.nonPii.subtitle" as never)}
+              </p>
+            </div>
+          </div>
+
+          {nonPiiError && (
+            <div className="rounded-md border border-red-500/40 bg-red-950/40 p-3 text-xs text-red-100">
+                {nonPiiError}
+            </div>
+          )}
+
+          <div className="overflow-hidden rounded-lg border border-border bg-slate-950/60">
+            {nonPiiLoading ? (
+              <div className="flex items-center justify-center py-6 text-xs text-slate-200">
+                {t("regulations.nonPii.loading" as never)}
+              </div>
+            ) : nonPiiRules.length === 0 ? (
+              <div className="flex items-center justify-between px-4 py-6 text-xs text-slate-300">
+                <span>{t("regulations.nonPii.empty" as never)}</span>
+              </div>
+            ) : (
+              <table className="min-w-full text-left text-xs text-slate-200">
+                <thead className="border-b border-border/80 bg-slate-950/80 text-[11px] uppercase tracking-wide text-slate-400">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">
+                      {t("regulations.nonPii.table.patternType" as never)}
+                    </th>
+                    <th className="px-3 py-2 font-medium">
+                      {t("regulations.nonPii.table.pattern" as never)}
+                    </th>
+                    <th className="px-3 py-2 font-medium">
+                      {t("regulations.nonPii.table.languages" as never)}
+                    </th>
+                    <th className="px-3 py-2 font-medium">
+                      {t("regulations.nonPii.table.entityTypes" as never)}
+                    </th>
+                    <th className="px-3 py-2 font-medium">
+                      {t("regulations.nonPii.table.minScore" as never)}
+                    </th>
+                    <th className="px-3 py-2 font-medium">
+                      {t("regulations.nonPii.table.status" as never)}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {nonPiiRules.map((rule) => (
+                    <tr
+                      key={rule.id}
+                      className="border-b border-border/40 last:border-b-0 odd:bg-slate-900/40"
+                    >
+                      <td className="px-3 py-2 align-top text-[11px] text-slate-200">
+                        {rule.pattern_type}
+                      </td>
+                      <td className="px-3 py-2 align-top font-mono text-[10px] text-slate-300">
+                        {rule.pattern}
+                      </td>
+                      <td className="px-3 py-2 align-top text-[11px] text-slate-200">
+                        {rule.languages.length > 0
+                          ? rule.languages.join(", ")
+                          : t("regulations.nonPii.anyLanguage" as never)}
+                      </td>
+                      <td className="px-3 py-2 align-top text-[11px] text-slate-200">
+                        {rule.entity_types.length > 0
+                          ? rule.entity_types.join(", ")
+                          : t("regulations.nonPii.anyEntity" as never)}
+                      </td>
+                      <td className="px-3 py-2 align-top text-[11px] text-slate-200">
+                        {rule.min_score != null ? rule.min_score.toFixed(2) : "—"}
+                      </td>
+                      <td className="px-3 py-2 align-top text-[11px]">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                            rule.is_active
+                              ? "bg-emerald-500/10 text-emerald-300"
+                              : "bg-slate-700/40 text-slate-300"
+                          }`}
+                        >
+                          {rule.is_active
+                            ? t("regulations.custom.status.active")
+                            : t("regulations.custom.status.inactive")}
+                        </span>
                       </td>
                     </tr>
                   ))}

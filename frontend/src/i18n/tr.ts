@@ -420,6 +420,21 @@ export const trMessages: Record<string, string> = {
   "regulations.panel.save.error":
     "Kural kaydedilirken bir hata oluştu.",
 
-  "regulations.panel.toggle.aria": "Kuralı aktif/pasif yap"
+  "regulations.panel.toggle.aria": "Kuralı aktif/pasif yap",
+
+  "regulations.nonPii.title": "Non-PII Kuralları (Gelişmiş)",
+  "regulations.nonPii.subtitle":
+    "Bazı span'ların (örneğin selamlamalar, boilerplate) PII olarak maskelenmemesi için gelişmiş kurallar. Bu liste yalnızca ileri kullanıcılara yöneliktir; çoğu senaryo için gerekmez.",
+  "regulations.nonPii.loading": "Non-PII kuralları yükleniyor...",
+  "regulations.nonPii.empty":
+    "Şu anda tanımlı Non-PII kuralı yok. Sistem, veri odaklı varsayılan davranışla çalışmaya devam eder.",
+  "regulations.nonPii.table.patternType": "Desen Türü",
+  "regulations.nonPii.table.pattern": "Desen",
+  "regulations.nonPii.table.languages": "Diller",
+  "regulations.nonPii.table.entityTypes": "Varlık Türleri",
+  "regulations.nonPii.table.minScore": "Min. Skor",
+  "regulations.nonPii.table.status": "Durum",
+  "regulations.nonPii.anyLanguage": "Tüm diller",
+  "regulations.nonPii.anyEntity": "Tüm varlık türleri"
 };
 

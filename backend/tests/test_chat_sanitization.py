@@ -18,7 +18,12 @@ def test_piisanitizer_policy_construction_does_not_crash() -> None:
     object (without executing .sanitize(), to avoid external IO in tests).
     """
 
-    policy = ComposedPolicy(entity_types=["EMAIL_ADDRESS"], recognizers=[], regulation_ids=[])
+    policy = ComposedPolicy(
+        entity_types=["EMAIL_ADDRESS"],
+        recognizers=[],
+        regulation_ids=[],
+        non_pii_rules=[],
+    )
     settings = AppSettings(
         id=1,
         llm_provider="anthropic",

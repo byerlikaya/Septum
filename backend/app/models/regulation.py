@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import Boolean, DateTime, String, Text
+from sqlalchemy import Boolean, DateTime, Float, String, Text
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -46,6 +46,32 @@ class CustomRecognizer(Base):
     context_words: Mapped[List[str]] = mapped_column(JSON, nullable=False, default=list)
     placeholder_label: Mapped[str] = mapped_column(String, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
+
+
+class NonPiiRule(Base):
+    """Configuration for spans that should be treated as non-PII.
+
+    Rules are data-driven and language-agnostic. They can either match on a
+    normalized token value (``pattern_type='token'``) or on a regular
+    expression (``pattern_type='regex'``). Optional language and entity-type
+    filters restrict where the rule applies.
+    """
+
+    __tablename__ = "non_pii_rules"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    pattern_type: Mapped[str] = mapped_column(String, nullable=False)  # "token" | "regex"
+    pattern: Mapped[str] = mapped_column(Text, nullable=False)
+
+    languages: Mapped[List[str]] = mapped_column(JSON, nullable=False, default=list)
+    entity_types: Mapped[List[str]] = mapped_column(JSON, nullable=False, default=list)
+
+    min_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, nullable=False
     )

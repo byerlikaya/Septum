@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models.regulation import CustomRecognizer, RegulationRuleset
+from ..models.regulation import CustomRecognizer, RegulationRuleset, NonPiiRule
 from ..services.recognizers.registry import RecognizerRegistry
 
 
@@ -113,6 +113,42 @@ class CustomRecognizerTestResponse(BaseModel):
     """Response describing all matches from a custom recognizer test."""
 
     matches: List[CustomRecognizerTestMatch]
+
+
+class NonPiiRuleResponse(BaseModel):
+    """Serialized view of a Non-PII rule."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    pattern_type: Literal["token", "regex"]
+    pattern: str
+    languages: List[str]
+    entity_types: List[str]
+    min_score: Optional[float] = None
+    is_active: bool
+
+
+class NonPiiRuleCreatePayload(BaseModel):
+    """Request body for creating a new Non-PII rule."""
+
+    pattern_type: Literal["token", "regex"]
+    pattern: str
+    languages: List[str] = Field(default_factory=list)
+    entity_types: List[str] = Field(default_factory=list)
+    min_score: Optional[float] = None
+    is_active: bool = True
+
+
+class NonPiiRuleUpdatePayload(BaseModel):
+    """PATCH body for updating a Non-PII rule."""
+
+    pattern_type: Optional[Literal["token", "regex"]] = None
+    pattern: Optional[str] = None
+    languages: Optional[List[str]] = None
+    entity_types: Optional[List[str]] = None
+    min_score: Optional[float] = None
+    is_active: Optional[bool] = None
 
 
 async def _get_ruleset_or_404(
@@ -348,4 +384,115 @@ async def test_custom_recognizer(
         )
 
     return CustomRecognizerTestResponse(matches=matches)
+
+
+@router.get(
+    "/non-pii",
+    response_model=List[NonPiiRuleResponse],
+    status_code=status.HTTP_200_OK,
+)
+async def list_non_pii_rules(
+    db: AsyncSession = Depends(get_db),
+) -> List[NonPiiRuleResponse]:
+    """Return all configured Non-PII rules."""
+    result = await db.execute(select(NonPiiRule).order_by(NonPiiRule.id))
+    rules = list(result.scalars().all())
+    return [NonPiiRuleResponse.model_validate(r) for r in rules]
+
+
+@router.post(
+    "/non-pii",
+    response_model=NonPiiRuleResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_non_pii_rule(
+    payload: NonPiiRuleCreatePayload,
+    db: AsyncSession = Depends(get_db),
+) -> NonPiiRuleResponse:
+    """Create a new Non-PII rule."""
+    data = payload.model_dump()
+    if data["pattern_type"] == "regex":
+        import re
+
+        try:
+            re.compile(data["pattern"])
+        except re.error as exc:  # noqa: PERF203
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid regex pattern: {exc}",
+            ) from exc
+
+    rule = NonPiiRule(
+        pattern_type=data["pattern_type"],
+        pattern=data["pattern"],
+        languages=data.get("languages") or [],
+        entity_types=data.get("entity_types") or [],
+        min_score=data.get("min_score"),
+        is_active=data.get("is_active", True),
+    )
+    db.add(rule)
+    await db.commit()
+    await db.refresh(rule)
+    return NonPiiRuleResponse.model_validate(rule)
+
+
+@router.patch(
+    "/non-pii/{rule_id}",
+    response_model=NonPiiRuleResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def update_non_pii_rule(
+    rule_id: int,
+    payload: NonPiiRuleUpdatePayload,
+    db: AsyncSession = Depends(get_db),
+) -> NonPiiRuleResponse:
+    """Update an existing Non-PII rule."""
+    result = await db.execute(select(NonPiiRule).where(NonPiiRule.id == rule_id))
+    rule = result.scalar_one_or_none()
+    if rule is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Non-PII rule not found.",
+        )
+
+    update_data = payload.model_dump(exclude_unset=True)
+    pattern_type = update_data.get("pattern_type", rule.pattern_type)
+    pattern = update_data.get("pattern", rule.pattern)
+    if pattern_type == "regex" and pattern:
+        import re
+
+        try:
+            re.compile(pattern)
+        except re.error as exc:  # noqa: PERF203
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid regex pattern: {exc}",
+            ) from exc
+
+    for field_name, value in update_data.items():
+        setattr(rule, field_name, value)
+
+    await db.commit()
+    await db.refresh(rule)
+    return NonPiiRuleResponse.model_validate(rule)
+
+
+@router.delete(
+    "/non-pii/{rule_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_non_pii_rule(
+    rule_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete a Non-PII rule."""
+    result = await db.execute(select(NonPiiRule).where(NonPiiRule.id == rule_id))
+    rule = result.scalar_one_or_none()
+    if rule is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Non-PII rule not found.",
+        )
+    await db.delete(rule)
+    await db.commit()
 

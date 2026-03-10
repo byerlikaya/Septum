@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from .models import Base
-from .models.regulation import RegulationRuleset
+from .models.regulation import RegulationRuleset, NonPiiRule
 from .models.settings import AppSettings
 
 
@@ -123,6 +123,22 @@ async def _seed_defaults() -> None:
         for reg in builtin_regs:
             if reg.id not in existing_ids:
                 session.add(reg)
+
+        # Seed default Non-PII rules (conservative, language-agnostic).
+        existing_non_pii = await session.execute(select(NonPiiRule.id))
+        has_non_pii = existing_non_pii.first() is not None
+        if not has_non_pii:
+            # Example: treat isolated exclamation marks as non-PII when misdetected.
+            session.add(
+                NonPiiRule(
+                    pattern_type="token",
+                    pattern="!",
+                    languages=[],
+                    entity_types=[],
+                    min_score=None,
+                    is_active=True,
+                )
+            )
 
         await session.commit()
 

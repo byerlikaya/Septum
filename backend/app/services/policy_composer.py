@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .recognizers.registry import RecognizerRegistry
-from ..models.regulation import CustomRecognizer, RegulationRuleset
+from ..models.regulation import CustomRecognizer, RegulationRuleset, NonPiiRule
 
 
 @dataclass
@@ -26,6 +26,7 @@ class ComposedPolicy:
     entity_types: List[str]
     recognizers: List[EntityRecognizer]
     regulation_ids: List[str]
+    non_pii_rules: List[NonPiiRule]
 
 
 class PolicyComposer:
@@ -56,12 +57,18 @@ class PolicyComposer:
         )
         active_custom = list(custom_result.scalars().all())
 
-        return self.compose_from_data(active_regs, active_custom)
+        non_pii_result = await db.execute(
+            select(NonPiiRule).where(NonPiiRule.is_active.is_(True))
+        )
+        active_non_pii = list(non_pii_result.scalars().all())
+
+        return self.compose_from_data(active_regs, active_custom, active_non_pii)
 
     def compose_from_data(
         self,
         active_regs: Sequence[RegulationRuleset],
         active_custom: Sequence[CustomRecognizer],
+        active_non_pii: Sequence[NonPiiRule],
     ) -> ComposedPolicy:
         """
         Build a `ComposedPolicy` from in-memory models.
@@ -89,5 +96,6 @@ class PolicyComposer:
             entity_types=sorted(entity_types_set),
             recognizers=recognizers,
             regulation_ids=regulation_ids,
+            non_pii_rules=list(active_non_pii),
         )
 
