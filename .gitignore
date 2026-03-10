@@ -28,6 +28,10 @@ septum.db
 dist/
 build/
 
+# Generated / environment-specific (do not commit)
+backend/requirements.lock.txt
+backend/pip-audit-backend.json
+
 # Node / Next.js / frontend
 node_modules/
 .next/
