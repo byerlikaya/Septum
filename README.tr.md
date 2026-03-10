@@ -170,8 +170,8 @@ Yüksek seviye akış:
 
 ## Yol Haritası / Genişletme
 
-- Yeni ülke regülasyonları için `/new-regulation` kural seti ile yeni pack eklenebilir.
-- Yeni ulusal kimlik formatları için `/new-recognizer` ile validator + recognizer eklenebilir.
-- Yeni doküman formatları için `/new-ingester` ile yeni ingester implementasyonu eklenebilir.
-- NER model haritası Settings → NER Models üzerinden kullanıcı tarafından güncellenebilir.
+- Yeni ülke regülasyonları için recognizer registry tarafında yeni regulation pack’ler eklenebilir.
+- Yeni ulusal kimlik formatları için national ID modülünde yeni validator ve recognizer eklenebilir.
+- Yeni doküman formatları için ingestion katmanında özel ingester implementasyonları eklenebilir.
+- NER model haritası, Settings → NER Models ekranından kullanıcı tarafından güncellenebilir.
 

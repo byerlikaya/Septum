@@ -341,8 +341,8 @@ Any tests that would send real requests to a cloud LLM **must be mocked**; tests
 
 ## Roadmap & Extensibility
 
-- Add new country regulations using the `/new-regulation` rule set to create new packs.  
-- Add new national ID formats via `/new-recognizer` (validator + recogniser).  
-- Add new document formats via `/new-ingester` with dedicated ingesters.  
+- Add new country regulations by creating new regulation packs in the recogniser registry.  
+- Add new national ID formats by adding validators and recognisers in the national ID module.  
+- Add new document formats by implementing dedicated ingesters in the ingestion layer.  
 - Update NER model mappings from the Settings → NER Models screen.
 
