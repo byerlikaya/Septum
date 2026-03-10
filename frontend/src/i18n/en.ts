@@ -207,6 +207,15 @@ export const enMessages = {
   "chat.input.placeholder": "Ask about your document…",
   "chat.button.stop": "Stop",
   "chat.button.send": "Send",
+  "chat.copy": "Copy",
+  "chat.copied": "Copied",
+  "chat.copyAnswer": "Copy answer",
+
+  "chat.debug.title": "Data sent to and returned from the cloud",
+  "chat.debug.button": "Show data sent to cloud",
+  "chat.debug.maskedPrompt": "Prompt sent to cloud (masked)",
+  "chat.debug.maskedAnswer": "Answer returned from cloud (masked)",
+  "chat.debug.finalAnswer": "Locally processed and displayed answer",
 
   "chat.documentSelector.hint":
     "Select at least one document to query. Only ready documents are listed.",
@@ -256,6 +265,7 @@ export const enMessages = {
   "common.edit": "Edit",
   "common.deleting": "Deleting…",
   "common.delete": "Delete",
+  "common.close": "Close",
 
   "regulations.page.title": "Regulation Rules & Custom Rules",
   "regulations.page.subtitle":
@@ -381,6 +391,21 @@ export const enMessages = {
 
   "regulations.panel.toggle.aria":
     "Toggle rule active",
+
+  "regulations.nonPii.title": "Non-PII Rules (Advanced)",
+  "regulations.nonPii.subtitle":
+    "Advanced rules for treating some spans (for example greetings or boilerplate) as non-PII so they are not masked. This list is intended only for advanced users; most setups do not need changes here.",
+  "regulations.nonPii.loading": "Non-PII rules are loading...",
+  "regulations.nonPii.empty":
+    "No Non-PII rules are defined. The system will continue using its default data-driven behaviour.",
+  "regulations.nonPii.table.patternType": "Pattern Type",
+  "regulations.nonPii.table.pattern": "Pattern",
+  "regulations.nonPii.table.languages": "Languages",
+  "regulations.nonPii.table.entityTypes": "Entity Types",
+  "regulations.nonPii.table.minScore": "Min. Score",
+  "regulations.nonPii.table.status": "Status",
+  "regulations.nonPii.anyLanguage": "All languages",
+  "regulations.nonPii.anyEntity": "All entity types",
 
   "language.label": "Language",
   "language.english": "English",
