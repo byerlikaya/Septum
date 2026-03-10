@@ -212,6 +212,51 @@ class PIISanitizer:
         if policy is not None:
             self._apply_policy(policy)
 
+
+class HeuristicPersonNameRecognizer(EntityRecognizer):
+    """Lightweight, language-agnostic recognizer for person-like names.
+
+    This recognizer is intentionally heuristic and does not depend on large
+    language-specific models. It targets sequences of at least two tokens
+    composed of letters (no digits or underscores), starting with an uppercase
+    character. This pattern is common for personal names in many scripts and
+    languages and works as a safety net when full NER models are unavailable.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            supported_entities=["PERSON_NAME"],
+            supported_language="en",
+        )
+        # Match two or more consecutive letter-only tokens where each token
+        # begins with an uppercase letter. Uses Unicode-aware character
+        # classes and remains free of language-specific terms.
+        self._pattern = re.compile(
+            r"\b[^\W\d_][^\W\d_]+(?:\s+[^\W\d_][^\W\d_]+)+\b", re.UNICODE
+        )
+
+    def analyze(  # type: ignore[override]
+        self,
+        text: str,
+        entities: Optional[List[str]] = None,
+        nlp_artifacts: Optional[object] = None,
+    ) -> List[RecognizerResult]:
+        if entities and not set(entities).intersection(self.supported_entities):
+            return []
+
+        results: List[RecognizerResult] = []
+        for match in self._pattern.finditer(text):
+            start, end = match.span()
+            results.append(
+                RecognizerResult(
+                    entity_type="PERSON_NAME",
+                    start=start,
+                    end=end,
+                    score=0.8,
+                )
+            )
+        return results
+
     def _apply_policy(self, policy: ComposedPolicy) -> None:
         """
         Configure the Presidio analyzer with recognizers from the composed policy.
@@ -233,6 +278,7 @@ class PIISanitizer:
         registry.add_recognizer(ExtendedPhoneRecognizer())
         registry.add_recognizer(ValidatedNationalIDRecognizer())
         registry.add_recognizer(ValidatedIBANRecognizer())
+        registry.add_recognizer(HeuristicPersonNameRecognizer())
 
     def sanitize(
         self,

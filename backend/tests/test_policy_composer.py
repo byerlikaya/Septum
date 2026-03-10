@@ -56,7 +56,7 @@ def test_gdpr_only_entity_types_match_ruleset() -> None:
     )
 
     composer = PolicyComposer()
-    policy: ComposedPolicy = composer.compose_from_data([gdpr], [])
+    policy: ComposedPolicy = composer.compose_from_data([gdpr], [], [])
 
     assert set(policy.entity_types) == set(gdpr.entity_types)
     assert policy.regulation_ids == ["gdpr"]
@@ -80,7 +80,7 @@ def test_gdpr_and_hiaa_union_entity_types() -> None:
     )
 
     composer = PolicyComposer()
-    policy: ComposedPolicy = composer.compose_from_data([gdpr, hipaa], [])
+    policy: ComposedPolicy = composer.compose_from_data([gdpr, hipaa], [], [])
 
     assert set(policy.entity_types) == {
         "PERSON_NAME",
@@ -103,7 +103,7 @@ def test_custom_rule_entity_type_included_in_policy() -> None:
     )
 
     composer = PolicyComposer()
-    policy: ComposedPolicy = composer.compose_from_data([gdpr], [custom])
+    policy: ComposedPolicy = composer.compose_from_data([gdpr], [custom], [])
 
     assert "EMAIL_ADDRESS" in policy.entity_types
     assert "PATIENT_FILE_NUMBER" in policy.entity_types
