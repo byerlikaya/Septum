@@ -105,13 +105,11 @@ def e2e_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(llm_router_module.LLMRouter, "complete", _mock_complete)
 
-    # Init DB (tables + seed) using patched engine
+    # Init DB (tables + seed) using patched engine.
+    # Use asyncio.run so the event loop and aiosqlite worker thread shut down cleanly.
     import asyncio
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(init_db())
-    loop.close()
+    asyncio.run(init_db())
 
     yield TestClient(app), mock_llm_return
 
