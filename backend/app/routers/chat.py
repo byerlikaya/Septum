@@ -170,19 +170,6 @@ async def _retrieve_chunks(
     return list(db_result.scalars().all())
 
 
-async def _get_all_document_chunks(
-    db: AsyncSession, document_id: int
-) -> List[Chunk]:
-    """Return all chunks for a document (by index order). Used for full-doc placeholder list."""
-    stmt = (
-        select(Chunk)
-        .where(Chunk.document_id == document_id)
-        .order_by(Chunk.index)
-    )
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
-
-
 def _build_approval_chunks(chunks: List[Chunk]) -> List[ApprovalChunk]:
     """Convert database chunks into ApprovalChunk payloads."""
     approval_chunks: List[ApprovalChunk] = []
@@ -205,26 +192,6 @@ def _build_approval_chunks(chunks: List[Chunk]) -> List[ApprovalChunk]:
 
 # Placeholder format: [ENTITY_TYPE_N] e.g. [PERSON_1], [ORGANIZATION_2]
 _PLACEHOLDER_PATTERN = re.compile(r"\[[A-Za-z_]+\d+\]")
-
-# Intent: user wants a list of persons/entities in the document (no LLM needed).
-_LIST_PERSONS_OR_ENTITIES_KEYWORDS = re.compile(
-    r"\b("
-    r"kimler|kim var|adı geçen|geçen kişiler|belgede kim|belgede geçen|"
-    r"who\s+(is|are|appears|mentioned)|list\s+(the\s+)?(people|persons|names|entities)|"
-    r"which\s+(people|persons|names|entities)|"
-    r"names?\s+in\s+(the\s+)?document|people\s+in\s+(the\s+)?document|"
-    r"entities?\s+in\s+(the\s+)?document"
-    r")\b",
-    re.IGNORECASE,
-)
-
-
-def _is_list_persons_or_entities_query(sanitized_query: str) -> bool:
-    """True if the user is asking for a list of who/which persons or entities appear in the document."""
-    if not sanitized_query or not sanitized_query.strip():
-        return False
-    q = sanitized_query.strip()
-    return bool(_LIST_PERSONS_OR_ENTITIES_KEYWORDS.search(q))
 
 
 def _extract_placeholders_from_context(context_text: str) -> List[str]:
@@ -268,28 +235,18 @@ async def _run_llm_and_deanonymize(
 
     placeholders_in_context = _extract_placeholders_from_context(context_text)
 
-    # When user asks "who/which persons or entities are in the document", return
-    # the exact placeholder list (then deanonymized) without calling the LLM, so
-    # we never get document fragments or wrong format.
-    if placeholders_in_context and _is_list_persons_or_entities_query(sanitized_query):
-        bullet_list = "\n".join(f"- {p}" for p in placeholders_in_context)
-        deanonymizer = Deanonymizer(settings=settings)
-        result = await deanonymizer.deanonymize(bullet_list, anon_map)
-        if not anon_map.entity_map:
-            result += (
-                "\n\n(İsimler ve diğer değerler yüklenemedi. "
-                "Backend .env dosyasında ENCRYPTION_KEY tanımlayıp belgeyi yeniden yükleyin.)"
-            )
-        return result
-
     placeholder_list_str = ""
     if placeholders_in_context:
         placeholder_list_str = (
-            "\n\nIMPORTANT: The context contains exactly these placeholder tokens: "
+            "\n\nThe user question may be in any language (e.g. Turkish, English). "
+            "Interpret it by intent: if they are asking which persons, organizations, or "
+            "other named entities appear or are mentioned in the document, reply with ONLY "
+            "a bullet list of these placeholder tokens (one per line): "
             + ", ".join(placeholders_in_context)
-            + ". When the user asks who or which persons/entities appear in the document, "
-            "your answer must be ONLY a list of these tokens (one per line, e.g. '- [PERSON_1]'). "
-            "Do not list any other words, phrases, or document fragments. Only the tokens above.\n\n"
+            + ". Do not list document wording, clause fragments, or any other text—only "
+            "the tokens above. Do not say you cannot answer or that something is \"not defined\"; "
+            "answer with the token list when the question is about who/what entities are in the document. "
+            "For any other question, answer using the context as usual.\n\n"
         )
 
     output_instruction = ""
@@ -307,13 +264,9 @@ async def _run_llm_and_deanonymize(
     # embed the system-style instructions into a single ``user`` message
     # instead of using a separate ``system`` role.
     user_prompt = (
-        "You are a privacy-preserving assistant. Personal data in the context "
-        "is replaced by placeholders in square brackets, e.g. [PERSON_1], "
-        "[PERSON_2]. Never guess or reconstruct real values.\n\n"
-        "RULES: When the user asks who or which persons/entities appear in the "
-        "document, reply with ONLY a bullet list of the placeholder tokens (one per line). "
-        "Do NOT list document phrases, clause fragments, or any other text. "
-        "Only tokens in the form [NAME_N]. The system will replace them with real names.\n"
+        "You are a privacy-preserving assistant. Personal data in the context is "
+        "replaced by placeholders in square brackets (e.g. [PERSON_1], [ORGANIZATION_2]). "
+        "Never guess or reconstruct real values.\n\n"
         f"{placeholder_list_str}"
         f"Active privacy regulations: {regulations_str}.\n\n"
         "User question (sanitized):\n"
@@ -329,8 +282,34 @@ async def _run_llm_and_deanonymize(
 
     masked_answer = await llm.complete(messages=messages)
 
+    # If the LLM returned no placeholder tokens but we have placeholders in context,
+    # substitute with the actual list when the response is clearly wrong: document
+    # fragments (long bullet list) or "I cannot answer" / "not defined" refusals.
+    if placeholders_in_context and not _PLACEHOLDER_PATTERN.search(masked_answer):
+        refusal_phrases = (
+            "cannot answer",
+            "not defined",
+            "cannot provide",
+            "could you clarify",
+            "rephrase your question",
+        )
+        is_refusal = any(p in masked_answer.lower() for p in refusal_phrases)
+        bullet_lines = [
+            line.strip()
+            for line in masked_answer.splitlines()
+            if line.strip() and line.strip().startswith(("•", "-", "*"))
+        ]
+        if is_refusal or len(bullet_lines) >= 5:
+            masked_answer = "\n".join(f"- {p}" for p in placeholders_in_context)
+
     deanonymizer = Deanonymizer(settings=settings)
-    return await deanonymizer.deanonymize(masked_answer, anon_map)
+    result = await deanonymizer.deanonymize(masked_answer, anon_map)
+    if not anon_map.entity_map and _PLACEHOLDER_PATTERN.search(result):
+        result += (
+            "\n\n(İsimler ve diğer değerler yüklenemedi. "
+            "Backend .env dosyasında ENCRYPTION_KEY tanımlayıp belgeyi yeniden yükleyin.)"
+        )
+    return result
 
 
 @router.post(
@@ -487,12 +466,6 @@ async def chat_ask(
                 context_texts = [c.text for c in decision.chunks]
             else:
                 context_texts = [c.sanitized_text for c in chunks]
-
-            # For "who/which persons or entities in the document" queries, use
-            # all document chunks so we list every placeholder (not just retrieved).
-            if _is_list_persons_or_entities_query(sanitized_query):
-                all_chunks = await _get_all_document_chunks(db, document.id)
-                context_texts = [c.sanitized_text for c in all_chunks]
 
             output_mode = (request.output_mode or "chat").strip().lower()
             answer = await _run_llm_and_deanonymize(
