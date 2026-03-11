@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-"""Image document ingester using EasyOCR.
+"""Image document ingester using the pluggable OCR provider layer.
 
 This ingester is responsible for:
     - Reading encrypted image bytes from disk.
     - Decrypting them in memory using the shared AES-256-GCM utilities.
-    - Running OCR via EasyOCR to extract plain text.
+    - Running OCR via the shared OCR provider layer.
     - Returning an :class:`IngestionResult` with the concatenated text and
       lightweight, non-PII metadata (e.g., image size, average confidence).
 
@@ -17,30 +17,35 @@ sanitization pipeline and is not persisted in plaintext on disk.
 import asyncio
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np  # type: ignore[import]
 from PIL import Image  # type: ignore[import]
 
 from ...utils.crypto import decrypt
-from ...utils.device import get_device
 from .base import BaseIngester, IngestionResult
+from .ocr import run_ocr
 
 
 class ImageIngester(BaseIngester):
     """Ingests encrypted image files and extracts textual content via OCR."""
 
-    def __init__(self, languages: List[str] | None = None) -> None:
-        """Initialize the ingester with optional OCR language hints.
+    def __init__(
+        self,
+        languages: List[str] | None = None,
+        ocr_provider: str = "easyocr",
+        ocr_provider_options: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Initialize the ingester with OCR language hints and provider.
 
         Args:
-            languages: Optional list of EasyOCR language codes (e.g., ``["en"]``).
-                If omitted, English-only OCR is used by default. Language
-                selection is intentionally narrow by default to reduce false
-                positives; callers can provide a broader set when needed.
+            languages: Optional list of OCR language codes from settings.
+            ocr_provider: Provider name from settings (currently EasyOCR-based).
+            ocr_provider_options: Optional provider-specific options from settings.
         """
-
         self._languages: List[str] = languages or ["en"]
+        self._ocr_provider: str = (ocr_provider or "easyocr").strip().lower() or "easyocr"
+        self._ocr_provider_options: Dict[str, Any] = dict(ocr_provider_options or {})
 
     async def extract(self, data: bytes, filename: str) -> IngestionResult:
         """Extract text from raw (unencrypted) image bytes.
@@ -137,38 +142,19 @@ class ImageIngester(BaseIngester):
         return IngestionResult(text=full_text, metadata=metadata)
 
     def _run_ocr(self, image_bytes: bytes) -> Tuple[List[str], List[float]]:
-        """Run EasyOCR on the given image bytes and return text + confidences."""
-
-        import easyocr  # type: ignore[import]
-
-        device = get_device()
-        use_gpu = device == "cuda"
-
-        effective_languages = sorted({*self._languages, "en"})
-
-        try:
-            reader_languages = effective_languages
-            reader = easyocr.Reader(reader_languages, gpu=use_gpu)
-        except ValueError:
-            reader_languages = ["en"]
-            reader = easyocr.Reader(reader_languages, gpu=use_gpu)
-
+        """Run the configured OCR provider on the given image bytes."""
         with Image.open(BytesIO(image_bytes)) as img:
-            image_array = np.array(img.convert("RGB"))
+            width, height = img.size
+            scale = 2.0
+            new_size = (int(width * scale), int(height * scale))
+            resized = img.resize(new_size, Image.BILINEAR)
+            grayscale = resized.convert("L")
+            image_array = np.array(grayscale)
 
-        results = reader.readtext(image_array, detail=1)
-
-        texts: List[str] = []
-        confidences: List[float] = []
-
-        for _bbox, text, confidence in results:
-            if not text:
-                continue
-            texts.append(text)
-            try:
-                confidences.append(float(confidence))
-            except (TypeError, ValueError):
-                continue
-
-        return texts, confidences
+        return run_ocr(
+            self._ocr_provider,
+            image_array,
+            list(dict.fromkeys(self._languages + ["en"])),
+            **self._ocr_provider_options,
+        )
 

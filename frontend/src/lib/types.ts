@@ -147,6 +147,8 @@ export interface AppSettingsResponse {
   spreadsheet_chunk_size: number;
   whisper_model: string;
   image_ocr_languages: string[];
+  ocr_provider: string;
+  ocr_provider_options: Record<string, unknown> | null;
   extract_embedded_images: boolean;
   recursive_email_attachments: boolean;
   default_active_regulations: string[];

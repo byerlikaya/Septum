@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Application-wide settings stored in the database."""
 
-from typing import List
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import Boolean, Integer, String
 from sqlalchemy.dialects.sqlite import JSON
@@ -44,6 +44,10 @@ class AppSettings(Base):
 
     whisper_model: Mapped[str] = mapped_column(String, nullable=False)
     image_ocr_languages: Mapped[List[str]] = mapped_column(JSON, nullable=False)
+    ocr_provider: Mapped[str] = mapped_column(String, nullable=False)
+    ocr_provider_options: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSON, nullable=True
+    )
     extract_embedded_images: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False
     )

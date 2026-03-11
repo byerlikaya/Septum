@@ -3,9 +3,9 @@ from __future__ import annotations
 """Database configuration and initialization for Septum."""
 
 import os
-from typing import AsyncGenerator, List
+from typing import Any, AsyncGenerator, List
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from .models import Base
@@ -46,6 +46,7 @@ async def init_db() -> None:
     """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_ensure_ocr_provider_columns)
 
     await _seed_defaults()
 
@@ -102,6 +103,9 @@ async def _seed_defaults() -> None:
                 image_ocr_languages=_csv_env_to_list(
                     "DEFAULT_OCR_LANGUAGES", default="en"
                 ),
+                ocr_provider=os.getenv("OCR_PROVIDER", "easyocr").strip().lower()
+                or "easyocr",
+                ocr_provider_options=None,
                 extract_embedded_images=_env_bool(
                     "EXTRACT_EMBEDDED_IMAGES_DEFAULT", True
                 ),
@@ -126,6 +130,13 @@ async def _seed_defaults() -> None:
 
         # Seed minimal Non-PII rules (language-agnostic examples only).
         # Users should define language-specific rules through the UI/API.
+        await session.execute(
+            text(
+                "UPDATE app_settings SET ocr_provider = 'easyocr' "
+                "WHERE id = 1 AND (ocr_provider IS NULL OR ocr_provider = '')"
+            )
+        )
+
         existing_non_pii = await session.execute(select(NonPiiRule.id))
         has_non_pii = existing_non_pii.first() is not None
         if not has_non_pii:
@@ -142,6 +153,19 @@ async def _seed_defaults() -> None:
             )
 
         await session.commit()
+
+
+def _ensure_ocr_provider_columns(conn: Any) -> None:
+    """Add ocr_provider and ocr_provider_options columns if missing (e.g. existing DBs)."""
+    for sql in (
+        "ALTER TABLE app_settings ADD COLUMN ocr_provider TEXT DEFAULT 'easyocr'",
+        "ALTER TABLE app_settings ADD COLUMN ocr_provider_options TEXT",
+    ):
+        try:
+            conn.execute(text(sql))
+        except Exception as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
 
 
 def _env_bool(name: str, default: bool) -> bool:

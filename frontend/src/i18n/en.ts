@@ -169,7 +169,7 @@ export const enMessages = {
   "settings.ingestion.ocrLanguages.label":
     "OCR languages (comma-separated)",
   "settings.ingestion.ocrLanguages.hint":
-    "EasyOCR language codes to enable during ingestion.",
+    "Language codes for the selected OCR engine (e.g. en, tr, de).",
   "settings.ingestion.extractImages.label": "Extract embedded images",
   "settings.ingestion.extractImages.description":
     "Extract and process images embedded in documents where possible.",

@@ -8,7 +8,7 @@ configuration. All fields are strongly typed and partial updates are
 supported via a dedicated PATCH schema.
 """
 
-from typing import Optional
+from typing import Any, Optional
 import os
 import asyncio
 import shutil
@@ -60,6 +60,8 @@ class SettingsResponse(BaseModel):
 
     whisper_model: str
     image_ocr_languages: list[str]
+    ocr_provider: str
+    ocr_provider_options: Optional[dict] = None
     extract_embedded_images: bool
     recursive_email_attachments: bool
 
@@ -93,6 +95,8 @@ class SettingsUpdatePayload(BaseModel):
 
     whisper_model: Optional[str] = None
     image_ocr_languages: Optional[list[str]] = None
+    ocr_provider: Optional[str] = None
+    ocr_provider_options: Optional[dict[str, Any]] = None
     extract_embedded_images: Optional[bool] = None
     recursive_email_attachments: Optional[bool] = None
 

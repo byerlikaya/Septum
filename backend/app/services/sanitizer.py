@@ -326,7 +326,7 @@ class PIISanitizer:
         if self._settings.use_ner_layer:
             ner_pipeline = self._ner_registry.get_pipeline(language)
             ner_results = ner_pipeline(normalized_text)
-            spans.extend(self._from_ner_results(ner_results))
+            spans.extend(self._from_ner_results(ner_results, normalized_text))
 
         if self._settings.use_ollama_layer:
             ollama_spans = self._ollama_pii_detection(normalized_text)
@@ -433,6 +433,38 @@ class PIISanitizer:
         """
         if not normalized_text:
             return []
+        # Heuristic short-circuit:
+        # If the text is dominated by numeric or price-like lines (for example,
+        # menus, inventories, or tabular price lists), skip the alias/nickname
+        # layer entirely. Such content rarely contains nicknames or codenames
+        # and running an LLM there tends to produce noisy pseudo-PII detections.
+        lines = [ln.strip() for ln in normalized_text.splitlines() if ln.strip()]
+        if lines:
+            numeric_like = 0
+            for line in lines:
+                if not line:
+                    continue
+                tokens = line.split()
+                if not tokens:
+                    continue
+                digit_tokens = 0
+                for token in tokens:
+                    if any(ch.isdigit() for ch in token):
+                        digit_tokens += 1
+                    # Currency-like symbols or explicit unit markers often appear
+                    # in price lists and structured numeric content.
+                    if any(ch in token for ch in ("$", "€", "£", "¥", "%")):
+                        digit_tokens += 1
+                if digit_tokens >= max(1, len(tokens) // 2):
+                    numeric_like += 1
+            if numeric_like / max(1, len(lines)) >= 0.4:
+                logger.debug(
+                    "Skipping Ollama alias layer for numeric-heavy structured text "
+                    "(%d/%d lines classified as numeric-like).",
+                    numeric_like,
+                    len(lines),
+                )
+                return []
         system_part = (
             "You are a PII detection assistant. Your ONLY job is to find "
             "entities that normal NER models miss: nicknames, aliases, codenames, "
@@ -515,7 +547,10 @@ class PIISanitizer:
         return spans
 
     @staticmethod
-    def _from_ner_results(raw_results: List[dict]) -> List[DetectedSpan]:
+    def _from_ner_results(
+        raw_results: List[dict],
+        text: str,
+    ) -> List[DetectedSpan]:
         """Convert HuggingFace NER pipeline outputs to DetectedSpan.
         
         Applies stricter confidence thresholds for generic entity types
@@ -523,6 +558,7 @@ class PIISanitizer:
         on common nouns and general terms.
         """
         spans: List[DetectedSpan] = []
+        numeric_filtered_org = 0
         for item in raw_results:
             entity = item.get("entity_group") or item.get("entity")
             start = int(item["start"])
@@ -533,12 +569,36 @@ class PIISanitizer:
             entity_type = PIISanitizer._map_ner_label(entity)
             if entity_type is None:
                 continue
-            
+
             # Stricter threshold for generic entity types to reduce false positives
             if entity_type in {"PERSON_NAME", "ORGANIZATION_NAME", "LOCATION"}:
                 if score < 0.85:
                     continue
-            
+
+            # Additional heuristic for ORGANIZATION_NAME in numeric/price-like lines:
+            # when the surrounding line is dominated by digits or currency/percentage
+            # symbols, treat it as structured numeric content (for example menus,
+            # inventory lists) and skip the span.
+            if entity_type == "ORGANIZATION_NAME":
+                line_start = text.rfind("\n", 0, start) + 1
+                if line_start < 0:
+                    line_start = 0
+                line_end = text.find("\n", end)
+                if line_end < 0:
+                    line_end = len(text)
+                line = text[line_start:line_end].strip()
+                if line:
+                    tokens = line.split()
+                    numeric_like_tokens = 0
+                    for token in tokens:
+                        if any(ch.isdigit() for ch in token):
+                            numeric_like_tokens += 1
+                        if any(ch in token for ch in ("$", "€", "£", "¥", "%")):
+                            numeric_like_tokens += 1
+                    if numeric_like_tokens >= max(1, len(tokens) // 2):
+                        numeric_filtered_org += 1
+                        continue
+
             spans.append(
                 DetectedSpan(
                     start=start,
@@ -546,6 +606,11 @@ class PIISanitizer:
                     entity_type=entity_type,
                     score=score,
                 )
+            )
+        if numeric_filtered_org:
+            logger.debug(
+                "Filtered %d ORGANIZATION_NAME spans in numeric-like lines from NER layer",
+                numeric_filtered_org,
             )
         return spans
 
@@ -555,8 +620,13 @@ class PIISanitizer:
         upper = label.upper()
         if "PER" in upper or upper.startswith("B-PER") or upper.startswith("I-PER"):
             return "PERSON_NAME"
+        # Organization entities from generic NER models tend to be noisy for
+        # structured content (for example menus or product catalogs) and are
+        # not strictly required for most privacy regulations. They are therefore
+        # ignored at the NER layer and can still be supplied by regulation-
+        # specific Presidio recognizers when needed.
         if "ORG" in upper:
-            return "ORGANIZATION_NAME"
+            return None
         if "LOC" in upper:
             return "LOCATION"
         if "EMAIL" in upper:

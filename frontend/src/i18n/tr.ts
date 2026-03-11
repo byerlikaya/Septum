@@ -179,7 +179,7 @@ export const trMessages: Record<string, string> = {
   "settings.ingestion.ocrLanguages.label":
     "OCR dilleri (virgülle ayrılmış)",
   "settings.ingestion.ocrLanguages.hint":
-    "İçe aktarma sırasında etkinleştirilecek EasyOCR dil kodları.",
+    "Seçilen OCR motoru için dil kodları (örn. en, tr, de).",
   "settings.ingestion.extractImages.label":
     "Gömülü görselleri çıkar",
   "settings.ingestion.extractImages.description":

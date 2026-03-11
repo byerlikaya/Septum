@@ -484,8 +484,12 @@ async def upload_document(
     ingester_kwargs: Optional[Dict[str, Any]] = None
     if file_format in {"image", "pdf"}:
         languages = list(settings.image_ocr_languages or [])
-        if languages:
-            ingester_kwargs = {"languages": languages}
+        ingester_kwargs = {
+            "languages": languages or (["en"] if file_format == "image" else []),
+            "ocr_provider": getattr(settings, "ocr_provider", None) or "easyocr",
+            "ocr_provider_options": getattr(settings, "ocr_provider_options", None)
+            or {},
+        }
 
     ingestion_result = await _INGESTION_ROUTER.ingest(
         file_path=encrypted_path,

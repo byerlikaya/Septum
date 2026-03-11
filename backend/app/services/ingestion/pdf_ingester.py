@@ -6,7 +6,7 @@ This ingester is responsible for:
     - Reading the encrypted PDF bytes from disk.
     - Decrypting them in memory using the shared AES-256-GCM utilities.
     - Extracting plain text from each page via PyMuPDF, with an optional OCR
-      fallback for image-only pages.
+      fallback using the shared OCR provider layer.
     - Returning an :class:`IngestionResult` with the concatenated text and
       lightweight, non-PII metadata (e.g., page count).
 
@@ -23,23 +23,30 @@ import numpy as np  # type: ignore[import]
 from PIL import Image  # type: ignore[import]
 
 from ...utils.crypto import decrypt
-from ...utils.device import get_device
 from ...utils.text_utils import strip_control_characters
 from .base import BaseIngester, IngestionResult
+from .ocr import run_ocr
 
 
 class PdfIngester(BaseIngester):
     """Ingests encrypted PDF documents and extracts their textual content."""
 
-    def __init__(self, languages: Optional[List[str]] = None) -> None:
-        """Initialize the ingester with optional OCR language hints.
+    def __init__(
+        self,
+        languages: Optional[List[str]] = None,
+        ocr_provider: str = "easyocr",
+        ocr_provider_options: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Initialize the ingester with OCR language hints and provider.
 
         Args:
-            languages: Optional list of EasyOCR language codes. When provided,
-                these are used as hints for OCR fallback on image-only pages.
+            languages: Optional list of OCR language codes from settings.
+            ocr_provider: Provider name from settings (currently EasyOCR-based).
+            ocr_provider_options: Optional provider-specific options from settings.
         """
-
         self._languages: List[str] = languages or []
+        self._ocr_provider: str = (ocr_provider or "easyocr").strip().lower() or "easyocr"
+        self._ocr_provider_options: Dict[str, Any] = dict(ocr_provider_options or {})
 
     async def extract(self, data: bytes, filename: str) -> IngestionResult:
         """Extract text from raw (unencrypted) PDF bytes.
@@ -137,7 +144,6 @@ class PdfIngester(BaseIngester):
 
         texts: List[str] = []
         ocr_confidences: List[float] = []
-        reader = None
 
         for index, page in enumerate(doc):
             page_text = page.get_text() or ""
@@ -149,11 +155,8 @@ class PdfIngester(BaseIngester):
             # Always consider an OCR pass as an alternative signal, even when the
             # text layer is non-empty. This allows correcting mis-encoded text
             # while keeping the original layer for well-formed documents.
-            if reader is None:
-                reader = self._build_ocr_reader()
-            if reader is not None:
-                ocr_text, ocr_confidence = self._run_ocr_on_page(page, reader)
-                if ocr_confidence is not None:
+            ocr_text, ocr_confidence = self._run_ocr_on_page(page)
+            if ocr_confidence is not None:
                     ocr_confidences.append(ocr_confidence)
 
             cleaned_ocr = strip_control_characters(ocr_text) if ocr_text else ""
@@ -179,70 +182,27 @@ class PdfIngester(BaseIngester):
 
         return texts, ocr_confidences
 
-    def _build_ocr_reader(self) -> Any:
-        """Build an EasyOCR reader instance for OCR fallback."""
-
-        import easyocr  # type: ignore[import]
-
-        device = get_device()
-        use_gpu = device == "cuda"
-
-        # Preserve user-configured language order and ensure English is available
-        # as a general fallback without dominating the selection order.
-        base_languages = list(dict.fromkeys(self._languages or []))
-        if "en" not in base_languages:
-            base_languages.append("en")
-        effective_languages = base_languages or ["en"]
-
-        try:
-            return easyocr.Reader(effective_languages, gpu=use_gpu)
-        except ValueError:
-            # Prefer non-default languages first, then fall back to English-only.
-            primary_languages = [lang for lang in effective_languages if lang != "en"]
-            if "en" in effective_languages:
-                primary_languages.append("en")
-
-            for lang in primary_languages:
-                try:
-                    candidate_languages = ["en"] if lang == "en" else [lang, "en"]
-                    return easyocr.Reader(candidate_languages, gpu=use_gpu)
-                except ValueError:
-                    continue
-
-            return easyocr.Reader(["en"], gpu=use_gpu)
-
-    def _run_ocr_on_page(
-        self,
-        page: fitz.Page,
-        reader: Any,
-    ) -> Tuple[str, Optional[float]]:
-        """Run OCR on a single PDF page using the provided reader."""
-
-        # Render the page at higher resolution to improve OCR quality.
+    def _run_ocr_on_page(self, page: fitz.Page) -> Tuple[str, Optional[float]]:
+        """Run the configured OCR provider on a single PDF page."""
         zoom_x = 2.0
         zoom_y = 2.0
         zoom_matrix = fitz.Matrix(zoom_x, zoom_y)
         pix = page.get_pixmap(matrix=zoom_matrix, alpha=False)
-        mode = "RGB"
-        image = Image.frombytes(mode, (pix.width, pix.height), pix.samples)
-        # Use grayscale to reduce noise while preserving character shapes.
+        image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
         grayscale = image.convert("L")
         image_array = np.array(grayscale)
 
-        results = reader.readtext(image_array, detail=1)
+        languages = list(dict.fromkeys(self._languages or []))
+        if "en" not in languages:
+            languages.append("en")
+        effective = languages or ["en"]
 
-        texts: List[str] = []
-        confidences: List[float] = []
-
-        for _bbox, text, confidence in results:
-            if not text:
-                continue
-            texts.append(text)
-            try:
-                confidences.append(float(confidence))
-            except (TypeError, ValueError):
-                continue
-
+        texts, confidences = run_ocr(
+            self._ocr_provider,
+            image_array,
+            effective,
+            **self._ocr_provider_options,
+        )
         joined_text = "\n".join(texts)
         avg_confidence = (
             float(sum(confidences) / len(confidences)) if confidences else None
