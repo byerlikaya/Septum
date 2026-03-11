@@ -4,6 +4,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ### 2026-03-12
 
+- **E2E test and ingestion errors**: E2E Turkish PII test no longer skips: uses Presidio-detectable email, language and anon-map mocks, and LLM mock with `on_cloud_failure`; fixture sets `TLDEXTRACT_CACHE` to tmp path. Document upload 500 response now includes `ingestion_error` in detail for easier debugging.
 - **NER model overrides**: NER Models settings tab now supports per-language overrides: edit the HuggingFace model ID for any language, restore default per row (persists immediately), and save overrides to the database. Backend stores overrides in `app_settings.ner_model_overrides` and uses them in the sanitizer pipeline and chat.
 - **Error logging and Error Log UI**: Centralized error logging for backend and frontend: new `ErrorLog` model and table, `error_logger` service, global exception handler, and `POST /api/error-logs/frontend` for client-reported errors. New Error Logs page under Settings lists, filters, and clears logs with optional stack-trace detail; frontend global error boundary and runtime error listeners report errors to the backend. Sidebar shows error count badge; handled backend errors (e.g. LLM failures, test-llm fallback) are logged; Test LLM returns 200 with `ok: false` when cloud fails and Ollama fallback is used.
 - **Document preview**: Copy button shows "Copied" state for user feedback.

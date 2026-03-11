@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 from io import BytesIO
 from pathlib import Path
@@ -22,10 +23,10 @@ from app.routers import documents as documents_router
 
 
 def _make_turkish_pii_pdf_bytes() -> bytes:
-    """PDF with Turkish PII: Ahmet Yılmaz, Ayşe Kaya."""
+    """PDF with Turkish PII: two Presidio-detectable emails so test never skips when NER is off."""
     text = (
-        "Bu belgede Ahmet Yılmaz ve Ayşe Kaya geçmektedir. "
-        "İletişim bilgileri: Ahmet Yılmaz, Ayşe Kaya."
+        "Contact: ahmet.yilmaz@example.com and ayse.kaya@example.com. "
+        "Bu belgede Ahmet Yılmaz ve Ayşe Kaya geçmektedir."
     )
     doc = fitz.open()
     try:
@@ -78,8 +79,15 @@ def e2e_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "_DOC_STORAGE_DIR",
         docs_dir,
     )
+    async def _detect_language_en(_: str) -> str:
+        return "en"
+
+    monkeypatch.setattr(documents_router, "_detect_language", _detect_language_en)
     monkeypatch.setenv("VECTOR_INDEX_DIR", str(vec_dir))
     monkeypatch.setenv("USE_NER_LAYER_DEFAULT", "false")  # Presidio only; no HuggingFace NER download
+    tld_cache = tmp_path / "tldextract_cache"
+    tld_cache.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("TLDEXTRACT_CACHE", str(tld_cache))
 
     # Avoid HuggingFace downloads: no-op index_document, search returns [] (chat uses fallback chunks)
     from app.services import vector_store as vs_module
@@ -98,7 +106,14 @@ def e2e_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     mock_llm_return: list[str] = []
 
-    async def _mock_complete(self, messages, temperature=0.2, max_tokens=None, metadata=None):
+    async def _mock_complete(
+        self,
+        messages,
+        temperature=0.2,
+        max_tokens=None,
+        metadata=None,
+        on_cloud_failure=None,
+    ):
         if mock_llm_return:
             return mock_llm_return[0]
         return "Bu belgede [PERSON_NAME_1] ve [PERSON_NAME_2] geçmektedir."
@@ -148,26 +163,25 @@ def test_e2e_turkish_pii_upload_ask_approve_deanonymized(
     assert stored_map is not None, "Document anon map must be stored after upload"
 
     placeholders = sorted(stored_map.entity_map.values())
-    if len(placeholders) < 2:
-        pytest.skip(
-            "With NER layer disabled, Presidio does not detect Turkish person names; "
-            "skipping deanonymization assertions. Run with NER enabled to exercise full flow."
-        )
-
-    p1 = stored_map.entity_map.get("Ahmet Yılmaz") or stored_map.entity_map.get("Ahmet")
-    p2 = stored_map.entity_map.get("Ayşe Kaya") or stored_map.entity_map.get("Ayşe")
-    if not p1 or not p2:
-        p1, p2 = placeholders[0], placeholders[1]
+    assert len(placeholders) >= 1, (
+        "PDF contains Presidio-detectable email; expected at least one placeholder."
+    )
+    p1 = placeholders[0]
+    p2 = placeholders[1] if len(placeholders) > 1 else p1
+    originals = list(stored_map.entity_map.keys())
     mock_llm_return.append(
         f"Bu belgede {p1} ve {p2} geçmektedir. İletişim bilgileri: {p1}, {p2}."
     )
 
-    _original_get = get_document_map
+    from app.services.document_anon_store import get_document_map as _original_get
 
     def _get_map_for_chat(doc_id: int):
         return stored_map if doc_id == document_id else _original_get(doc_id)
 
-    monkeypatch.setattr(chat_router, "get_document_map", _get_map_for_chat)
+    monkeypatch.setattr(
+        "app.services.document_anon_store.get_document_map",
+        _get_map_for_chat,
+    )
 
     answer_chunks: list[str] = []
     stream_events: list[dict] = []
@@ -212,7 +226,9 @@ def test_e2e_turkish_pii_upload_ask_approve_deanonymized(
         pytest.fail(f"No answer_chunks received. Event types: {event_types}.")
 
     full_answer = "".join(answer_chunks)
-    assert "[PERSON" not in full_answer, f"Placeholders must be replaced: {full_answer!r}"
-    assert ("Ahmet" in full_answer or "Ayşe" in full_answer), (
-        f"Deanonymized answer should contain at least one name from the doc: {full_answer!r}"
+    assert not re.search(r"\[\w+_\d+\]", full_answer), (
+        f"Placeholders must be replaced by deanonymizer: {full_answer!r}"
+    )
+    assert any(orig in full_answer for orig in originals), (
+        f"Deanonymized answer should contain at least one original PII from the doc: {full_answer!r}"
     )

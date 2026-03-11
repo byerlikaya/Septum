@@ -546,9 +546,12 @@ async def upload_document(
         document.ingestion_status = "failed"
         document.ingestion_error = f"{type(exc).__name__}: {exc}"
         await db.commit()
+        detail = "Document ingestion failed."
+        if document.ingestion_error:
+            detail = f"{detail} {document.ingestion_error}"
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Document ingestion failed.",
+            detail=detail,
         ) from exc
 
     return DocumentResponse.model_validate(document)
