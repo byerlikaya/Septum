@@ -269,6 +269,179 @@ Bu modda Septum, uygulamalarınız için **tak‑çalıştır bir gizlilik katma
 
 ---
 
+## Backend (FastAPI) Yapısı
+
+Backend kök dizini: `backend/`
+
+- `app/main.py` — FastAPI uygulamasının tanımı ve router kayıtları  
+- `app/config.py` — Pydantic Settings ile konfigürasyon  
+- `app/database.py` — SQLite bağlantısı ve `RegulationRuleset` başlangıç verisi (seed)  
+- `app/models/` — SQLAlchemy modelleri:  
+  - `document.py`, `chunk.py`, `settings.py`, `regulation.py`, `custom_recognizer.py`  
+- `app/schemas/` — Pydantic şemaları:  
+  - `document.py`, `chat.py`, `settings.py`, `regulation.py`, `custom_recognizer.py`  
+- `app/routers/` — FastAPI router’ları:  
+  - `documents.py`, `chunks.py`, `chat.py`, `approval.py`, `settings.py`, `regulations.py`  
+- `app/services/`:  
+  - `ingestion/` — format‑spesifik ingester’lar (PDF, DOCX, XLSX, ODS, PPTX, image, audio, HTML, markdown, JSON, YAML, XML, email, EPUB, RTF)  
+  - `recognizers/` — regülasyon paketleri (gdpr, hipaa, kvkk, lgpd, ccpa, …) ve `registry.py`  
+  - `national_ids/` — ülkelere özgü kimlik doğrulayıcıları (TCKN, SSN, CPF, Aadhaar, IBAN vb.)  
+  - `policy_composer.py` — aktif regülasyon ve özel kuralları tek bir politika hâline getirir  
+  - `language_detector.py` — dil tespiti  
+  - `ner_model_registry.py` — dil → model eşlemesi ve lazy loading  
+  - `sanitizer.py` — PII tespit ve placeholder pipeline’ı  
+  - `anonymization_map.py` — oturum bazlı anonimleştirme haritası + coreference yönetimi  
+  - `document_processor.py`, `vector_store.py`, `llm_router.py`, `deanonymizer.py`, `approval_gate.py`  
+- `app/utils/`:  
+  - `device.py` — CPU/MPS/CUDA seçimi  
+  - `crypto.py` — AES‑256‑GCM dosya şifreleme  
+  - `text_utils.py` — Unicode NFC + locale‑farkında küçültme (lowercase)  
+  - `logger.py` — ham PII içermeyen loglama  
+- `tests/` — pytest senaryoları (sanitizer, anonymization_map, national_ids, policy_composer, custom_recognizers, document_processor, deanonymizer, llm_router, crypto, ingesters vb.).
+
+FastAPI tarafında Context7 en iyi pratikleri takip edilir:
+
+- API endpoint’leri **APIRouter** ile modüler hâle getirilir.  
+- İstek/cevap doğrulaması Pydantic modellerle yapılır.  
+- DB oturumu, ayarlar ve diğer bağımlılıklar `Depends(...)` ile enjekte edilir.  
+- Tüm path fonksiyonları async’tir; CPU‑ağırlıklı işler thread pool içinde çalıştırılır.
+
+---
+
+## Frontend (Next.js App Router) Yapısı
+
+Frontend kök dizini: `frontend/`
+
+- `src/app/`  
+  - `layout.tsx` — kök layout  
+  - `page.tsx` — giriş / yönlendirme sayfası  
+  - `chat/page.tsx` — backend’e SSE ile bağlı sohbet ekranı  
+  - `documents/page.tsx` — doküman listesi ve yükleme sayfası  
+  - `chunks/page.tsx` — chunk görünümleri  
+  - `settings/` — alt sayfalar:  
+    - `page.tsx` — genel ayarlar  
+    - `regulations/page.tsx` — regülasyon yönetimi  
+    - `custom-rules/page.tsx` — custom recognizer oluşturma ekranı  
+- `src/components/`  
+  - `layout/Sidebar.tsx`, `layout/Header.tsx`  
+  - `chat/ChatWindow.tsx`, `MessageBubble.tsx`, `ApprovalModal.tsx`, `JsonOutputPanel.tsx`, `DeanonymizationBanner.tsx`  
+  - `documents/DocumentUploader.tsx`, `DocumentList.tsx`, `DocumentCard.tsx`, `DocumentPreview.tsx`, `TranscriptionPreview.tsx`  
+  - `chunks/ChunkList.tsx`, `ChunkCard.tsx`, `EntityBadge.tsx`  
+  - `settings/*` — `LLMSettings`, `PrivacySettings`, `LocalModelSettings`, `RAGSettings`, `IngestionSettings`, `NERModelSettings`, `RegulationManager`, `CustomRuleBuilder`  
+- `src/store/`  
+  - `chatStore.ts`, `documentStore.ts`, `settingsStore.ts`, `regulationStore.ts`  
+- `src/lib/`  
+  - `api.ts` — backend HTTP istemcisi  
+  - `types.ts` — paylaşılan tipler
+
+Next.js tarafında Context7 en iyi pratikleri takip edilir:
+
+- App Router (segment tabanlı routing) kullanılır.  
+- SSE ve streaming cevaplar için `EventSource` veya `fetch` + `ReadableStream` kullanılır.  
+- Tailwind CSS, `app`, `components` ve ilgili dizinleri tarayacak şekilde yapılandırılmıştır.
+
+---
+
+## Teknoloji Yığını
+
+**Backend**
+- Python, FastAPI, Uvicorn  
+- Presidio Analyzer/Anonymizer  
+- HuggingFace Transformers + sentence‑transformers  
+- faiss‑cpu  
+- lingua‑language‑detector, langdetect  
+- EasyOCR, OpenCV, Pillow  
+- Whisper, ffmpeg‑python  
+- SQLAlchemy + aiosqlite  
+- cryptography (AES‑256‑GCM)
+
+**Frontend**
+- Next.js 16 (App Router)  
+- React 19  
+- TypeScript  
+- Tailwind CSS  
+- axios, react‑dropzone, lucide‑react
+
+---
+
+## Kurulum
+
+### 1. Ortak ön gereksinimler
+
+- Python 3.10+  
+- Node.js 18+ (Next.js 16 için)  
+- ffmpeg (Whisper için)
+
+### 2. Backend kurulumu
+
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+`backend/.env.example` dosyasından `.env` oluşturun:
+
+```bash
+cp .env.example .env
+```
+
+Aşağıdaki değişkenleri kendi ortamınıza göre doldurun:
+
+- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` (kullanıyorsanız)  
+- `LLM_PROVIDER` (örn. `anthropic`)  
+- `USE_OLLAMA`, `OLLAMA_BASE_URL`, `OLLAMA_CHAT_MODEL`, `OLLAMA_DEANON_MODEL`  
+- `WHISPER_MODEL`  
+- `ENCRYPTION_KEY` (32‑byte base64 veya hex; boş bırakılırsa uygulama ilk çalıştırmada kendi anahtar yönetimi mantığına göre otomatik üretir)  
+- `DB_PATH`, `LOG_LEVEL`, `DEFAULT_ACTIVE_REGULATIONS` vb.
+
+Ardından backend’i başlatın:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+### 3. Frontend kurulumu
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Varsayılan olarak:
+- Backend: `http://localhost:8000`  
+- Frontend: `http://localhost:3000`
+
+`src/lib/api.ts` içindeki backend base URL’inin kendi ortamınızla uyumlu olduğundan emin olun.
+
+---
+
+## Testleri Çalıştırma
+
+Projede Septum içinde tanımlı özel bir `/test` kuralı bulunur:
+
+- Değişen dosyaya göre ilgili pytest dosyası çalıştırılır. Örneğin:  
+  - `sanitizer.py` → `tests/test_sanitizer.py`  
+  - `anonymization_map.py` → `tests/test_anonymization_map.py`  
+  - `app/services/national_ids/*` → `tests/test_national_ids.py`  
+  - `app/services/ingestion/*` → `tests/test_ingesters.py`  
+  - vb.  
+- Eşleşme bulunamazsa tüm test paketi çalıştırılır.
+
+Testleri manuel olarak çalıştırmak için:
+
+```bash
+cd backend
+pytest tests/ -v
+```
+
+Gerçek bulut LLM sağlayıcılarına istek gönderecek tüm testler **mock** edilmelidir; gerçek dış servis çağrısı yapan testler hata olarak değerlendirilir.
+
+---
+
 ## Güvenlik ve Gizlilik (Önemli Noktalar)
 
 - Ham PII asla log’lanmaz ve buluta gönderilmez.

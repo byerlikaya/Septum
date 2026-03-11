@@ -26,6 +26,7 @@ from .non_pii_filter import NonPiiFilter, SpanView
 from .ollama_client import extract_json_array, call_ollama_sync
 from .national_ids import IBANValidator, TCKNValidator
 from .policy_composer import ComposedPolicy
+from .prompts import PromptCatalog
 from ..models.settings import AppSettings
 from ..utils.text_utils import normalize_unicode, normalize_for_comparison
 
@@ -465,22 +466,7 @@ class PIISanitizer:
                     len(lines),
                 )
                 return []
-        system_part = (
-            "You are a PII detection assistant. Your ONLY job is to find "
-            "entities that normal NER models miss: nicknames, aliases, codenames, "
-            "indirect references to people, organizations referred to by informal names. "
-            "Return ONLY valid JSON, no explanation. "
-            "IMPORTANT: Always include leading articles (The, A, An) if they are "
-            "part of the nickname or alias. For example 'The Big Fish' should be "
-            "returned as 'The Big Fish', not 'Big Fish'."
-        )
-        user_part = (
-            "Find all aliases, nicknames, and indirect person references in this text. "
-            'Return JSON array: [{"text": "...", "start": N, "end": N, "type": "ALIAS"}]. '
-            "If nothing found return [].\n\nText:\n"
-            f"{normalized_text}"
-        )
-        prompt = f"System: {system_part}\n\nUser: {user_part}"
+        prompt = PromptCatalog.sanitizer_alias_layer(normalized_text)
         response = call_ollama_sync(
             prompt=prompt,
             base_url=self._settings.ollama_base_url,

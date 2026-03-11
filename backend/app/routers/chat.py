@@ -39,6 +39,7 @@ from ..services.policy_composer import PolicyComposer
 from ..services.sanitizer import PIISanitizer
 from ..services.text_normalizer import TextNormalizer
 from ..services.chat_debug_store import set_chat_debug_record, get_chat_debug_record, ChatDebugRecord
+from ..services.prompts import PromptCatalog
 
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -346,30 +347,14 @@ async def _run_llm_and_deanonymize(
             "Use only double quotes. Output nothing but this JSON object.\n---\n\n"
         )
 
-    # Language instruction (generic, ISO 639-1 based)
-    # Only add language instruction for non-English queries to preserve semantic relevance
-    language_instruction = ""
-    if language and language != "en":
-        language_instruction = (
-            f"IMPORTANT: The user's query is in {language.upper()} language. "
-            f"You MUST respond in the same language ({language.upper()}).\n\n"
-        )
-
-    user_prompt = (
-        f"{language_instruction}"
-        "You are a privacy-preserving assistant. Personal data in the context is "
-        "replaced by placeholders in square brackets (e.g. [PERSON_1], [ORGANIZATION_2]). "
-        "Never guess or reconstruct real values and never explain the anonymization mechanism to the user.\n\n"
-        "Always prioritise answering the user's question as directly and concisely as possible. "
-        "Avoid meta explanations, disclaimers, or restating the entire table unless the user explicitly asks for that detail.\n\n"
-        f"{placeholder_list_str}"
-        f"Active privacy regulations: {regulations_str}.\n\n"
-        f"{schema_instruction}"
-        "User question (sanitized):\n"
-        f"{sanitized_query}\n\n"
-        "Relevant context (sanitized):\n"
-        f"{context_text or '[no retrieved context]'}"
-        f"{output_instruction}"
+    user_prompt = PromptCatalog.chat_user_prompt(
+        language=language,
+        regulations_str=regulations_str,
+        sanitized_query=sanitized_query,
+        context_text=context_text,
+        schema_instruction=schema_instruction,
+        placeholder_list_str=placeholder_list_str,
+        output_instruction=output_instruction,
     )
 
     messages = [

@@ -24,6 +24,7 @@ from ...models.regulation import CustomRecognizer as CustomRecognizerModel
 from ...models.regulation import RegulationRuleset
 
 from ..ollama_client import call_ollama_sync, extract_json_array, use_ollama_enabled
+from ..prompts import PromptCatalog
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +64,10 @@ class LLMContextRecognizer(EntityRecognizer):
         if not use_ollama_enabled() or not text or not self._config.llm_prompt:
             return []
 
-        prompt = (
-            "You are a PII detection assistant. For the following instruction, "
-            "find all matching spans in the text. Return a JSON array of objects "
-            "with keys: start, end, text, entity_type. Use entity_type "
-            f"\"{self._config.entity_type}\". Only return the JSON array, nothing else.\n\n"
-            f"Instruction: {self._config.llm_prompt}\n\nText:\n{text}"
+        prompt = PromptCatalog.llm_custom_recognizer_prompt(
+            entity_type=self._config.entity_type,
+            instruction=self._config.llm_prompt,
+            text=text,
         )
         response = call_ollama_sync(prompt=prompt)
         items = extract_json_array(response)

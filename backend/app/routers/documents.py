@@ -35,7 +35,6 @@ from ..models.document import Chunk as DocumentChunk, Document
 from ..models.spreadsheet_schema import SpreadsheetSchema, SpreadsheetColumn
 from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
-from ..services.anonymization_map import AnonymizationMap
 from ..services.chunking_strategy import (
     StructuredDocumentChunker,
     SlidingWindowChunker,
@@ -49,10 +48,7 @@ from ..services.ingestion.ods_ingester import OdsIngester
 from ..services.ingestion.audio_ingester import AudioIngester
 from ..services.ingestion.image_ingester import ImageIngester
 from ..services.ingestion.router import IngestionRouter
-from ..services.sanitizer import PIISanitizer
-from ..services.policy_composer import PolicyComposer
-from ..services.vector_store import VectorStore
-from ..services.text_normalizer import TextNormalizer
+from ..services.document_pipeline import DocumentPipeline
 from ..utils.crypto import encrypt
 
 try:  # python-magic with system libmagic; may fail if libmagic is missing.
@@ -537,111 +533,14 @@ async def upload_document(
             await db.refresh(document)
             return DocumentResponse.model_validate(document)
 
-        anon_map = AnonymizationMap(document_id=document.id, language=detected_language)
-        
-        policy_composer = PolicyComposer()
-        policy = await policy_composer.compose(db)
-        
-        sanitizer = PIISanitizer(settings=settings, policy=policy)
-
-        sanitize_result = await asyncio.to_thread(
-            sanitizer.sanitize,
-            ingestion_result.text,
-            detected_language,
-            anon_map,
+        pipeline = DocumentPipeline(settings=settings)
+        await pipeline.run(
+            db=db,
+            document=document,
+            file_format=file_format,
+            ingested_text=ingestion_result.text,
+            ingestion_confidence=ingestion_result.confidence,
         )
-
-        normalizer = TextNormalizer()
-        normalized_text = await normalizer.normalize(
-            db,
-            sanitize_result.sanitized_text,
-        )
-
-        document.transcription_text = normalized_text
-        entity_count = sanitize_result.entity_count
-
-        # Use semantic chunking for structured documents (PDF, DOCX)
-        # and sliding window for unstructured formats
-        if file_format in {"pdf", "docx"}:
-            chunker = StructuredDocumentChunker(
-                max_chunk_size=max(settings.pdf_chunk_size, 800)
-            )
-        else:
-            chunker = SlidingWindowChunker(
-                chunk_size=max(settings.chunk_size, 1),
-                overlap=max(min(settings.chunk_overlap, settings.chunk_size - 1), 0),
-            )
-
-        semantic_chunks = await asyncio.to_thread(chunker.chunk, normalized_text)
-
-        merged_chunks: List[SemanticChunk] = []
-        i = 0
-        while i < len(semantic_chunks):
-            current = semantic_chunks[i]
-
-            # Detect very short, title-like chunks and merge them with the next chunk.
-            if (
-                current.char_count < 50
-                and current.section_title
-                and i + 1 < len(semantic_chunks)
-            ):
-                next_chunk = semantic_chunks[i + 1]
-                merged_text = f"{current.text.strip()}\n{next_chunk.text}"
-                merged_title = current.section_title or next_chunk.section_title
-
-                merged_chunk = SemanticChunk(
-                    text=merged_text,
-                    index=current.index,
-                    source_page=current.source_page or next_chunk.source_page,
-                    section_title=merged_title,
-                    char_count=len(merged_text),
-                )
-                merged_chunks.append(merged_chunk)
-                i += 2
-            else:
-                merged_chunks.append(current)
-                i += 1
-
-        semantic_chunks = merged_chunks
-
-        chunks: List[DocumentChunk] = []
-        for semantic_chunk in semantic_chunks:
-            chunk = DocumentChunk(
-                document_id=document.id,
-                index=semantic_chunk.index,
-                sanitized_text=semantic_chunk.text,
-                char_count=semantic_chunk.char_count,
-                source_page=semantic_chunk.source_page,
-                source_slide=None,
-                source_sheet=None,
-                source_timestamp_start=None,
-                source_timestamp_end=None,
-                section_title=semantic_chunk.section_title,
-            )
-            db.add(chunk)
-            chunks.append(chunk)
-
-        await db.commit()
-        for chunk in chunks:
-            await db.refresh(chunk)
-
-        document.chunk_count = len(chunks)
-        document.entity_count = entity_count
-        document.ingestion_status = "completed"
-        document.ingestion_error = None
-        await db.commit()
-        await db.refresh(document)
-
-        set_document_map(document.id, anon_map)
-
-        if chunks:
-            vector_store = VectorStore()
-            await asyncio.to_thread(
-                vector_store.index_document,
-                document.id,
-                [c.id for c in chunks],
-                [c.sanitized_text for c in chunks],
-            )
 
     except Exception as exc:  # noqa: BLE001
         document.ingestion_status = "failed"

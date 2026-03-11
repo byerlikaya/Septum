@@ -24,6 +24,7 @@ import re
 
 from .anonymization_map import AnonymizationMap
 from .ollama_client import call_ollama_async, use_ollama_enabled
+from .prompts import PromptCatalog
 from ..models.settings import AppSettings
 
 
@@ -89,11 +90,7 @@ class Deanonymizer:
             return self._simple(text, anon_map)
 
         entity_map_json = json.dumps(placeholder_to_original, ensure_ascii=False)
-        prompt = (
-            "Replace every placeholder token in the text with its corresponding "
-            "value from the map. Return ONLY the final text, no explanation.\n\n"
-            f"Map: {entity_map_json}\n\nText: {text}"
-        )
+        prompt = PromptCatalog.deanonymizer_ollama(entity_map_json, text)
         result = await call_ollama_async(
             prompt=prompt,
             base_url=self._settings.ollama_base_url,
