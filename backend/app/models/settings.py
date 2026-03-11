@@ -59,3 +59,7 @@ class AppSettings(Base):
         JSON, nullable=False
     )
 
+    ner_model_overrides: Mapped[Optional[Dict[str, str]]] = mapped_column(
+        JSON, nullable=True
+    )
+

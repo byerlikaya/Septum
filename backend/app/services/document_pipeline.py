@@ -15,6 +15,7 @@ from .chunking_strategy import (
     StructuredDocumentChunker,
 )
 from .document_anon_store import set_document_map
+from .ner_model_registry import NERModelRegistry
 from .policy_composer import PolicyComposer
 from .sanitizer import PIISanitizer
 from .text_normalizer import TextNormalizer
@@ -40,7 +41,11 @@ class DocumentPipeline:
         anon_map = AnonymizationMap(document_id=document.id, language=detected_language)
 
         policy = await self._compose_policy(db)
-        sanitizer = PIISanitizer(settings=self._settings, policy=policy)
+        overrides = getattr(self._settings, "ner_model_overrides", None) or {}
+        ner_registry = NERModelRegistry(_overrides=dict(overrides))
+        sanitizer = PIISanitizer(
+            settings=self._settings, policy=policy, ner_registry=ner_registry
+        )
 
         sanitize_result = await asyncio.to_thread(
             sanitizer.sanitize,

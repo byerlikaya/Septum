@@ -24,12 +24,12 @@ from ..utils.device import get_device
 class NERModelRegistry:
     """Registry responsible for providing NER pipelines per language.
 
-    The registry is intentionally lightweight and in-memory only.
-    Persistence of user overrides (language → model ID) can be added
-    later without changing the public interface.
+    User overrides (language → model ID) can be passed in and are
+    consulted before the default mapping.
     """
 
     _loaded_models: Dict[str, object] = field(default_factory=dict)
+    _overrides: Dict[str, str] = field(default_factory=dict)
 
     DEFAULT_MODEL_MAP: Dict[str, str] = field(
         default_factory=lambda: {
@@ -66,10 +66,10 @@ class NERModelRegistry:
     def _get_model_name(self, language: str) -> str:
         """Resolve the model name for a language.
 
-        For now this method only uses the in-memory default mapping.
-        A future iteration can incorporate user-configurable overrides
-        from the database without changing callers.
+        User overrides take precedence; then the default mapping is used.
         """
+        if language in self._overrides and (self._overrides[language] or "").strip():
+            return (self._overrides[language] or "").strip()
         if language in self.DEFAULT_MODEL_MAP:
             return self.DEFAULT_MODEL_MAP[language]
         return self.DEFAULT_MODEL_MAP["fallback"]
