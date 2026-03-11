@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 """
-Shared Ollama HTTP client and USE_OLLAMA gate for Septum.
+Shared Ollama HTTP client for Septum.
 
 All Ollama usage (sanitizer Layer 3, deanonymizer ollama strategy,
-LLMContextRecognizer) is gated by USE_OLLAMA. When USE_OLLAMA=false,
-these layers are skipped. Connection uses OLLAMA_BASE_URL.
+LLMContextRecognizer) is always enabled and routed through this client.
+Connection uses OLLAMA_BASE_URL.
 """
 
 import json
@@ -20,11 +20,14 @@ logger = logging.getLogger(__name__)
 
 
 def use_ollama_enabled() -> bool:
-    """Return True if Ollama integration is enabled (USE_OLLAMA env)."""
-    value = os.getenv("USE_OLLAMA", "true")
-    if value is None:
-        return True
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    """Return True when Ollama integration is considered enabled.
+
+    This helper always returns True and exists for backward compatibility with
+    earlier configurations that gated Ollama usage behind an environment
+    variable. Runtime behavior still gracefully degrades to non-Ollama
+    fallbacks if the local service is unreachable.
+    """
+    return True
 
 
 def _default_base_url() -> str:

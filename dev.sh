@@ -11,6 +11,14 @@ fi
 
 echo "Project root: $PROJECT_ROOT"
 
+if [[ -f "$PROJECT_ROOT/.env" ]]; then
+  # Load shared environment variables for both backend and frontend
+  set -a
+  # shellcheck disable=SC1090
+  source "$PROJECT_ROOT/.env"
+  set +a
+fi
+
 if [[ "$SETUP_MODE" == true ]]; then
   echo "[setup] Installing / upgrading backend dependencies (pip install -r backend/requirements.txt) ..."
   (

@@ -42,7 +42,6 @@ class LLMContextRecognizer(EntityRecognizer):
     """
     Recognizer that delegates detection to a local Ollama model using the
     custom rule's llm_prompt. Used when detection_method='llm_prompt'.
-    Skipped when USE_OLLAMA=false.
     """
 
     def __init__(self, config: LLMContextConfig) -> None:

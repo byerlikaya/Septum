@@ -14,7 +14,7 @@ Two strategies are supported via ``AppSettings.deanon_strategy``:
   :class:`AnonymizationMap`.
 * ``ollama`` – sends the masked LLM response and a placeholder→value map to
   local Ollama; the model returns the final text with placeholders replaced.
-  All processing is local (OLLAMA_BASE_URL). Skipped when USE_OLLAMA=false.
+  All processing is local (OLLAMA_BASE_URL).
 """
 
 import json
