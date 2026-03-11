@@ -503,8 +503,9 @@ async def chat_ask(
             getattr(settings, "deanon_enabled", True),
         )
 
-    sanitized_query = message_text
-    entity_count = 0
+    sanitized_query, entity_count = await _sanitize_query(
+        message_text, language, settings, anon_map, db
+    )
     top_k = request.top_k or settings.top_k_retrieval
     chunks: List[Chunk] = []
     if document is not None:
