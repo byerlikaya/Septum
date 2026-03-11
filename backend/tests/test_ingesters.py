@@ -10,6 +10,7 @@ from docx import Document as DocxDocument  # type: ignore[import]
 from openpyxl import Workbook  # type: ignore[import]
 
 from app.services.ingestion.docx_ingester import DocxIngester
+from app.services.ingestion.ods_ingester import OdsIngester
 from app.services.ingestion.pdf_ingester import PdfIngester
 from app.services.ingestion.xlsx_ingester import XlsxIngester
 from app.utils.crypto import encrypt
@@ -116,6 +117,41 @@ async def test_xlsx_ingester_extracts_text(tmp_path: Path) -> None:
         encrypted_path,
         mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         file_format="xlsx",
+    )
+
+    assert sample_value in result.text
+    assert result.metadata.get("sheet_count") == 1
+    sheets_meta = result.metadata.get("sheets") or []
+    assert len(sheets_meta) == 1
+    assert sheets_meta[0].get("sheet_name") == "Sheet1"
+
+
+def _create_sample_ods_bytes(values: list[list[str]]) -> bytes:
+    """Create a simple ODS workbook from a 2D list of strings using pandas."""
+
+    import pandas as pd
+
+    df = pd.DataFrame(values)
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="odf") as writer:
+        df.to_excel(writer, sheet_name="Sheet1", index=False, header=False)
+    return buffer.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_ods_ingester_extracts_text(tmp_path: Path) -> None:
+    """OdsIngester should correctly extract text from a simple ODS."""
+
+    values = [["Name", "Value"], ["bar", "99"]]
+    sample_value = "bar"
+    ods_bytes = _create_sample_ods_bytes(values)
+    encrypted_path = _write_encrypted_file(tmp_path, "sample.ods.enc", ods_bytes)
+
+    ingester = OdsIngester()
+    result = await ingester.ingest(
+        encrypted_path,
+        mime_type="application/vnd.oasis.opendocument.spreadsheet",
+        file_format="ods",
     )
 
     assert sample_value in result.text

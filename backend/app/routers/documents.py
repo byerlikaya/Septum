@@ -42,6 +42,7 @@ from ..services.document_anon_store import pop_document_map, set_document_map
 from ..services.ingestion.pdf_ingester import PdfIngester
 from ..services.ingestion.docx_ingester import DocxIngester
 from ..services.ingestion.xlsx_ingester import XlsxIngester
+from ..services.ingestion.ods_ingester import OdsIngester
 from ..services.ingestion.audio_ingester import AudioIngester
 from ..services.ingestion.image_ingester import ImageIngester
 from ..services.ingestion.router import IngestionRouter
@@ -68,6 +69,7 @@ _MIME_TO_FORMAT: dict[str, str] = {
     "application/pdf": "pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/vnd.oasis.opendocument.spreadsheet": "ods",
     "image/png": "image",
     "image/jpeg": "image",
     "image/jpg": "image",
@@ -87,6 +89,7 @@ _INGESTION_ROUTER = IngestionRouter(
         "pdf": PdfIngester,
         "docx": DocxIngester,
         "xlsx": XlsxIngester,
+        "ods": OdsIngester,
         "audio": AudioIngester,
         "image": ImageIngester,
     }
@@ -198,10 +201,12 @@ def _detect_mime_type(raw_bytes: bytes, fallback_mime_type: Optional[str] = None
     if _magic is not None:
         try:
             mime = _magic.from_buffer(raw_bytes, mime=True)  # type: ignore[arg-type]
-            # Treat "application/octet-stream" as low-confidence and fall through
-            # to structural signature checks so that containers such as MP4/M4A
-            # are still detected correctly by content.
-            if isinstance(mime, str) and mime and mime != "application/octet-stream":
+            # Treat "application/octet-stream" and "application/zip" as low-confidence
+            # and fall through to structural checks (e.g. ODS is ZIP-based).
+            if isinstance(mime, str) and mime and mime not in (
+                "application/octet-stream",
+                "application/zip",
+            ):
                 return mime
         except Exception:  # noqa: BLE001
             pass
@@ -225,6 +230,8 @@ def _detect_mime_type(raw_bytes: bytes, fallback_mime_type: Optional[str] = None
         return "audio/mpeg"
     if len(raw_bytes) > 12 and raw_bytes[4:8] == b"ftyp":
         return "audio/mp4"
+    if raw_bytes.startswith(b"PK") and b"vnd.oasis.opendocument.spreadsheet" in raw_bytes[:4000]:
+        return "application/vnd.oasis.opendocument.spreadsheet"
 
     if fallback_mime_type and fallback_mime_type.strip():
         return fallback_mime_type.strip()
