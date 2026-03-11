@@ -30,16 +30,33 @@ def normalize_unicode(text: str) -> str:
     return unicodedata.normalize("NFC", text)
 
 
+def strip_control_characters(text: str) -> str:
+    """Remove non-printable control characters while preserving whitespace.
+
+    The function keeps standard whitespace characters (space, tab, newlines)
+    and strips characters in the Unicode "Other" categories, which include
+    non-printable control codes that can corrupt extracted text.
+    """
+
+    def _is_allowed(ch: str) -> bool:
+        if ch in {" ", "\t", "\n", "\r"}:
+            return True
+        category = unicodedata.category(ch)
+        return not category.startswith("C")
+
+    return "".join(ch for ch in text if _is_allowed(ch))
+
+
 def locale_lower(text: str, language: str = "en") -> str:
     """Lowercase ``text`` using locale-aware casing rules.
-    
+
     Args:
         text: Input text to lowercase
         language: ISO 639-1 language code (e.g., "en", "tr", "de")
-    
+
     Returns:
         Lowercased text with locale-specific transformations applied.
-    
+
     The function is intentionally conservative and only applies
     transformations for languages where ``str.lower()`` is insufficient.
     Falls back to standard lowercasing for unlisted languages.

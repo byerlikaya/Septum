@@ -195,11 +195,12 @@ class HeuristicPersonNameRecognizer(EntityRecognizer):
             supported_entities=["PERSON_NAME"],
             supported_language="en",
         )
-        # Match two or more consecutive letter-only tokens where each token
-        # begins with an uppercase letter. Uses Unicode-aware character
-        # classes and remains free of language-specific terms.
-        self._pattern = re.compile(
-            r"\b[^\W\d_][^\W\d_]+(?:\s+[^\W\d_][^\W\d_]+)+\b", re.UNICODE
+        # Match single capitalized words (2-20 chars, letter-only) that appear
+        # alone on a line immediately after a colon. Very narrow pattern to
+        # avoid false positives. Language-agnostic.
+        self._pattern_after_label = re.compile(
+            r":\s*\n\s*([^\W\d_]{2,20})\s*(?:\n|$)",
+            re.UNICODE,
         )
 
     def analyze(  # type: ignore[override]
@@ -212,16 +213,30 @@ class HeuristicPersonNameRecognizer(EntityRecognizer):
             return []
 
         results: List[RecognizerResult] = []
-        for match in self._pattern.finditer(text):
-            start, end = match.span()
-            results.append(
-                RecognizerResult(
-                    entity_type="PERSON_NAME",
-                    start=start,
-                    end=end,
-                    score=0.8,
+        seen_spans: set[tuple[int, int]] = set()
+
+        # Single-word tokens on their own line after a colon (e.g., "Name:\nSmith\n")
+        for match in self._pattern_after_label.finditer(text):
+            group_start = match.start(1)
+            group_end = match.end(1)
+            matched_text = text[group_start:group_end]
+            
+            # Require first character to be uppercase
+            if not matched_text or not matched_text[0].isupper():
+                continue
+            
+            key = (group_start, group_end)
+            if key not in seen_spans:
+                seen_spans.add(key)
+                results.append(
+                    RecognizerResult(
+                        entity_type="PERSON_NAME",
+                        start=group_start,
+                        end=group_end,
+                        score=0.8,
+                    )
                 )
-            )
+
         return results
 
 class PIISanitizer:
@@ -353,6 +368,12 @@ class PIISanitizer:
 
         spans = self._deduplicate(spans)
 
+        # Expand person-name spans to cover adjacent capitalized tokens so that
+        # given-name-only detections are upgraded to full name blocks where
+        # possible. This is language-agnostic and relies only on character
+        # casing and token boundaries.
+        spans = self._expand_person_name_spans(normalized_text, spans)
+
         spans = [
             s
             for s in spans
@@ -389,7 +410,8 @@ class PIISanitizer:
 
         filtered: List[RecognizerResult] = []
         for r in results:
-            if self._settings.use_ner_layer and r.entity_type == "PERSON_NAME":
+
+            if self._settings.use_ner_layer and r.entity_type == "PERSON_NAME" and r.score < 0.7:
                 continue
 
             if r.entity_type == "PHONE_NUMBER":
@@ -583,6 +605,97 @@ class PIISanitizer:
 
         combined = sorted(high_dedup + low_dedup, key=lambda s: s.start)
         return combined
+
+    @staticmethod
+    def _expand_person_name_spans(
+        text: str,
+        spans: List[DetectedSpan],
+    ) -> List[DetectedSpan]:
+        """Expand PERSON_NAME spans to include adjacent capitalized tokens.
+
+        When a PERSON_NAME span covers only part of a name (for example, a given
+        name without the following surname), this helper inspects the immediate
+        neighbouring tokens on both sides and extends the span to include them
+        when they look like name tokens (letter-only, starting with uppercase).
+        The heuristic is intentionally simple and language-agnostic.
+        """
+        if not spans or not text:
+            return spans
+
+        def _find_token_start(idx: int) -> int:
+            while idx > 0 and not text[idx - 1].isspace():
+                idx -= 1
+            return idx
+
+        def _find_token_end(idx: int) -> int:
+            n = len(text)
+            while idx < n and not text[idx].isspace():
+                idx += 1
+            return idx
+
+        def _is_name_like_token(start: int, end: int) -> bool:
+            token = text[start:end]
+            if not token:
+                return False
+            if not token[0].isalpha() or not token[0].isupper():
+                return False
+            if any(ch.isdigit() or ch == "_" for ch in token):
+                return False
+            return True
+
+        expanded: List[DetectedSpan] = []
+        occupied_ranges = [(s.start, s.end) for s in spans]
+
+        for span in spans:
+            if span.entity_type != "PERSON_NAME":
+                expanded.append(span)
+                continue
+
+            start = span.start
+            end = span.end
+
+            # Look right for a candidate surname.
+            right = end
+            n = len(text)
+            while right < n and text[right].isspace():
+                right += 1
+            if right < n:
+                right_end = _find_token_end(right)
+                if _is_name_like_token(right, right_end):
+                    overlaps = any(
+                        not (right_end <= s_start or right >= s_end)
+                        for s_start, s_end in occupied_ranges
+                    )
+                    if not overlaps:
+                        end = right_end
+
+            # Look left for a preceding name token.
+            left = start
+            while left > 0 and text[left - 1].isspace():
+                left -= 1
+            if left > 0:
+                left_start = _find_token_start(left - 1)
+                if _is_name_like_token(left_start, left):
+                    overlaps = any(
+                        not (left <= s_start or left_start >= s_end)
+                        for s_start, s_end in occupied_ranges
+                    )
+                    if not overlaps:
+                        start = left_start
+
+            expanded.append(
+                DetectedSpan(
+                    start=start,
+                    end=end,
+                    entity_type=span.entity_type,
+                    score=span.score,
+                )
+            )
+
+        expanded_sorted = sorted(
+            expanded, key=lambda s: (s.start, -(s.end - s.start), -s.score)
+        )
+        return expanded_sorted
 
     @staticmethod
     def _apply_replacements(

@@ -12,7 +12,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 from datetime import datetime
 
@@ -481,15 +481,17 @@ async def upload_document(
 
     settings = await _load_settings(db)
 
-    image_ocr_languages: Optional[List[str]] = None
-    if file_format == "image":
-        image_ocr_languages = list(settings.image_ocr_languages or [])
+    ingester_kwargs: Optional[Dict[str, Any]] = None
+    if file_format in {"image", "pdf"}:
+        languages = list(settings.image_ocr_languages or [])
+        if languages:
+            ingester_kwargs = {"languages": languages}
 
     ingestion_result = await _INGESTION_ROUTER.ingest(
         file_path=encrypted_path,
         mime_type=mime_type,
         file_format=file_format,
-        ingester_kwargs={"languages": image_ocr_languages} if image_ocr_languages else None,
+        ingester_kwargs=ingester_kwargs,
     )
 
     detected_language = await _detect_language(ingestion_result.text)
