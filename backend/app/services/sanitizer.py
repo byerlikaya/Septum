@@ -302,6 +302,10 @@ class PIISanitizer:
                 language="en",
                 entities=self._entity_types,
             )
+            presidio_results = self._filter_presidio_results(
+                presidio_results, normalized_text
+            )
+
             spans.extend(self._from_presidio_results(presidio_results))
 
         if self._settings.use_ner_layer:
@@ -365,6 +369,39 @@ class PIISanitizer:
         self._log_low_confidence(spans)
 
         return SanitizeResult(sanitized_text=sanitized, entity_count=count)
+
+    def _filter_presidio_results(
+        self,
+        results: List[RecognizerResult],
+        text: str,
+    ) -> List[RecognizerResult]:
+        """
+        Filter Presidio results before conversion to DetectedSpan.
+
+        When the NER layer is enabled, generic PERSON_NAME entities from
+        Presidio are suppressed so that person detection is driven primarily
+        by the language-specific NER models. This reduces false positives on
+        ordinary title or heading text while preserving all other Presidio
+        detections (for example, phone numbers and validated identifiers).
+        """
+        if not results:
+            return results
+
+        filtered: List[RecognizerResult] = []
+        for r in results:
+            if self._settings.use_ner_layer and r.entity_type == "PERSON_NAME":
+                continue
+
+            if r.entity_type == "PHONE_NUMBER":
+                span_text = text[r.start : r.end]
+                digit_count = sum(1 for ch in span_text if ch.isdigit())
+                has_dot_or_slash = "." in span_text or "/" in span_text
+                if has_dot_or_slash and digit_count <= 8:
+                    # Likely a date or similar numeric token, not a phone number.
+                    continue
+
+            filtered.append(r)
+        return filtered
 
     def _ollama_pii_detection(self, normalized_text: str) -> List[DetectedSpan]:
         """Call local Ollama to detect PII (aliases, nicknames); return spans for Layer 1/2 merge.

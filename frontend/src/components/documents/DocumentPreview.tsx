@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
-import { X } from "lucide-react";
+import { Copy, X } from "lucide-react";
 import api from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import type {
@@ -117,6 +117,16 @@ export function DocumentPreview({
       ? chunks.map(chunk => chunk.sanitized_text).join("\n\n")
       : document.transcription_text ?? "";
 
+  const handleCopyCombinedText = async (): Promise<void> => {
+    if (!combinedText) return;
+    try {
+      await navigator.clipboard.writeText(combinedText);
+    } catch {
+      // Clipboard writes can fail in some browsers or permission states;
+      // errors are intentionally ignored here.
+    }
+  };
+
   const handleSchemaFieldChange = (
     columnIndex: number,
     updater: (column: SpreadsheetColumn) => SpreadsheetColumn
@@ -179,7 +189,7 @@ export function DocumentPreview({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="flex-1 overflow-hidden px-4 py-3">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
           {isLoading && (
             <div className="flex h-full items-center justify-center text-sm text-slate-400">
               {t("preview.document.loading")}
@@ -197,10 +207,21 @@ export function DocumentPreview({
               }`}
             >
               <div className="flex flex-col gap-2">
-                <div className="text-xs font-medium text-slate-300">
-                  Sanitized content
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-medium text-slate-300">
+                    Sanitized content
+                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-100 shadow-sm hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={handleCopyCombinedText}
+                    disabled={!combinedText}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    <span>Copy</span>
+                  </button>
                 </div>
-                <div className="flex-1 overflow-auto rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-relaxed text-slate-100">
+                <div className="flex-1 overflow-auto rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-relaxed text-slate-100 whitespace-pre-wrap">
                   {combinedText ? (
                     combinedText
                   ) : (

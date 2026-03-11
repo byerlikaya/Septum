@@ -114,11 +114,23 @@ class AnonymizationMap:
     def _update_blocklist(self, original: str, placeholder: str) -> None:
         """Update blocklist and token_to_placeholder from ``original``."""
         normalized = normalize_for_comparison(original, self.language)
-        for token in normalized.split():
+        orig_tokens = original.split()
+        norm_tokens = normalized.split()
+
+        for index, token in enumerate(norm_tokens):
             if len(token) <= 2:
                 continue
             if token in SANITIZER_STOPWORDS:
                 continue
+
+            original_token = orig_tokens[index] if index < len(orig_tokens) else ""
+            if not original_token:
+                continue
+
+            first_char = original_token[0]
+            if not first_char.isalpha() or not first_char.isupper():
+                continue
+
             self.blocklist.add(token)
             self.token_to_placeholder[token] = placeholder
 
