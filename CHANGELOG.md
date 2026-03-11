@@ -8,6 +8,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 - **Spreadsheet enhancements**: Added spreadsheet schema metadata, numeric-aware chat for tabular content, and limited schema display to truly tabular documents.
 - **Infrastructure and tooling cleanup**: Unified environment loading defaults (including Ollama), and removed legacy coverage/Codecov tooling.
 - **ODS support**: Added ODS (OpenDocument Spreadsheet) ingestion support and documented it in both English and Turkish READMEs.
+- **LLM routing and prompt catalog**: Refactored the LLM router into a provider-strategy layer, introduced a document processing pipeline orchestrator, centralized all backend LLM/Ollama prompts under `PromptCatalog`, and added a shared AppSettings factory plus updated tests.
 
 ### 2026-03-10
 
