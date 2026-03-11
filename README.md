@@ -17,6 +17,10 @@
 
 <p align="center">
   <a href="#screenshots"><strong>View screenshots</strong></a>
+  ·
+  <a href="CHANGELOG.md"><strong>Changelog</strong></a>
+  ·
+  <a href="LICENSE"><strong>License</strong></a>
 </p>
 
 ## Septum — Privacy‑First AI Assistant

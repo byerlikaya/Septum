@@ -17,6 +17,10 @@
 
 <p align="center">
   <a href="#ekran-görüntüleri"><strong>Ekran görüntülerini gör</strong></a>
+  ·
+  <a href="CHANGELOG.md"><strong>Değişiklik günlüğü</strong></a>
+  ·
+  <a href="LICENSE"><strong>Lisans</strong></a>
 </p>
 
 ## Septum — Gizlilik Odaklı Yapay Zekâ Asistanı
