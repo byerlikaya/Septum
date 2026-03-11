@@ -6,9 +6,6 @@
   <img src="https://img.shields.io/badge/backend-FastAPI-blue" alt="Backend: FastAPI" />
   <img src="https://img.shields.io/badge/frontend-Next.js%2016-black" alt="Frontend: Next.js 16" />
   <img src="https://img.shields.io/badge/testler-pytest-informational" alt="Testler: pytest" />
-  <a href="https://codecov.io/gh/byerlikaya/Septum">
-    <img src="https://codecov.io/gh/byerlikaya/Septum/branch/main/graph/badge.svg" alt="Kapsam: Codecov" />
-  </a>
   <img src="https://img.shields.io/badge/odak-Gizlilik--Öncelikli-green" alt="Odak: Gizlilik-Öncelikli" />
   <a href="README.md">
     <img src="https://img.shields.io/badge/lang-EN-blue" alt="English README" />
