@@ -14,7 +14,7 @@ def _medical_record_number_recognizer() -> EntityRecognizer:
         entity_type="MEDICAL_RECORD_NUMBER",
         config=RegexPatternConfig(
             name="hipaa_mrn",
-            pattern=r"\\bMRN[- ]?[0-9]{6,10}\\b",
+            pattern=r"\bMRN[- ]?[0-9]{6,10}\b",
             score=0.8,
         ),
     )
@@ -25,7 +25,7 @@ def _health_insurance_id_recognizer() -> EntityRecognizer:
         entity_type="HEALTH_INSURANCE_ID",
         config=RegexPatternConfig(
             name="hipaa_insurance_id",
-            pattern=r"\\b[A-Z]{2}[0-9]{6,10}\\b",
+            pattern=r"\b[A-Z]{2}[0-9]{6,10}\b",
             score=0.75,
         ),
     )
@@ -36,7 +36,7 @@ def _email_recognizer() -> EntityRecognizer:
         entity_type="EMAIL_ADDRESS",
         config=RegexPatternConfig(
             name="hipaa_email",
-            pattern=r"\\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[A-Za-z]{2,}\\b",
+            pattern=r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[A-Za-z]{2,}\b",
             score=0.8,
         ),
     )

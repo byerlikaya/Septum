@@ -26,7 +26,7 @@ def _validated_national_id_recognizer() -> EntityRecognizer:
         entity_type="NATIONAL_ID",
         config=RegexPatternConfig(
             name="kvkk_national_id_11digit",
-            pattern=r"\\b[1-9][0-9]{10}\\b",
+            pattern=r"\b[1-9][0-9]{10}\b",
             score=0.7,
         ),
     )
@@ -59,7 +59,7 @@ def _email_recognizer() -> EntityRecognizer:
         entity_type="EMAIL_ADDRESS",
         config=RegexPatternConfig(
             name="kvkk_email",
-            pattern=r"\\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[A-Za-z]{2,}\\b",
+            pattern=r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[A-Za-z]{2,}\b",
             score=0.8,
         ),
     )
@@ -75,7 +75,7 @@ def _phone_recognizer() -> EntityRecognizer:
         entity_type="PHONE_NUMBER",
         config=RegexPatternConfig(
             name="kvkk_phone",
-            pattern=r"\\b\\+?[0-9]{2}[0-9]{10}\\b",
+            pattern=r"\b\+?[0-9]{2}[0-9]{10}\b",
             score=0.75,
         ),
     )

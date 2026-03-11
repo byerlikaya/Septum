@@ -17,6 +17,8 @@ All notable changes to this project are documented here in a high‑level, date�
 - **Docs**: README (EN/TR) add Changelog and License links in header.
 - **Changelog and rules**: Split changelog entries by commit date (2026-03-11 vs 2026-03-12). Changelog rule updated to require always verifying today’s date (`date +%Y-%m-%d`) and assigning entries to the correct day via `git log --date=short`.
 
+- **Recognizer regex and E2E test**: Fix Presidio regex patterns in GDPR, HIPAA, and KVKK packs: use correct word boundary `\b` and escapes so email/phone/IP patterns match. Set TLDEXTRACT_CACHE in conftest before imports to avoid permission errors in E2E tests.
+
 ### 2026-03-11
 
 - **OCR and PII improvements**: Enhanced image/PDF OCR quality, improved OCR ingestion flow, and refined person name masking and PII handling.

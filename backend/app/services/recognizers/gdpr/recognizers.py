@@ -14,7 +14,7 @@ def _email_recognizer() -> EntityRecognizer:
         entity_type="EMAIL_ADDRESS",
         config=RegexPatternConfig(
             name="gdpr_email",
-            pattern=r"\\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[A-Za-z]{2,}\\b",
+            pattern=r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[A-Za-z]{2,}\b",
             score=0.8,
         ),
     )
@@ -26,8 +26,8 @@ def _ip_address_recognizer() -> EntityRecognizer:
         config=RegexPatternConfig(
             name="gdpr_ipv4",
             pattern=(
-                r"\\b(?:(?:25[0-5]|2[0-4]\\d|[01]?\\d?\\d)\\.){3}"
-                r"(?:25[0-5]|2[0-4]\\d|[01]?\\d?\\d)\\b"
+                r"\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}"
+                r"(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\b"
             ),
             score=0.8,
         ),
@@ -39,7 +39,7 @@ def _phone_recognizer() -> EntityRecognizer:
         entity_type="PHONE_NUMBER",
         config=RegexPatternConfig(
             name="gdpr_phone",
-            pattern=r"\\b\\+?[0-9]{7,15}\\b",
+            pattern=r"\b\+?[0-9]{7,15}\b",
             score=0.7,
         ),
     )
