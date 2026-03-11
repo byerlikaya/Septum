@@ -3,7 +3,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { fetchErrorLogs } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { useLanguage } from "@/lib/language";
 
@@ -18,17 +19,65 @@ const navItems: NavItem[] = [
   { href: "/documents", label: "Documents" },
   { href: "/chunks", label: "Chunks" },
   { href: "/settings", label: "Settings", exact: true },
-  { href: "/settings/regulations", label: "Regulations" }
+  { href: "/settings/regulations", label: "Regulations" },
+  { href: "/settings/error-logs", label: "Error Logs", exact: true }
 ];
+
+const ERROR_LOGS_HREF = "/settings/error-logs";
 
 export function Sidebar(): JSX.Element {
   const pathname = usePathname();
   const t = useI18n();
   const { language, setLanguage } = useLanguage();
   const [isNavOpen, setIsNavOpen] = useState<boolean>(false);
+  const [errorLogCount, setErrorLogCount] = useState<number>(0);
+
+  const refreshErrorLogCount = () => {
+    fetchErrorLogs({ page: 1, page_size: 1 })
+      .then(res => setErrorLogCount(res.total))
+      .catch(() => setErrorLogCount(0));
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchErrorLogs({ page: 1, page_size: 1 })
+      .then(res => {
+        if (!cancelled) setErrorLogCount(res.total);
+      })
+      .catch(() => {
+        if (!cancelled) setErrorLogCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  useEffect(() => {
+    const handler = () => refreshErrorLogCount();
+    window.addEventListener("error-logs-cleared", handler);
+    return () => window.removeEventListener("error-logs-cleared", handler);
+  }, []);
 
   const toggleNav = (): void => {
     setIsNavOpen(prev => !prev);
+  };
+
+  const renderNavLabel = (item: NavItem) => {
+    const label = t(`sidebar.${item.label.toLowerCase()}` as never);
+    if (item.href === ERROR_LOGS_HREF && errorLogCount > 0) {
+      return (
+        <span className="flex w-full items-center justify-between gap-2">
+          <span>{label}</span>
+          <span
+            className="min-w-[1.25rem] rounded-full bg-red-600 px-2 py-0.5 text-center text-xs font-medium text-white"
+            aria-label={t("errorLogs.badgeAriaLabel").replace("{count}", String(errorLogCount))}
+          >
+            {errorLogCount > 99 ? "99+" : errorLogCount}
+          </span>
+        </span>
+      );
+    }
+    return label;
   };
 
   return (
@@ -88,7 +137,7 @@ export function Sidebar(): JSX.Element {
                   }`}
                   onClick={() => setIsNavOpen(false)}
                 >
-                  {t(`sidebar.${item.label.toLowerCase()}` as never)}
+                  {renderNavLabel(item)}
                 </Link>
               );
             })}
@@ -150,7 +199,7 @@ export function Sidebar(): JSX.Element {
                     : "text-slate-300 hover:bg-slate-900 hover:text-slate-50"
                 }`}
               >
-                {t(`sidebar.${item.label.toLowerCase()}` as never)}
+                {renderNavLabel(item)}
               </Link>
             );
           })}

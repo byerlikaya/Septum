@@ -200,3 +200,65 @@ export async function approvalReject(
   return data;
 }
 
+export interface ErrorLogItem {
+  id: number;
+  created_at: string;
+  source: string;
+  level: string;
+  message: string;
+  exception_type?: string | null;
+  path?: string | null;
+  method?: string | null;
+  status_code?: number | null;
+  user_agent?: string | null;
+}
+
+export interface ErrorLogListResponse {
+  items: ErrorLogItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface ErrorLogDetailItem extends ErrorLogItem {
+  stack_trace?: string | null;
+  extra?: Record<string, unknown> | null;
+}
+
+export async function fetchErrorLogs(params?: {
+  page?: number;
+  page_size?: number;
+  source?: string;
+  level?: string;
+}): Promise<ErrorLogListResponse> {
+  const { data } = await api.get<ErrorLogListResponse>("/api/error-logs", {
+    params
+  });
+  return data;
+}
+
+export async function getErrorLog(id: number): Promise<ErrorLogDetailItem> {
+  const { data } = await api.get<ErrorLogDetailItem>(
+    `/api/error-logs/${id}`
+  );
+  return data;
+}
+
+export async function clearErrorLogs(params?: { source?: string }): Promise<void> {
+  await api.delete("/api/error-logs", { params });
+}
+
+export async function sendFrontendError(payload: {
+  message: string;
+  stack_trace?: string;
+  route?: string;
+  level?: string;
+  extra?: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    await api.post("/api/error-logs/frontend", payload);
+  } catch {
+    // Swallow errors from error reporting itself to avoid loops.
+  }
+}
+

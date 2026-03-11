@@ -17,7 +17,7 @@ from typing import Any, AsyncGenerator, List, Optional
 from uuid import uuid4
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from langdetect import DetectorFactory, LangDetectException, detect
 from pydantic import BaseModel
@@ -35,10 +35,12 @@ from ..services.approval_gate import ApprovalChunk, ApprovalGate, get_approval_g
 from ..services.document_anon_store import get_document_map
 from ..services.deanonymizer import Deanonymizer
 from ..services.llm_router import LLMRouter, LLMRouterError, _chunk_text
+from ..services.ner_model_registry import NERModelRegistry
 from ..services.policy_composer import PolicyComposer
 from ..services.sanitizer import PIISanitizer
 from ..services.text_normalizer import TextNormalizer
 from ..services.chat_debug_store import set_chat_debug_record, get_chat_debug_record, ChatDebugRecord
+from ..services.error_logger import log_backend_error, log_backend_message
 from ..services.prompts import PromptCatalog
 
 
@@ -131,7 +133,11 @@ async def _sanitize_query(
     """Run the sanitizer on the incoming user message."""
     composer = PolicyComposer()
     policy = await composer.compose(db)
-    sanitizer = PIISanitizer(settings=settings, policy=policy)
+    overrides = getattr(settings, "ner_model_overrides", None) or {}
+    ner_registry = NERModelRegistry(_overrides=dict(overrides))
+    sanitizer = PIISanitizer(
+        settings=settings, policy=policy, ner_registry=ner_registry
+    )
     result = await asyncio.to_thread(
         sanitizer.sanitize,
         message,
@@ -283,9 +289,20 @@ async def _run_llm_and_deanonymize(
     document_id: Optional[int] = None,
     query_has_placeholder: bool = False,
     query_placeholders: Optional[List[str]] = None,
+    http_request: Optional[Request] = None,
+    used_ollama_fallback_ref: Optional[List[bool]] = None,
 ) -> str:
     """Call the LLM and apply local de-anonymization."""
     llm = LLMRouter(settings)
+
+    async def on_cloud_failure(message: str, extra: dict[str, Any]) -> None:
+        if used_ollama_fallback_ref is not None:
+            used_ollama_fallback_ref[0] = True
+        if http_request is not None:
+            try:
+                await log_backend_message(db, http_request, message, level="ERROR", extra=extra)
+            except Exception:  # noqa: BLE001
+                pass
 
     regulations_str = ", ".join(regulation_names) if regulation_names else "None"
     context_text = ""
@@ -361,7 +378,10 @@ async def _run_llm_and_deanonymize(
         {"role": "user", "content": user_prompt},
     ]
 
-    masked_answer = await llm.complete(messages=messages)
+    masked_answer = await llm.complete(
+        messages=messages,
+        on_cloud_failure=on_cloud_failure if http_request is not None else None,
+    )
 
     if query_placeholders:
         # For explicit placeholder questions, always answer strictly with the
@@ -420,6 +440,7 @@ async def _run_llm_and_deanonymize(
 )
 async def chat_ask(
     request: ChatRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """Chat endpoint that streams an SSE response for a single turn."""
@@ -576,6 +597,7 @@ async def chat_ask(
             )
             query_placeholders = [m.group(0) for m in query_placeholder_matches]
             query_has_placeholder = bool(query_placeholders)
+            used_ollama_fallback: List[bool] = [False]
             answer = await _run_llm_and_deanonymize(
                 db=db,
                 settings=effective_settings,
@@ -589,13 +611,22 @@ async def chat_ask(
                 document_id=document.id if document is not None else None,
                 query_has_placeholder=query_has_placeholder,
                 query_placeholders=query_placeholders if query_has_placeholder else None,
+                http_request=http_request,
+                used_ollama_fallback_ref=used_ollama_fallback,
             )
 
             for piece in _chunk_text(answer, max_chunk_size=256):
                 yield _encode_sse({"type": "answer_chunk", "text": piece})
 
-            yield _encode_sse({"type": "end"})
+            yield _encode_sse({
+                "type": "end",
+                "used_ollama_fallback": used_ollama_fallback[0],
+            })
         except LLMRouterError as exc:
+            try:
+                await log_backend_error(db, http_request, exc, status_code=400)
+            except Exception:  # noqa: BLE001
+                pass
             yield _encode_sse(
                 {
                     "type": "error",
@@ -604,6 +635,10 @@ async def chat_ask(
             )
         except Exception as exc:
             logger.exception("Unhandled exception in chat event stream")
+            try:
+                await log_backend_error(db, http_request, exc, status_code=500)
+            except Exception:  # noqa: BLE001
+                pass
             yield _encode_sse(
                 {
                     "type": "error",

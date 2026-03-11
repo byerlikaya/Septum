@@ -9,6 +9,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from .models import Base
+from .models.error_log import ErrorLog
 from .models.regulation import RegulationRuleset, NonPiiRule
 from .models.settings import AppSettings
 
@@ -47,6 +48,7 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_ocr_provider_columns)
+        await conn.run_sync(_ensure_ner_overrides_column)
 
     await _seed_defaults()
 
@@ -166,6 +168,15 @@ def _ensure_ocr_provider_columns(conn: Any) -> None:
         except Exception as e:
             if "duplicate column name" not in str(e).lower():
                 raise
+
+
+def _ensure_ner_overrides_column(conn: Any) -> None:
+    """Add ner_model_overrides column if missing (e.g. existing DBs)."""
+    try:
+        conn.execute(text("ALTER TABLE app_settings ADD COLUMN ner_model_overrides TEXT"))
+    except Exception as e:
+        if "duplicate column name" not in str(e).lower():
+            raise
 
 
 def _env_bool(name: str, default: bool) -> bool:

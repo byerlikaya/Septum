@@ -17,6 +17,7 @@ All functions are fully type-hinted and avoid logging any sensitive material.
 from __future__ import annotations
 
 import base64
+import hashlib
 import os
 from typing import Optional
 
@@ -133,4 +134,12 @@ def decrypt_from_base64(
         raise ValueError("token_b64 must be valid urlsafe base64.") from exc
 
     return decrypt(token, associated_data)
+
+
+def hash_text(text: str) -> str:
+    """Return a SHA-256 hex digest of the UTF-8 encoded text.
+
+    Used for non-reversible hashing of identifiers (e.g. IP) in logs.
+    """
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 

@@ -15,13 +15,14 @@ import shutil
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.settings import AppSettings
+from ..services.error_logger import log_backend_error, log_backend_message
 from ..services.llm_router import LLMRouter, LLMRouterError
 from ..utils.device import get_device
 
@@ -66,6 +67,7 @@ class SettingsResponse(BaseModel):
     recursive_email_attachments: bool
 
     default_active_regulations: list[str]
+    ner_model_overrides: Optional[dict[str, str]] = None
 
 
 class SettingsUpdatePayload(BaseModel):
@@ -101,6 +103,7 @@ class SettingsUpdatePayload(BaseModel):
     recursive_email_attachments: Optional[bool] = None
 
     default_active_regulations: Optional[list[str]] = None
+    ner_model_overrides: Optional[dict[str, str]] = None
 
 
 class TestLLMRequest(BaseModel):
@@ -198,6 +201,7 @@ async def update_settings_endpoint(
 )
 async def test_llm_connection_endpoint(
     payload: TestLLMRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> TestConnectionResponse:
     """Validate connectivity to the configured cloud LLM provider.
@@ -213,6 +217,12 @@ async def test_llm_connection_endpoint(
     if payload.model is not None:
         settings.llm_model = payload.model
 
+    used_fallback: list[bool] = [False]
+
+    async def on_cloud_failure(message: str, extra: dict[str, Any]) -> None:
+        used_fallback[0] = True
+        await log_backend_message(db, request, message, level="ERROR", extra=extra)
+
     router = LLMRouter(settings)
     try:
         await router.complete(
@@ -223,17 +233,35 @@ async def test_llm_connection_endpoint(
                 }
             ],
             max_tokens=8,
+            on_cloud_failure=on_cloud_failure,
         )
     except LLMRouterError as exc:
+        try:
+            await log_backend_error(db, request, exc, status_code=400)
+        except Exception:  # noqa: BLE001
+            pass
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
     except Exception as exc:  # noqa: BLE001
+        try:
+            await log_backend_error(db, request, exc, status_code=400)
+        except Exception:  # noqa: BLE001
+            pass
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cloud LLM connection test failed due to an unexpected error.",
         ) from exc
+
+    if used_fallback[0]:
+        return TestConnectionResponse(
+            ok=False,
+            message=(
+                "Cloud LLM connection failed (e.g. invalid API key or unreachable provider). "
+                "Local Ollama fallback responded, but the cloud provider is not correctly configured."
+            ),
+        )
 
     return TestConnectionResponse(
         ok=True,

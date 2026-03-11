@@ -22,7 +22,7 @@ the anonymization map.
 """
 
 import logging
-from typing import Any, AsyncGenerator, Dict, Iterable, List, Mapping, Sequence
+from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Iterable, List, Mapping, Sequence
 
 from ..models.settings import AppSettings
 from . import ollama_client
@@ -57,6 +57,7 @@ class LLMRouter:
         temperature: float = 0.2,
         max_tokens: int | None = None,
         metadata: Mapping[str, Any] | None = None,
+        on_cloud_failure: Callable[[str, dict[str, Any]], Awaitable[Any]] | None = None,
     ) -> str:
         """Return the full completion text from the configured provider."""
         chunks: List[str] = []
@@ -65,6 +66,7 @@ class LLMRouter:
             temperature=temperature,
             max_tokens=max_tokens,
             metadata=metadata,
+            on_cloud_failure=on_cloud_failure,
         ):
             chunks.append(chunk)
         return "".join(chunks)
@@ -75,6 +77,7 @@ class LLMRouter:
         temperature: float = 0.2,
         max_tokens: int | None = None,
         metadata: Mapping[str, Any] | None = None,  # noqa: ARG002
+        on_cloud_failure: Callable[[str, dict[str, Any]], Awaitable[Any]] | None = None,
     ) -> AsyncGenerator[str, None]:
         """Yield completion text chunks from the configured provider.
 
@@ -100,6 +103,14 @@ class LLMRouter:
                 self._model,
                 exc,
             )
+            if on_cloud_failure is not None:
+                try:
+                    await on_cloud_failure(
+                        f"Cloud LLM call failed, attempting Ollama fallback: provider={self._provider}, model={self._model}, error={exc}",
+                        {"provider": self._provider, "model": self._model, "error": str(exc)},
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
             text = await self._fallback_via_ollama(messages, temperature, max_tokens)
 
         for chunk in _chunk_text(text):
