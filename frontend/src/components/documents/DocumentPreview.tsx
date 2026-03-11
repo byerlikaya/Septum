@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
-import { Copy, X } from "lucide-react";
+import { Check, Copy, X } from "lucide-react";
 import api from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import type {
@@ -33,6 +33,7 @@ export function DocumentPreview({
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [isSchemaSaving, setIsSchemaSaving] = useState(false);
   const [schemaDirty, setSchemaDirty] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!open || !document) {
@@ -121,6 +122,8 @@ export function DocumentPreview({
     if (!combinedText) return;
     try {
       await navigator.clipboard.writeText(combinedText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch {
       // Clipboard writes can fail in some browsers or permission states;
       // errors are intentionally ignored here.
@@ -216,9 +219,19 @@ export function DocumentPreview({
                     className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-100 shadow-sm hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
                     onClick={handleCopyCombinedText}
                     disabled={!combinedText}
+                    aria-label={copied ? t("chat.copied") : t("chat.copy")}
                   >
-                    <Copy className="h-3.5 w-3.5" />
-                    <span>Copy</span>
+                    {copied ? (
+                      <>
+                        <Check className="h-3.5 w-3.5 text-emerald-400" aria-hidden />
+                        <span>{t("chat.copied")}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3.5 w-3.5" aria-hidden />
+                        <span>{t("chat.copy")}</span>
+                      </>
+                    )}
                   </button>
                 </div>
                 <div className="flex-1 overflow-auto rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-relaxed text-slate-100 whitespace-pre-wrap">
