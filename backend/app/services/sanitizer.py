@@ -327,16 +327,19 @@ class PIISanitizer:
         if self._settings.use_ner_layer:
             ner_pipeline = self._ner_registry.get_pipeline(language)
             ner_results = ner_pipeline(normalized_text)
-            spans.extend(self._from_ner_results(ner_results, normalized_text))
+            spans.extend(self._from_ner_results(ner_results, normalized_text, language))
 
         if self._settings.use_ollama_layer:
-            ollama_spans = self._ollama_pii_detection(normalized_text)
-            logger.debug(
-                "Layer 3 Ollama returned %d spans: %s",
-                len(ollama_spans),
-                [(s.start, s.end, normalized_text[s.start : s.end], s.entity_type) for s in ollama_spans],
-            )
-            spans.extend(ollama_spans)
+            try:
+                ollama_spans = self._ollama_pii_detection(normalized_text)
+                logger.debug(
+                    "Layer 3 Ollama returned %d spans: %s",
+                    len(ollama_spans),
+                    [(s.start, s.end, normalized_text[s.start : s.end], s.entity_type) for s in ollama_spans],
+                )
+                spans.extend(ollama_spans)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Ollama PII layer failed, continuing without it: %s", e)
 
         if self._non_pii_filter is not None:
             span_views = [
@@ -536,13 +539,17 @@ class PIISanitizer:
     def _from_ner_results(
         raw_results: List[dict],
         text: str,
+        language: str = "en",
     ) -> List[DetectedSpan]:
         """Convert HuggingFace NER pipeline outputs to DetectedSpan.
-        
-        Applies stricter confidence thresholds for generic entity types
-        (PERSON_NAME, ORGANIZATION_NAME, LOCATION) to avoid false positives
-        on common nouns and general terms.
+
+        Uses a lower confidence threshold for PERSON_NAME and LOCATION when
+        language is not English, so that language-specific models (e.g. Turkish)
+        retain more detections for given names and place names that may have
+        lower scores. ORGANIZATION_NAME keeps the stricter threshold.
         """
+        lang_norm = (language or "en").strip().lower()
+        threshold = 0.75 if lang_norm != "en" else 0.85
         spans: List[DetectedSpan] = []
         numeric_filtered_org = 0
         for item in raw_results:
@@ -556,8 +563,10 @@ class PIISanitizer:
             if entity_type is None:
                 continue
 
-            # Stricter threshold for generic entity types to reduce false positives
-            if entity_type in {"PERSON_NAME", "ORGANIZATION_NAME", "LOCATION"}:
+            if entity_type in {"PERSON_NAME", "LOCATION"}:
+                if score < threshold:
+                    continue
+            elif entity_type == "ORGANIZATION_NAME":
                 if score < 0.85:
                     continue
 

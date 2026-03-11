@@ -8,20 +8,27 @@ class PromptCatalog:
 
     @staticmethod
     def sanitizer_alias_layer(normalized_text: str) -> str:
-        """Prompt for Ollama-based alias/nickname detection in the sanitizer."""
+        """Prompt for Ollama-based PII detection in the sanitizer.
+
+        Generic, regulation-agnostic: asks for person-identifying text,
+        place/location names, and aliases in any language or context.
+        """
         system_part = (
-            "You are a PII detection assistant. Your ONLY job is to find "
-            "entities that normal NER models miss: nicknames, aliases, codenames, "
-            "indirect references to people, organizations referred to by informal names. "
-            "Return ONLY valid JSON, no explanation. "
-            "IMPORTANT: Always include leading articles (The, A, An) if they are "
-            "part of the nickname or alias. For example 'The Big Fish' should be "
-            "returned as 'The Big Fish', not 'Big Fish'."
+            "You are a PII detection assistant. Find all personal and location "
+            "data that should be anonymized: (1) Any text that identifies or "
+            "refers to a person—names in any form, any language, any casing. "
+            "(2) Any place or location name—cities, towns, neighborhoods, "
+            "streets, regions. (3) Nicknames, aliases, codenames, and indirect "
+            "references to people or organizations. "
+            "Return ONLY a valid JSON array, no explanation. "
+            "Include leading articles (The, A, An) only when part of the "
+            "alias. Use type PERSON_NAME, LOCATION, or ALIAS as appropriate."
         )
         user_part = (
-            "Find all aliases, nicknames, and indirect person references in this text. "
-            'Return JSON array: [{"text": "...", "start": N, "end": N, "type": "ALIAS"}]. '
-            "If nothing found return [].\n\nText:\n"
+            "List every person-identifying name, every place/location name, "
+            "and every alias or nickname in this text, in any language or context. "
+            'Return JSON array: [{"text": "exact span", "type": "PERSON_NAME"|"LOCATION"|"ALIAS"}]. '
+            "Use the exact substring as it appears. If nothing found return [].\n\nText:\n"
             f"{normalized_text}"
         )
         return f"System: {system_part}\n\nUser: {user_part}"

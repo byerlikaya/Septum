@@ -17,10 +17,9 @@ import re
 
 from ..utils.text_utils import normalize_for_comparison
 
-# Minimal stopwords for technical filtering only.
-# These are ultra-common function words that should never be treated as PII.
-# FUTURE: Move to database-driven NonPiiRule table for full user control.
-# Current list covers English; users can add language-specific stopwords via NonPiiRule.
+# Minimal stopwords for technical filtering only (ultra-common function words).
+# Additional terms (e.g. generic address/location labels) MUST be stored in
+# the database (NonPiiRule table) and be user-editable; never hardcode them here.
 SANITIZER_STOPWORDS: frozenset[str] = frozenset({"the", "a", "an", "of", "in", "at"})
 
 
@@ -112,10 +111,17 @@ class AnonymizationMap:
         return f"[{entity_type}_{count}]"
 
     def _update_blocklist(self, original: str, placeholder: str) -> None:
-        """Update blocklist and token_to_placeholder from ``original``."""
+        """Update blocklist and token_to_placeholder from ``original``.
+
+        Multi-token entities: only tokens that start with an uppercase letter
+        are added (to avoid blocking common lowercase words). Single-token
+        entities are always added when not stopwords, so residual mentions
+        (e.g. lowercase given names) are redacted by apply_blocklist.
+        """
         normalized = normalize_for_comparison(original, self.language)
         orig_tokens = original.split()
         norm_tokens = normalized.split()
+        single_token = len(orig_tokens) == 1 and len(norm_tokens) == 1
 
         for index, token in enumerate(norm_tokens):
             if len(token) <= 2:
@@ -128,7 +134,11 @@ class AnonymizationMap:
                 continue
 
             first_char = original_token[0]
-            if not first_char.isalpha() or not first_char.isupper():
+            add_token = (
+                single_token
+                or (first_char.isalpha() and first_char.isupper())
+            )
+            if not add_token:
                 continue
 
             self.blocklist.add(token)

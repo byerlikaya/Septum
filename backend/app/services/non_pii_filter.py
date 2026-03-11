@@ -82,11 +82,10 @@ class NonPiiFilter:
         preserved. Only spans that clearly match an explicit non-PII rule are
         removed.
         """
-        if not spans or not self._rules:
+        if not spans:
             return spans
 
         lang_norm = (language or "").strip().lower()
-        keep: list[DetectedSpan] = []
         keep: list[SpanView] = []
 
         for span in spans:
@@ -97,11 +96,12 @@ class NonPiiFilter:
                 continue
 
             if norm in SANITIZER_STOPWORDS:
-                keep.append(span)
                 continue
 
-            if not self._matches_any_rule(norm, lang_norm, span):
-                keep.append(span)
+            if self._rules and self._matches_any_rule(norm, lang_norm, span):
+                continue
+
+            keep.append(span)
 
         return keep
 
@@ -109,7 +109,7 @@ class NonPiiFilter:
         self,
         normalized_text: str,
         language: str,
-        span: DetectedSpan,
+        span: SpanView,
     ) -> bool:
         for rule in self._rules:
             if rule.languages and language not in {l.lower() for l in rule.languages}:
