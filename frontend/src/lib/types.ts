@@ -63,6 +63,8 @@ export interface ChatMessage {
   role: ChatMessageRole;
   content: string;
   sessionId?: string;
+  /** True when the answer was produced by local Ollama fallback (cloud LLM unavailable). */
+  usedOllamaFallback?: boolean;
 }
 
 export type OutputMode = "chat" | "json";
@@ -110,6 +112,7 @@ export interface SSEAnswerChunkEvent {
 
 export interface SSEEndEvent {
   type: "end";
+  used_ollama_fallback?: boolean;
 }
 
 export interface SSEErrorEvent {
@@ -152,5 +155,6 @@ export interface AppSettingsResponse {
   extract_embedded_images: boolean;
   recursive_email_attachments: boolean;
   default_active_regulations: string[];
+  ner_model_overrides: Record<string, string> | null;
 }
 

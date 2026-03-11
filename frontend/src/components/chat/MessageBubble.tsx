@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Copy, Check, Info } from "lucide-react";
+import { Copy, Check, Info, WifiOff } from "lucide-react";
 import type { ChatMessage } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 
@@ -55,6 +55,12 @@ export function MessageBubble({
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
         )}
       </div>
+      {!isUser && message.usedOllamaFallback && (
+        <div className="mt-1.5 flex items-center gap-1.5 rounded-md border border-amber-800/60 bg-amber-950/40 px-2 py-1.5 text-xs text-amber-200">
+          <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>{t("chat.localFallbackBadge")}</span>
+        </div>
+      )}
       {!isUser && message.content.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-2">
           <button

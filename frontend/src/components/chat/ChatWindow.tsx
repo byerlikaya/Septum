@@ -180,7 +180,16 @@ export function ChatWindow({
           });
           break;
         }
-        case "end":
+        case "end": {
+          const usedFallback = "used_ollama_fallback" in event && event.used_ollama_fallback === true;
+          const targetId = pendingAssistantIdRef.current;
+          if (usedFallback && targetId) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === targetId ? { ...m, usedOllamaFallback: true } : m
+              )
+            );
+          }
           setStreaming(false);
           pendingAssistantIdRef.current = null;
           setDebugSessionId(currentSessionIdRef.current);
@@ -191,6 +200,7 @@ export function ChatWindow({
             onResponseComplete?.(false);
           }
           break;
+        }
         case "error":
           setStreaming(false);
           setApprovalOpen(false);
