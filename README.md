@@ -27,7 +27,7 @@
 Septum is a **privacy‑first middleware and web app** that lets organisations use their **own data** with large language models (LLMs) without exposing raw personal data to the cloud.
 
 In short:
-- You upload your documents (PDF, Word, Excel, images, audio, etc.).
+- You upload your documents (PDF, Word, Excel, OpenDocument spreadsheets (.ods), images, audio, etc.).
 - Septum **locally detects and anonymises** personal data (PII) in them.
 - Your questions are answered using this anonymised view of your data.
 - The answer is then **re‑mapped locally** so you see real names and values again.
@@ -84,7 +84,7 @@ The common theme: **leverage LLMs while keeping personal data encrypted and on�
   - Define your own patterns: “mask everything matching this regex”, “whenever these keywords appear, treat them as sensitive”, “catch any salary‑related expressions”, etc.
 
 - **Rich Document Format Support**
-  - PDFs, Office files, images (OCR), audio recordings (transcripts), emails and more.
+  - PDFs, Office and spreadsheet files (e.g. XLSX, ODS), images (OCR), audio recordings (transcripts), emails and more.
 
 - **Approval‑Based Chat**
   - Before anything is sent to the LLM, you see a summary of what will be shared and can approve or reject it.
@@ -136,7 +136,7 @@ High‑level flow:
    - The backend:
      1. Detects the file type using **python‑magic**.  
      2. Detects the language (lingua + langdetect).  
-     3. Routes to the appropriate ingester for the format (PDF, DOCX, XLSX, image, audio, etc.).  
+     3. Routes to the appropriate ingester for the format (PDF, DOCX, XLSX, ODS, image, audio, etc.).  
      4. Sends the extracted plain text through the **PolicyComposer + PIISanitizer** pipeline.  
      5. Produces **anonymised chunks** and embeds them into FAISS.  
      6. Encrypts the original file with AES‑256‑GCM on disk and stores metadata in SQLite.
@@ -286,7 +286,7 @@ Backend root: `backend/`
 - `app/routers/` — FastAPI routers:  
   - `documents.py`, `chunks.py`, `chat.py`, `approval.py`, `settings.py`, `regulations.py`  
 - `app/services/`:  
-  - `ingestion/` — format‑specific ingesters (PDF, DOCX, XLSX, PPTX, image, audio, HTML, markdown, JSON, YAML, XML, email, EPUB, RTF)  
+  - `ingestion/` — format‑specific ingesters (PDF, DOCX, XLSX, ODS, PPTX, image, audio, HTML, markdown, JSON, YAML, XML, email, EPUB, RTF)  
   - `recognizers/` — regulation packs (gdpr, hipaa, kvkk, lgpd, ccpa, …) and `registry.py`  
   - `national_ids/` — country‑specific ID validators (TCKN, SSN, CPF, Aadhaar, IBAN, etc.)  
   - `policy_composer.py` — composes active regulations and custom rules into a single policy  
