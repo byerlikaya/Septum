@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-"""KVKK-specific Presidio recognizers."""
+"""KVKK-specific Presidio recognizers.
+
+Entity types align with 6698 sayılı KVKK Madde 3(d) (kişisel veri: kimliği belirli
+veya belirlenebilir gerçek kişiye ilişkin her türlü bilgi) and Madde 6 (özel nitelikli
+kişisel veriler: ırk, etnik köken, siyasi düşünce, din, sağlık, cinsel hayat, biyometrik,
+genetik vb.). Kurum rehberi örnekleri: ad, soyad, ana/baba adı, adres, doğum tarihi,
+telefon, plaka, SGK, pasaport. See backend/docs/REGULATION_ENTITY_SOURCES.md.
+"""
 
 from typing import List
 
