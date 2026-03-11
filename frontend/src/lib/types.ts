@@ -24,6 +24,18 @@ export interface DocumentListResponse {
   items: Document[];
 }
 
+export interface SpreadsheetColumn {
+  index: number;
+  technical_label: string;
+  semantic_label: string | null;
+  is_numeric: boolean | null;
+}
+
+export interface SpreadsheetSchema {
+  document_id: number;
+  columns: SpreadsheetColumn[];
+}
+
 export interface Chunk {
   id: number;
   document_id: number;

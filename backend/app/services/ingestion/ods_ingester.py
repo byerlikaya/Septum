@@ -56,19 +56,34 @@ class OdsIngester(BaseIngester):
 
         with pd.ExcelFile(BytesIO(ods_bytes), engine="odf") as xl:
             for sheet_name in xl.sheet_names:
-                df = pd.read_excel(xl, sheet_name=sheet_name, header=None)
+                df = pd.read_excel(xl, sheet_name=sheet_name, header=0)
                 rows_text: List[str] = []
+
+                # Use generic, non-PII column labels for the header row so that
+                # schema information is preserved without leaking raw header text.
+                header_cells = [f"COLUMN_{idx + 1}" for idx, _ in enumerate(df.columns)]
+                if header_cells:
+                    rows_text.append("\t".join(header_cells))
+
                 for _, row in df.iterrows():
                     cells = [str(v) for v in row if pd.notna(v) and str(v).strip()]
                     if cells:
                         rows_text.append("\t".join(cells))
+
                 sheet_text = "\n".join(rows_text)
+
                 if sheet_text:
-                    sheet_texts.append(f"# Sheet: {sheet_name}\n{sheet_text}")
+                    header_suffix = ""
+                    if header_cells:
+                        header_suffix = " — columns: " + " | ".join(header_cells)
+                    sheet_texts.append(
+                        f"# Sheet: {sheet_name}{header_suffix}\n{sheet_text}"
+                    )
                 sheet_metadata.append(
                     {
                         "sheet_name": sheet_name,
                         "row_count": len(df),
+                        "column_count": len(header_cells),
                     }
                 )
 

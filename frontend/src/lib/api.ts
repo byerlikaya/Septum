@@ -4,7 +4,9 @@ import type {
   AppSettingsResponse,
   Document,
   DocumentListResponse,
-  SSEChatEvent
+  SSEChatEvent,
+  SpreadsheetColumn,
+  SpreadsheetSchema
 } from "./types";
 
 const fallbackBaseURL = "http://localhost:8000";
@@ -27,6 +29,34 @@ export async function getDocuments(): Promise<Document[]> {
 
 export async function getSettings(): Promise<AppSettingsResponse> {
   const { data } = await api.get<AppSettingsResponse>("/api/settings");
+  return data;
+}
+
+export async function getSpreadsheetSchema(
+  documentId: number
+): Promise<SpreadsheetSchema> {
+  const { data } = await api.get<SpreadsheetSchema>(
+    `/api/documents/${documentId}/schema`
+  );
+  return data;
+}
+
+export async function updateSpreadsheetSchema(
+  documentId: number,
+  columns: SpreadsheetColumn[]
+): Promise<SpreadsheetSchema> {
+  const payload = {
+    columns: columns.map(column => ({
+      index: column.index,
+      technical_label: column.technical_label,
+      semantic_label: column.semantic_label,
+      is_numeric: column.is_numeric
+    }))
+  };
+  const { data } = await api.put<SpreadsheetSchema>(
+    `/api/documents/${documentId}/schema`,
+    payload
+  );
   return data;
 }
 

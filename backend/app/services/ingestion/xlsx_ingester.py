@@ -59,21 +59,37 @@ class XlsxIngester(BaseIngester):
         for sheet in workbook.worksheets:
             rows_text: List[str] = []
             row_count = 0
+            header_cells: List[str] | None = None
 
             for row in sheet.iter_rows(values_only=True):
                 row_count += 1
-                cells = [str(value) for value in row if value is not None]
+                raw_values = [value for value in row if value is not None]
+                if not raw_values:
+                    continue
+
+                if header_cells is None:
+                    # First non-empty row is treated as the header; replace the
+                    # original header text with generic, non-PII column labels.
+                    header_cells = [f"COLUMN_{idx + 1}" for idx, _ in enumerate(raw_values)]
+                    rows_text.append("\t".join(header_cells))
+                    continue
+
+                cells = [str(value) for value in raw_values]
                 if cells:
                     rows_text.append("\t".join(cells))
 
             sheet_text = "\n".join(rows_text)
             if sheet_text:
-                sheet_texts.append(f"# Sheet: {sheet.title}\n{sheet_text}")
+                header_suffix = ""
+                if header_cells:
+                    header_suffix = " — columns: " + " | ".join(header_cells)
+                sheet_texts.append(f"# Sheet: {sheet.title}{header_suffix}\n{sheet_text}")
 
             sheet_metadata.append(
                 {
                     "sheet_name": sheet.title,
                     "row_count": row_count,
+                    "column_count": len(header_cells) if header_cells is not None else 0,
                 }
             )
 

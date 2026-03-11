@@ -9,6 +9,7 @@ This router is responsible for:
 """
 
 import asyncio
+import json
 import os
 from pathlib import Path
 from typing import List, Optional
@@ -27,9 +28,11 @@ from langdetect import DetectorFactory, LangDetectException, detect
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from ..database import get_db
 from ..models.document import Chunk as DocumentChunk, Document
+from ..models.spreadsheet_schema import SpreadsheetSchema, SpreadsheetColumn
 from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
 from ..services.anonymization_map import AnonymizationMap
@@ -132,6 +135,160 @@ class LanguageUpdatePayload(BaseModel):
     """Request body for overriding a document's language."""
 
     language: str
+
+
+class SpreadsheetColumnPayload(BaseModel):
+    """Represents a single spreadsheet column mapping in API payloads."""
+
+    index: int
+    technical_label: str
+    semantic_label: Optional[str] = None
+    is_numeric: Optional[bool] = None
+
+
+class SpreadsheetSchemaResponse(BaseModel):
+    """Represents the spreadsheet schema for a document."""
+
+    document_id: int
+    columns: List[SpreadsheetColumnPayload]
+
+
+class SpreadsheetSchemaUpdatePayload(BaseModel):
+    """Request payload for updating a spreadsheet schema.
+
+    The document id comes from the path parameter; the body only carries the
+    per-column mappings that should be applied.
+    """
+
+    columns: List[SpreadsheetColumnPayload]
+
+
+@router.get(
+    "/{document_id}/schema",
+    response_model=SpreadsheetSchemaResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_spreadsheet_schema(
+    document_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> SpreadsheetSchemaResponse:
+    """Return the spreadsheet schema for a document, if any."""
+
+    document_result = await db.execute(
+        select(Document).where(Document.id == document_id)
+    )
+    document = document_result.scalar_one_or_none()
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    schema_result = await db.execute(
+        select(SpreadsheetSchema)
+        .options(selectinload(SpreadsheetSchema.columns))
+        .where(SpreadsheetSchema.document_id == document_id)
+    )
+    schema = schema_result.scalar_one_or_none()
+    if schema is None:
+        # Return an empty schema response rather than 404 so the frontend
+        # can initialise mappings lazily.
+        return SpreadsheetSchemaResponse(document_id=document_id, columns=[])
+
+    columns_payload = [
+        SpreadsheetColumnPayload(
+            index=col.index,
+            technical_label=col.technical_label,
+            semantic_label=col.semantic_label,
+            is_numeric=col.is_numeric,
+        )
+        for col in schema.columns
+    ]
+    return SpreadsheetSchemaResponse(document_id=document_id, columns=columns_payload)
+
+
+@router.put(
+    "/{document_id}/schema",
+    response_model=SpreadsheetSchemaResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def update_spreadsheet_schema(
+    document_id: int,
+    payload: SpreadsheetSchemaUpdatePayload,
+    db: AsyncSession = Depends(get_db),
+) -> SpreadsheetSchemaResponse:
+    """Update the spreadsheet schema for a document.
+
+    Only ``semantic_label`` and ``is_numeric`` fields are mutable; ``index`` and
+    ``technical_label`` must match the existing schema.
+    """
+
+    document_result = await db.execute(
+        select(Document).where(Document.id == document_id)
+    )
+    document = document_result.scalar_one_or_none()
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    schema_result = await db.execute(
+        select(SpreadsheetSchema)
+        .options(selectinload(SpreadsheetSchema.columns))
+        .where(SpreadsheetSchema.document_id == document_id)
+    )
+    schema = schema_result.scalar_one_or_none()
+    if schema is None:
+        # If no schema exists yet but the client is sending one, create it.
+        schema = SpreadsheetSchema(document_id=document_id)
+        db.add(schema)
+        await db.flush()
+
+    # Build an index → column mapping for quick lookups.
+    columns_by_index = {col.index: col for col in schema.columns}
+
+    for col_payload in payload.columns:
+        existing = columns_by_index.get(col_payload.index)
+        if existing is None:
+            # New column index; create it with the provided mapping.
+            new_col = SpreadsheetColumn(
+                schema_id=schema.id,
+                index=col_payload.index,
+                technical_label=col_payload.technical_label,
+                semantic_label=col_payload.semantic_label,
+                is_numeric=col_payload.is_numeric,
+            )
+            db.add(new_col)
+            continue
+
+        # Ensure technical labels stay aligned; if they differ, keep the
+        # existing value to avoid accidental schema drift.
+        if existing.technical_label != col_payload.technical_label:
+            continue
+
+        existing.semantic_label = col_payload.semantic_label
+        existing.is_numeric = col_payload.is_numeric
+
+    await db.commit()
+
+    # Reload and return the updated schema.
+    refreshed = await db.execute(
+        select(SpreadsheetSchema)
+        .options(selectinload(SpreadsheetSchema.columns))
+        .where(SpreadsheetSchema.document_id == document_id)
+    )
+    schema = refreshed.scalar_one()
+    columns_payload = [
+        SpreadsheetColumnPayload(
+            index=col.index,
+            technical_label=col.technical_label,
+            semantic_label=col.semantic_label,
+            is_numeric=col.is_numeric,
+        )
+        for col in schema.columns
+    ]
+    return SpreadsheetSchemaResponse(document_id=document_id, columns=columns_payload)
 
 
 async def _load_settings(db: AsyncSession) -> AppSettings:
@@ -242,6 +399,51 @@ def _detect_mime_type(raw_bytes: bytes, fallback_mime_type: Optional[str] = None
     )
 
 
+async def _ensure_spreadsheet_schema(
+    db: AsyncSession,
+    document_id: int,
+    metadata: dict[str, Any],
+) -> None:
+    """Create a generic spreadsheet schema for the document if one does not exist.
+
+    The schema is derived from ingestion metadata and uses generic technical
+    labels (e.g., ``COLUMN_1``) without storing any raw header text.
+    """
+
+    # Check if a schema already exists.
+    existing = await db.execute(
+        select(SpreadsheetSchema).where(SpreadsheetSchema.document_id == document_id)
+    )
+    if existing.scalar_one_or_none() is not None:
+        return
+
+    sheets = metadata.get("sheets") or []
+    max_columns = 0
+    for sheet in sheets:
+        try:
+            count = int(sheet.get("column_count") or 0)
+        except (TypeError, ValueError):
+            count = 0
+        if count > max_columns:
+            max_columns = count
+
+    if max_columns <= 0:
+        return
+
+    schema = SpreadsheetSchema(document_id=document_id)
+    schema.columns = [
+        SpreadsheetColumn(
+            index=idx,
+            technical_label=f"COLUMN_{idx + 1}",
+            semantic_label=None,
+            is_numeric=None,
+        )
+        for idx in range(max_columns)
+    ]
+    db.add(schema)
+    await db.commit()
+
+
 @router.post(
     "/upload",
     response_model=DocumentResponse,
@@ -310,6 +512,11 @@ async def upload_document(
     db.add(document)
     await db.commit()
     await db.refresh(document)
+
+    # If this is a tabular document, initialise a generic spreadsheet schema
+    # based on ingestion metadata. This schema can later be refined by the user.
+    if file_format in {"xlsx", "ods", "csv", "tsv"}:
+        await _ensure_spreadsheet_schema(db, document.id, ingestion_result.metadata)
 
     try:
         # Short-circuit for audio documents with no transcription.

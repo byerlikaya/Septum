@@ -127,14 +127,22 @@ async def test_xlsx_ingester_extracts_text(tmp_path: Path) -> None:
 
 
 def _create_sample_ods_bytes(values: list[list[str]]) -> bytes:
-    """Create a simple ODS workbook from a 2D list of strings using pandas."""
+    """Create a simple ODS workbook from a 2D list of strings using pandas.
+
+    The first inner list is treated as column headers; subsequent rows are data.
+    """
 
     import pandas as pd
 
-    df = pd.DataFrame(values)
+    if not values:
+        raise ValueError("values must contain at least a header row")
+
+    headers = values[0]
+    rows = values[1:]
+    df = pd.DataFrame(rows, columns=headers)
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="odf") as writer:
-        df.to_excel(writer, sheet_name="Sheet1", index=False, header=False)
+        df.to_excel(writer, sheet_name="Sheet1", index=False, header=True)
     return buffer.getvalue()
 
 
@@ -142,7 +150,8 @@ def _create_sample_ods_bytes(values: list[list[str]]) -> bytes:
 async def test_ods_ingester_extracts_text(tmp_path: Path) -> None:
     """OdsIngester should correctly extract text from a simple ODS."""
 
-    values = [["Name", "Value"], ["bar", "99"]]
+    values = [["Name", "Salary"], ["bar", "99"]]
+    header_in_sheet_line = "columns: COLUMN_1 | COLUMN_2"
     sample_value = "bar"
     ods_bytes = _create_sample_ods_bytes(values)
     encrypted_path = _write_encrypted_file(tmp_path, "sample.ods.enc", ods_bytes)
@@ -154,6 +163,7 @@ async def test_ods_ingester_extracts_text(tmp_path: Path) -> None:
         file_format="ods",
     )
 
+    assert header_in_sheet_line in result.text
     assert sample_value in result.text
     assert result.metadata.get("sheet_count") == 1
     sheets_meta = result.metadata.get("sheets") or []

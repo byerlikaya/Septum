@@ -15,7 +15,6 @@ import os
 import re
 from typing import Any, AsyncGenerator, List, Optional
 from uuid import uuid4
-
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -23,10 +22,12 @@ from fastapi.responses import StreamingResponse
 from langdetect import DetectorFactory, LangDetectException, detect
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.document import Chunk, Document
+from ..models.spreadsheet_schema import SpreadsheetSchema, SpreadsheetColumn
 from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
 from ..services.anonymization_map import AnonymizationMap
@@ -278,6 +279,9 @@ async def _run_llm_and_deanonymize(
     language: str,
     output_mode: str = "chat",
     session_id: Optional[str] = None,
+    document_id: Optional[int] = None,
+    query_has_placeholder: bool = False,
+    query_placeholders: Optional[List[str]] = None,
 ) -> str:
     """Call the LLM and apply local de-anonymization."""
     llm = LLMRouter(settings)
@@ -292,8 +296,35 @@ async def _run_llm_and_deanonymize(
 
     placeholders_in_context = _extract_placeholders_from_context(context_text)
 
+    schema_instruction = ""
+    if document_id is not None:
+        schema_result = await db.execute(
+            select(SpreadsheetSchema)
+            .options(selectinload(SpreadsheetSchema.columns))
+            .where(SpreadsheetSchema.document_id == document_id)
+        )
+        schema = schema_result.scalar_one_or_none()
+        if schema is not None and schema.columns:
+            column_descriptions: list[str] = []
+            for column in schema.columns:
+                label = column.semantic_label or column.technical_label
+                description = f"index {column.index} → {label}"
+                if column.is_numeric:
+                    description += " (numeric)"
+                column_descriptions.append(description)
+            if column_descriptions:
+                schema_instruction = (
+                    "Active spreadsheet schema (generic, no raw personal data): "
+                    + "; ".join(column_descriptions)
+                    + ".\n\n"
+                    "When the schema marks a column as a numeric measure, "
+                    "and the user asks for aggregate calculations (totals, sums, averages, minimums, maximums, counts), you MUST perform "
+                    "the requested calculation over all rows visible in the provided context instead of just repeating a single row. "
+                    "Respond with the final numeric result in natural language, without listing every row unless explicitly requested.\n\n"
+                )
+
     placeholder_list_str = ""
-    if placeholders_in_context:
+    if placeholders_in_context and query_has_placeholder:
         placeholder_list_str = (
             "\n\nThe user question may be in any language. Interpret by intent. "
             "If they ask for a specific piece of information (e.g. a person's name, a date, a single value), "
@@ -323,14 +354,17 @@ async def _run_llm_and_deanonymize(
             f"IMPORTANT: The user's query is in {language.upper()} language. "
             f"You MUST respond in the same language ({language.upper()}).\n\n"
         )
-    
+
     user_prompt = (
         f"{language_instruction}"
         "You are a privacy-preserving assistant. Personal data in the context is "
         "replaced by placeholders in square brackets (e.g. [PERSON_1], [ORGANIZATION_2]). "
-        "Never guess or reconstruct real values.\n\n"
+        "Never guess or reconstruct real values and never explain the anonymization mechanism to the user.\n\n"
+        "Always prioritise answering the user's question as directly and concisely as possible. "
+        "Avoid meta explanations, disclaimers, or restating the entire table unless the user explicitly asks for that detail.\n\n"
         f"{placeholder_list_str}"
         f"Active privacy regulations: {regulations_str}.\n\n"
+        f"{schema_instruction}"
         "User question (sanitized):\n"
         f"{sanitized_query}\n\n"
         "Relevant context (sanitized):\n"
@@ -344,7 +378,20 @@ async def _run_llm_and_deanonymize(
 
     masked_answer = await llm.complete(messages=messages)
 
-    if placeholders_in_context and not _PLACEHOLDER_PATTERN.search(masked_answer):
+    if query_placeholders:
+        # For explicit placeholder questions, always answer strictly with the
+        # queried placeholder tokens only, to avoid leaking additional linked
+        # attributes (e.g. identifiers, locations) beyond what was asked.
+        unique_query_placeholders: List[str] = []
+        seen_ph: set[str] = set()
+        for token in query_placeholders:
+            if token not in seen_ph:
+                seen_ph.add(token)
+                unique_query_placeholders.append(token)
+        masked_answer = " ".join(unique_query_placeholders)
+    elif placeholders_in_context and query_has_placeholder and not _PLACEHOLDER_PATTERN.search(
+        masked_answer
+    ):
         refusal_phrases = (
             "cannot answer",
             "not defined",
@@ -450,13 +497,8 @@ async def chat_ask(
             getattr(settings, "deanon_enabled", True),
         )
 
-    sanitized_query, entity_count = await _sanitize_query(
-        message=message_text,
-        language=language,
-        settings=settings,
-        anon_map=anon_map,
-        db=db,
-    )
+    sanitized_query = message_text
+    entity_count = 0
     top_k = request.top_k or settings.top_k_retrieval
     chunks: List[Chunk] = []
     if document is not None:
@@ -544,6 +586,11 @@ async def chat_ask(
                 context_texts = []
 
             output_mode = (request.output_mode or "chat").strip().lower()
+            query_placeholder_matches = list(
+                _PLACEHOLDER_PATTERN.finditer(message_text or "")
+            )
+            query_placeholders = [m.group(0) for m in query_placeholder_matches]
+            query_has_placeholder = bool(query_placeholders)
             answer = await _run_llm_and_deanonymize(
                 db=db,
                 settings=effective_settings,
@@ -554,6 +601,9 @@ async def chat_ask(
                 language=language,
                 output_mode=output_mode,
                 session_id=session_id,
+                document_id=document.id if document is not None else None,
+                query_has_placeholder=query_has_placeholder,
+                query_placeholders=query_placeholders if query_has_placeholder else None,
             )
 
             for piece in _chunk_text(answer, max_chunk_size=256):
@@ -567,7 +617,8 @@ async def chat_ask(
                     "message": str(exc),
                 }
             )
-        except Exception:
+        except Exception as exc:
+            logger.exception("Unhandled exception in chat event stream")
             yield _encode_sse(
                 {
                     "type": "error",
