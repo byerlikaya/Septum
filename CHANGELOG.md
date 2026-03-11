@@ -2,18 +2,22 @@
 
 All notable changes to this project are documented here in a high‑level, date‑based format.
 
-### 2026-03-11
+### 2026-03-12
 
 - **NER model overrides**: NER Models settings tab now supports per-language overrides: edit the HuggingFace model ID for any language, restore default per row (persists immediately), and save overrides to the database. Backend stores overrides in `app_settings.ner_model_overrides` and uses them in the sanitizer pipeline and chat.
 - **Error logging and Error Log UI**: Centralized error logging for backend and frontend: new `ErrorLog` model and table, `error_logger` service, global exception handler, and `POST /api/error-logs/frontend` for client-reported errors. New Error Logs page under Settings lists, filters, and clears logs with optional stack-trace detail; frontend global error boundary and runtime error listeners report errors to the backend. Sidebar shows error count badge; handled backend errors (e.g. LLM failures, test-llm fallback) are logged; Test LLM returns 200 with `ok: false` when cloud fails and Ollama fallback is used.
+- **Document preview**: Copy button shows "Copied" state for user feedback.
+- **Chat**: Badge under assistant message when the answer was produced by local Ollama fallback (cloud unavailable).
+- **Docs**: README (EN/TR) add Changelog and License links in header.
+- **Changelog and rules**: Split changelog entries by commit date (2026-03-11 vs 2026-03-12). Changelog rule updated to require always verifying today’s date (`date +%Y-%m-%d`) and assigning entries to the correct day via `git log --date=short`.
+
+### 2026-03-11
+
 - **OCR and PII improvements**: Enhanced image/PDF OCR quality, improved OCR ingestion flow, and refined person name masking and PII handling.
 - **Spreadsheet enhancements**: Added spreadsheet schema metadata, numeric-aware chat for tabular content, and limited schema display to truly tabular documents.
 - **Infrastructure and tooling cleanup**: Unified environment loading defaults (including Ollama), and removed legacy coverage/Codecov tooling.
 - **ODS support**: Added ODS (OpenDocument Spreadsheet) ingestion support and documented it in both English and Turkish READMEs.
 - **LLM routing and prompt catalog**: Refactored the LLM router into a provider-strategy layer, introduced a document processing pipeline orchestrator, centralized all backend LLM/Ollama prompts under `PromptCatalog`, and added a shared AppSettings factory plus updated tests.
-- **Document preview**: Copy button shows "Copied" state for user feedback.
-- **Chat**: Badge under assistant message when the answer was produced by local Ollama fallback (cloud unavailable).
-- **Docs**: README (EN/TR) add Changelog and License links in header.
 
 ### 2026-03-10
 
