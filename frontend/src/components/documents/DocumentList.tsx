@@ -47,7 +47,13 @@ function getFileIcon(fileFormat: string): JSX.Element {
   if (fmt === "image") {
     return <FileImage className="h-5 w-5 text-emerald-400" />;
   }
-  if (fmt === "xlsx") {
+  if (
+    fmt === "xlsx" ||
+    fmt === "xls" ||
+    fmt === "ods" ||
+    fmt === "csv" ||
+    fmt === "tsv"
+  ) {
     return <FileSpreadsheet className="h-5 w-5 text-emerald-400" />;
   }
   if (fmt === "pdf" || fmt === "docx") {
