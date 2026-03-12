@@ -51,6 +51,7 @@ out/
 # Project-specific
 .cursor/
 backend/vector_indexes/
+backend/bm25_indexes/
 backend/documents/
 
 # Any other local data/uploads
