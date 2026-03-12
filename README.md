@@ -181,37 +181,34 @@ At a high level:
      - Contact details (emails, phones, addresses, IPs, URLs, social handles)
      - Financial identifiers (credit cards, bank accounts, IBAN/SWIFT, tax IDs)
      - Health, demographic and organisational attributes
+   - Users can extend this layer with **custom recognisers** (regex patterns, keyword lists, or LLM‑prompt based rules).
+   - National IDs and financial identifiers use **country‑specific checksum validators** to reduce false positives.
    - Only recognisers that are relevant for the active regulations are loaded into the Presidio registry.
 
 3. **Layer 2 — Language‑specific NER**
    - For each document and query, Septum detects the language and loads a **language‑appropriate HuggingFace NER model**, with a multilingual fallback when needed.
    - The NER layer:
      - Complements Presidio by catching entities that are context‑dependent or language‑specific.
+     - Uses state‑of‑the‑art XLM‑RoBERTa based models (e.g. `Davlan/xlm-roberta-base-wikiann-ner` for 20 languages, `akdeniz27/xlm-roberta-base-turkish-ner` for Turkish).
      - Runs device‑aware (CUDA → MPS → CPU) and uses cached pipelines for efficiency.
    - This layer is configurable per language via the **NER Model Settings** screen.
 
-4. **Layer 3 — Custom recognisers**
-   - Users can define their own rules via the UI or API:
-     - **Regex** patterns (e.g. internal account numbers, project codes).
-     - **Keyword lists** (e.g. VIP client names, internal labels).
-     - **LLM‑prompt based** rules using a local LLM (e.g. “find all salary‑related amounts”).
-   - Each custom rule is converted into a compatible recogniser and participates in the same pipeline as built‑in regulations.
+4. **Layer 3 — Ollama context‑aware layer**
+   - When enabled (`use_ollama_layer=True`), Septum uses a **local Ollama LLM** to detect context‑dependent PII that the first two layers may miss:
+     - Nicknames, aliases, and informal mentions (e.g. "john" when "John Doe" was detected earlier).
+     - Family member names in context (e.g. "father's name: ahmed", "mother: sarah").
+     - Codenames, pet names, and organisation‑specific labels.
+   - This layer preserves exact casing and runs entirely on‑device, ensuring no PII leaves the local machine.
+   - It is disabled for numeric‑heavy structured content (e.g. price lists, invoices) to avoid noisy detections.
 
-5. **Layer 4 — National ID validators**
-   - Certain identifiers (e.g. national IDs, tax numbers, IBAN) are validated using **country‑specific checksum algorithms**, not just regex patterns.
-   - A dedicated `national_ids` module contains validator implementations that:
-     - Pre‑filter candidates via pattern.
-     - Confirm validity via algorithmic checks.
-   - This significantly reduces false positives for numeric identifiers and sensitive ID numbers.
-
-6. **Anonymisation & coreference**
+5. **Anonymisation & coreference**
    - All spans from the above layers are merged, deduplicated and fed into the `AnonymizationMap`:
      - Each unique entity is replaced with a stable placeholder (e.g. `[PERSON_1]`, `[EMAIL_2]`).
      - Coreference handling ensures that repeated mentions (e.g. full name → first name) are mapped to the **same** placeholder.
      - A configurable blocklist can enforce extra replacements beyond detected entities.
    - The anonymisation map never leaves memory and is never written to disk.
 
-7. **Multi‑regulation conflict handling**
+6. **Multi‑regulation conflict handling**
    - When multiple regulations are active at the same time, Septum always applies the **most restrictive** masking behaviour:
      - If any regulation considers a value PII, it is treated as PII.
      - Overlapping entities are merged into a single placeholder while retaining metadata about which regulations required masking.

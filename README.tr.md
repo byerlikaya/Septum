@@ -183,40 +183,37 @@ Yüksek seviyede akış:
      - İletişim (e‑posta, telefon, adres, IP, URL, sosyal medya hesabı)
      - Finansal tanımlayıcılar (kredi kartı, banka hesabı, IBAN/SWIFT, vergi no)
      - Sağlık, demografik ve kurumsal öznitelikler
-   - Sadece aktif regülasyonlara ait tanıyıcılar Presidio registry’sine yüklenir.
+   - Kullanıcılar bu katmanı **özel tanıyıcılar** ile genişletebilir (regex desenleri, anahtar kelime listeleri veya LLM‑tabanlı kurallar).
+   - Ulusal kimlikler ve finansal tanımlayıcılar, yalancı pozitifleri azaltmak için **ülke‑spesifik checksum doğrulayıcıları** kullanır.
+   - Sadece aktif regülasyonlara ait tanıyıcılar Presidio registry'sine yüklenir.
 
 3. **Katman 2 — Dile özgü NER**
    - Her doküman ve sorgu için dil tespiti yapılır ve gerekirse çok dilli bir yedek modelle birlikte **dile uygun HuggingFace NER modeli** yüklenir.
    - Bu katman:
-     - Presidio’yu, bağlama ve dile göre değişen varlıkları yakalayarak tamamlar.
-     - Cihaz farkında çalışır (CUDA → MPS → CPU) ve cache’lenmiş pipeline’lar sayesinde performanslıdır.
+     - Presidio'yu, bağlama ve dile göre değişen varlıkları yakalayarak tamamlar.
+     - Son teknoloji XLM‑RoBERTa tabanlı modeller kullanır (ör. 20 dil için `Davlan/xlm-roberta-base-wikiann-ner`, Türkçe için `akdeniz27/xlm-roberta-base-turkish-ner`).
+     - Cihaz farkında çalışır (CUDA → MPS → CPU) ve cache'lenmiş pipeline'lar sayesinde performanslıdır.
    - Hangi dil için hangi modelin kullanılacağı, **NER Models** ayar ekranı üzerinden yapılandırılabilir.
 
-4. **Katman 3 — Kullanıcı tanımlı tanıyıcılar**
-   - Kullanıcılar arayüz veya API üzerinden kendi kurallarını tanımlayabilir:
-     - **Regex** desenleri (ör. iç referans kodları, proje kodları).
-     - **Anahtar kelime listeleri** (ör. VIP müşteri isimleri, dahili etiketler).
-     - Yerel bir LLM kullanan **LLM‑prompt tabanlı** kurallar (ör. “tüm maaş ifadelerini bul”).
-   - Bu kurallar, uyumlu tanıyıcı nesnelerine dönüştürülerek yerleşik regülasyon tanıyıcılarıyla aynı pipeline içinde çalıştırılır.
+4. **Katman 3 — Ollama bağlam‑duyarlı katman**
+   - Etkinleştirildiğinde (`use_ollama_layer=True`), Septum ilk iki katmanın gözden kaçırabileceği bağlam‑bağımlı PII'leri tespit etmek için **yerel bir Ollama LLM** kullanır:
+     - Takma adlar, kod adları ve gayriresmi atıflar (ör. daha önce "John Doe" tespit edilmişse "john").
+     - Bağlam içinde aile üyesi isimleri (ör. "baba adı: ahmet", "anne: ayşe").
+     - Kod adları, lakalar ve kuruma özgü etiketler.
+   - Bu katman tam büyük/küçük harf uyumunu korur ve tamamen cihaz üzerinde çalışır; böylece hiçbir PII yerel makineden çıkmaz.
+   - Sayısal ağırlıklı yapılandırılmış içerik (ör. fiyat listeleri, faturalar) için gürültülü tespitleri önlemek amacıyla devre dışı bırakılır.
 
-5. **Katman 4 — Ulusal kimlik doğrulayıcıları**
-   - Bazı tanımlayıcılar (ör. ulusal kimlik, vergi numarası, IBAN) sadece regex ile değil, **ülke‑spesifik checksum algoritmaları** ile doğrulanır.
-   - Ayrı bir `national_ids` modülü; adayları önce desenle süzüp, ardından algoritmik kontrolle doğrulayan validator implementasyonları içerir.
-   - Bu sayede sayısal kimlik ve hesap numaralarında yalancı pozitif oranı ciddi biçimde azalır.
-
-6. **Anonimleştirme ve coreference**
-   - Yukarıdaki katmanlardan çıkan tüm span’ler birleştirilir, yinelenenler ayıklanır ve `AnonymizationMap` içine aktarılır:
+5. **Anonimleştirme ve coreference**
+   - Yukarıdaki katmanlardan çıkan tüm span'ler birleştirilir, yinelenenler ayıklanır ve `AnonymizationMap` içine aktarılır:
      - Her benzersiz varlık için kararlı bir placeholder atanır (ör. `[PERSON_1]`, `[EMAIL_2]`).
      - Coreference mantığı sayesinde aynı kişiye ait tekrar eden atıflar (tam isim → sadece isim gibi) **aynı** placeholder ile eşleştirilir.
      - İsteğe bağlı blocklist yapısı, tespit edilen varlıkların ötesinde de ek maskeleme uygulanmasına izin verir.
    - Anonymization map asla belleğin dışına çıkmaz ve diske yazılmaz.
 
-7. **Çoklu regülasyon çatışmalarının ele alınması**
+6. **Çoklu regülasyon çatışmalarının ele alınması**
    - Birden fazla regülasyon aynı anda aktif olduğunda Septum her zaman **en kısıtlayıcı** maskeleme davranışını uygular:
      - Herhangi bir regülasyon bir değeri PII olarak işaretliyorsa, o değer PII kabul edilir.
      - Çakışan varlıklar tek bir placeholder altında birleştirilirken, hangi regülasyonların bu kararı tetiklediğine dair metadata korunur.
-
-Pratikte bu, Septum’un tek bir sezgiye değil; regülasyon paketleri, NER, kullanıcı tanımlı kurallar ve algoritmik doğrulayıcıların birleşimine dayanarak anonimleştirme yapması anlamına gelir. Böylece ortamınızdan çıkmadan önce veriler tek bir tutarlı adımda maskelenir.
 
 ---
 
