@@ -113,15 +113,14 @@ class AnonymizationMap:
     def _update_blocklist(self, original: str, placeholder: str) -> None:
         """Update blocklist and token_to_placeholder from ``original``.
 
-        Multi-token entities: only tokens that start with an uppercase letter
-        are added (to avoid blocking common lowercase words). Single-token
-        entities are always added when not stopwords, so residual mentions
-        (e.g. lowercase given names) are redacted by apply_blocklist.
+        All tokens from detected entities are added to blocklist regardless of
+        casing, except very short tokens (<=2 chars) and stopwords. This ensures
+        residual mentions of person names (e.g. lowercase "sarah", "david") are
+        redacted by apply_blocklist even when NER models miss them.
         """
         normalized = normalize_for_comparison(original, self.language)
         orig_tokens = original.split()
         norm_tokens = normalized.split()
-        single_token = len(orig_tokens) == 1 and len(norm_tokens) == 1
 
         for index, token in enumerate(norm_tokens):
             if len(token) <= 2:
@@ -131,14 +130,6 @@ class AnonymizationMap:
 
             original_token = orig_tokens[index] if index < len(orig_tokens) else ""
             if not original_token:
-                continue
-
-            first_char = original_token[0]
-            add_token = (
-                single_token
-                or (first_char.isalpha() and first_char.isupper())
-            )
-            if not add_token:
                 continue
 
             self.blocklist.add(token)

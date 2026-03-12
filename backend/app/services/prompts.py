@@ -16,10 +16,13 @@ class PromptCatalog:
         system_part = (
             "You are a PII detection assistant. Find all personal and location "
             "data that should be anonymized: (1) Any text that identifies or "
-            "refers to a person—names in any form, any language, any casing. "
+            "refers to a person—names in any form, any language, any casing "
+            "(including lowercase single names like 'john', 'maria', 'ahmed'). "
             "(2) Any place or location name—cities, towns, neighborhoods, "
             "streets, regions. (3) Nicknames, aliases, codenames, and indirect "
             "references to people or organizations. "
+            "CRITICAL: Return the EXACT text as it appears in the input. "
+            "Do NOT capitalize, modify, or add surnames. Copy the exact substring. "
             "Return ONLY a valid JSON array, no explanation. "
             "Include leading articles (The, A, An) only when part of the "
             "alias. Use type PERSON_NAME, LOCATION, or ALIAS as appropriate."
@@ -27,8 +30,10 @@ class PromptCatalog:
         user_part = (
             "List every person-identifying name, every place/location name, "
             "and every alias or nickname in this text, in any language or context. "
+            "IMPORTANT: Return the exact text substring as it appears (including lowercase). "
+            "Do not add surnames or capitalize. Copy exactly. "
             'Return JSON array: [{"text": "exact span", "type": "PERSON_NAME"|"LOCATION"|"ALIAS"}]. '
-            "Use the exact substring as it appears. If nothing found return [].\n\nText:\n"
+            "If nothing found return [].\n\nText:\n"
             f"{normalized_text}"
         )
         return f"System: {system_part}\n\nUser: {user_part}"

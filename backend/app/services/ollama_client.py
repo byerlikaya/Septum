@@ -50,6 +50,9 @@ def call_ollama_sync(
         "model": model or _default_deanon_model(),
         "prompt": prompt,
         "stream": False,
+        "options": {
+            "num_predict": 2048,
+        },
     }
     try:
         with httpx.Client(timeout=timeout) as client:

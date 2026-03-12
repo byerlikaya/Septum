@@ -321,7 +321,6 @@ class PIISanitizer:
             presidio_results = self._filter_presidio_results(
                 presidio_results, normalized_text
             )
-
             spans.extend(self._from_presidio_results(presidio_results))
 
         if self._settings.use_ner_layer:
@@ -491,15 +490,22 @@ class PIISanitizer:
             _LEADING_ARTICLES = ("The ", "A ", "An ")
             start_idx = -1
             end_idx = -1
+            
+            # Case-insensitive search: Ollama may return capitalized names
+            # while the original text contains lowercase variants
+            text_lower = normalized_text.lower()
+            search_lower = text_str.lower()
+            
             for article in _LEADING_ARTICLES:
                 extended = article + text_str
-                idx = normalized_text.find(extended)
+                extended_lower = extended.lower()
+                idx = text_lower.find(extended_lower)
                 if idx >= 0:
                     start_idx = idx
                     end_idx = idx + len(extended)
                     break
             if start_idx < 0:
-                idx = normalized_text.find(text_str)
+                idx = text_lower.find(search_lower)
                 if idx >= 0:
                     start_idx = idx
                     end_idx = idx + len(text_str)

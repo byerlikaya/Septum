@@ -33,17 +33,31 @@ class NERModelRegistry:
 
     DEFAULT_MODEL_MAP: Dict[str, str] = field(
         default_factory=lambda: {
-            "en": "dslim/bert-base-NER",
-            "tr": "savasy/bert-base-turkish-ner-cased",
-            "de": "dbmdz/bert-large-cased-finetuned-conll03-german",
-            "fr": "Jean-Baptiste/roberta-large-ner-english",
-            "es": "mrm8488/bert-spanish-cased-finetuned-ner",
-            "nl": "wietsedv/bert-base-dutch-cased-finetuned-ner",
-            "zh": "uer/roberta-base-finetuned-cluener2020-chinese",
-            "ar": "hatmimoha/arabic-ner-bert",
-            "ru": "DeepPavlov/rubert-base-cased-ner",
-            "pt": "malduwais/biobert-base-cased-v1.2-finetuned-ner",
+            # Best-in-class models per language based on 2024-2025 research
+            # akdeniz27/xlm-roberta-base-turkish-ner: F1=0.949, XLM-RoBERTa fine-tuned on Turkish NER
+            "tr": "akdeniz27/xlm-roberta-base-turkish-ner",
+            # Davlan/xlm-roberta-base-wikiann-ner: Multilingual XLM-RoBERTa for 20 languages
+            # Supports: ar, as, bn, ca, en, es, eu, fr, gu, hi, id, ig, mr, pa, pt, sw, ur, vi, yo, zh
+            "en": "Davlan/xlm-roberta-base-wikiann-ner",
+            "ar": "Davlan/xlm-roberta-base-wikiann-ner",
+            "zh": "Davlan/xlm-roberta-base-wikiann-ner",
+            "es": "Davlan/xlm-roberta-base-wikiann-ner",
+            "fr": "Davlan/xlm-roberta-base-wikiann-ner",
+            "pt": "Davlan/xlm-roberta-base-wikiann-ner",
+            "hi": "Davlan/xlm-roberta-base-wikiann-ner",
+            "bn": "Davlan/xlm-roberta-base-wikiann-ner",
+            "ur": "Davlan/xlm-roberta-base-wikiann-ner",
+            "vi": "Davlan/xlm-roberta-base-wikiann-ner",
+            # Babelscape/wikineural-multilingual-ner: EMNLP 2021, supports 9 European languages
+            # Supports: de, en, es, fr, it, nl, pl, pt, ru
+            "de": "Babelscape/wikineural-multilingual-ner",
+            "it": "Babelscape/wikineural-multilingual-ner",
+            "nl": "Babelscape/wikineural-multilingual-ner",
+            "pl": "Babelscape/wikineural-multilingual-ner",
+            "ru": "Babelscape/wikineural-multilingual-ner",
+            # Japanese: Keep existing specialized model
             "ja": "cl-tohoku/bert-base-japanese",
+            # Fallback: Babelscape for best multilingual coverage
             "fallback": "Babelscape/wikineural-multilingual-ner",
         }
     )
