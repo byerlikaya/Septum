@@ -157,7 +157,7 @@ class PdfIngester(BaseIngester):
             # while keeping the original layer for well-formed documents.
             ocr_text, ocr_confidence = self._run_ocr_on_page(page)
             if ocr_confidence is not None:
-                    ocr_confidences.append(ocr_confidence)
+                ocr_confidences.append(ocr_confidence)
 
             cleaned_ocr = strip_control_characters(ocr_text) if ocr_text else ""
 
