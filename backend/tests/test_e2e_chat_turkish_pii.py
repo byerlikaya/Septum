@@ -85,6 +85,17 @@ def e2e_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(documents_router, "_detect_language", _detect_language_en)
     monkeypatch.setenv("VECTOR_INDEX_DIR", str(vec_dir))
     monkeypatch.setenv("USE_NER_LAYER_DEFAULT", "false")  # Presidio only; no HuggingFace NER download
+    # Prevent OCR from replacing the PDF text layer so Presidio can detect emails in CI.
+    from app.services.ingestion import pdf_ingester as pdf_ingester_module
+
+    def _no_ocr_replace(self, page):  # noqa: ARG001
+        return ("", None)
+
+    monkeypatch.setattr(
+        pdf_ingester_module.PdfIngester,
+        "_run_ocr_on_page",
+        _no_ocr_replace,
+    )
     tld_cache = tmp_path / "tldextract_cache"
     tld_cache.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("TLDEXTRACT_CACHE", str(tld_cache))

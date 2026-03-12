@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Error logging models for centralized backend and frontend error tracking."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import JSON, DateTime, Integer, String, Text
@@ -16,7 +16,7 @@ class ErrorLog(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, index=True
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
     )
     source: Mapped[str] = mapped_column(String(32), index=True)
     level: Mapped[str] = mapped_column(String(16), default="ERROR", index=True)

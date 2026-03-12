@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """ORM models for documents ingested into Septum."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String, Text
@@ -25,7 +25,7 @@ class Document(Base):
     detected_language: Mapped[str] = mapped_column(String, nullable=False)
     language_override: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
     encrypted_path: Mapped[str] = mapped_column(String, nullable=False)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

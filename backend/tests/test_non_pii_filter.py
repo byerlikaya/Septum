@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Tests for the Non-PII decision layer."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from backend.app.models.regulation import NonPiiRule
 from backend.app.services.non_pii_filter import NonPiiFilter, SpanView
@@ -17,7 +17,7 @@ def test_non_pii_filter_removes_configured_token() -> None:
         entity_types=["PERSON_NAME"],
         min_score=None,
         is_active=True,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     flt = NonPiiFilter.from_rules([rule])
     assert flt is not None
@@ -40,7 +40,7 @@ def test_non_pii_filter_keeps_other_entities() -> None:
         entity_types=["PERSON_NAME"],
         min_score=None,
         is_active=True,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     flt = NonPiiFilter.from_rules([rule])
     assert flt is not None

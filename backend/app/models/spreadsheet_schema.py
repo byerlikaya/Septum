@@ -8,13 +8,17 @@ such as ``COLUMN_1`` and can be optionally annotated with semantic labels
 that describe their role in a generic, regulation-agnostic way.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from . import Base
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class SpreadsheetSchema(Base):
@@ -27,10 +31,10 @@ class SpreadsheetSchema(Base):
         ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=_utc_now, nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        DateTime, default=_utc_now, onupdate=_utc_now, nullable=False
     )
 
     columns: Mapped[list["SpreadsheetColumn"]] = relationship(
