@@ -23,6 +23,7 @@ All notable changes to this project are documented here in a high‑level, date�
 - **Chat**: Badge under assistant message when the answer was produced by local Ollama fallback (cloud unavailable).
 - **Docs**: README (EN/TR) add Changelog and License links in header.
 - **Changelog and rules**: Split changelog entries by commit date (2026-03-11 vs 2026-03-12). Changelog rule updated to require always verifying today’s date (`date +%Y-%m-%d`) and assigning entries to the correct day via `git log --date=short`.
+- **Backend dependencies**: Bumped `langchain-experimental` from `0.3.6` to `0.4.1` in `backend/requirements.txt` to restore backend CI compatibility with Python 3.13 on GitHub Actions and keep dependencies aligned with the latest stable version.
 
 - **Recognizer regex and E2E test**: Fix Presidio regex patterns in GDPR, HIPAA, and KVKK packs: use correct word boundary `\b` and escapes so email/phone/IP patterns match. Set TLDEXTRACT_CACHE in conftest before imports to avoid permission errors in E2E tests.
 - **Backend tests and CI**: Fix E2E Turkish PII test in CI by preventing PDF OCR from replacing the text layer (patch `PdfIngester._run_ocr_on_page` in fixture so Presidio detects emails). Replace deprecated `datetime.utcnow` with timezone-aware `datetime.now(timezone.utc)` in models (document, regulation, error_log, spreadsheet_schema) and tests. Add `pytest.ini` with filterwarnings to suppress EasyOCR, Presidio, torch, and Swig deprecation warnings in test runs.
