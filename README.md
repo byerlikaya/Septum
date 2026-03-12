@@ -90,6 +90,22 @@ The common theme: **leverage LLMs while keeping personal data encrypted and onâ€
 - **Approvalâ€‘Based Chat**
   - Before anything is sent to the LLM, you see a summary of what will be shared and can approve or reject it.
 
+- **Professional Hybrid Retrieval**
+  - Combines BM25 (keyword matching) with FAISS (semantic similarity) using Reciprocal Rank Fusion (RRF).
+  - Delivers superior retrieval quality for legal/contract queries by blending exact term matching with semantic understanding.
+  - Configurable weights (alpha/beta) for fine-tuning retrieval balance.
+
+- **Structured Data Extraction**
+  - Automatically detects and extracts tables and key-value pairs from PDF documents (e.g., "Employee Title: Engineer").
+  - Creates separate field chunks with metadata for better retrieval of structured contract information.
+  - Uses pdfplumber for precise table detection and field extraction.
+
+- **Enhanced Semantic Chunking**
+  - Intelligent document splitting that preserves structure while respecting semantic coherence.
+  - Hybrid approach: structural phase (numbered sections) + semantic phase (embedding-based similarity).
+  - Uses LangChain's SemanticChunker with gradient threshold for optimal chunk boundaries.
+  - Prevents arbitrary splits mid-clause, improving LLM context quality.
+
 ---
 
 ## How It Works (Short Scenario)

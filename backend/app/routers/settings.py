@@ -349,14 +349,33 @@ async def get_ingestion_health_endpoint(
         )
     else:
         model_name = (settings.whisper_model or "base").strip()
-        cache_dir = Path(os.path.expanduser("~")) / ".cache" / "whisper"
-        model_path = cache_dir / f"{model_name}.pt"
+        xdg_cache_home = os.getenv("XDG_CACHE_HOME")
+        base_cache_dir = (
+            Path(xdg_cache_home)
+            if xdg_cache_home
+            else Path(os.path.expanduser("~")) / ".cache"
+        )
+        try:
+            import whisper  # type: ignore[import]
+
+            models_map = getattr(whisper, "_MODELS", {})  # type: ignore[attr-defined]
+            model_url = models_map.get(model_name)
+            if isinstance(model_url, str) and model_url:
+                filename = os.path.basename(model_url)
+            else:
+                filename = f"{model_name}.pt"
+        except Exception:  # noqa: BLE001
+            filename = f"{model_name}.pt"
+
+        cache_dir = base_cache_dir / "whisper"
+        model_path = cache_dir / filename
         if model_path.exists():
             whisper_model_status = "ok"
         else:
             whisper_model_status = "missing"
             messages.append(
-                f"Whisper model '{model_name}' has not been downloaded yet."
+                f"Whisper model '{model_name}' has not been downloaded yet "
+                f"(expected at '{model_path}')."
             )
 
     if ffmpeg_status == "missing":

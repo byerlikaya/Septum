@@ -26,6 +26,7 @@ from ...utils.crypto import decrypt
 from ...utils.text_utils import strip_control_characters
 from .base import BaseIngester, IngestionResult
 from .ocr import run_ocr
+from .table_extractor import TableFieldExtractor
 
 
 class PdfIngester(BaseIngester):
@@ -124,6 +125,42 @@ class PdfIngester(BaseIngester):
                 "file_format": file_format,
             }
 
+        # Phase 2: Extract structured fields with pdfplumber
+        # We need to write decrypted PDF bytes to a temp file for pdfplumber
+        try:
+            import tempfile
+            
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp.write(pdf_bytes)
+                tmp_path = tmp.name
+            
+            try:
+                extractor = TableFieldExtractor()
+                fields, tables = extractor.extract_from_pdf(tmp_path)
+                
+                # Prepend structured fields to the full text
+                if fields:
+                    field_lines: List[str] = []
+                    field_lines.append("=== Extracted Fields ===\n")
+                    
+                    for field in fields:
+                        field_lines.append(f"{field.label} : {field.value}")
+                    
+                    fields_text = "\n".join(field_lines)
+                    full_text = fields_text + "\n\n" + full_text
+                    
+                    metadata["extracted_fields_count"] = len(fields)
+            finally:
+                # Clean up temp file
+                import os
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+        except Exception:
+            # If field extraction fails, continue with text-only
+            pass
+
         avg_confidence = (
             float(sum(ocr_confidences) / len(ocr_confidences))
             if ocr_confidences
@@ -140,24 +177,32 @@ class PdfIngester(BaseIngester):
         self,
         doc: fitz.Document,
     ) -> Tuple[List[str], List[float]]:
-        """Extract per-page text with OCR fallback for image-only pages."""
+        """Extract per-page text with OCR fallback for image-only or text-poor pages."""
 
         texts: List[str] = []
         ocr_confidences: List[float] = []
+        ocr_page_count = 0
 
         for index, page in enumerate(doc):
             page_text = page.get_text() or ""
             cleaned = strip_control_characters(page_text)
 
+            # Fast path: if the existing text layer is already reasonably rich,
+            # skip OCR entirely for this page to avoid expensive image-based
+            # processing on long, text-heavy documents.
+            stripped = cleaned.strip()
+            if len(stripped) >= 200:
+                texts.append(cleaned)
+                continue
+
             ocr_text: str = ""
             ocr_confidence: Optional[float] = None
 
-            # Always consider an OCR pass as an alternative signal, even when the
-            # text layer is non-empty. This allows correcting mis-encoded text
-            # while keeping the original layer for well-formed documents.
             ocr_text, ocr_confidence = self._run_ocr_on_page(page)
             if ocr_confidence is not None:
                 ocr_confidences.append(ocr_confidence)
+            if ocr_text:
+                ocr_page_count += 1
 
             cleaned_ocr = strip_control_characters(ocr_text) if ocr_text else ""
 
@@ -166,7 +211,7 @@ class PdfIngester(BaseIngester):
             # on language- or script-specific assumptions.
             use_ocr = False
             if cleaned_ocr.strip():
-                base_len = len(cleaned.strip())
+                base_len = len(stripped)
                 ocr_len = len(cleaned_ocr.strip())
                 if base_len == 0:
                     use_ocr = True
@@ -179,6 +224,37 @@ class PdfIngester(BaseIngester):
                 cleaned = cleaned_ocr
 
             texts.append(cleaned)
+
+        # #region agent log
+        try:
+            import json as _json  # local import to avoid polluting module namespace
+            from time import time as _time
+
+            with open(
+                "/Users/barisyerlikaya/Projects/Septum/.cursor/debug-314f97.log",
+                "a",
+                encoding="utf-8",
+            ) as f:
+                f.write(
+                    _json.dumps(
+                        {
+                            "sessionId": "314f97",
+                            "runId": "upload",
+                            "hypothesisId": "U1",
+                            "location": "services/ingestion/pdf_ingester.py:_extract_pages_with_optional_ocr",
+                            "message": "pdf_ocr_usage",
+                            "data": {
+                                "page_count": len(texts),
+                                "ocr_page_count": ocr_page_count,
+                            },
+                            "timestamp": _time(),
+                        }
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+        # #endregion
 
         return texts, ocr_confidences
 

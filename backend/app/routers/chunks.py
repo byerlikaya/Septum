@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """FastAPI router for accessing sanitized document chunks."""
 
+import asyncio
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.document import Chunk, Document
+from ..services.vector_store import VectorStore
 from ..utils.text_utils import normalize_unicode
 
 
@@ -39,6 +41,27 @@ class ChunkListResponse(BaseModel):
     """Wrapper for listing chunks."""
 
     items: List[ChunkResponse]
+
+
+class ChunkSearchRequest(BaseModel):
+    """Payload for searching chunks by semantic similarity."""
+
+    document_id: int
+    query: str
+    top_k: int = 10
+
+
+class ChunkSearchHit(BaseModel):
+    """Single search hit with similarity score."""
+
+    chunk: ChunkResponse
+    score: float
+
+
+class ChunkSearchResponse(BaseModel):
+    """Wrapper for chunk search results."""
+
+    items: List[ChunkSearchHit]
 
 
 class ChunkUpdateRequest(BaseModel):
@@ -154,4 +177,60 @@ async def delete_chunk(
 
     await db.delete(chunk)
     await db.commit()
+
+
+@router.post(
+    "/search",
+    response_model=ChunkSearchResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def search_chunks(
+    payload: ChunkSearchRequest,
+    db: AsyncSession = Depends(get_db),
+) -> ChunkSearchResponse:
+    """Search chunks for a given document using the vector index."""
+    doc_result = await db.execute(
+        select(Document).where(Document.id == payload.document_id)
+    )
+    document = doc_result.scalar_one_or_none()
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    effective_top_k = payload.top_k if payload.top_k > 0 else 10
+
+    vector_store = VectorStore()
+    search_results = await asyncio.to_thread(
+        vector_store.search,
+        document_id=payload.document_id,
+        query=payload.query,
+        top_k=effective_top_k,
+    )
+
+    if not search_results:
+        return ChunkSearchResponse(items=[])
+
+    chunk_ids = [chunk_id for chunk_id, _ in search_results]
+    stmt = select(Chunk).where(Chunk.id.in_(chunk_ids))
+    db_result = await db.execute(stmt)
+    chunks = list(db_result.scalars().all())
+
+    chunk_by_id = {chunk.id: chunk for chunk in chunks}
+
+    items: List[ChunkSearchHit] = []
+    for chunk_id, score in search_results:
+        chunk = chunk_by_id.get(chunk_id)
+        if chunk is None:
+            continue
+        items.append(
+            ChunkSearchHit(
+                chunk=ChunkResponse.model_validate(chunk),
+                score=float(score),
+            )
+        )
+
+    return ChunkSearchResponse(items=items)
+
 

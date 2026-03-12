@@ -478,15 +478,23 @@ function PrivacyTab({
           <label className="text-xs font-medium text-slate-200">
             {t("settings.privacy.deanonStrategy.label")}
           </label>
-          <input
-            type="text"
+          <select
             className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
-            defaultValue={settings.deanon_strategy}
-            onBlur={async (event) => {
-              const value = event.target.value.trim() || "simple";
+            value={settings.deanon_strategy || "simple"}
+            onChange={async (event) => {
+              const value = event.target.value || "simple";
               await onChange("deanon_strategy", value);
             }}
-          />
+          >
+            <option value="simple">simple</option>
+            <option value="ollama">ollama</option>
+            {settings.deanon_strategy &&
+              !["simple", "ollama"].includes(settings.deanon_strategy) && (
+                <option value={settings.deanon_strategy}>
+                  {settings.deanon_strategy}
+                </option>
+              )}
+          </select>
           <FieldHint text={t("settings.privacy.deanonStrategy.hint")} />
           {isSaving("deanon_strategy") && <SavingIndicator />}
         </div>
@@ -855,6 +863,14 @@ function IngestionTab({
   onChange,
   isSaving
 }: IngestionTabProps): JSX.Element {
+  const WHISPER_MODELS: Record<string, string> = {
+    tiny: "tiny (≈75 MB)",
+    base: "base (≈142 MB)",
+    small: "small (≈466 MB)",
+    medium: "medium (≈1.5 GB)",
+    large: "large (≈2.9 GB)"
+  };
+
   type AudioHealth = {
     ffmpeg: string;
     whisper_package: string;
@@ -1006,16 +1022,29 @@ function IngestionTab({
           <label className="text-xs font-medium text-slate-200">
             {t("settings.ingestion.whisperModel.label")}
           </label>
-          <input
-            type="text"
+          <select
             className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
-            defaultValue={settings.whisper_model}
-            onBlur={async (event) => {
-              const value = event.target.value.trim() || "base";
+            value={settings.whisper_model || "base"}
+            onChange={async (event) => {
+              const value = event.target.value || "base";
               await onChange("whisper_model", value);
             }}
-            placeholder="tiny | base | small | medium | large"
-          />
+          >
+            {Object.entries(WHISPER_MODELS).map(([model, label]) => (
+              <option key={model} value={model}>
+                {label}
+              </option>
+            ))}
+            {!Object.prototype.hasOwnProperty.call(
+              WHISPER_MODELS,
+              settings.whisper_model
+            ) &&
+              settings.whisper_model && (
+                <option value={settings.whisper_model}>
+                  {settings.whisper_model}
+                </option>
+              )}
+          </select>
           <FieldHint text={t("settings.ingestion.whisperModel.hint")} />
           {isSaving("whisper_model") && <SavingIndicator />}
         </div>

@@ -80,6 +80,15 @@ export const trMessages: Record<string, string> = {
   "chunks.loadingDocuments": "Dokümanlar yükleniyor…",
   "chunks.emptyHint":
     "Henüz parçalara ayrılmış bir doküman yok. Önce Dokümanlar sayfasından bir dosya yükleyip içe aktarın.",
+  "chunks.search.label": "Parçalar hakkında soru sor",
+  "chunks.search.placeholder": "Sorunuzu buraya yazın…",
+  "chunks.search.documentLabel": "Bu dokümanda ara",
+  "chunks.search.documentPlaceholder": "Arama yapılacak dokümanı seçin",
+  "chunks.search.button": "Parçalarda ara",
+  "chunks.search.searching": "Aranıyor…",
+  "chunks.search.resultsTitle": "Arama sonuçları ({count})",
+  "chunks.search.clear": "Sonuçları temizle",
+  "chunks.search.noResults": "Bu soruya uyan parça bulunamadı.",
 
   "settings.title": "Ayarlar",
   "settings.subtitle":
@@ -256,6 +265,7 @@ export const trMessages: Record<string, string> = {
   "errors.documents.delete": "Doküman silinirken bir hata oluştu.",
   "errors.chunks.loadDocuments": "Dokümanlar yüklenirken bir hata oluştu.",
   "errors.chunks.loadChunks": "Parçalar yüklenirken bir hata oluştu.",
+  "errors.chunks.search": "Parçalar aranırken bir hata oluştu.",
   "errors.settings.load": "Ayarlar yüklenirken bir hata oluştu.",
   "errors.settings.update": "Ayar güncellenirken bir hata oluştu.",
   "errors.regulations.load":

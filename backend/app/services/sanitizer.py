@@ -248,8 +248,12 @@ class PIISanitizer:
         settings: AppSettings,
         ner_registry: Optional[NERModelRegistry] = None,
         policy: Optional[ComposedPolicy] = None,
+        enable_ollama_layer: Optional[bool] = None,
     ) -> None:
         self._settings = settings
+        self._enable_ollama_layer = (
+            settings.use_ollama_layer if enable_ollama_layer is None else enable_ollama_layer
+        )
         self._ner_registry = ner_registry or NERModelRegistry()
         self._analyzer = AnalyzerEngine()
         # Increase SpaCy max_length on all underlying models to better handle long texts.
@@ -328,7 +332,7 @@ class PIISanitizer:
             ner_results = ner_pipeline(normalized_text)
             spans.extend(self._from_ner_results(ner_results, normalized_text, language))
 
-        if self._settings.use_ollama_layer:
+        if self._enable_ollama_layer:
             try:
                 ollama_spans = self._ollama_pii_detection(normalized_text)
                 logger.debug(

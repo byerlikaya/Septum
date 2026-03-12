@@ -136,7 +136,10 @@ async def _sanitize_query(
     overrides = getattr(settings, "ner_model_overrides", None) or {}
     ner_registry = NERModelRegistry(_overrides=dict(overrides))
     sanitizer = PIISanitizer(
-        settings=settings, policy=policy, ner_registry=ner_registry
+        settings=settings,
+        policy=policy,
+        ner_registry=ner_registry,
+        enable_ollama_layer=False,
     )
     result = await asyncio.to_thread(
         sanitizer.sanitize,
@@ -144,6 +147,35 @@ async def _sanitize_query(
         language,
         anon_map,
     )
+    # #region agent log
+    try:
+        with open(
+            "/Users/barisyerlikaya/Projects/Septum/.cursor/debug-314f97.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(
+                json.dumps(
+                    {
+                        "sessionId": "314f97",
+                        "runId": "initial",
+                        "hypothesisId": "H3",
+                        "location": "routers/chat.py:_sanitize_query",
+                        "message": "sanitize_query_result",
+                        "data": {
+                            "language": language,
+                            "entity_count": result.entity_count,
+                            "input_length": len(message or ""),
+                            "output_length": len(result.sanitized_text or ""),
+                        },
+                        "timestamp": __import__("time").time(),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion
     return result.sanitized_text, result.entity_count
 
 
@@ -153,26 +185,37 @@ async def _retrieve_chunks(
     query: str,
     top_k: int,
 ) -> List[Chunk]:
-    """Retrieve top-k chunks for a sanitized query using FAISS indexes.
+    """Retrieve top-k chunks using hybrid search (BM25 + FAISS).
 
-    If the vector index is missing or returns no results, falls back to the
-    first top_k chunks of the document (by chunk index) so the LLM still
-    receives context when the document has chunks.
+    Combines keyword-based BM25 search with semantic FAISS search using
+    Reciprocal Rank Fusion (RRF) for improved retrieval quality. Falls back
+    to FAISS-only if BM25 index is unavailable, and to first top_k chunks
+    if neither index exists.
 
     The first chunk (index 0) is always included when the document has multiple
     chunks, so that document-opening content (e.g. titles, parties, key facts)
     is available regardless of query wording or language.
     """
     from ..services.vector_store import VectorStore
+    from ..services.bm25_retriever import BM25Retriever
 
     import re
 
     vector_store = VectorStore()
-    results = vector_store.search(
+    bm25_retriever = BM25Retriever()
+    
+    # Use hybrid search (BM25 + FAISS with RRF)
+    results = await asyncio.to_thread(
+        vector_store.hybrid_search,
         document_id=document_id,
         query=query,
         top_k=top_k,
+        bm25_retriever=bm25_retriever,
+        alpha=0.5,  # FAISS weight
+        beta=0.5,   # BM25 weight
     )
+
+    used_vector_index = bool(results)
 
     if results:
         chunk_ids = [cid for cid, _ in results]
@@ -221,6 +264,38 @@ async def _retrieve_chunks(
         db_result = await db.execute(fallback_stmt)
         chunks = list(db_result.scalars().all())
 
+    # #region agent log
+    try:
+        with open(
+            "/Users/barisyerlikaya/Projects/Septum/.cursor/debug-314f97.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(
+                json.dumps(
+                    {
+                        "sessionId": "314f97",
+                        "runId": "initial",
+                        "hypothesisId": "H4",
+                        "location": "routers/chat.py:_retrieve_chunks",
+                        "message": "retrieved_chunks",
+                        "data": {
+                            "document_id": document_id,
+                            "top_k": top_k,
+                            "used_vector_index": used_vector_index,
+                            "query_length": len(query or ""),
+                            "chunk_count": len(chunks),
+                            "chunk_indexes": [c.index for c in chunks],
+                        },
+                        "timestamp": __import__("time").time(),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion
+
     if len(chunks) > 1:
         first_stmt = (
             select(Chunk).where(Chunk.document_id == document_id, Chunk.index == 0)
@@ -233,15 +308,15 @@ async def _retrieve_chunks(
     return chunks
 
 
-def _build_approval_chunks(chunks: List[Chunk]) -> List[ApprovalChunk]:
-    """Convert database chunks into ApprovalChunk payloads."""
+def _build_approval_chunks(chunks: List[Chunk], texts: List[str]) -> List[ApprovalChunk]:
+    """Convert database chunks into ApprovalChunk payloads using provided texts."""
     approval_chunks: List[ApprovalChunk] = []
-    for c in chunks:
+    for c, text in zip(chunks, texts):
         approval_chunks.append(
             ApprovalChunk(
                 id=c.id,
                 document_id=c.document_id,
-                text=c.sanitized_text,
+                text=text,
                 source_page=c.source_page,
                 source_slide=c.source_slide,
                 source_sheet=c.source_sheet,
@@ -545,8 +620,22 @@ async def chat_ask(
 
             context_texts: List[str] = []
 
+            sanitized_chunk_texts: List[str] = []
+            if document is not None and chunks:
+                # Sanitize chunk texts at send-time so that stored chunks remain raw.
+                for c in chunks:
+                    chunk_text = c.sanitized_text or ""
+                    sanitized_chunk, _ = await _sanitize_query(
+                        chunk_text,
+                        language,
+                        settings,
+                        anon_map,
+                        db,
+                    )
+                    sanitized_chunk_texts.append(sanitized_chunk)
+
             if document is not None and require_approval and chunks:
-                approval_chunks = _build_approval_chunks(chunks)
+                approval_chunks = _build_approval_chunks(chunks, sanitized_chunk_texts)
                 gate.create(
                     session_id=session_id,
                     masked_prompt=sanitized_query,
@@ -587,8 +676,8 @@ async def chat_ask(
                     return
 
                 context_texts = [c.text for c in decision.chunks]
-            elif document is not None:
-                context_texts = [c.sanitized_text for c in chunks]
+            elif document is not None and chunks:
+                context_texts = sanitized_chunk_texts
             else:
                 context_texts = []
 

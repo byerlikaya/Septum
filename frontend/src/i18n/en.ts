@@ -79,6 +79,15 @@ export const enMessages = {
   "chunks.loadingDocuments": "Loading documents…",
   "chunks.emptyHint":
     "No documents with chunks yet. Upload and ingest a document from the Documents page first.",
+  "chunks.search.label": "Ask a question about chunks",
+  "chunks.search.placeholder": "Type your question here…",
+  "chunks.search.documentLabel": "Search within document",
+  "chunks.search.documentPlaceholder": "Select a document to search",
+  "chunks.search.button": "Search chunks",
+  "chunks.search.searching": "Searching…",
+  "chunks.search.resultsTitle": "Search results ({count})",
+  "chunks.search.clear": "Clear results",
+  "chunks.search.noResults": "No chunks matched this question.",
 
   "settings.title": "Settings",
   "settings.subtitle":
@@ -239,6 +248,7 @@ export const enMessages = {
   "errors.documents.delete": "An error occurred while deleting the document.",
   "errors.chunks.loadDocuments": "An error occurred while loading documents.",
   "errors.chunks.loadChunks": "An error occurred while loading chunks.",
+  "errors.chunks.search": "An error occurred while searching chunks.",
   "errors.settings.load": "An error occurred while loading settings.",
   "errors.settings.update": "An error occurred while updating the setting.",
   "errors.regulations.load": "An error occurred while loading regulation settings.",

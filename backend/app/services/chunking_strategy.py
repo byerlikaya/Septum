@@ -4,12 +4,23 @@ from __future__ import annotations
 
 This module provides intelligent chunking that preserves document structure
 (headings, sections, clauses, paragraphs) rather than blindly using sliding
-windows. Each strategy is format-aware and language-agnostic.
+windows. Combines structural detection with embedding-based semantic splitting
+for optimal chunking of legal/contract documents.
+
+Strategy:
+1. Structural phase: detect numbered sections/clauses
+2. Semantic phase: split large sections by semantic similarity
+3. Field extraction: preserve key-value pairs as separate chunks
 """
 
 import re
 from dataclasses import dataclass
 from typing import List, Optional
+
+from langchain_experimental.text_splitter import SemanticChunker as LangChainSemanticChunker
+from sentence_transformers import SentenceTransformer
+
+from ..utils.device import get_device
 
 
 @dataclass
@@ -40,16 +51,15 @@ class SemanticChunker:
 
 
 class StructuredDocumentChunker(SemanticChunker):
-    """Chunker for structured legal/business documents (contracts, policies).
+    """Enhanced chunker for structured legal/business documents.
 
-    This chunker:
-    1. Detects numbered sections/clauses using ONLY numeric patterns
-    2. Detects headings using structural features (capitalization, length)
-    3. Groups content by section, preserving structure
-    4. Splits large sections by paragraphs if needed
+    Hybrid approach:
+    1. Structural phase: detect numbered sections/clauses
+    2. Semantic phase: split large sections using embeddings
+    3. Preserves structure while respecting semantic coherence
     
-    ZERO language-specific assumptions: works for ANY language, ANY legal system.
-    Detection is based purely on structural patterns (numbers, formatting).
+    Uses LangChain's SemanticChunker with gradient threshold for
+    embedding-based splitting of large sections.
     """
 
     # Patterns for section/clause numbers (PURELY structural, NO keywords)
@@ -65,8 +75,48 @@ class StructuredDocumentChunker(SemanticChunker):
         r"^\s*[IVX]+\.\s+",  # Roman numerals: "I. ", "II. ", "III. "
     ]
 
+    def __init__(self, max_chunk_size: int = 1200, min_chunk_size: int = 100) -> None:
+        super().__init__(max_chunk_size=max_chunk_size, min_chunk_size=min_chunk_size)
+        self._semantic_splitter: Optional[LangChainSemanticChunker] = None
+
+    def _get_semantic_splitter(self) -> LangChainSemanticChunker:
+        """Lazy-load the LangChain SemanticChunker with embeddings."""
+        if self._semantic_splitter is None:
+            # Use the same multilingual MiniLM model as VectorStore
+            device = get_device()
+            embeddings_model = SentenceTransformer(
+                "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                device=device
+            )
+            
+            # Wrap the model for LangChain compatibility
+            from langchain_core.embeddings import Embeddings
+            
+            class SentenceTransformerEmbeddings(Embeddings):
+                def __init__(self, model: SentenceTransformer):
+                    self.model = model
+                
+                def embed_documents(self, texts: List[str]) -> List[List[float]]:
+                    embeddings = self.model.encode(texts, convert_to_numpy=True)
+                    return embeddings.tolist()
+                
+                def embed_query(self, text: str) -> List[float]:
+                    embedding = self.model.encode([text], convert_to_numpy=True)[0]
+                    return embedding.tolist()
+            
+            embeddings = SentenceTransformerEmbeddings(embeddings_model)
+            
+            # Create SemanticChunker with "gradient" breakpoint type
+            # Gradient finds points where semantic similarity changes most
+            self._semantic_splitter = LangChainSemanticChunker(
+                embeddings=embeddings,
+                breakpoint_threshold_type="gradient",
+            )
+        
+        return self._semantic_splitter
+
     def chunk(self, text: str) -> List[Chunk]:
-        """Chunk by detecting numbered sections and headings."""
+        """Chunk by detecting numbered sections and using semantic splitting."""
         if not text or len(text) < self.min_chunk_size:
             return [Chunk(text=text, index=0)]
 
@@ -74,7 +124,7 @@ class StructuredDocumentChunker(SemanticChunker):
         sections = self._identify_sections(lines)
 
         if not sections:
-            return self._fallback_paragraph_chunking(text)
+            return self._fallback_semantic_chunking(text)
 
         chunks: List[Chunk] = []
         for idx, section in enumerate(sections):
@@ -90,7 +140,8 @@ class StructuredDocumentChunker(SemanticChunker):
                     )
                 )
             else:
-                sub_chunks = self._split_large_section(section_text, section_title)
+                # Use semantic splitting for large sections
+                sub_chunks = self._split_large_section_semantic(section_text, section_title)
                 for sub_chunk in sub_chunks:
                     sub_chunk.index = len(chunks)
                     chunks.append(sub_chunk)
@@ -169,10 +220,34 @@ class StructuredDocumentChunker(SemanticChunker):
         upper_ratio = sum(1 for c in alpha_chars if c.isupper()) / len(alpha_chars)
         return upper_ratio > 0.7
 
-    def _split_large_section(
+    def _split_large_section_semantic(
         self, text: str, section_title: Optional[str]
     ) -> List[Chunk]:
-        """Split a large section by paragraphs."""
+        """Split a large section using semantic similarity (gradient-based)."""
+        try:
+            splitter = self._get_semantic_splitter()
+            langchain_docs = splitter.split_text(text)
+            
+            chunks: List[Chunk] = []
+            for doc_text in langchain_docs:
+                if len(doc_text.strip()) >= self.min_chunk_size:
+                    chunks.append(
+                        Chunk(
+                            text=doc_text,
+                            index=0,
+                            section_title=section_title,
+                        )
+                    )
+            
+            return chunks if chunks else [Chunk(text=text, index=0, section_title=section_title)]
+        except Exception:
+            # Fallback to paragraph-based splitting if semantic fails
+            return self._split_large_section_paragraph(text, section_title)
+
+    def _split_large_section_paragraph(
+        self, text: str, section_title: Optional[str]
+    ) -> List[Chunk]:
+        """Fallback: split a large section by paragraphs."""
         paragraphs = re.split(r"\n\s*\n", text)
         chunks: List[Chunk] = []
         current_text = ""
@@ -209,8 +284,24 @@ class StructuredDocumentChunker(SemanticChunker):
 
         return chunks
 
+    def _fallback_semantic_chunking(self, text: str) -> List[Chunk]:
+        """Fallback: use semantic chunking when no structure is detected."""
+        try:
+            splitter = self._get_semantic_splitter()
+            langchain_docs = splitter.split_text(text)
+            
+            chunks: List[Chunk] = []
+            for idx, doc_text in enumerate(langchain_docs):
+                if len(doc_text.strip()) >= self.min_chunk_size:
+                    chunks.append(Chunk(text=doc_text, index=idx))
+            
+            return chunks if chunks else [Chunk(text=text, index=0)]
+        except Exception:
+            # Final fallback to paragraph-based
+            return self._fallback_paragraph_chunking(text)
+
     def _fallback_paragraph_chunking(self, text: str) -> List[Chunk]:
-        """Fallback: chunk by paragraphs when no structure is detected."""
+        """Final fallback: chunk by paragraphs when semantic chunking fails."""
         paragraphs = re.split(r"\n\s*\n", text)
         chunks: List[Chunk] = []
         current_text = ""

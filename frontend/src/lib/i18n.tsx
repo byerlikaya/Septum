@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useLanguage } from "@/lib/language";
 import { enMessages } from "@/i18n/en";
 import { trMessages } from "@/i18n/tr";
@@ -10,7 +10,9 @@ const dictionaries: Record<string, Record<string, string>> = {
   tr: trMessages
 };
 
-export function useI18n(): (key: keyof typeof enMessages) => string {
+type TranslationParams = Record<string, string | number>;
+
+export function useI18n(): (key: keyof typeof enMessages, params?: TranslationParams) => string {
   const { language } = useLanguage();
 
   const dict = useMemo(() => {
@@ -18,16 +20,25 @@ export function useI18n(): (key: keyof typeof enMessages) => string {
     return primary;
   }, [language]);
 
-  return (key: keyof typeof enMessages): string => {
-    const fromPrimary = dict[key as string];
-    if (typeof fromPrimary === "string" && fromPrimary.length > 0) {
-      return fromPrimary;
-    }
-    const fromEn = (enMessages as Record<string, string>)[key as string];
-    if (typeof fromEn === "string" && fromEn.length > 0) {
-      return fromEn;
-    }
-    return key;
-  };
+  const translate = useCallback(
+    (key: keyof typeof enMessages, params?: TranslationParams): string => {
+      const template =
+        dict[key as string] ??
+        (enMessages as Record<string, string>)[key as string] ??
+        (key as string);
+
+      if (!params) {
+        return template;
+      }
+
+      return Object.entries(params).reduce((text, [name, value]) => {
+        const token = `{${name}}`;
+        return text.split(token).join(String(value));
+      }, template);
+    },
+    [dict]
+  );
+
+  return translate;
 }
 

@@ -45,7 +45,11 @@ class Document(Base):
 
 
 class Chunk(Base):
-    """Represents a sanitized text chunk derived from a document."""
+    """Represents a text chunk derived from a document.
+    
+    Chunks can be either clause-based (free-form text from sections/paragraphs)
+    or field-based (structured key-value pairs extracted from tables/forms).
+    """
 
     __tablename__ = "chunks"
 
@@ -62,6 +66,13 @@ class Chunk(Base):
     source_timestamp_start: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     source_timestamp_end: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     section_title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
+    chunk_type: Mapped[str] = mapped_column(
+        String, nullable=False, default="clause"
+    )
+    field_label: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    field_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    field_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     document: Mapped[Document] = relationship(back_populates="chunks")
 

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 """
-FAISS-based vector store for Septum.
+FAISS-based vector store for Septum with hybrid search support.
 
 This module is responsible for:
 - Computing multilingual sentence embeddings using a MiniLM-based model.
 - Maintaining a separate FAISS index per document (document_id namespace).
 - Persisting FAISS indexes to disk encrypted with AES-256-GCM.
+- Hybrid search combining BM25 (keyword) and FAISS (semantic) with RRF scoring.
 
 Design notes
 ------------
@@ -16,6 +17,7 @@ Design notes
   directly to `Chunk.id` values in the database.
 - Index files are serialized with FAISS and then encrypted with the shared
   AES-256-GCM utilities from ``app.utils.crypto`` before being written to disk.
+- Hybrid search uses Reciprocal Rank Fusion (RRF) to combine BM25 and FAISS results.
 """
 
 from dataclasses import dataclass, field
@@ -30,6 +32,7 @@ from sentence_transformers import SentenceTransformer
 from ..utils.crypto import decrypt, encrypt
 from ..utils.device import get_device
 from cryptography.exceptions import InvalidTag
+import json
 
 
 def _normalize_embeddings(embeddings: np.ndarray) -> np.ndarray:
@@ -133,6 +136,33 @@ class VectorStore:
 
         index = self._load_index(document_id)
         if index is None:
+            # #region agent log
+            try:
+                with open(
+                    "/Users/barisyerlikaya/Projects/Septum/.cursor/debug-314f97.log",
+                    "a",
+                    encoding="utf-8",
+                ) as f:
+                    f.write(
+                        json.dumps(
+                            {
+                                "sessionId": "314f97",
+                                "runId": "initial",
+                                "hypothesisId": "H1",
+                                "location": "services/vector_store.py:search",
+                                "message": "faiss_index_missing",
+                                "data": {
+                                    "document_id": document_id,
+                                    "top_k": top_k,
+                                },
+                                "timestamp": __import__("time").time(),
+                            }
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # #endregion
             return []
 
         query_vec = self._encode_texts([query])
@@ -143,8 +173,126 @@ class VectorStore:
             if idx == -1:
                 continue
             results.append((int(idx), float(score)))
-        
+
+        # #region agent log
+        try:
+            sample_results = [
+                {"chunk_id": int(cid), "score": float(s)}
+                for cid, s in results[:5]
+            ]
+            with open(
+                "/Users/barisyerlikaya/Projects/Septum/.cursor/debug-314f97.log",
+                "a",
+                encoding="utf-8",
+            ) as f:
+                f.write(
+                    json.dumps(
+                        {
+                            "sessionId": "314f97",
+                            "runId": "initial",
+                            "hypothesisId": "H2",
+                            "location": "services/vector_store.py:search",
+                            "message": "faiss_search_results",
+                            "data": {
+                                "document_id": document_id,
+                                "top_k": top_k,
+                                "result_count": len(results),
+                                "sample_results": sample_results,
+                            },
+                            "timestamp": __import__("time").time(),
+                        }
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+        # #endregion
+
         return results
+
+    def hybrid_search(
+        self,
+        document_id: int,
+        query: str,
+        top_k: int,
+        bm25_retriever: "BM25Retriever | None" = None,
+        alpha: float = 0.5,
+        beta: float = 0.5,
+    ) -> List[Tuple[int, float]]:
+        """Hybrid search combining BM25 (keyword) and FAISS (semantic) with RRF.
+
+        Reciprocal Rank Fusion (RRF) formula:
+            RRF_score(chunk) = Σ 1 / (k + rank_i)
+        where k=60 (standard constant), rank_i is the rank in each retriever.
+
+        Final score is weighted combination:
+            final_score = alpha * faiss_rrf + beta * bm25_rrf
+
+        Parameters
+        ----------
+        document_id:
+            Identifier of the document to search within.
+        query:
+            Query text for both BM25 and FAISS search.
+        top_k:
+            Maximum number of results to return.
+        bm25_retriever:
+            Optional BM25Retriever instance. If None, falls back to FAISS-only.
+        alpha:
+            Weight for FAISS scores (default 0.5).
+        beta:
+            Weight for BM25 scores (default 0.5).
+
+        Returns
+        -------
+        List[Tuple[int, float]]
+            A list of ``(chunk_id, score)`` pairs ordered by descending score.
+        """
+        if top_k <= 0:
+            return []
+
+        # Get FAISS results
+        faiss_results = self.search(document_id, query, top_k=min(top_k * 3, 50))
+
+        # Get BM25 results if available
+        bm25_results: List[Tuple[int, float]] = []
+        if bm25_retriever is not None:
+            bm25_results = bm25_retriever.search(document_id, query, top_k=min(top_k * 3, 50))
+
+        # If only one retriever has results, return those
+        if not faiss_results and not bm25_results:
+            return []
+        if not faiss_results:
+            return bm25_results[:top_k]
+        if not bm25_results:
+            return faiss_results[:top_k]
+
+        # Apply Reciprocal Rank Fusion (RRF)
+        rrf_k = 60  # Standard RRF constant
+
+        # Build RRF scores for FAISS
+        faiss_rrf: dict[int, float] = {}
+        for rank, (chunk_id, _) in enumerate(faiss_results, start=1):
+            faiss_rrf[chunk_id] = 1.0 / (rrf_k + rank)
+
+        # Build RRF scores for BM25
+        bm25_rrf: dict[int, float] = {}
+        for rank, (chunk_id, _) in enumerate(bm25_results, start=1):
+            bm25_rrf[chunk_id] = 1.0 / (rrf_k + rank)
+
+        # Combine scores
+        all_chunk_ids = set(faiss_rrf.keys()) | set(bm25_rrf.keys())
+        combined: List[Tuple[int, float]] = []
+
+        for chunk_id in all_chunk_ids:
+            faiss_score = faiss_rrf.get(chunk_id, 0.0)
+            bm25_score = bm25_rrf.get(chunk_id, 0.0)
+            final_score = alpha * faiss_score + beta * bm25_score
+            combined.append((chunk_id, final_score))
+
+        # Sort by descending score and return top_k
+        combined.sort(key=lambda x: x[1], reverse=True)
+        return combined[:top_k]
 
     def delete_index(self, document_id: int) -> None:
         """Remove the stored FAISS index for a document, if it exists."""
