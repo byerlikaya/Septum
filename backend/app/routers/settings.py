@@ -60,6 +60,7 @@ class SettingsResponse(BaseModel):
     spreadsheet_chunk_size: int
 
     whisper_model: str
+    default_audio_language: Optional[str] = None
     image_ocr_languages: list[str]
     ocr_provider: str
     ocr_provider_options: Optional[dict] = None
@@ -96,6 +97,7 @@ class SettingsUpdatePayload(BaseModel):
     spreadsheet_chunk_size: Optional[int] = None
 
     whisper_model: Optional[str] = None
+    default_audio_language: Optional[str] = None
     image_ocr_languages: Optional[list[str]] = None
     ocr_provider: Optional[str] = None
     ocr_provider_options: Optional[dict[str, Any]] = None

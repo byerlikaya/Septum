@@ -149,6 +149,7 @@ export interface AppSettingsResponse {
   audio_chunk_size: number;
   spreadsheet_chunk_size: number;
   whisper_model: string;
+  default_audio_language?: string | null;
   image_ocr_languages: string[];
   ocr_provider: string;
   ocr_provider_options: Record<string, unknown> | null;

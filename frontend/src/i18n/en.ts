@@ -210,6 +210,10 @@ export const enMessages = {
   "settings.ingestion.whisperModel.label": "Whisper model",
   "settings.ingestion.whisperModel.hint":
     "Local Whisper model size for audio transcription.",
+  "settings.ingestion.defaultAudioLanguage.label": "Default audio language",
+  "settings.ingestion.defaultAudioLanguage.auto": "Auto-detect",
+  "settings.ingestion.defaultAudioLanguage.hint":
+    "When set, Whisper is told the audio language (e.g. Turkish), which improves transcription accuracy. Leave on Auto-detect if your files use mixed languages.",
   "settings.ingestion.ocrLanguages.label":
     "OCR languages (comma-separated)",
   "settings.ingestion.ocrLanguages.hint":

@@ -221,6 +221,10 @@ export const trMessages: Record<string, string> = {
   "settings.ingestion.whisperModel.label": "Whisper modeli",
   "settings.ingestion.whisperModel.hint":
     "Ses transkripsiyonu için yerel Whisper model boyutu.",
+  "settings.ingestion.defaultAudioLanguage.label": "Varsayılan ses dili",
+  "settings.ingestion.defaultAudioLanguage.auto": "Otomatik algıla",
+  "settings.ingestion.defaultAudioLanguage.hint":
+    "Ayarlanırsa Whisper ses dilini (örn. Türkçe) bilir; bu da transkripsiyon doğruluğunu artırır. Karışık dilli dosyalar için Otomatik algıla bırakın.",
   "settings.ingestion.ocrLanguages.label":
     "OCR dilleri (virgülle ayrılmış)",
   "settings.ingestion.ocrLanguages.hint":

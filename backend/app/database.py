@@ -49,6 +49,7 @@ async def init_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_ocr_provider_columns)
         await conn.run_sync(_ensure_ner_overrides_column)
+        await conn.run_sync(_ensure_default_audio_language_column)
 
     await _seed_defaults()
 
@@ -102,6 +103,7 @@ async def _seed_defaults() -> None:
                     "SPREADSHEET_CHUNK_SIZE_DEFAULT", 200
                 ),
                 whisper_model=os.getenv("WHISPER_MODEL", "base"),
+                default_audio_language=os.getenv("DEFAULT_AUDIO_LANGUAGE") or None,
                 image_ocr_languages=_csv_env_to_list(
                     "DEFAULT_OCR_LANGUAGES", default="en"
                 ),
@@ -173,6 +175,17 @@ def _ensure_ner_overrides_column(conn: Any) -> None:
     """Add ner_model_overrides column if missing (e.g. existing DBs)."""
     try:
         conn.execute(text("ALTER TABLE app_settings ADD COLUMN ner_model_overrides TEXT"))
+    except Exception as e:
+        if "duplicate column name" not in str(e).lower():
+            raise
+
+
+def _ensure_default_audio_language_column(conn: Any) -> None:
+    """Add default_audio_language column if missing (e.g. existing DBs)."""
+    try:
+        conn.execute(
+            text("ALTER TABLE app_settings ADD COLUMN default_audio_language TEXT")
+        )
     except Exception as e:
         if "duplicate column name" not in str(e).lower():
             raise

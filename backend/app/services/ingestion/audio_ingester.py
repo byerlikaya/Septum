@@ -19,30 +19,56 @@ import asyncio
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .base import BaseIngester, IngestionResult
+
 import ffmpeg  # type: ignore[import]
 import numpy as np  # type: ignore[import]
 
 from ...utils.crypto import decrypt
 from ...utils.device import get_device
-from .base import BaseIngester, IngestionResult
-
 
 _WHISPER_SAMPLE_RATE = 16000
+
+_MIME_TO_SUFFIX: Dict[str, str] = {
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/flac": ".flac",
+    "audio/ogg": ".ogg",
+    "audio/mp4": ".m4a",
+    "audio/x-m4a": ".m4a",
+}
+
+
+def _suffix_for_audio(mime_type: str) -> str:
+    """Return a file suffix for the given audio MIME type so decoders get the right format."""
+    return _MIME_TO_SUFFIX.get(
+        (mime_type or "").strip().lower(), ".m4a"
+    )
 
 
 class AudioIngester(BaseIngester):
     """Ingests encrypted audio files and extracts textual content via Whisper."""
 
-    def __init__(self, model_name: str = "base") -> None:
-        """Initialize the ingester with a given Whisper model.
+    def __init__(
+        self,
+        model_name: str = "base",
+        language: Optional[str] = None,
+    ) -> None:
+        """Initialize the ingester with a given Whisper model and optional language.
 
         Args:
             model_name: Name of the local Whisper model to load, e.g. ``"base"``,
                 ``"small"``, etc. The model is loaded lazily on first use and
                 kept in memory for subsequent calls.
+            language: Optional ISO 639-1 language code (e.g. ``"tr"``, ``"en"``).
+                When set, Whisper is told the audio language, which improves
+                transcription accuracy and avoids wrong-language decoding.
         """
 
         self._model_name = model_name
+        self._language = (language.strip().lower() if language else None) or None
         self._model = None
 
     async def extract(self, data: bytes, filename: str) -> IngestionResult:
@@ -71,7 +97,10 @@ class AudioIngester(BaseIngester):
             tmp.flush()
 
             model = self._load_model()
-            result = model.transcribe(tmp.name)
+            transcribe_kwargs: Dict[str, Any] = {}
+            if self._language:
+                transcribe_kwargs["language"] = self._language
+            result = model.transcribe(tmp.name, **transcribe_kwargs)
 
         text = result.get("text") or ""
         language = result.get("language")
@@ -136,21 +165,28 @@ class AudioIngester(BaseIngester):
         warnings: List[str] = []
         audio_bytes = decrypt(encrypted_bytes)
 
-        # Use a temporary file + Whisper's internal decoding pipeline instead of
-        # manually decoding via ffmpeg. This mirrors the approach used in the
-        # SmartRAG project, where the model operates directly on the container
-        # file and has proven robust for the same audio sample.
+        # Use a temporary file + Whisper's internal decoding pipeline. The suffix
+        # must match the actual audio format (from MIME) so ffmpeg/Whisper can
+        # decode; the stored file has no extension (UUID name).
         import tempfile
 
-        suffix = Path(file_path.name).suffix or ".m4a"
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
-            tmp.write(audio_bytes)
-            tmp.flush()
+        suffix = _suffix_for_audio(mime_type)
+        tmp_path: Optional[Path] = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                suffix=suffix, delete=False
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+                tmp.write(audio_bytes)
+                tmp.flush()
 
             model = self._load_model()
+            transcribe_kwargs: Dict[str, Any] = {}
+            if self._language:
+                transcribe_kwargs["language"] = self._language
             try:
-                result = model.transcribe(tmp.name)
-            except Exception as exc:  # noqa: BLE001
+                result = model.transcribe(str(tmp_path), **transcribe_kwargs)
+            except Exception:  # noqa: BLE001
                 warnings.append(
                     "Audio transcription failed: Whisper could not process the file."
                 )
@@ -161,7 +197,6 @@ class AudioIngester(BaseIngester):
                     "whisper_model": self._model_name,
                     "detected_language": None,
                 }
-
                 return IngestionResult(
                     text="",
                     metadata=metadata,
@@ -169,40 +204,45 @@ class AudioIngester(BaseIngester):
                     raw_segments=[],
                 )
 
-        text = result.get("text") or ""
-        language = result.get("language")
-        segments_raw = result.get("segments") or []
+            text = result.get("text") or ""
+            language = result.get("language")
+            segments_raw = result.get("segments") or []
 
-        segments: List[Dict[str, Any]] = []
-        for seg in segments_raw:
-            if isinstance(seg, dict):
-                segments.append(seg)
-            else:
-                segments.append(dict(seg))  # type: ignore[arg-type]
+            segments = []
+            for seg in segments_raw:
+                if isinstance(seg, dict):
+                    segments.append(seg)
+                else:
+                    segments.append(dict(seg))  # type: ignore[arg-type]
 
-        duration_seconds = 0.0
-        if segments:
-            last_end = segments[-1].get("end")
-            if isinstance(last_end, (int, float)):
-                duration_seconds = float(last_end)
+            duration_seconds = 0.0
+            if segments:
+                last_end = segments[-1].get("end")
+                if isinstance(last_end, (int, float)):
+                    duration_seconds = float(last_end)
 
-        if not text.strip():
-            warnings.append("No transcription produced by Whisper.")
+            if not text.strip():
+                warnings.append("No transcription produced by Whisper.")
 
-        metadata: Dict[str, Any] = {
-            "mime_type": mime_type,
-            "file_format": file_format,
-            "duration_seconds": duration_seconds,
-            "whisper_model": self._model_name,
-            "detected_language": language,
-        }
-
-        return IngestionResult(
-            text=text,
-            metadata=metadata,
-            warnings=warnings,
-            raw_segments=segments,
-        )
+            metadata = {
+                "mime_type": mime_type,
+                "file_format": file_format,
+                "duration_seconds": duration_seconds,
+                "whisper_model": self._model_name,
+                "detected_language": language,
+            }
+            return IngestionResult(
+                text=text,
+                metadata=metadata,
+                warnings=warnings,
+                raw_segments=segments,
+            )
+        finally:
+            if tmp_path is not None and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
 
     def _decode_audio(self, audio_bytes: bytes, *, mime_type: str) -> np.ndarray:
         """Decode arbitrary encoded audio bytes into a mono float waveform."""
@@ -227,7 +267,12 @@ class AudioIngester(BaseIngester):
         return audio
 
     def _load_model(self) -> Any:
-        """Lazily load the Whisper model on the appropriate device."""
+        """Lazily load the Whisper model on the appropriate device.
+
+        Prefers CPU when the default device is MPS (Apple Silicon), because
+        Whisper inference is known to produce NaN logits on MPS and then fail
+        in the decoder. CUDA and CPU are used as returned by get_device().
+        """
 
         if self._model is not None:
             return self._model
@@ -235,6 +280,8 @@ class AudioIngester(BaseIngester):
         import whisper  # type: ignore[import]
 
         device = get_device()
+        if device == "mps":
+            device = "cpu"
         self._model = whisper.load_model(self._model_name, device=device)
         return self._model
 
@@ -245,7 +292,10 @@ class AudioIngester(BaseIngester):
         """Run Whisper transcription on the given waveform."""
 
         model = self._load_model()
-        result = model.transcribe(audio)
+        transcribe_kwargs: Dict[str, Any] = {}
+        if self._language:
+            transcribe_kwargs["language"] = self._language
+        result = model.transcribe(audio, **transcribe_kwargs)
 
         text = result.get("text") or ""
         language = result.get("language")

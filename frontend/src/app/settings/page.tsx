@@ -1051,6 +1051,47 @@ function IngestionTab({
 
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-slate-200">
+            {t("settings.ingestion.defaultAudioLanguage.label")}
+          </label>
+          <select
+            className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
+            value={settings.default_audio_language ?? ""}
+            onChange={async (event) => {
+              const value = event.target.value.trim() || null;
+              await onChange(
+                "default_audio_language",
+                value ? value : null
+              );
+            }}
+          >
+            <option value="">{t("settings.ingestion.defaultAudioLanguage.auto")}</option>
+            {[
+              { code: "tr", name: "Türkçe" },
+              { code: "en", name: "English" },
+              { code: "de", name: "Deutsch" },
+              { code: "fr", name: "Français" },
+              { code: "es", name: "Español" },
+              { code: "it", name: "Italiano" },
+              { code: "pt", name: "Português" },
+              { code: "nl", name: "Nederlands" },
+              { code: "pl", name: "Polski" },
+              { code: "ru", name: "Русский" },
+              { code: "ar", name: "العربية" },
+              { code: "zh", name: "中文" },
+              { code: "ja", name: "日本語" },
+              { code: "ko", name: "한국어" },
+            ].map(({ code, name }) => (
+              <option key={code} value={code}>
+                {name}
+              </option>
+            ))}
+          </select>
+          <FieldHint text={t("settings.ingestion.defaultAudioLanguage.hint")} />
+          {isSaving("default_audio_language") && <SavingIndicator />}
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-slate-200">
             {t("settings.ingestion.ocrLanguages.label")}
           </label>
           <input

@@ -43,6 +43,9 @@ class AppSettings(Base):
     spreadsheet_chunk_size: Mapped[int] = mapped_column(Integer, nullable=False)
 
     whisper_model: Mapped[str] = mapped_column(String, nullable=False)
+    default_audio_language: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
     image_ocr_languages: Mapped[List[str]] = mapped_column(JSON, nullable=False)
     ocr_provider: Mapped[str] = mapped_column(String, nullable=False)
     ocr_provider_options: Mapped[Optional[Dict[str, Any]]] = mapped_column(

@@ -299,6 +299,30 @@ async def _load_settings(db: AsyncSession) -> AppSettings:
     return settings
 
 
+def _build_ingester_kwargs(
+    file_format: str,
+    settings: AppSettings,
+) -> Optional[Dict[str, Any]]:
+    """Build ingester constructor kwargs from settings for the given format."""
+    if file_format in {"image", "pdf"}:
+        languages = list(settings.image_ocr_languages or [])
+        return {
+            "languages": languages or (["en"] if file_format == "image" else []),
+            "ocr_provider": getattr(settings, "ocr_provider", None) or "easyocr",
+            "ocr_provider_options": getattr(settings, "ocr_provider_options", None)
+            or {},
+        }
+    if file_format == "audio":
+        kwargs: Dict[str, Any] = {
+            "model_name": (settings.whisper_model or "base").strip(),
+        }
+        default_audio_lang = getattr(settings, "default_audio_language", None)
+        if default_audio_lang and str(default_audio_lang).strip():
+            kwargs["language"] = str(default_audio_lang).strip().lower()
+        return kwargs
+    return None
+
+
 async def _detect_language(text: str) -> str:
     """Best-effort language detection with a safe fallback."""
     if not text:
@@ -477,16 +501,7 @@ async def upload_document(
 
     settings = await _load_settings(db)
 
-    ingester_kwargs: Optional[Dict[str, Any]] = None
-    if file_format in {"image", "pdf"}:
-        languages = list(settings.image_ocr_languages or [])
-        ingester_kwargs = {
-            "languages": languages or (["en"] if file_format == "image" else []),
-            "ocr_provider": getattr(settings, "ocr_provider", None) or "easyocr",
-            "ocr_provider_options": getattr(settings, "ocr_provider_options", None)
-            or {},
-        }
-
+    ingester_kwargs = _build_ingester_kwargs(file_format, settings)
     ingestion_result = await _INGESTION_ROUTER.ingest(
         file_path=encrypted_path,
         mime_type=mime_type,
@@ -494,7 +509,14 @@ async def upload_document(
         ingester_kwargs=ingester_kwargs,
     )
 
-    detected_language = await _detect_language(ingestion_result.text)
+    if file_format == "audio" and ingestion_result.metadata:
+        whisper_lang = ingestion_result.metadata.get("detected_language")
+        if isinstance(whisper_lang, str) and whisper_lang.strip():
+            detected_language = whisper_lang.strip().lower()
+        else:
+            detected_language = await _detect_language(ingestion_result.text)
+    else:
+        detected_language = await _detect_language(ingestion_result.text)
 
     document = Document(
         filename=str(encrypted_path.name),
@@ -524,9 +546,12 @@ async def upload_document(
         # Short-circuit for audio documents with no transcription.
         if file_format == "audio" and not (ingestion_result.text or "").strip():
             document.ingestion_status = "failed"
-            document.ingestion_error = (
-                "Audio transcription failed: decoder produced no samples or text."
-            )
+            base_msg = "Audio transcription failed: decoder produced no samples or text."
+            if ingestion_result.warnings:
+                detail = "; ".join(ingestion_result.warnings)
+                document.ingestion_error = f"{base_msg} ({detail})"
+            else:
+                document.ingestion_error = base_msg
             document.chunk_count = 0
             document.entity_count = 0
             await db.commit()
