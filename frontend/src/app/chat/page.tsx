@@ -10,7 +10,7 @@ import { BlockingLoader } from "@/components/common/BlockingLoader";
 import { useI18n } from "@/lib/i18n";
 import { uploadDocuments } from "@/lib/uploadDocuments";
 
-export default function ChatPage(): JSX.Element {
+export default function ChatPage() {
   const t = useI18n();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [settings, setSettings] = useState<AppSettingsResponse | null>(null);
