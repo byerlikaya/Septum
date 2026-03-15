@@ -94,6 +94,7 @@ The common theme: **leverage LLMs while keeping personal data encrypted and on�
   - Combines BM25 (keyword matching) with FAISS (semantic similarity) using Reciprocal Rank Fusion (RRF).
   - Delivers superior retrieval quality for legal/contract queries by blending exact term matching with semantic understanding.
   - Configurable weights (alpha/beta) for fine-tuning retrieval balance.
+  - Adaptive context size and document-theme retrieval improve answers for holistic questions (e.g. “interpret this document”, “summarise the report”) without requiring targeted phrasing.
 
 - **Structured Data Extraction**
   - Automatically detects and extracts tables and key-value pairs from PDF documents (e.g., "Employee Title: Engineer").

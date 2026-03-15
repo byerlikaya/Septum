@@ -12,6 +12,8 @@ This module is responsible for:
 Design notes
 ------------
 - Embeddings are produced by a multilingual MiniLM SentenceTransformer model.
+- On Apple Silicon (MPS), the model is loaded on CPU to avoid a PyTorch meta-tensor
+  bug when moving the model to MPS (NotImplementedError with .to(device)).
 - Embeddings are L2-normalized and indexed with inner-product (cosine similarity).
 - Each document's index is an `IndexIDMap` where FAISS vector IDs correspond
   directly to `Chunk.id` values in the database.
@@ -30,7 +32,6 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 
 from ..utils.crypto import decrypt, encrypt
-from ..utils.device import get_device
 from cryptography.exceptions import InvalidTag
 import json
 
@@ -42,6 +43,42 @@ def _normalize_embeddings(embeddings: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
     norms[norms == 0.0] = 1.0
     return embeddings / norms
+
+
+def merge_rrf_result_lists(
+    result_lists: List[List[Tuple[int, float]]],
+    top_k: int,
+    rrf_k: int = 60,
+) -> List[Tuple[int, float]]:
+    """Merge multiple (chunk_id, score) result lists using Reciprocal Rank Fusion.
+
+    RRF score for a chunk_id: sum over each list of 1 / (rrf_k + rank).
+    Used to combine e.g. user-query retrieval with document-theme retrieval
+    without hardcoding any language or document-type logic.
+
+    Parameters
+    ----------
+    result_lists:
+        Each element is a list of (chunk_id, score) from one retrieval run.
+        Scores in the input are ignored; only rank in each list is used.
+    top_k:
+        Maximum number of (chunk_id, rrf_score) pairs to return.
+    rrf_k:
+        RRF constant (default 60, same as in hybrid_search).
+
+    Returns
+    -------
+    List[Tuple[int, float]]
+        Merged list of (chunk_id, rrf_score) ordered by descending score.
+    """
+    if top_k <= 0 or not result_lists:
+        return []
+    rrf_scores: dict[int, float] = {}
+    for result_list in result_lists:
+        for rank, (chunk_id, _) in enumerate(result_list, start=1):
+            rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + 1.0 / (rrf_k + rank)
+    combined = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+    return combined[:top_k]
 
 
 @dataclass
@@ -304,10 +341,21 @@ class VectorStore:
                 pass
 
     def _get_model(self) -> SentenceTransformer:
-        """Return the lazy-loaded multilingual MiniLM encoder."""
+        """Return the lazy-loaded multilingual MiniLM encoder.
+
+        Loads on CPU with low_cpu_mem_usage=False to avoid PyTorch meta-tensor
+        errors (PyTorch 2.2+). If that still raises NotImplementedError (e.g. on
+        Apple MPS), retries without device so the library uses its default path.
+        """
         if self._model is None:
-            device = get_device()
-            self._model = SentenceTransformer(self.model_name, device=device)
+            try:
+                self._model = SentenceTransformer(
+                    self.model_name,
+                    device="cpu",
+                    model_kwargs={"low_cpu_mem_usage": False},
+                )
+            except NotImplementedError:
+                self._model = SentenceTransformer(self.model_name)
         return self._model
 
     def _encode_texts(self, texts: Sequence[str]) -> np.ndarray:

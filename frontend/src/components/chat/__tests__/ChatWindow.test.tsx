@@ -29,10 +29,10 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
-function renderChatWindow() {
+function renderChatWindow(documentIds: number[] = [1]) {
   return render(
     <ChatWindow
-      documentId={1}
+      documentIds={documentIds}
       requireApproval={false}
       deanonEnabled={true}
       activeRegulations={["GDPR"]}
@@ -58,6 +58,7 @@ it("sends a message and calls streamChatAsk with expected params", async () => {
   const [params] = mockStreamChatAsk.mock.calls[0];
   expect(params.message).toBe("Hello");
   expect(params.document_id).toBe(1);
+  expect(params.document_ids).toEqual([1]);
 });
 
 it("renders empty state when there are no messages", () => {

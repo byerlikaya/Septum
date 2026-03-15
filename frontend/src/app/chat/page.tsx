@@ -67,8 +67,8 @@ export default function ChatPage(): JSX.Element {
     };
   }, []);
 
-  const primaryDocumentId =
-    selectedIds.size > 0 ? Math.min(...selectedIds) : null;
+  const documentIds =
+    selectedIds.size > 0 ? Array.from(selectedIds).sort((a, b) => a - b) : [];
 
   const handleFilesSelected = useCallback(
     async (files: File[]): Promise<void> => {
@@ -167,7 +167,7 @@ export default function ChatPage(): JSX.Element {
               <DeanonymizationBanner visible={showDeanonBanner} />
               {showDeanonBanner && <div className="h-2 shrink-0" />}
               <ChatWindow
-                documentId={primaryDocumentId}
+                documentIds={documentIds}
                 requireApproval={settings?.require_approval ?? false}
                 deanonEnabled={settings?.deanon_enabled ?? true}
                 activeRegulations={regulationPills.slice(0, 5)}

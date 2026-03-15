@@ -15,6 +15,7 @@ import os
 import re
 from typing import Any, AsyncGenerator, List, Optional
 from uuid import uuid4
+
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -179,41 +180,104 @@ async def _sanitize_query(
     return result.sanitized_text, result.entity_count
 
 
+THEME_SNIPPET_LEN = 400
+MIN_CHUNKS_FOR_LAST = 6
+TOP_K_RETRIEVAL_MAX_CAP = 25
+FULL_DOCUMENT_CHUNK_THRESHOLD = 100
+
+
+def _effective_top_k(base_top_k: int, chunk_count: int) -> int:
+    """Compute retrieval top_k from base and document chunk count.
+
+    For longer documents, requests more chunks so holistic queries get
+    sufficient context. Purely numeric; no language or document-type logic.
+    """
+    if chunk_count <= 0:
+        return base_top_k
+    bonus = 0 if chunk_count <= 10 else min(10, chunk_count // 3)
+    return min(TOP_K_RETRIEVAL_MAX_CAP, max(base_top_k, base_top_k + bonus))
+
+
 async def _retrieve_chunks(
     db: AsyncSession,
     document_id: int,
     query: str,
     top_k: int,
+    chunk_count: Optional[int] = None,
 ) -> List[Chunk]:
     """Retrieve top-k chunks using hybrid search (BM25 + FAISS).
 
     Combines keyword-based BM25 search with semantic FAISS search using
-    Reciprocal Rank Fusion (RRF) for improved retrieval quality. Falls back
-    to FAISS-only if BM25 index is unavailable, and to first top_k chunks
-    if neither index exists.
+    Reciprocal Rank Fusion (RRF). When chunk_count > 1, also runs a
+    document-theme search (first chunk snippet) and merges with RRF so
+    holistic queries get both query-relevant and document-representative chunks.
+    Falls back to FAISS-only if BM25 index is unavailable, and to first
+    top_k chunks if neither index exists.
 
     The first chunk (index 0) is always included when the document has multiple
-    chunks, so that document-opening content (e.g. titles, parties, key facts)
-    is available regardless of query wording or language.
+    chunks. For long documents (chunk_count >= MIN_CHUNKS_FOR_LAST), the last
+    chunk is also included so conclusion/summary content is available.
     """
-    from ..services.vector_store import VectorStore
-    from ..services.bm25_retriever import BM25Retriever
-
     import re
+
+    from ..services.bm25_retriever import BM25Retriever
+    from ..services.vector_store import VectorStore, merge_rrf_result_lists
 
     vector_store = VectorStore()
     bm25_retriever = BM25Retriever()
-    
-    # Use hybrid search (BM25 + FAISS with RRF)
-    results = await asyncio.to_thread(
-        vector_store.hybrid_search,
-        document_id=document_id,
-        query=query,
-        top_k=top_k,
-        bm25_retriever=bm25_retriever,
-        alpha=0.5,  # FAISS weight
-        beta=0.5,   # BM25 weight
-    )
+
+    if chunk_count is not None and chunk_count > 1:
+        first_chunk_stmt = (
+            select(Chunk).where(Chunk.document_id == document_id, Chunk.index == 0)
+        )
+        first_chunk_result = await db.execute(first_chunk_stmt)
+        first_chunk_row = first_chunk_result.scalar_one_or_none()
+        theme_snippet = ""
+        if first_chunk_row and first_chunk_row.sanitized_text:
+            theme_snippet = (first_chunk_row.sanitized_text or "")[:THEME_SNIPPET_LEN]
+        if theme_snippet.strip():
+            fetch_top_k = min(top_k * 2, 50)
+            results_user, results_theme = await asyncio.gather(
+                asyncio.to_thread(
+                    vector_store.hybrid_search,
+                    document_id=document_id,
+                    query=query,
+                    top_k=fetch_top_k,
+                    bm25_retriever=bm25_retriever,
+                    alpha=0.5,
+                    beta=0.5,
+                ),
+                asyncio.to_thread(
+                    vector_store.hybrid_search,
+                    document_id=document_id,
+                    query=theme_snippet,
+                    top_k=fetch_top_k,
+                    bm25_retriever=bm25_retriever,
+                    alpha=0.5,
+                    beta=0.5,
+                ),
+            )
+            results = merge_rrf_result_lists([results_user, results_theme], top_k)
+        else:
+            results = await asyncio.to_thread(
+                vector_store.hybrid_search,
+                document_id=document_id,
+                query=query,
+                top_k=top_k,
+                bm25_retriever=bm25_retriever,
+                alpha=0.5,
+                beta=0.5,
+            )
+    else:
+        results = await asyncio.to_thread(
+            vector_store.hybrid_search,
+            document_id=document_id,
+            query=query,
+            top_k=top_k,
+            bm25_retriever=bm25_retriever,
+            alpha=0.5,
+            beta=0.5,
+        )
 
     used_vector_index = bool(results)
 
@@ -304,6 +368,21 @@ async def _retrieve_chunks(
         first_chunk = first_result.scalar_one_or_none()
         if first_chunk and first_chunk.id is not None and first_chunk.id not in (c.id for c in chunks):
             chunks = [first_chunk] + [c for c in chunks if c.id != first_chunk.id][: top_k - 1]
+
+    if chunk_count is not None and chunk_count >= MIN_CHUNKS_FOR_LAST:
+        last_index = chunk_count - 1
+        last_stmt = (
+            select(Chunk).where(
+                Chunk.document_id == document_id,
+                Chunk.index == last_index,
+            )
+        )
+        last_result = await db.execute(last_stmt)
+        last_chunk = last_result.scalar_one_or_none()
+        chunk_ids = {c.id for c in chunks}
+        if last_chunk and last_chunk.id is not None and last_chunk.id not in chunk_ids:
+            chunks = chunks + [last_chunk]
+            chunks = sorted(chunks, key=lambda c: c.index)[:top_k]
 
     return chunks
 
@@ -527,27 +606,28 @@ async def chat_ask(
         )
 
     # Determine whether this request is document-backed (RAG) or pure free-text.
-    document_id: Optional[int]
-    if request.document_id is not None:
-        document_id = request.document_id
-    elif request.document_ids:
+    document_ids_list: List[int] = []
+    if request.document_ids:
         if len(request.document_ids) == 0:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="At least one document_id must be provided.",
             )
-        document_id = request.document_ids[0]
-    else:
-        document_id = None
+        document_ids_list = list(request.document_ids)
+    elif request.document_id is not None:
+        document_ids_list = [request.document_id]
+    document_id = document_ids_list[0] if document_ids_list else None
 
     settings = await _load_settings(db)
     composer = PolicyComposer()
     policy = await composer.compose(db)
     regulation_names = await _active_regulation_names(db)
 
-    document: Document | None = None
-    if document_id is not None:
-        document = await _load_document(db, document_id)
+    documents_by_id: dict[int, Document] = {}
+    if document_ids_list:
+        for did in document_ids_list:
+            documents_by_id[did] = await _load_document(db, did)
+    document: Document | None = documents_by_id.get(document_id) if document_id is not None else None
 
     base_language = (document.language_override or document.detected_language) if document else "en"
     language = await _detect_language(message_text, fallback=base_language)
@@ -581,15 +661,54 @@ async def chat_ask(
     sanitized_query, entity_count = await _sanitize_query(
         message_text, language, settings, anon_map, db
     )
-    top_k = request.top_k or settings.top_k_retrieval
+    base_top_k = request.top_k or settings.top_k_retrieval
+    total_chunk_count = (
+        sum(d.chunk_count for d in documents_by_id.values()) if documents_by_id else 0
+    )
+    use_full_document = (
+        total_chunk_count > 0 and total_chunk_count <= FULL_DOCUMENT_CHUNK_THRESHOLD
+    )
+    top_k = (
+        _effective_top_k(base_top_k, total_chunk_count)
+        if documents_by_id and not use_full_document
+        else base_top_k
+    )
     chunks: List[Chunk] = []
-    if document is not None:
-        chunks = await _retrieve_chunks(
-            db=db,
-            document_id=document.id,
-            query=sanitized_query,
-            top_k=top_k,
-        )
+    if documents_by_id:
+        if use_full_document:
+            for doc in sorted(documents_by_id.values(), key=lambda d: d.id):
+                stmt = (
+                    select(Chunk)
+                    .where(Chunk.document_id == doc.id)
+                    .order_by(Chunk.index)
+                )
+                result = await db.execute(stmt)
+                chunks.extend(result.scalars().all())
+        elif len(documents_by_id) == 1:
+            doc = next(iter(documents_by_id.values()))
+            chunks = await _retrieve_chunks(
+                db=db,
+                document_id=doc.id,
+                query=sanitized_query,
+                top_k=top_k,
+                chunk_count=doc.chunk_count,
+            )
+        else:
+            # For multi-document queries, ensure sufficient context per document
+            # while keeping total reasonable (max 50 chunks across all documents)
+            MIN_PER_DOC = 10
+            MAX_TOTAL = 50
+            num_docs = len(documents_by_id)
+            per_doc_k = max(MIN_PER_DOC, min(MAX_TOTAL // num_docs, top_k // num_docs))
+            for doc in documents_by_id.values():
+                chunks_doc = await _retrieve_chunks(
+                    db=db,
+                    document_id=doc.id,
+                    query=sanitized_query,
+                    top_k=per_doc_k,
+                    chunk_count=doc.chunk_count,
+                )
+                chunks.extend(chunks_doc)
 
     session_id = request.session_id or uuid4().hex
     gate: ApprovalGate = get_approval_gate()
@@ -621,9 +740,17 @@ async def chat_ask(
             context_texts: List[str] = []
 
             sanitized_chunk_texts: List[str] = []
-            if document is not None and chunks:
-                # Sanitize chunk texts at send-time so that stored chunks remain raw.
+            if documents_by_id and chunks:
+                prev_doc_id: Optional[int] = None
                 for c in chunks:
+                    header = ""
+                    if len(documents_by_id) > 1 and c.document_id != prev_doc_id:
+                        header = (
+                            "--- Document: "
+                            + (documents_by_id[c.document_id].original_filename or "")
+                            + " ---\n\n"
+                        )
+                        prev_doc_id = c.document_id
                     chunk_text = c.sanitized_text or ""
                     sanitized_chunk, _ = await _sanitize_query(
                         chunk_text,
@@ -632,9 +759,9 @@ async def chat_ask(
                         anon_map,
                         db,
                     )
-                    sanitized_chunk_texts.append(sanitized_chunk)
+                    sanitized_chunk_texts.append(header + sanitized_chunk)
 
-            if document is not None and require_approval and chunks:
+            if documents_by_id and require_approval and chunks:
                 approval_chunks = _build_approval_chunks(chunks, sanitized_chunk_texts)
                 gate.create(
                     session_id=session_id,
@@ -676,7 +803,7 @@ async def chat_ask(
                     return
 
                 context_texts = [c.text for c in decision.chunks]
-            elif document is not None and chunks:
+            elif documents_by_id and chunks:
                 context_texts = sanitized_chunk_texts
             else:
                 context_texts = []

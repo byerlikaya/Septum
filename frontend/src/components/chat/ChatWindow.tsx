@@ -17,7 +17,7 @@ import { ApprovalModal } from "./ApprovalModal";
 import { APPROVAL_TIMEOUT_SECONDS } from "./DocumentSelector";
 
 export interface ChatWindowProps {
-  documentId: number | null;
+  documentIds: number[];
   requireApproval: boolean;
   deanonEnabled: boolean;
   activeRegulations: string[];
@@ -31,7 +31,7 @@ function generateId(): string {
 }
 
 export function ChatWindow({
-  documentId,
+  documentIds,
   requireApproval,
   deanonEnabled,
   activeRegulations,
@@ -226,7 +226,8 @@ export function ChatWindow({
       abortRef.current = streamChatAsk(
         {
           message: text,
-          document_id: documentId ?? undefined,
+          document_id: documentIds.length > 0 ? documentIds[0] : undefined,
+          document_ids: documentIds.length > 0 ? documentIds : undefined,
           require_approval: requireApproval,
           deanon_enabled: deanonEnabled,
           output_mode: outputMode
@@ -237,7 +238,7 @@ export function ChatWindow({
     setTimeout(startStream, 0);
   }, [
     input,
-    documentId,
+    documentIds,
     streaming,
     deanonEnabled,
     requireApproval,
