@@ -161,6 +161,19 @@ export const trMessages: Record<string, string> = {
   "settings.privacy.layers.ollama.description":
     "İsteğe bağlı yerel LLM tanıyıcıları (gelecekte).",
 
+  "settings.desktopAssistant.enabled.label": "Masaüstü Asistan Modu",
+  "settings.desktopAssistant.enabled.description":
+    "Sohbet mesajlarının Septum arkasındaki bulut LLM yerine doğrudan yerel masaüstü asistan istemcisine (örneğin ChatGPT veya Claude) gönderilmesine izin ver.",
+  "settings.desktopAssistant.defaultTarget.label": "Varsayılan masaüstü asistan hedefi",
+  "settings.desktopAssistant.defaultTarget.chatgpt": "ChatGPT masaüstü uygulaması",
+  "settings.desktopAssistant.defaultTarget.claude": "Claude masaüstü uygulaması",
+  "settings.desktopAssistant.defaultTarget.hint":
+    "Masaüstü Asistan Modu açıkken sohbet ekranında ön seçili hedef olarak kullanılır. Kullanıcı oturum bazında değiştirebilir.",
+  "settings.desktopAssistant.chatgptNewChat.label":
+    "Varsayılan olarak yeni ChatGPT sohbeti başlat",
+  "settings.desktopAssistant.chatgptNewChat.description":
+    "Etkinleştirildiğinde, Masaüstü Asistan Modu her mesajdan önce ChatGPT masaüstü uygulamasına yeni sohbet kısayolunu gönderir.",
+
   "settings.local.sectionTitle": "Yerel Model Ayarları",
   "settings.local.sectionDescription":
     "Sohbet ve de-anonimleştirme için kullanılacak yerel Ollama uç noktasını ve modelleri yapılandırın.",
@@ -267,6 +280,7 @@ export const trMessages: Record<string, string> = {
   "errors.documents.load": "Dokümanlar yüklenirken bir hata oluştu.",
   "errors.documents.upload": "Dosya(lar) yüklenirken bir hata oluştu.",
   "errors.documents.delete": "Doküman silinirken bir hata oluştu.",
+  "errors.documents.deleteAll": "Tüm dokümanlar silinirken bir hata oluştu.",
   "errors.chunks.loadDocuments": "Dokümanlar yüklenirken bir hata oluştu.",
   "errors.chunks.loadChunks": "Parçalar yüklenirken bir hata oluştu.",
   "errors.chunks.search": "Parçalar aranırken bir hata oluştu.",
@@ -319,6 +333,19 @@ export const trMessages: Record<string, string> = {
   "chat.copyAnswer": "Cevabı kopyala",
   "chat.deanonBanner":
     "Yanıtlar cihazınızda yerel olarak de-anonimleştirilir. Cevaptaki yer tutucular yalnızca sizin cihazınızda özgün değerlerle değiştirilmiştir.",
+
+  "chat.mode.label": "Mod",
+  "chat.mode.cloud": "Bulut Modu",
+  "chat.mode.desktop": "Masaüstü Asistan Modu",
+  "chat.desktop.target.label": "Masaüstü asistan:",
+  "chat.desktop.target.chatgpt": "ChatGPT masaüstü uygulaması",
+  "chat.desktop.target.claude": "Claude masaüstü uygulaması",
+  "chat.desktop.openNewChat": "ChatGPT ile her zaman yeni sohbet başlat",
+  "chat.desktop.useRag": "Doküman bağlamını kullan (RAG)",
+  "chat.desktop.status.sent.chatgpt": "Mesaj ChatGPT masaüstü uygulamasına gönderildi.",
+  "chat.desktop.status.sent.claude": "Mesaj Claude masaüstü uygulamasına gönderildi.",
+  "chat.desktop.status.error":
+    "Masaüstü asistan hatası: {message}",
 
   "chat.debug.title": "Buluta giden ve gelen veri",
   "chat.debug.button": "Buluta giden veriyi göster",

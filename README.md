@@ -90,6 +90,12 @@ The common theme: **leverage LLMs while keeping personal data encrypted and on�
 - **Approval‑Based Chat**
   - Before anything is sent to the LLM, you see a summary of what will be shared and can approve or reject it.
 
+- **Desktop Assistant Mode (ChatGPT / Claude)**
+  - Optional mode that sends your question (or a RAG-enabled prompt with document context) directly to a locally installed desktop assistant client (for example the official ChatGPT or Claude desktop apps) instead of the cloud LLM behind Septum.
+  - When "Use document context (RAG)" is enabled, Septum retrieves and sanitizes relevant chunks from your uploaded documents and constructs a RAG prompt using the same logic as Cloud Mode, then sends this full prompt to the desktop assistant via OS‑level automation.
+  - Uses OS‑level automation on your own machine (window focus, clipboard, keystrokes); no additional cloud calls are made beyond what the desktop client already performs.
+  - Fully opt‑in via Settings and disabled by default; when enabled, you can switch between Cloud Mode and Desktop Assistant Mode from the chat screen and choose which desktop client to target.
+
 - **Professional Hybrid Retrieval**
   - Combines BM25 (keyword matching) with FAISS (semantic similarity) using Reciprocal Rank Fusion (RRF).
   - Delivers superior retrieval quality for legal/contract queries by blending exact term matching with semantic understanding.

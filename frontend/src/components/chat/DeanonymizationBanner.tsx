@@ -7,7 +7,7 @@ interface DeanonymizationBannerProps {
   visible: boolean;
 }
 
-export function DeanonymizationBanner({ visible }: DeanonymizationBannerProps): JSX.Element {
+export function DeanonymizationBanner({ visible }: DeanonymizationBannerProps) {
   if (!visible) return <></>;
 
   const t = useI18n();

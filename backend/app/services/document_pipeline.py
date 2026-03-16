@@ -213,34 +213,7 @@ class DocumentPipeline:
             from time import time as _time
             import json as _json
 
-            # #region agent log
-            try:
-                with open(
-                    "/Users/barisyerlikaya/Projects/Septum/.cursor/debug-314f97.log",
-                    "a",
-                    encoding="utf-8",
-                ) as f:
-                    f.write(
-                        _json.dumps(
-                            {
-                                "sessionId": "314f97",
-                                "runId": "upload",
-                                "hypothesisId": "U2",
-                                "location": "services/document_pipeline.py:_index_chunks",
-                                "message": "chunk_raw_length_mismatch",
-                                "data": {
-                                    "document_id": document_id,
-                                    "chunk_ids": ids,
-                                    "raw_text_count": raw_len,
-                                },
-                                "timestamp": _time(),
-                            }
-                        )
-                        + "\n"
-                    )
-            except Exception:
-                pass
-            # #endregion
+            # #region agent log            # #endregion
             return
 
         vector_store = VectorStore()

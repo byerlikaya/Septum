@@ -225,37 +225,6 @@ class PdfIngester(BaseIngester):
 
             texts.append(cleaned)
 
-        # #region agent log
-        try:
-            import json as _json  # local import to avoid polluting module namespace
-            from time import time as _time
-
-            with open(
-                "/Users/barisyerlikaya/Projects/Septum/.cursor/debug-314f97.log",
-                "a",
-                encoding="utf-8",
-            ) as f:
-                f.write(
-                    _json.dumps(
-                        {
-                            "sessionId": "314f97",
-                            "runId": "upload",
-                            "hypothesisId": "U1",
-                            "location": "services/ingestion/pdf_ingester.py:_extract_pages_with_optional_ocr",
-                            "message": "pdf_ocr_usage",
-                            "data": {
-                                "page_count": len(texts),
-                                "ocr_page_count": ocr_page_count,
-                            },
-                            "timestamp": _time(),
-                        }
-                    )
-                    + "\n"
-                )
-        except Exception:
-            pass
-        # #endregion
-
         return texts, ocr_confidences
 
     def _run_ocr_on_page(self, page: fitz.Page) -> Tuple[str, Optional[float]]:

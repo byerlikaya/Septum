@@ -11,7 +11,7 @@ import { BlockingLoader } from "@/components/common/BlockingLoader";
 import { useI18n } from "@/lib/i18n";
 import { uploadDocuments } from "@/lib/uploadDocuments";
 
-export default function DocumentsPage(): JSX.Element {
+export default function DocumentsPage() {
   const t = useI18n();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);

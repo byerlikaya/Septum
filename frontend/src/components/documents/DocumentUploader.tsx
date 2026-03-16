@@ -13,7 +13,7 @@ interface DocumentUploaderProps {
 export function DocumentUploader({
   disabled = false,
   onFilesSelected
-}: DocumentUploaderProps): JSX.Element {
+}: DocumentUploaderProps) {
   const t = useI18n();
   const handleDrop = useCallback(
     (acceptedFiles: File[]) => {

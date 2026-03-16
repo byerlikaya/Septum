@@ -142,6 +142,9 @@ export interface AppSettingsResponse {
   use_presidio_layer: boolean;
   use_ner_layer: boolean;
   use_ollama_layer: boolean;
+  desktop_assistant_enabled: boolean;
+  desktop_assistant_default_target: string | null;
+  desktop_assistant_chatgpt_new_chat_default: boolean;
   chunk_size: number;
   chunk_overlap: number;
   top_k_retrieval: number;
@@ -158,4 +161,6 @@ export interface AppSettingsResponse {
   default_active_regulations: string[];
   ner_model_overrides: Record<string, string> | null;
 }
+
+export type DesktopAssistantTarget = "chatgpt" | "claude";
 

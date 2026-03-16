@@ -172,6 +172,16 @@ export default function ChatPage() {
                 deanonEnabled={settings?.deanon_enabled ?? true}
                 activeRegulations={regulationPills.slice(0, 5)}
                 showJsonOutput={settings?.show_json_output ?? false}
+                desktopAssistantEnabled={settings?.desktop_assistant_enabled ?? false}
+                desktopAssistantDefaultTarget={
+                  (settings?.desktop_assistant_default_target as
+                    | "chatgpt"
+                    | "claude"
+                    | null) ?? null
+                }
+                desktopAssistantChatgptNewChatDefault={
+                  settings?.desktop_assistant_chatgpt_new_chat_default ?? false
+                }
                 onUploadFiles={handleFilesSelected}
                 onResponseComplete={handleResponseComplete}
               />

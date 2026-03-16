@@ -50,6 +50,7 @@ async def init_db() -> None:
         await conn.run_sync(_ensure_ocr_provider_columns)
         await conn.run_sync(_ensure_ner_overrides_column)
         await conn.run_sync(_ensure_default_audio_language_column)
+        await conn.run_sync(_ensure_desktop_assistant_columns)
 
     await _seed_defaults()
 
@@ -114,9 +115,21 @@ async def _seed_defaults() -> None:
                     "EXTRACT_EMBEDDED_IMAGES_DEFAULT", True
                 ),
                 recursive_email_attachments=_env_bool(
-                    "RECURSIVE_EMAIL_ATTACHMENTS_DEFAULT", True
+                    "RECURSIVE_EMAIL_ATTACHMENTS_DEFAULT",
+                    True,
                 ),
                 default_active_regulations=default_active_regulations,
+                desktop_assistant_enabled=_env_bool(
+                    "DESKTOP_ASSISTANT_ENABLED_DEFAULT",
+                    False,
+                ),
+                desktop_assistant_default_target=os.getenv(
+                    "DESKTOP_ASSISTANT_DEFAULT_TARGET"
+                ),
+                desktop_assistant_chatgpt_new_chat_default=_env_bool(
+                    "DESKTOP_ASSISTANT_CHATGPT_NEW_CHAT_DEFAULT",
+                    False,
+                ),
             )
             session.add(settings)
 
@@ -189,6 +202,21 @@ def _ensure_default_audio_language_column(conn: Any) -> None:
     except Exception as e:
         if "duplicate column name" not in str(e).lower():
             raise
+
+
+def _ensure_desktop_assistant_columns(conn: Any) -> None:
+    """Add desktop assistant related columns if missing (existing DBs)."""
+    statements = (
+        "ALTER TABLE app_settings ADD COLUMN desktop_assistant_enabled INTEGER DEFAULT 0",
+        "ALTER TABLE app_settings ADD COLUMN desktop_assistant_default_target TEXT",
+        "ALTER TABLE app_settings ADD COLUMN desktop_assistant_chatgpt_new_chat_default INTEGER DEFAULT 0",
+    )
+    for sql in statements:
+        try:
+            conn.execute(text(sql))
+        except Exception as e:  # noqa: BLE001
+            if "duplicate column name" not in str(e).lower():
+                raise
 
 
 def _env_bool(name: str, default: bool) -> bool:

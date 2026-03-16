@@ -15,7 +15,7 @@ export function MessageBubble({
   message,
   isThinking = false,
   onDebugClick
-}: MessageBubbleProps): JSX.Element {
+}: MessageBubbleProps) {
   const isUser = message.role === "user";
   const [copied, setCopied] = useState(false);
   const t = useI18n();

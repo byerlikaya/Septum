@@ -38,7 +38,7 @@ const NER_MODEL_DEFAULTS: Record<string, string> = {
   fallback: "Babelscape/wikineural-multilingual-ner"
 };
 
-export default function SettingsPage(): JSX.Element {
+export default function SettingsPage() {
   const { language, setLanguage } = useLanguage();
   const t = useI18n();
   const [activeTab, setActiveTab] = useState<SettingsTab>("cloud-llm");
@@ -167,7 +167,7 @@ export default function SettingsPage(): JSX.Element {
   const isSaving = (key: keyof SettingsUpdatePayload): boolean =>
     Boolean(saving[key as string]);
 
-  const renderTabContent = (): JSX.Element | null => {
+  const renderTabContent = () => {
     if (!settings) return null;
 
     switch (activeTab) {
@@ -315,7 +315,7 @@ function SettingsTabButton({
   description,
   active,
   onClick
-}: TabButtonProps): JSX.Element {
+}: TabButtonProps) {
   return (
     <button
       type="button"
@@ -352,7 +352,7 @@ function CloudLLMTab({
   isSaving,
   onTestConnection,
   testStatus
-}: CloudLLMTabProps): JSX.Element {
+}: CloudLLMTabProps) {
   const t = useI18n();
   return (
     <div className="space-y-6">
@@ -431,11 +431,11 @@ function CloudLLMTab({
   );
 }
 
-function FieldHint({ text }: { text: string }): JSX.Element {
+function FieldHint({ text }: { text: string }) {
   return <p className="text-[11px] text-slate-400">{text}</p>;
 }
 
-function SavingIndicator(): JSX.Element {
+function SavingIndicator() {
   return (
     <p className="mt-0.5 text-[11px] text-slate-400">
       Saving…
@@ -449,7 +449,7 @@ function PrivacyTab({
   settings,
   onChange,
   isSaving
-}: PrivacyTabProps): JSX.Element {
+}: PrivacyTabProps) {
   const t = useI18n();
   return (
     <div className="space-y-6">
@@ -520,6 +520,50 @@ function PrivacyTab({
           }}
           saving={isSaving("show_json_output")}
         />
+
+        <ToggleField
+          label={t("settings.desktopAssistant.enabled.label")}
+          description={t("settings.desktopAssistant.enabled.description")}
+          checked={settings.desktop_assistant_enabled}
+          onToggle={async (value) => {
+            await onChange("desktop_assistant_enabled", value);
+          }}
+          saving={isSaving("desktop_assistant_enabled")}
+        />
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-slate-200">
+            {t("settings.desktopAssistant.defaultTarget.label")}
+          </label>
+          <select
+            className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500 disabled:opacity-60"
+            value={settings.desktop_assistant_default_target || "chatgpt"}
+            onChange={async (event) => {
+              const value = event.target.value || "chatgpt";
+              await onChange("desktop_assistant_default_target", value);
+            }}
+            disabled={!settings.desktop_assistant_enabled}
+          >
+            <option value="chatgpt">
+              {t("settings.desktopAssistant.defaultTarget.chatgpt")}
+            </option>
+            <option value="claude">
+              {t("settings.desktopAssistant.defaultTarget.claude")}
+            </option>
+          </select>
+          <FieldHint text={t("settings.desktopAssistant.defaultTarget.hint")} />
+          {isSaving("desktop_assistant_default_target") && <SavingIndicator />}
+        </div>
+
+        <ToggleField
+          label={t("settings.desktopAssistant.chatgptNewChat.label")}
+          description={t("settings.desktopAssistant.chatgptNewChat.description")}
+          checked={settings.desktop_assistant_chatgpt_new_chat_default}
+          onToggle={async (value) => {
+            await onChange("desktop_assistant_chatgpt_new_chat_default", value);
+          }}
+          saving={isSaving("desktop_assistant_chatgpt_new_chat_default")}
+        />
       </div>
 
       <div>
@@ -577,7 +621,7 @@ function ToggleField({
   checked,
   onToggle,
   saving
-}: ToggleFieldProps): JSX.Element {
+}: ToggleFieldProps) {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
@@ -617,7 +661,7 @@ function LocalModelsTab({
   isSaving,
   onTestConnection,
   testStatus
-}: LocalModelsTabProps): JSX.Element {
+}: LocalModelsTabProps) {
   const t = useI18n();
   return (
     <div className="space-y-6">
@@ -720,7 +764,7 @@ function RagTab({
   settings,
   onChange,
   isSaving
-}: RagTabProps): JSX.Element {
+}: RagTabProps) {
   const t = useI18n();
   const handleNumberBlur = async (
     key: keyof SettingsUpdatePayload,
@@ -836,7 +880,7 @@ function NumberField({
   value,
   onBlur,
   saving
-}: NumberFieldProps): JSX.Element {
+}: NumberFieldProps) {
   return (
     <div className="space-y-1.5">
       <label className="text-xs font-medium text-slate-200">
@@ -862,7 +906,7 @@ function IngestionTab({
   settings,
   onChange,
   isSaving
-}: IngestionTabProps): JSX.Element {
+}: IngestionTabProps) {
   const WHISPER_MODELS: Record<string, string> = {
     tiny: "tiny (≈75 MB)",
     base: "base (≈142 MB)",
@@ -1153,7 +1197,7 @@ function NerModelsTab({
   settings,
   onChange,
   isSaving
-}: SettingsTabProps): JSX.Element {
+}: SettingsTabProps) {
   const t = useI18n();
   const entries = Object.entries(NER_MODEL_DEFAULTS);
   const [localOverrides, setLocalOverrides] = useState<Record<string, string>>(
@@ -1294,13 +1338,14 @@ type TextNormalizationRuleDto = {
   priority: number;
 };
 
-function TextNormalizationTab(): JSX.Element {
+function TextNormalizationTab() {
   const t = useI18n();
   const [rules, setRules] = useState<TextNormalizationRuleDto[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState<boolean>(false);
   const [newRule, setNewRule] = useState<TextNormalizationRuleDto>({
+    id: 0,
     name: "",
     pattern: "",
     replacement: "",
@@ -1344,6 +1389,7 @@ function TextNormalizationTab(): JSX.Element {
       );
       setRules((prev) => [...prev, response.data]);
       setNewRule({
+        id: 0,
         name: "",
         pattern: "",
         replacement: "",

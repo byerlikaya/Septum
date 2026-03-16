@@ -25,7 +25,7 @@ const navItems: NavItem[] = [
 
 const ERROR_LOGS_HREF = "/settings/error-logs";
 
-export function Sidebar(): JSX.Element {
+export function Sidebar() {
   const pathname = usePathname();
   const t = useI18n();
   const { language, setLanguage } = useLanguage();

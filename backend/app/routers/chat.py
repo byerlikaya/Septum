@@ -19,7 +19,7 @@ from uuid import uuid4
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from langdetect import DetectorFactory, LangDetectException, detect
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -40,6 +40,12 @@ from ..services.ner_model_registry import NERModelRegistry
 from ..services.policy_composer import PolicyComposer
 from ..services.sanitizer import PIISanitizer
 from ..services.text_normalizer import TextNormalizer
+from ..services.chat_context import ChatContextPayload, build_chat_prompt
+from ..services.desktop_assistant.base import (
+    DesktopAssistantError,
+    DesktopAssistantTarget,
+)
+from ..services.desktop_assistant.factory import create_desktop_assistant
 from ..services.chat_debug_store import set_chat_debug_record, get_chat_debug_record, ChatDebugRecord
 from ..services.error_logger import log_backend_error, log_backend_message
 from ..services.prompts import PromptCatalog
@@ -78,6 +84,24 @@ class ChatDebugResponse(BaseModel):
     masked_prompt: str
     masked_answer: str
     final_answer: str
+
+
+class DesktopAssistantRequest(BaseModel):
+    """Request body for sending a message to a local desktop assistant client."""
+
+    message: str
+    target: DesktopAssistantTarget
+    open_new_chat: bool = False
+    use_rag: bool = False
+    document_ids: list[int] = []
+    top_k: int = 5
+
+
+class DesktopAssistantResponse(BaseModel):
+    """Response envelope for desktop assistant send operations."""
+
+    status: str
+    message: Optional[str] = None
 
 
 async def _load_settings(db: AsyncSession) -> AppSettings:
@@ -148,35 +172,6 @@ async def _sanitize_query(
         language,
         anon_map,
     )
-    # #region agent log
-    try:
-        with open(
-            "/Users/barisyerlikaya/Projects/Septum/.cursor/debug-314f97.log",
-            "a",
-            encoding="utf-8",
-        ) as f:
-            f.write(
-                json.dumps(
-                    {
-                        "sessionId": "314f97",
-                        "runId": "initial",
-                        "hypothesisId": "H3",
-                        "location": "routers/chat.py:_sanitize_query",
-                        "message": "sanitize_query_result",
-                        "data": {
-                            "language": language,
-                            "entity_count": result.entity_count,
-                            "input_length": len(message or ""),
-                            "output_length": len(result.sanitized_text or ""),
-                        },
-                        "timestamp": __import__("time").time(),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
     return result.sanitized_text, result.entity_count
 
 
@@ -196,6 +191,27 @@ def _effective_top_k(base_top_k: int, chunk_count: int) -> int:
         return base_top_k
     bonus = 0 if chunk_count <= 10 else min(10, chunk_count // 3)
     return min(TOP_K_RETRIEVAL_MAX_CAP, max(base_top_k, base_top_k + bonus))
+
+
+# Module-level singleton instances to avoid parallel model loading issues
+_vector_store_singleton: Optional["VectorStore"] = None
+_bm25_retriever_singleton: Optional["BM25Retriever"] = None
+
+def _get_vector_store() -> "VectorStore":
+    """Return the singleton VectorStore instance."""
+    global _vector_store_singleton
+    if _vector_store_singleton is None:
+        from ..services.vector_store import VectorStore
+        _vector_store_singleton = VectorStore()
+    return _vector_store_singleton
+
+def _get_bm25_retriever() -> "BM25Retriever":
+    """Return the singleton BM25Retriever instance."""
+    global _bm25_retriever_singleton
+    if _bm25_retriever_singleton is None:
+        from ..services.bm25_retriever import BM25Retriever
+        _bm25_retriever_singleton = BM25Retriever()
+    return _bm25_retriever_singleton
 
 
 async def _retrieve_chunks(
@@ -219,12 +235,10 @@ async def _retrieve_chunks(
     chunk is also included so conclusion/summary content is available.
     """
     import re
+    from ..services.vector_store import merge_rrf_result_lists
 
-    from ..services.bm25_retriever import BM25Retriever
-    from ..services.vector_store import VectorStore, merge_rrf_result_lists
-
-    vector_store = VectorStore()
-    bm25_retriever = BM25Retriever()
+    vector_store = _get_vector_store()
+    bm25_retriever = _get_bm25_retriever()
 
     if chunk_count is not None and chunk_count > 1:
         first_chunk_stmt = (
@@ -327,39 +341,6 @@ async def _retrieve_chunks(
         )
         db_result = await db.execute(fallback_stmt)
         chunks = list(db_result.scalars().all())
-
-    # #region agent log
-    try:
-        with open(
-            "/Users/barisyerlikaya/Projects/Septum/.cursor/debug-314f97.log",
-            "a",
-            encoding="utf-8",
-        ) as f:
-            f.write(
-                json.dumps(
-                    {
-                        "sessionId": "314f97",
-                        "runId": "initial",
-                        "hypothesisId": "H4",
-                        "location": "routers/chat.py:_retrieve_chunks",
-                        "message": "retrieved_chunks",
-                        "data": {
-                            "document_id": document_id,
-                            "top_k": top_k,
-                            "used_vector_index": used_vector_index,
-                            "query_length": len(query or ""),
-                            "chunk_count": len(chunks),
-                            "chunk_indexes": [c.index for c in chunks],
-                        },
-                        "timestamp": __import__("time").time(),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
-
     if len(chunks) > 1:
         first_stmt = (
             select(Chunk).where(Chunk.document_id == document_id, Chunk.index == 0)
@@ -458,16 +439,6 @@ async def _run_llm_and_deanonymize(
             except Exception:  # noqa: BLE001
                 pass
 
-    regulations_str = ", ".join(regulation_names) if regulation_names else "None"
-    context_text = ""
-    if context_chunks:
-        lines: List[str] = []
-        for idx, chunk in enumerate(context_chunks, start=1):
-            lines.append(f"Chunk {idx}:\n{chunk}")
-        context_text = "\n\n".join(lines)
-
-    placeholders_in_context = _extract_placeholders_from_context(context_text)
-
     schema_instruction = ""
     if document_id is not None:
         schema_result = await db.execute(
@@ -495,6 +466,15 @@ async def _run_llm_and_deanonymize(
                     "Respond with the final numeric result in natural language, without listing every row unless explicitly requested.\n\n"
                 )
 
+    context_text_for_placeholders = ""
+    if context_chunks:
+        lines_tmp: List[str] = []
+        for idx, chunk in enumerate(context_chunks, start=1):
+            lines_tmp.append(f"Chunk {idx}:\n{chunk}")
+        context_text_for_placeholders = "\n\n".join(lines_tmp)
+
+    placeholders_in_context = _extract_placeholders_from_context(context_text_for_placeholders)
+
     placeholder_list_str = ""
     if placeholders_in_context and query_has_placeholder:
         placeholder_list_str = (
@@ -508,25 +488,17 @@ async def _run_llm_and_deanonymize(
             "Do not refuse; answer from the context. For any other question, use the context as usual.\n\n"
         )
 
-    output_instruction = ""
-    if (output_mode or "chat").strip().lower() == "json":
-        output_instruction = (
-            "\n\n---\n"
-            "REQUIRED: Reply with ONLY a single valid JSON object. No markdown headings, no bullet lists, "
-            "no code fences, no text before or after. Example format:\n"
-            '{"summary": "one paragraph", "type": "document type", "key_points": ["point1", "point2"]}\n'
-            "Use only double quotes. Output nothing but this JSON object.\n---\n\n"
-        )
-
-    user_prompt = PromptCatalog.chat_user_prompt(
-        language=language,
-        regulations_str=regulations_str,
+    payload = ChatContextPayload(
         sanitized_query=sanitized_query,
-        context_text=context_text,
+        context_chunks=context_chunks,
+        regulation_names=regulation_names,
+        language=language,
         schema_instruction=schema_instruction,
         placeholder_list_str=placeholder_list_str,
-        output_instruction=output_instruction,
+        output_mode=output_mode,
     )
+
+    user_prompt = build_chat_prompt(payload)
 
     messages = [
         {"role": "user", "content": user_prompt},
@@ -889,5 +861,251 @@ async def chat_debug(session_id: str) -> ChatDebugResponse:
         masked_prompt=record.masked_prompt,
         masked_answer=record.masked_answer,
         final_answer=record.final_answer,
+    )
+
+
+async def _build_rag_prompt_for_desktop(
+    db: AsyncSession,
+    settings: AppSettings,
+    query: str,
+    document_ids: list[int],
+    top_k: int,
+) -> str:
+    """Build a RAG-enabled prompt for Desktop Assistant Mode.
+
+    This helper mirrors the Cloud LLM RAG flow: retrieve chunks, sanitize query and
+    context, build ChatContextPayload, and render the final prompt using
+    build_chat_prompt. The result is a single string suitable for sending to a
+    desktop assistant application.
+    """    
+    from ..models.regulation import RegulationRuleset
+
+    # Detect language using existing helper
+    language = await _detect_language(query, fallback="en")
+    # Retrieve chunks and sanitize
+    try:
+        sanitizer = PIISanitizer(settings)
+        sanitized_query = query  # Default: use original if no documents
+        
+        if not document_ids:
+            # No documents: empty context
+            context_chunks: list[str] = []
+        else:
+            # Load all documents
+            documents_by_id: dict[int, Document] = {}
+            for did in document_ids:
+                doc = await _load_document(db, did)
+                if doc:
+                    documents_by_id[did] = doc
+            
+            # Retrieve chunks using the same logic as Cloud LLM flow
+            chunks: List[Chunk] = []
+            if len(documents_by_id) == 1:
+                doc = next(iter(documents_by_id.values()))
+                chunks = await _retrieve_chunks(
+                    db=db,
+                    document_id=doc.id,
+                    query=query,
+                    top_k=top_k,
+                    chunk_count=doc.chunk_count,
+                )
+            elif len(documents_by_id) > 1:
+                MIN_PER_DOC = 10
+                MAX_TOTAL = 50
+                num_docs = len(documents_by_id)
+                per_doc_k = max(MIN_PER_DOC, min(MAX_TOTAL // num_docs, top_k // num_docs))
+                for doc in documents_by_id.values():
+                    chunks_doc = await _retrieve_chunks(
+                        db=db,
+                        document_id=doc.id,
+                        query=query,
+                        top_k=per_doc_k,
+                        chunk_count=doc.chunk_count,
+                    )
+                    chunks.extend(chunks_doc)
+            
+            # Sanitize query + chunks
+            anon_map = AnonymizationMap(document_id=document_ids[0], language=language)
+            
+            # Sanitize the query
+            sanitized_query_result = await asyncio.to_thread(
+                sanitizer.sanitize, query, language, anon_map
+            )
+            sanitized_query = sanitized_query_result.sanitized_text
+            
+            # Extract and sanitize chunk texts (skip empty chunks)
+            sanitized_chunks: list[str] = []
+            for chunk in chunks:
+                chunk_text = chunk.sanitized_text or ""
+                if not chunk_text.strip():
+                    continue  # Skip empty chunks to avoid AnonymizationMap validation errors
+                sanitized_chunk_result = await asyncio.to_thread(
+                    sanitizer.sanitize, chunk_text, language, anon_map
+                )
+                sanitized_chunks.append(sanitized_chunk_result.sanitized_text)
+            context_chunks = sanitized_chunks
+    except Exception as exc:
+        raise
+
+    # Get active regulations
+    try:
+        active_regs_result = await db.execute(
+            select(RegulationRuleset).where(RegulationRuleset.is_active == True)  # noqa: E712
+        )
+        active_regs = active_regs_result.scalars().all()
+        regulation_names = [reg.display_name for reg in active_regs]
+    except Exception as exc:
+        raise
+
+    # Build payload (no schema instruction for Desktop Assistant)
+    try:
+        payload_ctx = ChatContextPayload(
+            sanitized_query=sanitized_query,
+            context_chunks=context_chunks,
+            regulation_names=regulation_names,
+            language=language,
+            schema_instruction="",
+            placeholder_list_str="",
+            output_mode="chat",
+        )
+        
+        final_prompt = build_chat_prompt(payload_ctx)
+        
+        return final_prompt
+    except Exception as exc:
+        raise
+
+
+@router.post(
+    "/desktop-assistant/send",
+    response_model=DesktopAssistantResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def desktop_assistant_send(
+    payload: DesktopAssistantRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Send a message directly to a local desktop assistant client.
+
+    When `use_rag=True`, this endpoint retrieves document chunks, sanitizes them
+    (including the query), and constructs a RAG-enabled prompt using the same logic
+    as the Cloud LLM flow. The resulting prompt is sent to the desktop assistant
+    via OS automation. The user then sees the prompt in the desktop assistant's
+    input field and can submit it manually or modify it first.
+
+    When `use_rag=False`, the raw user query is sent directly to the desktop assistant
+    without any document context or sanitization.
+    """
+
+    settings = await _load_settings(db)
+    if not getattr(settings, "desktop_assistant_enabled", False):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Desktop assistant mode is disabled in settings.",
+        )
+
+    if not payload.message.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Message must not be empty.",
+        )
+
+    try:
+        assistant = create_desktop_assistant(settings)
+    except Exception as exc:  # noqa: BLE001
+        # Only log metadata, never the raw message.
+        await log_backend_error(
+            db,
+            http_request,
+            exc,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=DesktopAssistantResponse(
+                status="error",
+                message="Desktop assistant is not available on this platform.",
+            ).model_dump(),
+        )
+
+    # Determine final message to send
+    final_message = payload.message
+    
+    if payload.use_rag:
+        # Build RAG-enabled prompt using the same logic as Cloud LLM
+        try:
+            final_message = await _build_rag_prompt_for_desktop(
+                db=db,
+                settings=settings,
+                query=payload.message,
+                document_ids=payload.document_ids,
+                top_k=payload.top_k,
+            )
+        except Exception as exc:  # noqa: BLE001
+            await log_backend_error(
+                db,
+                http_request,
+                exc,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                extra={
+                    "rag_enabled": True,
+                    "document_ids": payload.document_ids,
+                },
+            )
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content=DesktopAssistantResponse(
+                    status="error",
+                    message="Failed to build RAG prompt for desktop assistant.",
+                ).model_dump(),
+            )
+
+    try:
+        # Run potentially blocking OS automation in a worker thread.
+        await asyncio.to_thread(
+            assistant.send_message,
+            final_message,
+            payload.target,
+            payload.open_new_chat,
+        )
+    except DesktopAssistantError as exc:
+        await log_backend_error(
+            db,
+            http_request,
+            exc,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            extra={
+                "desktop_assistant_target": payload.target.value,
+            },
+        )
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=DesktopAssistantResponse(
+                status="error",
+                message=str(exc),
+            ).model_dump(),
+        )
+    except Exception as exc:  # noqa: BLE001
+        await log_backend_error(
+            db,
+            http_request,
+            exc,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            extra={
+                "desktop_assistant_target": payload.target.value,
+            },
+        )
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=DesktopAssistantResponse(
+                status="error",
+                message="Failed to send message to desktop assistant.",
+            ).model_dump(),
+        )
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content=DesktopAssistantResponse(status="ok").model_dump(),
     )
 

@@ -18,7 +18,7 @@ export function DocumentSelector({
   isLoading,
   selectedIds,
   onSelectionChange
-}: DocumentSelectorProps): JSX.Element {
+}: DocumentSelectorProps) {
   const t = useI18n();
   function toggle(id: number) {
     const next = new Set(selectedIds);

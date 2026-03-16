@@ -80,7 +80,7 @@ type TestStatus =
   | { state: "success"; message: string }
   | { state: "error"; message: string };
 
-export default function RegulationsPage(): JSX.Element {
+export default function RegulationsPage() {
   const t = useI18n();
   const [rulesets, setRulesets] = useState<RegulationRuleset[]>([]);
   const [rulesetsLoading, setRulesetsLoading] = useState<boolean>(true);
@@ -597,7 +597,7 @@ function CustomRuleBuilderPanel({
   onClose,
   onSaved,
   onDeleted
-}: CustomRuleBuilderPanelProps): JSX.Element | null {
+}: CustomRuleBuilderPanelProps) {
   const t = useI18n();
   const [form, setForm] = useState<CustomRuleFormState | null>(null);
   const [ephemeralId, setEphemeralId] = useState<number | undefined>(undefined);
@@ -1256,7 +1256,7 @@ function ToggleSwitch({
   onChange,
   disabled,
   ariaLabel
-}: ToggleSwitchProps): JSX.Element {
+}: ToggleSwitchProps) {
   return (
     <button
       type="button"
@@ -1289,7 +1289,7 @@ function DetectionMethodButton({
   description,
   active,
   onClick
-}: DetectionMethodButtonProps): JSX.Element {
+}: DetectionMethodButtonProps) {
   return (
     <button
       type="button"

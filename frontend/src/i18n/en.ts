@@ -156,6 +156,18 @@ export const enMessages = {
   "settings.privacy.layers.ollama.description":
     "Optional local LLM recognizers (future).",
 
+  "settings.desktopAssistant.enabled.label": "Desktop Assistant Mode",
+  "settings.desktopAssistant.enabled.description":
+    "Allow sending chat messages directly to a local desktop assistant client (for example ChatGPT or Claude) instead of the cloud LLM behind Septum.",
+  "settings.desktopAssistant.defaultTarget.label": "Default desktop assistant target",
+  "settings.desktopAssistant.defaultTarget.chatgpt": "ChatGPT desktop app",
+  "settings.desktopAssistant.defaultTarget.claude": "Claude desktop app",
+  "settings.desktopAssistant.defaultTarget.hint":
+    "This target is preselected in the chat screen when Desktop Assistant Mode is active. Users can change it per-session.",
+  "settings.desktopAssistant.chatgptNewChat.label": "Start new ChatGPT conversation by default",
+  "settings.desktopAssistant.chatgptNewChat.description":
+    "When enabled, Desktop Assistant Mode sends the new-chat shortcut to the ChatGPT desktop app before pasting the message.",
+
   "settings.local.sectionTitle": "Local Model Settings",
   "settings.local.sectionDescription":
     "Configure the local Ollama endpoint and models used for chat and de-anonymization.",
@@ -250,6 +262,8 @@ export const enMessages = {
   "errors.documents.load": "An error occurred while loading documents.",
   "errors.documents.upload": "An error occurred while uploading the file(s).",
   "errors.documents.delete": "An error occurred while deleting the document.",
+  "errors.documents.deleteAll":
+    "An error occurred while deleting all documents.",
   "errors.chunks.loadDocuments": "An error occurred while loading documents.",
   "errors.chunks.loadChunks": "An error occurred while loading chunks.",
   "errors.chunks.search": "An error occurred while searching chunks.",
@@ -294,6 +308,19 @@ export const enMessages = {
   "chat.copyAnswer": "Copy answer",
   "chat.deanonBanner":
     "Responses are de-anonymized locally. Placeholders in the answer have been replaced with original values on your device only.",
+
+  "chat.mode.label": "Mode",
+  "chat.mode.cloud": "Cloud Mode",
+  "chat.mode.desktop": "Desktop Assistant Mode",
+  "chat.desktop.target.label": "Desktop assistant:",
+  "chat.desktop.target.chatgpt": "ChatGPT desktop app",
+  "chat.desktop.target.claude": "Claude desktop app",
+  "chat.desktop.openNewChat": "Start a new chat when using ChatGPT",
+  "chat.desktop.useRag": "Use document context (RAG)",
+  "chat.desktop.status.sent.chatgpt": "Message sent to ChatGPT desktop app.",
+  "chat.desktop.status.sent.claude": "Message sent to Claude desktop app.",
+  "chat.desktop.status.error":
+    "Desktop assistant error: {message}",
 
   "chat.debug.title": "Data sent to and returned from the cloud",
   "chat.debug.button": "Show data sent to cloud",

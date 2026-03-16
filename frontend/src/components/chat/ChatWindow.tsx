@@ -2,10 +2,17 @@
 
 import { useCallback, useRef, useState } from "react";
 import { Paperclip } from "lucide-react";
-import { streamChatAsk, approvalApprove, approvalReject, getChatDebug } from "@/lib/api";
+import {
+  streamChatAsk,
+  approvalApprove,
+  approvalReject,
+  getChatDebug,
+  sendToDesktopAssistant
+} from "@/lib/api";
 import type {
   ApprovalChunkPayload,
   ChatMessage,
+  DesktopAssistantTarget,
   OutputMode,
   SSEChatEvent
 } from "@/lib/types";
@@ -22,6 +29,9 @@ export interface ChatWindowProps {
   deanonEnabled: boolean;
   activeRegulations: string[];
   showJsonOutput: boolean;
+  desktopAssistantEnabled: boolean;
+  desktopAssistantDefaultTarget: DesktopAssistantTarget | null;
+  desktopAssistantChatgptNewChatDefault: boolean;
   onResponseComplete?: (deanonApplied: boolean) => void;
   onUploadFiles?: (files: File[]) => void;
 }
@@ -36,14 +46,21 @@ export function ChatWindow({
   deanonEnabled,
   activeRegulations,
   showJsonOutput,
+  desktopAssistantEnabled,
+  desktopAssistantDefaultTarget,
+  desktopAssistantChatgptNewChatDefault,
   onResponseComplete,
   onUploadFiles
-}: ChatWindowProps): JSX.Element {
+}: ChatWindowProps) {
   const { language } = useLanguage();
   const t = useI18n();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [outputMode, setOutputMode] = useState<OutputMode>("chat");
+  const [chatMode, setChatMode] = useState<"cloud" | "desktop">("cloud");
+  const [desktopTarget, setDesktopTarget] = useState<DesktopAssistantTarget>(
+    desktopAssistantDefaultTarget ?? "chatgpt"
+  );
   const [streaming, setStreaming] = useState(false);
   const [lastResponseDeanon, setLastResponseDeanon] = useState(false);
   const [approvalOpen, setApprovalOpen] = useState(false);
@@ -60,6 +77,12 @@ export function ChatWindow({
     final_answer: string;
   } | null>(null);
   const [debugOpen, setDebugOpen] = useState(false);
+  const [desktopStatus, setDesktopStatus] = useState<string | null>(null);
+  const [desktopSending, setDesktopSending] = useState(false);
+  const [desktopOpenNewChat, setDesktopOpenNewChat] = useState(
+    desktopAssistantChatgptNewChatDefault
+  );
+  const [desktopUseRag, setDesktopUseRag] = useState(false);
   const abortRef = useRef<{ abort: () => void } | null>(null);
   const pendingAssistantIdRef = useRef<string | null>(null);
   const currentSessionIdRef = useRef<string | null>(null);
@@ -99,7 +122,58 @@ export function ChatWindow({
 
   const sendMessage = useCallback(() => {
     const text = input.trim();
-    if (!text || streaming) return;
+    // #region agent log
+    fetch("http://127.0.0.1:7264/ingest/a2860a62-e8dd-4dd4-8e96-3f162799a890", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Debug-Session-Id": "e6472d"
+      },
+      body: JSON.stringify({
+        sessionId: "e6472d",
+        runId: "pre-fix",
+        hypothesisId: "H0",
+        location: "ChatWindow.tsx:sendMessage",
+        message: "sendMessage_entered",
+        data: {
+          rawInputLength: input.length,
+          trimmedLength: text.length,
+          chatMode,
+          desktopAssistantEnabled,
+          desktopSending,
+          streaming
+        },
+        timestamp: Date.now()
+      })
+    }).catch(() => {});
+    // #endregion
+
+    if (!text || streaming || desktopSending) return;
+
+    // #region agent log
+    fetch("http://127.0.0.1:7264/ingest/a2860a62-e8dd-4dd4-8e96-3f162799a890", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Debug-Session-Id": "e6472d"
+      },
+      body: JSON.stringify({
+        sessionId: "e6472d",
+        runId: "pre-fix",
+        hypothesisId: "H1",
+        location: "ChatWindow.tsx:sendMessage",
+        message: "sendMessage_invoked",
+        data: {
+          inputLength: text.length,
+          chatMode,
+          desktopAssistantEnabled,
+          desktopSending,
+          streaming
+        },
+        timestamp: Date.now()
+      })
+    }).catch(() => {});
+    // #endregion
 
     setInput("");
     setStreamError(null);
@@ -109,6 +183,70 @@ export function ChatWindow({
       content: text
     };
     const assistantId = generateId();
+    if (chatMode === "desktop" && desktopAssistantEnabled) {
+      setMessages((prev) => [...prev, userMsg]);
+      setDesktopStatus(null);
+      setDesktopSending(true);
+      void (async () => {
+        try {
+          const response = await sendToDesktopAssistant({
+            message: text,
+            target: desktopTarget,
+            open_new_chat:
+              desktopTarget === "chatgpt" ? desktopOpenNewChat : false,
+            use_rag: desktopUseRag,
+            document_ids: desktopUseRag ? documentIds : [],
+            top_k: 5
+          });
+          if (response.status === "ok") {
+            const successMessage =
+              desktopTarget === "chatgpt"
+                ? t("chat.desktop.status.sent.chatgpt")
+                : t("chat.desktop.status.sent.claude");
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: generateId(),
+                role: "assistant",
+                content: successMessage
+              }
+            ]);
+            setDesktopStatus(successMessage);
+          } else {
+            const errorMessage = t("chat.desktop.status.error", {
+              message: response.message ?? ""
+            });
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: generateId(),
+                role: "assistant",
+                content: errorMessage
+              }
+            ]);
+            setDesktopStatus(errorMessage);
+          }
+        } catch (e) {
+          const errorMessage =
+            e instanceof Error
+              ? t("chat.desktop.status.error", { message: e.message })
+              : t("chat.desktop.status.error", { message: "" });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: generateId(),
+              role: "assistant",
+              content: errorMessage
+            }
+          ]);
+          setDesktopStatus(errorMessage);
+        } finally {
+          setDesktopSending(false);
+        }
+      })();
+      return;
+    }
+
     setMessages((prev) => [
       ...prev,
       userMsg,
@@ -238,15 +376,20 @@ export function ChatWindow({
     setTimeout(startStream, 0);
   }, [
     input,
-    documentIds,
     streaming,
-    deanonEnabled,
+    desktopSending,
+    chatMode,
+    desktopAssistantEnabled,
+    desktopTarget,
+    desktopOpenNewChat,
+    desktopUseRag,
+    documentIds,
     requireApproval,
+    deanonEnabled,
     onResponseComplete,
     outputMode,
     language
-  ]
-  );
+  ]);
 
   const stopStreaming = useCallback(() => {
     if (abortRef.current) {
@@ -279,34 +422,108 @@ export function ChatWindow({
 
   return (
     <div className="flex min-h-0 h-full flex-col">
-      <div className="shrink-0 flex items-center gap-2 border-b border-slate-800 pb-3">
-        <span className="text-sm font-medium text-slate-400">
-          {t("chat.output.label")}
-        </span>
-        <button
-          type="button"
-          onClick={() => setOutputMode("chat")}
-          className={`rounded px-2 py-1 text-sm ${
-            outputMode === "chat"
-              ? "bg-sky-600 text-white"
-              : "bg-slate-800 text-slate-400 hover:text-slate-200"
-          }`}
-        >
-          {t("chat.output.tab.chat")}
-        </button>
-        {showJsonOutput && (
+      <div className="shrink-0 border-b border-slate-800 pb-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-slate-400">
+            {t("chat.output.label")}
+          </span>
           <button
             type="button"
-            onClick={() => setOutputMode("json")}
+            onClick={() => setOutputMode("chat")}
             className={`rounded px-2 py-1 text-sm ${
-              outputMode === "json"
+              outputMode === "chat"
                 ? "bg-sky-600 text-white"
                 : "bg-slate-800 text-slate-400 hover:text-slate-200"
             }`}
           >
-            {t("chat.output.tab.json")}
+            {t("chat.output.tab.chat")}
           </button>
-        )}
+          {showJsonOutput && (
+            <button
+              type="button"
+              onClick={() => setOutputMode("json")}
+              className={`rounded px-2 py-1 text-sm ${
+                outputMode === "json"
+                  ? "bg-sky-600 text-white"
+                  : "bg-slate-800 text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              {t("chat.output.tab.json")}
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium text-slate-400">
+            {t("chat.mode.label")}
+          </span>
+          <div className="inline-flex rounded border border-slate-700 bg-slate-900/60">
+            <button
+              type="button"
+              onClick={() => setChatMode("cloud")}
+              className={`px-2 py-1 text-xs ${
+                chatMode === "cloud"
+                  ? "bg-sky-600 text-white"
+                  : "text-slate-300 hover:bg-slate-800"
+              }`}
+            >
+              {t("chat.mode.cloud")}
+            </button>
+            {desktopAssistantEnabled && (
+              <button
+                type="button"
+                onClick={() => setChatMode("desktop")}
+                className={`px-2 py-1 text-xs ${
+                  chatMode === "desktop"
+                    ? "bg-sky-600 text-white"
+                    : "text-slate-300 hover:bg-slate-800"
+                }`}
+              >
+                {t("chat.mode.desktop")}
+              </button>
+            )}
+          </div>
+          {chatMode === "desktop" && desktopAssistantEnabled && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
+              <label className="flex items-center gap-1">
+                <span>{t("chat.desktop.target.label")}</span>
+                <select
+                  value={desktopTarget}
+                  onChange={(e) =>
+                    setDesktopTarget(e.target.value as DesktopAssistantTarget)
+                  }
+                  className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100"
+                >
+                  <option value="chatgpt">
+                    {t("chat.desktop.target.chatgpt")}
+                  </option>
+                  <option value="claude">
+                    {t("chat.desktop.target.claude")}
+                  </option>
+                </select>
+              </label>
+              {desktopTarget === "chatgpt" && (
+                <label className="flex items-center gap-1">
+                  <input
+                    type="checkbox"
+                    checked={desktopOpenNewChat}
+                    onChange={(e) => setDesktopOpenNewChat(e.target.checked)}
+                    className="h-3 w-3 rounded border-slate-600 bg-slate-900 text-sky-500"
+                  />
+                  <span>{t("chat.desktop.openNewChat")}</span>
+                </label>
+              )}
+              <label className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={desktopUseRag}
+                  onChange={(e) => setDesktopUseRag(e.target.checked)}
+                  className="h-3 w-3 rounded border-slate-600 bg-slate-900 text-sky-500"
+                />
+                <span>{t("chat.desktop.useRag")}</span>
+              </label>
+            </div>
+          )}
+        </div>
       </div>
 
       {outputMode === "chat" ? (
@@ -345,6 +562,11 @@ export function ChatWindow({
           {streamError}
         </div>
       )}
+      {desktopStatus != null && chatMode === "desktop" && (
+        <div className="mt-2 rounded bg-slate-800/80 px-3 py-2 text-xs text-slate-200">
+          {desktopStatus}
+        </div>
+      )}
 
       <div className="shrink-0 pt-3">
         <div className="flex gap-2">
@@ -367,13 +589,13 @@ export function ChatWindow({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
             placeholder={t("chat.input.placeholder")}
-            disabled={streaming}
+            disabled={streaming || desktopSending}
             className="min-w-0 flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-50"
           />
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={streaming}
+            disabled={streaming || desktopSending}
             className="shrink-0 inline-flex items-center justify-center rounded-md border border-slate-600 bg-slate-900 px-2 py-2 text-slate-200 hover:bg-slate-800 disabled:opacity-50"
             title={t("chat.button.upload")}
             aria-label={t("chat.button.upload")}
@@ -392,7 +614,7 @@ export function ChatWindow({
             <button
               type="button"
               onClick={sendMessage}
-              disabled={!input.trim()}
+              disabled={!input.trim() || desktopSending}
               className="shrink-0 rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
             >
               {t("chat.button.send")}

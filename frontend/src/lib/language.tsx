@@ -26,9 +26,7 @@ type LanguageProviderProps = {
   children: ReactNode;
 };
 
-export function LanguageProvider(
-  props: LanguageProviderProps
-): JSX.Element {
+export function LanguageProvider(props: LanguageProviderProps) {
   const { children } = props;
   const [language, setLanguageState] = useState<AppLanguage>("en");
 

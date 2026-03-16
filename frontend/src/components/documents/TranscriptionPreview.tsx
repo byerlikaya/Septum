@@ -16,7 +16,7 @@ export function TranscriptionPreview({
   document,
   open,
   onOpenChange
-}: TranscriptionPreviewProps): JSX.Element | null {
+}: TranscriptionPreviewProps) {
   const t = useI18n();
   const [chunks, setChunks] = useState<Chunk[]>([]);
   const [isLoading, setIsLoading] = useState(false);

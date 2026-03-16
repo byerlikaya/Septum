@@ -25,7 +25,7 @@ function formatDate(iso: string): string {
 
 export function ErrorLogTable({
   pageSize = 50
-}: ErrorLogTableProps): JSX.Element {
+}: ErrorLogTableProps) {
   const t = useI18n();
   const [items, setItems] = useState<ErrorLogItem[]>([]);
   const [total, setTotal] = useState(0);

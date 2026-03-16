@@ -15,7 +15,7 @@ interface ChunkSearchResponse {
   items: ChunkSearchHit[];
 }
 
-export default function ChunksPage(): JSX.Element {
+export default function ChunksPage() {
   const t = useI18n();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState<boolean>(true);

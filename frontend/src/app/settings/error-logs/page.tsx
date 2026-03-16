@@ -3,7 +3,7 @@
 import { ErrorLogTable } from "@/components/settings/ErrorLogTable";
 import { useI18n } from "@/lib/i18n";
 
-export default function ErrorLogsPage(): JSX.Element {
+export default function ErrorLogsPage() {
   const t = useI18n();
 
   return (

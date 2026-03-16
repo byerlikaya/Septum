@@ -2,6 +2,7 @@ import axios from "axios";
 import type {
   ApprovalChunkPayload,
   AppSettingsResponse,
+  DesktopAssistantTarget,
   Document,
   DocumentListResponse,
   SSEChatEvent,
@@ -260,5 +261,29 @@ export async function sendFrontendError(payload: {
   } catch {
     // Swallow errors from error reporting itself to avoid loops.
   }
+}
+
+export interface DesktopAssistantSendRequest {
+  message: string;
+  target: DesktopAssistantTarget;
+  open_new_chat?: boolean;
+  use_rag?: boolean;
+  document_ids?: number[];
+  top_k?: number;
+}
+
+export interface DesktopAssistantSendResponse {
+  status: "ok" | "error";
+  message?: string;
+}
+
+export async function sendToDesktopAssistant(
+  payload: DesktopAssistantSendRequest
+): Promise<DesktopAssistantSendResponse> {
+  const { data } = await api.post<DesktopAssistantSendResponse>(
+    "/api/chat/desktop-assistant/send",
+    payload
+  );
+  return data;
 }
 

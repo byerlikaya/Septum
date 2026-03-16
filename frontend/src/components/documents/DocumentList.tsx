@@ -39,7 +39,7 @@ function formatFileSize(bytes: number): string {
   return `${gb.toFixed(1)} GB`;
 }
 
-function getFileIcon(fileFormat: string): JSX.Element {
+function getFileIcon(fileFormat: string) {
   const fmt = fileFormat.toLowerCase();
   if (fmt === "audio") {
     return <FileAudio className="h-5 w-5 text-sky-400" />;
@@ -81,7 +81,7 @@ export function DocumentList({
   onDelete,
   onPreview,
   onPreviewTranscription
-}: DocumentListProps): JSX.Element {
+}: DocumentListProps) {
   const t = useI18n();
 
   // Collapse any duplicate document IDs to avoid React key collisions.

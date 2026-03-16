@@ -5,7 +5,7 @@ interface BlockingLoaderProps {
   label: string;
 }
 
-export function BlockingLoader({ visible, label }: BlockingLoaderProps): JSX.Element | null {
+export function BlockingLoader({ visible, label }: BlockingLoaderProps) {
   if (!visible) {
     return null;
   }

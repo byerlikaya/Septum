@@ -52,6 +52,10 @@ class SettingsResponse(BaseModel):
     use_ner_layer: bool
     use_ollama_layer: bool
 
+    desktop_assistant_enabled: bool
+    desktop_assistant_default_target: Optional[str] = None
+    desktop_assistant_chatgpt_new_chat_default: bool
+
     chunk_size: int
     chunk_overlap: int
     top_k_retrieval: int
@@ -88,6 +92,10 @@ class SettingsUpdatePayload(BaseModel):
     use_presidio_layer: Optional[bool] = None
     use_ner_layer: Optional[bool] = None
     use_ollama_layer: Optional[bool] = None
+
+    desktop_assistant_enabled: Optional[bool] = None
+    desktop_assistant_default_target: Optional[str] = None
+    desktop_assistant_chatgpt_new_chat_default: Optional[bool] = None
 
     chunk_size: Optional[int] = None
     chunk_overlap: Optional[int] = None

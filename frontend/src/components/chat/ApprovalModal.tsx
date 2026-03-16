@@ -27,7 +27,7 @@ export function ApprovalModal({
   onReject,
   onClose,
   timedOut = false
-}: ApprovalModalProps): JSX.Element {
+}: ApprovalModalProps) {
   const t = useI18n();
   const [secondsLeft, setSecondsLeft] = useState(APPROVAL_TIMEOUT_SECONDS);
   const [editedTexts, setEditedTexts] = useState<string[]>([]);

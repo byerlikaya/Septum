@@ -105,7 +105,7 @@ export function EntityBadge({
   placeholder,
   entityType,
   regulations
-}: EntityBadgeProps): JSX.Element {
+}: EntityBadgeProps) {
   const t = useI18n();
   const isCustom = !MASTER_ENTITY_TYPES.has(entityType.toUpperCase());
   const classes = getEntityBadgeClasses(entityType);

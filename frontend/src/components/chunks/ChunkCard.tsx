@@ -47,7 +47,7 @@ export function ChunkCard({
   hideDocumentInfo = false,
   onUpdate,
   onDelete
-}: ChunkCardProps): JSX.Element {
+}: ChunkCardProps) {
   const t = useI18n();
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [isEditing, setIsEditing] = useState<boolean>(false);

@@ -45,7 +45,7 @@ function markdownToStructured(content: string): { summary: string; key_points: s
   return { summary: summary || content.slice(0, 300), key_points: keyPoints };
 }
 
-export function JsonOutputPanel({ content, visible }: JsonOutputPanelProps): JSX.Element {
+export function JsonOutputPanel({ content, visible }: JsonOutputPanelProps) {
   const t = useI18n();
   if (!visible) return <></>;
 

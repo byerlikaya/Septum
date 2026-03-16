@@ -25,6 +25,7 @@ Design notes
 from dataclasses import dataclass, field
 import os
 from pathlib import Path
+import threading
 from typing import List, Sequence, Tuple
 
 import faiss  # type: ignore[import]
@@ -102,6 +103,7 @@ class VectorStore:
     )
     model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     _model: SentenceTransformer | None = field(default=None, init=False, repr=False)
+    _model_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Ensure the base directory exists."""
@@ -172,35 +174,7 @@ class VectorStore:
             return []
 
         index = self._load_index(document_id)
-        if index is None:
-            # #region agent log
-            try:
-                with open(
-                    "/Users/barisyerlikaya/Projects/Septum/.cursor/debug-314f97.log",
-                    "a",
-                    encoding="utf-8",
-                ) as f:
-                    f.write(
-                        json.dumps(
-                            {
-                                "sessionId": "314f97",
-                                "runId": "initial",
-                                "hypothesisId": "H1",
-                                "location": "services/vector_store.py:search",
-                                "message": "faiss_index_missing",
-                                "data": {
-                                    "document_id": document_id,
-                                    "top_k": top_k,
-                                },
-                                "timestamp": __import__("time").time(),
-                            }
-                        )
-                        + "\n"
-                    )
-            except Exception:
-                pass
-            # #endregion
-            return []
+        if index is None:            return []
 
         query_vec = self._encode_texts([query])
         scores, ids = index.search(query_vec, top_k)
@@ -210,41 +184,6 @@ class VectorStore:
             if idx == -1:
                 continue
             results.append((int(idx), float(score)))
-
-        # #region agent log
-        try:
-            sample_results = [
-                {"chunk_id": int(cid), "score": float(s)}
-                for cid, s in results[:5]
-            ]
-            with open(
-                "/Users/barisyerlikaya/Projects/Septum/.cursor/debug-314f97.log",
-                "a",
-                encoding="utf-8",
-            ) as f:
-                f.write(
-                    json.dumps(
-                        {
-                            "sessionId": "314f97",
-                            "runId": "initial",
-                            "hypothesisId": "H2",
-                            "location": "services/vector_store.py:search",
-                            "message": "faiss_search_results",
-                            "data": {
-                                "document_id": document_id,
-                                "top_k": top_k,
-                                "result_count": len(results),
-                                "sample_results": sample_results,
-                            },
-                            "timestamp": __import__("time").time(),
-                        }
-                    )
-                    + "\n"
-                )
-        except Exception:
-            pass
-        # #endregion
-
         return results
 
     def hybrid_search(
@@ -344,30 +283,48 @@ class VectorStore:
         """Return the lazy-loaded multilingual MiniLM encoder.
 
         Loads on CPU with low_cpu_mem_usage=False to avoid PyTorch meta-tensor
-        errors (PyTorch 2.2+). If that still raises NotImplementedError (e.g. on
-        Apple MPS), retries without device so the library uses its default path.
+        errors (PyTorch 2.2+). Falls back through multiple strategies if needed.
+        Thread-safe with double-checked locking pattern.
         """
-        if self._model is None:
+        # Fast path: model already loaded (no lock needed)
+        if self._model is not None:
+            return self._model
+        
+        # Acquire lock for model loading
+        with self._model_lock:
+            # Double-check: another thread might have loaded it while we waited
+            if self._model is not None:                return self._model            
+            # Strategy 1: CPU with low_cpu_mem_usage=False
             try:
                 self._model = SentenceTransformer(
                     self.model_name,
                     device="cpu",
                     model_kwargs={"low_cpu_mem_usage": False},
-                )
-            except NotImplementedError:
-                self._model = SentenceTransformer(self.model_name)
-        return self._model
+                )                return self._model
+            except Exception as exc1:                
+                # Strategy 2: Load without device parameter, then move to CPU
+                try:
+                    import torch
+                    # Load model without forcing device, let it use default
+                    self._model = SentenceTransformer(self.model_name)
+                    # Try to move to CPU if not already there
+                    try:
+                        if hasattr(self._model, 'to'):
+                            self._model = self._model.to('cpu')
+                    except:
+                        pass  # Ignore if .to() fails, model might already be on CPU                    return self._model
+                except Exception as exc2:                    raise RuntimeError(f"Failed to load SentenceTransformer model: {exc2}") from exc2
 
     def _encode_texts(self, texts: Sequence[str]) -> np.ndarray:
         """Encode texts into normalized embedding vectors."""
         if not texts:
-            return np.zeros((0, 0), dtype="float32")
-        model = self._get_model()
+            return np.zeros((0, 0), dtype="float32")        
+        model = self._get_model()        
         embeddings = model.encode(
             list(texts),
             convert_to_numpy=True,
             show_progress_bar=False,
-        ).astype("float32")
+        ).astype("float32")        
         return _normalize_embeddings(embeddings)
 
     def _index_path(self, document_id: int) -> Path:

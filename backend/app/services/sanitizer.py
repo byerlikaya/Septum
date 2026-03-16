@@ -792,6 +792,10 @@ class PIISanitizer:
                 continue
             parts.append(text[last_index : span.start])
             original = text[span.start : span.end]
+            # Skip empty or whitespace-only entities
+            if not original or not original.strip():
+                last_index = span.end
+                continue
             placeholder = anon_map.add_entity(original, span.entity_type)
             parts.append(placeholder)
             last_index = span.end

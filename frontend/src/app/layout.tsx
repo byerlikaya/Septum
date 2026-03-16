@@ -14,9 +14,7 @@ export const metadata = {
   description: "Privacy-first AI middleware"
 } as const;
 
-export default function RootLayout(
-  props: RootLayoutProps
-): JSX.Element {
+export default function RootLayout(props: RootLayoutProps) {
   const { children } = props;
 
   return (
