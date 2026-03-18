@@ -93,6 +93,7 @@ The common theme: **leverage LLMs while keeping personal data encrypted and on�
 - **Desktop Assistant Mode (ChatGPT / Claude)**
   - Optional mode that sends your question (or a RAG-enabled prompt with document context) directly to a locally installed desktop assistant client (for example the official ChatGPT or Claude desktop apps) instead of the cloud LLM behind Septum.
   - When "Use document context (RAG)" is enabled, Septum retrieves and sanitizes relevant chunks from your uploaded documents and constructs a RAG prompt using the same logic as Cloud Mode, then sends this full prompt to the desktop assistant via OS‑level automation.
+  - When the require-approval setting is enabled, desktop mode shows the same approval modal as Cloud Mode before sending the prompt, so you can review the masked content and approve or reject.
   - Uses OS‑level automation on your own machine (window focus, clipboard, keystrokes); no additional cloud calls are made beyond what the desktop client already performs.
   - Fully opt‑in via Settings and disabled by default; when enabled, you can switch between Cloud Mode and Desktop Assistant Mode from the chat screen and choose which desktop client to target.
 
@@ -215,6 +216,7 @@ At a high level:
      - Uses state‑of‑the‑art XLM‑RoBERTa based models (e.g. `Davlan/xlm-roberta-base-wikiann-ner` for 20 languages, `akdeniz27/xlm-roberta-base-turkish-ner` for Turkish).
      - Runs device‑aware (CUDA → MPS → CPU) and uses cached pipelines for efficiency.
    - This layer is configurable per language via the **NER Model Settings** screen.
+   - An optional **Ollama PII validation layer** (Settings → Privacy) can be enabled to filter false‑positive PII candidates at query time (e.g. generic job titles, role names, organisational locations), so that only truly identifying information is masked.
 
 4. **Layer 3 — Ollama context‑aware layer**
    - When enabled (`use_ollama_layer=True`), Septum uses a **local Ollama LLM** to detect context‑dependent PII that the first two layers may miss:

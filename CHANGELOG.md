@@ -10,6 +10,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 - **use_ollama_validation_layer setting**: New backend setting and Privacy UI toggle to enable/disable the Ollama PII validation layer (default true). Backend: config, database seed, AppSettings model, settings router and schema. Frontend: settings page grid, types, i18n (EN/TR).
 - **Next.js and lockfile**: Set `outputFileTracingRoot` in next.config.mjs to resolve multi-lockfile warning; removed redundant root `package-lock.json`.
 - **CI test fixes**: Desktop assistant factory now uses lazy imports for macOS/Windows modules so Linux CI does not require pyautogui or pygetwindow. ChatWindow agent-log fetch calls are guarded with a typeof fetch check so Jest (jsdom) tests pass without a global fetch.
+- **README (EN/TR)**: Document desktop mode approval gate (require-approval shows same modal as Cloud Mode) and optional Ollama PII validation layer in Privacy settings; TR README aligned with EN for Desktop Assistant and PII pipeline sections.
 
 ### 2026-03-16
 
