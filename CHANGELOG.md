@@ -9,6 +9,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 - **Ollama PII validation and JSON robustness**: Added language-agnostic `pii_validation_prompt` in PromptCatalog for the validation layer. Made `extract_json_array` in ollama_client tolerant of markdown fences, multiple arrays, trailing commas, and extra text. Sanitizer and NER registry comment/behavior aligned with generic architecture.
 - **use_ollama_validation_layer setting**: New backend setting and Privacy UI toggle to enable/disable the Ollama PII validation layer (default true). Backend: config, database seed, AppSettings model, settings router and schema. Frontend: settings page grid, types, i18n (EN/TR).
 - **Next.js and lockfile**: Set `outputFileTracingRoot` in next.config.mjs to resolve multi-lockfile warning; removed redundant root `package-lock.json`.
+- **CI test fixes**: Desktop assistant factory now uses lazy imports for macOS/Windows modules so Linux CI does not require pyautogui or pygetwindow. ChatWindow agent-log fetch calls are guarded with a typeof fetch check so Jest (jsdom) tests pass without a global fetch.
 
 ### 2026-03-16
 

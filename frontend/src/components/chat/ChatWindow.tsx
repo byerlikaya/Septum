@@ -211,56 +211,60 @@ export function ChatWindow({
   const sendMessage = useCallback(() => {
     const text = input.trim();
     // #region agent log
-    fetch("http://127.0.0.1:7264/ingest/a2860a62-e8dd-4dd4-8e96-3f162799a890", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Debug-Session-Id": "e6472d"
-      },
-      body: JSON.stringify({
-        sessionId: "e6472d",
-        runId: "pre-fix",
-        hypothesisId: "H0",
-        location: "ChatWindow.tsx:sendMessage",
-        message: "sendMessage_entered",
-        data: {
-          rawInputLength: input.length,
-          trimmedLength: text.length,
-          chatMode,
-          desktopAssistantEnabled,
-          desktopSending,
-          streaming
+    if (typeof fetch !== "undefined") {
+      fetch("http://127.0.0.1:7264/ingest/a2860a62-e8dd-4dd4-8e96-3f162799a890", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "e6472d"
         },
-        timestamp: Date.now()
-      })
-    }).catch(() => {});
+        body: JSON.stringify({
+          sessionId: "e6472d",
+          runId: "pre-fix",
+          hypothesisId: "H0",
+          location: "ChatWindow.tsx:sendMessage",
+          message: "sendMessage_entered",
+          data: {
+            rawInputLength: input.length,
+            trimmedLength: text.length,
+            chatMode,
+            desktopAssistantEnabled,
+            desktopSending,
+            streaming
+          },
+          timestamp: Date.now()
+        })
+      }).catch(() => {});
+    }
     // #endregion
 
     if (!text || streaming || desktopSending) return;
 
     // #region agent log
-    fetch("http://127.0.0.1:7264/ingest/a2860a62-e8dd-4dd4-8e96-3f162799a890", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Debug-Session-Id": "e6472d"
-      },
-      body: JSON.stringify({
-        sessionId: "e6472d",
-        runId: "pre-fix",
-        hypothesisId: "H1",
-        location: "ChatWindow.tsx:sendMessage",
-        message: "sendMessage_invoked",
-        data: {
-          inputLength: text.length,
-          chatMode,
-          desktopAssistantEnabled,
-          desktopSending,
-          streaming
+    if (typeof fetch !== "undefined") {
+      fetch("http://127.0.0.1:7264/ingest/a2860a62-e8dd-4dd4-8e96-3f162799a890", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "e6472d"
         },
-        timestamp: Date.now()
-      })
-    }).catch(() => {});
+        body: JSON.stringify({
+          sessionId: "e6472d",
+          runId: "pre-fix",
+          hypothesisId: "H1",
+          location: "ChatWindow.tsx:sendMessage",
+          message: "sendMessage_invoked",
+          data: {
+            inputLength: text.length,
+            chatMode,
+            desktopAssistantEnabled,
+            desktopSending,
+            streaming
+          },
+          timestamp: Date.now()
+        })
+      }).catch(() => {});
+    }
     // #endregion
 
     setInput("");
