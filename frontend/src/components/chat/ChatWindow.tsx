@@ -71,6 +71,8 @@ export function ChatWindow({
   const [approvalTimedOut, setApprovalTimedOut] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [debugSessionId, setDebugSessionId] = useState<string | null>(null);
+  const [desktopApprovalPending, setDesktopApprovalPending] = useState(false);
+  const [desktopApprovalRequest, setDesktopApprovalRequest] = useState<any>(null);
   const [debugData, setDebugData] = useState<{
     masked_prompt: string;
     masked_answer: string;
@@ -82,7 +84,7 @@ export function ChatWindow({
   const [desktopOpenNewChat, setDesktopOpenNewChat] = useState(
     desktopAssistantChatgptNewChatDefault
   );
-  const [desktopUseRag, setDesktopUseRag] = useState(false);
+  const [desktopUseRag, setDesktopUseRag] = useState(true);
   const abortRef = useRef<{ abort: () => void } | null>(null);
   const pendingAssistantIdRef = useRef<string | null>(null);
   const currentSessionIdRef = useRef<string | null>(null);
@@ -92,16 +94,102 @@ export function ChatWindow({
 
   const handleApprove = useCallback(
     async (sessionId: string, editedChunks: ApprovalChunkPayload[]) => {
+      // Check if this is desktop mode approval
+      if (desktopApprovalPending && desktopApprovalRequest) {
+        setDesktopApprovalPending(false);
+        setApprovalOpen(false);
+        setApprovalSessionId(null);
+        setApprovalMaskedPrompt("");
+        setDesktopSending(true);
+        
+        try {
+          // Resend with skip_approval=true
+          const approvedRequest = { ...desktopApprovalRequest, skip_approval: true };
+          const response = await sendToDesktopAssistant(approvedRequest);
+          
+          if (response.status === "ok") {
+            const successMessage =
+              desktopTarget === "chatgpt"
+                ? t("chat.desktop.status.sent.chatgpt")
+                : t("chat.desktop.status.sent.claude");
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: generateId(),
+                role: "assistant",
+                content: successMessage
+              }
+            ]);
+            setDesktopStatus(successMessage);
+          } else {
+            const errorMessage = t("chat.desktop.status.error", {
+              message: response.message ?? ""
+            });
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: generateId(),
+                role: "assistant",
+                content: errorMessage
+              }
+            ]);
+            setDesktopStatus(errorMessage);
+          }
+        } catch (e) {
+          const errorMessage =
+            e instanceof Error
+              ? t("chat.desktop.status.error", { message: e.message })
+              : t("chat.desktop.status.error", { message: "" });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: generateId(),
+              role: "assistant",
+              content: errorMessage
+            }
+          ]);
+          setDesktopStatus(errorMessage);
+        } finally {
+          setDesktopSending(false);
+          setDesktopApprovalRequest(null);
+        }
+        return;
+      }
+      
+      // Cloud mode approval
       await approvalApprove(sessionId, editedChunks);
       setApprovalOpen(false);
       setApprovalSessionId(null);
       setApprovalChunks([]);
       setApprovalMaskedPrompt("");
     },
-    []
+    [desktopApprovalPending, desktopApprovalRequest, desktopTarget, t]
   );
 
   const handleReject = useCallback(async (sessionId: string, reason?: string) => {
+    // Check if this is desktop mode approval
+    if (desktopApprovalPending) {
+      setDesktopApprovalPending(false);
+      setDesktopApprovalRequest(null);
+      setApprovalOpen(false);
+      setApprovalSessionId(null);
+      setApprovalMaskedPrompt("");
+      setDesktopSending(false);
+      
+      const rejectMessage = t("chat.desktop.status.rejected");
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: generateId(),
+          role: "assistant",
+          content: rejectMessage
+        }
+      ]);
+      setDesktopStatus(rejectMessage);
+      return;
+    }
+    
+    // Cloud mode rejection
     await approvalReject(sessionId, reason);
     setApprovalOpen(false);
     setApprovalSessionId(null);
@@ -118,7 +206,7 @@ export function ChatWindow({
       }
       return prev;
     });
-  }, []);
+  }, [desktopApprovalPending, t]);
 
   const sendMessage = useCallback(() => {
     const text = input.trim();
@@ -189,15 +277,31 @@ export function ChatWindow({
       setDesktopSending(true);
       void (async () => {
         try {
-          const response = await sendToDesktopAssistant({
+          const request = {
             message: text,
             target: desktopTarget,
             open_new_chat:
               desktopTarget === "chatgpt" ? desktopOpenNewChat : false,
             use_rag: desktopUseRag,
             document_ids: desktopUseRag ? documentIds : [],
-            top_k: 5
-          });
+            top_k: 5,
+            skip_approval: false
+          };
+          const response = await sendToDesktopAssistant(request);
+          
+          if (response.status === "approval_required") {
+            // Desktop mode approval required
+            setDesktopApprovalPending(true);
+            setDesktopApprovalRequest(request);
+            setApprovalSessionId("desktop-approval");  // Dummy sessionId for desktop mode
+            setApprovalMaskedPrompt(response.prompt || "");
+            setApprovalChunks([]);
+            setApprovalRegulations([]);
+            setApprovalOpen(true);
+            setDesktopSending(false);
+            return;
+          }
+          
           if (response.status === "ok") {
             const successMessage =
               desktopTarget === "chatgpt"

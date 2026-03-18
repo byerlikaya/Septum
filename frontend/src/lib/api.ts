@@ -270,11 +270,14 @@ export interface DesktopAssistantSendRequest {
   use_rag?: boolean;
   document_ids?: number[];
   top_k?: number;
+  skip_approval?: boolean;
 }
 
 export interface DesktopAssistantSendResponse {
-  status: "ok" | "error";
+  status: "ok" | "error" | "approval_required";
   message?: string;
+  prompt?: string;
+  requires_approval?: boolean;
 }
 
 export async function sendToDesktopAssistant(

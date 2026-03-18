@@ -95,6 +95,7 @@ class DesktopAssistantRequest(BaseModel):
     use_rag: bool = False
     document_ids: list[int] = []
     top_k: int = 5
+    skip_approval: bool = False
 
 
 class DesktopAssistantResponse(BaseModel):
@@ -102,6 +103,8 @@ class DesktopAssistantResponse(BaseModel):
 
     status: str
     message: Optional[str] = None
+    prompt: Optional[str] = None
+    requires_approval: Optional[bool] = None
 
 
 async def _load_settings(db: AsyncSession) -> AppSettings:
@@ -164,7 +167,7 @@ async def _sanitize_query(
         settings=settings,
         policy=policy,
         ner_registry=ner_registry,
-        enable_ollama_layer=False,
+        enable_ollama_layer=True,  # Enable validation layer at query time
     )
     result = await asyncio.to_thread(
         sanitizer.sanitize,
@@ -724,6 +727,9 @@ async def chat_ask(
                         )
                         prev_doc_id = c.document_id
                     chunk_text = c.sanitized_text or ""
+                    
+                    # Chunks are stored as RAW text in DB (design decision).
+                    # Always sanitize at query time with full validation layer.
                     sanitized_chunk, _ = await _sanitize_query(
                         chunk_text,
                         language,
@@ -731,6 +737,7 @@ async def chat_ask(
                         anon_map,
                         db,
                     )
+                    
                     sanitized_chunk_texts.append(header + sanitized_chunk)
 
             if documents_by_id and require_approval and chunks:
@@ -884,7 +891,17 @@ async def _build_rag_prompt_for_desktop(
     language = await _detect_language(query, fallback="en")
     # Retrieve chunks and sanitize
     try:
-        sanitizer = PIISanitizer(settings)
+        # Compose active policy (includes validation layer)
+        policy_composer = PolicyComposer()
+        policy = await policy_composer.compose(db)
+        overrides = getattr(settings, "ner_model_overrides", None) or {}
+        ner_registry = NERModelRegistry(_overrides=dict(overrides))
+        sanitizer = PIISanitizer(
+            settings=settings,
+            policy=policy,
+            ner_registry=ner_registry,
+            enable_ollama_layer=True,  # Enable validation layer at query time
+        )
         sanitized_query = query  # Default: use original if no documents
         
         if not document_ids:
@@ -933,12 +950,15 @@ async def _build_rag_prompt_for_desktop(
             )
             sanitized_query = sanitized_query_result.sanitized_text
             
-            # Extract and sanitize chunk texts (skip empty chunks)
+            # Chunks are stored as RAW text in DB (design decision).
+            # Always sanitize at query time with full validation layer.
             sanitized_chunks: list[str] = []
             for chunk in chunks:
                 chunk_text = chunk.sanitized_text or ""
                 if not chunk_text.strip():
-                    continue  # Skip empty chunks to avoid AnonymizationMap validation errors
+                    continue
+                
+                # Sanitize chunk with full pipeline (includes validation layer)
                 sanitized_chunk_result = await asyncio.to_thread(
                     sanitizer.sanitize, chunk_text, language, anon_map
                 )
@@ -1060,6 +1080,20 @@ async def desktop_assistant_send(
                     message="Failed to build RAG prompt for desktop assistant.",
                 ).model_dump(),
             )
+
+    # Check if approval is required
+    require_approval = settings.require_approval and not payload.skip_approval
+    if require_approval:
+        # Return prompt for user approval (same as Cloud LLM mode)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=DesktopAssistantResponse(
+                status="approval_required",
+                prompt=final_message,
+                requires_approval=True,
+                message="Approval required. Please review the prompt before sending.",
+            ).model_dump(),
+        )
 
     try:
         # Run potentially blocking OS automation in a worker thread.
