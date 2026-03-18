@@ -3,10 +3,12 @@ from __future__ import annotations
 """
 PII sanitization pipeline for Septum.
 
-This module implements a three-layer PII detection stack:
+This module implements a multi-layer PII detection stack:
 1. Presidio AnalyzerEngine with custom recognizers (Layer 1).
 2. HuggingFace NER models selected via NERModelRegistry (Layer 2).
-3. Optional Ollama-based context-aware layer (Layer 3, placeholder hook).
+3. Optional Ollama validation layer (Layer 3) - filters false positives using
+   regulation-aware, context-aware LLM judgment.
+4. Optional Ollama alias/nickname layer (Layer 4) - detects indirect references.
 
 The actual string replacements are performed via AnonymizationMap, which
 ensures that placeholders are stable and that a token-level blocklist
@@ -16,7 +18,7 @@ is applied as a final safety net.
 from dataclasses import dataclass
 import logging
 import re
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from presidio_analyzer import AnalyzerEngine, EntityRecognizer, RecognizerResult
 
@@ -308,7 +310,7 @@ class PIISanitizer:
         """Run the multi-layer sanitizer on the given text.
 
         Presidio is invoked with language='en' because the project uses a single
-        English SpaCy pipeline; regex- and validator-based recognizers still apply.
+        default SpaCy pipeline; regex- and validator-based recognizers still apply.
         """
         if not text:
             return SanitizeResult(sanitized_text=text, entity_count=0)
@@ -331,6 +333,24 @@ class PIISanitizer:
             ner_pipeline = self._ner_registry.get_pipeline(language)
             ner_results = ner_pipeline(normalized_text)
             spans.extend(self._from_ner_results(ner_results, normalized_text, language))
+
+        if self._settings.use_ollama_validation_layer and spans:
+            try:
+                validated_spans = self._ollama_validate_pii_candidates(
+                    text=normalized_text,
+                    candidate_spans=spans,
+                    language=language,
+                )
+                logger.debug(
+                    "Ollama validation: %d candidates → %d validated spans",
+                    len(spans),
+                    len(validated_spans),
+                )
+                spans = validated_spans
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "Ollama validation layer failed, continuing with all candidates: %s", e
+                )
 
         if self._enable_ollama_layer:
             try:
@@ -432,8 +452,93 @@ class PIISanitizer:
             filtered.append(r)
         return filtered
 
+    def _ollama_validate_pii_candidates(
+        self,
+        text: str,
+        candidate_spans: List[DetectedSpan],
+        language: str,
+    ) -> List[DetectedSpan]:
+        """Validate candidate spans using Ollama's context and regulation awareness.
+
+        This method sends the full text and all candidate spans to a local Ollama
+        model, asking it to filter out false positives (general terms, job titles,
+        city names in organizational context) and return only genuine PII according
+        to active regulations. This provides an LLM-powered safety check that is
+        language-agnostic and regulation-aware.
+        """
+        if not candidate_spans or not text:
+            return candidate_spans
+
+        regulation_rules = self._build_regulation_context()
+        candidate_dicts = [
+            {
+                "text": text[span.start : span.end],
+                "entity_type": span.entity_type,
+                "start": span.start,
+                "end": span.end,
+                "score": span.score,
+            }
+            for span in candidate_spans
+        ]
+
+        prompt = PromptCatalog.pii_validation_prompt(
+            text=text,
+            candidate_spans=candidate_dicts,
+            language=language,
+            regulation_rules=regulation_rules,
+        )
+
+        response = call_ollama_sync(
+            prompt=prompt,
+            base_url=self._settings.ollama_base_url,
+            model=self._settings.ollama_deanon_model,
+        )
+
+        if not response or not response.strip():
+            logger.warning("Ollama validation returned empty response, keeping all candidates")
+            return candidate_spans
+
+        validated_items = extract_json_array(response)
+        if not validated_items:
+            logger.debug("Ollama validation returned no PII spans (filtered all candidates)")
+            return []
+
+        validated_spans: List[DetectedSpan] = []
+        for item in validated_items:
+            if not isinstance(item, dict):
+                continue
+            span_text = item.get("text")
+            entity_type = item.get("entity_type")
+            start = item.get("start")
+            end = item.get("end")
+
+            if span_text is None or entity_type is None or start is None or end is None:
+                continue
+
+            for original_span in candidate_spans:
+                if (
+                    original_span.start == start
+                    and original_span.end == end
+                    and original_span.entity_type == entity_type
+                ):
+                    validated_spans.append(original_span)
+                    break
+
+        return validated_spans
+
+    def _build_regulation_context(self) -> str:
+        """Build a human-readable summary of active regulation rules."""
+        if self._entity_types is None or not self._entity_types:
+            return "No specific regulations active (generic PII detection)."
+
+        context_parts = [
+            "Active entity types for PII detection:",
+            ", ".join(sorted(set(self._entity_types))),
+        ]
+        return "\n".join(context_parts)
+
     def _ollama_pii_detection(self, normalized_text: str) -> List[DetectedSpan]:
-        """Call local Ollama to detect PII (aliases, nicknames); return spans for Layer 1/2 merge.
+        """Call local Ollama to detect PII (aliases, nicknames); return spans for Layer 4.
 
         Character positions are derived from the text field (Ollama start/end may not
         match when leading articles like 'The' are part of the alias).
@@ -554,7 +659,7 @@ class PIISanitizer:
         """Convert HuggingFace NER pipeline outputs to DetectedSpan.
 
         Uses a lower confidence threshold for PERSON_NAME and LOCATION when
-        language is not English, so that language-specific models (e.g. Turkish)
+        processing non-default locales, so that locale-specific models
         retain more detections for given names and place names that may have
         lower scores. ORGANIZATION_NAME keeps the stricter threshold.
         """

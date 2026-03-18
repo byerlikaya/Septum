@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List
+from typing import Any, List
 
 
 class PromptCatalog:
@@ -60,6 +60,81 @@ class PromptCatalog:
             "with keys: start, end, text, entity_type. Use entity_type "
             f'"{entity_type}". Only return the JSON array, nothing else.\n\n'
             f"Instruction: {instruction}\n\nText:\n{text}"
+        )
+
+    @staticmethod
+    def pii_validation_prompt(
+        text: str,
+        candidate_spans: list[dict[str, Any]],
+        language: str,
+        regulation_rules: str,
+    ) -> str:
+        """Prompt for Ollama validation layer: filter false-positive PII candidates.
+
+        This prompt is regulation-aware and language-agnostic. It asks the model
+        to distinguish genuine sensitive information from general terms (job titles,
+        role names, city names in organizational context) based on active privacy
+        regulations and the surrounding context.
+        """
+        from json import dumps
+
+        candidates_json = dumps(candidate_spans, ensure_ascii=False, indent=2)
+
+        return (
+            "You are a privacy regulation expert. Your task is to validate "
+            "whether candidate text spans are TRULY personally identifiable "
+            "information (PII) under the active privacy regulations.\n\n"
+            "CONTEXT:\n"
+            f"- Document language: {language.upper()}\n"
+            f"- Active regulations:\n{regulation_rules}\n\n"
+            "CRITICAL RULES FOR VALIDATION:\n"
+            "1. GENERIC ROLE/OCCUPATION TERMS are NOT PII:\n"
+            "   - Common nouns denoting professional roles, employee categories, or service recipients\n"
+            "   - Generic professional categories or occupational groups\n"
+            "   - Role classifications that could apply to many individuals\n"
+            "   → These are NOT PII unless directly combined with specific identifying information.\n\n"
+            "2. JOB TITLES ALONE are NOT PII:\n"
+            "   - Organizational positions, management levels, or professional roles\n"
+            "   - Department-level positions or functional roles\n"
+            "   → Only PII if part of a unique identifier combining title with a specific person.\n\n"
+            "3. GEOGRAPHIC LOCATIONS IN ORGANIZATIONAL CONTEXT are NOT PII:\n"
+            "   - Place names referring to organizational branches, offices, or facilities\n"
+            "   - Addresses of organizations (not residential addresses of individuals)\n"
+            "   - Office locations, headquarters, or regional identifiers\n"
+            "   → Only PII if it uniquely identifies a person's residence or personal location.\n\n"
+            "4. ORGANIZATIONAL/STRUCTURAL TERMS are NOT PII:\n"
+            "   - Entity type designations (corporations, institutions, divisions)\n"
+            "   - Document structure keywords (sections, chapters, articles)\n"
+            "   - Administrative or legal vocabulary\n\n"
+            "5. FIELD LABELS/DOCUMENT METADATA are NOT PII:\n"
+            "   - Field headers or form prompts that precede data entry\n"
+            "   - Table column names or structured data labels\n"
+            "   - Document section titles or metadata tags\n\n"
+            "6. POSSESSIVE/GRAMMATICAL CONSTRUCTIONS are NOT PII:\n"
+            "   - Possessive or genitive forms of generic terms\n"
+            "   - Grammatical inflections, case markers, or particles\n"
+            "   - Articles, prepositions, or conjunctions adjacent to PII\n\n"
+            "7. ONLY MARK AS PII IF:\n"
+            "   ✓ Uniquely identifies or could identify a SPECIFIC individual\n"
+            "   ✓ Contains actual personal data protected by regulations\n"
+            "   ✓ Would cause privacy harm if exposed\n"
+            "   ✗ NOT a general/categorical/descriptive term\n"
+            "   ✗ NOT common knowledge or public organizational information\n\n"
+            "CANDIDATE SPANS:\n"
+            f"{candidates_json}\n\n"
+            "FULL TEXT FOR CONTEXT:\n"
+            f"{text}\n\n"
+            "INSTRUCTIONS:\n"
+            "Analyze each candidate span in the context of the full text and the document's language. "
+            "Apply the validation rules above strictly. "
+            "Be AGGRESSIVE in filtering out non-PII: when in doubt about whether something "
+            "is generic vs. identifying, err on the side of NOT marking it as PII.\n\n"
+            "YOUR RESPONSE:\n"
+            "Return ONLY a valid JSON array of spans that are TRULY PII. "
+            "Each span must have: text, entity_type, start, end.\n"
+            "Format: [{\"text\": \"<value>\", \"entity_type\": \"<TYPE>\", \"start\": <int>, \"end\": <int>}]\n"
+            "If NO spans are truly PII after validation, return: []\n"
+            "Output ONLY the JSON array, no explanations or markdown."
         )
 
     @staticmethod

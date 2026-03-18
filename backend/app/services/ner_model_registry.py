@@ -34,7 +34,7 @@ class NERModelRegistry:
     DEFAULT_MODEL_MAP: Dict[str, str] = field(
         default_factory=lambda: {
             # Best-in-class models per language based on 2024-2025 research
-            # akdeniz27/xlm-roberta-base-turkish-ner: F1=0.949, XLM-RoBERTa fine-tuned on Turkish NER
+            # akdeniz27/xlm-roberta-base-turkish-ner: F1=0.949, XLM-RoBERTa fine-tuned for tr locale
             "tr": "akdeniz27/xlm-roberta-base-turkish-ner",
             # Davlan/xlm-roberta-base-wikiann-ner: Multilingual XLM-RoBERTa for 20 languages
             # Supports: ar, as, bn, ca, en, es, eu, fr, gu, hi, id, ig, mr, pa, pt, sw, ur, vi, yo, zh

@@ -174,7 +174,8 @@ class VectorStore:
             return []
 
         index = self._load_index(document_id)
-        if index is None:            return []
+        if index is None:
+            return []
 
         query_vec = self._encode_texts([query])
         scores, ids = index.search(query_vec, top_k)
@@ -293,15 +294,17 @@ class VectorStore:
         # Acquire lock for model loading
         with self._model_lock:
             # Double-check: another thread might have loaded it while we waited
-            if self._model is not None:                return self._model            
+            if self._model is not None:
+                return self._model
             # Strategy 1: CPU with low_cpu_mem_usage=False
             try:
                 self._model = SentenceTransformer(
                     self.model_name,
                     device="cpu",
                     model_kwargs={"low_cpu_mem_usage": False},
-                )                return self._model
-            except Exception as exc1:                
+                )
+                return self._model
+            except Exception:
                 # Strategy 2: Load without device parameter, then move to CPU
                 try:
                     import torch
@@ -309,11 +312,14 @@ class VectorStore:
                     self._model = SentenceTransformer(self.model_name)
                     # Try to move to CPU if not already there
                     try:
-                        if hasattr(self._model, 'to'):
-                            self._model = self._model.to('cpu')
-                    except:
-                        pass  # Ignore if .to() fails, model might already be on CPU                    return self._model
-                except Exception as exc2:                    raise RuntimeError(f"Failed to load SentenceTransformer model: {exc2}") from exc2
+                        if hasattr(self._model, "to"):
+                            self._model = self._model.to("cpu")
+                    except Exception:
+                        # Ignore if .to() fails, model might already be on CPU
+                        pass
+                    return self._model
+                except Exception as exc2:
+                    raise RuntimeError(f"Failed to load SentenceTransformer model: {exc2}") from exc2
 
     def _encode_texts(self, texts: Sequence[str]) -> np.ndarray:
         """Encode texts into normalized embedding vectors."""
