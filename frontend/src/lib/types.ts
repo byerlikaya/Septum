@@ -141,6 +141,7 @@ export interface AppSettingsResponse {
   show_json_output: boolean;
   use_presidio_layer: boolean;
   use_ner_layer: boolean;
+  use_ollama_validation_layer: boolean;
   use_ollama_layer: boolean;
   desktop_assistant_enabled: boolean;
   desktop_assistant_default_target: string | null;

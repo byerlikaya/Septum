@@ -50,6 +50,7 @@ class SettingsResponse(BaseModel):
 
     use_presidio_layer: bool
     use_ner_layer: bool
+    use_ollama_validation_layer: bool
     use_ollama_layer: bool
 
     desktop_assistant_enabled: bool
@@ -91,6 +92,7 @@ class SettingsUpdatePayload(BaseModel):
 
     use_presidio_layer: Optional[bool] = None
     use_ner_layer: Optional[bool] = None
+    use_ollama_validation_layer: Optional[bool] = None
     use_ollama_layer: Optional[bool] = None
 
     desktop_assistant_enabled: Optional[bool] = None

@@ -157,9 +157,12 @@ export const trMessages: Record<string, string> = {
   "settings.privacy.layers.ner.label": "NER katmanı",
   "settings.privacy.layers.ner.description":
     "Dile özgü HuggingFace NER modelleri.",
-  "settings.privacy.layers.ollama.label": "Ollama katmanı",
+  "settings.privacy.layers.ollamaValidation.label": "Ollama doğrulama",
+  "settings.privacy.layers.ollamaValidation.description":
+    "Yerel LLM bağlam ve regülasyon farkındalığı ile yanlış pozitifleri filtrele.",
+  "settings.privacy.layers.ollama.label": "Ollama lakap katmanı",
   "settings.privacy.layers.ollama.description":
-    "İsteğe bağlı yerel LLM tanıyıcıları (gelecekte).",
+    "Yerel LLM kullanarak takma adları ve dolaylı referansları tespit et.",
 
   "settings.desktopAssistant.enabled.label": "Masaüstü Asistan Modu",
   "settings.desktopAssistant.enabled.description":
@@ -344,6 +347,7 @@ export const trMessages: Record<string, string> = {
   "chat.desktop.useRag": "Doküman bağlamını kullan (RAG)",
   "chat.desktop.status.sent.chatgpt": "Mesaj ChatGPT masaüstü uygulamasına gönderildi.",
   "chat.desktop.status.sent.claude": "Mesaj Claude masaüstü uygulamasına gönderildi.",
+  "chat.desktop.status.rejected": "İstek reddedildi. Mesaj gönderilmedi.",
   "chat.desktop.status.error":
     "Masaüstü asistan hatası: {message}",
 

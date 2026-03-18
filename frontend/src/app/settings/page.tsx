@@ -570,7 +570,7 @@ function PrivacyTab({
         <h3 className="mb-2 text-xs font-semibold text-slate-200">
           {t("settings.privacy.layers.title")}
         </h3>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           <ToggleField
             label={t("settings.privacy.layers.presidio.label")}
             description={t("settings.privacy.layers.presidio.description")}
@@ -590,6 +590,16 @@ function PrivacyTab({
               await onChange("use_ner_layer", value);
             }}
             saving={isSaving("use_ner_layer")}
+          />
+          <ToggleField
+            label={t("settings.privacy.layers.ollamaValidation.label")}
+            description={t("settings.privacy.layers.ollamaValidation.description")}
+            checked={settings.use_ollama_validation_layer}
+            onToggle={async (value) => {
+              onLocalFieldChange(settings, "use_ollama_validation_layer", value);
+              await onChange("use_ollama_validation_layer", value);
+            }}
+            saving={isSaving("use_ollama_validation_layer")}
           />
           <ToggleField
             label={t("settings.privacy.layers.ollama.label")}

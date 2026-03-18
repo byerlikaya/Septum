@@ -152,9 +152,12 @@ export const enMessages = {
   "settings.privacy.layers.ner.label": "NER layer",
   "settings.privacy.layers.ner.description":
     "Language-specific HuggingFace NER models.",
-  "settings.privacy.layers.ollama.label": "Ollama layer",
+  "settings.privacy.layers.ollamaValidation.label": "Ollama validation",
+  "settings.privacy.layers.ollamaValidation.description":
+    "Filter false positives using local LLM context and regulation awareness.",
+  "settings.privacy.layers.ollama.label": "Ollama alias layer",
   "settings.privacy.layers.ollama.description":
-    "Optional local LLM recognizers (future).",
+    "Detect nicknames and indirect references using local LLM.",
 
   "settings.desktopAssistant.enabled.label": "Desktop Assistant Mode",
   "settings.desktopAssistant.enabled.description":
@@ -319,6 +322,7 @@ export const enMessages = {
   "chat.desktop.useRag": "Use document context (RAG)",
   "chat.desktop.status.sent.chatgpt": "Message sent to ChatGPT desktop app.",
   "chat.desktop.status.sent.claude": "Message sent to Claude desktop app.",
+  "chat.desktop.status.rejected": "Request rejected. Message was not sent.",
   "chat.desktop.status.error":
     "Desktop assistant error: {message}",
 

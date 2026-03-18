@@ -48,6 +48,9 @@ class AppSettings(Base):
         Boolean, default=True, nullable=False
     )
     use_ner_layer: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    use_ollama_validation_layer: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False
+    )
     use_ollama_layer: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     chunk_size: Mapped[int] = mapped_column(Integer, nullable=False)
