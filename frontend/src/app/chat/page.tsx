@@ -87,8 +87,6 @@ export default function ChatPage() {
 
         if (uploaded.length > 0) {
           setDocuments((prev) => [...uploaded, ...prev]);
-          const lastUploaded = uploaded[uploaded.length - 1];
-          setSelectedIds(new Set([lastUploaded.id]));
           setUploadStatus("success");
         }
       } catch {

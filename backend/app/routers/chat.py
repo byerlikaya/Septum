@@ -722,8 +722,12 @@ async def chat_ask(
                     
                     sanitized_chunk_texts.append(header + sanitized_chunk)
 
-            if documents_by_id and require_approval and chunks:
-                approval_chunks = _build_approval_chunks(chunks, sanitized_chunk_texts)
+            if require_approval:
+                approval_chunks = (
+                    _build_approval_chunks(chunks, sanitized_chunk_texts)
+                    if (documents_by_id and chunks)
+                    else []
+                )
                 gate.create(
                     session_id=session_id,
                     masked_prompt=sanitized_query,
@@ -792,7 +796,6 @@ async def chat_ask(
                 http_request=http_request,
                 used_ollama_fallback_ref=used_ollama_fallback,
             )
-
             for piece in _chunk_text(answer, max_chunk_size=256):
                 yield _encode_sse({"type": "answer_chunk", "text": piece})
 

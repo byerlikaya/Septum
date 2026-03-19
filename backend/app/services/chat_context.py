@@ -56,6 +56,7 @@ def build_chat_prompt(payload: ChatContextPayload) -> str:
         regulations_str=regulations_str,
         sanitized_query=payload.sanitized_query,
         context_text=context_text,
+        has_context=payload.has_context(),
         schema_instruction=payload.schema_instruction,
         placeholder_list_str=payload.placeholder_list_str,
         output_instruction=output_instruction,

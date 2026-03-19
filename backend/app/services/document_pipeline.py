@@ -208,12 +208,6 @@ class DocumentPipeline:
         raw_texts: Sequence[str],
     ) -> None:
         if len(chunks) != len(raw_texts):
-            ids = [c.id for c in chunks]
-            raw_len = len(raw_texts)
-            from time import time as _time
-            import json as _json
-
-            # #region agent log            # #endregion
             return
 
         vector_store = VectorStore()
