@@ -41,6 +41,21 @@ _HIGH_PRIORITY_ENTITY_TYPES: set[str] = {
     "IBAN_CODE",
 }
 
+# Spans that must never be subject to LLM-based validation (Ollama may drop them
+# or return empty JSON, which would leak structured identifiers to downstream layers).
+_OLLAMA_VALIDATION_PASSTHROUGH_TYPES: frozenset[str] = frozenset(
+    _HIGH_PRIORITY_ENTITY_TYPES
+)
+
+_MIN_TEXT_LENGTH_FOR_NER = 50
+_MIN_TEXT_LENGTH_FOR_OLLAMA_ALIAS = 80
+
+# FUTURE: extend Presidio to run with the detected document language once
+# per-language SpaCy models are registered.  Until then, the custom regex-
+# and validator-based recognizers all declare supported_language="en", so
+# Presidio always operates with this default.
+_PRESIDIO_DEFAULT_LANGUAGE = "en"
+
 
 @dataclass
 class DetectedSpan:
@@ -218,13 +233,11 @@ class HeuristicPersonNameRecognizer(EntityRecognizer):
         results: List[RecognizerResult] = []
         seen_spans: set[tuple[int, int]] = set()
 
-        # Single-word tokens on their own line after a colon (e.g., "Name:\nSmith\n")
         for match in self._pattern_after_label.finditer(text):
             group_start = match.start(1)
             group_end = match.end(1)
             matched_text = text[group_start:group_end]
-            
-            # Require first character to be uppercase
+
             if not matched_text or not matched_text[0].isupper():
                 continue
             
@@ -307,11 +320,7 @@ class PIISanitizer:
         language: str,
         anon_map: AnonymizationMap,
     ) -> SanitizeResult:
-        """Run the multi-layer sanitizer on the given text.
-
-        Presidio is invoked with language='en' because the project uses a single
-        default SpaCy pipeline; regex- and validator-based recognizers still apply.
-        """
+        """Run the multi-layer sanitizer on the given text."""
         if not text:
             return SanitizeResult(sanitized_text=text, entity_count=0)
 
@@ -321,7 +330,7 @@ class PIISanitizer:
         if self._settings.use_presidio_layer:
             presidio_results = self._analyzer.analyze(
                 text=normalized_text,
-                language="en",
+                language=_PRESIDIO_DEFAULT_LANGUAGE,
                 entities=self._entity_types,
             )
             presidio_results = self._filter_presidio_results(
@@ -329,10 +338,16 @@ class PIISanitizer:
             )
             spans.extend(self._from_presidio_results(presidio_results))
 
-        if self._settings.use_ner_layer:
+        text_len = len(normalized_text.strip())
+
+        if self._settings.use_ner_layer and text_len >= _MIN_TEXT_LENGTH_FOR_NER:
             ner_pipeline = self._ner_registry.get_pipeline(language)
             ner_results = ner_pipeline(normalized_text)
-            spans.extend(self._from_ner_results(ner_results, normalized_text, language))
+            ner_spans = self._from_ner_results(ner_results, normalized_text, language)
+            if self._entity_types is not None:
+                allowed = set(self._entity_types)
+                ner_spans = [s for s in ner_spans if s.entity_type in allowed]
+            spans.extend(ner_spans)
 
         if self._settings.use_ollama_validation_layer and spans:
             try:
@@ -352,7 +367,7 @@ class PIISanitizer:
                     "Ollama validation layer failed, continuing with all candidates: %s", e
                 )
 
-        if self._enable_ollama_layer:
+        if self._enable_ollama_layer and text_len >= _MIN_TEXT_LENGTH_FOR_OLLAMA_ALIAS:
             try:
                 ollama_spans = self._ollama_pii_detection(normalized_text)
                 logger.debug(
@@ -400,6 +415,7 @@ class PIISanitizer:
         # possible. This is language-agnostic and relies only on character
         # casing and token boundaries.
         spans = self._expand_person_name_spans(normalized_text, spans)
+        spans = self._merge_adjacent_person_name_spans(normalized_text, spans)
 
         spans = [
             s
@@ -460,14 +476,24 @@ class PIISanitizer:
     ) -> List[DetectedSpan]:
         """Validate candidate spans using Ollama's context and regulation awareness.
 
-        This method sends the full text and all candidate spans to a local Ollama
-        model, asking it to filter out false positives (general terms, job titles,
-        city names in organizational context) and return only genuine PII according
-        to active regulations. This provides an LLM-powered safety check that is
-        language-agnostic and regulation-aware.
+        Structured identifiers (national ID, IBAN, phone, etc.) are **never** sent to
+        the LLM: empty or malformed LLM responses must not strip them (privacy).
+
+        Only non-passthrough spans are validated; if validation yields no matches,
+        those candidates are retained to avoid leaking PII when the model errs.
         """
         if not candidate_spans or not text:
             return candidate_spans
+
+        passthrough: List[DetectedSpan] = [
+            s for s in candidate_spans if s.entity_type in _OLLAMA_VALIDATION_PASSTHROUGH_TYPES
+        ]
+        to_validate: List[DetectedSpan] = [
+            s for s in candidate_spans if s.entity_type not in _OLLAMA_VALIDATION_PASSTHROUGH_TYPES
+        ]
+
+        if not to_validate:
+            return passthrough
 
         regulation_rules = self._build_regulation_context()
         candidate_dicts = [
@@ -478,7 +504,7 @@ class PIISanitizer:
                 "end": span.end,
                 "score": span.score,
             }
-            for span in candidate_spans
+            for span in to_validate
         ]
 
         prompt = PromptCatalog.pii_validation_prompt(
@@ -495,13 +521,24 @@ class PIISanitizer:
         )
 
         if not response or not response.strip():
-            logger.warning("Ollama validation returned empty response, keeping all candidates")
-            return candidate_spans
+            logger.warning(
+                "Ollama validation returned empty response; keeping non-passthrough candidates"
+            )
+            return sorted(
+                passthrough + to_validate,
+                key=lambda s: s.start,
+            )
 
         validated_items = extract_json_array(response)
         if not validated_items:
-            logger.debug("Ollama validation returned no PII spans (filtered all candidates)")
-            return []
+            logger.warning(
+                "Ollama validation parsed no spans; keeping non-passthrough candidates "
+                "to avoid dropping real PII"
+            )
+            return sorted(
+                passthrough + to_validate,
+                key=lambda s: s.start,
+            )
 
         validated_spans: List[DetectedSpan] = []
         for item in validated_items:
@@ -515,7 +552,7 @@ class PIISanitizer:
             if span_text is None or entity_type is None or start is None or end is None:
                 continue
 
-            for original_span in candidate_spans:
+            for original_span in to_validate:
                 if (
                     original_span.start == start
                     and original_span.end == end
@@ -524,7 +561,19 @@ class PIISanitizer:
                     validated_spans.append(original_span)
                     break
 
-        return validated_spans
+        if not validated_spans:
+            logger.warning(
+                "Ollama validation matched no spans; keeping original non-passthrough candidates"
+            )
+            return sorted(
+                passthrough + to_validate,
+                key=lambda s: s.start,
+            )
+
+        return sorted(
+            passthrough + validated_spans,
+            key=lambda s: s.start,
+        )
 
     def _build_regulation_context(self) -> str:
         """Build a human-readable summary of active regulation rules."""
@@ -595,35 +644,26 @@ class PIISanitizer:
             entity_type = item.get("entity_type") or item.get("type") or "ALIAS"
             if text is None or text == "":
                 continue
+            entity_type_upper = str(entity_type).upper().replace(" ", "_")
+            if entity_type_upper not in {"PERSON_NAME", "ALIAS", "FIRST_NAME", "LAST_NAME"}:
+                continue
             text_str = str(text).strip()
-            _LEADING_ARTICLES = ("The ", "A ", "An ")
             start_idx = -1
             end_idx = -1
-            
-            # Case-insensitive search: Ollama may return capitalized names
-            # while the original text contains lowercase variants
+
             text_lower = normalized_text.lower()
             search_lower = text_str.lower()
-            
-            for article in _LEADING_ARTICLES:
-                extended = article + text_str
-                extended_lower = extended.lower()
-                idx = text_lower.find(extended_lower)
-                if idx >= 0:
-                    start_idx = idx
-                    end_idx = idx + len(extended)
-                    break
-            if start_idx < 0:
-                idx = text_lower.find(search_lower)
-                if idx >= 0:
-                    start_idx = idx
-                    end_idx = idx + len(text_str)
+
+            idx = text_lower.find(search_lower)
+            if idx >= 0:
+                start_idx = idx
+                end_idx = idx + len(text_str)
             if start_idx >= 0:
                 spans_list.append(
                     DetectedSpan(
                         start=start_idx,
                         end=end_idx,
-                        entity_type=str(entity_type).upper().replace(" ", "_"),
+                        entity_type=entity_type_upper,
                         score=0.85,
                     )
                 )
@@ -651,6 +691,23 @@ class PIISanitizer:
         return spans
 
     @staticmethod
+    def _snap_to_word_boundaries(text: str, start: int, end: int) -> tuple[int, int]:
+        """Expand a span to cover the full word(s) it touches.
+
+        Subword-tokenisation models can produce spans that begin or end
+        mid-word (e.g. "kara" inside "Ankara"). This helper expands the
+        boundaries outward to the nearest whitespace / punctuation so the
+        replacement never breaks a word.
+        """
+        _BOUNDARY_CHARS = frozenset(" \t\n\r.,;:!?()[]{}\"'/-")
+        while start > 0 and text[start - 1] not in _BOUNDARY_CHARS:
+            start -= 1
+        n = len(text)
+        while end < n and text[end] not in _BOUNDARY_CHARS:
+            end += 1
+        return start, end
+
+    @staticmethod
     def _from_ner_results(
         raw_results: List[dict],
         text: str,
@@ -658,15 +715,14 @@ class PIISanitizer:
     ) -> List[DetectedSpan]:
         """Convert HuggingFace NER pipeline outputs to DetectedSpan.
 
-        Uses a lower confidence threshold for PERSON_NAME and LOCATION when
-        processing non-default locales, so that locale-specific models
-        retain more detections for given names and place names that may have
-        lower scores. ORGANIZATION_NAME keeps the stricter threshold.
+        Applies a uniform confidence threshold of 0.85 for all languages
+        to limit false positives. Spans are snapped to word boundaries to
+        prevent mid-word replacements caused by subword tokenisation.
+        Spans shorter than 3 characters are discarded as unreliable.
         """
-        lang_norm = (language or "en").strip().lower()
-        threshold = 0.75 if lang_norm != "en" else 0.85
+        threshold = 0.85
+        min_span_len = 3
         spans: List[DetectedSpan] = []
-        numeric_filtered_org = 0
         for item in raw_results:
             entity = item.get("entity_group") or item.get("entity")
             start = int(item["start"])
@@ -678,36 +734,14 @@ class PIISanitizer:
             if entity_type is None:
                 continue
 
-            if entity_type in {"PERSON_NAME", "LOCATION"}:
-                if score < threshold:
-                    continue
-            elif entity_type == "ORGANIZATION_NAME":
-                if score < 0.85:
-                    continue
+            if score < threshold:
+                continue
 
-            # Additional heuristic for ORGANIZATION_NAME in numeric/price-like lines:
-            # when the surrounding line is dominated by digits or currency/percentage
-            # symbols, treat it as structured numeric content (for example menus,
-            # inventory lists) and skip the span.
-            if entity_type == "ORGANIZATION_NAME":
-                line_start = text.rfind("\n", 0, start) + 1
-                if line_start < 0:
-                    line_start = 0
-                line_end = text.find("\n", end)
-                if line_end < 0:
-                    line_end = len(text)
-                line = text[line_start:line_end].strip()
-                if line:
-                    tokens = line.split()
-                    numeric_like_tokens = 0
-                    for token in tokens:
-                        if any(ch.isdigit() for ch in token):
-                            numeric_like_tokens += 1
-                        if any(ch in token for ch in ("$", "€", "£", "¥", "%")):
-                            numeric_like_tokens += 1
-                    if numeric_like_tokens >= max(1, len(tokens) // 2):
-                        numeric_filtered_org += 1
-                        continue
+            start, end = PIISanitizer._snap_to_word_boundaries(text, start, end)
+
+            span_text = text[start:end].strip()
+            if len(span_text) < min_span_len:
+                continue
 
             spans.append(
                 DetectedSpan(
@@ -717,28 +751,23 @@ class PIISanitizer:
                     score=score,
                 )
             )
-        if numeric_filtered_org:
-            logger.debug(
-                "Filtered %d ORGANIZATION_NAME spans in numeric-like lines from NER layer",
-                numeric_filtered_org,
-            )
         return spans
 
     @staticmethod
     def _map_ner_label(label: str) -> Optional[str]:
-        """Map model-specific NER labels to global entity types."""
+        """Map model-specific NER labels to global entity types.
+
+        Only PERSON_NAME and EMAIL_ADDRESS are mapped from NER output.
+        ORG and LOC are intentionally suppressed: they are not regulation
+        entity types (regulations use POSTAL_ADDRESS, CITY, etc.) and
+        generic NER models produce excessive false positives for these
+        categories, especially in agglutinative languages. Address and
+        organisation detection is delegated to regulation-specific Presidio
+        recognizers which use precise regex/validator patterns.
+        """
         upper = label.upper()
         if "PER" in upper or upper.startswith("B-PER") or upper.startswith("I-PER"):
             return "PERSON_NAME"
-        # Organization entities from generic NER models tend to be noisy for
-        # structured content (for example menus or product catalogs) and are
-        # not strictly required for most privacy regulations. They are therefore
-        # ignored at the NER layer and can still be supplied by regulation-
-        # specific Presidio recognizers when needed.
-        if "ORG" in upper:
-            return None
-        if "LOC" in upper:
-            return "LOCATION"
         if "EMAIL" in upper:
             return "EMAIL_ADDRESS"
         return None
@@ -834,14 +863,24 @@ class PIISanitizer:
             start = span.start
             end = span.end
 
-            # Look right for a candidate surname.
+            original_span_text = text[start:end].strip()
+            if not _is_name_like_token(start, end) or len(original_span_text) < 2:
+                expanded.append(span)
+                continue
+
+            # Look right for a candidate surname (one token only).
             right = end
             n = len(text)
             while right < n and text[right].isspace():
                 right += 1
             if right < n:
                 right_end = _find_token_end(right)
-                if _is_name_like_token(right, right_end):
+                right_token = text[right:right_end]
+                if (
+                    _is_name_like_token(right, right_end)
+                    and len(right_token) >= 2
+                    and right_token.isalpha()
+                ):
                     overlaps = any(
                         not (right_end <= s_start or right >= s_end)
                         for s_start, s_end in occupied_ranges
@@ -849,13 +888,18 @@ class PIISanitizer:
                     if not overlaps:
                         end = right_end
 
-            # Look left for a preceding name token.
+            # Look left for a preceding name token (one token only).
             left = start
             while left > 0 and text[left - 1].isspace():
                 left -= 1
             if left > 0:
                 left_start = _find_token_start(left - 1)
-                if _is_name_like_token(left_start, left):
+                left_token = text[left_start:left]
+                if (
+                    _is_name_like_token(left_start, left)
+                    and len(left_token) >= 2
+                    and left_token.isalpha()
+                ):
                     overlaps = any(
                         not (left <= s_start or left_start >= s_end)
                         for s_start, s_end in occupied_ranges
@@ -876,6 +920,56 @@ class PIISanitizer:
             expanded, key=lambda s: (s.start, -(s.end - s.start), -s.score)
         )
         return expanded_sorted
+
+    @staticmethod
+    def _merge_adjacent_person_name_spans(
+        text: str,
+        spans: List[DetectedSpan],
+    ) -> List[DetectedSpan]:
+        """Merge consecutive PERSON_NAME spans separated only by horizontal whitespace.
+
+        Prevents split replacements (e.g. given name and surname as two spans)
+        from producing broken placeholder insertion inside a single visual name.
+        """
+        if not spans:
+            return spans
+
+        others = [s for s in spans if s.entity_type != "PERSON_NAME"]
+        person_spans = sorted(
+            [s for s in spans if s.entity_type == "PERSON_NAME"],
+            key=lambda s: s.start,
+        )
+        if len(person_spans) <= 1:
+            return sorted(spans, key=lambda s: s.start)
+
+        merged_person: List[DetectedSpan] = []
+        i = 0
+        while i < len(person_spans):
+            cur = person_spans[i]
+            start, end = cur.start, cur.end
+            max_score = cur.score
+            j = i + 1
+            while j < len(person_spans):
+                nxt = person_spans[j]
+                gap = text[end : nxt.start]
+                if gap.strip() == "" and "\n" not in gap and "\r" not in gap:
+                    end = nxt.end
+                    max_score = max(max_score, nxt.score)
+                    j += 1
+                else:
+                    break
+            merged_person.append(
+                DetectedSpan(
+                    start=start,
+                    end=end,
+                    entity_type="PERSON_NAME",
+                    score=max_score,
+                )
+            )
+            i = j
+
+        combined = others + merged_person
+        return sorted(combined, key=lambda s: s.start)
 
     @staticmethod
     def _apply_replacements(

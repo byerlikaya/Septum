@@ -215,25 +215,27 @@ Yüksek seviyede akış:
 3. **Katman 2 — Dile özgü NER**
    - Her doküman ve sorgu için dil tespiti yapılır ve gerekirse çok dilli bir yedek modelle birlikte **dile uygun HuggingFace NER modeli** yüklenir.
    - Bu katman:
-     - Presidio'yu, bağlama ve dile göre değişen varlıkları yakalayarak tamamlar.
+     - Model çıktısından yalnızca **PERSON_NAME** ve **EMAIL_ADDRESS** etiketlerini eşler; ORG ve LOC etiketleri, yaygın kelimelerde yanlış pozitif oluşturmaması için kasıtlı olarak bastırılır (adres/konum tespiti Presidio'ya devredilir).
      - Son teknoloji XLM‑RoBERTa tabanlı modeller kullanır (ör. 20 dil için `Davlan/xlm-roberta-base-wikiann-ner`, Türkçe için `akdeniz27/xlm-roberta-base-turkish-ner`).
+     - Tekdüze **0,85** güven eşiği, en az **3 karakter** span uzunluğu ve alt‑kelime tokenizasyonundan kaynaklanan bozuk maskelemeyi önlemek için tüm span'leri **kelime sınırlarına** hizalar.
+     - NER sonuçları aktif politikanın varlık tiplerine göre filtrelenir; yalnızca aktif regülasyonların gerektirdiği tipler tutulur.
+     - 50 karakterden kısa metinler için tamamen atlanır; böylece kısa sorguların aşırı maskelenmesi önlenir.
      - Cihaz farkında çalışır (CUDA → MPS → CPU) ve cache'lenmiş pipeline'lar sayesinde performanslıdır.
    - Hangi dil için hangi modelin kullanılacağı, **NER Models** ayar ekranı üzerinden yapılandırılabilir.
-   - İsteğe bağlı **Ollama PII doğrulama katmanı** (Ayarlar → Gizlilik) sorgu anında yanlış pozitif PII adaylarını (örn. genel iş unvanları, rol adları, kurumsal konumlar) filtrelemek için etkinleştirilebilir; böylece yalnızca gerçekten tanımlayıcı bilgiler maskelenir.
+   - İsteğe bağlı **Ollama PII doğrulama katmanı** (Ayarlar → Gizlilik) sorgu anında yanlış pozitif PII adaylarını (örn. genel iş unvanları, rol adları, kurumsal konumlar) filtrelemek için etkinleştirilebilir; böylece yalnızca gerçekten tanımlayıcı bilgiler maskelenir. Presidio’dan gelen ulusal kimlik, IBAN ve telefon tespitleri bu LLM adımına **hiç gönderilmez**; model boş yanıt verirse aday span’ler korunur ki yapısal tanımlayıcılar sızdırılmasın.
 
 4. **Katman 3 — Ollama bağlam‑duyarlı katman**
-   - Etkinleştirildiğinde (`use_ollama_layer=True`), Septum ilk iki katmanın gözden kaçırabileceği bağlam‑bağımlı PII'leri tespit etmek için **yerel bir Ollama LLM** kullanır:
-     - Takma adlar, kod adları ve gayriresmi atıflar (ör. daha önce "John Doe" tespit edilmişse "john").
-     - Bağlam içinde aile üyesi isimleri (ör. "baba adı: ahmet", "anne: ayşe").
-     - Kod adları, lakalar ve kuruma özgü etiketler.
+   - Etkinleştirildiğinde (`use_ollama_layer=True`), Septum tamamen **kişi isimleri ve takma adlara** odaklanarak ilk iki katmanın gözden kaçırabileceği PII'leri tespit etmek için **yerel bir Ollama LLM** kullanır:
+     - Takma adlar ve gayriresmi atıflar (ör. daha önce "John Doe" tespit edilmişse "john").
+     - Bu katmandan yalnızca PERSON_NAME, ALIAS, FIRST_NAME ve LAST_NAME tip çıktıları kabul edilir.
    - Bu katman tam büyük/küçük harf uyumunu korur ve tamamen cihaz üzerinde çalışır; böylece hiçbir PII yerel makineden çıkmaz.
-   - Sayısal ağırlıklı yapılandırılmış içerik (ör. fiyat listeleri, faturalar) için gürültülü tespitleri önlemek amacıyla devre dışı bırakılır.
+   - 80 karakterden kısa metinler için atlanır. Sayısal ağırlıklı yapılandırılmış içerik (ör. fiyat listeleri, faturalar) için gürültülü tespitleri önlemek amacıyla devre dışı bırakılır.
 
 5. **Anonimleştirme ve coreference**
    - Yukarıdaki katmanlardan çıkan tüm span'ler birleştirilir, yinelenenler ayıklanır ve `AnonymizationMap` içine aktarılır:
      - Her benzersiz varlık için kararlı bir placeholder atanır (ör. `[PERSON_1]`, `[EMAIL_2]`).
      - Coreference mantığı sayesinde aynı kişiye ait tekrar eden atıflar (tam isim → sadece isim gibi) **aynı** placeholder ile eşleştirilir.
-     - İsteğe bağlı blocklist yapısı, tespit edilen varlıkların ötesinde de ek maskeleme uygulanmasına izin verir.
+     - **Blocklist** yalnızca kişi‑tanımlayıcı varlık tipleriyle (PERSON_NAME, FIRST_NAME, LAST_NAME, ALIAS, USERNAME) sınırlandırılmıştır; böylece yaygın kelimelerin kolateral hasar olarak maskelenmesi önlenir.
    - Anonymization map asla belleğin dışına çıkmaz ve diske yazılmaz.
 
 6. **Çoklu regülasyon çatışmalarının ele alınması**

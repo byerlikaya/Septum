@@ -10,29 +10,32 @@ class PromptCatalog:
     def sanitizer_alias_layer(normalized_text: str) -> str:
         """Prompt for Ollama-based PII detection in the sanitizer.
 
-        Generic, regulation-agnostic: asks for person-identifying text,
-        place/location names, and aliases in any language or context.
+        Focused on detecting actual person names, nicknames, and aliases
+        that constitute personally identifiable information. Deliberately
+        conservative to avoid tagging common words, legal terms, or
+        document structure labels as PII.
         """
         system_part = (
-            "You are a PII detection assistant. Find all personal and location "
-            "data that should be anonymized: (1) Any text that identifies or "
-            "refers to a person—names in any form, any language, any casing "
-            "(including lowercase single names like 'john', 'maria', 'ahmed'). "
-            "(2) Any place or location name—cities, towns, neighborhoods, "
-            "streets, regions. (3) Nicknames, aliases, codenames, and indirect "
-            "references to people or organizations. "
+            "You are a strict PII detection assistant. Your ONLY task is to "
+            "find actual PERSON NAMES and ALIASES (nicknames, codenames) that "
+            "identify real individuals. "
+            "DO NOT tag: (1) common words, verbs, adjectives, or question "
+            "words in any language, (2) job titles, role names, or department "
+            "names, (3) legal or document structure terms, "
+            "(4) generic location words or city names unless they appear as "
+            "part of a person's name, (5) pronouns or demonstratives. "
+            "Only tag text that is CLEARLY a personal name or a known "
+            "alias/nickname for a specific person. When in doubt, do NOT tag. "
             "CRITICAL: Return the EXACT text as it appears in the input. "
             "Do NOT capitalize, modify, or add surnames. Copy the exact substring. "
-            "Return ONLY a valid JSON array, no explanation. "
-            "Include leading articles (The, A, An) only when part of the "
-            "alias. Use type PERSON_NAME, LOCATION, or ALIAS as appropriate."
+            "Return ONLY a valid JSON array, no explanation."
         )
         user_part = (
-            "List every person-identifying name, every place/location name, "
-            "and every alias or nickname in this text, in any language or context. "
-            "IMPORTANT: Return the exact text substring as it appears (including lowercase). "
-            "Do not add surnames or capitalize. Copy exactly. "
-            'Return JSON array: [{"text": "exact span", "type": "PERSON_NAME"|"LOCATION"|"ALIAS"}]. '
+            "Find ONLY actual person names and personal aliases/nicknames in "
+            "this text. Do NOT tag common words, questions, legal terms, job "
+            "titles, locations, or document structure labels. "
+            "IMPORTANT: Return the exact text substring as it appears. "
+            'Return JSON array: [{"text": "exact span", "type": "PERSON_NAME"|"ALIAS"}]. '
             "If nothing found return [].\n\nText:\n"
             f"{normalized_text}"
         )
@@ -136,6 +139,60 @@ class PromptCatalog:
             "If NO spans are truly PII after validation, return: []\n"
             "Output ONLY the JSON array, no explanations or markdown."
         )
+
+    @staticmethod
+    def json_output_instruction() -> str:
+        """Instruction appended to the chat prompt when JSON output mode is active."""
+        return (
+            "\n\n---\n"
+            "REQUIRED: Reply with ONLY a single valid JSON object. No markdown headings, no bullet lists, "
+            "no code fences, no text before or after. Example format:\n"
+            '{"summary": "one paragraph", "type": "document type", "key_points": ["point1", "point2"]}\n'
+            "Use only double quotes. Output nothing but this JSON object.\n---\n\n"
+        )
+
+    @staticmethod
+    def spreadsheet_schema_instruction(column_descriptions: list[str]) -> str:
+        """Instruction that describes the active spreadsheet schema to the LLM."""
+        return (
+            "Active spreadsheet schema (generic, no raw personal data): "
+            + "; ".join(column_descriptions)
+            + ".\n\n"
+            "When the schema marks a column as a numeric measure, "
+            "and the user asks for aggregate calculations (totals, sums, averages, minimums, maximums, counts), you MUST perform "
+            "the requested calculation over all rows visible in the provided context instead of just repeating a single row. "
+            "Respond with the final numeric result in natural language, without listing every row unless explicitly requested.\n\n"
+        )
+
+    @staticmethod
+    def placeholder_list_instruction(placeholders: list[str]) -> str:
+        """Instruction to guide the LLM when the query references anonymised placeholders."""
+        return (
+            "\n\nThe user question may be in any language. Interpret by intent. "
+            "If they ask for a specific piece of information (e.g. a person's name, a date, a single value), "
+            "reply with only the placeholder token(s) from the context that directly answer that question. "
+            "If they ask which persons, organizations, or other named entities appear in the document, "
+            "reply with a bullet list of the relevant placeholder tokens from: "
+            + ", ".join(placeholders)
+            + ". Do not list document wording, clause fragments, or other text—only placeholder tokens. "
+            "Do not refuse; answer from the context. For any other question, use the context as usual.\n\n"
+        )
+
+    REFUSAL_PHRASES: tuple[str, ...] = (
+        "cannot answer",
+        "not defined",
+        "cannot provide",
+        "could you clarify",
+        "rephrase your question",
+        "cannot find",
+        "no information",
+        "not found",
+    )
+    """Phrases used to detect when the LLM refuses to answer a query.
+
+    FUTURE: migrate to a database-driven configuration so that users can
+    customise refusal detection per language.
+    """
 
     @staticmethod
     def chat_user_prompt(

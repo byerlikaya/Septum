@@ -49,13 +49,7 @@ def build_chat_prompt(payload: ChatContextPayload) -> str:
 
     output_instruction = ""
     if payload.output_mode == "json":
-        output_instruction = (
-            "\n\n---\n"
-            "REQUIRED: Reply with ONLY a single valid JSON object. No markdown headings, no bullet lists, "
-            "no code fences, no text before or after. Example format:\n"
-            '{"summary": "one paragraph", "type": "document type", "key_points": ["point1", "point2"]}\n'
-            "Use only double quotes. Output nothing but this JSON object.\n---\n\n"
-        )
+        output_instruction = PromptCatalog.json_output_instruction()
 
     return PromptCatalog.chat_user_prompt(
         language=payload.language,

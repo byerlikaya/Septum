@@ -459,14 +459,8 @@ async def _run_llm_and_deanonymize(
                     description += " (numeric)"
                 column_descriptions.append(description)
             if column_descriptions:
-                schema_instruction = (
-                    "Active spreadsheet schema (generic, no raw personal data): "
-                    + "; ".join(column_descriptions)
-                    + ".\n\n"
-                    "When the schema marks a column as a numeric measure, "
-                    "and the user asks for aggregate calculations (totals, sums, averages, minimums, maximums, counts), you MUST perform "
-                    "the requested calculation over all rows visible in the provided context instead of just repeating a single row. "
-                    "Respond with the final numeric result in natural language, without listing every row unless explicitly requested.\n\n"
+                schema_instruction = PromptCatalog.spreadsheet_schema_instruction(
+                    column_descriptions
                 )
 
     context_text_for_placeholders = ""
@@ -480,15 +474,8 @@ async def _run_llm_and_deanonymize(
 
     placeholder_list_str = ""
     if placeholders_in_context and query_has_placeholder:
-        placeholder_list_str = (
-            "\n\nThe user question may be in any language. Interpret by intent. "
-            "If they ask for a specific piece of information (e.g. a person's name, a date, a single value), "
-            "reply with only the placeholder token(s) from the context that directly answer that question. "
-            "If they ask which persons, organizations, or other named entities appear in the document, "
-            "reply with a bullet list of the relevant placeholder tokens from: "
-            + ", ".join(placeholders_in_context)
-            + ". Do not list document wording, clause fragments, or other text—only placeholder tokens. "
-            "Do not refuse; answer from the context. For any other question, use the context as usual.\n\n"
+        placeholder_list_str = PromptCatalog.placeholder_list_instruction(
+            placeholders_in_context
         )
 
     payload = ChatContextPayload(
@@ -526,14 +513,9 @@ async def _run_llm_and_deanonymize(
     elif placeholders_in_context and query_has_placeholder and not _PLACEHOLDER_PATTERN.search(
         masked_answer
     ):
-        refusal_phrases = (
-            "cannot answer",
-            "not defined",
-            "cannot provide",
-            "could you clarify",
-            "rephrase your question",
+        is_refusal = any(
+            p in masked_answer.lower() for p in PromptCatalog.REFUSAL_PHRASES
         )
-        is_refusal = any(p in masked_answer.lower() for p in refusal_phrases)
         bullet_lines = [
             line.strip()
             for line in masked_answer.splitlines()

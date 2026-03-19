@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from backend.app.models.settings import AppSettings
 from backend.app.services.anonymization_map import AnonymizationMap
-from backend.app.services.sanitizer import PIISanitizer
+from backend.app.services.sanitizer import DetectedSpan, PIISanitizer
 
 
 @pytest.fixture
@@ -23,6 +25,7 @@ def app_settings() -> AppSettings:
         show_json_output=False,
         use_presidio_layer=True,
         use_ner_layer=False,
+        use_ollama_validation_layer=False,
         use_ollama_layer=False,
         chunk_size=800,
         chunk_overlap=200,
@@ -74,6 +77,26 @@ def test_tckn_is_sanitized(sanitizer: PIISanitizer) -> None:
     assert result.entity_count >= 1
     assert "[NATIONAL_ID_1]" in result.sanitized_text
     assert valid_tckn not in result.sanitized_text
+
+
+@patch("backend.app.services.sanitizer.call_ollama_sync", return_value="[]")
+def test_ollama_validation_never_drops_national_id_when_llm_returns_empty(
+    _mock_ollama: object,
+    app_settings: AppSettings,
+) -> None:
+    """Passthrough IDs stay; non-passthrough spans are kept if LLM returns []."""
+    app_settings.use_ollama_validation_layer = True
+    sanitizer = PIISanitizer(settings=app_settings)
+    text = "10000000078 HelloWorld"
+    candidates = [
+        DetectedSpan(start=0, end=11, entity_type="NATIONAL_ID", score=0.95),
+        DetectedSpan(start=12, end=22, entity_type="PERSON_NAME", score=0.85),
+    ]
+    out = sanitizer._ollama_validate_pii_candidates(text, candidates, "tr")
+    types = {s.entity_type for s in out}
+    assert "NATIONAL_ID" in types
+    assert "PERSON_NAME" in types
+    assert len(out) == 2
 
 
 def test_iban_is_sanitized(sanitizer: PIISanitizer) -> None:

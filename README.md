@@ -212,25 +212,27 @@ At a high level:
 3. **Layer 2 — Language‑specific NER**
    - For each document and query, Septum detects the language and loads a **language‑appropriate HuggingFace NER model**, with a multilingual fallback when needed.
    - The NER layer:
-     - Complements Presidio by catching entities that are context‑dependent or language‑specific.
+     - Maps only **PERSON_NAME** and **EMAIL_ADDRESS** from model output; ORG and LOC labels are intentionally suppressed to avoid false positives on common words (address/location detection is delegated to Presidio).
      - Uses state‑of‑the‑art XLM‑RoBERTa based models (e.g. `Davlan/xlm-roberta-base-wikiann-ner` for 20 languages, `akdeniz27/xlm-roberta-base-turkish-ner` for Turkish).
+     - Applies a uniform confidence threshold of **0.85**, a minimum span length of **3 characters**, and snaps all spans to **word boundaries** to prevent mid‑word replacements caused by subword tokenisation.
+     - NER results are filtered against the active policy's entity types, so only entity types required by active regulations are kept.
+     - Skipped entirely for texts shorter than 50 characters to avoid over‑sanitisation of short queries.
      - Runs device‑aware (CUDA → MPS → CPU) and uses cached pipelines for efficiency.
    - This layer is configurable per language via the **NER Model Settings** screen.
-   - An optional **Ollama PII validation layer** (Settings → Privacy) can be enabled to filter false‑positive PII candidates at query time (e.g. generic job titles, role names, organisational locations), so that only truly identifying information is masked.
+   - An optional **Ollama PII validation layer** (Settings → Privacy) can be enabled to filter false‑positive PII candidates at query time (e.g. generic job titles, role names, organisational locations), so that only truly identifying information is masked. Validated national IDs, IBANs, and phone numbers from Presidio **never** go through this LLM step; if the model returns nothing, candidate spans are retained so structured identifiers are not leaked.
 
 4. **Layer 3 — Ollama context‑aware layer**
-   - When enabled (`use_ollama_layer=True`), Septum uses a **local Ollama LLM** to detect context‑dependent PII that the first two layers may miss:
+   - When enabled (`use_ollama_layer=True`), Septum uses a **local Ollama LLM** strictly focused on detecting **person names and aliases** that the first two layers may miss:
      - Nicknames, aliases, and informal mentions (e.g. "john" when "John Doe" was detected earlier).
-     - Family member names in context (e.g. "father's name: ahmed", "mother: sarah").
-     - Codenames, pet names, and organisation‑specific labels.
+     - Only outputs of type PERSON_NAME, ALIAS, FIRST_NAME, and LAST_NAME are accepted from this layer.
    - This layer preserves exact casing and runs entirely on‑device, ensuring no PII leaves the local machine.
-   - It is disabled for numeric‑heavy structured content (e.g. price lists, invoices) to avoid noisy detections.
+   - Skipped for texts shorter than 80 characters. Disabled for numeric‑heavy structured content (e.g. price lists, invoices) to avoid noisy detections.
 
 5. **Anonymisation & coreference**
    - All spans from the above layers are merged, deduplicated and fed into the `AnonymizationMap`:
      - Each unique entity is replaced with a stable placeholder (e.g. `[PERSON_1]`, `[EMAIL_2]`).
      - Coreference handling ensures that repeated mentions (e.g. full name → first name) are mapped to the **same** placeholder.
-     - A configurable blocklist can enforce extra replacements beyond detected entities.
+     - The **blocklist** is restricted to person‑identifying entity types only (PERSON_NAME, FIRST_NAME, LAST_NAME, ALIAS, USERNAME) to prevent common words from being incorrectly masked as collateral.
    - The anonymisation map never leaves memory and is never written to disk.
 
 6. **Multi‑regulation conflict handling**

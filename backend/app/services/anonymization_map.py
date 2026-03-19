@@ -17,10 +17,17 @@ import re
 
 from ..utils.text_utils import normalize_for_comparison
 
-# Minimal stopwords for technical filtering only (ultra-common function words).
-# Additional terms (e.g. generic address/location labels) MUST be stored in
-# the database (NonPiiRule table) and be user-editable; never hardcode them here.
+# FUTURE: migrate to NonPiiRule table for full user-editability.
+# Minimal stopwords kept here for technical filtering (ultra-common function words).
 SANITIZER_STOPWORDS: frozenset[str] = frozenset({"the", "a", "an", "of", "in", "at"})
+
+# Entity types whose tokens should be propagated through the blocklist for
+# coreference resolution.  Only person-identifying types qualify; other
+# categories (locations, identifiers, …) would cause excessive collateral
+# replacements of common words.
+_BLOCKLIST_ENTITY_TYPES: frozenset[str] = frozenset({
+    "PERSON_NAME", "FIRST_NAME", "LAST_NAME", "ALIAS", "USERNAME",
+})
 
 
 @dataclass
@@ -47,6 +54,11 @@ class AnonymizationMap:
         Coreference resolution is applied so that if ``original`` can be
         matched to a previously seen value (for example, "John" after
         "John Smith"), the existing placeholder is reused.
+
+        Only person-identifying entity types (see ``_BLOCKLIST_ENTITY_TYPES``)
+        have their tokens propagated to the blocklist. Other entity types are
+        recorded in the entity map but do not trigger blocklist expansion,
+        which avoids collateral replacement of common words (e.g. city names).
         """
         if not original:
             raise ValueError("original must be a non-empty string.")
@@ -56,12 +68,14 @@ class AnonymizationMap:
         existing = self._find_existing(original)
         if existing is not None:
             self.entity_map.setdefault(original, existing)
-            self._update_blocklist(original, existing)
+            if entity_type in _BLOCKLIST_ENTITY_TYPES:
+                self._update_blocklist(original, existing)
             return existing
 
         placeholder = self._next_placeholder(entity_type)
         self.entity_map[original] = placeholder
-        self._update_blocklist(original, placeholder)
+        if entity_type in _BLOCKLIST_ENTITY_TYPES:
+            self._update_blocklist(original, placeholder)
         return placeholder
 
     def apply_blocklist(self, text: str, language: Optional[str] = None) -> str:

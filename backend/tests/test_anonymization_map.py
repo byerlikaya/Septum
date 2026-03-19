@@ -19,18 +19,34 @@ def test_coreference_full_name_and_first_name_share_placeholder() -> None:
 
 
 def test_locale_lower_for_turkish_istanbul() -> None:
-    """Locale-aware lowercasing must work correctly for Turkish dotted I."""
+    """Locale-aware lowercasing must work correctly for Turkish dotted I.
+
+    CITY is not a person-identifying entity type, so its tokens are
+    intentionally NOT propagated to the blocklist (avoids replacing
+    every occurrence of common city names throughout a document).
+    """
     amap = AnonymizationMap(document_id=2, language="tr")
 
     ph = amap.add_entity("İstanbul", "CITY")
     assert ph == "[CITY_1]"
 
-    assert "istanbul" in amap.blocklist
-    assert amap.token_to_placeholder.get("istanbul") == "[CITY_1]"
+    assert "istanbul" not in amap.blocklist
+    assert amap.token_to_placeholder.get("istanbul") is None
 
-    redacted = amap.apply_blocklist("İSTANBUL çok güzel bir şehir.", language="tr")
-    assert "[CITY_1]" in redacted
-    assert "İSTANBUL" not in redacted
+
+def test_person_name_tokens_propagated_to_blocklist() -> None:
+    """PERSON_NAME tokens must be added to the blocklist for coreference."""
+    amap = AnonymizationMap(document_id=6, language="tr")
+
+    ph = amap.add_entity("Mehmet", "PERSON_NAME")
+    assert ph == "[PERSON_NAME_1]"
+
+    assert "mehmet" in amap.blocklist
+    assert amap.token_to_placeholder.get("mehmet") == "[PERSON_NAME_1]"
+
+    redacted = amap.apply_blocklist("Daha sonra Mehmet geldi.", language="tr")
+    assert "[PERSON_NAME_1]" in redacted
+    assert "Mehmet" not in redacted
 
 
 def test_multilingual_german_umlaut_preserved_in_blocklist() -> None:

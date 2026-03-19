@@ -46,7 +46,7 @@ def _generic_national_id_with_context() -> EntityRecognizer:
         config=RegexPatternConfig(
             name="kvkk_national_id_context",
             pattern=(
-                r"(?i)(?:kimlik|id|national|citizen|passport)"
+                r"(?i)(?:id|national|citizen|passport|identity|identification|no)"
                 r"[^\d]{0,16}\d{8,12}"
             ),
             score=0.6,
