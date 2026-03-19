@@ -18,8 +18,9 @@ def test_build_chat_prompt_without_context_avoids_document_refusal_rule() -> Non
 
     prompt = build_chat_prompt(payload)
 
-    assert "did not provide any document context" in prompt
-    assert "Do NOT claim that information is missing from a document." in prompt
+    assert "You are a helpful assistant." in prompt
+    assert "Do NOT claim that information is missing from a document" in prompt
+    assert "User question:\nTest query" in prompt
     assert "I cannot find that information in the document." not in prompt
 
 
