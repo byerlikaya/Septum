@@ -33,7 +33,7 @@ ffmpeg-python==0.2.0
 beautifulsoup4==4.13.5
 lxml==6.0.2
 markdown-it-py==4.0.0
-pyyaml==6.0.3
+pyyaml==6.0.2
 extract-msg==0.55.0
 ebooklib==0.20
 striprtf==0.0.29
