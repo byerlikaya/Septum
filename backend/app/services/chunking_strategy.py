@@ -106,8 +106,6 @@ class StructuredDocumentChunker(SemanticChunker):
             
             embeddings = SentenceTransformerEmbeddings(embeddings_model)
             
-            # Create SemanticChunker with "gradient" breakpoint type
-            # Gradient finds points where semantic similarity changes most
             self._semantic_splitter = LangChainSemanticChunker(
                 embeddings=embeddings,
                 breakpoint_threshold_type="gradient",

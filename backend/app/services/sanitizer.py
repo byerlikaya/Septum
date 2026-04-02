@@ -29,6 +29,11 @@ from .ollama_client import extract_json_array, call_ollama_sync
 from .national_ids import IBANValidator, TCKNValidator
 from .policy_composer import ComposedPolicy
 from .prompts import PromptCatalog
+from .span_processing import (
+    deduplicate_spans,
+    expand_person_name_spans,
+    merge_adjacent_person_name_spans,
+)
 from ..models.settings import AppSettings
 from ..utils.text_utils import normalize_unicode, normalize_for_comparison
 
@@ -75,9 +80,40 @@ class SanitizeResult:
     entity_count: int
 
 
-class ExtendedPhoneRecognizer(EntityRecognizer):
+class BaseCustomRecognizer(EntityRecognizer):
+    """Base class for Septum's custom Presidio recognizers.
+
+    Provides a shared entity-filter guard so that subclasses do not need to
+    duplicate the ``entities`` intersection check in every ``analyze`` method.
+    Subclasses override ``_relevant_entity_types`` if the set of entity types
+    to check differs from ``self.supported_entities`` (e.g. address recognizers
+    that respond to multiple related types).
+    """
+
+    @property
+    def _relevant_entity_types(self) -> set[str]:
+        """Return entity types that this recognizer responds to.
+
+        Defaults to ``self.supported_entities``. Override in subclasses that
+        should also respond to related entity types.
+        """
+        return set(self.supported_entities)
+
+    def _entity_filter(self, entities: Optional[List[str]]) -> bool:
+        """Return True when the recognizer should skip analysis.
+
+        The recognizer should skip when *entities* is explicitly provided and
+        none of the requested types overlap with this recognizer's relevant
+        entity types.
+        """
+        if entities and not set(entities).intersection(self._relevant_entity_types):
+            return True
+        return False
+
+
+class ExtendedPhoneRecognizer(BaseCustomRecognizer):
     """Presidio recognizer for phone numbers with international format support.
-    
+
     Detects phone numbers with country codes and various formatting patterns.
     Pattern accommodates multiple regional formats without hardcoding countries.
     """
@@ -98,7 +134,7 @@ class ExtendedPhoneRecognizer(EntityRecognizer):
         entities: Optional[List[str]] = None,
         nlp_artifacts: Optional[object] = None,
     ) -> List[RecognizerResult]:
-        if entities and not set(entities).intersection(self.supported_entities):
+        if self._entity_filter(entities):
             return []
 
         results: List[RecognizerResult] = []
@@ -115,9 +151,9 @@ class ExtendedPhoneRecognizer(EntityRecognizer):
         return results
 
 
-class ValidatedNationalIDRecognizer(EntityRecognizer):
+class ValidatedNationalIDRecognizer(BaseCustomRecognizer):
     """Presidio recognizer for algorithmically validated national ID numbers.
-    
+
     Uses pluggable validator for checksum-based validation.
     Default validator handles 11-digit IDs with specific checksum algorithm.
     Validator can be swapped to support different countries' ID formats.
@@ -137,7 +173,7 @@ class ValidatedNationalIDRecognizer(EntityRecognizer):
         entities: Optional[List[str]] = None,
         nlp_artifacts: Optional[object] = None,
     ) -> List[RecognizerResult]:
-        if entities and not set(entities).intersection(self.supported_entities):
+        if self._entity_filter(entities):
             return []
 
         results: List[RecognizerResult] = []
@@ -157,9 +193,9 @@ class ValidatedNationalIDRecognizer(EntityRecognizer):
         return results
 
 
-class ValidatedIBANRecognizer(EntityRecognizer):
+class ValidatedIBANRecognizer(BaseCustomRecognizer):
     """Presidio recognizer for IBAN values using ISO 7064 algorithmic validation.
-    
+
     Supports all country prefixes globally through ISO 7064 MOD 97-10 checksum.
     No country-specific logic in this class - validator handles all variations.
     """
@@ -178,7 +214,7 @@ class ValidatedIBANRecognizer(EntityRecognizer):
         entities: Optional[List[str]] = None,
         nlp_artifacts: Optional[object] = None,
     ) -> List[RecognizerResult]:
-        if entities and not set(entities).intersection(self.supported_entities):
+        if self._entity_filter(entities):
             return []
 
         results: List[RecognizerResult] = []
@@ -198,7 +234,7 @@ class ValidatedIBANRecognizer(EntityRecognizer):
         return results
 
 
-class HeuristicPersonNameRecognizer(EntityRecognizer):
+class HeuristicPersonNameRecognizer(BaseCustomRecognizer):
     """Lightweight, language-agnostic recognizer for person-like names.
 
     This recognizer is intentionally heuristic and does not depend on large
@@ -227,7 +263,7 @@ class HeuristicPersonNameRecognizer(EntityRecognizer):
         entities: Optional[List[str]] = None,
         nlp_artifacts: Optional[object] = None,
     ) -> List[RecognizerResult]:
-        if entities and not set(entities).intersection(self.supported_entities):
+        if self._entity_filter(entities):
             return []
 
         results: List[RecognizerResult] = []
@@ -240,7 +276,7 @@ class HeuristicPersonNameRecognizer(EntityRecognizer):
 
             if not matched_text or not matched_text[0].isupper():
                 continue
-            
+
             key = (group_start, group_end)
             if key not in seen_spans:
                 seen_spans.add(key)
@@ -254,6 +290,112 @@ class HeuristicPersonNameRecognizer(EntityRecognizer):
                 )
 
         return results
+
+class StructuralAddressRecognizer(BaseCustomRecognizer):
+    """Presidio recognizer for structured postal addresses.
+
+    Uses two purely structural strategies that work across languages:
+    1. Labeled fields — any ``Label : <value>`` line where the value contains
+       numeric building/unit references (``NO:5``, ``D:3``, digit sequences
+       separated by slashes or dashes).
+    2. Dense numeric lines — lines with multiple ``ABBR + number`` or
+       ``ABBR + punctuation + number`` tokens (e.g. ``X. 428 Y. Z NO: 10``).
+
+    Abbreviation lists are loaded from the DB at init time when available;
+    a small built-in fallback covers common postal abbreviations.
+    """
+
+    # FUTURE: move to DB (AddressAbbreviation table or settings).
+    # Minimal set of widely-used postal abbreviations across locales.
+    _FALLBACK_ABBREVIATIONS: frozenset[str] = frozenset({
+        "NO", "APT", "FLAT", "UNIT", "BLOCK", "BLK", "BLDG",
+        "ST", "STR", "AVE", "AV", "BLV", "BLVD",
+        "MAH", "MH", "SK", "SOK", "CD", "CAD", "KAT",
+    })
+
+    def __init__(
+        self,
+        abbreviations: frozenset[str] | None = None,
+    ) -> None:
+        super().__init__(
+            supported_entities=["POSTAL_ADDRESS"],
+            supported_language="en",
+        )
+        abbrs = abbreviations or self._FALLBACK_ABBREVIATIONS
+        abbr_pattern = "|".join(re.escape(a) for a in sorted(abbrs, key=len, reverse=True))
+
+        self._structural_cue = re.compile(
+            rf"(?:(?:{abbr_pattern})\b\.?)"
+            r"|"
+            r"(?:[A-Za-z]+\s*[:./]\s*\d+)",
+            re.IGNORECASE | re.UNICODE,
+        )
+        self._numeric_density = re.compile(
+            r"\d+",
+        )
+        self._label_value = re.compile(
+            r"^(\S[^:\n]{1,40})\s*:\s*(.+)$",
+            re.MULTILINE | re.UNICODE,
+        )
+
+    @property
+    def _relevant_entity_types(self) -> set[str]:
+        return {"POSTAL_ADDRESS", "STREET_ADDRESS", "LOCATION"}
+
+    def analyze(  # type: ignore[override]
+        self,
+        text: str,
+        entities: Optional[List[str]] = None,
+        nlp_artifacts: Optional[object] = None,
+    ) -> List[RecognizerResult]:
+        if self._entity_filter(entities):
+            return []
+
+        results: List[RecognizerResult] = []
+
+        # Strategy 1: labeled fields — ``Label : value`` where value looks
+        # like an address (contains multiple structural cues or numbers).
+        for label_match in self._label_value.finditer(text):
+            value = label_match.group(2).strip()
+            cue_count = len(self._structural_cue.findall(value))
+            num_count = len(self._numeric_density.findall(value))
+            if cue_count >= 2 or (cue_count >= 1 and num_count >= 2):
+                val_start = label_match.start(2)
+                val_end = label_match.end(2)
+                if len(value) >= 10:
+                    results.append(
+                        RecognizerResult(
+                            entity_type="POSTAL_ADDRESS",
+                            start=val_start,
+                            end=val_end,
+                            score=0.82,
+                        )
+                    )
+
+        # Strategy 2: dense structural lines — lines with 2+ cues that also
+        # contain numeric tokens (building numbers, postal codes, etc.).
+        for line_match in re.finditer(r"[^\n]+", text):
+            line = line_match.group()
+            structural_hits = len(self._structural_cue.findall(line))
+            numeric_hits = len(self._numeric_density.findall(line))
+            if structural_hits >= 2 and numeric_hits >= 1:
+                line_start = line_match.start()
+                line_end = line_match.end()
+                already_covered = any(
+                    r.start <= line_start and r.end >= line_end for r in results
+                )
+                if not already_covered:
+                    results.append(
+                        RecognizerResult(
+                            entity_type="POSTAL_ADDRESS",
+                            start=line_start,
+                            end=line_end,
+                            score=0.78,
+                        )
+                    )
+
+        return results
+
 
 class PIISanitizer:
     """High-level orchestrator for multi-layer PII detection and masking."""
@@ -313,6 +455,7 @@ class PIISanitizer:
         registry.add_recognizer(ValidatedNationalIDRecognizer())
         registry.add_recognizer(ValidatedIBANRecognizer())
         registry.add_recognizer(HeuristicPersonNameRecognizer())
+        registry.add_recognizer(StructuralAddressRecognizer())
 
     def sanitize(
         self,
@@ -394,7 +537,6 @@ class PIISanitizer:
                 language=language,
                 spans=span_views,
             )
-            # Map filtered views back to DetectedSpan objects.
             keep_spans: List[DetectedSpan] = []
             for view in filtered_views:
                 for original in spans:
@@ -408,14 +550,14 @@ class PIISanitizer:
                         break
             spans = keep_spans
 
-        spans = self._deduplicate(spans)
+        spans = deduplicate_spans(spans, _HIGH_PRIORITY_ENTITY_TYPES)
 
         # Expand person-name spans to cover adjacent capitalized tokens so that
         # given-name-only detections are upgraded to full name blocks where
         # possible. This is language-agnostic and relies only on character
         # casing and token boundaries.
-        spans = self._expand_person_name_spans(normalized_text, spans)
-        spans = self._merge_adjacent_person_name_spans(normalized_text, spans)
+        spans = expand_person_name_spans(normalized_text, spans)
+        spans = merge_adjacent_person_name_spans(normalized_text, spans)
 
         spans = [
             s
@@ -757,219 +899,22 @@ class PIISanitizer:
     def _map_ner_label(label: str) -> Optional[str]:
         """Map model-specific NER labels to global entity types.
 
-        Only PERSON_NAME and EMAIL_ADDRESS are mapped from NER output.
-        ORG and LOC are intentionally suppressed: they are not regulation
-        entity types (regulations use POSTAL_ADDRESS, CITY, etc.) and
-        generic NER models produce excessive false positives for these
-        categories, especially in agglutinative languages. Address and
-        organisation detection is delegated to regulation-specific Presidio
-        recognizers which use precise regex/validator patterns.
+        PERSON_NAME, EMAIL_ADDRESS and LOCATION are mapped from NER output.
+        LOCATION spans are kept so that address-related entity types
+        (POSTAL_ADDRESS, STREET_ADDRESS, CITY, LOCATION) declared by active
+        regulations can be matched.  The policy entity-type filter applied
+        after NER (see ``sanitize``) ensures these spans are only used when
+        the active regulation actually requires address detection.
+        ORG is still suppressed as it generates excessive false positives.
         """
         upper = label.upper()
         if "PER" in upper or upper.startswith("B-PER") or upper.startswith("I-PER"):
             return "PERSON_NAME"
         if "EMAIL" in upper:
             return "EMAIL_ADDRESS"
+        if "LOC" in upper or upper.startswith("B-LOC") or upper.startswith("I-LOC"):
+            return "LOCATION"
         return None
-
-    @staticmethod
-    def _deduplicate(spans: List[DetectedSpan]) -> List[DetectedSpan]:
-        """Deduplicate overlapping spans with priority for sensitive identifiers.
-
-        High-priority entity types (for example ``PHONE_NUMBER``, ``NATIONAL_ID``,
-        ``IBAN``) always win over more generic entities such as PERSON or
-        LOCATION when their spans overlap. Non-overlapping low-priority spans
-        are still preserved.
-        """
-        if not spans:
-            return []
-
-        high_priority = [s for s in spans if s.entity_type in _HIGH_PRIORITY_ENTITY_TYPES]
-        low_priority = [s for s in spans if s.entity_type not in _HIGH_PRIORITY_ENTITY_TYPES]
-
-        def _dedup_simple(candidates: List[DetectedSpan]) -> List[DetectedSpan]:
-            ordered = sorted(
-                candidates,
-                key=lambda s: (s.start, -(s.end - s.start), -s.score),
-            )
-            chosen: List[DetectedSpan] = []
-            current_end = -1
-            for span in ordered:
-                if span.start >= current_end:
-                    chosen.append(span)
-                    current_end = span.end
-            return chosen
-
-        high_dedup = _dedup_simple(high_priority)
-
-        filtered_low: List[DetectedSpan] = []
-        for span in low_priority:
-            overlaps_high = any(
-                not (span.end <= h.start or span.start >= h.end) for h in high_dedup
-            )
-            if not overlaps_high:
-                filtered_low.append(span)
-
-        low_dedup = _dedup_simple(filtered_low)
-
-        combined = sorted(high_dedup + low_dedup, key=lambda s: s.start)
-        return combined
-
-    @staticmethod
-    def _expand_person_name_spans(
-        text: str,
-        spans: List[DetectedSpan],
-    ) -> List[DetectedSpan]:
-        """Expand PERSON_NAME spans to include adjacent capitalized tokens.
-
-        When a PERSON_NAME span covers only part of a name (for example, a given
-        name without the following surname), this helper inspects the immediate
-        neighbouring tokens on both sides and extends the span to include them
-        when they look like name tokens (letter-only, starting with uppercase).
-        The heuristic is intentionally simple and language-agnostic.
-        """
-        if not spans or not text:
-            return spans
-
-        def _find_token_start(idx: int) -> int:
-            while idx > 0 and not text[idx - 1].isspace():
-                idx -= 1
-            return idx
-
-        def _find_token_end(idx: int) -> int:
-            n = len(text)
-            while idx < n and not text[idx].isspace():
-                idx += 1
-            return idx
-
-        def _is_name_like_token(start: int, end: int) -> bool:
-            token = text[start:end]
-            if not token:
-                return False
-            if not token[0].isalpha() or not token[0].isupper():
-                return False
-            if any(ch.isdigit() or ch == "_" for ch in token):
-                return False
-            return True
-
-        expanded: List[DetectedSpan] = []
-        occupied_ranges = [(s.start, s.end) for s in spans]
-
-        for span in spans:
-            if span.entity_type != "PERSON_NAME":
-                expanded.append(span)
-                continue
-
-            start = span.start
-            end = span.end
-
-            original_span_text = text[start:end].strip()
-            if not _is_name_like_token(start, end) or len(original_span_text) < 2:
-                expanded.append(span)
-                continue
-
-            # Look right for a candidate surname (one token only).
-            right = end
-            n = len(text)
-            while right < n and text[right].isspace():
-                right += 1
-            if right < n:
-                right_end = _find_token_end(right)
-                right_token = text[right:right_end]
-                if (
-                    _is_name_like_token(right, right_end)
-                    and len(right_token) >= 2
-                    and right_token.isalpha()
-                ):
-                    overlaps = any(
-                        not (right_end <= s_start or right >= s_end)
-                        for s_start, s_end in occupied_ranges
-                    )
-                    if not overlaps:
-                        end = right_end
-
-            # Look left for a preceding name token (one token only).
-            left = start
-            while left > 0 and text[left - 1].isspace():
-                left -= 1
-            if left > 0:
-                left_start = _find_token_start(left - 1)
-                left_token = text[left_start:left]
-                if (
-                    _is_name_like_token(left_start, left)
-                    and len(left_token) >= 2
-                    and left_token.isalpha()
-                ):
-                    overlaps = any(
-                        not (left <= s_start or left_start >= s_end)
-                        for s_start, s_end in occupied_ranges
-                    )
-                    if not overlaps:
-                        start = left_start
-
-            expanded.append(
-                DetectedSpan(
-                    start=start,
-                    end=end,
-                    entity_type=span.entity_type,
-                    score=span.score,
-                )
-            )
-
-        expanded_sorted = sorted(
-            expanded, key=lambda s: (s.start, -(s.end - s.start), -s.score)
-        )
-        return expanded_sorted
-
-    @staticmethod
-    def _merge_adjacent_person_name_spans(
-        text: str,
-        spans: List[DetectedSpan],
-    ) -> List[DetectedSpan]:
-        """Merge consecutive PERSON_NAME spans separated only by horizontal whitespace.
-
-        Prevents split replacements (e.g. given name and surname as two spans)
-        from producing broken placeholder insertion inside a single visual name.
-        """
-        if not spans:
-            return spans
-
-        others = [s for s in spans if s.entity_type != "PERSON_NAME"]
-        person_spans = sorted(
-            [s for s in spans if s.entity_type == "PERSON_NAME"],
-            key=lambda s: s.start,
-        )
-        if len(person_spans) <= 1:
-            return sorted(spans, key=lambda s: s.start)
-
-        merged_person: List[DetectedSpan] = []
-        i = 0
-        while i < len(person_spans):
-            cur = person_spans[i]
-            start, end = cur.start, cur.end
-            max_score = cur.score
-            j = i + 1
-            while j < len(person_spans):
-                nxt = person_spans[j]
-                gap = text[end : nxt.start]
-                if gap.strip() == "" and "\n" not in gap and "\r" not in gap:
-                    end = nxt.end
-                    max_score = max(max_score, nxt.score)
-                    j += 1
-                else:
-                    break
-            merged_person.append(
-                DetectedSpan(
-                    start=start,
-                    end=end,
-                    entity_type="PERSON_NAME",
-                    score=max_score,
-                )
-            )
-            i = j
-
-        combined = others + merged_person
-        return sorted(combined, key=lambda s: s.start)
 
     @staticmethod
     def _apply_replacements(
@@ -991,7 +936,6 @@ class PIISanitizer:
                 continue
             parts.append(text[last_index : span.start])
             original = text[span.start : span.end]
-            # Skip empty or whitespace-only entities
             if not original or not original.strip():
                 last_index = span.end
                 continue

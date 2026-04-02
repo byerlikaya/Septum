@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
-import { Check, Copy, X } from "lucide-react";
+import { X } from "lucide-react";
 import api from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { getDocumentDisplayName } from "@/lib/utils";
+import { CopyButton } from "@/components/common/CopyButton";
 import type {
   Chunk,
   Document,
@@ -16,12 +18,14 @@ interface DocumentPreviewProps {
   document: Document | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  mode?: "full" | "transcription";
 }
 
 export function DocumentPreview({
   document,
   open,
-  onOpenChange
+  onOpenChange,
+  mode = "full"
 }: DocumentPreviewProps): ReactElement | null {
   const t = useI18n();
   const [chunks, setChunks] = useState<Chunk[]>([]);
@@ -33,7 +37,6 @@ export function DocumentPreview({
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [isSchemaSaving, setIsSchemaSaving] = useState(false);
   const [schemaDirty, setSchemaDirty] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!open || !document) {
@@ -54,12 +57,25 @@ export function DocumentPreview({
         }
       } catch {
         if (!isCancelled) {
-          setError(t("errors.preview.document"));
+          setError(
+            mode === "transcription"
+              ? t("errors.preview.transcription")
+              : t("errors.preview.document")
+          );
         }
       } finally {
         if (!isCancelled) {
           setIsLoading(false);
         }
+      }
+
+      if (mode === "transcription") {
+        if (!isCancelled) {
+          setSchema(null);
+          setSchemaError(null);
+          setSchemaDirty(false);
+        }
+        return;
       }
 
       const fileFormat = document.file_format.toLowerCase();
@@ -88,7 +104,7 @@ export function DocumentPreview({
       } catch {
         if (!isCancelled) {
           setSchema(null);
-          setSchemaError("Could not load spreadsheet schema.");
+          setSchemaError(t("documents.preview.schemaLoadError"));
         }
       } finally {
         if (!isCancelled) {
@@ -102,33 +118,24 @@ export function DocumentPreview({
     return () => {
       isCancelled = true;
     };
-  }, [open, document?.id, document?.file_format, document?.chunk_count]);
+  }, [open, document?.id, document?.file_format, document?.chunk_count, mode]);
 
   if (!open || !document) {
     return null;
   }
 
+  const isTranscriptionMode = mode === "transcription";
+
   const isTabularDocument =
-    document.file_format.toLowerCase() === "xlsx" ||
-    document.file_format.toLowerCase() === "xls" ||
-    document.file_format.toLowerCase() === "ods";
+    !isTranscriptionMode &&
+    (document.file_format.toLowerCase() === "xlsx" ||
+      document.file_format.toLowerCase() === "xls" ||
+      document.file_format.toLowerCase() === "ods");
 
   const combinedText =
     chunks.length > 0
       ? chunks.map(chunk => chunk.sanitized_text).join("\n\n")
       : document.transcription_text ?? "";
-
-  const handleCopyCombinedText = async (): Promise<void> => {
-    if (!combinedText) return;
-    try {
-      await navigator.clipboard.writeText(combinedText);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard writes can fail in some browsers or permission states;
-      // errors are intentionally ignored here.
-    }
-  };
 
   const handleSchemaFieldChange = (
     columnIndex: number,
@@ -166,22 +173,38 @@ export function DocumentPreview({
       setSchema(response.data);
       setSchemaDirty(false);
     } catch {
-      setSchemaError("Could not save schema changes.");
+      setSchemaError(t("documents.preview.schemaSaveError"));
     } finally {
       setIsSchemaSaving(false);
     }
   };
 
+  const previewTitle = isTranscriptionMode
+    ? t("preview.transcription.title")
+    : t("preview.document.title");
+
+  const loadingText = isTranscriptionMode
+    ? t("preview.transcription.loading")
+    : t("preview.document.loading");
+
+  const emptyText = isTranscriptionMode
+    ? t("preview.transcription.empty")
+    : t("preview.document.empty");
+
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4">
-      <div className="relative flex max-h-[80vh] w-full max-w-4xl flex-col rounded-lg border border-slate-800 bg-slate-950 shadow-xl">
+      <div
+        className={`relative flex max-h-[80vh] w-full flex-col rounded-lg border border-slate-800 bg-slate-950 shadow-xl ${
+          isTranscriptionMode ? "max-w-3xl" : "max-w-4xl"
+        }`}
+      >
         <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/80 px-4 py-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-50">
-              {t("preview.document.title")}
+              {previewTitle}
             </h2>
             <p className="text-xs text-slate-400">
-              {document.original_filename || document.filename}
+              {getDocumentDisplayName(document)}
             </p>
           </div>
           <button
@@ -192,10 +215,10 @@ export function DocumentPreview({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
+        <div className={`flex-1 min-h-0 ${isTranscriptionMode ? "overflow-hidden" : "overflow-y-auto"} px-4 py-3`}>
           {isLoading && (
             <div className="flex h-full items-center justify-center text-sm text-slate-400">
-              {t("preview.document.loading")}
+              {loadingText}
             </div>
           )}
           {!isLoading && error && (
@@ -203,7 +226,18 @@ export function DocumentPreview({
               {error}
             </div>
           )}
-          {!isLoading && !error && (
+          {!isLoading && !error && isTranscriptionMode && (
+            <div className="h-full overflow-auto rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-relaxed text-slate-100">
+              {combinedText ? (
+                combinedText
+              ) : (
+                <span className="text-slate-400">
+                  {emptyText}
+                </span>
+              )}
+            </div>
+          )}
+          {!isLoading && !error && !isTranscriptionMode && (
             <div
               className={`grid h-full gap-4 ${
                 isTabularDocument ? "md:grid-cols-2" : "md:grid-cols-1"
@@ -212,34 +246,21 @@ export function DocumentPreview({
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-xs font-medium text-slate-300">
-                    Sanitized content
+                    {t("documents.preview.sanitizedContent")}
                   </div>
-                  <button
-                    type="button"
+                  <CopyButton
+                    text={combinedText}
                     className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-100 shadow-sm hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={handleCopyCombinedText}
-                    disabled={!combinedText}
-                    aria-label={copied ? t("chat.copied") : t("chat.copy")}
-                  >
-                    {copied ? (
-                      <>
-                        <Check className="h-3.5 w-3.5 text-emerald-400" aria-hidden />
-                        <span>{t("chat.copied")}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="h-3.5 w-3.5" aria-hidden />
-                        <span>{t("chat.copy")}</span>
-                      </>
-                    )}
-                  </button>
+                    copiedLabel={t("chat.copied")}
+                    copyLabel={t("chat.copy")}
+                  />
                 </div>
                 <div className="flex-1 overflow-auto rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-relaxed text-slate-100 whitespace-pre-wrap">
                   {combinedText ? (
                     combinedText
                   ) : (
                     <span className="text-slate-400">
-                      {t("preview.document.empty")}
+                      {emptyText}
                     </span>
                   )}
                 </div>
@@ -249,17 +270,17 @@ export function DocumentPreview({
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="text-xs font-medium text-slate-300">
-                      Spreadsheet schema
+                      {t("documents.preview.spreadsheetSchema")}
                     </div>
                     {schemaDirty && (
                       <span className="text-xs text-amber-300">
-                        Unsaved changes
+                        {t("documents.preview.unsavedChanges")}
                       </span>
                     )}
                   </div>
                   {isSchemaLoading && (
                     <div className="flex h-full items-center justify-center rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-400">
-                      Loading schema…
+                      {t("documents.preview.loadingSchema")}
                     </div>
                   )}
                   {!isSchemaLoading && schemaError && (
@@ -269,20 +290,19 @@ export function DocumentPreview({
                   )}
                   {!isSchemaLoading && !schemaError && !schema && (
                     <div className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-400">
-                      No spreadsheet schema available for this document.
+                      {t("documents.preview.noSchema")}
                     </div>
                   )}
                   {!isSchemaLoading && !schemaError && schema && (
                     <div className="flex h-full flex-col gap-2 rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-100">
                       {schema.columns.length === 0 ? (
                         <div className="text-slate-400">
-                          No columns detected for this spreadsheet.
+                          {t("documents.preview.noColumns")}
                         </div>
                       ) : (
                         <>
                           <p className="text-[11px] text-slate-400">
-                            Map generic column labels to semantic roles. Avoid
-                            entering any raw personal data here.
+                            {t("documents.preview.schemaInstruction")}
                           </p>
                           <div className="max-h-64 overflow-auto">
                             <table className="w-full border-collapse text-[11px]">
@@ -290,13 +310,13 @@ export function DocumentPreview({
                                 <tr className="border-b border-slate-800 text-slate-400">
                                   <th className="px-1 py-1 text-left">#</th>
                                   <th className="px-1 py-1 text-left">
-                                    Technical label
+                                    {t("documents.preview.technicalLabel")}
                                   </th>
                                   <th className="px-1 py-1 text-left">
-                                    Semantic label
+                                    {t("documents.preview.semanticLabel")}
                                   </th>
                                   <th className="px-1 py-1 text-left">
-                                    Numeric
+                                    {t("documents.preview.numeric")}
                                   </th>
                                 </tr>
                               </thead>
@@ -347,7 +367,7 @@ export function DocumentPreview({
                                             )
                                           }
                                         />
-                                        <span>Numeric</span>
+                                        <span>{t("documents.preview.numeric")}</span>
                                       </label>
                                     </td>
                                   </tr>
@@ -358,7 +378,7 @@ export function DocumentPreview({
                           <div className="mt-2 flex items-center justify-end gap-2">
                             {schemaDirty && (
                               <span className="text-[11px] text-amber-300">
-                                You have unsaved changes.
+                                {t("documents.preview.unsavedWarning")}
                               </span>
                             )}
                             <button
@@ -367,7 +387,7 @@ export function DocumentPreview({
                               onClick={handleSaveSchema}
                               disabled={isSchemaSaving || !schemaDirty}
                             >
-                              {isSchemaSaving ? "Saving…" : "Save schema"}
+                              {isSchemaSaving ? t("documents.preview.saving") : t("documents.preview.saveSchema")}
                             </button>
                           </div>
                         </>

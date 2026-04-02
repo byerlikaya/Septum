@@ -1,5 +1,6 @@
 import type { Document } from "@/lib/types";
 import { api } from "@/lib/api";
+import { getDocumentDisplayName } from "@/lib/utils";
 
 export interface UploadDocumentsOptions {
   files: File[];
@@ -26,7 +27,7 @@ export async function uploadDocuments(
   }
 
   const existingNames = new Set(
-    existingDocuments.map((doc) => doc.original_filename || doc.filename)
+    existingDocuments.map((doc) => getDocumentDisplayName(doc))
   );
 
   const uniqueFiles = files.filter((file) => !existingNames.has(file.name));

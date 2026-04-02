@@ -72,7 +72,7 @@ export function DocumentSelector({
                   </span>
                 </label>
                 <p className="ml-6 text-xs text-slate-500">
-                  {doc.chunk_count} chunks · {doc.detected_language}
+                  {doc.chunk_count} {t("documents.chunks")} · {doc.detected_language}
                 </p>
               </li>
             ))}

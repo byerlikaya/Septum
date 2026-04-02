@@ -228,10 +228,8 @@ class VectorStore:
         if top_k <= 0:
             return []
 
-        # Get FAISS results
         faiss_results = self.search(document_id, query, top_k=min(top_k * 3, 50))
 
-        # Get BM25 results if available
         bm25_results: List[Tuple[int, float]] = []
         if bm25_retriever is not None:
             bm25_results = bm25_retriever.search(document_id, query, top_k=min(top_k * 3, 50))
@@ -247,12 +245,10 @@ class VectorStore:
         # Apply Reciprocal Rank Fusion (RRF)
         rrf_k = 60  # Standard RRF constant
 
-        # Build RRF scores for FAISS
         faiss_rrf: dict[int, float] = {}
         for rank, (chunk_id, _) in enumerate(faiss_results, start=1):
             faiss_rrf[chunk_id] = 1.0 / (rrf_k + rank)
 
-        # Build RRF scores for BM25
         bm25_rrf: dict[int, float] = {}
         for rank, (chunk_id, _) in enumerate(bm25_results, start=1):
             bm25_rrf[chunk_id] = 1.0 / (rrf_k + rank)
@@ -267,7 +263,6 @@ class VectorStore:
             final_score = alpha * faiss_score + beta * bm25_score
             combined.append((chunk_id, final_score))
 
-        # Sort by descending score and return top_k
         combined.sort(key=lambda x: x[1], reverse=True)
         return combined[:top_k]
 

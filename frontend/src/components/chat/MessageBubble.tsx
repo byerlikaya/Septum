@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
 import { Copy, Check, Info, WifiOff } from "lucide-react";
 import type { ChatMessage } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -17,18 +17,8 @@ export function MessageBubble({
   onDebugClick
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopyToClipboard();
   const t = useI18n();
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(message.content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // clipboard API unavailable or denied
-    }
-  };
 
   return (
     <div
@@ -65,7 +55,7 @@ export function MessageBubble({
         <div className="mt-1.5 flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={handleCopy}
+            onClick={() => void copy(message.content)}
             className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-slate-400 hover:bg-slate-700/80 hover:text-slate-200 transition-colors"
             title={t("chat.copyAnswer")}
             aria-label={t("chat.copyAnswer")}

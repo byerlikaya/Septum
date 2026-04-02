@@ -33,8 +33,7 @@ def build_chat_prompt(payload: ChatContextPayload) -> str:
     """Build the final chat prompt from a :class:`ChatContextPayload`.
 
     This helper centralises the logic for constructing the RAG prompt so
-    that both Cloud and Desktop Assistant flows use the exact same prompt
-    generation without duplicating prompt assembly code.
+    that prompt generation is not duplicated across callers.
     """
     from .prompts import PromptCatalog
 

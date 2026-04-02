@@ -123,8 +123,10 @@ export const enMessages = {
   "settings.cloud.sectionTitle": "Cloud LLM Settings",
   "settings.cloud.sectionDescription":
     "Configure your primary cloud LLM provider and model. These settings are used for all remote completions.",
+  "settings.cloud.provider.label": "LLM Provider",
   "settings.cloud.provider.hint":
     "Provider identifier used by the backend router.",
+  "settings.cloud.model.label": "LLM Model",
   "settings.cloud.model.hint":
     "Exact model ID as expected by your provider.",
   "settings.cloud.test.success": "Cloud LLM connectivity test succeeded.",
@@ -159,27 +161,18 @@ export const enMessages = {
   "settings.privacy.layers.ollama.description":
     "Detect nicknames and indirect references using local LLM.",
 
-  "settings.desktopAssistant.enabled.label": "Desktop Assistant Mode",
-  "settings.desktopAssistant.enabled.description":
-    "Allow sending chat messages directly to a local desktop assistant client (for example ChatGPT or Claude) instead of the cloud LLM behind Septum.",
-  "settings.desktopAssistant.defaultTarget.label": "Default desktop assistant target",
-  "settings.desktopAssistant.defaultTarget.chatgpt": "ChatGPT desktop app",
-  "settings.desktopAssistant.defaultTarget.claude": "Claude desktop app",
-  "settings.desktopAssistant.defaultTarget.hint":
-    "This target is preselected in the chat screen when Desktop Assistant Mode is active. Users can change it per-session.",
-  "settings.desktopAssistant.chatgptNewChat.label": "Start new ChatGPT conversation by default",
-  "settings.desktopAssistant.chatgptNewChat.description":
-    "When enabled, Desktop Assistant Mode sends the new-chat shortcut to the ChatGPT desktop app before pasting the message.",
-
   "settings.local.sectionTitle": "Local Model Settings",
   "settings.local.sectionDescription":
     "Configure the local Ollama endpoint and models used for chat and de-anonymization.",
   "settings.local.test.success": "Local model connectivity test succeeded.",
   "settings.local.test.failed": "Local model connectivity test failed.",
+  "settings.local.baseUrl.label": "Ollama base URL",
   "settings.local.baseUrl.hint":
     "Base URL for your local Ollama instance.",
+  "settings.local.chatModel.label": "Chat model",
   "settings.local.chatModel.hint":
     "Ollama model name used for local chat.",
+  "settings.local.deanonModel.label": "De-anonymization model",
   "settings.local.deanonModel.hint":
     "Ollama model name used for local de-anonymization.",
 
@@ -222,6 +215,8 @@ export const enMessages = {
     "Failed to read ingestion health status.",
   "settings.ingestion.health.installFailed":
     "Failed to install or load the Whisper model.",
+  "settings.ingestion.audioHealth.whisperPackageLabel": "Whisper package:",
+  "settings.ingestion.audioHealth.whisperModelLabel": "Whisper model:",
   "settings.ingestion.whisperModel.label": "Whisper model",
   "settings.ingestion.whisperModel.hint":
     "Local Whisper model size for audio transcription.",
@@ -277,6 +272,9 @@ export const enMessages = {
   "errors.regulations.test": "An error occurred while testing the rule. If this is a regex rule, please ensure the pattern is valid.",
   "errors.regulations.save": "An error occurred while saving the rule.",
   "errors.regulations.delete": "An error occurred while deleting the rule.",
+  "errors.textNormalization.load": "Failed to load text normalization rules.",
+  "errors.textNormalization.create": "Failed to create rule. Please check the regex pattern.",
+  "errors.textNormalization.delete": "Failed to delete rule.",
   "errors.preview.document": "An error occurred while loading the document preview.",
   "errors.preview.transcription": "An error occurred while loading the transcription preview.",
 
@@ -286,6 +284,23 @@ export const enMessages = {
   "uploader.subtitle":
     "PDF, Word, Excel, images, audio files, and other supported formats",
   "uploader.button": "Browse files",
+
+  "documents.preview.schemaLoadError": "Could not load spreadsheet schema.",
+  "documents.preview.schemaSaveError": "Could not save schema changes.",
+  "documents.preview.sanitizedContent": "Sanitized content",
+  "documents.preview.spreadsheetSchema": "Spreadsheet schema",
+  "documents.preview.unsavedChanges": "Unsaved changes",
+  "documents.preview.loadingSchema": "Loading schema...",
+  "documents.preview.noSchema": "No spreadsheet schema available for this document.",
+  "documents.preview.noColumns": "No columns detected for this spreadsheet.",
+  "documents.preview.schemaInstruction": "Map generic column labels to semantic roles. Avoid entering any raw personal data here.",
+  "documents.preview.technicalLabel": "Technical label",
+  "documents.preview.semanticLabel": "Semantic label",
+  "documents.preview.numeric": "Numeric",
+  "documents.preview.unsavedWarning": "You have unsaved changes.",
+  "documents.preview.saving": "Saving...",
+  "documents.preview.saveSchema": "Save schema",
+  "documents.chunks": "chunks",
 
   "preview.document.title": "Document Preview",
   "preview.document.loading": "Document preview is loading…",
@@ -312,19 +327,11 @@ export const enMessages = {
   "chat.deanonBanner":
     "Responses are de-anonymized locally. Placeholders in the answer have been replaced with original values on your device only.",
 
-  "chat.mode.label": "Mode",
-  "chat.mode.cloud": "Cloud Mode",
-  "chat.mode.desktop": "Desktop Assistant Mode",
-  "chat.desktop.target.label": "Desktop assistant:",
-  "chat.desktop.target.chatgpt": "ChatGPT desktop app",
-  "chat.desktop.target.claude": "Claude desktop app",
-  "chat.desktop.openNewChat": "Start a new chat when using ChatGPT",
-  "chat.desktop.useRag": "Use document context (RAG)",
-  "chat.desktop.status.sent.chatgpt": "Message sent to ChatGPT desktop app.",
-  "chat.desktop.status.sent.claude": "Message sent to Claude desktop app.",
-  "chat.desktop.status.rejected": "Request rejected. Message was not sent.",
-  "chat.desktop.status.error":
-    "Desktop assistant error: {message}",
+  "chat.approval.rejected": "Context was rejected. No answer sent to the LLM.",
+  "chat.approval.timeout": "Approval timed out (60s).",
+  "chat.approval.rejectedDefault": "Rejected.",
+  "chat.debug.fetchError": "An error occurred while fetching debug information.",
+  "chat.morePills": "+{count} more",
 
   "chat.debug.title": "Data sent to and returned from the cloud",
   "chat.debug.button": "Show data sent to cloud",

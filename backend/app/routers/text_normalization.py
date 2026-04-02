@@ -3,7 +3,6 @@ from __future__ import annotations
 """Router for managing text normalization rules."""
 
 from typing import List
-import re
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -12,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.text_normalization import TextNormalizationRule
+from ..utils.db_helpers import validate_regex
 
 
 router = APIRouter(prefix="/api/text-normalization", tags=["text-normalization"])
@@ -65,7 +65,12 @@ async def create_rule(
 ) -> TextNormalizationRulePayload:
     """Create a new text normalization rule."""
 
-    _validate_pattern(payload.pattern)
+    error = validate_regex(payload.pattern)
+    if error is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid regex pattern: {error}",
+        )
 
     rule = TextNormalizationRule(
         name=payload.name,
@@ -108,7 +113,12 @@ async def update_rule(
             detail="Text normalization rule not found.",
         )
 
-    _validate_pattern(payload.pattern)
+    error = validate_regex(payload.pattern)
+    if error is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid regex pattern: {error}",
+        )
 
     rule.name = payload.name
     rule.pattern = payload.pattern
@@ -131,6 +141,7 @@ async def update_rule(
 @router.delete(
     "/{rule_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
 )
 async def delete_rule(
     rule_id: int,
@@ -151,12 +162,4 @@ async def delete_rule(
     await db.commit()
 
 
-def _validate_pattern(pattern: str) -> None:
-    try:
-        re.compile(pattern)
-    except re.error as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid regex pattern: {exc}",
-        ) from exc
 

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.document import Chunk, Document
 from ..services.vector_store import VectorStore
+from ..utils.db_helpers import get_or_404
 from ..utils.text_utils import normalize_unicode
 
 
@@ -86,15 +87,7 @@ async def list_chunks(
     """Return sanitized chunks, optionally filtered by document."""
     stmt = select(Chunk)
     if document_id is not None:
-        doc_result = await db.execute(
-            select(Document).where(Document.id == document_id)
-        )
-        doc = doc_result.scalar_one_or_none()
-        if doc is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Document not found.",
-            )
+        await get_or_404(db, Document, document_id, "Document not found.")
         stmt = stmt.where(Chunk.document_id == document_id)
 
     stmt = stmt.order_by(Chunk.document_id, Chunk.index)
@@ -116,13 +109,7 @@ async def get_chunk(
     db: AsyncSession = Depends(get_db),
 ) -> ChunkResponse:
     """Return a single sanitized chunk by id."""
-    result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
-    chunk = result.scalar_one_or_none()
-    if chunk is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Chunk not found.",
-        )
+    chunk = await get_or_404(db, Chunk, chunk_id, "Chunk not found.")
     return ChunkResponse.model_validate(chunk)
 
 
@@ -137,13 +124,7 @@ async def update_chunk(
     db: AsyncSession = Depends(get_db),
 ) -> ChunkResponse:
     """Update mutable fields of a chunk (inline edit support)."""
-    result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
-    chunk = result.scalar_one_or_none()
-    if chunk is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Chunk not found.",
-        )
+    chunk = await get_or_404(db, Chunk, chunk_id, "Chunk not found.")
 
     if payload.sanitized_text is not None:
         normalized = normalize_unicode(payload.sanitized_text)
@@ -161,19 +142,14 @@ async def update_chunk(
 @router.delete(
     "/{chunk_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
 )
 async def delete_chunk(
     chunk_id: int,
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Delete a chunk."""
-    result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
-    chunk = result.scalar_one_or_none()
-    if chunk is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Chunk not found.",
-        )
+    chunk = await get_or_404(db, Chunk, chunk_id, "Chunk not found.")
 
     await db.delete(chunk)
     await db.commit()
@@ -189,15 +165,7 @@ async def search_chunks(
     db: AsyncSession = Depends(get_db),
 ) -> ChunkSearchResponse:
     """Search chunks for a given document using the vector index."""
-    doc_result = await db.execute(
-        select(Document).where(Document.id == payload.document_id)
-    )
-    document = doc_result.scalar_one_or_none()
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found.",
-        )
+    await get_or_404(db, Document, payload.document_id, "Document not found.")
 
     effective_top_k = payload.top_k if payload.top_k > 0 else 10
 

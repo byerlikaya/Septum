@@ -2,9 +2,9 @@ import axios from "axios";
 import type {
   ApprovalChunkPayload,
   AppSettingsResponse,
-  DesktopAssistantTarget,
   Document,
   DocumentListResponse,
+  RegulationRuleset,
   SSEChatEvent,
   SpreadsheetColumn,
   SpreadsheetSchema
@@ -61,15 +61,8 @@ export async function updateSpreadsheetSchema(
   return data;
 }
 
-export interface RegulationRulesetItem {
-  id: string;
-  display_name: string;
-  region: string;
-  is_active: boolean;
-}
-
-export async function getRegulations(): Promise<RegulationRulesetItem[]> {
-  const { data } = await api.get<RegulationRulesetItem[]>("/api/regulations");
+export async function getRegulations(): Promise<RegulationRuleset[]> {
+  const { data } = await api.get<RegulationRuleset[]>("/api/regulations");
   return data;
 }
 
@@ -263,30 +256,5 @@ export async function sendFrontendError(payload: {
   }
 }
 
-export interface DesktopAssistantSendRequest {
-  message: string;
-  target: DesktopAssistantTarget;
-  open_new_chat?: boolean;
-  use_rag?: boolean;
-  document_ids?: number[];
-  top_k?: number;
-  skip_approval?: boolean;
-}
 
-export interface DesktopAssistantSendResponse {
-  status: "ok" | "error" | "approval_required";
-  message?: string;
-  prompt?: string;
-  requires_approval?: boolean;
-}
-
-export async function sendToDesktopAssistant(
-  payload: DesktopAssistantSendRequest
-): Promise<DesktopAssistantSendResponse> {
-  const { data } = await api.post<DesktopAssistantSendResponse>(
-    "/api/chat/desktop-assistant/send",
-    payload
-  );
-  return data;
-}
 

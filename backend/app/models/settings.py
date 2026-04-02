@@ -29,21 +29,6 @@ class AppSettings(Base):
     require_approval: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     show_json_output: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    desktop_assistant_enabled: Mapped[bool] = mapped_column(
-        Boolean,
-        default=False,
-        nullable=False,
-    )
-    desktop_assistant_default_target: Mapped[Optional[str]] = mapped_column(
-        String,
-        nullable=True,
-    )
-    desktop_assistant_chatgpt_new_chat_default: Mapped[bool] = mapped_column(
-        Boolean,
-        default=False,
-        nullable=False,
-    )
-
     use_presidio_layer: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False
     )

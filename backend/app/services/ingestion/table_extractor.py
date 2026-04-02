@@ -43,7 +43,6 @@ class TableFieldExtractor:
     """
 
     # Regex pattern for detecting "Label : Value" or "Label: Value" lines
-    # Language-agnostic: works for Turkish, English, etc.
     _FIELD_PATTERN = re.compile(
         r"^(.{2,80}?)\s*:\s*(.+?)$",
         re.MULTILINE | re.UNICODE
@@ -67,13 +66,11 @@ class TableFieldExtractor:
 
         with pdfplumber.open(pdf_path) as pdf:
             for page_num, page in enumerate(pdf.pages, start=1):
-                # Extract tables from page
                 page_tables = page.extract_tables()
                 for table_data in page_tables:
                     if not table_data or len(table_data) < 2:
                         continue
                     
-                    # Check if first row looks like a header
                     has_header = self._looks_like_header(table_data[0])
                     
                     tables.append(
@@ -84,11 +81,9 @@ class TableFieldExtractor:
                         )
                     )
                     
-                    # Try to extract fields from table (key-value pairs)
                     table_fields = self._extract_fields_from_table(table_data, page_num)
                     fields.extend(table_fields)
 
-                # Extract fields from plain text (non-table content)
                 text = page.extract_text() or ""
                 text_fields = self._extract_fields_from_text(text, page_num)
                 fields.extend(text_fields)

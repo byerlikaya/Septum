@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.regulation import CustomRecognizer, RegulationRuleset, NonPiiRule
 from ..services.recognizers.registry import RecognizerRegistry
+from ..utils.db_helpers import validate_regex
 
 
 router = APIRouter(prefix="/api/regulations", tags=["regulations"])
@@ -261,15 +262,12 @@ async def create_custom_recognizer(
     detection_method = data["detection_method"]
 
     if detection_method == "regex" and data.get("pattern"):
-        import re
-
-        try:
-            re.compile(data["pattern"] or "")
-        except re.error as exc:  # noqa: PERF203
+        error = validate_regex(data["pattern"] or "")
+        if error is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid regex pattern: {exc}",
-            ) from exc
+                detail=f"Invalid regex pattern: {error}",
+            )
 
     recognizer = CustomRecognizer(
         name=data["name"],
@@ -306,15 +304,12 @@ async def update_custom_recognizer(
     detection_method = update_data.get("detection_method", recognizer.detection_method)
     pattern = update_data.get("pattern", recognizer.pattern)
     if detection_method == "regex" and pattern:
-        import re
-
-        try:
-            re.compile(pattern)
-        except re.error as exc:  # noqa: PERF203
+        error = validate_regex(pattern)
+        if error is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid regex pattern: {exc}",
-            ) from exc
+                detail=f"Invalid regex pattern: {error}",
+            )
 
     for field_name, value in update_data.items():
         setattr(recognizer, field_name, value)
@@ -328,6 +323,7 @@ async def update_custom_recognizer(
 @router.delete(
     "/custom/{recognizer_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
 )
 async def delete_custom_recognizer(
     recognizer_id: int,
@@ -412,15 +408,12 @@ async def create_non_pii_rule(
     """Create a new Non-PII rule."""
     data = payload.model_dump()
     if data["pattern_type"] == "regex":
-        import re
-
-        try:
-            re.compile(data["pattern"])
-        except re.error as exc:  # noqa: PERF203
+        error = validate_regex(data["pattern"])
+        if error is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid regex pattern: {exc}",
-            ) from exc
+                detail=f"Invalid regex pattern: {error}",
+            )
 
     rule = NonPiiRule(
         pattern_type=data["pattern_type"],
@@ -459,15 +452,12 @@ async def update_non_pii_rule(
     pattern_type = update_data.get("pattern_type", rule.pattern_type)
     pattern = update_data.get("pattern", rule.pattern)
     if pattern_type == "regex" and pattern:
-        import re
-
-        try:
-            re.compile(pattern)
-        except re.error as exc:  # noqa: PERF203
+        error = validate_regex(pattern)
+        if error is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid regex pattern: {exc}",
-            ) from exc
+                detail=f"Invalid regex pattern: {error}",
+            )
 
     for field_name, value in update_data.items():
         setattr(rule, field_name, value)
@@ -480,6 +470,7 @@ async def update_non_pii_rule(
 @router.delete(
     "/non-pii/{rule_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
 )
 async def delete_non_pii_rule(
     rule_id: int,

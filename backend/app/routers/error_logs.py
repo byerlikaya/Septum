@@ -141,7 +141,7 @@ class FrontendErrorIn(BaseModel):
     extra: Optional[dict[str, Any]] = None
 
 
-@router.post("/frontend", status_code=204)
+@router.post("/frontend", status_code=204, response_model=None)
 async def ingest_frontend_error(
     payload: FrontendErrorIn,
     request: Request,
@@ -165,7 +165,7 @@ async def ingest_frontend_error(
     )
 
 
-@router.delete("/", status_code=204)
+@router.delete("/", status_code=204, response_model=None)
 async def clear_error_logs(
     source: Optional[str] = None,
     db: AsyncSession = Depends(get_db),

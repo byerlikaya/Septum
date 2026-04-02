@@ -24,6 +24,7 @@ from ..database import get_db
 from ..models.settings import AppSettings
 from ..services.error_logger import log_backend_error, log_backend_message
 from ..services.llm_router import LLMRouter, LLMRouterError
+from ..utils.db_helpers import load_settings
 from ..utils.device import get_device
 
 
@@ -52,10 +53,6 @@ class SettingsResponse(BaseModel):
     use_ner_layer: bool
     use_ollama_validation_layer: bool
     use_ollama_layer: bool
-
-    desktop_assistant_enabled: bool
-    desktop_assistant_default_target: Optional[str] = None
-    desktop_assistant_chatgpt_new_chat_default: bool
 
     chunk_size: int
     chunk_overlap: int
@@ -94,10 +91,6 @@ class SettingsUpdatePayload(BaseModel):
     use_ner_layer: Optional[bool] = None
     use_ollama_validation_layer: Optional[bool] = None
     use_ollama_layer: Optional[bool] = None
-
-    desktop_assistant_enabled: Optional[bool] = None
-    desktop_assistant_default_target: Optional[str] = None
-    desktop_assistant_chatgpt_new_chat_default: Optional[bool] = None
 
     chunk_size: Optional[int] = None
     chunk_overlap: Optional[int] = None
@@ -154,23 +147,6 @@ class WhisperInstallResponse(BaseModel):
     message: Optional[str] = None
 
 
-async def _load_settings(session: AsyncSession) -> AppSettings:
-    """Return the singleton :class:`AppSettings` row or raise HTTP 500.
-
-    Environment variables are used when seeding defaults in the database layer
-    (see :func:`init_db`). Once the row exists, this helper simply returns the
-    persisted values so that updates made via the Settings API remain stable.
-    """
-    result = await session.execute(select(AppSettings).where(AppSettings.id == 1))
-    settings = result.scalar_one_or_none()
-    if settings is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Application settings have not been initialized.",
-        )
-    return settings
-
-
 @router.get(
     "",
     response_model=SettingsResponse,
@@ -180,7 +156,7 @@ async def get_settings_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> SettingsResponse:
     """Return the current global application settings."""
-    settings = await _load_settings(db)
+    settings = await load_settings(db)
     return SettingsResponse.model_validate(settings)
 
 
@@ -194,7 +170,7 @@ async def update_settings_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> SettingsResponse:
     """Partially update global application settings."""
-    settings = await _load_settings(db)
+    settings = await load_settings(db)
 
     update_data = payload.model_dump(exclude_unset=True)
     for field_name, value in update_data.items():
@@ -222,7 +198,7 @@ async def test_llm_connection_endpoint(
     and reports whether the provider is reachable and correctly configured.
     No user PII is ever sent – the prompt is a fixed, non-sensitive string.
     """
-    settings = await _load_settings(db)
+    settings = await load_settings(db)
 
     if payload.provider is not None:
         settings.llm_provider = payload.provider
@@ -296,7 +272,7 @@ async def test_local_models_endpoint(
     endpoint responds successfully; it does not load or run any specific
     model to avoid unnecessary resource usage.
     """
-    settings = await _load_settings(db)
+    settings = await load_settings(db)
 
     base_url = (payload.base_url or settings.ollama_base_url or "").rstrip("/")
     if not base_url:
@@ -343,7 +319,7 @@ async def get_ingestion_health_endpoint(
     * The configured Whisper model appears to be downloaded in the cache
       directory (best-effort check).
     """
-    settings = await _load_settings(db)
+    settings = await load_settings(db)
 
     ffmpeg_status = "ok" if shutil.which("ffmpeg") is not None else "missing"
 
@@ -417,7 +393,7 @@ async def install_whisper_model_endpoint(
     device (CPU, CUDA, or MPS). If the model is not present, it will be
     downloaded to the standard Whisper cache directory.
     """
-    settings = await _load_settings(db)
+    settings = await load_settings(db)
     model_name = (settings.whisper_model or "base").strip()
 
     try:

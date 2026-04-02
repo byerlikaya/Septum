@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
-from langdetect import DetectorFactory, LangDetectException, detect
+from langdetect import DetectorFactory
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -36,19 +36,14 @@ from ..services.approval_gate import ApprovalChunk, ApprovalGate, get_approval_g
 from ..services.document_anon_store import get_document_map
 from ..services.deanonymizer import Deanonymizer
 from ..services.llm_router import LLMRouter, LLMRouterError, _chunk_text
-from ..services.ner_model_registry import NERModelRegistry
 from ..services.policy_composer import PolicyComposer
-from ..services.sanitizer import PIISanitizer
+from ..services.sanitizer_factory import create_sanitizer
 from ..services.text_normalizer import TextNormalizer
 from ..services.chat_context import ChatContextPayload, build_chat_prompt
-from ..services.desktop_assistant.base import (
-    DesktopAssistantError,
-    DesktopAssistantTarget,
-)
-from ..services.desktop_assistant.factory import create_desktop_assistant
 from ..services.chat_debug_store import set_chat_debug_record, get_chat_debug_record, ChatDebugRecord
 from ..services.error_logger import log_backend_error, log_backend_message
 from ..services.prompts import PromptCatalog
+from ..utils.db_helpers import get_or_404, load_settings, detect_language
 
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -86,69 +81,11 @@ class ChatDebugResponse(BaseModel):
     final_answer: str
 
 
-class DesktopAssistantRequest(BaseModel):
-    """Request body for sending a message to a local desktop assistant client."""
-
-    message: str
-    target: DesktopAssistantTarget
-    open_new_chat: bool = False
-    use_rag: bool = False
-    document_ids: list[int] = []
-    top_k: int = 5
-    skip_approval: bool = False
-
-
-class DesktopAssistantResponse(BaseModel):
-    """Response envelope for desktop assistant send operations."""
-
-    status: str
-    message: Optional[str] = None
-    prompt: Optional[str] = None
-    requires_approval: Optional[bool] = None
-
-
-async def _load_settings(db: AsyncSession) -> AppSettings:
-    result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
-    settings = result.scalar_one_or_none()
-    if settings is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Application settings have not been initialized.",
-        )
-    env_llm_model = os.getenv("LLM_MODEL")
-    if env_llm_model:
-        settings.llm_model = env_llm_model
-    env_llm_provider = os.getenv("LLM_PROVIDER")
-    if env_llm_provider:
-        settings.llm_provider = env_llm_provider
-    return settings
-
-
-async def _load_document(db: AsyncSession, document_id: int) -> Document:
-    result = await db.execute(select(Document).where(Document.id == document_id))
-    document = result.scalar_one_or_none()
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found.",
-        )
-    return document
-
-
 async def _active_regulation_names(db: AsyncSession) -> List[str]:
     result = await db.execute(
         select(RegulationRuleset.display_name).where(RegulationRuleset.is_active.is_(True))
     )
     return [row[0] for row in result.all()]
-
-
-async def _detect_language(text: str, fallback: str = "en") -> str:
-    if not text:
-        return fallback
-    try:
-        return detect(text)
-    except LangDetectException:
-        return fallback
 
 
 async def _sanitize_query(
@@ -159,16 +96,7 @@ async def _sanitize_query(
     db: AsyncSession,
 ) -> tuple[str, int]:
     """Run the sanitizer on the incoming user message."""
-    composer = PolicyComposer()
-    policy = await composer.compose(db)
-    overrides = getattr(settings, "ner_model_overrides", None) or {}
-    ner_registry = NERModelRegistry(_overrides=dict(overrides))
-    sanitizer = PIISanitizer(
-        settings=settings,
-        policy=policy,
-        ner_registry=ner_registry,
-        enable_ollama_layer=True,  # Enable validation layer at query time
-    )
+    sanitizer = await create_sanitizer(db, settings, enable_ollama=True)
     result = await asyncio.to_thread(
         sanitizer.sanitize,
         message,
@@ -301,7 +229,6 @@ async def _retrieve_chunks(
     if results:
         chunk_ids = [cid for cid, _ in results]
 
-        # Fetch initially retrieved chunks.
         stmt = select(Chunk).where(Chunk.id.in_(chunk_ids))
         db_result = await db.execute(stmt)
         base_chunks = list(db_result.scalars().all())
@@ -575,7 +502,7 @@ async def chat_ask(
         document_ids_list = [request.document_id]
     document_id = document_ids_list[0] if document_ids_list else None
 
-    settings = await _load_settings(db)
+    settings = await load_settings(db)
     composer = PolicyComposer()
     policy = await composer.compose(db)
     regulation_names = await _active_regulation_names(db)
@@ -583,11 +510,11 @@ async def chat_ask(
     documents_by_id: dict[int, Document] = {}
     if document_ids_list:
         for did in document_ids_list:
-            documents_by_id[did] = await _load_document(db, did)
+            documents_by_id[did] = await get_or_404(db, Document, did, "Document not found.")
     document: Document | None = documents_by_id.get(document_id) if document_id is not None else None
 
     base_language = (document.language_override or document.detected_language) if document else "en"
-    language = await _detect_language(message_text, fallback=base_language)
+    language = detect_language(message_text, fallback=base_language)
 
     if document is not None:
         anon_map = get_document_map(document.id) or AnonymizationMap(
@@ -853,278 +780,5 @@ async def chat_debug(session_id: str) -> ChatDebugResponse:
         masked_prompt=record.masked_prompt,
         masked_answer=record.masked_answer,
         final_answer=record.final_answer,
-    )
-
-
-async def _build_rag_prompt_for_desktop(
-    db: AsyncSession,
-    settings: AppSettings,
-    query: str,
-    document_ids: list[int],
-    top_k: int,
-) -> str:
-    """Build a RAG-enabled prompt for Desktop Assistant Mode.
-
-    This helper mirrors the Cloud LLM RAG flow: retrieve chunks, sanitize query and
-    context, build ChatContextPayload, and render the final prompt using
-    build_chat_prompt. The result is a single string suitable for sending to a
-    desktop assistant application.
-    """    
-    from ..models.regulation import RegulationRuleset
-
-    # Detect language using existing helper
-    language = await _detect_language(query, fallback="en")
-    # Retrieve chunks and sanitize
-    try:
-        # Compose active policy (includes validation layer)
-        policy_composer = PolicyComposer()
-        policy = await policy_composer.compose(db)
-        overrides = getattr(settings, "ner_model_overrides", None) or {}
-        ner_registry = NERModelRegistry(_overrides=dict(overrides))
-        sanitizer = PIISanitizer(
-            settings=settings,
-            policy=policy,
-            ner_registry=ner_registry,
-            enable_ollama_layer=True,  # Enable validation layer at query time
-        )
-        sanitized_query = query  # Default: use original if no documents
-        
-        if not document_ids:
-            # No documents: empty context
-            context_chunks: list[str] = []
-        else:
-            # Load all documents
-            documents_by_id: dict[int, Document] = {}
-            for did in document_ids:
-                doc = await _load_document(db, did)
-                if doc:
-                    documents_by_id[did] = doc
-            
-            # Retrieve chunks using the same logic as Cloud LLM flow
-            chunks: List[Chunk] = []
-            if len(documents_by_id) == 1:
-                doc = next(iter(documents_by_id.values()))
-                chunks = await _retrieve_chunks(
-                    db=db,
-                    document_id=doc.id,
-                    query=query,
-                    top_k=top_k,
-                    chunk_count=doc.chunk_count,
-                )
-            elif len(documents_by_id) > 1:
-                MIN_PER_DOC = 10
-                MAX_TOTAL = 50
-                num_docs = len(documents_by_id)
-                per_doc_k = max(MIN_PER_DOC, min(MAX_TOTAL // num_docs, top_k // num_docs))
-                for doc in documents_by_id.values():
-                    chunks_doc = await _retrieve_chunks(
-                        db=db,
-                        document_id=doc.id,
-                        query=query,
-                        top_k=per_doc_k,
-                        chunk_count=doc.chunk_count,
-                    )
-                    chunks.extend(chunks_doc)
-            
-            # Sanitize query + chunks
-            anon_map = AnonymizationMap(document_id=document_ids[0], language=language)
-            
-            # Sanitize the query
-            sanitized_query_result = await asyncio.to_thread(
-                sanitizer.sanitize, query, language, anon_map
-            )
-            sanitized_query = sanitized_query_result.sanitized_text
-            
-            # Chunks are stored as RAW text in DB (design decision).
-            # Always sanitize at query time with full validation layer.
-            sanitized_chunks: list[str] = []
-            for chunk in chunks:
-                chunk_text = chunk.sanitized_text or ""
-                if not chunk_text.strip():
-                    continue
-                
-                # Sanitize chunk with full pipeline (includes validation layer)
-                sanitized_chunk_result = await asyncio.to_thread(
-                    sanitizer.sanitize, chunk_text, language, anon_map
-                )
-                sanitized_chunks.append(sanitized_chunk_result.sanitized_text)
-            context_chunks = sanitized_chunks
-    except Exception as exc:
-        raise
-
-    # Get active regulations
-    try:
-        active_regs_result = await db.execute(
-            select(RegulationRuleset).where(RegulationRuleset.is_active == True)  # noqa: E712
-        )
-        active_regs = active_regs_result.scalars().all()
-        regulation_names = [reg.display_name for reg in active_regs]
-    except Exception as exc:
-        raise
-
-    # Build payload (no schema instruction for Desktop Assistant)
-    try:
-        payload_ctx = ChatContextPayload(
-            sanitized_query=sanitized_query,
-            context_chunks=context_chunks,
-            regulation_names=regulation_names,
-            language=language,
-            schema_instruction="",
-            placeholder_list_str="",
-            output_mode="chat",
-        )
-        
-        final_prompt = build_chat_prompt(payload_ctx)
-        
-        return final_prompt
-    except Exception as exc:
-        raise
-
-
-@router.post(
-    "/desktop-assistant/send",
-    response_model=DesktopAssistantResponse,
-    status_code=status.HTTP_200_OK,
-)
-async def desktop_assistant_send(
-    payload: DesktopAssistantRequest,
-    http_request: Request,
-    db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
-    """Send a message directly to a local desktop assistant client.
-
-    When `use_rag=True`, this endpoint retrieves document chunks, sanitizes them
-    (including the query), and constructs a RAG-enabled prompt using the same logic
-    as the Cloud LLM flow. The resulting prompt is sent to the desktop assistant
-    via OS automation. The user then sees the prompt in the desktop assistant's
-    input field and can submit it manually or modify it first.
-
-    When `use_rag=False`, the raw user query is sent directly to the desktop assistant
-    without any document context or sanitization.
-    """
-
-    settings = await _load_settings(db)
-    if not getattr(settings, "desktop_assistant_enabled", False):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Desktop assistant mode is disabled in settings.",
-        )
-
-    if not payload.message.strip():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Message must not be empty.",
-        )
-
-    try:
-        assistant = create_desktop_assistant(settings)
-    except Exception as exc:  # noqa: BLE001
-        # Only log metadata, never the raw message.
-        await log_backend_error(
-            db,
-            http_request,
-            exc,
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content=DesktopAssistantResponse(
-                status="error",
-                message="Desktop assistant is not available on this platform.",
-            ).model_dump(),
-        )
-
-    # Determine final message to send
-    final_message = payload.message
-    
-    if payload.use_rag:
-        # Build RAG-enabled prompt using the same logic as Cloud LLM
-        try:
-            final_message = await _build_rag_prompt_for_desktop(
-                db=db,
-                settings=settings,
-                query=payload.message,
-                document_ids=payload.document_ids,
-                top_k=payload.top_k,
-            )
-        except Exception as exc:  # noqa: BLE001
-            await log_backend_error(
-                db,
-                http_request,
-                exc,
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                extra={
-                    "rag_enabled": True,
-                    "document_ids": payload.document_ids,
-                },
-            )
-            return JSONResponse(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content=DesktopAssistantResponse(
-                    status="error",
-                    message="Failed to build RAG prompt for desktop assistant.",
-                ).model_dump(),
-            )
-
-    # Check if approval is required
-    require_approval = settings.require_approval and not payload.skip_approval
-    if require_approval:
-        # Return prompt for user approval (same as Cloud LLM mode)
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content=DesktopAssistantResponse(
-                status="approval_required",
-                prompt=final_message,
-                requires_approval=True,
-                message="Approval required. Please review the prompt before sending.",
-            ).model_dump(),
-        )
-
-    try:
-        # Run potentially blocking OS automation in a worker thread.
-        await asyncio.to_thread(
-            assistant.send_message,
-            final_message,
-            payload.target,
-            payload.open_new_chat,
-        )
-    except DesktopAssistantError as exc:
-        await log_backend_error(
-            db,
-            http_request,
-            exc,
-            status_code=status.HTTP_400_BAD_REQUEST,
-            extra={
-                "desktop_assistant_target": payload.target.value,
-            },
-        )
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content=DesktopAssistantResponse(
-                status="error",
-                message=str(exc),
-            ).model_dump(),
-        )
-    except Exception as exc:  # noqa: BLE001
-        await log_backend_error(
-            db,
-            http_request,
-            exc,
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            extra={
-                "desktop_assistant_target": payload.target.value,
-            },
-        )
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content=DesktopAssistantResponse(
-                status="error",
-                message="Failed to send message to desktop assistant.",
-            ).model_dump(),
-        )
-
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content=DesktopAssistantResponse(status="ok").model_dump(),
     )
 

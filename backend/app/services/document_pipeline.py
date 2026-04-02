@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, List, Sequence, Tuple
+from typing import List, Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.document import Chunk as DocumentChunk, Document
-from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
 from .anonymization_map import AnonymizationMap
 from .chunking_strategy import (
@@ -16,9 +15,7 @@ from .chunking_strategy import (
 )
 from .bm25_retriever import BM25Retriever
 from .document_anon_store import set_document_map
-from .ner_model_registry import NERModelRegistry
-from .policy_composer import PolicyComposer
-from .sanitizer import PIISanitizer
+from .sanitizer_factory import create_sanitizer
 from .text_normalizer import TextNormalizer
 from .vector_store import VectorStore
 
@@ -48,15 +45,7 @@ class DocumentPipeline:
         detected_language = document.detected_language
         anon_map = AnonymizationMap(document_id=document.id, language=detected_language)
 
-        policy = await self._compose_policy(db)
-        overrides = getattr(self._settings, "ner_model_overrides", None) or {}
-        ner_registry = NERModelRegistry(_overrides=dict(overrides))
-        sanitizer = PIISanitizer(
-            settings=self._settings,
-            policy=policy,
-            ner_registry=ner_registry,
-            enable_ollama_layer=False,
-        )
+        sanitizer = await create_sanitizer(db, self._settings, enable_ollama=False)
 
         semantic_chunks = await self._build_chunks(file_format, ingested_text)
 
@@ -114,10 +103,6 @@ class DocumentPipeline:
                 chunks,
                 raw_texts_for_index,
             )
-
-    async def _compose_policy(self, db: AsyncSession) -> Any:
-        composer = PolicyComposer()
-        return await composer.compose(db)
 
     async def _build_chunks(
         self,

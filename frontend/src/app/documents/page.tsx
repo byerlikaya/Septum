@@ -5,11 +5,11 @@ import { api, getDocuments } from "@/lib/api";
 import type { Document } from "@/lib/types";
 import { DocumentUploader } from "@/components/documents/DocumentUploader";
 import { DocumentList } from "@/components/documents/DocumentList";
-import { TranscriptionPreview } from "@/components/documents/TranscriptionPreview";
 import { DocumentPreview } from "@/components/documents/DocumentPreview";
 import { BlockingLoader } from "@/components/common/BlockingLoader";
 import { useI18n } from "@/lib/i18n";
 import { uploadDocuments } from "@/lib/uploadDocuments";
+import { getDocumentDisplayName } from "@/lib/utils";
 
 export default function DocumentsPage() {
   const t = useI18n();
@@ -97,7 +97,7 @@ export default function DocumentsPage() {
       const confirmed = window.confirm(
         t("documents.confirm.delete").replace(
           "{name}",
-          doc.original_filename || doc.filename
+          getDocumentDisplayName(doc)
         )
       );
       if (!confirmed) {
@@ -210,7 +210,7 @@ export default function DocumentsPage() {
           }
         }}
       />
-      <TranscriptionPreview
+      <DocumentPreview
         document={transcriptionDoc}
         open={isTranscriptionOpen}
         onOpenChange={open => {
@@ -219,6 +219,7 @@ export default function DocumentsPage() {
             setTranscriptionDoc(null);
           }
         }}
+        mode="transcription"
       />
     </div>
   );

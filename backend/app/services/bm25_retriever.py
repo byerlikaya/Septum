@@ -129,7 +129,6 @@ class BM25Retriever:
         tokenized_query = _tokenize(query)
         scores = bm25.get_scores(tokenized_query)
 
-        # Create (chunk_id, score) pairs and sort by descending score
         results = [
             (chunk_ids[i], float(scores[i]))
             for i in range(len(chunk_ids))

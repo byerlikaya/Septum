@@ -151,7 +151,6 @@ class PdfIngester(BaseIngester):
                     
                     metadata["extracted_fields_count"] = len(fields)
             finally:
-                # Clean up temp file
                 import os
                 try:
                     os.unlink(tmp_path)

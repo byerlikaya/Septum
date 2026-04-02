@@ -8,13 +8,13 @@ import { fetchErrorLogs } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { useLanguage } from "@/lib/language";
 
-type NavItem = {
+type NavItemDef = {
   href: string;
   label: string;
   exact?: boolean;
 };
 
-const navItems: NavItem[] = [
+const navItems: NavItemDef[] = [
   { href: "/chat", label: "Chat", exact: true },
   { href: "/documents", label: "Documents" },
   { href: "/chunks", label: "Chunks" },
@@ -25,10 +25,84 @@ const navItems: NavItem[] = [
 
 const ERROR_LOGS_HREF = "/settings/error-logs";
 
+function NavLink({
+  item,
+  pathname,
+  errorLogCount,
+  onClick
+}: {
+  item: NavItemDef;
+  pathname: string;
+  errorLogCount: number;
+  onClick?: () => void;
+}) {
+  const t = useI18n();
+
+  const isActive = item.exact
+    ? pathname === item.href
+    : pathname === item.href ||
+      pathname?.startsWith(
+        item.href.endsWith("/") ? item.href : `${item.href}/`
+      );
+
+  const label = t(`sidebar.${item.label.toLowerCase()}` as never);
+
+  const content =
+    item.href === ERROR_LOGS_HREF && errorLogCount > 0 ? (
+      <span className="flex w-full items-center justify-between gap-2">
+        <span>{label}</span>
+        <span
+          className="min-w-[1.25rem] rounded-full bg-red-600 px-2 py-0.5 text-center text-xs font-medium text-white"
+          aria-label={t("errorLogs.badgeAriaLabel").replace("{count}", String(errorLogCount))}
+        >
+          {errorLogCount > 99 ? "99+" : errorLogCount}
+        </span>
+      </span>
+    ) : (
+      label
+    );
+
+  return (
+    <Link
+      href={item.href}
+      className={`flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+        isActive
+          ? "bg-slate-800 text-slate-50"
+          : "text-slate-300 hover:bg-slate-900 hover:text-slate-50"
+      }`}
+      onClick={onClick}
+    >
+      {content}
+    </Link>
+  );
+}
+
+function LanguageSelector() {
+  const t = useI18n();
+  const { language, setLanguage } = useLanguage();
+
+  return (
+    <div className="mb-2 flex items-center justify-between gap-2">
+      <span className="text-[11px] text-slate-400">
+        {t("language.label")}
+      </span>
+      <select
+        className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-100"
+        value={language}
+        onChange={event =>
+          setLanguage(event.target.value === "tr" ? "tr" : "en")
+        }
+      >
+        <option value="en">{t("language.english")}</option>
+        <option value="tr">{t("language.turkish")}</option>
+      </select>
+    </div>
+  );
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   const t = useI18n();
-  const { language, setLanguage } = useLanguage();
   const [isNavOpen, setIsNavOpen] = useState<boolean>(false);
   const [errorLogCount, setErrorLogCount] = useState<number>(0);
 
@@ -62,24 +136,6 @@ export function Sidebar() {
     setIsNavOpen(prev => !prev);
   };
 
-  const renderNavLabel = (item: NavItem) => {
-    const label = t(`sidebar.${item.label.toLowerCase()}` as never);
-    if (item.href === ERROR_LOGS_HREF && errorLogCount > 0) {
-      return (
-        <span className="flex w-full items-center justify-between gap-2">
-          <span>{label}</span>
-          <span
-            className="min-w-[1.25rem] rounded-full bg-red-600 px-2 py-0.5 text-center text-xs font-medium text-white"
-            aria-label={t("errorLogs.badgeAriaLabel").replace("{count}", String(errorLogCount))}
-          >
-            {errorLogCount > 99 ? "99+" : errorLogCount}
-          </span>
-        </span>
-      );
-    }
-    return label;
-  };
-
   return (
     <aside className="flex w-full flex-col border-b border-slate-800 bg-slate-950 text-slate-50 md:h-screen md:w-72 md:border-b-0 md:border-r">
       {/* Mobile layout */}
@@ -109,7 +165,7 @@ export function Sidebar() {
             aria-label="Toggle navigation"
             aria-expanded={isNavOpen}
           >
-            <span className="text-base leading-none">☰</span>
+            <span className="text-base leading-none">&#9776;</span>
           </button>
         </div>
         <div
@@ -118,46 +174,18 @@ export function Sidebar() {
           }`}
         >
           <div className="mt-1 flex flex-col gap-1">
-            {navItems.map(item => {
-              const isActive = item.exact
-                ? pathname === item.href
-                : pathname === item.href ||
-                  pathname?.startsWith(
-                    item.href.endsWith("/") ? item.href : `${item.href}/`
-                  );
-
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                    isActive
-                      ? "bg-slate-800 text-slate-50"
-                      : "text-slate-300 hover:bg-slate-900 hover:text-slate-50"
-                  }`}
-                  onClick={() => setIsNavOpen(false)}
-                >
-                  {renderNavLabel(item)}
-                </Link>
-              );
-            })}
+            {navItems.map(item => (
+              <NavLink
+                key={item.href}
+                item={item}
+                pathname={pathname}
+                errorLogCount={errorLogCount}
+                onClick={() => setIsNavOpen(false)}
+              />
+            ))}
           </div>
           <div className="mt-4 border-t border-slate-800 pt-3 text-xs text-slate-500">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="text-[11px] text-slate-400">
-                {t("language.label")}
-              </span>
-              <select
-                className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-100"
-                value={language}
-                onChange={event =>
-                  setLanguage(event.target.value === "tr" ? "tr" : "en")
-                }
-              >
-                <option value="en">{t("language.english")}</option>
-                <option value="tr">{t("language.turkish")}</option>
-              </select>
-            </div>
+            <LanguageSelector />
             <span>{t("sidebar.footer")}</span>
           </div>
         </div>
@@ -181,49 +209,20 @@ export function Sidebar() {
             </span>
           </div>
         <nav className="flex-1 space-y-1 px-2 py-4">
-          {navItems.map(item => {
-            const isActive = item.exact
-              ? pathname === item.href
-              : pathname === item.href ||
-                pathname?.startsWith(
-                  item.href.endsWith("/") ? item.href : `${item.href}/`
-                );
-
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                  isActive
-                    ? "bg-slate-800 text-slate-50"
-                    : "text-slate-300 hover:bg-slate-900 hover:text-slate-50"
-                }`}
-              >
-                {renderNavLabel(item)}
-              </Link>
-            );
-          })}
+          {navItems.map(item => (
+            <NavLink
+              key={item.href}
+              item={item}
+              pathname={pathname}
+              errorLogCount={errorLogCount}
+            />
+          ))}
         </nav>
         <div className="border-t border-slate-800 px-4 py-3 text-xs text-slate-500">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="text-[11px] text-slate-400">
-              {t("language.label")}
-            </span>
-            <select
-              className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-100"
-              value={language}
-              onChange={event =>
-                setLanguage(event.target.value === "tr" ? "tr" : "en")
-              }
-            >
-              <option value="en">{t("language.english")}</option>
-              <option value="tr">{t("language.turkish")}</option>
-            </select>
-          </div>
+          <LanguageSelector />
           <span>{t("sidebar.footer")}</span>
         </div>
       </div>
     </aside>
   );
 }
-

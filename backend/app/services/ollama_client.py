@@ -116,7 +116,6 @@ def extract_json_array(text: str) -> list[dict[str, Any]]:
     
     for match in potential_arrays:
         candidate = match.group(0)
-        # Clean up common LLM formatting issues
         candidate = candidate.strip()
         # Remove trailing commas before closing brackets (common LLM mistake)
         candidate = re.sub(r",(\s*\])", r"\1", candidate)

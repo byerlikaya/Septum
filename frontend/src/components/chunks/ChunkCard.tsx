@@ -3,6 +3,7 @@ import { Edit3, Save, Trash2, X, ChevronDown, ChevronRight } from "lucide-react"
 import type { Chunk, Document } from "@/lib/types";
 import { EntityBadge } from "./EntityBadge";
 import { useI18n } from "@/lib/i18n";
+import { getDocumentDisplayName } from "@/lib/utils";
 
 interface ChunkCardProps {
   chunk: Chunk;
@@ -182,7 +183,7 @@ export function ChunkCard({
       {document && !hideDocumentInfo && (
         <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
           <span className="max-w-[260px] truncate font-medium text-slate-100">
-            {document.original_filename || document.filename}
+            {getDocumentDisplayName(document)}
           </span>
           <span className="rounded-full bg-slate-900 px-2 py-0.5">
             {t("chunks.card.lang", {

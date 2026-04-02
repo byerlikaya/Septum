@@ -1,0 +1,23 @@
+---
+description: Require updating CHANGELOG.md for changes since last push; group by logical development unit
+alwaysApply: true
+---
+
+# Changelog Maintenance Rules
+
+- **What the changelog documents**
+  - `CHANGELOG.md` records **notable changes since the last push** (or since the last release). It describes the development work that has been done in the current batch, not every single commit as a separate line.
+  - Write **one or a few coherent entries per date** that summarize the full set of changes (feature + related fixes + follow-ups) as **logical development units**. If you add a feature, then fix a bug or regression caused by it, or make a small follow-up fix (e.g. TypeScript/UX), treat that as **one development unit** and describe it in a single bullet (e.g. "Multi-document chat: …; also fixed …."). Do not add a separate bullet for each commit when they belong to the same effort.
+
+- **Date-based sections**
+  - Use date-based sections: `### YYYY-MM-DD`. Entries go under the date when the work was done. **Always verify the date**: run `date +%Y-%m-%d` before adding or editing; for past work use `git log --date=short` to assign commits to the correct day.
+
+- **Before committing**
+  - Before creating any commit, ensure `CHANGELOG.md` reflects the **pending change** as part of the current development unit. Either add a new bullet under today’s date or **update an existing bullet** for that unit (e.g. append "; fixed …" or "; also …") instead of creating a new bullet for every small fix. Never commit code or doc changes without updating the changelog for that date.
+
+- **Assistant behavior**
+  - When the user asks to commit: (1) Check what has changed since the last push (or since the last changelog update). (2) If the change is part of an existing development unit (e.g. follow-up fix to a feature just added), **update the existing changelog bullet** for that unit rather than adding a new one. (3) If it is a new, separate unit of work, add a new bullet under the correct date. (4) Verify the date with `date +%Y-%m-%d` or `git log --date=short`. (5) Then stage and commit, including the changelog update.
+
+- **Formatting**
+  - Use markdown: `## Changelog` at the top, then `### YYYY-MM-DD` per day.
+  - Bullets: `- **<short scope>**: <description>.` Keep descriptions neutral and technical (what changed and why), not marketing copy.

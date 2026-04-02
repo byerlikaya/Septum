@@ -90,13 +90,6 @@ The common theme: **leverage LLMs while keeping personal data encrypted and on�
 - **Approval‑Based Chat**
   - Before anything is sent to the LLM, you see a summary of what will be shared and can approve or reject it.
 
-- **Desktop Assistant Mode (ChatGPT / Claude)**
-  - Optional mode that sends your question (or a RAG-enabled prompt with document context) directly to a locally installed desktop assistant client (for example the official ChatGPT or Claude desktop apps) instead of the cloud LLM behind Septum.
-  - When "Use document context (RAG)" is enabled, Septum retrieves and sanitizes relevant chunks from your uploaded documents and constructs a RAG prompt using the same logic as Cloud Mode, then sends this full prompt to the desktop assistant via OS‑level automation.
-  - When the require-approval setting is enabled, desktop mode shows the same approval modal as Cloud Mode before sending the prompt, so you can review the masked content and approve or reject.
-  - Uses OS‑level automation on your own machine (window focus, clipboard, keystrokes); no additional cloud calls are made beyond what the desktop client already performs.
-  - Fully opt‑in via Settings and disabled by default; when enabled, you can switch between Cloud Mode and Desktop Assistant Mode from the chat screen and choose which desktop client to target.
-
 - **Professional Hybrid Retrieval**
   - Combines BM25 (keyword matching) with FAISS (semantic similarity) using Reciprocal Rank Fusion (RRF).
   - Delivers superior retrieval quality for legal/contract queries by blending exact term matching with semantic understanding.
@@ -308,24 +301,24 @@ Backend root: `backend/`
   - `document.py`, `chunk.py`, `settings.py`, `regulation.py`, `custom_recognizer.py`  
 - `app/schemas/` — Pydantic schemas:  
   - `document.py`, `chat.py`, `settings.py`, `regulation.py`, `custom_recognizer.py`  
-- `app/routers/` — FastAPI routers:  
-  - `documents.py`, `chunks.py`, `chat.py`, `approval.py`, `settings.py`, `regulations.py`  
-- `app/services/`:  
-  - `ingestion/` — format‑specific ingesters (PDF, DOCX, XLSX, ODS, PPTX, image, audio, HTML, markdown, JSON, YAML, XML, email, EPUB, RTF)  
-  - `recognizers/` — regulation packs (gdpr, hipaa, kvkk, lgpd, ccpa, …) and `registry.py`  
-  - `national_ids/` — country‑specific ID validators (TCKN, SSN, CPF, Aadhaar, IBAN, etc.)  
-  - `policy_composer.py` — composes active regulations and custom rules into a single policy  
-  - `language_detector.py` — language detection  
-  - `ner_model_registry.py` — language → model mapping and lazy loading  
-  - `sanitizer.py` — PII detection and placeholder pipeline  
-  - `anonymization_map.py` — session‑scoped anonymisation map + coreference handling  
-  - `document_processor.py`, `vector_store.py`, `llm_router.py`, `deanonymizer.py`, `approval_gate.py`  
-- `app/utils/`:  
-  - `device.py` — CPU/MPS/CUDA selection  
-  - `crypto.py` — AES‑256‑GCM file encryption  
-  - `text_utils.py` — Unicode NFC + locale‑aware lowercasing  
-  - `logger.py` — logging without raw PII  
-- `tests/` — pytest scenarios (sanitizer, anonymization_map, national_ids, policy_composer, custom_recognizers, document_processor, deanonymizer, llm_router, crypto, ingesters, etc.).
+- `app/routers/` — FastAPI routers:
+  - `documents.py`, `chunks.py`, `chat.py`, `approval.py`, `settings.py`, `regulations.py`, `error_logs.py`, `text_normalization.py`
+- `app/services/`:
+  - `ingestion/` — format‑specific ingesters (PDF, DOCX, XLSX, ODS, image/OCR, audio/Whisper)
+  - `recognizers/` — regulation packs (gdpr, hipaa, kvkk, lgpd, ccpa, …) and `registry.py`
+  - `national_ids/` — country‑specific ID validators (TCKN, SSN, CPF, Aadhaar, IBAN, etc.)
+  - `policy_composer.py` — composes active regulations and custom rules into a single policy
+  - `ner_model_registry.py` — language → model mapping and lazy loading
+  - `sanitizer.py` — PII detection and placeholder pipeline
+  - `anonymization_map.py` — session‑scoped anonymisation map + coreference handling
+  - `document_pipeline.py`, `vector_store.py`, `llm_router.py`, `deanonymizer.py`, `approval_gate.py`
+  - `prompts.py` — centralized LLM prompt catalog
+  - `error_logger.py`, `ollama_client.py`, `non_pii_filter.py`, `text_normalizer.py`
+- `app/utils/`:
+  - `device.py` — CPU/MPS/CUDA selection
+  - `crypto.py` — AES‑256‑GCM file encryption
+  - `text_utils.py` — Unicode NFC + locale‑aware lowercasing
+- `tests/` — pytest scenarios (sanitizer, anonymization_map, national_ids, policy_composer, deanonymizer, llm_router, crypto, ingesters, etc.).
 
 With FastAPI we follow Context7 best practices:
 

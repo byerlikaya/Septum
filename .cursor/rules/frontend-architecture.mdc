@@ -1,0 +1,69 @@
+---
+description: Frontend architecture and patterns for Septum Next.js app
+globs: frontend/src/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+## Frontend Architecture (Septum)
+
+- **Stack**: Next.js App Router (v16), React 19, TypeScript, Tailwind CSS, axios for HTTP.
+- **Entry points**: Only `src/app/**/page.tsx` and `src/app/layout.tsx` contain routing/layout logic. All other UI lives under `src/components`.
+- **Separation of concerns**:
+  - **Page components**: Fetch data via API layer, compose feature components, and handle routing concerns.
+  - **Feature components** (`src/components/**`): Stateless/low-state UI that receives data via props.
+  - **State & effects**: Encapsulate shared state and side effects in hooks under `src/lib` or `src/store` (e.g., `useChat`, `useDocuments`), avoiding ad-hoc logic inside page components.
+
+## File & Folder Structure
+
+- **Pages & layout**:
+  - `src/app/layout.tsx`: Root layout (providers, theme, global shell).
+  - `src/app/page.tsx`: Landing/redirect; minimal logic.
+  - `src/app/chat/page.tsx`, `src/app/documents/page.tsx`, `src/app/chunks/page.tsx`, `src/app/settings/**/page.tsx`: Screen-level composition only.
+- **Components**:
+  - `src/components/layout/**`: Shell layout (sidebar, header, wrappers).
+  - `src/components/chat/**`: Chat-related UI only.
+  - `src/components/documents/**`: Document-related UI only.
+  - `src/components/chunks/**`: Chunk/entity visualization components.
+- **Shared logic & types**:
+  - `src/lib/api.ts`: Centralized axios instance and typed API calls; no direct `axios` usage inside components.
+  - `src/lib/types.ts`: Shared TypeScript types/interfaces for frontend.
+  - `src/lib/utils.ts`: Pure UI helpers (e.g., className merge).
+  - `src/store/**`: Global or shared state hooks for cross-page state; pages and components import from here instead of lifting state ad hoc.
+
+## State Management & Data Flow
+
+- **Global vs local state**:
+  - Use **local React state** for component-only concerns (form inputs, local UI toggles).
+  - Use **shared hooks in `src/store/**` or `src/lib/**`** for:
+    - Chat history and streaming state.
+    - Selected document / chunk context shared across multiple components.
+    - Settings that affect multiple screens (when not already server-driven).
+- **Server communication**:
+  - All HTTP requests go through `src/lib/api.ts` with:
+    - A configured base URL.
+    - Typed request/response helpers.
+    - Centralized error handling and interceptors.
+  - React components call exported functions from `src/lib/api.ts` (or hooks that wrap them), not `fetch`/`axios` directly.
+
+## UI & Styling
+
+- **Tailwind usage**:
+  - Use Tailwind utility classes for layout and spacing.
+  - Reuse design tokens from `globals.css` (CSS variables) and `tailwind.config.js`.
+- **Reusable UI patterns**:
+  - Prefer small, composable components in `src/components/**`.
+  - Extract repeated interactive patterns into dedicated components or hooks.
+
+## Patterns to Follow
+
+- **Components**:
+  - Use functional components with typed props.
+  - Avoid business logic inside JSX; compute values above the return.
+  - Keep components small and focused; split when a component grows too large or owns too many responsibilities.
+- **Hooks**:
+  - Create custom hooks for reusable logic that involves state, effects, or subscriptions.
+  - Name hooks with the `useX` convention and colocate with related feature code when they are feature-specific.
+- **Types**:
+  - Type all props and exported functions.
+  - Reuse shared types from `src/lib/types.ts` instead of redefining them.
+

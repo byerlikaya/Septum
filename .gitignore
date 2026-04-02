@@ -48,8 +48,10 @@ out/
 *.iml
 *.swp
 
+# Claude Code (local-only settings, not project rules)
+.claude/settings.local.json
+
 # Project-specific
-.cursor/
 bm25_indexes/
 backend/vector_indexes/
 backend/bm25_indexes/

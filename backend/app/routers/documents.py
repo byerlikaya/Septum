@@ -24,7 +24,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from langdetect import DetectorFactory, LangDetectException, detect
+from langdetect import DetectorFactory
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +35,7 @@ from ..models.document import Chunk as DocumentChunk, Document
 from ..models.spreadsheet_schema import SpreadsheetSchema, SpreadsheetColumn
 from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
+from ..utils.db_helpers import get_or_404, load_settings, detect_language
 from ..services.chunking_strategy import (
     StructuredDocumentChunker,
     SlidingWindowChunker,
@@ -170,15 +171,7 @@ async def get_spreadsheet_schema(
 ) -> SpreadsheetSchemaResponse:
     """Return the spreadsheet schema for a document, if any."""
 
-    document_result = await db.execute(
-        select(Document).where(Document.id == document_id)
-    )
-    document = document_result.scalar_one_or_none()
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found.",
-        )
+    await get_or_404(db, Document, document_id, "Document not found.")
 
     schema_result = await db.execute(
         select(SpreadsheetSchema)
@@ -219,15 +212,7 @@ async def update_spreadsheet_schema(
     ``technical_label`` must match the existing schema.
     """
 
-    document_result = await db.execute(
-        select(Document).where(Document.id == document_id)
-    )
-    document = document_result.scalar_one_or_none()
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found.",
-        )
+    await get_or_404(db, Document, document_id, "Document not found.")
 
     schema_result = await db.execute(
         select(SpreadsheetSchema)
@@ -287,18 +272,6 @@ async def update_spreadsheet_schema(
     return SpreadsheetSchemaResponse(document_id=document_id, columns=columns_payload)
 
 
-async def _load_settings(db: AsyncSession) -> AppSettings:
-    """Return the singleton :class:`AppSettings` row for ingestion settings."""
-    result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
-    settings = result.scalar_one_or_none()
-    if settings is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Application settings have not been initialized.",
-        )
-    return settings
-
-
 def _build_ingester_kwargs(
     file_format: str,
     settings: AppSettings,
@@ -321,16 +294,6 @@ def _build_ingester_kwargs(
             kwargs["language"] = str(default_audio_lang).strip().lower()
         return kwargs
     return None
-
-
-async def _detect_language(text: str) -> str:
-    """Best-effort language detection with a safe fallback."""
-    if not text:
-        return "en"
-    try:
-        return detect(text)
-    except LangDetectException:
-        return "en"
 
 
 def _mime_to_format(mime_type: str) -> str:
@@ -499,7 +462,7 @@ async def upload_document(
 
     active_reg_ids = await _snapshot_active_regulations(db)
 
-    settings = await _load_settings(db)
+    settings = await load_settings(db)
 
     ingester_kwargs = _build_ingester_kwargs(file_format, settings)
     ingestion_result = await _INGESTION_ROUTER.ingest(
@@ -514,9 +477,9 @@ async def upload_document(
         if isinstance(whisper_lang, str) and whisper_lang.strip():
             detected_language = whisper_lang.strip().lower()
         else:
-            detected_language = await _detect_language(ingestion_result.text)
+            detected_language = detect_language(ingestion_result.text)
     else:
-        detected_language = await _detect_language(ingestion_result.text)
+        detected_language = detect_language(ingestion_result.text)
 
     document = Document(
         filename=str(encrypted_path.name),
@@ -608,13 +571,7 @@ async def get_document(
     db: AsyncSession = Depends(get_db),
 ) -> DocumentResponse:
     """Return metadata for a single document."""
-    result = await db.execute(select(Document).where(Document.id == document_id))
-    document = result.scalar_one_or_none()
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found.",
-        )
+    document = await get_or_404(db, Document, document_id, "Document not found.")
     return DocumentResponse.model_validate(document)
 
 
@@ -629,13 +586,7 @@ async def update_document_language(
     db: AsyncSession = Depends(get_db),
 ) -> DocumentResponse:
     """Override the detected language for a document."""
-    result = await db.execute(select(Document).where(Document.id == document_id))
-    document = result.scalar_one_or_none()
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found.",
-        )
+    document = await get_or_404(db, Document, document_id, "Document not found.")
 
     document.language_override = payload.language
     await db.commit()
@@ -646,19 +597,14 @@ async def update_document_language(
 @router.delete(
     "/{document_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
 )
 async def delete_document(
     document_id: int,
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Delete a document, its chunks, encrypted file, and vector index."""
-    result = await db.execute(select(Document).where(Document.id == document_id))
-    document = result.scalar_one_or_none()
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found.",
-        )
+    document = await get_or_404(db, Document, document_id, "Document not found.")
 
     try:
         path = Path(document.encrypted_path)

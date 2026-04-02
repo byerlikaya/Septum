@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import type { Document } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
+import { getDocumentDisplayName } from "@/lib/utils";
 
 interface DocumentListProps {
   documents: Document[];
@@ -156,7 +157,7 @@ export function DocumentList({
                       </div>
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium text-slate-50">
-                          {doc.original_filename || doc.filename}
+                          {getDocumentDisplayName(doc)}
                         </div>
                         <div className="flex flex-wrap items-center gap-1 text-xs text-slate-400">
                           <span className="rounded-full bg-slate-900 px-2 py-0.5">

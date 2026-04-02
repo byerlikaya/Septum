@@ -128,6 +128,43 @@ export type SSEChatEvent =
   | SSEEndEvent
   | SSEErrorEvent;
 
+export type DetectionMethod = "regex" | "keyword_list" | "llm_prompt";
+
+export interface RegulationRuleset {
+  id: string;
+  display_name: string;
+  region: string;
+  description?: string | null;
+  official_url?: string | null;
+  entity_types: string[];
+  is_builtin: boolean;
+  is_active: boolean;
+  custom_notes?: string | null;
+}
+
+export interface CustomRecognizer {
+  id: number;
+  name: string;
+  entity_type: string;
+  detection_method: DetectionMethod;
+  pattern?: string | null;
+  keywords?: string[] | null;
+  llm_prompt?: string | null;
+  context_words: string[];
+  placeholder_label: string;
+  is_active: boolean;
+}
+
+export interface NonPiiRule {
+  id: number;
+  pattern_type: "token" | "regex";
+  pattern: string;
+  languages: string[];
+  entity_types: string[];
+  min_score?: number | null;
+  is_active: boolean;
+}
+
 export interface AppSettingsResponse {
   id: number;
   llm_provider: string;
@@ -143,9 +180,7 @@ export interface AppSettingsResponse {
   use_ner_layer: boolean;
   use_ollama_validation_layer: boolean;
   use_ollama_layer: boolean;
-  desktop_assistant_enabled: boolean;
-  desktop_assistant_default_target: string | null;
-  desktop_assistant_chatgpt_new_chat_default: boolean;
+
   chunk_size: number;
   chunk_overlap: number;
   top_k_retrieval: number;
@@ -162,6 +197,4 @@ export interface AppSettingsResponse {
   default_active_regulations: string[];
   ner_model_overrides: Record<string, string> | null;
 }
-
-export type DesktopAssistantTarget = "chatgpt" | "claude";
 

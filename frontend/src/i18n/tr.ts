@@ -124,8 +124,10 @@ export const trMessages: Record<string, string> = {
   "settings.cloud.sectionTitle": "Bulut LLM Ayarları",
   "settings.cloud.sectionDescription":
     "Birincil bulut LLM sağlayıcısını ve modelini yapılandırın. Bu ayarlar tüm uzak tamamlamalar için kullanılır.",
+  "settings.cloud.provider.label": "LLM Sağlayıcı",
   "settings.cloud.provider.hint":
     "Backend yönlendiricisi tarafından kullanılan sağlayıcı tanımlayıcısı.",
+  "settings.cloud.model.label": "LLM Model",
   "settings.cloud.model.hint":
     "Sağlayıcınızın beklediği tam model kimliği.",
   "settings.cloud.test.success":
@@ -164,19 +166,6 @@ export const trMessages: Record<string, string> = {
   "settings.privacy.layers.ollama.description":
     "Yerel LLM kullanarak takma adları ve dolaylı referansları tespit et.",
 
-  "settings.desktopAssistant.enabled.label": "Masaüstü Asistan Modu",
-  "settings.desktopAssistant.enabled.description":
-    "Sohbet mesajlarının Septum arkasındaki bulut LLM yerine doğrudan yerel masaüstü asistan istemcisine (örneğin ChatGPT veya Claude) gönderilmesine izin ver.",
-  "settings.desktopAssistant.defaultTarget.label": "Varsayılan masaüstü asistan hedefi",
-  "settings.desktopAssistant.defaultTarget.chatgpt": "ChatGPT masaüstü uygulaması",
-  "settings.desktopAssistant.defaultTarget.claude": "Claude masaüstü uygulaması",
-  "settings.desktopAssistant.defaultTarget.hint":
-    "Masaüstü Asistan Modu açıkken sohbet ekranında ön seçili hedef olarak kullanılır. Kullanıcı oturum bazında değiştirebilir.",
-  "settings.desktopAssistant.chatgptNewChat.label":
-    "Varsayılan olarak yeni ChatGPT sohbeti başlat",
-  "settings.desktopAssistant.chatgptNewChat.description":
-    "Etkinleştirildiğinde, Masaüstü Asistan Modu her mesajdan önce ChatGPT masaüstü uygulamasına yeni sohbet kısayolunu gönderir.",
-
   "settings.local.sectionTitle": "Yerel Model Ayarları",
   "settings.local.sectionDescription":
     "Sohbet ve de-anonimleştirme için kullanılacak yerel Ollama uç noktasını ve modelleri yapılandırın.",
@@ -184,10 +173,13 @@ export const trMessages: Record<string, string> = {
     "Yerel model bağlantı testi başarılı.",
   "settings.local.test.failed":
     "Yerel model bağlantı testi başarısız.",
+  "settings.local.baseUrl.label": "Ollama temel URL",
   "settings.local.baseUrl.hint":
     "Yerel Ollama örneğinizin temel URL'si.",
+  "settings.local.chatModel.label": "Sohbet modeli",
   "settings.local.chatModel.hint":
     "Yerel sohbet için kullanılan Ollama model adı.",
+  "settings.local.deanonModel.label": "De-anonimleştirme modeli",
   "settings.local.deanonModel.hint":
     "Yerel de-anonimleştirme için kullanılan Ollama model adı.",
 
@@ -234,6 +226,8 @@ export const trMessages: Record<string, string> = {
     "İçe aktarma sağlık durumu okunamadı.",
   "settings.ingestion.health.installFailed":
     "Whisper modeli yüklenirken veya okunurken hata oluştu.",
+  "settings.ingestion.audioHealth.whisperPackageLabel": "Whisper paketi:",
+  "settings.ingestion.audioHealth.whisperModelLabel": "Whisper modeli:",
   "settings.ingestion.whisperModel.label": "Whisper modeli",
   "settings.ingestion.whisperModel.hint":
     "Ses transkripsiyonu için yerel Whisper model boyutu.",
@@ -297,6 +291,9 @@ export const trMessages: Record<string, string> = {
     "Kural test edilirken bir hata oluştu. Bu bir regex kuralı ise, desenin geçerli olduğundan emin olun.",
   "errors.regulations.save": "Kural kaydedilirken bir hata oluştu.",
   "errors.regulations.delete": "Kural silinirken bir hata oluştu.",
+  "errors.textNormalization.load": "Metin normalizasyon kuralları yüklenemedi.",
+  "errors.textNormalization.create": "Kural oluşturulamadı. Lütfen regex desenini kontrol edin.",
+  "errors.textNormalization.delete": "Kural silinemedi.",
   "errors.preview.document":
     "Doküman önizlemesi yüklenirken bir hata oluştu.",
   "errors.preview.transcription":
@@ -309,6 +306,23 @@ export const trMessages: Record<string, string> = {
   "uploader.subtitle":
     "PDF, Word, Excel, görseller, ses dosyaları ve diğer desteklenen formatlar",
   "uploader.button": "Dosya seç",
+
+  "documents.preview.schemaLoadError": "Tablo şeması yüklenemedi.",
+  "documents.preview.schemaSaveError": "Şema değişiklikleri kaydedilemedi.",
+  "documents.preview.sanitizedContent": "Anonimleştirilmiş içerik",
+  "documents.preview.spreadsheetSchema": "Tablo şeması",
+  "documents.preview.unsavedChanges": "Kaydedilmemiş değişiklikler",
+  "documents.preview.loadingSchema": "Şema yükleniyor...",
+  "documents.preview.noSchema": "Bu doküman için tablo şeması mevcut değil.",
+  "documents.preview.noColumns": "Bu tablo için sütun tespit edilemedi.",
+  "documents.preview.schemaInstruction": "Genel sütun etiketlerini anlamsal rollere eşleyin. Buraya ham kişisel veri girmekten kaçının.",
+  "documents.preview.technicalLabel": "Teknik etiket",
+  "documents.preview.semanticLabel": "Anlamsal etiket",
+  "documents.preview.numeric": "Sayısal",
+  "documents.preview.unsavedWarning": "Kaydedilmemiş değişiklikleriniz var.",
+  "documents.preview.saving": "Kaydediliyor...",
+  "documents.preview.saveSchema": "Şemayı kaydet",
+  "documents.chunks": "parça",
 
   "preview.document.title": "Doküman Önizlemesi",
   "preview.document.loading": "Doküman önizlemesi yükleniyor…",
@@ -337,19 +351,11 @@ export const trMessages: Record<string, string> = {
   "chat.deanonBanner":
     "Yanıtlar cihazınızda yerel olarak de-anonimleştirilir. Cevaptaki yer tutucular yalnızca sizin cihazınızda özgün değerlerle değiştirilmiştir.",
 
-  "chat.mode.label": "Mod",
-  "chat.mode.cloud": "Bulut Modu",
-  "chat.mode.desktop": "Masaüstü Asistan Modu",
-  "chat.desktop.target.label": "Masaüstü asistan:",
-  "chat.desktop.target.chatgpt": "ChatGPT masaüstü uygulaması",
-  "chat.desktop.target.claude": "Claude masaüstü uygulaması",
-  "chat.desktop.openNewChat": "ChatGPT ile her zaman yeni sohbet başlat",
-  "chat.desktop.useRag": "Doküman bağlamını kullan (RAG)",
-  "chat.desktop.status.sent.chatgpt": "Mesaj ChatGPT masaüstü uygulamasına gönderildi.",
-  "chat.desktop.status.sent.claude": "Mesaj Claude masaüstü uygulamasına gönderildi.",
-  "chat.desktop.status.rejected": "İstek reddedildi. Mesaj gönderilmedi.",
-  "chat.desktop.status.error":
-    "Masaüstü asistan hatası: {message}",
+  "chat.approval.rejected": "Bağlam reddedildi. LLM'e yanıt gönderilmedi.",
+  "chat.approval.timeout": "Onay zaman aşımına uğradı (60s).",
+  "chat.approval.rejectedDefault": "Reddedildi.",
+  "chat.debug.fetchError": "Hata ayıklama bilgisi alınırken bir hata oluştu.",
+  "chat.morePills": "+{count} daha",
 
   "chat.debug.title": "Buluta giden ve gelen veri",
   "chat.debug.button": "Buluta giden veriyi göster",

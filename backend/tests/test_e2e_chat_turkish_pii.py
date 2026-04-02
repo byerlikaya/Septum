@@ -79,10 +79,10 @@ def e2e_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "_DOC_STORAGE_DIR",
         docs_dir,
     )
-    async def _detect_language_en(_: str) -> str:
+    def _detect_language_en(text: str, fallback: str = "en") -> str:
         return "en"
 
-    monkeypatch.setattr(documents_router, "_detect_language", _detect_language_en)
+    monkeypatch.setattr(documents_router, "detect_language", _detect_language_en)
     monkeypatch.setenv("VECTOR_INDEX_DIR", str(vec_dir))
     monkeypatch.setenv("USE_NER_LAYER_DEFAULT", "false")  # Presidio only; no HuggingFace NER download
     # Prevent OCR from replacing the PDF text layer so Presidio can detect emails in CI.

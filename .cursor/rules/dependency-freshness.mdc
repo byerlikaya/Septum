@@ -1,0 +1,18 @@
+---
+description: Keep all frontend and backend dependencies on the latest stable versions.
+alwaysApply: true
+---
+
+# Dependency Freshness Policy
+
+- **Always use the latest stable versions** of all JavaScript/TypeScript and Python dependencies (no intentional lag on major, minor, or patch releases).
+- **Frontend**:
+  - Prefer upgrading `next`, `react`, `react-dom`, `tailwindcss`, and tooling (`eslint`, `typescript`, `postcss`, `autoprefixer` etc.) to the latest stable versions whenever changes are made.
+  - When editing `package.json`, update any listed dependencies/devDependencies that have newer stable releases available.
+- **Backend**:
+  - Dependencies in `backend/requirements.txt` should resolve to the latest stable releases available on PyPI (avoid pinning to outdated versions unless explicitly required for compatibility).
+  - If a version is pinned and a newer stable exists, upgrade the pin to the latest stable version unless this is known to break the project.
+- **General**:
+  - When making code changes that touch build, tooling, or infrastructure, proactively check for library updates and apply them as part of the work.
+  - Changes must still respect the project's requirement of **0 errors, 0 warnings** after build/test; if a newest version introduces breaking changes that cannot be fixed immediately, document the constraint instead of downgrading silently.
+
