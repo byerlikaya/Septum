@@ -2,6 +2,19 @@ from __future__ import annotations
 
 """FastAPI application entrypoint for Septum."""
 
+import logging
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message=".*has conflict with protected namespace.*model_.*",
+    category=UserWarning,
+)
+
+logging.getLogger("presidio_analyzer.recognizer_registry").setLevel(logging.ERROR)
+logging.getLogger("paddlex").setLevel(logging.ERROR)
+logging.getLogger("paddleocr").setLevel(logging.ERROR)
+
 from contextlib import asynccontextmanager
 import os
 

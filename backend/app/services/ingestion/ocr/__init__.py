@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Pluggable OCR provider layer for document and image ingestion.
 
-Uses EasyOCR; language lists are passed from settings.
+Default provider is PaddleOCR; language lists are passed from settings.
 """
 
 from typing import Any, Dict, List, Tuple
@@ -10,13 +10,13 @@ from typing import Any, Dict, List, Tuple
 import numpy as np  # type: ignore[import]
 
 from .base import OcrProvider
-from .easyocr_provider import EasyOcrProvider
+from .paddle_provider import PaddleOcrProvider
 
 _PROVIDERS: Dict[str, type[OcrProvider]] = {
-    "easyocr": EasyOcrProvider,
+    "paddleocr": PaddleOcrProvider,
 }
 
-DEFAULT_PROVIDER = "easyocr"
+DEFAULT_PROVIDER = "paddleocr"
 
 
 def get_ocr_provider(name: str, **options: Any) -> OcrProvider:

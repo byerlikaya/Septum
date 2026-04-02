@@ -15,6 +15,7 @@ sanitization pipeline and is not persisted in plaintext on disk.
 """
 
 import asyncio
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -35,18 +36,18 @@ class PdfIngester(BaseIngester):
     def __init__(
         self,
         languages: Optional[List[str]] = None,
-        ocr_provider: str = "easyocr",
+        ocr_provider: str = "paddleocr",
         ocr_provider_options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize the ingester with OCR language hints and provider.
 
         Args:
             languages: Optional list of OCR language codes from settings.
-            ocr_provider: Provider name from settings (currently EasyOCR-based).
+            ocr_provider: Provider name from settings (default: PaddleOCR).
             ocr_provider_options: Optional provider-specific options from settings.
         """
         self._languages: List[str] = languages or []
-        self._ocr_provider: str = (ocr_provider or "easyocr").strip().lower() or "easyocr"
+        self._ocr_provider: str = (ocr_provider or "paddleocr").strip().lower() or "paddleocr"
         self._ocr_provider_options: Dict[str, Any] = dict(ocr_provider_options or {})
 
     async def extract(self, data: bytes, filename: str) -> IngestionResult:
@@ -138,18 +139,16 @@ class PdfIngester(BaseIngester):
                 extractor = TableFieldExtractor()
                 fields, tables = extractor.extract_from_pdf(tmp_path)
                 
-                # Prepend structured fields to the full text
                 if fields:
-                    field_lines: List[str] = []
-                    field_lines.append("=== Extracted Fields ===\n")
-                    
-                    for field in fields:
-                        field_lines.append(f"{field.label} : {field.value}")
-                    
-                    fields_text = "\n".join(field_lines)
-                    full_text = fields_text + "\n\n" + full_text
-                    
-                    metadata["extracted_fields_count"] = len(fields)
+                    fields_text_raw = "\n".join(
+                        f"{f.label} : {f.value}" for f in fields
+                    )
+                    if "(cid:" not in fields_text_raw:
+                        field_lines = ["=== Extracted Fields ===\n"] + [
+                            f"{f.label} : {f.value}" for f in fields
+                        ]
+                        full_text = "\n".join(field_lines) + "\n\n" + full_text
+                        metadata["extracted_fields_count"] = len(fields)
             finally:
                 import os
                 try:
@@ -186,16 +185,12 @@ class PdfIngester(BaseIngester):
             page_text = page.get_text() or ""
             cleaned = strip_control_characters(page_text)
 
-            # Fast path: if the existing text layer is already reasonably rich,
-            # skip OCR entirely for this page to avoid expensive image-based
-            # processing on long, text-heavy documents.
             stripped = cleaned.strip()
-            if len(stripped) >= 200:
+            text_corrupt = self._text_looks_corrupt(stripped, page)
+
+            if len(stripped) >= 200 and not text_corrupt:
                 texts.append(cleaned)
                 continue
-
-            ocr_text: str = ""
-            ocr_confidence: Optional[float] = None
 
             ocr_text, ocr_confidence = self._run_ocr_on_page(page)
             if ocr_confidence is not None:
@@ -205,19 +200,16 @@ class PdfIngester(BaseIngester):
 
             cleaned_ocr = strip_control_characters(ocr_text) if ocr_text else ""
 
-            # Heuristic: prefer OCR when it produces non-empty text of comparable
-            # length to the existing text layer. This is generic and does not rely
-            # on language- or script-specific assumptions.
             use_ocr = False
-            if cleaned_ocr.strip():
+            if text_corrupt and cleaned_ocr.strip():
+                use_ocr = True
+            elif cleaned_ocr.strip():
                 base_len = len(stripped)
                 ocr_len = len(cleaned_ocr.strip())
                 if base_len == 0:
                     use_ocr = True
-                else:
-                    ratio = float(ocr_len) / float(base_len)
-                    if 0.5 <= ratio <= 2.0:
-                        use_ocr = True
+                elif ocr_len > base_len * 1.15:
+                    use_ocr = True
 
             if use_ocr:
                 cleaned = cleaned_ocr
@@ -226,15 +218,45 @@ class PdfIngester(BaseIngester):
 
         return texts, ocr_confidences
 
+    @staticmethod
+    def _text_looks_corrupt(text: str, page: Optional[Any] = None) -> bool:
+        """Detect text with broken font encoding.
+
+        Returns True when the extracted text layer is likely unusable:
+        1. CID references indicate unresolved glyph mappings.
+        2. Replacement characters (U+FFFD) indicate failed decoding.
+        3. rawdict span texts are empty while get_text() returns content
+           — indicates the font cannot map glyphs to Unicode properly.
+        """
+        if "(cid:" in text:
+            return True
+        if "\ufffd" in text:
+            return True
+
+        if page is not None and text.strip():
+            try:
+                raw = page.get_text("rawdict")
+                span_chars = 0
+                for block in raw.get("blocks", []):
+                    for line in block.get("lines", []):
+                        for span in line.get("spans", []):
+                            span_text = span.get("text") or ""
+                            span_chars += len(span_text.strip())
+                if span_chars == 0:
+                    return True
+            except Exception:
+                pass
+
+        return False
+
     def _run_ocr_on_page(self, page: fitz.Page) -> Tuple[str, Optional[float]]:
         """Run the configured OCR provider on a single PDF page."""
-        zoom_x = 2.0
-        zoom_y = 2.0
+        zoom_x = 4.0
+        zoom_y = 4.0
         zoom_matrix = fitz.Matrix(zoom_x, zoom_y)
         pix = page.get_pixmap(matrix=zoom_matrix, alpha=False)
         image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-        grayscale = image.convert("L")
-        image_array = np.array(grayscale)
+        image_array = np.array(image)
 
         languages = list(dict.fromkeys(self._languages or []))
         if "en" not in languages:

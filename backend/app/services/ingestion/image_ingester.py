@@ -33,18 +33,18 @@ class ImageIngester(BaseIngester):
     def __init__(
         self,
         languages: List[str] | None = None,
-        ocr_provider: str = "easyocr",
+        ocr_provider: str = "paddleocr",
         ocr_provider_options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize the ingester with OCR language hints and provider.
 
         Args:
             languages: Optional list of OCR language codes from settings.
-            ocr_provider: Provider name from settings (currently EasyOCR-based).
+            ocr_provider: Provider name from settings (default: PaddleOCR).
             ocr_provider_options: Optional provider-specific options from settings.
         """
         self._languages: List[str] = languages or ["en"]
-        self._ocr_provider: str = (ocr_provider or "easyocr").strip().lower() or "easyocr"
+        self._ocr_provider: str = (ocr_provider or "paddleocr").strip().lower() or "paddleocr"
         self._ocr_provider_options: Dict[str, Any] = dict(ocr_provider_options or {})
 
     async def extract(self, data: bytes, filename: str) -> IngestionResult:
@@ -145,11 +145,12 @@ class ImageIngester(BaseIngester):
         """Run the configured OCR provider on the given image bytes."""
         with Image.open(BytesIO(image_bytes)) as img:
             width, height = img.size
-            scale = 2.0
-            new_size = (int(width * scale), int(height * scale))
-            resized = img.resize(new_size, Image.BILINEAR)
-            grayscale = resized.convert("L")
-            image_array = np.array(grayscale)
+            min_dim = min(width, height)
+            if min_dim < 600:
+                scale = 600 / min_dim
+                new_size = (int(width * scale), int(height * scale))
+                img = img.resize(new_size, Image.LANCZOS)
+            image_array = np.array(img.convert("RGB"))
 
         return run_ocr(
             self._ocr_provider,

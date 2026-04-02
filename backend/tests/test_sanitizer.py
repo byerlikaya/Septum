@@ -35,7 +35,7 @@ def app_settings() -> AppSettings:
         spreadsheet_chunk_size=200,
         whisper_model="base",
         image_ocr_languages=["en"],
-        ocr_provider="easyocr",
+        ocr_provider="paddleocr",
         ocr_provider_options=None,
         extract_embedded_images=True,
         recursive_email_attachments=True,

@@ -121,7 +121,7 @@ Algorithmic checksum validation in `services/national_ids/`:
 | Document     | .docx, .doc                      | python-docx + LibreOffice fallback  |
 | Spreadsheet  | .xlsx, .xls, .ods, .csv, .tsv   | openpyxl, pandas, odfpy             |
 | Presentation | .pptx, .ppt                      | python-pptx + LibreOffice fallback  |
-| Image        | .png, .jpg, .jpeg, .tiff, .bmp   | EasyOCR + OpenCV + Pillow           |
+| Image        | .png, .jpg, .jpeg, .tiff, .bmp   | PaddleOCR + OpenCV + Pillow         |
 | Audio        | .mp3, .wav, .m4a, .ogg, .flac   | OpenAI Whisper (local, on-device)   |
 | Web/Markup   | .html, .htm, .md, .markdown      | BeautifulSoup4, markdown-it-py      |
 | Data         | .json, .yaml, .yml, .xml         | custom flattener, PyYAML, lxml      |

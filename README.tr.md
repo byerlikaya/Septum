@@ -372,7 +372,7 @@ Next.js tarafında Context7 en iyi pratikleri takip edilir:
 - HuggingFace Transformers + sentence‑transformers  
 - faiss‑cpu  
 - lingua‑language‑detector, langdetect  
-- EasyOCR, OpenCV, Pillow  
+- PaddleOCR, OpenCV, Pillow  
 - Whisper, ffmpeg‑python  
 - SQLAlchemy + aiosqlite  
 - cryptography (AES‑256‑GCM)

@@ -281,7 +281,7 @@ def _build_ingester_kwargs(
         languages = list(settings.image_ocr_languages or [])
         return {
             "languages": languages or (["en"] if file_format == "image" else []),
-            "ocr_provider": getattr(settings, "ocr_provider", None) or "easyocr",
+            "ocr_provider": getattr(settings, "ocr_provider", None) or "paddleocr",
             "ocr_provider_options": getattr(settings, "ocr_provider_options", None)
             or {},
         }

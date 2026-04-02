@@ -371,7 +371,7 @@ On the Next.js side we follow Context7 best practices:
 - HuggingFace Transformers + sentence‑transformers  
 - faiss‑cpu  
 - lingua‑language‑detector, langdetect  
-- EasyOCR, OpenCV, Pillow  
+- PaddleOCR, OpenCV, Pillow  
 - Whisper, ffmpeg‑python  
 - SQLAlchemy + aiosqlite  
 - cryptography (AES‑256‑GCM)

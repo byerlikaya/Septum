@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here in a high‑level, date‑based format.
 
+### 2026-04-02
+
+- **DRY/SOLID refactoring**: Backend — extracted shared `get_or_404`, `load_settings`, `detect_language`, `validate_regex` utilities; created `sanitizer_factory.py`; split span processing out of PIISanitizer; extracted regulation seeds to `seeds/regulations.py`; created `OpenAICompatibleProvider` base class for LLM providers; added `BaseCustomRecognizer` with shared entity filter. Frontend — extracted 7 settings tab components, `CustomRuleBuilderPanel`, `useChatStream`/`useChatApproval`/`useChunkManager` hooks; created shared `ToggleSwitch`, `ErrorAlert`, `CopyButton`, `DataTable` components; deduplicated Sidebar nav, types, and utilities.
+- **OCR engine: replace EasyOCR with PaddleOCR**: Switched default OCR provider from EasyOCR to PaddleOCR for significantly better character recognition (₺ symbol, number/letter confusion), built-in layout analysis for multi-column documents, and spatial text ordering. Added column detection and currency symbol post-processing. Fixed PDF ingester sending grayscale images to PaddleOCR (requires RGB). Removed EasyOCR dependency entirely.
+
+### 2026-04-01
+
+- **Remove Desktop Assistant mode**: Removed the Desktop Assistant feature (ChatGPT/Claude desktop app OS automation) entirely — backend service, router endpoint, settings fields, database seed/migration, frontend UI (mode toggle, target selector, settings section), i18n keys, and test file. The feature did not align with the project's privacy-first middleware purpose.
+- **Address anonymization**: Added `StructuralAddressRecognizer` to detect postal addresses by structural cues (labeled fields and dense abbreviation+number lines); re-enabled NER LOC→LOCATION mapping so address entity types declared by active regulations are detected. Employer/company addresses (legal entity data) are correctly excluded from masking.
+- **Settings override fix**: Removed environment variable override in chat router's `_load_settings()` that was ignoring database-persisted LLM model/provider changes made via the Settings UI.
+- **204 response body fix**: Added `response_model=None` to the chunks DELETE endpoint to comply with FastAPI's HTTP 204 no-body assertion.
+- **Regulation entity type alignment**: Added missing entity types to 7 regulation seeds (pdpl_sa, australia_pa, pdpa_th, appi, pipl, nzpa, popia) based on legal research — sensitive categories like RELIGION, ETHNICITY, POLITICAL_OPINION, SEXUAL_ORIENTATION, HEALTH_INSURANCE_ID, DIAGNOSIS now match what each law mandates; detailed legal basis documented in REGULATION_ENTITY_SOURCES.md for all 17 regulations.
+- **Codebase compliance sweep**: Removed ~17 redundant inline comments from backend services; replaced ~28 hardcoded frontend UI strings with i18n translations (EN/TR); fixed README file structure references to match actual codebase; organized Claude Code rules (.claude/rules/) and skills (.claude/skills/) mirroring Cursor rules; added pre-commit hook checks for README sync and regulation entity sources.
+
 ### 2026-03-19
 
 - **Chat no-document flow and approval gate fix**: Fixed chat behavior when no document is selected by introducing a dedicated no-context prompt path so the assistant no longer responds with document-lookup refusal patterns for direct user-provided text. Also fixed approval flow so `require_approval` is enforced before LLM calls even in no-document chats, removed temporary debug instrumentation added during runtime investigation, and aligned chat-context prompt tests with the updated no-context prompt wording to resolve CI failure.

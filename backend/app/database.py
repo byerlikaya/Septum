@@ -108,8 +108,8 @@ async def _seed_defaults() -> None:
                 image_ocr_languages=_csv_env_to_list(
                     "DEFAULT_OCR_LANGUAGES", default="en"
                 ),
-                ocr_provider=os.getenv("OCR_PROVIDER", "easyocr").strip().lower()
-                or "easyocr",
+                ocr_provider=os.getenv("OCR_PROVIDER", "paddleocr").strip().lower()
+                or "paddleocr",
                 ocr_provider_options=None,
                 extract_embedded_images=_env_bool(
                     "EXTRACT_EMBEDDED_IMAGES_DEFAULT", True
@@ -138,7 +138,7 @@ async def _seed_defaults() -> None:
         # Users should define language-specific rules through the UI/API.
         await session.execute(
             text(
-                "UPDATE app_settings SET ocr_provider = 'easyocr' "
+                "UPDATE app_settings SET ocr_provider = 'paddleocr' "
                 "WHERE id = 1 AND (ocr_provider IS NULL OR ocr_provider = '')"
             )
         )
@@ -163,7 +163,7 @@ async def _seed_defaults() -> None:
 def _ensure_ocr_provider_columns(conn: Any) -> None:
     """Add ocr_provider and ocr_provider_options columns if missing (e.g. existing DBs)."""
     for sql in (
-        "ALTER TABLE app_settings ADD COLUMN ocr_provider TEXT DEFAULT 'easyocr'",
+        "ALTER TABLE app_settings ADD COLUMN ocr_provider TEXT DEFAULT 'paddleocr'",
         "ALTER TABLE app_settings ADD COLUMN ocr_provider_options TEXT",
     ):
         try:
