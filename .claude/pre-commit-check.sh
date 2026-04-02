@@ -69,6 +69,29 @@ if [[ "$DB_CHANGED" -gt 0 ]]; then
   fi
 fi
 
+# 7. Dependency resolution check — when requirements.txt is staged
+REQ_STAGED=$(echo "$STAGED" | grep -c 'requirements\.txt$' || true)
+if [[ "$REQ_STAGED" -gt 0 ]]; then
+  VENV_PYTHON="$PROJECT_ROOT/backend/.venv/bin/python"
+  if [[ -x "$VENV_PYTHON" ]]; then
+    DEP_CHECK=$("$VENV_PYTHON" -m pip install --dry-run -r "$PROJECT_ROOT/backend/requirements.txt" 2>&1 || true)
+    if echo "$DEP_CHECK" | grep -qi 'conflicting dependencies\|ResolutionImpossible'; then
+      ERRORS+=("[DEPENDENCY] pip dependency conflict detected — run: pip install --dry-run -r backend/requirements.txt")
+    fi
+  fi
+fi
+
+# 8. npm dependency check — when package.json is staged
+PKG_STAGED=$(echo "$STAGED" | grep -c 'frontend/package\.json$' || true)
+if [[ "$PKG_STAGED" -gt 0 ]]; then
+  if command -v npm &>/dev/null; then
+    NPM_CHECK=$(cd "$PROJECT_ROOT/frontend" && npm install --dry-run 2>&1 || true)
+    if echo "$NPM_CHECK" | grep -qi 'ERESOLVE\|Could not resolve dependency'; then
+      ERRORS+=("[DEPENDENCY] npm dependency conflict detected — run: cd frontend && npm install --dry-run")
+    fi
+  fi
+fi
+
 # Output result
 if [[ ${#ERRORS[@]} -gt 0 ]]; then
   MSG=""
