@@ -48,6 +48,11 @@ class AnonymizationMap:
     token_to_placeholder: Dict[str, str] = field(default_factory=dict)
     token_counter: Dict[str, int] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        """Reconstruct blocklist from token_to_placeholder when deserialized."""
+        if self.token_to_placeholder and not self.blocklist:
+            self.blocklist = set(self.token_to_placeholder.keys())
+
     def add_entity(self, original: str, entity_type: str) -> str:
         """Register an entity span and return the placeholder for it.
 

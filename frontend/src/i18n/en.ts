@@ -67,10 +67,13 @@ export const enMessages = {
   "documents.actions.preview": "Preview",
   "documents.actions.transcription": "Transcription",
   "documents.actions.delete": "Delete",
+  "documents.actions.reprocess": "Reprocess",
   "documents.actions.deleteAll": "Delete all documents",
   "documents.actions.deletingAll": "Deleting all…",
   "documents.confirm.delete":
     'Are you sure you want to delete "{name}"?',
+  "documents.confirm.reprocess":
+    'Reprocess "{name}"? This will rebuild the anonymization map and indexes using the current sanitizer and regulations.',
   "documents.confirm.deleteAll":
     "Are you sure you want to delete all documents? This action cannot be undone.",
 
@@ -260,6 +263,8 @@ export const enMessages = {
   "errors.documents.load": "An error occurred while loading documents.",
   "errors.documents.upload": "An error occurred while uploading the file(s).",
   "errors.documents.delete": "An error occurred while deleting the document.",
+  "errors.documents.reprocess":
+    "An error occurred while reprocessing the document.",
   "errors.documents.deleteAll":
     "An error occurred while deleting all documents.",
   "errors.chunks.loadDocuments": "An error occurred while loading documents.",

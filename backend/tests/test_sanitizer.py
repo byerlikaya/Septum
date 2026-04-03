@@ -6,7 +6,12 @@ import pytest
 
 from backend.app.models.settings import AppSettings
 from backend.app.services.anonymization_map import AnonymizationMap
-from backend.app.services.sanitizer import DetectedSpan, PIISanitizer
+from backend.app.services.sanitizer import (
+    DetectedSpan,
+    PIISanitizer,
+    _PRESIDIO_ENTITY_ALIASES,
+    _PRESIDIO_REVERSE_ALIASES,
+)
 
 
 @pytest.fixture
@@ -126,4 +131,135 @@ def test_coreference_and_blocklist_integration(sanitizer: PIISanitizer) -> None:
 
     assert "[PERSON_NAME_1]" in sanitized
     assert "Ahmet" not in sanitized or "[PERSON_NAME_1]" in sanitized
+
+
+def test_credit_card_with_spaces_is_sanitized(sanitizer: PIISanitizer) -> None:
+    """Credit card numbers with space separators must be anonymized."""
+    text = "Kart numarası: 4543 4555 6365 8596 ile ödeme yapıldı."
+    anon_map = AnonymizationMap(document_id=5, language="tr")
+
+    result = sanitizer.sanitize(text=text, language="tr", anon_map=anon_map)
+
+    assert result.entity_count >= 1
+    assert "[CREDIT_CARD_NUMBER_1]" in result.sanitized_text
+    assert "4543 4555 6365 8596" not in result.sanitized_text
+
+
+def test_credit_card_with_dashes_is_sanitized(sanitizer: PIISanitizer) -> None:
+    """Credit card numbers with dash separators must be anonymized."""
+    text = "Card: 5425-2334-3010-9903 charged $50."
+    anon_map = AnonymizationMap(document_id=6, language="en")
+
+    result = sanitizer.sanitize(text=text, language="en", anon_map=anon_map)
+
+    assert result.entity_count >= 1
+    assert "[CREDIT_CARD_NUMBER_1]" in result.sanitized_text
+    assert "5425-2334-3010-9903" not in result.sanitized_text
+
+
+def test_credit_card_no_separator_is_sanitized(sanitizer: PIISanitizer) -> None:
+    """Credit card numbers without separators must be anonymized."""
+    text = "Payment from card 4111111111111111 confirmed."
+    anon_map = AnonymizationMap(document_id=7, language="en")
+
+    result = sanitizer.sanitize(text=text, language="en", anon_map=anon_map)
+
+    assert result.entity_count >= 1
+    assert "[CREDIT_CARD_NUMBER_1]" in result.sanitized_text
+    assert "4111111111111111" not in result.sanitized_text
+
+
+def test_credit_card_amex_is_sanitized(sanitizer: PIISanitizer) -> None:
+    """American Express card numbers (15 digits, 3xxx prefix) must be anonymized."""
+    text = "Amex card 3782 822463 10005 on file."
+    anon_map = AnonymizationMap(document_id=8, language="en")
+
+    result = sanitizer.sanitize(text=text, language="en", anon_map=anon_map)
+
+    assert result.entity_count >= 1
+    assert "[CREDIT_CARD_NUMBER_1]" in result.sanitized_text
+    assert "3782 822463 10005" not in result.sanitized_text
+
+
+@patch("backend.app.services.sanitizer.call_ollama_sync", return_value="[]")
+def test_credit_card_bypasses_ollama_validation(
+    _mock_ollama: object,
+    app_settings: AppSettings,
+) -> None:
+    """CREDIT_CARD_NUMBER is a high-priority entity; Ollama must not drop it."""
+    app_settings.use_ollama_validation_layer = True
+    sanitizer = PIISanitizer(settings=app_settings)
+    text = "4543 4555 6365 8596"
+    candidates = [
+        DetectedSpan(start=0, end=19, entity_type="CREDIT_CARD_NUMBER", score=0.85),
+    ]
+    out = sanitizer._ollama_validate_pii_candidates(text, candidates, "tr")
+    assert len(out) == 1
+    assert out[0].entity_type == "CREDIT_CARD_NUMBER"
+
+
+def test_presidio_alias_mapping_is_bidirectional() -> None:
+    """Every alias in _PRESIDIO_ENTITY_ALIASES must have a reverse entry."""
+    for septum_type, presidio_type in _PRESIDIO_ENTITY_ALIASES.items():
+        assert _PRESIDIO_REVERSE_ALIASES[presidio_type] == septum_type
+
+
+def test_expand_with_aliases_adds_presidio_types(sanitizer: PIISanitizer) -> None:
+    """_expand_with_aliases should add Presidio built-in names to the entity list."""
+    entity_types = ["PERSON_NAME", "CREDIT_CARD_NUMBER", "PHONE_NUMBER"]
+    expanded = sanitizer._expand_with_aliases(entity_types)
+    assert "CREDIT_CARD" in expanded
+    assert "CREDIT_CARD_NUMBER" in expanded
+    assert "PERSON_NAME" in expanded
+
+
+def test_expand_with_aliases_returns_none_for_none(sanitizer: PIISanitizer) -> None:
+    """_expand_with_aliases should return None when input is None."""
+    assert sanitizer._expand_with_aliases(None) is None
+
+
+def test_coverage_validation_logs_uncovered_types(
+    app_settings: AppSettings, caplog: pytest.LogCaptureFixture
+) -> None:
+    """_validate_entity_coverage should warn about entity types with no recognizer."""
+    from backend.app.services.policy_composer import ComposedPolicy
+
+    policy = ComposedPolicy(
+        entity_types=["PERSON_NAME", "FAKE_ENTITY_TYPE_XYZ"],
+        recognizers=[],
+        regulation_ids=["test"],
+        non_pii_rules=[],
+    )
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="backend.app.services.sanitizer"):
+        PIISanitizer(settings=app_settings, policy=policy)
+
+    assert any("FAKE_ENTITY_TYPE_XYZ" in msg for msg in caplog.messages)
+    assert not any("PERSON_NAME" in msg for msg in caplog.messages)
+
+
+def test_ner_location_rejects_lowercase_common_words(sanitizer: PIISanitizer) -> None:
+    """NER LOCATION results for lowercase words must be rejected as false positives."""
+    # Simulate NER output: common Turkish words tagged as LOC with high confidence
+    fake_ner_results = [
+        {"entity_group": "LOC", "start": 0, "end": 5, "score": 0.95},   # "kabul"
+        {"entity_group": "LOC", "start": 6, "end": 10, "score": 0.92},  # "gibi"
+        {"entity_group": "LOC", "start": 11, "end": 16, "score": 0.90}, # "sözlü"
+    ]
+    text = "kabul gibi sözlü"
+    spans = sanitizer._from_ner_results(fake_ner_results, text, "tr")
+    assert len(spans) == 0, f"Expected 0 spans, got {len(spans)}: {[(text[s.start:s.end], s.entity_type) for s in spans]}"
+
+
+def test_ner_location_keeps_capitalized_place_names(sanitizer: PIISanitizer) -> None:
+    """NER LOCATION results for capitalized place names must be kept."""
+    fake_ner_results = [
+        {"entity_group": "LOC", "start": 0, "end": 8, "score": 0.95},   # "İstanbul"
+        {"entity_group": "LOC", "start": 9, "end": 16, "score": 0.92},  # "Kadıköy"
+    ]
+    text = "İstanbul Kadıköy"
+    spans = sanitizer._from_ner_results(fake_ner_results, text, "tr")
+    assert len(spans) == 2
+    assert all(s.entity_type == "LOCATION" for s in spans)
 

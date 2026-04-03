@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, getDocuments } from "@/lib/api";
+import { api, getDocuments, reprocessDocument } from "@/lib/api";
 import type { Document } from "@/lib/types";
 import { DocumentUploader } from "@/components/documents/DocumentUploader";
 import { DocumentList } from "@/components/documents/DocumentList";
@@ -114,6 +114,39 @@ export default function DocumentsPage() {
     [t]
   );
 
+  const handleReprocessDocument = useCallback(
+    async (doc: Document): Promise<void> => {
+      // eslint-disable-next-line no-alert
+      const confirmed = window.confirm(
+        t("documents.confirm.reprocess").replace(
+          "{name}",
+          getDocumentDisplayName(doc)
+        )
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      setDocuments(prev =>
+        prev.map(d =>
+          d.id === doc.id ? { ...d, ingestion_status: "processing" as const } : d
+        )
+      );
+      setError(null);
+
+      try {
+        const updated = await reprocessDocument(doc.id);
+        setDocuments(prev =>
+          prev.map(d => (d.id === updated.id ? updated : d))
+        );
+      } catch {
+        setError(t("errors.documents.reprocess"));
+        await fetchDocuments();
+      }
+    },
+    [t, fetchDocuments]
+  );
+
   const handleDeleteAllDocuments = useCallback(async (): Promise<void> => {
     if (!documents.length) {
       return;
@@ -196,6 +229,7 @@ export default function DocumentsPage() {
           documents={documents}
           isLoading={isLoading}
           onDelete={handleDeleteDocument}
+          onReprocess={handleReprocessDocument}
           onPreview={handlePreviewDocument}
           onPreviewTranscription={handlePreviewTranscription}
         />

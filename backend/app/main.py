@@ -72,10 +72,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Septum API", lifespan=lifespan)
 
 frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
+_cors_origins = [
+    origin.strip()
+    for origin in frontend_origin.split(",")
+    if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[frontend_origin],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

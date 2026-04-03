@@ -41,7 +41,7 @@ from ..services.chunking_strategy import (
     SlidingWindowChunker,
     Chunk as SemanticChunk,
 )
-from ..services.document_anon_store import pop_document_map, set_document_map
+from ..services.document_anon_store import set_document_map
 from ..services.ingestion.pdf_ingester import PdfIngester
 from ..services.ingestion.docx_ingester import DocxIngester
 from ..services.ingestion.xlsx_ingester import XlsxIngester
@@ -329,6 +329,15 @@ async def _snapshot_active_regulations(db: AsyncSession) -> List[str]:
     return [row[0] for row in result.all()]
 
 
+def _detect_document_language(file_format: str, ingestion_result: Any) -> str:
+    """Detect document language from ingestion result."""
+    if file_format == "audio" and ingestion_result.metadata:
+        whisper_lang = ingestion_result.metadata.get("detected_language")
+        if isinstance(whisper_lang, str) and whisper_lang.strip():
+            return whisper_lang.strip().lower()
+    return detect_language(ingestion_result.text)
+
+
 def _detect_mime_type(raw_bytes: bytes, fallback_mime_type: Optional[str] = None) -> str:
     """Detect MIME type from raw bytes using content-based heuristics.
 
@@ -472,14 +481,7 @@ async def upload_document(
         ingester_kwargs=ingester_kwargs,
     )
 
-    if file_format == "audio" and ingestion_result.metadata:
-        whisper_lang = ingestion_result.metadata.get("detected_language")
-        if isinstance(whisper_lang, str) and whisper_lang.strip():
-            detected_language = whisper_lang.strip().lower()
-        else:
-            detected_language = detect_language(ingestion_result.text)
-    else:
-        detected_language = detect_language(ingestion_result.text)
+    detected_language = _detect_document_language(file_format, ingestion_result)
 
     document = Document(
         filename=str(encrypted_path.name),
@@ -613,14 +615,88 @@ async def delete_document(
     except OSError:
         pass
 
-    try:
-        vector_store = VectorStore()
-        vector_store.delete_index(document_id)
-    except Exception:
-        pass
-
-    pop_document_map(document_id)
+    await asyncio.to_thread(DocumentPipeline.cleanup_artifacts, document_id)
 
     await db.delete(document)
     await db.commit()
+
+
+@router.post(
+    "/{document_id}/reprocess",
+    response_model=DocumentResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def reprocess_document(
+    document_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> DocumentResponse:
+    """Re-run the sanitization, chunking, and indexing pipeline for an existing document."""
+    document = await get_or_404(db, Document, document_id, "Document not found.")
+
+    encrypted_path = Path(document.encrypted_path)
+    if not encrypted_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Encrypted source file not found on disk.",
+        )
+
+    document.ingestion_status = "processing"
+    document.ingestion_error = None
+    await db.commit()
+
+    try:
+        from sqlalchemy import delete as sa_delete
+
+        await db.execute(
+            sa_delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
+        )
+        await db.commit()
+
+        await asyncio.to_thread(DocumentPipeline.cleanup_artifacts, document_id)
+
+        document.active_regulation_ids = await _snapshot_active_regulations(db)
+        settings = await load_settings(db)
+
+        ingester_kwargs = _build_ingester_kwargs(document.file_format, settings)
+        ingestion_result = await _INGESTION_ROUTER.ingest(
+            file_path=encrypted_path,
+            mime_type=document.file_type,
+            file_format=document.file_format,
+            ingester_kwargs=ingester_kwargs,
+        )
+
+        document.detected_language = _detect_document_language(
+            document.file_format, ingestion_result
+        )
+        await db.commit()
+
+        if document.file_format == "audio" and not (ingestion_result.text or "").strip():
+            document.ingestion_status = "failed"
+            document.ingestion_error = "Audio transcription produced no text."
+            document.chunk_count = 0
+            document.entity_count = 0
+            await db.commit()
+            await db.refresh(document)
+            return DocumentResponse.model_validate(document)
+
+        pipeline = DocumentPipeline(settings=settings)
+        await pipeline.run(
+            db=db,
+            document=document,
+            file_format=document.file_format,
+            ingested_text=ingestion_result.text,
+            ingestion_confidence=ingestion_result.confidence,
+        )
+
+    except Exception as exc:
+        document.ingestion_status = "failed"
+        document.ingestion_error = f"{type(exc).__name__}: {exc}"
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Reprocessing failed: {document.ingestion_error}",
+        ) from exc
+
+    await db.refresh(document)
+    return DocumentResponse.model_validate(document)
 

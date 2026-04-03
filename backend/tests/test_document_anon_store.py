@@ -65,3 +65,22 @@ def test_pop_removes_from_memory_and_disk(store_dir: Path) -> None:
     pop_document_map(99)
     assert get_document_map(99) is None
     assert not path.exists()
+
+
+def test_blocklist_survives_disk_persistence(store_dir: Path) -> None:
+    """token_to_placeholder and blocklist survive encrypted persistence."""
+    amap = AnonymizationMap(document_id=50, language="en")
+    amap.add_entity("John Smith", "PERSON_NAME")
+    original_t2p = dict(amap.token_to_placeholder)
+    assert original_t2p, "Blocklist should have entries after adding a person name"
+    set_document_map(50, amap)
+
+    import app.services.document_anon_store as store_module
+
+    store_module._document_maps.pop(50, None)
+
+    loaded = get_document_map(50)
+    assert loaded is not None
+    assert loaded.token_to_placeholder == original_t2p
+    assert loaded.blocklist == set(original_t2p.keys())
+    assert loaded.token_counter.get("PERSON_NAME", 0) == 1

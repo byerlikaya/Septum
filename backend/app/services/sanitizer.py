@@ -75,7 +75,7 @@ from .span_processing import (
     merge_adjacent_person_name_spans,
 )
 from ..models.settings import AppSettings
-from ..utils.text_utils import normalize_unicode, normalize_for_comparison
+from ..utils.text_utils import normalize_unicode, normalize_for_comparison, starts_with_uppercase
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,7 @@ _HIGH_PRIORITY_ENTITY_TYPES: set[str] = {
     "PHONE_NUMBER",
     "NATIONAL_ID",
     "IBAN",
-    "IBAN_CODE",
+    "CREDIT_CARD_NUMBER",
 }
 
 # Spans that must never be subject to LLM-based validation (Ollama may drop them
@@ -100,6 +100,35 @@ _MIN_TEXT_LENGTH_FOR_OLLAMA_ALIAS = 80
 # and validator-based recognizers all declare supported_language="en", so
 # Presidio always operates with this default.
 _PRESIDIO_DEFAULT_LANGUAGE = "en"
+
+# Septum entity type names may differ from Presidio built-in recognizer names
+# (e.g. CREDIT_CARD_NUMBER vs CREDIT_CARD). This mapping bridges the two so
+# Presidio built-ins activate automatically. Add new aliases here when a
+# name mismatch is discovered.
+_PRESIDIO_ENTITY_ALIASES: dict[str, str] = {
+    "CREDIT_CARD_NUMBER": "CREDIT_CARD",
+    "IBAN": "IBAN_CODE",
+}
+_PRESIDIO_REVERSE_ALIASES: dict[str, str] = {
+    v: k for k, v in _PRESIDIO_ENTITY_ALIASES.items()
+}
+
+# Entity types whose detection is delegated to the NER (HuggingFace) and
+# Ollama layers rather than Presidio pattern recognizers.  Excluded from
+# the recognizer coverage validation to avoid noisy warnings.
+_NER_LAYER_ENTITY_TYPES: frozenset[str] = frozenset({
+    "PERSON_NAME", "FIRST_NAME", "LAST_NAME", "LOCATION",
+})
+
+# Entity types that are inherently contextual / semantic and cannot be
+# detected by regex pattern matching.  These rely entirely on the NER and
+# Ollama layers for detection.
+_CONTEXTUAL_ENTITY_TYPES: frozenset[str] = frozenset({
+    "DIAGNOSIS", "MEDICATION", "CLINICAL_NOTE",
+    "POLITICAL_OPINION", "RELIGION", "ETHNICITY", "SEXUAL_ORIENTATION",
+    "BIOMETRIC_ID", "DNA_PROFILE",
+    "COOKIE_ID", "DEVICE_ID",
+})
 
 
 @dataclass
@@ -437,6 +466,64 @@ class StructuralAddressRecognizer(BaseCustomRecognizer):
         return results
 
 
+class CreditCardNumberRecognizer(BaseCustomRecognizer):
+    """Presidio recognizer for credit card numbers.
+
+    Detects numbers matching major card network formats (Visa, Mastercard,
+    American Express, Discover, JCB, UnionPay, etc.) without requiring Luhn
+    checksum validation. In a privacy-first pipeline, over-detection is
+    preferred over missed PII — even a mistyped card number is sensitive.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            supported_entities=["CREDIT_CARD_NUMBER"],
+            supported_language="en",
+        )
+        # Covers major card networks via leading-digit prefixes:
+        #   4xxx          — Visa
+        #   5[1-5]xx      — Mastercard
+        #   2[2-7]xx      — Mastercard (2-series)
+        #   3[47]xx       — American Express
+        #   3[0689]xx     — Diners Club / Carte Blanche
+        #   6xxx          — Discover / UnionPay / misc
+        #   35xx          — JCB
+        # Allows spaces or dashes as group separators.
+        self._pattern = re.compile(
+            r"\b"
+            r"(?:4\d{3}|5[1-5]\d{2}|2[2-7]\d{2}|3[4-9]\d{2}|3[0-3]\d{2}"
+            r"|6(?:011|5\d{2}|4[4-9]\d|22[1-9]|\d{3})"
+            r"|35\d{2})"
+            r"[\s\-]?\d{3,4}[\s\-]?\d{3,4}[\s\-]?\d{3,5}"
+            r"\b"
+        )
+
+    def analyze(  # type: ignore[override]
+        self,
+        text: str,
+        entities: Optional[List[str]] = None,
+        nlp_artifacts: Optional[object] = None,
+    ) -> List[RecognizerResult]:
+        if self._entity_filter(entities):
+            return []
+
+        results: List[RecognizerResult] = []
+        for match in self._pattern.finditer(text):
+            digits = re.sub(r"[\s\-]", "", match.group(0))
+            if not (13 <= len(digits) <= 19) or not digits.isdigit():
+                continue
+            start, end = match.span()
+            results.append(
+                RecognizerResult(
+                    entity_type="CREDIT_CARD_NUMBER",
+                    start=start,
+                    end=end,
+                    score=0.85,
+                )
+            )
+        return results
+
+
 class PIISanitizer:
     """High-level orchestrator for multi-layer PII detection and masking."""
 
@@ -467,12 +554,72 @@ class PIISanitizer:
         in addition to the project-specific baseline recognizers defined in
         this module. The union of entity types from the policy is stored so
         that ``analyze`` can limit detection to the active set.
+
+        After applying the policy, runs a coverage validation that logs
+        warnings for entity types with no matching Presidio recognizer.
         """
         registry = self._analyzer.registry
         for recognizer in policy.recognizers:
             registry.add_recognizer(recognizer)
         self._entity_types = list(policy.entity_types)
         self._non_pii_filter = NonPiiFilter.from_rules(policy.non_pii_rules)
+        self._validate_entity_coverage()
+
+    def _validate_entity_coverage(self) -> None:
+        """Log warnings for policy entity types with no matching recognizer.
+
+        Checks every entity type required by active regulations against the
+        set of entity types supported by registered Presidio recognizers
+        (including aliases).  Types covered by NER or contextual layers are
+        excluded from the check.
+        """
+        if not self._entity_types:
+            return
+
+        supported: set[str] = set()
+        try:
+            recognizers = self._analyzer.registry.get_recognizers(
+                language=_PRESIDIO_DEFAULT_LANGUAGE, all_fields=True,
+            )
+            for rec in recognizers:
+                supported.update(rec.supported_entities)
+        except Exception:
+            return
+
+        for septum_type, presidio_type in _PRESIDIO_ENTITY_ALIASES.items():
+            if presidio_type in supported:
+                supported.add(septum_type)
+
+        skip = _NER_LAYER_ENTITY_TYPES | _CONTEXTUAL_ENTITY_TYPES
+        uncovered = [
+            et for et in self._entity_types
+            if et not in supported and et not in skip
+        ]
+        for et in uncovered:
+            logger.warning(
+                "Entity type '%s' is required by active regulations but has no "
+                "Presidio recognizer or alias. Detection relies on NER/Ollama only.",
+                et,
+            )
+
+    @staticmethod
+    def _expand_with_aliases(
+        entity_types: Optional[List[str]],
+    ) -> Optional[List[str]]:
+        """Expand entity type list with Presidio built-in aliases.
+
+        Returns a new list that includes both Septum entity types and their
+        Presidio counterparts, so Presidio's built-in recognizers activate
+        automatically when a matching alias exists.
+        """
+        if entity_types is None:
+            return None
+        expanded = list(entity_types)
+        for septum_type in entity_types:
+            alias = _PRESIDIO_ENTITY_ALIASES.get(septum_type)
+            if alias and alias not in expanded:
+                expanded.append(alias)
+        return expanded
 
     def _register_custom_recognizers(self) -> None:
         """Register project-specific Presidio recognizers on the analyzer registry."""
@@ -482,6 +629,7 @@ class PIISanitizer:
         registry.add_recognizer(ValidatedIBANRecognizer())
         registry.add_recognizer(HeuristicPersonNameRecognizer())
         registry.add_recognizer(StructuralAddressRecognizer())
+        registry.add_recognizer(CreditCardNumberRecognizer())
 
     def sanitize(
         self,
@@ -497,10 +645,11 @@ class PIISanitizer:
         spans: List[DetectedSpan] = []
 
         if self._settings.use_presidio_layer:
+            presidio_entities = self._expand_with_aliases(self._entity_types)
             presidio_results = self._analyzer.analyze(
                 text=normalized_text,
                 language=_PRESIDIO_DEFAULT_LANGUAGE,
-                entities=self._entity_types,
+                entities=presidio_entities,
             )
             presidio_results = self._filter_presidio_results(
                 presidio_results, normalized_text
@@ -630,7 +779,11 @@ class PIISanitizer:
                 digit_count = sum(1 for ch in span_text if ch.isdigit())
                 has_dot_or_slash = "." in span_text or "/" in span_text
                 if has_dot_or_slash and digit_count <= 8:
-                    # Likely a date or similar numeric token, not a phone number.
+                    continue
+
+            if r.entity_type == "LOCATION":
+                span_text = text[r.start : r.end].strip()
+                if span_text and not starts_with_uppercase(span_text):
                     continue
 
             filtered.append(r)
@@ -841,13 +994,14 @@ class PIISanitizer:
     def _from_presidio_results(
         results: List[RecognizerResult],
     ) -> List[DetectedSpan]:
-        """Convert Presidio RecognizerResult objects to DetectedSpan."""
+        """Convert Presidio RecognizerResult objects to DetectedSpan.
+
+        Entity types returned by Presidio built-in recognizers are mapped back
+        to Septum entity type names via ``_PRESIDIO_REVERSE_ALIASES``.
+        """
         spans: List[DetectedSpan] = []
         for r in results:
-            entity_type = r.entity_type
-            if entity_type == "IBAN_CODE":
-                entity_type = "IBAN"
-
+            entity_type = _PRESIDIO_REVERSE_ALIASES.get(r.entity_type, r.entity_type)
             spans.append(
                 DetectedSpan(
                     start=r.start,
@@ -909,6 +1063,9 @@ class PIISanitizer:
 
             span_text = text[start:end].strip()
             if len(span_text) < min_span_len:
+                continue
+
+            if entity_type == "LOCATION" and span_text and not starts_with_uppercase(span_text):
                 continue
 
             spans.append(

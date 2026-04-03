@@ -28,6 +28,13 @@ export async function getDocuments(): Promise<Document[]> {
   return data.items;
 }
 
+export async function reprocessDocument(documentId: number): Promise<Document> {
+  const { data } = await api.post<Document>(
+    `/api/documents/${documentId}/reprocess`
+  );
+  return data;
+}
+
 export async function getSettings(): Promise<AppSettingsResponse> {
   const { data } = await api.get<AppSettingsResponse>("/api/settings");
   return data;

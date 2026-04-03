@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import List, Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +15,7 @@ from .chunking_strategy import (
     StructuredDocumentChunker,
 )
 from .bm25_retriever import BM25Retriever
-from .document_anon_store import set_document_map
+from .document_anon_store import pop_document_map, set_document_map
 from .sanitizer_factory import create_sanitizer
 from .text_normalizer import TextNormalizer
 from .vector_store import VectorStore
@@ -218,4 +219,18 @@ class DocumentPipeline:
             [c.id for c in chunks],
             list(raw_texts),
         )
+
+    @staticmethod
+    def cleanup_artifacts(document_id: int) -> None:
+        """Remove FAISS index, BM25 index, and anonymization map for a document."""
+        _log = logging.getLogger(__name__)
+        try:
+            VectorStore().delete_index(document_id)
+        except Exception:
+            _log.warning("Failed to delete FAISS index for document %s", document_id, exc_info=True)
+        try:
+            BM25Retriever().delete_index(document_id)
+        except Exception:
+            _log.warning("Failed to delete BM25 index for document %s", document_id, exc_info=True)
+        pop_document_map(document_id)
 

@@ -37,10 +37,12 @@ def _map_path(document_id: int) -> Path:
 
 
 def _serialize(anon_map: AnonymizationMap) -> bytes:
-    """Serialize entity_map and language for persistence (deanonymization only)."""
+    """Serialize anonymization map fields for encrypted persistence."""
     payload = {
         "entity_map": anon_map.entity_map,
         "language": anon_map.language,
+        "token_to_placeholder": anon_map.token_to_placeholder,
+        "token_counter": anon_map.token_counter,
     }
     return json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
@@ -52,6 +54,8 @@ def _deserialize(document_id: int, data: bytes) -> AnonymizationMap:
         document_id=document_id,
         language=payload.get("language", "en"),
         entity_map=payload.get("entity_map", {}),
+        token_to_placeholder=payload.get("token_to_placeholder", {}),
+        token_counter=payload.get("token_counter", {}),
     )
 
 

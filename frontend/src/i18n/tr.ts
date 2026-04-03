@@ -67,8 +67,11 @@ export const trMessages: Record<string, string> = {
   "documents.actions.preview": "Önizleme",
   "documents.actions.transcription": "Transkripsiyon",
   "documents.actions.delete": "Sil",
+  "documents.actions.reprocess": "Yeniden İşle",
   "documents.confirm.delete":
     '"{name}" dokümanını silmek istediğinizden emin misiniz?',
+  "documents.confirm.reprocess":
+    '"{name}" yeniden işlensin mi? Mevcut anonimleştirici ve regülasyonlarla anonimleştirme haritası ve indeksler yeniden oluşturulacaktır.',
   "documents.actions.deleteAll": "Tüm dokümanları sil",
   "documents.actions.deletingAll": "Tüm dokümanlar siliniyor…",
   "documents.confirm.deleteAll":
@@ -277,6 +280,8 @@ export const trMessages: Record<string, string> = {
   "errors.documents.load": "Dokümanlar yüklenirken bir hata oluştu.",
   "errors.documents.upload": "Dosya(lar) yüklenirken bir hata oluştu.",
   "errors.documents.delete": "Doküman silinirken bir hata oluştu.",
+  "errors.documents.reprocess":
+    "Doküman yeniden işlenirken bir hata oluştu.",
   "errors.documents.deleteAll": "Tüm dokümanlar silinirken bir hata oluştu.",
   "errors.chunks.loadDocuments": "Dokümanlar yüklenirken bir hata oluştu.",
   "errors.chunks.loadChunks": "Parçalar yüklenirken bir hata oluştu.",

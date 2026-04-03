@@ -71,3 +71,17 @@ def normalize_for_comparison(text: str, language: str = "en") -> str:
     """Normalize and lowercase ``text`` for case-insensitive comparison."""
     return locale_lower(normalize_unicode(text), language)
 
+
+def starts_with_uppercase(text: str) -> bool:
+    """Return True if text starts with an uppercase letter.
+
+    Script-agnostic: returns True for characters without case (CJK, Arabic,
+    etc.) so that non-cased scripts are never rejected by callers that use
+    this as a proper-noun heuristic.
+    """
+    if not text:
+        return False
+    first_char = text[0]
+    has_case = first_char.upper() != first_char.lower()
+    return not has_case or first_char.isupper()
+

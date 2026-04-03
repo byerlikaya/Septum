@@ -6,6 +6,7 @@ import {
   FileSpreadsheet,
   FileText,
   FileWarning,
+  RefreshCw,
   Trash2,
   Eye
 } from "lucide-react";
@@ -17,6 +18,7 @@ interface DocumentListProps {
   documents: Document[];
   isLoading?: boolean;
   onDelete: (document: Document) => void;
+  onReprocess: (document: Document) => void;
   onPreview: (document: Document) => void;
   onPreviewTranscription: (document: Document) => void;
 }
@@ -80,6 +82,7 @@ export function DocumentList({
   documents,
   isLoading = false,
   onDelete,
+  onReprocess,
   onPreview,
   onPreviewTranscription
 }: DocumentListProps) {
@@ -223,6 +226,16 @@ export function DocumentList({
                         >
                           <Eye className="h-3.5 w-3.5" />
                           <span>{t("documents.actions.transcription")}</span>
+                        </button>
+                      )}
+                      {(doc.ingestion_status === "completed" || doc.ingestion_status === "failed") && (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-md border border-sky-700 bg-slate-950 px-2 py-1 text-xs font-medium text-sky-300 shadow-sm hover:bg-sky-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                          onClick={() => onReprocess(doc)}
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          <span>{t("documents.actions.reprocess")}</span>
                         </button>
                       )}
                       <button
