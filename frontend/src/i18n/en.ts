@@ -536,6 +536,29 @@ export const enMessages = {
 
   "language.label": "Language",
   "language.english": "English",
-  "language.turkish": "Turkish"
+  "language.turkish": "Turkish",
+
+  "audit.title": "Audit Trail",
+  "audit.subtitle": "Privacy-relevant events: PII detection, de-anonymization, regulation changes.",
+  "audit.loading": "Loading audit events...",
+  "audit.empty": "No audit events recorded.",
+  "audit.column.time": "Time",
+  "audit.column.eventType": "Event Type",
+  "audit.column.documentId": "Document",
+  "audit.column.sessionId": "Session",
+  "audit.column.entityCount": "Entities",
+  "audit.column.regulations": "Regulations",
+  "audit.column.entityTypes": "Entity Types",
+  "audit.filter.eventType": "Event type",
+  "audit.filter.allEvents": "All events",
+  "audit.paginationSummary": "{total} total · page {page} of {totalPages}",
+  "audit.prevPage": "Previous",
+  "audit.nextPage": "Next",
+  "audit.eventType.pii_detected": "PII Detected",
+  "audit.eventType.deanonymization_performed": "De-anonymization",
+  "audit.eventType.document_uploaded": "Document Uploaded",
+  "audit.eventType.document_deleted": "Document Deleted",
+  "audit.eventType.regulation_changed": "Regulation Changed",
+  "errors.audit.load": "An error occurred while loading audit events."
 } as const;
 

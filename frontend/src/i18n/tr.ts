@@ -562,6 +562,29 @@ export const trMessages: Record<string, string> = {
   "regulations.nonPii.table.minScore": "Min. Skor",
   "regulations.nonPii.table.status": "Durum",
   "regulations.nonPii.anyLanguage": "Tüm diller",
-  "regulations.nonPii.anyEntity": "Tüm varlık türleri"
+  "regulations.nonPii.anyEntity": "Tüm varlık türleri",
+
+  "audit.title": "Denetim Kaydı",
+  "audit.subtitle": "Gizlilikle ilgili olaylar: PII tespiti, de-anonimleştirme, regülasyon değişiklikleri.",
+  "audit.loading": "Denetim olayları yükleniyor...",
+  "audit.empty": "Kayıtlı denetim olayı yok.",
+  "audit.column.time": "Zaman",
+  "audit.column.eventType": "Olay Türü",
+  "audit.column.documentId": "Doküman",
+  "audit.column.sessionId": "Oturum",
+  "audit.column.entityCount": "Varlıklar",
+  "audit.column.regulations": "Regülasyonlar",
+  "audit.column.entityTypes": "Varlık Türleri",
+  "audit.filter.eventType": "Olay türü",
+  "audit.filter.allEvents": "Tüm olaylar",
+  "audit.paginationSummary": "Toplam {total} · sayfa {page} / {totalPages}",
+  "audit.prevPage": "Önceki",
+  "audit.nextPage": "Sonraki",
+  "audit.eventType.pii_detected": "PII Tespit Edildi",
+  "audit.eventType.deanonymization_performed": "De-anonimleştirme",
+  "audit.eventType.document_uploaded": "Doküman Yüklendi",
+  "audit.eventType.document_deleted": "Doküman Silindi",
+  "audit.eventType.regulation_changed": "Regülasyon Değiştirildi",
+  "errors.audit.load": "Denetim olayları yüklenirken bir hata oluştu."
 };
 

@@ -615,7 +615,7 @@ async def delete_document(
     except OSError:
         pass
 
-    await asyncio.to_thread(DocumentPipeline.cleanup_artifacts, document_id)
+    await DocumentPipeline.cleanup_artifacts(document_id)
 
     await db.delete(document)
     await db.commit()
@@ -652,7 +652,7 @@ async def reprocess_document(
         )
         await db.commit()
 
-        await asyncio.to_thread(DocumentPipeline.cleanup_artifacts, document_id)
+        await DocumentPipeline.cleanup_artifacts(document_id)
 
         document.active_regulation_ids = await _snapshot_active_regulations(db)
         settings = await load_settings(db)

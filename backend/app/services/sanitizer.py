@@ -15,11 +15,11 @@ ensures that placeholders are stable and that a token-level blocklist
 is applied as a final safety net.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
 import re
 import threading
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from presidio_analyzer import AnalyzerEngine, EntityRecognizer, RecognizerResult
 
@@ -147,6 +147,7 @@ class SanitizeResult:
 
     sanitized_text: str
     entity_count: int
+    entity_type_counts: Dict[str, int] = field(default_factory=dict)
 
 
 class BaseCustomRecognizer(EntityRecognizer):
@@ -749,7 +750,15 @@ class PIISanitizer:
         sanitized = anon_map.apply_blocklist(sanitized, language)
         self._log_low_confidence(spans)
 
-        return SanitizeResult(sanitized_text=sanitized, entity_count=count)
+        type_counts: Dict[str, int] = {}
+        for span in spans:
+            type_counts[span.entity_type] = type_counts.get(span.entity_type, 0) + 1
+
+        return SanitizeResult(
+            sanitized_text=sanitized,
+            entity_count=count,
+            entity_type_counts=type_counts,
+        )
 
     def _filter_presidio_results(
         self,

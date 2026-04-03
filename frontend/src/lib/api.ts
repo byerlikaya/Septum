@@ -2,6 +2,9 @@ import axios from "axios";
 import type {
   ApprovalChunkPayload,
   AppSettingsResponse,
+  AuditEvent,
+  AuditListResponse,
+  ComplianceReport,
   Document,
   DocumentListResponse,
   RegulationRuleset,
@@ -264,4 +267,34 @@ export async function sendFrontendError(payload: {
 }
 
 
+// --- Audit ---
+
+export async function fetchAuditEvents(params?: {
+  event_type?: string;
+  document_id?: number;
+  session_id?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<AuditListResponse> {
+  const { data } = await api.get<AuditListResponse>("/api/audit/", { params });
+  return data;
+}
+
+export async function getDocumentComplianceReport(
+  documentId: number
+): Promise<ComplianceReport> {
+  const { data } = await api.get<ComplianceReport>(
+    `/api/audit/${documentId}/report`
+  );
+  return data;
+}
+
+export async function getSessionAudit(
+  sessionId: string
+): Promise<AuditEvent[]> {
+  const { data } = await api.get<AuditEvent[]>(
+    `/api/audit/session/${sessionId}`
+  );
+  return data;
+}
 

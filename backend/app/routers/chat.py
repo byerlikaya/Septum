@@ -41,6 +41,7 @@ from ..services.sanitizer_factory import create_sanitizer
 from ..services.text_normalizer import TextNormalizer
 from ..services.chat_context import ChatContextPayload, build_chat_prompt
 from ..services.chat_debug_store import set_chat_debug_record, get_chat_debug_record, ChatDebugRecord
+from ..services.audit_logger import log_pii_detected, log_deanonymization
 from ..services.error_logger import log_backend_error, log_backend_message
 from ..services.prompts import PromptCatalog
 from ..utils.db_helpers import get_or_404, load_settings, detect_language
@@ -94,7 +95,7 @@ async def _sanitize_query(
     settings: AppSettings,
     anon_map: AnonymizationMap,
     db: AsyncSession,
-) -> tuple[str, int]:
+) -> tuple[str, int, dict[str, int]]:
     """Run the sanitizer on the incoming user message."""
     sanitizer = await create_sanitizer(db, settings, enable_ollama=True)
     result = await asyncio.to_thread(
@@ -103,7 +104,7 @@ async def _sanitize_query(
         language,
         anon_map,
     )
-    return result.sanitized_text, result.entity_count
+    return result.sanitized_text, result.entity_count, result.entity_type_counts
 
 
 THEME_SNIPPET_LEN = 400
@@ -517,7 +518,7 @@ async def chat_ask(
     language = detect_language(message_text, fallback=base_language)
 
     if document is not None:
-        anon_map = get_document_map(document.id) or AnonymizationMap(
+        anon_map = await get_document_map(document.id) or AnonymizationMap(
             document_id=document.id,
             language=language,
         )
@@ -542,7 +543,7 @@ async def chat_ask(
             getattr(settings, "deanon_enabled", True),
         )
 
-    sanitized_query, entity_count = await _sanitize_query(
+    sanitized_query, entity_count, query_type_counts = await _sanitize_query(
         message_text, language, settings, anon_map, db
     )
     base_top_k = request.top_k or settings.top_k_retrieval
@@ -595,6 +596,18 @@ async def chat_ask(
                 chunks.extend(chunks_doc)
 
     session_id = request.session_id or uuid4().hex
+
+    if entity_count > 0:
+        await log_pii_detected(
+            db,
+            document_id=document.id if document else 0,
+            regulation_ids=list(document.active_regulation_ids) if document else [],
+            entity_type_counts=query_type_counts,
+            total_count=entity_count,
+            session_id=session_id,
+            extra={"source": "chat_query"},
+        )
+
     gate: ApprovalGate = get_approval_gate()
     require_approval = (
         request.require_approval
@@ -639,7 +652,7 @@ async def chat_ask(
                     
                     # Chunks are stored as RAW text in DB (design decision).
                     # Always sanitize at query time with full validation layer.
-                    sanitized_chunk, _ = await _sanitize_query(
+                    sanitized_chunk, _, _ = await _sanitize_query(
                         chunk_text,
                         language,
                         settings,
@@ -723,6 +736,16 @@ async def chat_ask(
                 http_request=http_request,
                 used_ollama_fallback_ref=used_ollama_fallback,
             )
+
+            if effective_settings.deanon_enabled and anon_map.entity_map:
+                await log_deanonymization(
+                    db,
+                    document_id=document.id if document else 0,
+                    entity_count=len(anon_map.entity_map),
+                    strategy=getattr(effective_settings, "deanon_strategy", "simple"),
+                    session_id=session_id,
+                )
+
             for piece in _chunk_text(answer, max_chunk_size=256):
                 yield _encode_sse({"type": "answer_chunk", "text": piece})
 

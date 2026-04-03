@@ -20,6 +20,7 @@ const navItems: NavItemDef[] = [
   { href: "/chunks", label: "Chunks" },
   { href: "/settings", label: "Settings", exact: true },
   { href: "/settings/regulations", label: "Regulations" },
+  { href: "/settings/audit", label: "Audit Trail", exact: true },
   { href: "/settings/error-logs", label: "Error Logs", exact: true }
 ];
 

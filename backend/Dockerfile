@@ -43,12 +43,16 @@ WORKDIR /app
 # Copy virtualenv from builder
 COPY --from=builder /build/.venv /app/.venv
 
-# Copy application
+# Copy application and entrypoint
 COPY --chown=septum:septum app/ ./app/
+COPY --chown=septum:septum scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
+COPY --chown=septum:septum alembic.ini ./alembic.ini
+COPY --chown=septum:septum alembic/ ./alembic/
 
-# Writable dirs for DB and encrypted uploads (override via env if needed)
+# Writable dirs for DB, uploads, and anon maps (override via env if needed)
 ENV DB_PATH=/app/data/septum.db
-RUN mkdir -p /app/data /app/uploads && chown -R septum:septum /app/data /app/uploads
+RUN mkdir -p /app/data /app/uploads /app/anon_maps \
+    && chown -R septum:septum /app/data /app/uploads /app/anon_maps
 
 USER septum
 
@@ -57,4 +61,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')" || exit 1
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["bash", "./scripts/docker-entrypoint.sh"]

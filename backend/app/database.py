@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-"""Database configuration and initialization for Septum."""
+"""Database configuration and initialization for Septum.
+
+Supports both SQLite (local dev) and PostgreSQL (production).
+When DATABASE_URL is set, PostgreSQL is used via asyncpg.
+Otherwise, falls back to SQLite via aiosqlite.
+"""
 
 import os
 from typing import Any, AsyncGenerator, List
@@ -19,19 +24,47 @@ DEFAULT_DB_PATH = "./septum.db"
 
 
 def _build_database_url() -> str:
-    """Build the async SQLite database URL from environment variables."""
+    """Build the async database URL from environment variables.
+
+    Priority: DATABASE_URL (PostgreSQL) > DB_PATH (SQLite).
+    """
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        if database_url.startswith("postgresql://"):
+            database_url = database_url.replace(
+                "postgresql://", "postgresql+asyncpg://", 1
+            )
+        return database_url
     db_path = os.getenv(DB_PATH_ENV_VAR, DEFAULT_DB_PATH)
     return f"sqlite+aiosqlite:///{db_path}"
 
 
+def _engine_kwargs(url: str) -> dict[str, Any]:
+    """Return dialect-specific engine keyword arguments."""
+    if "postgresql" in url:
+        return {
+            "echo": False,
+            "future": True,
+            "pool_size": 10,
+            "max_overflow": 20,
+            "pool_pre_ping": True,
+        }
+    return {"echo": False, "future": True}
+
+
 DATABASE_URL = _build_database_url()
 
-engine = create_async_engine(DATABASE_URL, echo=False, future=True)
+engine = create_async_engine(DATABASE_URL, **_engine_kwargs(DATABASE_URL))
 async_session_maker = async_sessionmaker(
     bind=engine,
     expire_on_commit=False,
     class_=AsyncSession,
 )
+
+
+def is_sqlite() -> bool:
+    """Return True if the current database backend is SQLite."""
+    return "sqlite" in DATABASE_URL
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -43,13 +76,12 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def init_db() -> None:
     """Create all tables and seed default application settings and regulations.
 
-    Model metadata must be fully populated (via imports) before create_all.
+    For SQLite: uses create_all (development convenience).
+    For PostgreSQL: tables should be managed by Alembic; this only seeds defaults.
     """
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        await conn.run_sync(_ensure_ocr_provider_columns)
-        await conn.run_sync(_ensure_ner_overrides_column)
-        await conn.run_sync(_ensure_default_audio_language_column)
+    if is_sqlite():
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
     await _seed_defaults()
 
@@ -160,39 +192,6 @@ async def _seed_defaults() -> None:
         await session.commit()
 
 
-def _ensure_ocr_provider_columns(conn: Any) -> None:
-    """Add ocr_provider and ocr_provider_options columns if missing (e.g. existing DBs)."""
-    for sql in (
-        "ALTER TABLE app_settings ADD COLUMN ocr_provider TEXT DEFAULT 'paddleocr'",
-        "ALTER TABLE app_settings ADD COLUMN ocr_provider_options TEXT",
-    ):
-        try:
-            conn.execute(text(sql))
-        except Exception as e:
-            if "duplicate column name" not in str(e).lower():
-                raise
-
-
-def _ensure_ner_overrides_column(conn: Any) -> None:
-    """Add ner_model_overrides column if missing (e.g. existing DBs)."""
-    try:
-        conn.execute(text("ALTER TABLE app_settings ADD COLUMN ner_model_overrides TEXT"))
-    except Exception as e:
-        if "duplicate column name" not in str(e).lower():
-            raise
-
-
-def _ensure_default_audio_language_column(conn: Any) -> None:
-    """Add default_audio_language column if missing (e.g. existing DBs)."""
-    try:
-        conn.execute(
-            text("ALTER TABLE app_settings ADD COLUMN default_audio_language TEXT")
-        )
-    except Exception as e:
-        if "duplicate column name" not in str(e).lower():
-            raise
-
-
 def _env_bool(name: str, default: bool) -> bool:
     """Parse a boolean environment variable with a default."""
     value = os.getenv(name)
@@ -226,4 +225,3 @@ def _builtin_regulations() -> list[RegulationRuleset]:
     """Return the built-in regulation rulesets to seed into the database."""
     from .seeds.regulations import builtin_regulations
     return builtin_regulations()
-

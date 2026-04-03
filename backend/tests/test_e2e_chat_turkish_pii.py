@@ -170,7 +170,8 @@ def test_e2e_turkish_pii_upload_ask_approve_deanonymized(
     from app.routers import chat as chat_router
     from app.services.document_anon_store import get_document_map
 
-    stored_map = get_document_map(document_id)
+    import asyncio
+    stored_map = asyncio.run(get_document_map(document_id))
     assert stored_map is not None, "Document anon map must be stored after upload"
 
     placeholders = sorted(stored_map.entity_map.values())
@@ -186,8 +187,8 @@ def test_e2e_turkish_pii_upload_ask_approve_deanonymized(
 
     from app.services.document_anon_store import get_document_map as _original_get
 
-    def _get_map_for_chat(doc_id: int):
-        return stored_map if doc_id == document_id else _original_get(doc_id)
+    async def _get_map_for_chat(doc_id: int):
+        return stored_map if doc_id == document_id else await _original_get(doc_id)
 
     monkeypatch.setattr(
         "app.services.document_anon_store.get_document_map",

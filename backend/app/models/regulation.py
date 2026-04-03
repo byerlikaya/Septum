@@ -5,8 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from sqlalchemy import Boolean, DateTime, Float, String, Text
-from sqlalchemy.dialects.sqlite import JSON
+from sqlalchemy import Boolean, DateTime, Float, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from . import Base

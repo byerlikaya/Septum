@@ -387,13 +387,37 @@ On the Next.js side we follow Context7 best practices:
 
 ## Setup
 
-### 1. Shared prerequisites
+### Option A: Docker Compose (recommended)
+
+The fastest way to get Septum running with all dependencies (PostgreSQL, Redis):
+
+```bash
+cp .env.example .env
+# Edit .env — set at least one LLM API key (ANTHROPIC_API_KEY or OPENAI_API_KEY)
+docker compose up
+```
+
+This starts:
+- **PostgreSQL 16** — production database  
+- **Redis 7** — anonymization map caching for multi-worker support  
+- **Septum Backend** (port 8000) — FastAPI + Presidio + NER  
+- **Septum Frontend** (port 3000) — Next.js UI  
+
+To include a local Ollama instance:
+
+```bash
+docker compose --profile ollama up
+```
+
+### Option B: Local development
+
+#### 1. Shared prerequisites
 
 - Python 3.10+  
 - Node.js 18+ (for Next.js 16)  
 - ffmpeg (for Whisper)
 
-### 2. Backend setup
+#### 2. Backend setup
 
 ```bash
 cd backend
@@ -424,7 +448,7 @@ Then start the backend:
 uvicorn app.main:app --reload
 ```
 
-### 3. Frontend setup
+#### 3. Frontend setup
 
 ```bash
 cd frontend

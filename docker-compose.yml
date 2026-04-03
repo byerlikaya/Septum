@@ -1,7 +1,39 @@
-# Septum — backend, frontend, optional Ollama
+# Septum — backend, frontend, PostgreSQL, Redis, optional Ollama
 # Copy .env.example to .env and set values. Compose reads .env automatically.
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: septum-postgres
+    environment:
+      POSTGRES_USER: septum
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-septum_secret}
+      POSTGRES_DB: septum
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - septum-pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U septum"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: septum-redis
+    volumes:
+      - septum-redis-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+
   septum-backend:
     build:
       context: ./backend
@@ -10,20 +42,28 @@ services:
     container_name: septum-backend
     env_file: .env
     environment:
-      - DB_PATH=/app/data/septum.db
+      - DATABASE_URL=postgresql+asyncpg://septum:${POSTGRES_PASSWORD:-septum_secret}@postgres:5432/septum
+      - REDIS_URL=redis://redis:6379/0
       - DOCUMENT_STORAGE_DIR=/app/uploads
+      - ANON_MAP_STORAGE_DIR=/app/anon_maps
       - FRONTEND_ORIGIN=${FRONTEND_ORIGIN:-http://localhost:3000}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - septum-data:/app/data
       - septum-uploads:/app/uploads
+      - septum-anon-maps:/app/anon_maps
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 30s
       timeout: 5s
-      start_period: 10s
+      start_period: 30s
       retries: 3
 
   septum-frontend:
@@ -60,6 +100,9 @@ services:
       - ollama
 
 volumes:
+  septum-pgdata:
+  septum-redis-data:
   septum-data:
   septum-uploads:
+  septum-anon-maps:
   ollama-data:

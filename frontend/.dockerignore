@@ -1,0 +1,12 @@
+node_modules/
+.next/
+.swc/
+coverage/
+jest.config.mjs
+jest.setup.ts
+src/lib/__tests__/
+.git/
+.gitignore
+*.md
+.env
+.env.*

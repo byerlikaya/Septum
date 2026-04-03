@@ -388,13 +388,37 @@ Next.js tarafında Context7 en iyi pratikleri takip edilir:
 
 ## Kurulum
 
-### 1. Ortak ön gereksinimler
+### Seçenek A: Docker Compose (önerilen)
+
+Septum'u tüm bağımlılıklarıyla (PostgreSQL, Redis) çalıştırmanın en hızlı yolu:
+
+```bash
+cp .env.example .env
+# .env dosyasını düzenleyin — en az bir LLM API anahtarı ayarlayın (ANTHROPIC_API_KEY veya OPENAI_API_KEY)
+docker compose up
+```
+
+Bu komut şunları başlatır:
+- **PostgreSQL 16** — production veritabanı  
+- **Redis 7** — çoklu worker desteği için anonymization map cache  
+- **Septum Backend** (port 8000) — FastAPI + Presidio + NER  
+- **Septum Frontend** (port 3000) — Next.js arayüzü  
+
+Yerel Ollama instance'ı eklemek için:
+
+```bash
+docker compose --profile ollama up
+```
+
+### Seçenek B: Yerel geliştirme
+
+#### 1. Ortak ön gereksinimler
 
 - Python 3.10+  
 - Node.js 18+ (Next.js 16 için)  
 - ffmpeg (Whisper için)
 
-### 2. Backend kurulumu
+#### 2. Backend kurulumu
 
 ```bash
 cd backend
@@ -425,7 +449,7 @@ Ardından backend’i başlatın:
 uvicorn app.main:app --reload
 ```
 
-### 3. Frontend kurulumu
+#### 3. Frontend kurulumu
 
 ```bash
 cd frontend

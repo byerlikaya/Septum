@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import List, Sequence
+from typing import Dict, List, Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,7 @@ from .chunking_strategy import (
 )
 from .bm25_retriever import BM25Retriever
 from .document_anon_store import pop_document_map, set_document_map
+from .audit_logger import log_pii_detected
 from .sanitizer_factory import create_sanitizer
 from .text_normalizer import TextNormalizer
 from .vector_store import VectorStore
@@ -55,6 +56,7 @@ class DocumentPipeline:
         stored_chunks: List[SemanticChunk] = []
         raw_texts_for_index: List[str] = []
         total_entities = 0
+        aggregate_type_counts: Dict[str, int] = {}
 
         for semantic_chunk in semantic_chunks:
             raw_text = semantic_chunk.text
@@ -67,6 +69,8 @@ class DocumentPipeline:
                 anon_map,
             )
             total_entities += sanitize_result.entity_count
+            for etype, ecount in sanitize_result.entity_type_counts.items():
+                aggregate_type_counts[etype] = aggregate_type_counts.get(etype, 0) + ecount
             stored_chunks.append(
                 SemanticChunk(
                     text=normalized_raw,
@@ -89,7 +93,17 @@ class DocumentPipeline:
         await db.commit()
         await db.refresh(document)
 
-        set_document_map(document.id, anon_map)
+        await set_document_map(document.id, anon_map)
+
+        if total_entities > 0:
+            await log_pii_detected(
+                db,
+                document_id=document.id,
+                regulation_ids=list(document.active_regulation_ids or []),
+                entity_type_counts=aggregate_type_counts,
+                total_count=total_entities,
+                extra={"source": "document_ingestion", "language": detected_language},
+            )
 
         if chunks and raw_texts_for_index:
             await asyncio.to_thread(
@@ -221,7 +235,7 @@ class DocumentPipeline:
         )
 
     @staticmethod
-    def cleanup_artifacts(document_id: int) -> None:
+    async def cleanup_artifacts(document_id: int) -> None:
         """Remove FAISS index, BM25 index, and anonymization map for a document."""
         _log = logging.getLogger(__name__)
         try:
@@ -232,5 +246,5 @@ class DocumentPipeline:
             BM25Retriever().delete_index(document_id)
         except Exception:
             _log.warning("Failed to delete BM25 index for document %s", document_id, exc_info=True)
-        pop_document_map(document_id)
+        await pop_document_map(document_id)
 

@@ -1,9 +1,9 @@
-"""Tests for document anonymization map store (memory + encrypted persistence)."""
+"""Tests for document anonymization map store (memory + Redis + encrypted persistence)."""
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -19,68 +19,141 @@ from app.services.document_anon_store import (
 def store_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Use a temp directory for encrypted map files."""
     monkeypatch.setenv("ANON_MAP_STORAGE_DIR", str(tmp_path / "anon_maps"))
-    # Force module to re-read the env by re-importing or patching the path
     import app.services.document_anon_store as store_module
 
     store_module._ANON_MAP_DIR = tmp_path / "anon_maps"
     return store_module._ANON_MAP_DIR
 
 
-def test_set_and_get_from_memory(store_dir: Path) -> None:
+@pytest.mark.asyncio
+@patch("app.services.document_anon_store.redis_set", new_callable=AsyncMock, return_value=False)
+@patch("app.services.document_anon_store.redis_get", new_callable=AsyncMock, return_value=None)
+@patch("app.services.document_anon_store.redis_delete", new_callable=AsyncMock, return_value=False)
+async def test_set_and_get_from_memory(
+    _mock_del, _mock_get, _mock_set, store_dir: Path
+) -> None:
     """Map is returned from in-memory cache when present."""
     amap = AnonymizationMap(document_id=1, language="tr")
     amap.entity_map["Ahmet Yılmaz"] = "[PERSON_1]"
-    set_document_map(1, amap)
-    assert get_document_map(1) is amap
-    assert get_document_map(1).entity_map["Ahmet Yılmaz"] == "[PERSON_1]"
+    await set_document_map(1, amap)
+    result = await get_document_map(1)
+    assert result is amap
+    assert result.entity_map["Ahmet Yılmaz"] == "[PERSON_1]"
 
 
-def test_get_from_disk_after_memory_cleared(store_dir: Path) -> None:
+@pytest.mark.asyncio
+@patch("app.services.document_anon_store.redis_set", new_callable=AsyncMock, return_value=False)
+@patch("app.services.document_anon_store.redis_get", new_callable=AsyncMock, return_value=None)
+@patch("app.services.document_anon_store.redis_delete", new_callable=AsyncMock, return_value=False)
+async def test_get_from_disk_after_memory_cleared(
+    _mock_del, _mock_get, _mock_set, store_dir: Path
+) -> None:
     """When in-memory is cleared, map is loaded from encrypted file."""
     amap = AnonymizationMap(document_id=42, language="en")
     amap.entity_map["John Doe"] = "[PERSON_1]"
     amap.entity_map["Jane Smith"] = "[PERSON_2]"
-    set_document_map(42, amap)
+    await set_document_map(42, amap)
 
-    # Simulate another worker/restart: clear in-memory only.
     import app.services.document_anon_store as store_module
 
     store_module._document_maps.pop(42, None)
 
-    loaded = get_document_map(42)
+    loaded = await get_document_map(42)
     assert loaded is not None
     assert loaded.entity_map["John Doe"] == "[PERSON_1]"
     assert loaded.entity_map["Jane Smith"] == "[PERSON_2]"
     assert loaded.language == "en"
 
 
-def test_pop_removes_from_memory_and_disk(store_dir: Path) -> None:
+@pytest.mark.asyncio
+@patch("app.services.document_anon_store.redis_set", new_callable=AsyncMock, return_value=False)
+@patch("app.services.document_anon_store.redis_get", new_callable=AsyncMock, return_value=None)
+@patch("app.services.document_anon_store.redis_delete", new_callable=AsyncMock, return_value=False)
+async def test_pop_removes_from_memory_and_disk(
+    _mock_del, _mock_get, _mock_set, store_dir: Path
+) -> None:
     """pop_document_map removes the map and deletes the encrypted file."""
     amap = AnonymizationMap(document_id=99, language="tr")
     amap.entity_map["Test"] = "[PERSON_1]"
-    set_document_map(99, amap)
+    await set_document_map(99, amap)
     path = store_dir / "99.enc"
     assert path.exists()
 
-    pop_document_map(99)
-    assert get_document_map(99) is None
+    await pop_document_map(99)
+    result = await get_document_map(99)
+    assert result is None
     assert not path.exists()
 
 
-def test_blocklist_survives_disk_persistence(store_dir: Path) -> None:
+@pytest.mark.asyncio
+@patch("app.services.document_anon_store.redis_set", new_callable=AsyncMock, return_value=False)
+@patch("app.services.document_anon_store.redis_get", new_callable=AsyncMock, return_value=None)
+@patch("app.services.document_anon_store.redis_delete", new_callable=AsyncMock, return_value=False)
+async def test_blocklist_survives_disk_persistence(
+    _mock_del, _mock_get, _mock_set, store_dir: Path
+) -> None:
     """token_to_placeholder and blocklist survive encrypted persistence."""
     amap = AnonymizationMap(document_id=50, language="en")
     amap.add_entity("John Smith", "PERSON_NAME")
     original_t2p = dict(amap.token_to_placeholder)
     assert original_t2p, "Blocklist should have entries after adding a person name"
-    set_document_map(50, amap)
+    await set_document_map(50, amap)
 
     import app.services.document_anon_store as store_module
 
     store_module._document_maps.pop(50, None)
 
-    loaded = get_document_map(50)
+    loaded = await get_document_map(50)
     assert loaded is not None
     assert loaded.token_to_placeholder == original_t2p
     assert loaded.blocklist == set(original_t2p.keys())
     assert loaded.token_counter.get("PERSON_NAME", 0) == 1
+
+
+@pytest.mark.asyncio
+async def test_redis_tier_used_when_available(store_dir: Path) -> None:
+    """When Redis has the data, disk should not be read."""
+    import json
+
+    amap = AnonymizationMap(document_id=200, language="en")
+    amap.entity_map["Alice"] = "[PERSON_1]"
+
+    serialized = json.dumps({
+        "entity_map": amap.entity_map,
+        "language": amap.language,
+        "token_to_placeholder": {},
+        "token_counter": {},
+    }).encode("utf-8")
+
+    import app.services.document_anon_store as store_module
+
+    store_module._document_maps.pop(200, None)
+
+    with patch("app.services.document_anon_store.redis_get", new_callable=AsyncMock, return_value=serialized):
+        loaded = await get_document_map(200)
+
+    assert loaded is not None
+    assert loaded.entity_map["Alice"] == "[PERSON_1]"
+    assert loaded.language == "en"
+
+
+@pytest.mark.asyncio
+@patch("app.services.document_anon_store.redis_set", new_callable=AsyncMock, return_value=False)
+@patch("app.services.document_anon_store.redis_get", new_callable=AsyncMock, return_value=None)
+@patch("app.services.document_anon_store.redis_delete", new_callable=AsyncMock, return_value=False)
+async def test_graceful_degradation_without_redis(
+    _mock_del, _mock_get, _mock_set, store_dir: Path
+) -> None:
+    """System works correctly when Redis is unavailable."""
+    amap = AnonymizationMap(document_id=300, language="en")
+    amap.entity_map["Bob"] = "[PERSON_1]"
+
+    await set_document_map(300, amap)
+
+    import app.services.document_anon_store as store_module
+
+    store_module._document_maps.pop(300, None)
+
+    loaded = await get_document_map(300)
+    assert loaded is not None
+    assert loaded.entity_map["Bob"] == "[PERSON_1]"

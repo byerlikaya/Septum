@@ -198,3 +198,32 @@ export interface AppSettingsResponse {
   ner_model_overrides: Record<string, string> | null;
 }
 
+export interface AuditEvent {
+  id: number;
+  created_at: string;
+  event_type: string;
+  session_id: string | null;
+  document_id: number | null;
+  regulation_ids: string[];
+  entity_types_detected: Record<string, number>;
+  entity_count: number;
+  extra: Record<string, unknown> | null;
+}
+
+export interface AuditListResponse {
+  items: AuditEvent[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface ComplianceReport {
+  document_id: number;
+  total_pii_events: number;
+  total_deanonymization_events: number;
+  total_entities_detected: number;
+  entity_type_breakdown: Record<string, number>;
+  regulation_ids_used: string[];
+  events: AuditEvent[];
+}
+

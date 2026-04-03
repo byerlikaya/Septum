@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .database import async_session_maker, get_db, init_db
 from .models.settings import AppSettings
 from .routers import approval as approval_router
+from .routers import audit as audit_router
 from .routers import chat as chat_router
 from .routers import chunks as chunks_router
 from .routers import documents as documents_router
@@ -88,6 +89,7 @@ app.add_middleware(
 
 
 app.include_router(approval_router.router)
+app.include_router(audit_router.router)
 app.include_router(documents_router.router)
 app.include_router(chunks_router.router)
 app.include_router(chat_router.router)
@@ -145,9 +147,14 @@ async def health(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
         else os.getenv("LLM_PROVIDER", "anthropic")
     )
 
+    from .services.redis_client import redis_ping
+
+    redis_ok = await redis_ping()
+
     return {
         "status": "ok",
         "device": get_device(),
         "llm_provider": llm_provider,
+        "redis": "connected" if redis_ok else "unavailable",
     }
 
