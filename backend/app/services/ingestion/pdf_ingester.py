@@ -15,6 +15,7 @@ sanitization pipeline and is not persisted in plaintext on disk.
 """
 
 import asyncio
+import io
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -171,81 +172,108 @@ class PdfIngester(BaseIngester):
             confidence=avg_confidence,
         )
 
+    _MIN_IMAGE_DIMENSION = 150
+
     def _extract_pages_with_optional_ocr(
         self,
         doc: fitz.Document,
     ) -> Tuple[List[str], List[float]]:
-        """Extract per-page text with OCR fallback for image-only or text-poor pages."""
+        """Extract per-page text, plus OCR any embedded images.
 
+        Strategy per page:
+        1. If the text layer is corrupt (CID / U+FFFD) → full-page OCR.
+        2. Otherwise → use extracted text + OCR any significant images
+           on the page (≥150×150 px) and append their text.
+        """
         texts: List[str] = []
         ocr_confidences: List[float] = []
-        ocr_page_count = 0
 
-        for index, page in enumerate(doc):
+        for page in doc:
             page_text = page.get_text() or ""
-            cleaned = strip_control_characters(page_text)
+            cleaned = strip_control_characters(page_text).strip()
 
-            stripped = cleaned.strip()
-            text_corrupt = self._text_looks_corrupt(stripped, page)
-
-            if len(stripped) >= 200 and not text_corrupt:
-                texts.append(cleaned)
+            if self._text_looks_corrupt(cleaned):
+                ocr_text, conf = self._run_ocr_on_page(page)
+                if conf is not None:
+                    ocr_confidences.append(conf)
+                texts.append(strip_control_characters(ocr_text) if ocr_text else cleaned)
                 continue
 
-            ocr_text, ocr_confidence = self._run_ocr_on_page(page)
-            if ocr_confidence is not None:
-                ocr_confidences.append(ocr_confidence)
-            if ocr_text:
-                ocr_page_count += 1
+            image_texts, image_confs = self._ocr_page_images(page, doc)
+            ocr_confidences.extend(image_confs)
 
-            cleaned_ocr = strip_control_characters(ocr_text) if ocr_text else ""
-
-            use_ocr = False
-            if text_corrupt and cleaned_ocr.strip():
-                use_ocr = True
-            elif cleaned_ocr.strip():
-                base_len = len(stripped)
-                ocr_len = len(cleaned_ocr.strip())
-                if base_len == 0:
-                    use_ocr = True
-                elif ocr_len > base_len * 1.15:
-                    use_ocr = True
-
-            if use_ocr:
-                cleaned = cleaned_ocr
-
-            texts.append(cleaned)
+            if image_texts:
+                combined = cleaned + "\n\n" + "\n\n".join(image_texts)
+                texts.append(combined)
+            else:
+                texts.append(cleaned)
 
         return texts, ocr_confidences
 
+    def _ocr_page_images(
+        self,
+        page: fitz.Page,
+        doc: fitz.Document,
+    ) -> Tuple[List[str], List[float]]:
+        """Extract and OCR significant images embedded in a page."""
+        image_texts: List[str] = []
+        image_confs: List[float] = []
+
+        for img_info in page.get_images(full=True):
+            xref = img_info[0]
+            width = img_info[2]
+            height = img_info[3]
+
+            if width < self._MIN_IMAGE_DIMENSION or height < self._MIN_IMAGE_DIMENSION:
+                continue
+
+            try:
+                img_data = doc.extract_image(xref)
+                if img_data is None:
+                    continue
+
+                image = Image.open(io.BytesIO(img_data["image"]))
+                if image.mode != "RGB":
+                    image = image.convert("RGB")
+                image_array = np.array(image)
+
+                languages = list(dict.fromkeys(self._languages or []))
+                if "en" not in languages:
+                    languages.append("en")
+
+                ocr_texts, confs = run_ocr(
+                    self._ocr_provider,
+                    image_array,
+                    languages or ["en"],
+                    **self._ocr_provider_options,
+                )
+                if ocr_texts:
+                    image_texts.append("\n".join(ocr_texts))
+                    image_confs.extend(confs)
+            except Exception:
+                continue
+
+        return image_texts, image_confs
+
     @staticmethod
-    def _text_looks_corrupt(text: str, page: Optional[Any] = None) -> bool:
+    def _text_looks_corrupt(text: str) -> bool:
         """Detect text with broken font encoding.
 
         Returns True when the extracted text layer is likely unusable:
         1. CID references indicate unresolved glyph mappings.
         2. Replacement characters (U+FFFD) indicate failed decoding.
-        3. rawdict span texts are empty while get_text() returns content
-           — indicates the font cannot map glyphs to Unicode properly.
+
+        The rawdict span check was removed because many valid fonts
+        (especially embedded subsets) return empty span texts in rawdict
+        while ``get_text()`` extracts content correctly.  This caused
+        false-positive corrupt detection and unnecessary OCR on every
+        page, adding ~1.5 GB of PaddlePaddle memory and minutes of
+        processing time per document.
         """
         if "(cid:" in text:
             return True
         if "\ufffd" in text:
             return True
-
-        if page is not None and text.strip():
-            try:
-                raw = page.get_text("rawdict")
-                span_chars = 0
-                for block in raw.get("blocks", []):
-                    for line in block.get("lines", []):
-                        for span in line.get("spans", []):
-                            span_text = span.get("text") or ""
-                            span_chars += len(span_text.strip())
-                if span_chars == 0:
-                    return True
-            except Exception:
-                pass
 
         return False
 

@@ -18,12 +18,52 @@ is applied as a final safety net.
 from dataclasses import dataclass
 import logging
 import re
+import threading
 from typing import Any, List, Optional
 
 from presidio_analyzer import AnalyzerEngine, EntityRecognizer, RecognizerResult
 
 from .anonymization_map import AnonymizationMap, SANITIZER_STOPWORDS
 from .ner_model_registry import NERModelRegistry
+
+_cached_nlp_engine: object | None = None
+_nlp_engine_lock = threading.Lock()
+
+
+def _get_shared_nlp_engine() -> object:
+    """Return a process-wide Presidio NLP engine singleton.
+
+    Uses ``en_core_web_sm`` instead of the default ``en_core_web_lg`` to
+    reduce memory by ~700 MB (no 300-dim word vectors). Presidio's NER
+    acts as a supplementary first layer; the dedicated HuggingFace NER
+    layer provides the primary person/location detection.
+    """
+    global _cached_nlp_engine
+    if _cached_nlp_engine is not None:
+        return _cached_nlp_engine
+    with _nlp_engine_lock:
+        if _cached_nlp_engine is not None:
+            return _cached_nlp_engine
+        from presidio_analyzer.nlp_engine import NlpEngineProvider
+
+        conf = {
+            "nlp_engine_name": "spacy",
+            "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+        }
+        _cached_nlp_engine = NlpEngineProvider(nlp_configuration=conf).create_engine()
+        _adjust_spacy_max_length(_cached_nlp_engine)
+        return _cached_nlp_engine
+
+
+def _adjust_spacy_max_length(nlp_engine: object) -> None:
+    """Increase spaCy max_length on all models inside the NLP engine."""
+    nlp_store = getattr(nlp_engine, "nlp", None)
+    if isinstance(nlp_store, dict):
+        for model in nlp_store.values():
+            if hasattr(model, "max_length"):
+                current_max = getattr(model, "max_length", 0)
+                if current_max < 2_000_000:
+                    model.max_length = 2_000_000
 from .non_pii_filter import NonPiiFilter, SpanView
 from .ollama_client import extract_json_array, call_ollama_sync
 from .national_ids import IBANValidator, TCKNValidator
@@ -412,21 +452,7 @@ class PIISanitizer:
             settings.use_ollama_layer if enable_ollama_layer is None else enable_ollama_layer
         )
         self._ner_registry = ner_registry or NERModelRegistry()
-        self._analyzer = AnalyzerEngine()
-        # Increase SpaCy max_length on all underlying models to better handle long texts.
-        # Presidio's default SpacyNlpEngine stores models in a dict: nlp_engine.nlp[language].
-        try:
-            nlp_engine = getattr(self._analyzer, "nlp_engine", None)
-            nlp_store = getattr(nlp_engine, "nlp", None) if nlp_engine is not None else None
-            # nlp_store is expected to be a dict[str, Language] for SpacyNlpEngine.
-            if isinstance(nlp_store, dict):
-                for model in nlp_store.values():
-                    if hasattr(model, "max_length"):
-                        current_max = getattr(model, "max_length", 0)
-                        if current_max < 2_000_000:
-                            model.max_length = 2_000_000
-        except Exception:  # pragma: no cover - defensive, analyzer internals may change
-            logger.debug("Could not adjust SpaCy max_length on AnalyzerEngine.nlp_engine")
+        self._analyzer = AnalyzerEngine(nlp_engine=_get_shared_nlp_engine())
         self._entity_types: Optional[List[str]] = None
         self._non_pii_filter: Optional[NonPiiFilter] = None
         self._register_custom_recognizers()

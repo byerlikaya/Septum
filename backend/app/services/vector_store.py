@@ -26,15 +26,56 @@ from dataclasses import dataclass, field
 import os
 from pathlib import Path
 import threading
-from typing import List, Sequence, Tuple
+from typing import TYPE_CHECKING, List, Sequence, Tuple
 
 import faiss  # type: ignore[import]
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 from ..utils.crypto import decrypt, encrypt
 from cryptography.exceptions import InvalidTag
 import json
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
+
+
+_shared_st_model: SentenceTransformer | None = None
+_shared_st_lock = threading.Lock()
+
+_DEFAULT_ST_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+
+
+def get_shared_sentence_transformer(
+    model_name: str = _DEFAULT_ST_MODEL,
+) -> SentenceTransformer:
+    """Return a process-wide SentenceTransformer singleton.
+
+    The model (~500 MB) is loaded once and shared between VectorStore
+    and StructuredDocumentChunker to avoid duplicate memory usage.
+    Thread-safe with double-checked locking.
+    """
+    global _shared_st_model
+    if _shared_st_model is not None:
+        return _shared_st_model
+    with _shared_st_lock:
+        if _shared_st_model is not None:
+            return _shared_st_model
+        from sentence_transformers import SentenceTransformer
+
+        try:
+            _shared_st_model = SentenceTransformer(
+                model_name,
+                device="cpu",
+                model_kwargs={"low_cpu_mem_usage": False},
+            )
+        except Exception:
+            _shared_st_model = SentenceTransformer(model_name)
+            try:
+                if hasattr(_shared_st_model, "to"):
+                    _shared_st_model = _shared_st_model.to("cpu")
+            except Exception:
+                pass
+        return _shared_st_model
 
 
 def _normalize_embeddings(embeddings: np.ndarray) -> np.ndarray:
@@ -278,43 +319,13 @@ class VectorStore:
     def _get_model(self) -> SentenceTransformer:
         """Return the lazy-loaded multilingual MiniLM encoder.
 
-        Loads on CPU with low_cpu_mem_usage=False to avoid PyTorch meta-tensor
-        errors (PyTorch 2.2+). Falls back through multiple strategies if needed.
-        Thread-safe with double-checked locking pattern.
+        Delegates to the process-wide :func:`get_shared_sentence_transformer`
+        so that VectorStore and StructuredDocumentChunker share one copy.
         """
-        # Fast path: model already loaded (no lock needed)
         if self._model is not None:
             return self._model
-        
-        # Acquire lock for model loading
-        with self._model_lock:
-            # Double-check: another thread might have loaded it while we waited
-            if self._model is not None:
-                return self._model
-            # Strategy 1: CPU with low_cpu_mem_usage=False
-            try:
-                self._model = SentenceTransformer(
-                    self.model_name,
-                    device="cpu",
-                    model_kwargs={"low_cpu_mem_usage": False},
-                )
-                return self._model
-            except Exception:
-                # Strategy 2: Load without device parameter, then move to CPU
-                try:
-                    import torch
-                    # Load model without forcing device, let it use default
-                    self._model = SentenceTransformer(self.model_name)
-                    # Try to move to CPU if not already there
-                    try:
-                        if hasattr(self._model, "to"):
-                            self._model = self._model.to("cpu")
-                    except Exception:
-                        # Ignore if .to() fails, model might already be on CPU
-                        pass
-                    return self._model
-                except Exception as exc2:
-                    raise RuntimeError(f"Failed to load SentenceTransformer model: {exc2}") from exc2
+        self._model = get_shared_sentence_transformer(self.model_name)
+        return self._model
 
     def _encode_texts(self, texts: Sequence[str]) -> np.ndarray:
         """Encode texts into normalized embedding vectors."""

@@ -15,8 +15,10 @@ logging.getLogger("presidio_analyzer.recognizer_registry").setLevel(logging.ERRO
 logging.getLogger("paddlex").setLevel(logging.ERROR)
 logging.getLogger("paddleocr").setLevel(logging.ERROR)
 
+import asyncio
 from contextlib import asynccontextmanager
 import os
+import threading
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,10 +41,31 @@ from .services.error_logger import log_backend_error
 from .utils.device import get_device
 
 
+def _preload_models() -> None:
+    """Pre-load heavy ML models in a background thread.
+
+    Called once at startup so that the first user request does not
+    have to wait ~15 s for spaCy, NER, and embedding models to load.
+    """
+    try:
+        from .services.sanitizer import _get_shared_nlp_engine
+        _get_shared_nlp_engine()
+
+        from .services.ner_model_registry import get_shared_ner_registry
+        get_shared_ner_registry().get_pipeline("en")
+
+        from .services.vector_store import get_shared_sentence_transformer
+        model = get_shared_sentence_transformer()
+        model.encode(["warmup"], convert_to_numpy=True)
+    except Exception:
+        pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan handler to initialize the database on startup."""
     await init_db()
+    threading.Thread(target=_preload_models, daemon=True).start()
     yield
 
 

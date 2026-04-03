@@ -18,9 +18,6 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from langchain_experimental.text_splitter import SemanticChunker as LangChainSemanticChunker
-from sentence_transformers import SentenceTransformer
-
-from ..utils.device import get_device
 
 
 @dataclass
@@ -82,35 +79,26 @@ class StructuredDocumentChunker(SemanticChunker):
     def _get_semantic_splitter(self) -> LangChainSemanticChunker:
         """Lazy-load the LangChain SemanticChunker with embeddings."""
         if self._semantic_splitter is None:
-            # Use the same multilingual MiniLM model as VectorStore
-            device = get_device()
-            embeddings_model = SentenceTransformer(
-                "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-                device=device
-            )
-            
-            # Wrap the model for LangChain compatibility
+            from .vector_store import get_shared_sentence_transformer
             from langchain_core.embeddings import Embeddings
-            
-            class SentenceTransformerEmbeddings(Embeddings):
-                def __init__(self, model: SentenceTransformer):
+
+            embeddings_model = get_shared_sentence_transformer()
+
+            class _STEmbeddings(Embeddings):
+                def __init__(self, model: object) -> None:
                     self.model = model
-                
+
                 def embed_documents(self, texts: List[str]) -> List[List[float]]:
-                    embeddings = self.model.encode(texts, convert_to_numpy=True)
-                    return embeddings.tolist()
-                
+                    return self.model.encode(texts, convert_to_numpy=True).tolist()
+
                 def embed_query(self, text: str) -> List[float]:
-                    embedding = self.model.encode([text], convert_to_numpy=True)[0]
-                    return embedding.tolist()
-            
-            embeddings = SentenceTransformerEmbeddings(embeddings_model)
-            
+                    return self.model.encode([text], convert_to_numpy=True)[0].tolist()
+
             self._semantic_splitter = LangChainSemanticChunker(
-                embeddings=embeddings,
+                embeddings=_STEmbeddings(embeddings_model),
                 breakpoint_threshold_type="gradient",
             )
-        
+
         return self._semantic_splitter
 
     def chunk(self, text: str) -> List[Chunk]:

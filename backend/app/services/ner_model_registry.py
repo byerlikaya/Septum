@@ -12,10 +12,9 @@ The goal is to centralize model loading logic so the sanitizer can
 remain focused on PII detection and anonymization semantics.
 """
 
+import threading
 from dataclasses import dataclass, field
 from typing import Dict
-
-from transformers import pipeline
 
 from ..utils.device import get_device
 
@@ -66,6 +65,8 @@ class NERModelRegistry:
         """Return a cached NER pipeline for the given language."""
         lang = (language or "en").lower()
         if lang not in self._loaded_models:
+            from transformers import pipeline
+
             model_name = self._get_model_name(lang)
             device = get_device()
             device_index = -1 if device == "cpu" else 0
@@ -87,4 +88,26 @@ class NERModelRegistry:
         if language in self.DEFAULT_MODEL_MAP:
             return self.DEFAULT_MODEL_MAP[language]
         return self.DEFAULT_MODEL_MAP["fallback"]
+
+
+_shared_registry: NERModelRegistry | None = None
+_registry_lock = threading.Lock()
+
+
+def get_shared_ner_registry(
+    overrides: Dict[str, str] | None = None,
+) -> NERModelRegistry:
+    """Return a process-wide NERModelRegistry singleton.
+
+    Loaded NER pipelines (~500 MB each) survive across requests so the
+    same model is never loaded twice for the same language.
+    """
+    global _shared_registry
+    if _shared_registry is not None:
+        return _shared_registry
+    with _registry_lock:
+        if _shared_registry is not None:
+            return _shared_registry
+        _shared_registry = NERModelRegistry(_overrides=overrides or {})
+        return _shared_registry
 

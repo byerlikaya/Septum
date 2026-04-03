@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from typing import Literal
 
-import torch
-
 DeviceType = Literal["mps", "cuda", "cpu"]
 
 
@@ -24,6 +22,8 @@ def get_device() -> DeviceType:
 
     Uses getattr for MPS so that environments without the backend do not raise.
     """
+    import torch
+
     mps_backend = getattr(torch.backends, "mps", None)
     if mps_backend is not None and mps_backend.is_available():
         return "mps"

@@ -4,7 +4,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .policy_composer import PolicyComposer
-from .ner_model_registry import NERModelRegistry
+from .ner_model_registry import get_shared_ner_registry
 from .sanitizer import PIISanitizer
 from ..models.settings import AppSettings
 
@@ -17,7 +17,7 @@ async def create_sanitizer(
     """Build a fully configured PIISanitizer from DB state."""
     policy = await PolicyComposer().compose(db)
     ner_overrides = getattr(settings, "ner_model_overrides", None)
-    ner_registry = NERModelRegistry(_overrides=ner_overrides) if ner_overrides else NERModelRegistry()
+    ner_registry = get_shared_ner_registry(overrides=ner_overrides)
     return PIISanitizer(
         settings=settings,
         policy=policy,

@@ -1,8 +1,16 @@
 from __future__ import annotations
 
-"""PaddleOCR-based OCR provider with layout analysis."""
+"""PaddleOCR-based OCR provider with layout analysis.
 
+OCR inference runs in a **persistent subprocess** so that PaddlePaddle's
+~1.5 GB memory footprint is isolated from the main FastAPI process.
+The worker stays alive between calls with the engine cached, so only
+the first OCR call pays the model-loading cost.
+"""
+
+import atexit
 import logging
+import multiprocessing as mp
 import os
 import re
 from typing import Any, Dict, List, Tuple
@@ -16,6 +24,90 @@ logger = logging.getLogger(__name__)
 _CURRENCY_SUFFIX = re.compile(r"(\d)[εε€¢º£¥₺#tbも](?=\s|$)", re.IGNORECASE)
 _CURRENCY_STANDALONE = re.compile(r"[εε€¢º£¥₺も]")
 
+# ---------------------------------------------------------------------------
+# Subprocess worker — runs in a long-lived child process
+# ---------------------------------------------------------------------------
+
+_worker_engine: Any = None
+
+
+def _paddle_ocr_predict(
+    image_bytes: bytes,
+    image_shape: Tuple[int, ...],
+    image_dtype_str: str,
+    model_name: str,
+) -> List[Dict[str, Any]]:
+    """Run PaddleOCR in the worker subprocess.
+
+    The engine is created once and cached in the module-level
+    ``_worker_engine`` variable for the lifetime of the worker process.
+    """
+    global _worker_engine
+
+    if _worker_engine is None:
+        os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+        from paddleocr import PaddleOCR  # type: ignore[import]
+
+        _worker_engine = PaddleOCR(text_recognition_model_name=model_name)
+
+    image = np.frombuffer(image_bytes, dtype=np.dtype(image_dtype_str)).reshape(
+        image_shape
+    )
+    raw = _worker_engine.predict(image)
+
+    if not raw or not isinstance(raw, list):
+        return []
+
+    pages: List[Dict[str, Any]] = []
+    for page in raw:
+        pd: Dict[str, Any] = {
+            "rec_texts": list(page.get("rec_texts", [])),
+            "rec_scores": [float(s) for s in page.get("rec_scores", [])],
+        }
+        polys = page.get("dt_polys", [])
+        if polys:
+            pd["dt_polys"] = [np.array(p).tolist() for p in polys]
+        pages.append(pd)
+    return pages
+
+
+# ---------------------------------------------------------------------------
+# Persistent subprocess pool (module-level, shared across all providers)
+# ---------------------------------------------------------------------------
+
+_ocr_pool: mp.pool.Pool | None = None
+_ocr_pool_lock = mp.Lock()
+
+
+def _get_ocr_pool() -> mp.pool.Pool:
+    """Return the long-lived OCR worker pool, creating it on first call."""
+    global _ocr_pool
+    if _ocr_pool is not None:
+        return _ocr_pool
+    with _ocr_pool_lock:
+        if _ocr_pool is not None:
+            return _ocr_pool
+        ctx = mp.get_context("spawn")
+        _ocr_pool = ctx.Pool(1)
+        return _ocr_pool
+
+
+def shutdown_ocr_pool() -> None:
+    """Terminate the OCR subprocess pool and release ~1.5 GB of memory."""
+    global _ocr_pool
+    if _ocr_pool is not None:
+        _ocr_pool.terminate()
+        _ocr_pool.join()
+        _ocr_pool = None
+
+
+atexit.register(shutdown_ocr_pool)
+
+
+# ---------------------------------------------------------------------------
+# Provider class
+# ---------------------------------------------------------------------------
+
 
 class PaddleOcrProvider(OcrProvider):
     """OCR provider backed by PaddleOCR.
@@ -23,34 +115,30 @@ class PaddleOcrProvider(OcrProvider):
     Provides built-in layout analysis for structured documents
     like menus, invoices, and forms with accurate character
     recognition across multiple languages.
+
+    PaddleOCR runs in a persistent subprocess so that PaddlePaddle's
+    ~1.5 GB footprint never enters the main process. The engine is
+    cached in the worker, so only the first call pays the loading cost.
     """
+
+    _MODEL_NAME = "PP-OCRv5_server_rec"
 
     def __init__(self, **options: Any) -> None:
         self._options = dict(options)
-        self._engine_cache: Dict[str, Any] = {}
 
     def run_ocr(
         self,
         image_array: np.ndarray,
         languages: List[str],
     ) -> Tuple[List[str], List[float]]:
-        engine = self._get_engine(languages)
-        if engine is None:
-            return [], []
-
-        try:
-            result = engine.predict(image_array)
-        except Exception as exc:
-            logger.warning("PaddleOCR predict failed (image shape=%s): %s",
-                           image_array.shape, exc)
-            return [], []
-        if not result or not isinstance(result, list):
+        page_results = self._predict_in_subprocess(image_array)
+        if not page_results:
             return [], []
 
         texts: List[str] = []
         confidences: List[float] = []
 
-        for page_result in result:
+        for page_result in page_results:
             rec_texts = page_result.get("rec_texts", [])
             rec_scores = page_result.get("rec_scores", [])
             dt_polys = page_result.get("dt_polys", [])
@@ -83,6 +171,29 @@ class PaddleOcrProvider(OcrProvider):
 
         return texts, confidences
 
+    def _predict_in_subprocess(
+        self, image_array: np.ndarray,
+    ) -> List[Dict[str, Any]]:
+        """Send image to the persistent OCR worker and collect results."""
+        pool = _get_ocr_pool()
+        try:
+            return pool.apply(
+                _paddle_ocr_predict,
+                (
+                    image_array.tobytes(),
+                    image_array.shape,
+                    str(image_array.dtype),
+                    self._MODEL_NAME,
+                ),
+            )
+        except Exception as exc:
+            logger.warning(
+                "PaddleOCR subprocess failed (image shape=%s): %s",
+                image_array.shape,
+                exc,
+            )
+            return []
+
     @staticmethod
     def _build_entries(
         polys: Any,
@@ -112,13 +223,7 @@ class PaddleOcrProvider(OcrProvider):
         entries: List[Tuple[float, float, float, float, str, float]],
         image_width: int,
     ) -> List[List[Tuple[float, float, float, float, str, float]]]:
-        """Split entries into vertical columns only for true multi-column layouts.
-
-        Distinguishes between:
-        - True multi-column: both sides have text content (menus with 2 product lists)
-        - Price-right layout: left has text, right has only short numbers/prices
-          (single-column menu with prices aligned right)
-        """
+        """Split entries into vertical columns only for true multi-column layouts."""
         if not entries or image_width < 400:
             return [entries]
 
@@ -199,31 +304,3 @@ class PaddleOcrProvider(OcrProvider):
         text = _CURRENCY_SUFFIX.sub(r"\1₺", text)
         text = _CURRENCY_STANDALONE.sub("₺", text)
         return text
-
-    def _get_engine(self, languages: List[str]) -> Any:
-        """Get or create a PaddleOCR engine.
-
-        Uses the multilingual server recognition model (PP-OCRv5_server_rec)
-        which supports all scripts without language-specific configuration.
-        """
-        cache_key = "multilingual"
-        if cache_key in self._engine_cache:
-            return self._engine_cache[cache_key]
-
-        try:
-            from paddleocr import PaddleOCR  # type: ignore[import]
-        except ImportError:
-            logger.error("paddleocr package not installed")
-            return None
-
-        os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
-
-        try:
-            engine = PaddleOCR(
-                text_recognition_model_name="PP-OCRv5_server_rec",
-            )
-            self._engine_cache[cache_key] = engine
-            return engine
-        except Exception as exc:
-            logger.error("Failed to initialize PaddleOCR: %s", exc)
-            return None
