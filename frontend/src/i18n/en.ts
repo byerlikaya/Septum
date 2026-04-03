@@ -6,6 +6,7 @@ export const enMessages = {
   "sidebar.chunks": "Chunks",
   "sidebar.settings": "Settings",
   "sidebar.regulations": "Regulations",
+  "sidebar.audit trail": "Audit Trail",
   "sidebar.error logs": "Error Logs",
   "sidebar.footer": "Privacy-first · Local-first",
 

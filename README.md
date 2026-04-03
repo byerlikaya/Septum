@@ -373,7 +373,9 @@ On the Next.js side we follow Context7 best practices:
 - lingua‑language‑detector, langdetect  
 - PaddleOCR, OpenCV, Pillow  
 - Whisper, ffmpeg‑python  
-- SQLAlchemy + aiosqlite  
+- SQLAlchemy + asyncpg (PostgreSQL) / aiosqlite (SQLite)  
+- Alembic (schema migrations)  
+- Redis (optional anonymization map caching)  
 - cryptography (AES‑256‑GCM)
 
 **Frontend**
@@ -382,6 +384,10 @@ On the Next.js side we follow Context7 best practices:
 - TypeScript  
 - Tailwind CSS  
 - axios, react‑dropzone, lucide‑react
+
+**Infrastructure**
+- Docker Compose (PostgreSQL 16 + Redis 7 + backend + frontend)  
+- Ollama (optional local LLM fallback)
 
 ---
 
@@ -490,10 +496,52 @@ Any tests that would send real requests to a cloud LLM **must be mocked**; tests
 ## Security & Privacy Highlights
 
 - Raw PII is never logged and never sent to the cloud.  
-- The anonymisation map (placeholders → real values) is kept only in memory and never written to disk.  
+- The anonymisation map (placeholders → real values) is cached in memory, optionally in Redis, and persisted encrypted on disk with AES‑256‑GCM. It is never sent to the frontend, cloud, or logs.  
 - File types are detected by content signature, not by extension.  
-- Files are stored encrypted on disk with AES‑256‑GCM; decryption happens only in memory during preview.  
+- Uploaded files are stored encrypted on disk with AES‑256‑GCM; decryption happens only in memory during preview.  
 - When multiple regulations are active at the same time, Septum always applies the **most restrictive** masking policy.
+
+---
+
+## Audit Trail & Compliance Reporting
+
+Septum maintains an **append-only audit trail** for GDPR, KVKK, and other regulation compliance:
+
+- **Events tracked:** PII detection (per entity type and count), de-anonymisation, document upload/delete, regulation changes.  
+- **No raw PII stored:** Audit events record entity type names and counts only — never original values.  
+- **REST API:**  
+  - `GET /api/audit` — paginated, filterable by event type, document, session, and date range.  
+  - `GET /api/audit/{document_id}/report` — compliance report for a specific document.  
+  - `GET /api/audit/session/{session_id}` — full audit trail for a chat session.  
+  - `GET /api/audit/metrics` — aggregate PII detection quality metrics (entity type distribution, coverage ratios, per-document averages).  
+- **Frontend:** Audit log viewer in Settings → Audit Trail with event type badges, entity breakdowns, and pagination.
+
+---
+
+## LLM Resilience & Observability
+
+- **Circuit breaker:** After 3 consecutive cloud LLM failures within 120 seconds, the provider is temporarily disabled (60-second cooldown). Requests skip directly to the local Ollama fallback without wasting retry time. After cooldown, a single probe request tests recovery.  
+- **Multi-provider support:** Anthropic, OpenAI, OpenRouter, and local Ollama. Switch providers via Settings UI without code changes.  
+- **Retry with exponential backoff:** Cloud HTTP calls retry up to 3 times with exponential backoff (0.5s → 1s → 2s).  
+- **Health endpoint:** `GET /health` reports backend status, device info, LLM provider, Redis connectivity, and per-provider circuit breaker state.
+
+---
+
+## API Reference
+
+Septum exposes a RESTful API. Key endpoint groups:
+
+| Group | Endpoints | Description |
+|-------|-----------|-------------|
+| **Documents** | `POST /api/documents`, `GET /api/documents`, `DELETE /api/documents/{id}`, `POST /api/documents/{id}/reprocess` | Upload, list, delete, and reprocess documents |
+| **Chat** | `POST /api/chat/ask` (SSE), `GET /api/chat/debug/{session_id}` | Privacy-preserving RAG chat with streaming |
+| **Chunks** | `GET /api/chunks`, `GET /api/chunks/{id}` | Search and inspect document chunks |
+| **Settings** | `GET /api/settings`, `PUT /api/settings` | Application configuration |
+| **Regulations** | `GET /api/regulations`, `PUT /api/regulations/{id}` | Manage regulation rulesets and custom recognisers |
+| **Audit** | `GET /api/audit`, `GET /api/audit/{id}/report`, `GET /api/audit/metrics` | Compliance audit trail and detection metrics |
+| **Health** | `GET /health` | System health with provider and Redis status |
+
+Full OpenAPI schema is available at `http://localhost:8000/docs` when the backend is running.
 
 ---
 
@@ -502,7 +550,9 @@ Any tests that would send real requests to a cloud LLM **must be mocked**; tests
 - Add new country regulations by creating new regulation packs in the recogniser registry.  
 - Add new national ID formats by adding validators and recognisers in the national ID module.  
 - Add new document formats by implementing dedicated ingesters in the ingestion layer.  
-- Update NER model mappings from the Settings → NER Models screen.
+- Update NER model mappings from the Settings → NER Models screen.  
+- Pronoun coreference resolution via local LLM (Ollama) detects implied subject references.  
+- PII detection quality metrics for data-driven assessment of detection coverage.
 
 ---
 

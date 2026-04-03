@@ -747,6 +747,15 @@ class PIISanitizer:
         sanitized, count = self._apply_replacements(
             normalized_text, spans, anon_map, language
         )
+
+        if self._enable_ollama_layer and anon_map.entity_map:
+            try:
+                self._resolve_pronoun_coreference(
+                    normalized_text, anon_map, language
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Pronoun coreference resolution failed, continuing: %s", e)
+
         sanitized = anon_map.apply_blocklist(sanitized, language)
         self._log_low_confidence(spans)
 
@@ -915,6 +924,73 @@ class PIISanitizer:
             ", ".join(sorted(set(self._entity_types))),
         ]
         return "\n".join(context_parts)
+
+    def _resolve_pronoun_coreference(
+        self,
+        normalized_text: str,
+        anon_map: "AnonymizationMap",
+        language: str,
+    ) -> None:
+        """Use Ollama to identify pronouns referring to known person entities.
+
+        Detected pronouns are added directly to the anonymization map's
+        token_to_placeholder mapping so that apply_blocklist replaces them
+        with the correct [ENTITY_TYPE_N] placeholder.
+        """
+        person_entities = [
+            {"name": orig, "placeholder": ph}
+            for orig, ph in anon_map.entity_map.items()
+            if any(bt in ph for bt in ("PERSON_NAME", "FIRST_NAME", "LAST_NAME", "ALIAS"))
+        ]
+        if not person_entities:
+            return
+
+        prompt = PromptCatalog.pronoun_coreference_resolution(
+            normalized_text=normalized_text,
+            known_persons=person_entities,
+            language=language,
+        )
+        response = call_ollama_sync(
+            prompt=prompt,
+            base_url=self._settings.ollama_base_url,
+            model=self._settings.ollama_deanon_model,
+        )
+        if not response or not response.strip():
+            return
+
+        items = extract_json_array(response)
+        resolved_count = 0
+
+        for item in items:
+            pronoun_text = item.get("text", "").strip()
+            refers_to = item.get("refers_to", "").strip()
+            if not pronoun_text or not refers_to:
+                continue
+
+            placeholder = anon_map.entity_map.get(refers_to)
+            if not placeholder:
+                norm_ref = normalize_for_comparison(refers_to, language)
+                for orig, ph in anon_map.entity_map.items():
+                    if normalize_for_comparison(orig, language) == norm_ref:
+                        placeholder = ph
+                        break
+            if not placeholder:
+                continue
+
+            norm_pronoun = normalize_for_comparison(pronoun_text, language)
+            if len(norm_pronoun) <= 1 or norm_pronoun in SANITIZER_STOPWORDS:
+                continue
+
+            anon_map.blocklist.add(norm_pronoun)
+            anon_map.token_to_placeholder[norm_pronoun] = placeholder
+            resolved_count += 1
+
+        if resolved_count > 0:
+            logger.debug(
+                "Pronoun coreference resolved %d pronouns for document_id=%s",
+                resolved_count,
+                anon_map.document_id,
+            )
 
     def _ollama_pii_detection(self, normalized_text: str) -> List[DetectedSpan]:
         """Call local Ollama to detect PII (aliases, nicknames); return spans for Layer 4.

@@ -374,7 +374,9 @@ Next.js tarafında Context7 en iyi pratikleri takip edilir:
 - lingua‑language‑detector, langdetect  
 - PaddleOCR, OpenCV, Pillow  
 - Whisper, ffmpeg‑python  
-- SQLAlchemy + aiosqlite  
+- SQLAlchemy + asyncpg (PostgreSQL) / aiosqlite (SQLite)  
+- Alembic (şema migrasyonları)  
+- Redis (opsiyonel anonymization map cache)  
 - cryptography (AES‑256‑GCM)
 
 **Frontend**
@@ -383,6 +385,10 @@ Next.js tarafında Context7 en iyi pratikleri takip edilir:
 - TypeScript  
 - Tailwind CSS  
 - axios, react‑dropzone, lucide‑react
+
+**Altyapı**
+- Docker Compose (PostgreSQL 16 + Redis 7 + backend + frontend)  
+- Ollama (opsiyonel yerel LLM fallback)
 
 ---
 
@@ -491,10 +497,52 @@ Gerçek bulut LLM sağlayıcılarına istek gönderecek tüm testler **mock** ed
 ## Güvenlik ve Gizlilik (Önemli Noktalar)
 
 - Ham PII asla log’lanmaz ve buluta gönderilmez.
-- Anonymization map (maskeler → gerçek değerler) yalnızca bellek içinde tutulur, diske yazılmaz.
+- Anonymization map (maskeler → gerçek değerler) bellekte, opsiyonel olarak Redis’te ve diskte AES‑256‑GCM şifreli olarak saklanır. Asla frontend’e, buluta veya log’lara gönderilmez.
 - Dosya tipleri uzantıya göre değil, içerik imzasına göre tespit edilir.
-- Dosyalar diskte AES‑256‑GCM ile şifreli saklanır; çözme işlemi sadece önizleme sırasında ve bellek içinde yapılır.
+- Yüklenen dosyalar diskte AES‑256‑GCM ile şifreli saklanır; çözme işlemi sadece önizleme sırasında ve bellek içinde yapılır.
 - Birden fazla regülasyon aynı anda aktifken, her zaman **en kısıtlayıcı maskeleme** politikası uygulanır.
+
+---
+
+## Denetim Kaydı ve Uyumluluk Raporlama
+
+Septum, GDPR, KVKK ve diğer regülasyon uyumluluğu için **salt-ekleme denetim kaydı** tutar:
+
+- **İzlenen olaylar:** PII tespiti (varlık tipi ve sayısı bazında), de-anonimleştirme, doküman yükleme/silme, regülasyon değişiklikleri.
+- **Ham PII saklanmaz:** Denetim olayları yalnızca varlık tipi adlarını ve sayılarını kaydeder — asla orijinal değerleri içermez.
+- **REST API:**
+  - `GET /api/audit` — sayfalı, olay tipi, doküman, oturum ve tarih aralığına göre filtrelenebilir.
+  - `GET /api/audit/{document_id}/report` — belirli bir doküman için uyumluluk raporu.
+  - `GET /api/audit/session/{session_id}` — bir sohbet oturumunun tam denetim kaydı.
+  - `GET /api/audit/metrics` — toplu PII tespit kalite metrikleri (varlık tipi dağılımı, kapsam oranları, doküman başı ortalamalar).
+- **Frontend:** Ayarlar → Denetim Kaydı bölümünde olay tipi rozetleri, varlık dağılımları ve sayfalama ile denetim günlüğü görüntüleyici.
+
+---
+
+## LLM Dayanıklılığı ve İzlenebilirlik
+
+- **Devre kesici (circuit breaker):** 120 saniye içinde 3 ardışık bulut LLM hatası sonrası sağlayıcı geçici olarak devre dışı bırakılır (60 saniye bekleme). İstekler yeniden deneme süresini harcamadan doğrudan yerel Ollama fallback’e atlar. Bekleme süresi sonunda tek bir deneme isteğiyle toparlanma test edilir.
+- **Çoklu sağlayıcı desteği:** Anthropic, OpenAI, OpenRouter ve yerel Ollama. Kod değişikliği olmadan Ayarlar UI’dan sağlayıcı değiştirme.
+- **Üstel geri çekilme ile yeniden deneme:** Bulut HTTP çağrıları üstel geri çekilmeyle 3 kez yeniden denenir (0,5s → 1s → 2s).
+- **Sağlık endpoint’i:** `GET /health` — backend durumu, cihaz bilgisi, LLM sağlayıcısı, Redis bağlantısı ve sağlayıcı bazlı devre kesici durumu raporlar.
+
+---
+
+## API Referansı
+
+Septum RESTful bir API sunar. Ana endpoint grupları:
+
+| Grup | Endpoint’ler | Açıklama |
+|------|-------------|----------|
+| **Dokümanlar** | `POST /api/documents`, `GET /api/documents`, `DELETE /api/documents/{id}`, `POST /api/documents/{id}/reprocess` | Doküman yükleme, listeleme, silme ve yeniden işleme |
+| **Sohbet** | `POST /api/chat/ask` (SSE), `GET /api/chat/debug/{session_id}` | Gizlilik korumalı RAG sohbet (streaming) |
+| **Parçalar** | `GET /api/chunks`, `GET /api/chunks/{id}` | Doküman parçalarını arama ve inceleme |
+| **Ayarlar** | `GET /api/settings`, `PUT /api/settings` | Uygulama yapılandırması |
+| **Regülasyonlar** | `GET /api/regulations`, `PUT /api/regulations/{id}` | Regülasyon kuralları ve özel tanıyıcı yönetimi |
+| **Denetim** | `GET /api/audit`, `GET /api/audit/{id}/report`, `GET /api/audit/metrics` | Uyumluluk denetim kaydı ve tespit metrikleri |
+| **Sağlık** | `GET /health` | Sağlayıcı ve Redis durumu ile sistem sağlığı |
+
+Tam OpenAPI şeması, backend çalışırken `http://localhost:8000/docs` adresinde mevcuttur.
 
 ---
 
@@ -504,6 +552,8 @@ Gerçek bulut LLM sağlayıcılarına istek gönderecek tüm testler **mock** ed
 - Yeni ulusal kimlik formatları için national ID modülünde yeni validator ve recognizer eklenebilir.
 - Yeni doküman formatları için ingestion katmanında özel ingester implementasyonları eklenebilir.
 - NER model haritası, Settings → NER Models ekranından kullanıcı tarafından güncellenebilir.
+- Yerel LLM (Ollama) ile zamir coreference çözümleme, dolaylı kişi referanslarını tespit eder.
+- PII tespit kalite metrikleri ile tespit kapsamının veri odaklı değerlendirmesi.
 
 ---
 

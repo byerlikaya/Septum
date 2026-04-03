@@ -6,6 +6,7 @@ export const trMessages: Record<string, string> = {
   "sidebar.chunks": "Parçalar",
   "sidebar.settings": "Ayarlar",
   "sidebar.regulations": "Regülasyonlar",
+  "sidebar.audit trail": "Denetim Kaydı",
   "sidebar.error logs": "Hata Günlükleri",
   "sidebar.footer": "Gizlilik-öncelikli · Yerel-öncelikli",
 

@@ -42,6 +42,46 @@ class PromptCatalog:
         return f"System: {system_part}\n\nUser: {user_part}"
 
     @staticmethod
+    def pronoun_coreference_resolution(
+        normalized_text: str,
+        known_persons: List[dict[str, str]],
+        language: str,
+    ) -> str:
+        """Prompt for Ollama-based pronoun/zero-anaphora coreference resolution.
+
+        Identifies pronouns and implied subjects that refer to already-detected
+        person entities, enabling their replacement with the correct placeholder.
+        """
+        import json
+
+        entities_json = json.dumps(known_persons, ensure_ascii=False)
+
+        system_part = (
+            "You are a coreference resolution expert. Given a text and a list of "
+            "known person entities already detected in it, identify ALL pronouns "
+            "and zero-anaphora (implied subjects) that refer to those entities.\n\n"
+            "RULES:\n"
+            "1. Match personal pronouns, possessive pronouns, reflexive pronouns, "
+            "and demonstrative references to persons in the document language.\n"
+            "2. For null-subject languages, detect implied subjects from verb "
+            "conjugation context.\n"
+            "3. ONLY match pronouns that clearly refer to one of the KNOWN ENTITIES.\n"
+            "4. Return the EXACT text substring as it appears.\n"
+            "5. If a pronoun could refer to multiple entities, pick the most recent one.\n"
+            "6. Ignore pronouns that don't refer to any known entity.\n"
+            "Return ONLY a valid JSON array, no explanation."
+        )
+        user_part = (
+            f"DOCUMENT LANGUAGE: {language.upper()}\n\n"
+            f"KNOWN PERSON ENTITIES:\n{entities_json}\n\n"
+            "Find all pronouns and zero-anaphora referring to the known entities above.\n"
+            'Return JSON: [{"text": "pronoun", "refers_to": "entity name from list"}].\n'
+            "If none found, return [].\n\n"
+            f"TEXT:\n{normalized_text}"
+        )
+        return f"System: {system_part}\n\nUser: {user_part}"
+
+    @staticmethod
     def deanonymizer_ollama(entity_map_json: str, masked_text: str) -> str:
         """Prompt for Ollama-based de-anonymization using a placeholder→value map."""
         return (
