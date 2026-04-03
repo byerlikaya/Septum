@@ -72,6 +72,40 @@ def normalize_for_comparison(text: str, language: str = "en") -> str:
     return locale_lower(normalize_unicode(text), language)
 
 
+# Possessive suffixes to strip, keyed by ISO 639-1 language code.
+# Entries are checked longest-first to avoid partial matches.
+_POSSESSIVE_SUFFIXES: Dict[str, list[str]] = {
+    "tr": ["'ın", "'in", "'un", "'ün", "'nın", "'nin", "'nun", "'nün",
+            "'ın", "'in", "'un", "'ün", "'nın", "'nin", "'nun", "'nün"],
+    "az": ["'ın", "'in", "'un", "'ün", "'ın", "'in", "'un", "'ün"],
+}
+
+# Suffixes shared across most Latin-script languages.
+_COMMON_POSSESSIVE_SUFFIXES = ["'s", "'s", "s'", "s'"]
+
+
+def strip_possessive_suffix(text: str, language: str = "en") -> str:
+    """Remove possessive suffixes for coreference resolution.
+
+    Handles English ``'s`` / ``s'``, Turkish genitive markers (``'in``,
+    ``'ın``, etc.), and smart-quote variants. Idempotent and pure.
+    """
+    if not text or len(text) < 3:
+        return text
+
+    # Language-specific suffixes first (longer matches)
+    for suffix in _POSSESSIVE_SUFFIXES.get(language, []):
+        if text.endswith(suffix):
+            return text[: -len(suffix)]
+
+    # Common suffixes
+    for suffix in _COMMON_POSSESSIVE_SUFFIXES:
+        if text.endswith(suffix):
+            return text[: -len(suffix)]
+
+    return text
+
+
 def starts_with_uppercase(text: str) -> bool:
     """Return True if text starts with an uppercase letter.
 

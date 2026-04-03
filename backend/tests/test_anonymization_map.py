@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from backend.app.services.anonymization_map import AnonymizationMap
+from backend.app.utils.text_utils import strip_possessive_suffix
 
 
 def test_coreference_full_name_and_first_name_share_placeholder() -> None:
@@ -141,6 +142,43 @@ def test_same_normalized_form_different_types_first_wins() -> None:
     # Should resolve to the first-seen placeholder (PERSON_NAME)
     assert ph1 == ph2
     assert "PERSON_NAME" in ph1
+
+
+def test_english_possessive_resolved_via_coreference() -> None:
+    """English possessive 's should resolve to the base name's placeholder."""
+    amap = AnonymizationMap(document_id=16, language="en")
+    ph1 = amap.add_entity("Smith", "PERSON_NAME")
+    ph2 = amap.add_entity("Smith's", "PERSON_NAME")
+    assert ph1 == ph2
+
+
+def test_turkish_possessive_resolved_via_coreference() -> None:
+    """Turkish genitive suffix 'in should resolve to the base name's placeholder."""
+    amap = AnonymizationMap(document_id=17, language="tr")
+    ph1 = amap.add_entity("Ahmet", "PERSON_NAME")
+    ph2 = amap.add_entity("Ahmet'in", "PERSON_NAME")
+    assert ph1 == ph2
+
+
+def test_strip_possessive_suffix_utility() -> None:
+    """strip_possessive_suffix should handle various forms."""
+    assert strip_possessive_suffix("Smith's", "en") == "Smith"
+    assert strip_possessive_suffix("workers'", "en") == "worker"
+    assert strip_possessive_suffix("Ahmet'in", "tr") == "Ahmet"
+    assert strip_possessive_suffix("Ayşe'nin", "tr") == "Ayşe"
+    assert strip_possessive_suffix("John", "en") == "John"
+    assert strip_possessive_suffix("AB", "en") == "AB"
+
+
+def test_possessive_entity_blocklist_uses_base_form() -> None:
+    """Blocklist should use base form (without possessive) for token lookup."""
+    amap = AnonymizationMap(document_id=18, language="en")
+    amap.add_entity("Johnson's", "PERSON_NAME")
+    # Blocklist should have "johnson" not "johnson's"
+    assert "johnson" in amap.blocklist
+
+    redacted = amap.apply_blocklist("Then Johnson arrived.", language="en")
+    assert "Johnson" not in redacted
 
 
 def test_punctuation_adjacent_token_resolved_by_blocklist() -> None:

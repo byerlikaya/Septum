@@ -148,6 +148,7 @@ async def health(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
     )
 
     from .services.redis_client import redis_ping
+    from .services.llm_providers.health import get_all_statuses
 
     redis_ok = await redis_ping()
 
@@ -156,5 +157,6 @@ async def health(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
         "device": get_device(),
         "llm_provider": llm_provider,
         "redis": "connected" if redis_ok else "unavailable",
+        "llm_providers": get_all_statuses(),
     }
 

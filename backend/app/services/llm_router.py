@@ -28,6 +28,7 @@ from ..models.settings import AppSettings
 from . import ollama_client
 from .llm_errors import LLMRouterError
 from .llm_providers.factory import build_provider
+from .llm_providers.health import is_available, record_failure, record_success
 
 logger = logging.getLogger(__name__)
 
@@ -89,29 +90,40 @@ class LLMRouter:
         if not messages:
             return
 
-        try:
-            provider = build_provider(self._settings)
-            text = await provider.complete(
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
+        provider_key = f"{self._provider}:{self._model}"
+
+        if not is_available(provider_key):
+            logger.warning(
+                "Circuit breaker open for %s, skipping to Ollama fallback",
+                provider_key,
             )
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "Cloud LLM call failed, attempting Ollama fallback: provider=%s, model=%s, error=%s",
-                self._provider,
-                self._model,
-                exc,
-            )
-            if on_cloud_failure is not None:
-                try:
-                    await on_cloud_failure(
-                        f"Cloud LLM call failed, attempting Ollama fallback: provider={self._provider}, model={self._model}, error={exc}",
-                        {"provider": self._provider, "model": self._model, "error": str(exc)},
-                    )
-                except Exception:  # noqa: BLE001
-                    pass
             text = await self._fallback_via_ollama(messages, temperature, max_tokens)
+        else:
+            try:
+                provider = build_provider(self._settings)
+                text = await provider.complete(
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                record_success(provider_key)
+            except Exception as exc:  # noqa: BLE001
+                record_failure(provider_key)
+                logger.error(
+                    "Cloud LLM call failed, attempting Ollama fallback: provider=%s, model=%s, error=%s",
+                    self._provider,
+                    self._model,
+                    exc,
+                )
+                if on_cloud_failure is not None:
+                    try:
+                        await on_cloud_failure(
+                            f"Cloud LLM call failed, attempting Ollama fallback: provider={self._provider}, model={self._model}, error={exc}",
+                            {"provider": self._provider, "model": self._model, "error": str(exc)},
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+                text = await self._fallback_via_ollama(messages, temperature, max_tokens)
 
         for chunk in _chunk_text(text):
             yield chunk

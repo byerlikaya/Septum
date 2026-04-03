@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Optional, Set
 import re
 
-from ..utils.text_utils import normalize_for_comparison
+from ..utils.text_utils import normalize_for_comparison, strip_possessive_suffix
 
 # FUTURE: migrate to NonPiiRule table for full user-editability.
 # Minimal stopwords kept here for technical filtering (ultra-common function words).
@@ -136,9 +136,13 @@ class AnonymizationMap:
         casing, except very short tokens (<=2 chars) and stopwords. This ensures
         residual mentions of person names (e.g. lowercase "sarah", "david") are
         redacted by apply_blocklist even when NER models miss them.
+
+        Possessive suffixes are stripped before tokenization so that
+        ``"Ahmet's"`` and ``"Ahmet"`` produce the same blocklist tokens.
         """
-        normalized = normalize_for_comparison(original, self.language)
-        orig_tokens = original.split()
+        stripped = strip_possessive_suffix(original, self.language)
+        normalized = normalize_for_comparison(stripped, self.language)
+        orig_tokens = stripped.split()
         norm_tokens = normalized.split()
 
         for index, token in enumerate(norm_tokens):
@@ -160,15 +164,20 @@ class AnonymizationMap:
         This uses normalized token overlap as a simple coreference heuristic.
         If the tokens of ``original`` are a subset of those of an existing
         entity (or vice versa), the same placeholder is reused.
+
+        Possessive suffixes are stripped before comparison so that
+        ``"Ahmet's"`` matches a previously seen ``"Ahmet"``.
         """
         if not self.entity_map:
             return None
 
-        normalized = normalize_for_comparison(original, self.language)
+        stripped = strip_possessive_suffix(original, self.language)
+        normalized = normalize_for_comparison(stripped, self.language)
         orig_tokens = {t for t in normalized.split() if len(t) > 2}
 
         for existing, placeholder in self.entity_map.items():
-            existing_normalized = normalize_for_comparison(existing, self.language)
+            existing_stripped = strip_possessive_suffix(existing, self.language)
+            existing_normalized = normalize_for_comparison(existing_stripped, self.language)
             if normalized == existing_normalized:
                 return placeholder
 

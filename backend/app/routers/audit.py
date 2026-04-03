@@ -155,6 +155,76 @@ async def get_session_audit(
     return [_to_response(e) for e in events]
 
 
+class DetectionMetricsResponse(BaseModel):
+    """Aggregate PII detection quality metrics across all documents."""
+
+    total_documents_processed: int
+    total_entities_detected: int
+    total_deanonymization_events: int
+    entity_type_distribution: Dict[str, int]
+    regulation_usage: Dict[str, int]
+    avg_entities_per_document: float
+    detection_coverage: Dict[str, float]
+
+
+@router.get("/metrics", response_model=DetectionMetricsResponse)
+async def get_detection_metrics(
+    db: AsyncSession = Depends(get_db),
+) -> DetectionMetricsResponse:
+    """Aggregate PII detection quality metrics from audit trail.
+
+    Returns entity type distribution, regulation usage, average detection
+    rates, and per-entity-type coverage ratios — useful for assessing
+    detection quality and identifying blind spots.
+    """
+    pii_stmt = select(AuditEvent).where(AuditEvent.event_type == "pii_detected")
+    pii_result = await db.execute(pii_stmt)
+    pii_events = pii_result.scalars().all()
+
+    deanon_stmt = select(func.count(AuditEvent.id)).where(
+        AuditEvent.event_type == "deanonymization_performed"
+    )
+    deanon_result = await db.execute(deanon_stmt)
+    total_deanon = deanon_result.scalar() or 0
+
+    doc_ids: set[int] = set()
+    total_entities = 0
+    entity_dist: Dict[str, int] = {}
+    regulation_counts: Dict[str, int] = {}
+
+    for event in pii_events:
+        if event.document_id is not None:
+            doc_ids.add(event.document_id)
+        total_entities += event.entity_count
+        for etype, ecount in (event.entity_types_detected or {}).items():
+            entity_dist[etype] = entity_dist.get(etype, 0) + ecount
+        for reg_id in event.regulation_ids or []:
+            regulation_counts[reg_id] = regulation_counts.get(reg_id, 0) + 1
+
+    total_docs = len(doc_ids)
+    avg_per_doc = total_entities / total_docs if total_docs > 0 else 0.0
+
+    grand_total = sum(entity_dist.values()) or 1
+    coverage = {
+        etype: round(count / grand_total, 4)
+        for etype, count in sorted(entity_dist.items(), key=lambda x: -x[1])
+    }
+
+    return DetectionMetricsResponse(
+        total_documents_processed=total_docs,
+        total_entities_detected=total_entities,
+        total_deanonymization_events=total_deanon,
+        entity_type_distribution=dict(
+            sorted(entity_dist.items(), key=lambda x: -x[1])
+        ),
+        regulation_usage=dict(
+            sorted(regulation_counts.items(), key=lambda x: -x[1])
+        ),
+        avg_entities_per_document=round(avg_per_doc, 2),
+        detection_coverage=coverage,
+    )
+
+
 def _to_response(event: AuditEvent) -> AuditEventResponse:
     return AuditEventResponse(
         id=event.id,
