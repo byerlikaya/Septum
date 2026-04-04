@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
 import { X } from "lucide-react";
-import api from "@/lib/api";
+import api, { baseURL, getAuthToken } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { getDocumentDisplayName } from "@/lib/utils";
 import { CopyButton } from "@/components/common/CopyButton";
@@ -237,6 +237,19 @@ export function DocumentPreview({
               )}
             </div>
           )}
+          {!isLoading && !error && !isTranscriptionMode && document?.file_format === "pdf" && (
+            <div className="mb-4 flex flex-col gap-2">
+              <div className="text-xs font-medium text-slate-300">
+                {t("documents.preview.originalDocument")}
+              </div>
+              <iframe
+                src={`${baseURL}/api/documents/${document.id}/raw#toolbar=1`}
+                className="h-[50vh] w-full rounded-md border border-slate-800 bg-white"
+                title={getDocumentDisplayName(document)}
+              />
+            </div>
+          )}
+
           {!isLoading && !error && !isTranscriptionMode && (
             <div
               className={`grid h-full gap-4 ${

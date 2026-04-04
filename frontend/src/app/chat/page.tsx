@@ -18,7 +18,7 @@ import { ChatWindow } from "@/components/chat/ChatWindow";
 import { ChatHistory } from "@/components/chat/ChatHistory";
 import { DeanonymizationBanner } from "@/components/chat/DeanonymizationBanner";
 import { BlockingLoader } from "@/components/common/BlockingLoader";
-import { downloadJSON } from "@/lib/export";
+import { downloadJSON, downloadChatPDF } from "@/lib/export";
 import { useI18n } from "@/lib/i18n";
 import { uploadDocuments } from "@/lib/uploadDocuments";
 
@@ -210,6 +210,19 @@ export default function ChatPage() {
     }
   }, []);
 
+  const handleExportSessionPDF = useCallback(async (id: number) => {
+    try {
+      const detail = await getChatSession(id);
+      await downloadChatPDF(
+        detail.messages.map((m) => ({ role: m.role, content: m.content })),
+        detail.title,
+        `septum-chat-${id}.pdf`
+      );
+    } catch {
+      // ignore
+    }
+  }, []);
+
   return (
     <div className="relative flex h-full min-h-0 min-w-0 flex-col gap-4">
       <BlockingLoader visible={isUploading} label={t("chat.uploading")} />
@@ -263,6 +276,7 @@ export default function ChatPage() {
               onNewChat={handleNewChat}
               onDeleteSession={handleDeleteSession}
               onExportSession={handleExportSession}
+              onExportSessionPDF={handleExportSessionPDF}
             />
           </div>
           <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-slate-800">

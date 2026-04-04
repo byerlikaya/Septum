@@ -94,14 +94,28 @@ export function ApprovalModal({
             {t("chat.approval.title")}
           </h2>
           <p className="mt-1 text-sm text-slate-400">{regulationText}</p>
-          <div className="mt-2 flex items-center gap-2">
-            <span
-              className={`text-sm font-medium ${
-                secondsLeft <= 10 ? "text-amber-400" : "text-slate-400"
-              }`}
-            >
-              {t("chat.approval.timeRemaining", { seconds: secondsLeft })}
-            </span>
+          <div className="mt-2 space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span
+                className={`text-sm font-medium ${
+                  secondsLeft <= 10 ? "text-rose-400" : secondsLeft <= 30 ? "text-amber-400" : "text-slate-400"
+                }`}
+              >
+                {t("chat.approval.timeRemaining", { seconds: secondsLeft })}
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-700">
+              <div
+                className={`h-full rounded-full transition-all duration-1000 ease-linear ${
+                  secondsLeft <= 10
+                    ? "bg-rose-500"
+                    : secondsLeft <= 30
+                      ? "bg-amber-500"
+                      : "bg-emerald-500"
+                }`}
+                style={{ width: `${(secondsLeft / APPROVAL_TIMEOUT_SECONDS) * 100}%` }}
+              />
+            </div>
           </div>
         </div>
 

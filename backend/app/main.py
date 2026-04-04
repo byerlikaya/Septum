@@ -3,6 +3,7 @@ from __future__ import annotations
 """FastAPI application entrypoint for Septum."""
 
 import logging
+import os as _os
 import warnings
 
 warnings.filterwarnings(
@@ -11,9 +12,9 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
-logging.getLogger("presidio_analyzer.recognizer_registry").setLevel(logging.ERROR)
-logging.getLogger("paddlex").setLevel(logging.ERROR)
-logging.getLogger("paddleocr").setLevel(logging.ERROR)
+from .utils.logging_config import setup_structured_logging
+
+setup_structured_logging(_os.getenv("LOG_LEVEL", "INFO"))
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -104,6 +105,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from .utils.metrics import PrometheusMiddleware, metrics_endpoint
+
+app.add_middleware(PrometheusMiddleware)
+app.add_route("/metrics", metrics_endpoint, methods=["GET"])
 
 
 app.include_router(auth_router.router)

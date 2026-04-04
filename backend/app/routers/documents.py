@@ -8,7 +8,6 @@ This router is responsible for:
 * Exposing lightweight metadata and chunk counts for the frontend.
 """
 
-import asyncio
 import json
 import os
 from pathlib import Path
@@ -18,6 +17,7 @@ from datetime import datetime
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     HTTPException,
@@ -52,7 +52,7 @@ from ..services.ingestion.audio_ingester import AudioIngester
 from ..services.ingestion.image_ingester import ImageIngester
 from ..services.ingestion.router import IngestionRouter
 from ..services.document_pipeline import DocumentPipeline
-from ..utils.crypto import encrypt
+from ..utils.crypto import decrypt, encrypt
 
 try:  # python-magic with system libmagic; may fail if libmagic is missing.
     import magic as _magic  # type: ignore[import]
@@ -444,6 +444,7 @@ async def _ensure_spreadsheet_schema(
     status_code=status.HTTP_201_CREATED,
 )
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_optional_user),
@@ -549,7 +550,7 @@ async def upload_document(
                     bg_doc.ingestion_error = f"{type(bg_exc).__name__}: {bg_exc}"
                     await bg_db.commit()
 
-        asyncio.create_task(_run_pipeline_background(document.id))
+        background_tasks.add_task(_run_pipeline_background, document.id)
 
     except Exception as exc:  # noqa: BLE001
         document.ingestion_status = "failed"
@@ -594,6 +595,32 @@ async def get_document(
     """Return metadata for a single document."""
     document = await get_or_404(db, Document, document_id, "Document not found.")
     return DocumentResponse.model_validate(document)
+
+
+@router.get(
+    "/{document_id}/raw",
+    status_code=status.HTTP_200_OK,
+)
+async def get_document_raw(
+    document_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream the decrypted original file for in-browser preview."""
+    from fastapi.responses import Response
+
+    document = await get_or_404(db, Document, document_id, "Document not found.")
+    encrypted_path = Path(document.encrypted_path)
+    if not encrypted_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Encrypted file not found on disk.",
+        )
+    raw_bytes = decrypt(encrypted_path.read_bytes())
+    return Response(
+        content=raw_bytes,
+        media_type=document.file_type,
+        headers={"Content-Disposition": f'inline; filename="{document.original_filename}"'},
+    )
 
 
 @router.patch(

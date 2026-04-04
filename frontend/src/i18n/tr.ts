@@ -336,6 +336,7 @@ export const trMessages: Record<string, string> = {
 
   "documents.preview.schemaLoadError": "Tablo şeması yüklenemedi.",
   "documents.preview.schemaSaveError": "Şema değişiklikleri kaydedilemedi.",
+  "documents.preview.originalDocument": "Orijinal dokuman",
   "documents.preview.sanitizedContent": "Anonimleştirilmiş içerik",
   "documents.preview.spreadsheetSchema": "Tablo şeması",
   "documents.preview.unsavedChanges": "Kaydedilmemiş değişiklikler",

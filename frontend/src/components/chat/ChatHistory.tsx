@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, MessageSquarePlus, Trash2 } from "lucide-react";
+import { Download, FileText, MessageSquarePlus, Trash2 } from "lucide-react";
 import type { ChatSessionSummary } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 
@@ -11,6 +11,7 @@ interface ChatHistoryProps {
   onNewChat: () => void;
   onDeleteSession: (id: number) => void;
   onExportSession?: (id: number) => void;
+  onExportSessionPDF?: (id: number) => void;
 }
 
 export function ChatHistory({
@@ -20,6 +21,7 @@ export function ChatHistory({
   onNewChat,
   onDeleteSession,
   onExportSession,
+  onExportSessionPDF,
 }: ChatHistoryProps) {
   const t = useI18n();
 
@@ -70,9 +72,24 @@ export function ChatHistory({
                       onExportSession(session.id);
                     }}
                     className="rounded p-0.5 text-slate-500 hover:text-sky-400"
-                    aria-label="Export"
+                    aria-label="Export JSON"
+                    title="JSON"
                   >
                     <Download className="h-3 w-3" />
+                  </button>
+                )}
+                {onExportSessionPDF && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onExportSessionPDF(session.id);
+                    }}
+                    className="rounded p-0.5 text-slate-500 hover:text-violet-400"
+                    aria-label="Export PDF"
+                    title="PDF"
+                  >
+                    <FileText className="h-3 w-3" />
                   </button>
                 )}
                 <button

@@ -314,6 +314,7 @@ export const enMessages = {
 
   "documents.preview.schemaLoadError": "Could not load spreadsheet schema.",
   "documents.preview.schemaSaveError": "Could not save schema changes.",
+  "documents.preview.originalDocument": "Original document",
   "documents.preview.sanitizedContent": "Sanitized content",
   "documents.preview.spreadsheetSchema": "Spreadsheet schema",
   "documents.preview.unsavedChanges": "Unsaved changes",

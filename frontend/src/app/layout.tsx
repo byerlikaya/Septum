@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { AuthGuard } from "@/components/common/AuthGuard";
 import { SetupGuard } from "@/components/common/SetupGuard";
 import { LanguageProvider } from "@/lib/language";
+import { ThemeProvider } from "@/lib/theme";
 
 type RootLayoutProps = {
   children: ReactNode;
@@ -21,7 +22,8 @@ export default function RootLayout(props: RootLayoutProps) {
 
   return (
     <html lang="en" className="dark suppressHydrationWarning">
-      <body className="h-screen overflow-hidden bg-slate-950 text-foreground antialiased">
+      <body className="h-screen overflow-hidden bg-background text-foreground antialiased">
+        <ThemeProvider>
         <LanguageProvider>
           <ErrorBoundary>
             <GlobalErrorListener />
@@ -39,6 +41,7 @@ export default function RootLayout(props: RootLayoutProps) {
             </AuthGuard>
           </ErrorBoundary>
         </LanguageProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
