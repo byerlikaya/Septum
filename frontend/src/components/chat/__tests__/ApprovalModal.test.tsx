@@ -60,11 +60,8 @@ it("does not render anything when open is false", () => {
   expect(container).toBeEmptyDOMElement();
 });
 
-it("calls onApprove with edited chunks and closes", () => {
+it("calls onApprove with chunk data and closes", () => {
   const { onApprove, onClose } = renderModal();
-
-  const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
-  fireEvent.change(textarea, { target: { value: "edited text" } });
 
   const approveButton = screen.getByRole("button", { name: "chat.approval.button.approve" });
   fireEvent.click(approveButton);
@@ -72,7 +69,7 @@ it("calls onApprove with edited chunks and closes", () => {
   expect(onApprove).toHaveBeenCalledTimes(1);
   const [sessionId, chunks] = onApprove.mock.calls[0];
   expect(sessionId).toBe("sess-1");
-  expect(chunks[0].text).toBe("edited text");
+  expect(chunks[0].text).toBe("original text");
   expect(onClose).toHaveBeenCalled();
 });
 

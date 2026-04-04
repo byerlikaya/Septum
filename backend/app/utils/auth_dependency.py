@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """FastAPI dependency for extracting the current authenticated user from JWT."""
+
+from __future__ import annotations
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -86,15 +86,3 @@ def require_role(*allowed_roles: str):
         return current_user
 
     return _check
-
-
-async def require_admin(
-    current_user: User = Depends(get_current_user),
-) -> User:
-    """Dependency that requires the ``admin`` role."""
-    if current_user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
-    return current_user

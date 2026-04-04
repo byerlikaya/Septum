@@ -32,7 +32,7 @@ it("copies assistant message content to clipboard and shows copied state", async
   const msg = { id: "a1", role: "assistant" as const, content: "Copy me" };
   render(<MessageBubble message={msg} />);
 
-  const copyButton = screen.getByRole("button", { name: "chat.copyAnswer" });
+  const copyButton = screen.getByRole("button", { name: "chat.copy" });
   fireEvent.click(copyButton);
 
   await waitFor(() => {

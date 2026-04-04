@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 import os
 import threading
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette import status as http_status

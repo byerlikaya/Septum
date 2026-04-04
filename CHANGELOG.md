@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here in a high‑level, date‑based format.
 
+### 2026-04-05
+
+- **Chat retry path & ingestion hygiene**: Chat handler skips chunk retrieval and top‑k tuning when `pre_approved_chunks` is present (fixes unnecessary vector search on approval retry). Removed unused `PolicyComposer` instantiation from chat. Document pipeline persists entity detections with `add_all` instead of row‑by‑row `add`. Dropped unused `require_admin` helper (admin routes use `require_role("admin")`). ChatWindow derives read‑only approval modal open state from stored approval data only. Refactored `entityColors` with shared classification and badge/highlight maps. Tests and minor import/format cleanups (`main`, `vector_store`, `metrics`).
+
 ### 2026-04-04
 
 - **Approval data persistence & review**: Approval context (masked prompt, chunks, decision) stored on user messages via `approval_data` JSON column (Alembic migration 008). After approve/reject, a green "Onaylandı" or red "Reddedildi" badge appears on the user's question. Clicking opens a read-only approval modal showing chunks with color-coded entity badges. Rejected messages include a "Tekrar gönder" (retry) button that sends pre-approved chunks directly to LLM without re-searching. Retry converts rejected badge to approved. Debug data (masked prompt/answer) persisted on assistant messages and accessible from history. Approval modal redesigned: placeholder badges with entity colors, collapsible chunks, read-only default with edit-on-demand, entity summary in header with click-to-navigate.

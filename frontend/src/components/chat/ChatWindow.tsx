@@ -44,7 +44,6 @@ export function ChatWindow({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [reviewApprovalData, setReviewApprovalData] = useState<ApprovalData | null>(null);
-  const [reviewApprovalOpen, setReviewApprovalOpen] = useState(false);
 
   const handleResponseComplete = useCallback(
     (deanonApplied: boolean) => {
@@ -201,7 +200,6 @@ export function ChatWindow({
                   }}
                   onApprovalClick={msg.approvalData ? () => {
                     setReviewApprovalData(msg.approvalData!);
-                    setReviewApprovalOpen(true);
                   } : undefined}
                 />
               );
@@ -278,7 +276,6 @@ export function ChatWindow({
         </div>
       </div>
 
-      {/* Live approval modal */}
       <ApprovalModal
         open={approval.approvalOpen}
         sessionId={approval.approvalSessionId}
@@ -290,23 +287,22 @@ export function ChatWindow({
         onClose={approval.closeApprovalModal}
       />
 
-      {/* Review modal (read-only) */}
       <ApprovalModal
-        open={reviewApprovalOpen}
+        open={reviewApprovalData !== null}
         sessionId={null}
         maskedPrompt={reviewApprovalData?.masked_prompt ?? ""}
         chunks={reviewApprovalData?.chunks ?? []}
         activeRegulations={reviewApprovalData?.regulations ?? []}
         onApprove={() => {}}
         onReject={() => {}}
-        onClose={() => setReviewApprovalOpen(false)}
+        onClose={() => setReviewApprovalData(null)}
         readOnly
         decision={reviewApprovalData?.decision}
         onRetry={
           reviewApprovalData?.decision === "rejected" && reviewApprovalData.original_user_message
             ? () => {
                 const chunksForRetry = reviewApprovalData.chunks.map((c) => ({ text: c.text }));
-                setReviewApprovalOpen(false);
+                setReviewApprovalData(null);
                 streamSendMessage(reviewApprovalData.original_user_message!, chunksForRetry);
               }
             : undefined

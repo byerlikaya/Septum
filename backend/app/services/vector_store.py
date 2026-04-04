@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 FAISS-based vector store for Septum with hybrid search support.
 
@@ -22,21 +20,24 @@ Design notes
 - Hybrid search uses Reciprocal Rank Fusion (RRF) to combine BM25 and FAISS results.
 """
 
-from dataclasses import dataclass, field
+from __future__ import annotations
+
 import os
-from pathlib import Path
 import threading
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, List, Sequence, Tuple
 
 import faiss  # type: ignore[import]
 import numpy as np
+from cryptography.exceptions import InvalidTag
 
 from ..utils.crypto import decrypt, encrypt
-from cryptography.exceptions import InvalidTag
-import json
 
 if TYPE_CHECKING:
     from sentence_transformers import SentenceTransformer
+
+    from .bm25_retriever import BM25Retriever
 
 
 _shared_st_model: SentenceTransformer | None = None
@@ -330,13 +331,13 @@ class VectorStore:
     def _encode_texts(self, texts: Sequence[str]) -> np.ndarray:
         """Encode texts into normalized embedding vectors."""
         if not texts:
-            return np.zeros((0, 0), dtype="float32")        
-        model = self._get_model()        
+            return np.zeros((0, 0), dtype="float32")
+        model = self._get_model()
         embeddings = model.encode(
             list(texts),
             convert_to_numpy=True,
             show_progress_bar=False,
-        ).astype("float32")        
+        ).astype("float32")
         return _normalize_embeddings(embeddings)
 
     def _index_path(self, document_id: int) -> Path:

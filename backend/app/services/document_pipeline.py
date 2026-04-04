@@ -93,12 +93,13 @@ class DocumentPipeline:
 
         if per_chunk_spans:
             chunk_index_to_id = {c.index: c.id for c in chunks}
+            detection_rows = []
             for chunk_index, resolved_spans in per_chunk_spans.items():
                 chunk_id = chunk_index_to_id.get(chunk_index)
                 if chunk_id is None:
                     continue
                 for rs in resolved_spans:
-                    db.add(EntityDetection(
+                    detection_rows.append(EntityDetection(
                         document_id=document.id,
                         chunk_id=chunk_id,
                         entity_type=rs.entity_type,
@@ -107,6 +108,8 @@ class DocumentPipeline:
                         end_offset=rs.end,
                         score=rs.score,
                     ))
+            if detection_rows:
+                db.add_all(detection_rows)
 
         document.chunk_count = len(chunks)
         document.entity_count = total_entities

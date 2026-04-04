@@ -36,7 +36,6 @@ from ..services.approval_gate import ApprovalChunk, ApprovalGate, get_approval_g
 from ..services.document_anon_store import get_document_map
 from ..services.deanonymizer import Deanonymizer
 from ..services.llm_router import LLMRouter, LLMRouterError, _chunk_text
-from ..services.policy_composer import PolicyComposer
 from ..services.sanitizer_factory import create_sanitizer
 from ..services.text_normalizer import TextNormalizer
 from ..services.chat_context import ChatContextPayload, build_chat_prompt
@@ -505,8 +504,6 @@ async def chat_ask(
     document_id = document_ids_list[0] if document_ids_list else None
 
     settings = await load_settings(db)
-    composer = PolicyComposer()
-    policy = await composer.compose(db)
     regulation_names = await _active_regulation_names(db)
 
     documents_by_id: dict[int, Document] = {}
@@ -547,20 +544,18 @@ async def chat_ask(
     sanitized_query, entity_count, query_type_counts = await _sanitize_query(
         message_text, language, settings, anon_map, db
     )
-    base_top_k = request.top_k or settings.top_k_retrieval
-    total_chunk_count = (
-        sum(d.chunk_count for d in documents_by_id.values()) if documents_by_id else 0
-    )
-    use_full_document = (
-        total_chunk_count > 0 and total_chunk_count <= FULL_DOCUMENT_CHUNK_THRESHOLD
-    )
-    top_k = (
-        _effective_top_k(base_top_k, total_chunk_count)
-        if documents_by_id and not use_full_document
-        else base_top_k
-    )
     chunks: List[Chunk] = []
-    if documents_by_id:
+    if not request.pre_approved_chunks and documents_by_id:
+        base_top_k = request.top_k or settings.top_k_retrieval
+        total_chunk_count = sum(d.chunk_count for d in documents_by_id.values())
+        use_full_document = (
+            total_chunk_count > 0 and total_chunk_count <= FULL_DOCUMENT_CHUNK_THRESHOLD
+        )
+        top_k = (
+            _effective_top_k(base_top_k, total_chunk_count)
+            if not use_full_document
+            else base_top_k
+        )
         if use_full_document:
             for doc in sorted(documents_by_id.values(), key=lambda d: d.id):
                 stmt = (
@@ -580,8 +575,6 @@ async def chat_ask(
                 chunk_count=doc.chunk_count,
             )
         else:
-            # For multi-document queries, ensure sufficient context per document
-            # while keeping total reasonable (max 50 chunks across all documents)
             MIN_PER_DOC = 10
             MAX_TOTAL = 50
             num_docs = len(documents_by_id)

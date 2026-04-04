@@ -1,8 +1,8 @@
 """Shared database and validation helpers for Septum routers."""
 from __future__ import annotations
 
-from typing import Optional, Type, TypeVar
 import re
+from typing import Optional, Type, TypeVar
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
