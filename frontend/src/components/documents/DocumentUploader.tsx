@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import { useDropzone } from "react-dropzone";
-import { UploadCloud } from "lucide-react";
+import { FileText, FileSpreadsheet, Image, Music, UploadCloud } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 
 interface DocumentUploaderProps {
@@ -66,6 +66,24 @@ export function DocumentUploader({
       >
         {t("uploader.button")}
       </button>
+      <div className="mt-4 flex flex-wrap justify-center gap-2">
+        {[
+          { icon: FileText, label: "PDF" },
+          { icon: FileText, label: "DOCX" },
+          { icon: FileSpreadsheet, label: "XLSX" },
+          { icon: FileSpreadsheet, label: "ODS" },
+          { icon: Image, label: "PNG / JPG" },
+          { icon: Music, label: "MP3 / WAV" },
+        ].map(({ icon: Icon, label }) => (
+          <span
+            key={label}
+            className="inline-flex items-center gap-1 rounded-full bg-slate-800/80 px-2 py-0.5 text-[10px] text-slate-400"
+          >
+            <Icon className="h-3 w-3" />
+            {label}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

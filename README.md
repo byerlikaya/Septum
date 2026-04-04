@@ -468,6 +468,8 @@ By default:
 
 Ensure the backend base URL in `src/lib/api.ts` matches your environment.
 
+**First launch:** The web UI runs a short setup wizard (LLM provider and connection test) until onboarding is marked complete in application settings. Chat conversations are persisted server-side (`/api/chat-sessions`) and can be switched from the chat sidebar.
+
 ---
 
 ## Running Tests
@@ -535,6 +537,7 @@ Septum exposes a RESTful API. Key endpoint groups:
 |-------|-----------|-------------|
 | **Documents** | `POST /api/documents`, `GET /api/documents`, `DELETE /api/documents/{id}`, `POST /api/documents/{id}/reprocess` | Upload, list, delete, and reprocess documents |
 | **Chat** | `POST /api/chat/ask` (SSE), `GET /api/chat/debug/{session_id}` | Privacy-preserving RAG chat with streaming |
+| **Chat sessions** | `GET/POST /api/chat-sessions`, `GET/PATCH/DELETE /api/chat-sessions/{id}`, `POST /api/chat-sessions/{id}/messages` | Persistent chat history (list sessions, update metadata, append messages) |
 | **Chunks** | `GET /api/chunks`, `GET /api/chunks/{id}` | Search and inspect document chunks |
 | **Settings** | `GET /api/settings`, `PUT /api/settings` | Application configuration |
 | **Regulations** | `GET /api/regulations`, `PUT /api/regulations/{id}` | Manage regulation rulesets and custom recognisers |

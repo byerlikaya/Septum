@@ -4,6 +4,8 @@ import type {
   AppSettingsResponse,
   AuditEvent,
   AuditListResponse,
+  ChatSessionDetail,
+  ChatSessionSummary,
   ComplianceReport,
   Document,
   DocumentListResponse,
@@ -295,6 +297,51 @@ export async function getSessionAudit(
   const { data } = await api.get<AuditEvent[]>(
     `/api/audit/session/${sessionId}`
   );
+  return data;
+}
+
+
+// --- Chat Sessions ---
+
+export async function listChatSessions(): Promise<ChatSessionSummary[]> {
+  const { data } = await api.get<ChatSessionSummary[]>("/api/chat-sessions");
+  return data;
+}
+
+export async function createChatSession(params?: {
+  title?: string;
+  document_ids?: number[];
+}): Promise<ChatSessionDetail> {
+  const { data } = await api.post<ChatSessionDetail>("/api/chat-sessions", params ?? {});
+  return data;
+}
+
+export async function getChatSession(sessionId: number): Promise<ChatSessionDetail> {
+  const { data } = await api.get<ChatSessionDetail>(`/api/chat-sessions/${sessionId}`);
+  return data;
+}
+
+export async function updateChatSession(
+  sessionId: number,
+  payload: { title?: string; document_ids?: number[] }
+): Promise<ChatSessionSummary> {
+  const { data } = await api.patch<ChatSessionSummary>(`/api/chat-sessions/${sessionId}`, payload);
+  return data;
+}
+
+export async function deleteChatSession(sessionId: number): Promise<void> {
+  await api.delete(`/api/chat-sessions/${sessionId}`);
+}
+
+export async function addChatMessage(
+  sessionId: number,
+  role: string,
+  content: string
+): Promise<{ id: number; role: string; content: string; created_at: string }> {
+  const { data } = await api.post(`/api/chat-sessions/${sessionId}/messages`, {
+    role,
+    content,
+  });
   return data;
 }
 

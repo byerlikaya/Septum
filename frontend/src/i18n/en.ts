@@ -120,6 +120,7 @@ export const enMessages = {
   "settings.ner.restoreDefault": "Restore default",
   "settings.ner.saveOverrides": "Save overrides",
   "settings.common.saving": "Saving…",
+  "settings.common.saved": "Saved",
 
   "settings.common.testing": "Testing...",
   "settings.common.testConnection": "Test Connection",
@@ -316,6 +317,10 @@ export const enMessages = {
   "preview.transcription.empty": "No transcription text is available yet.",
   "preview.close": "Close",
 
+  "chat.history.title": "Chat History",
+  "chat.history.new": "New Chat",
+  "chat.history.empty": "No conversations yet.",
+  "chat.history.deleteConfirm": "Delete this conversation?",
   "chat.output.label": "Output:",
   "chat.output.tab.chat": "Chat",
   "chat.output.tab.json": "JSON",
@@ -394,6 +399,24 @@ export const enMessages = {
   "common.deleting": "Deleting…",
   "common.delete": "Delete",
   "common.close": "Close",
+  "common.retry": "Try Again",
+
+  "chat.button.regenerate": "Regenerate",
+
+  "documents.filter.status": "Status",
+  "documents.filter.format": "Format",
+  "documents.filter.all": "All",
+  "documents.filter.reset": "Reset Filters",
+  "documents.sort.name": "Name",
+  "documents.sort.date": "Date",
+  "documents.sort.size": "Size",
+
+  "documents.bulk.selected": "{count} selected",
+  "documents.bulk.delete": "Delete Selected",
+  "documents.bulk.reprocess": "Reprocess Selected",
+  "documents.bulk.selectAll": "Select all",
+  "documents.bulk.confirmDelete": "Delete {count} document(s)?",
+  "documents.bulk.confirmReprocess": "Reprocess {count} document(s)?",
 
   "regulations.page.title": "Regulation Rules & Custom Rules",
   "regulations.page.subtitle":
@@ -560,6 +583,27 @@ export const enMessages = {
   "audit.eventType.document_uploaded": "Document Uploaded",
   "audit.eventType.document_deleted": "Document Deleted",
   "audit.eventType.regulation_changed": "Regulation Changed",
-  "errors.audit.load": "An error occurred while loading audit events."
+  "errors.audit.load": "An error occurred while loading audit events.",
+
+  "setup.welcome.title": "Welcome to Septum",
+  "setup.welcome.subtitle": "Privacy-first AI document assistant. Let's get you set up in a few quick steps.",
+  "setup.welcome.start": "Get Started",
+  "setup.step.provider": "LLM Provider",
+  "setup.step.provider.description": "Choose your cloud LLM provider and model.",
+  "setup.step.provider.label": "Provider",
+  "setup.step.provider.model": "Model",
+  "setup.step.test": "Test Connection",
+  "setup.step.test.description": "Verify that your API key and model are working.",
+  "setup.step.test.button": "Test Connection",
+  "setup.step.test.success": "Connection successful! Your LLM is ready.",
+  "setup.step.test.failed": "Connection failed. Check your API key in the .env file and try again.",
+  "setup.step.test.pending": "Testing...",
+  "setup.step.test.hint": "Make sure your API key is set in the .env file (e.g. ANTHROPIC_API_KEY or OPENAI_API_KEY).",
+  "setup.step.done.title": "You're all set!",
+  "setup.step.done.description": "Upload documents and start chatting with privacy protection enabled.",
+  "setup.step.done.button": "Start Using Septum",
+  "setup.nav.back": "Back",
+  "setup.nav.next": "Next",
+  "setup.nav.skip": "Skip Setup"
 } as const;
 

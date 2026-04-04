@@ -41,6 +41,7 @@ node_modules/
 out/
 .turbo/
 *.log
+*.tsbuildinfo
 
 # IDE / Editor
 .vscode/

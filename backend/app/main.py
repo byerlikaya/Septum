@@ -32,6 +32,7 @@ from .models.settings import AppSettings
 from .routers import approval as approval_router
 from .routers import audit as audit_router
 from .routers import chat as chat_router
+from .routers import chat_sessions as chat_sessions_router
 from .routers import chunks as chunks_router
 from .routers import documents as documents_router
 from .routers import error_logs as error_logs_router
@@ -93,6 +94,7 @@ app.include_router(audit_router.router)
 app.include_router(documents_router.router)
 app.include_router(chunks_router.router)
 app.include_router(chat_router.router)
+app.include_router(chat_sessions_router.router)
 app.include_router(settings_router.router)
 app.include_router(error_logs_router.router)
 app.include_router(regulations_router.router)

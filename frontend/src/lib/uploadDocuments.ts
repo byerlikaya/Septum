@@ -5,6 +5,7 @@ import { getDocumentDisplayName } from "@/lib/utils";
 export interface UploadDocumentsOptions {
   files: File[];
   existingDocuments: Document[];
+  onProgress?: (completed: number, total: number, doc: Document) => void;
 }
 
 export interface UploadDocumentsResult {
@@ -16,7 +17,7 @@ export interface UploadDocumentsResult {
 export async function uploadDocuments(
   options: UploadDocumentsOptions
 ): Promise<UploadDocumentsResult> {
-  const { files, existingDocuments } = options;
+  const { files, existingDocuments, onProgress } = options;
 
   if (files.length === 0) {
     return {
@@ -35,9 +36,9 @@ export async function uploadDocuments(
 
   const uploaded: Document[] = [];
 
-  for (const file of uniqueFiles) {
+  for (let i = 0; i < uniqueFiles.length; i++) {
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", uniqueFiles[i]);
 
     const response = await api.post<Document>("/api/documents/upload", formData, {
       headers: {
@@ -46,6 +47,7 @@ export async function uploadDocuments(
     });
 
     uploaded.push(response.data);
+    onProgress?.(i + 1, uniqueFiles.length, response.data);
   }
 
   return {

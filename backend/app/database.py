@@ -17,6 +17,7 @@ from .models import Base
 from .models.error_log import ErrorLog
 from .models.regulation import RegulationRuleset, NonPiiRule
 from .models.settings import AppSettings
+from .models.chat_session import ChatSession, ChatMessage  # noqa: F401
 
 
 DB_PATH_ENV_VAR = "DB_PATH"
@@ -82,8 +83,32 @@ async def init_db() -> None:
     if is_sqlite():
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        await _sqlite_ensure_columns()
 
     await _seed_defaults()
+
+
+async def _sqlite_ensure_columns() -> None:
+    """Add columns that may be missing in an existing SQLite database.
+
+    ``create_all`` only creates *new* tables; it never ALTERs existing ones.
+    This helper inspects ``PRAGMA table_info`` and runs ``ALTER TABLE`` for
+    any column the ORM expects but SQLite doesn't have yet.
+    """
+    migrations: list[tuple[str, str]] = [
+        (
+            "app_settings",
+            "ALTER TABLE app_settings ADD COLUMN setup_completed BOOLEAN NOT NULL DEFAULT 0",
+        ),
+    ]
+
+    async with engine.begin() as conn:
+        for table, ddl in migrations:
+            cols = await conn.execute(text(f"PRAGMA table_info({table})"))
+            col_name = ddl.split("ADD COLUMN ")[1].split()[0]
+            existing = {row[1] for row in cols}
+            if col_name not in existing:
+                await conn.execute(text(ddl))
 
 
 async def _seed_defaults() -> None:
@@ -151,6 +176,7 @@ async def _seed_defaults() -> None:
                     True,
                 ),
                 default_active_regulations=default_active_regulations,
+                setup_completed=False,
             )
             session.add(settings)
 

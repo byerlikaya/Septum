@@ -68,3 +68,7 @@ class AppSettings(Base):
         JSON, nullable=True
     )
 
+    setup_completed: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+

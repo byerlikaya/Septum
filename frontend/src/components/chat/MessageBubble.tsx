@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Check, Info, WifiOff } from "lucide-react";
+import { Copy, Check, Info, RefreshCw, WifiOff } from "lucide-react";
 import type { ChatMessage } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
@@ -8,13 +8,17 @@ import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
 interface MessageBubbleProps {
   message: ChatMessage;
   isThinking?: boolean;
+  isLastAssistant?: boolean;
   onDebugClick?: (sessionId: string) => void;
+  onRegenerate?: () => void;
 }
 
 export function MessageBubble({
   message,
   isThinking = false,
-  onDebugClick
+  isLastAssistant = false,
+  onDebugClick,
+  onRegenerate,
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const { copied, copy } = useCopyToClipboard();
@@ -72,6 +76,18 @@ export function MessageBubble({
               </>
             )}
           </button>
+          {isLastAssistant && onRegenerate && (
+            <button
+              type="button"
+              onClick={onRegenerate}
+              className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-slate-400 hover:bg-slate-700/80 hover:text-slate-200 transition-colors"
+              title={t("chat.button.regenerate")}
+              aria-label={t("chat.button.regenerate")}
+            >
+              <RefreshCw className="h-4 w-4 shrink-0" aria-hidden />
+              <span>{t("chat.button.regenerate")}</span>
+            </button>
+          )}
           {onDebugClick && message.sessionId && (
             <button
               type="button"

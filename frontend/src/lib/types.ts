@@ -1,5 +1,18 @@
 export type IngestionStatus = "pending" | "processing" | "completed" | "failed";
 
+export interface ChatSessionSummary {
+  id: number;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  document_ids: number[] | null;
+  message_count: number;
+}
+
+export interface ChatSessionDetail extends ChatSessionSummary {
+  messages: { id: number; role: string; content: string; created_at: string }[];
+}
+
 export interface Document {
   id: number;
   filename: string;
@@ -196,6 +209,7 @@ export interface AppSettingsResponse {
   recursive_email_attachments: boolean;
   default_active_regulations: string[];
   ner_model_overrides: Record<string, string> | null;
+  setup_completed: boolean;
 }
 
 export interface AuditEvent {

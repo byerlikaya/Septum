@@ -469,6 +469,8 @@ Varsayılan olarak:
 
 `src/lib/api.ts` içindeki backend base URL’inin kendi ortamınızla uyumlu olduğundan emin olun.
 
+**İlk açılış:** Arayüz, uygulama ayarlarında kurulum tamamlanana kadar kısa bir kurulum sihirbazı (LLM sağlayıcı ve bağlantı testi) gösterir. Sohbetler sunucuda saklanır (`/api/chat-sessions`) ve sohbet kenar çubuğundan değiştirilebilir.
+
 ---
 
 ## Testleri Çalıştırma
@@ -536,6 +538,7 @@ Septum RESTful bir API sunar. Ana endpoint grupları:
 |------|-------------|----------|
 | **Dokümanlar** | `POST /api/documents`, `GET /api/documents`, `DELETE /api/documents/{id}`, `POST /api/documents/{id}/reprocess` | Doküman yükleme, listeleme, silme ve yeniden işleme |
 | **Sohbet** | `POST /api/chat/ask` (SSE), `GET /api/chat/debug/{session_id}` | Gizlilik korumalı RAG sohbet (streaming) |
+| **Sohbet oturumları** | `GET/POST /api/chat-sessions`, `GET/PATCH/DELETE /api/chat-sessions/{id}`, `POST /api/chat-sessions/{id}/messages` | Kalıcı sohbet geçmişi (oturum listesi, meta güncelleme, mesaj ekleme) |
 | **Parçalar** | `GET /api/chunks`, `GET /api/chunks/{id}` | Doküman parçalarını arama ve inceleme |
 | **Ayarlar** | `GET /api/settings`, `PUT /api/settings` | Uygulama yapılandırması |
 | **Regülasyonlar** | `GET /api/regulations`, `PUT /api/regulations/{id}` | Regülasyon kuralları ve özel tanıyıcı yönetimi |

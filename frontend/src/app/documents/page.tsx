@@ -6,7 +6,6 @@ import type { Document } from "@/lib/types";
 import { DocumentUploader } from "@/components/documents/DocumentUploader";
 import { DocumentList } from "@/components/documents/DocumentList";
 import { DocumentPreview } from "@/components/documents/DocumentPreview";
-import { BlockingLoader } from "@/components/common/BlockingLoader";
 import { useI18n } from "@/lib/i18n";
 import { uploadDocuments } from "@/lib/uploadDocuments";
 import { getDocumentDisplayName } from "@/lib/utils";
@@ -55,9 +54,15 @@ export default function DocumentsPage() {
       setUploadProgress(0);
 
       try {
-        const { uploaded, uniqueFiles, duplicateFiles } = await uploadDocuments({
+        const { uniqueFiles, duplicateFiles } = await uploadDocuments({
           files,
-          existingDocuments: documents
+          existingDocuments: documents,
+          onProgress: (completed, total, doc) => {
+            setUploadTotal(total);
+            setUploadCompleted(completed);
+            setUploadProgress(Math.round((completed / total) * 100));
+            setDocuments((prev) => [doc, ...prev]);
+          }
         });
 
         if (duplicateFiles.length > 0) {
@@ -67,19 +72,6 @@ export default function DocumentsPage() {
           );
         } else {
           setDuplicateNotice(null);
-        }
-
-        if (uniqueFiles.length > 0) {
-          setUploadTotal(uniqueFiles.length);
-          let completed = 0;
-          for (const doc of uploaded) {
-            completed += 1;
-            setDocuments((prev) => [doc, ...prev]);
-            setUploadCompleted(completed);
-            setUploadProgress(
-              Math.round((completed / uniqueFiles.length) * 100)
-            );
-          }
         }
       } catch {
         setError(t("errors.documents.upload"));
@@ -169,6 +161,44 @@ export default function DocumentsPage() {
     }
   }, [documents, t]);
 
+  const handleBulkDelete = useCallback(
+    async (ids: number[]): Promise<void> => {
+      if (!ids.length) return;
+      // eslint-disable-next-line no-alert
+      if (!window.confirm(t("documents.bulk.confirmDelete").replace("{count}", String(ids.length)))) return;
+      try {
+        await Promise.all(ids.map((id) => api.delete(`/api/documents/${id}`)));
+        setDocuments((prev) => prev.filter((d) => !ids.includes(d.id)));
+      } catch {
+        setError(t("errors.documents.deleteAll"));
+      }
+    },
+    [t]
+  );
+
+  const handleBulkReprocess = useCallback(
+    async (ids: number[]): Promise<void> => {
+      if (!ids.length) return;
+      // eslint-disable-next-line no-alert
+      if (!window.confirm(t("documents.bulk.confirmReprocess").replace("{count}", String(ids.length)))) return;
+      setDocuments((prev) =>
+        prev.map((d) =>
+          ids.includes(d.id) ? { ...d, ingestion_status: "processing" as const } : d
+        )
+      );
+      try {
+        for (const id of ids) {
+          const updated = await reprocessDocument(id);
+          setDocuments((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
+        }
+      } catch {
+        setError(t("errors.documents.reprocess"));
+        await fetchDocuments();
+      }
+    },
+    [t, fetchDocuments]
+  );
+
   const handlePreviewDocument = useCallback((doc: Document): void => {
     setPreviewDoc(doc);
   }, []);
@@ -180,14 +210,28 @@ export default function DocumentsPage() {
 
   return (
     <div className="relative flex h-full min-h-0 min-w-0 flex-col gap-4">
-      <BlockingLoader
-        visible={isUploading}
-        label={
-          uploadTotal > 0
-            ? `${t("documents.uploading")} ${uploadCompleted}/${uploadTotal} · ${uploadProgress}%`
-            : t("documents.uploading")
-        }
-      />
+      {isUploading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-full max-w-sm rounded-lg border border-slate-700 bg-slate-900 p-6 shadow-xl">
+            <p className="mb-3 text-center text-sm font-medium text-slate-200">
+              {uploadTotal > 0
+                ? `${t("documents.uploading")} ${uploadCompleted}/${uploadTotal}`
+                : t("documents.uploading")}
+            </p>
+            <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-700">
+              <div
+                className="h-full rounded-full bg-sky-500 transition-all duration-300 ease-out"
+                style={{ width: `${uploadTotal > 0 ? uploadProgress : 0}%` }}
+              />
+            </div>
+            {uploadTotal > 0 && (
+              <p className="mt-2 text-center text-xs text-slate-400">
+                {uploadProgress}%
+              </p>
+            )}
+          </div>
+        </div>
+      )}
       <header className="shrink-0 border-b border-slate-800 pb-4">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -232,6 +276,8 @@ export default function DocumentsPage() {
           onReprocess={handleReprocessDocument}
           onPreview={handlePreviewDocument}
           onPreviewTranscription={handlePreviewTranscription}
+          onBulkDelete={handleBulkDelete}
+          onBulkReprocess={handleBulkReprocess}
         />
       </div>
 

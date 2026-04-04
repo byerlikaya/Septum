@@ -19,6 +19,7 @@ export interface UseChatStreamOptions {
   deanonEnabled: boolean;
   outputMode: OutputMode;
   onResponseComplete?: (deanonApplied: boolean) => void;
+  onMessagePairComplete?: (userText: string, assistantText: string) => void;
   onApprovalRequired: (
     sessionId: string,
     maskedPrompt: string,
@@ -42,6 +43,7 @@ export interface UseChatStreamReturn {
   debugOpen: boolean;
   setDebugOpen: (open: boolean) => void;
   sendMessage: (text: string) => void;
+  regenerate: () => void;
   stopStreaming: () => void;
   handleOpenDebug: () => Promise<void>;
   pendingAssistantIdRef: React.RefObject<string | null>;
@@ -53,6 +55,7 @@ export function useChatStream({
   deanonEnabled,
   outputMode,
   onResponseComplete,
+  onMessagePairComplete,
   onApprovalRequired,
   onApprovalRejected
 }: UseChatStreamOptions): UseChatStreamReturn {
@@ -72,6 +75,7 @@ export function useChatStream({
   const pendingAssistantIdRef = useRef<string | null>(null);
   const currentSessionIdRef = useRef<string | null>(null);
   const streamedContentRef = useRef<string>("");
+  const lastUserTextRef = useRef<string>("");
 
   const sendMessage = useCallback(
     (text: string) => {
@@ -92,6 +96,7 @@ export function useChatStream({
       ]);
       pendingAssistantIdRef.current = assistantId;
       streamedContentRef.current = "";
+      lastUserTextRef.current = text;
       setStreaming(true);
 
       let activeRegs: string[] = [];
@@ -172,6 +177,10 @@ export function useChatStream({
             setStreaming(false);
             pendingAssistantIdRef.current = null;
             setDebugSessionId(currentSessionIdRef.current);
+            onMessagePairComplete?.(
+              lastUserTextRef.current,
+              streamedContentRef.current
+            );
             if (deanonEnabled) {
               onResponseComplete?.(true);
             } else {
@@ -217,6 +226,7 @@ export function useChatStream({
       requireApproval,
       deanonEnabled,
       onResponseComplete,
+      onMessagePairComplete,
       outputMode,
       language,
       onApprovalRequired,
@@ -224,6 +234,20 @@ export function useChatStream({
       t
     ]
   );
+
+  const regenerate = useCallback(() => {
+    const lastUserText = lastUserTextRef.current;
+    if (!lastUserText || streaming) return;
+    setMessages((prev) => {
+      let lastAssistantIdx = -1;
+      for (let i = prev.length - 1; i >= 0; i--) {
+        if (prev[i].role === "assistant") { lastAssistantIdx = i; break; }
+      }
+      if (lastAssistantIdx === -1) return prev;
+      return prev.slice(0, lastAssistantIdx);
+    });
+    sendMessage(lastUserText);
+  }, [streaming, sendMessage]);
 
   const stopStreaming = useCallback(() => {
     if (abortRef.current) {
@@ -261,6 +285,7 @@ export function useChatStream({
     debugOpen,
     setDebugOpen,
     sendMessage,
+    regenerate,
     stopStreaming,
     handleOpenDebug,
     pendingAssistantIdRef

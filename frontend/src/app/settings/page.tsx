@@ -1,18 +1,18 @@
 'use client';
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Check } from "lucide-react";
 import api from "@/lib/api";
 import type { AppSettingsResponse } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
-import { ErrorAlert } from "@/components/common/ErrorAlert";
+import { ErrorWithRetry } from "@/components/common/ErrorWithRetry";
+import { SkeletonFormFields } from "@/components/common/Skeleton";
 import type { SettingsUpdatePayload, TestStatus } from "@/components/settings/types";
 import { CloudLLMTab } from "@/components/settings/CloudLLMTab";
 import { PrivacyTab } from "@/components/settings/PrivacyTab";
 import { LocalModelsTab } from "@/components/settings/LocalModelsTab";
 import { RagTab } from "@/components/settings/RagTab";
 import { IngestionTab } from "@/components/settings/IngestionTab";
-import { NerModelsTab } from "@/components/settings/NerModelsTab";
-import { TextNormalizationTab } from "@/components/settings/TextNormalizationTab";
 
 type SettingsResponse = AppSettingsResponse;
 
@@ -21,9 +21,7 @@ type SettingsTab =
   | "privacy"
   | "local-models"
   | "rag"
-  | "ingestion"
-  | "text-normalization"
-  | "ner-models";
+  | "ingestion";
 
 export default function SettingsPage() {
   const t = useI18n();
@@ -32,27 +30,35 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<Record<string, boolean>>({});
+  const [showSaved, setShowSaved] = useState(false);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [cloudTest, setCloudTest] = useState<TestStatus>({ status: "idle" });
   const [localTest, setLocalTest] = useState<TestStatus>({ status: "idle" });
 
-  useEffect(() => {
-    const fetchSettings = async (): Promise<void> => {
-      try {
-        setLoading(true);
-        const response = await api.get<SettingsResponse>("/api/settings");
-        setSettings(response.data);
-        setError(null);
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error(err);
-        setError(t("errors.settings.load"));
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void fetchSettings();
+  const flashSaved = useCallback(() => {
+    setShowSaved(true);
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => setShowSaved(false), 2000);
   }, []);
+
+  const fetchSettings = useCallback(async (): Promise<void> => {
+    try {
+      setLoading(true);
+      const response = await api.get<SettingsResponse>("/api/settings");
+      setSettings(response.data);
+      setError(null);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(err);
+      setError(t("errors.settings.load"));
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    void fetchSettings();
+  }, [fetchSettings]);
 
   const updateField = async <K extends keyof SettingsUpdatePayload>(
     key: K,
@@ -68,6 +74,7 @@ export default function SettingsPage() {
       const response = await api.patch<SettingsResponse>("/api/settings", payload);
       setSettings(response.data);
       setError(null);
+      flashSaved();
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(err);
@@ -197,16 +204,6 @@ export default function SettingsPage() {
             isSaving={isSaving}
           />
         );
-      case "text-normalization":
-        return <TextNormalizationTab />;
-      case "ner-models":
-        return (
-          <NerModelsTab
-            settings={settings!}
-            onChange={updateField}
-            isSaving={isSaving}
-          />
-        );
       default:
         return null;
     }
@@ -255,27 +252,19 @@ export default function SettingsPage() {
             active={activeTab === "ingestion"}
             onClick={() => setActiveTab("ingestion")}
           />
-          <SettingsTabButton
-            label={t("settings.tabs.textNormalization.label")}
-            description={t("settings.tabs.textNormalization.description")}
-            active={activeTab === "text-normalization"}
-            onClick={() => setActiveTab("text-normalization")}
-          />
-          <SettingsTabButton
-            label={t("settings.tabs.ner.label")}
-            description={t("settings.tabs.ner.description")}
-            active={activeTab === "ner-models"}
-            onClick={() => setActiveTab("ner-models")}
-          />
         </div>
 
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto rounded-lg border border-border bg-slate-900 p-4 text-slate-50">
-          {loading ? (
-            <div className="flex h-full items-center justify-center text-sm text-slate-200">
-              {t("settings.loading")}
+        <div className="relative min-h-0 min-w-0 flex-1 overflow-y-auto rounded-lg border border-border bg-slate-900 p-4 text-slate-50">
+          {showSaved && (
+            <div className="absolute right-4 top-4 z-10 flex items-center gap-1.5 rounded-md bg-emerald-600/90 px-3 py-1.5 text-xs font-medium text-white shadow-lg transition-opacity duration-200">
+              <Check className="h-3.5 w-3.5" />
+              {t("settings.common.saved")}
             </div>
+          )}
+          {loading ? (
+            <SkeletonFormFields fields={4} />
           ) : error ? (
-            <ErrorAlert message={error} />
+            <ErrorWithRetry message={error} onRetry={fetchSettings} />
           ) : (
             <div className="flex flex-col gap-4">
               {renderTabContent()}

@@ -1,6 +1,8 @@
 "use client";
 
 import { ChunkCard } from "@/components/chunks/ChunkCard";
+import { ErrorWithRetry } from "@/components/common/ErrorWithRetry";
+import { SkeletonCard } from "@/components/common/Skeleton";
 import { useI18n } from "@/lib/i18n";
 import { getDocumentDisplayName } from "@/lib/utils";
 import { useChunkManager } from "@/hooks/useChunkManager";
@@ -131,17 +133,15 @@ export default function ChunksPage() {
       )}
 
       {error && (
-        <div className="shrink-0 rounded-lg border border-rose-800 bg-rose-950/50 px-3 py-2 text-sm text-rose-200">
-          {error}
-        </div>
+        <ErrorWithRetry message={error} onRetry={() => window.location.reload()} />
       )}
 
       <div className="min-h-0 min-w-0 flex-1 overflow-auto">
         {isLoadingDocuments ? (
-          <div className="flex h-48 items-center justify-center rounded-lg border border-slate-800 bg-slate-900/40">
-            <p className="text-sm text-slate-400">
-              {t("chunks.loadingDocuments")}
-            </p>
+          <div className="space-y-3">
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
           </div>
         ) : documentsWithChunksHint.length === 0 ? (
           <div className="flex h-48 items-center justify-center rounded-lg border border-slate-800 bg-slate-900/40">

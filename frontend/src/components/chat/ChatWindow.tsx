@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Paperclip } from "lucide-react";
-import type { ApprovalChunkPayload, OutputMode } from "@/lib/types";
+import { ErrorWithRetry } from "@/components/common/ErrorWithRetry";
+import type { ApprovalChunkPayload, ChatMessage, OutputMode } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { useChatStream } from "@/hooks/useChatStream";
 import { useChatApproval } from "@/hooks/useChatApproval";
@@ -17,7 +18,9 @@ export interface ChatWindowProps {
   activeRegulations: string[];
   showJsonOutput: boolean;
   onResponseComplete?: (deanonApplied: boolean) => void;
+  onMessagePairComplete?: (userText: string, assistantText: string) => void;
   onUploadFiles?: (files: File[]) => void;
+  initialMessages?: { role: string; content: string }[];
 }
 
 export function ChatWindow({
@@ -27,7 +30,9 @@ export function ChatWindow({
   activeRegulations,
   showJsonOutput,
   onResponseComplete,
-  onUploadFiles
+  onMessagePairComplete,
+  onUploadFiles,
+  initialMessages,
 }: ChatWindowProps) {
   const t = useI18n();
   const [input, setInput] = useState("");
@@ -65,6 +70,7 @@ export function ChatWindow({
     debugOpen,
     setDebugOpen,
     sendMessage: streamSendMessage,
+    regenerate,
     stopStreaming,
     handleOpenDebug,
     pendingAssistantIdRef
@@ -74,6 +80,7 @@ export function ChatWindow({
     deanonEnabled,
     outputMode,
     onResponseComplete: handleResponseComplete,
+    onMessagePairComplete,
     onApprovalRequired: (sessionId, maskedPrompt, chunks, regs) => {
       approvalRequiredRef.current(sessionId, maskedPrompt, chunks, regs);
     },
@@ -89,6 +96,17 @@ export function ChatWindow({
 
   approvalRequiredRef.current = approval.onApprovalRequired;
   approvalRejectedRef.current = approval.onApprovalRejected;
+
+  useEffect(() => {
+    if (initialMessages?.length) {
+      const restored: ChatMessage[] = initialMessages.map((m, i) => ({
+        id: `restored-${i}`,
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      }));
+      setMessages(restored);
+    }
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = useCallback(() => {
     const text = input.trim();
@@ -144,21 +162,30 @@ export function ChatWindow({
               {t("chat.emptyState")}
             </p>
           ) : (
-            messages.map((msg) => (
-              <MessageBubble
-                key={msg.id}
-                message={msg}
-                isThinking={
-                  streaming &&
-                  msg.role === "assistant" &&
-                  msg.id === pendingAssistantIdRef.current &&
-                  msg.content.length === 0
-                }
-                onDebugClick={() => {
-                  void handleOpenDebug();
-                }}
-              />
-            ))
+            messages.map((msg) => {
+              const lastAssistantId = [...messages].reverse().find((m) => m.role === "assistant")?.id;
+              return (
+                <MessageBubble
+                  key={msg.id}
+                  message={msg}
+                  isThinking={
+                    streaming &&
+                    msg.role === "assistant" &&
+                    msg.id === pendingAssistantIdRef.current &&
+                    msg.content.length === 0
+                  }
+                  isLastAssistant={
+                    !streaming &&
+                    msg.role === "assistant" &&
+                    msg.id === lastAssistantId
+                  }
+                  onRegenerate={regenerate}
+                  onDebugClick={() => {
+                    void handleOpenDebug();
+                  }}
+                />
+              );
+            })
           )}
         </div>
       ) : (
@@ -168,8 +195,8 @@ export function ChatWindow({
       )}
 
       {streamError != null && (
-        <div className="mt-2 rounded bg-red-950/50 px-3 py-2 text-sm text-red-300">
-          {streamError}
+        <div className="mt-2">
+          <ErrorWithRetry message={streamError} onRetry={regenerate} />
         </div>
       )}
 

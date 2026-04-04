@@ -72,6 +72,8 @@ class SettingsResponse(BaseModel):
     default_active_regulations: list[str]
     ner_model_overrides: Optional[dict[str, str]] = None
 
+    setup_completed: bool
+
 
 class SettingsUpdatePayload(BaseModel):
     """PATCH payload for partially updating application settings."""
@@ -109,6 +111,8 @@ class SettingsUpdatePayload(BaseModel):
 
     default_active_regulations: Optional[list[str]] = None
     ner_model_overrides: Optional[dict[str, str]] = None
+
+    setup_completed: Optional[bool] = None
 
 
 class TestLLMRequest(BaseModel):

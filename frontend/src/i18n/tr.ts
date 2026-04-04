@@ -121,6 +121,7 @@ export const trMessages: Record<string, string> = {
   "settings.ner.restoreDefault": "Varsayılana döndür",
   "settings.ner.saveOverrides": "Değişiklikleri kaydet",
   "settings.common.saving": "Kaydediliyor…",
+  "settings.common.saved": "Kaydedildi",
 
   "settings.common.testing": "Test ediliyor...",
   "settings.common.testConnection": "Bağlantıyı Test Et",
@@ -340,6 +341,10 @@ export const trMessages: Record<string, string> = {
     "Henüz bu doküman için transkripsiyon metni yok.",
   "preview.close": "Kapat",
 
+  "chat.history.title": "Sohbet Gecmisi",
+  "chat.history.new": "Yeni Sohbet",
+  "chat.history.empty": "Henuz konusma yok.",
+  "chat.history.deleteConfirm": "Bu konusmayi silmek istediginize emin misiniz?",
   "chat.output.label": "Çıktı:",
   "chat.output.tab.chat": "Sohbet",
   "chat.output.tab.json": "JSON",
@@ -423,6 +428,24 @@ export const trMessages: Record<string, string> = {
   "common.deleting": "Siliniyor…",
   "common.delete": "Sil",
   "common.close": "Kapat",
+  "common.retry": "Tekrar Dene",
+
+  "chat.button.regenerate": "Yeniden Olustur",
+
+  "documents.filter.status": "Durum",
+  "documents.filter.format": "Format",
+  "documents.filter.all": "Tumu",
+  "documents.filter.reset": "Filtreleri Sifirla",
+  "documents.sort.name": "Ad",
+  "documents.sort.date": "Tarih",
+  "documents.sort.size": "Boyut",
+
+  "documents.bulk.selected": "{count} secili",
+  "documents.bulk.delete": "Secilenleri Sil",
+  "documents.bulk.reprocess": "Secilenleri Yeniden Isle",
+  "documents.bulk.selectAll": "Tumunu sec",
+  "documents.bulk.confirmDelete": "{count} dokumani silmek istediginize emin misiniz?",
+  "documents.bulk.confirmReprocess": "{count} dokumani yeniden islemek istediginize emin misiniz?",
 
   "regulations.page.title": "Regülasyon Kuralları ve Özel Kurallar",
   "regulations.page.subtitle":
@@ -586,6 +609,27 @@ export const trMessages: Record<string, string> = {
   "audit.eventType.document_uploaded": "Doküman Yüklendi",
   "audit.eventType.document_deleted": "Doküman Silindi",
   "audit.eventType.regulation_changed": "Regülasyon Değiştirildi",
-  "errors.audit.load": "Denetim olayları yüklenirken bir hata oluştu."
+  "errors.audit.load": "Denetim olayları yüklenirken bir hata oluştu.",
+
+  "setup.welcome.title": "Septum'a Hoş Geldiniz",
+  "setup.welcome.subtitle": "Gizlilik odaklı yapay zeka doküman asistanı. Birkaç adımda kurulumu tamamlayalım.",
+  "setup.welcome.start": "Başlayalım",
+  "setup.step.provider": "LLM Sağlayıcısı",
+  "setup.step.provider.description": "Bulut LLM sağlayıcınızı ve modelinizi seçin.",
+  "setup.step.provider.label": "Sağlayıcı",
+  "setup.step.provider.model": "Model",
+  "setup.step.test": "Bağlantıyı Test Et",
+  "setup.step.test.description": "API anahtarınızın ve modelinizin çalıştığını doğrulayın.",
+  "setup.step.test.button": "Bağlantıyı Test Et",
+  "setup.step.test.success": "Bağlantı başarılı! LLM'iniz hazır.",
+  "setup.step.test.failed": "Bağlantı başarısız. .env dosyasındaki API anahtarınızı kontrol edip tekrar deneyin.",
+  "setup.step.test.pending": "Test ediliyor...",
+  "setup.step.test.hint": "API anahtarınızın .env dosyasında tanımlı olduğundan emin olun (ör. ANTHROPIC_API_KEY veya OPENAI_API_KEY).",
+  "setup.step.done.title": "Her şey hazır!",
+  "setup.step.done.description": "Dokümanlarınızı yükleyin ve gizlilik koruması ile sohbete başlayın.",
+  "setup.step.done.button": "Septum'u Kullanmaya Başla",
+  "setup.nav.back": "Geri",
+  "setup.nav.next": "İleri",
+  "setup.nav.skip": "Kurulumu Atla"
 };
 
