@@ -58,7 +58,7 @@ export function ChatWindow({
     ) => void
   >(() => {});
   const approvalRejectedRef = useRef<
-    (reason: string, timedOut: boolean) => void
+    (reason: string) => void
   >(() => {});
 
   const {
@@ -84,8 +84,8 @@ export function ChatWindow({
     onApprovalRequired: (sessionId, maskedPrompt, chunks, regs) => {
       approvalRequiredRef.current(sessionId, maskedPrompt, chunks, regs);
     },
-    onApprovalRejected: (reason, timedOut) => {
-      approvalRejectedRef.current(reason, timedOut);
+    onApprovalRejected: (reason) => {
+      approvalRejectedRef.current(reason);
     }
   });
 
@@ -281,7 +281,6 @@ export function ChatWindow({
         onApprove={approval.handleApprove}
         onReject={approval.handleReject}
         onClose={approval.closeApprovalModal}
-        timedOut={approval.approvalTimedOut}
       />
       {debugOpen && debugData != null && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60">

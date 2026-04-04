@@ -16,8 +16,7 @@ Design overview
 * The frontend receives the candidate chunks (for example via SSE) and
   responds through the HTTP layer, which calls :meth:`ApprovalGate.approve`
   or :meth:`ApprovalGate.reject`.
-* If no decision is received within ``timeout_seconds`` (default: 60),
-  the session is automatically rejected with ``timed_out=True``.
+* The session waits indefinitely until a decision is received.
 
 All state is kept in memory and scoped to the current process; no raw PII or
 anonymization maps are persisted or exposed.
@@ -82,16 +81,14 @@ class ApprovalGate:
 
     * :meth:`open_session` – register a new approval session for a set of
       sanitized chunks.
-    * :meth:`wait_for_decision` – await an approval or rejection, with a
-      built-in timeout that defaults to 60 seconds.
+    * :meth:`wait_for_decision` – await an approval or rejection.
     * :meth:`approve` / :meth:`reject` – invoked by the HTTP layer when the
       user confirms or rejects the chunks (optionally after editing).
     * :meth:`get_session_snapshot` – read-only view for diagnostics or
       polling-style UIs.
     """
 
-    def __init__(self, timeout_seconds: float = 60.0) -> None:
-        self._timeout_seconds = timeout_seconds
+    def __init__(self) -> None:
         self._sessions: Dict[str, _ApprovalSession] = {}
         self._lock = asyncio.Lock()
 
@@ -167,8 +164,6 @@ class ApprovalGate:
 
         * :meth:`approve` is called for ``session_id``.
         * :meth:`reject` is called for ``session_id``.
-        * The timeout elapses, in which case the session is automatically
-          rejected with ``timed_out=True``.
 
         Returns
         -------
@@ -183,22 +178,7 @@ class ApprovalGate:
                 )
             event = session.event
 
-        try:
-            await asyncio.wait_for(event.wait(), timeout=self._timeout_seconds)
-        except asyncio.TimeoutError:
-            # Timeout: automatically reject using the original chunks.
-            logger.info(
-                "Approval timeout reached for session %s (%.1fs); auto-rejecting.",
-                session_id,
-                self._timeout_seconds,
-            )
-            decision = ApprovalDecision(
-                approved=False,
-                chunks=await self._get_chunks_snapshot(session_id),
-                reason="timeout",
-                timed_out=True,
-            )
-            await self._set_decision(session_id, decision)
+        await event.wait()
 
         async with self._lock:
             session = self._sessions.pop(session_id, None)

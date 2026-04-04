@@ -382,7 +382,6 @@ export const trMessages: Record<string, string> = {
     "Yanıtlar cihazınızda yerel olarak de-anonimleştirilir. Cevaptaki yer tutucular yalnızca sizin cihazınızda özgün değerlerle değiştirilmiştir.",
 
   "chat.approval.rejected": "Bağlam reddedildi. LLM'e yanıt gönderilmedi.",
-  "chat.approval.timeout": "Onay zaman aşımına uğradı (60s).",
   "chat.approval.rejectedDefault": "Reddedildi.",
   "chat.debug.fetchError": "Hata ayıklama bilgisi alınırken bir hata oluştu.",
   "chat.morePills": "+{count} daha",
@@ -410,7 +409,6 @@ export const trMessages: Record<string, string> = {
     "Bu istek şu regülasyonlar kapsamında işleniyor: {regs}.",
   "chat.approval.noRegulations":
     "Etkinleştirilmiş özel bir regülasyon yok.",
-  "chat.approval.timeRemaining": "Kalan süre: {seconds}s",
   "chat.approval.maskedPrompt.title": "Maskelenmiş istem (anonimleştirilmiş)",
   "chat.approval.maskedPrompt.empty": "(boş)",
   "chat.approval.chunks.title": "Getirilen parçalar (düzenlenebilir)",

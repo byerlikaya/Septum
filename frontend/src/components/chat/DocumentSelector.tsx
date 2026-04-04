@@ -4,8 +4,6 @@ import { FileText } from "lucide-react";
 import type { Document } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 
-export const APPROVAL_TIMEOUT_SECONDS = 60;
-
 export interface DocumentSelectorProps {
   documents: Document[];
   isLoading: boolean;

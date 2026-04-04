@@ -10,7 +10,6 @@ export interface UseChatApprovalReturn {
   approvalMaskedPrompt: string;
   approvalChunks: ApprovalChunkPayload[];
   approvalRegulations: string[];
-  approvalTimedOut: boolean;
   handleApprove: (
     sessionId: string,
     editedChunks: ApprovalChunkPayload[]
@@ -25,7 +24,7 @@ export interface UseChatApprovalReturn {
     chunks: ApprovalChunkPayload[],
     activeRegulations: string[]
   ) => void;
-  onApprovalRejected: (reason: string, timedOut: boolean) => void;
+  onApprovalRejected: (reason: string) => void;
   closeApprovalModal: () => void;
 }
 
@@ -48,7 +47,6 @@ export function useChatApproval({
     ApprovalChunkPayload[]
   >([]);
   const [approvalRegulations, setApprovalRegulations] = useState<string[]>([]);
-  const [approvalTimedOut, setApprovalTimedOut] = useState(false);
 
   const handleApprove = useCallback(
     async (sessionId: string, editedChunks: ApprovalChunkPayload[]) => {
@@ -95,14 +93,12 @@ export function useChatApproval({
       setApprovalChunks(chunks);
       setApprovalRegulations(activeRegulations);
       setApprovalOpen(true);
-      setApprovalTimedOut(false);
     },
     []
   );
 
   const onApprovalRejected = useCallback(
-    (_reason: string, timedOut: boolean) => {
-      setApprovalTimedOut(timedOut);
+    (_reason: string) => {
       setApprovalOpen(false);
       setApprovalSessionId(null);
     },
@@ -120,7 +116,6 @@ export function useChatApproval({
     approvalMaskedPrompt,
     approvalChunks,
     approvalRegulations,
-    approvalTimedOut,
     handleApprove,
     handleReject,
     onApprovalRequired,

@@ -8,9 +8,6 @@ jest.mock("../../../lib/i18n", () => ({
       return `regs: ${(params?.regs as string) ?? ""}`;
     }
     if (key === "chat.approval.noRegulations") return "no-regs";
-    if (key === "chat.approval.timeRemaining") {
-      return `time:${params?.seconds}`;
-    }
     return key;
   }
 }));
@@ -43,7 +40,6 @@ function renderModal(override: Partial<ApprovalModalProps> = {}) {
     onApprove,
     onReject,
     onClose,
-    timedOut: false,
     ...override
   };
 

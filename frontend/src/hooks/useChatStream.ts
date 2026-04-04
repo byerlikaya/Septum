@@ -26,7 +26,7 @@ export interface UseChatStreamOptions {
     chunks: ApprovalChunkPayload[],
     activeRegulations: string[]
   ) => void;
-  onApprovalRejected: (reason: string, timedOut: boolean) => void;
+  onApprovalRejected: (reason: string) => void;
 }
 
 export interface UseChatStreamReturn {
@@ -123,10 +123,8 @@ export function useChatStream({
             );
             break;
           case "approval_rejected": {
-            const reason = event.timed_out
-              ? t("chat.approval.timeout")
-              : event.reason ?? t("chat.approval.rejectedDefault");
-            onApprovalRejected(reason, event.timed_out);
+            const reason = event.reason ?? t("chat.approval.rejectedDefault");
+            onApprovalRejected(reason);
             setStreaming(false);
             setMessages((prev) => {
               const idx = prev.findIndex(

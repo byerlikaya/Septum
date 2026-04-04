@@ -359,7 +359,6 @@ export const enMessages = {
     "Responses are de-anonymized locally. Placeholders in the answer have been replaced with original values on your device only.",
 
   "chat.approval.rejected": "Context was rejected. No answer sent to the LLM.",
-  "chat.approval.timeout": "Approval timed out (60s).",
   "chat.approval.rejectedDefault": "Rejected.",
   "chat.debug.fetchError": "An error occurred while fetching debug information.",
   "chat.morePills": "+{count} more",
@@ -386,7 +385,6 @@ export const enMessages = {
   "chat.approval.regulations":
     "This request is being processed under: {regs}.",
   "chat.approval.noRegulations": "No specific regulations are active.",
-  "chat.approval.timeRemaining": "Time remaining: {seconds}s",
   "chat.approval.maskedPrompt.title": "Masked prompt (sanitized)",
   "chat.approval.maskedPrompt.empty": "(empty)",
   "chat.approval.chunks.title": "Retrieved chunks (editable)",

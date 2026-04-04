@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { APPROVAL_TIMEOUT_SECONDS } from "./DocumentSelector";
 import type { ApprovalChunkPayload } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 
@@ -14,7 +13,6 @@ export interface ApprovalModalProps {
   onApprove: (sessionId: string, editedChunks: ApprovalChunkPayload[]) => void;
   onReject: (sessionId: string, reason?: string) => void;
   onClose: () => void;
-  timedOut?: boolean;
 }
 
 export function ApprovalModal({
@@ -26,31 +24,15 @@ export function ApprovalModal({
   onApprove,
   onReject,
   onClose,
-  timedOut = false
 }: ApprovalModalProps) {
   const t = useI18n();
-  const [secondsLeft, setSecondsLeft] = useState(APPROVAL_TIMEOUT_SECONDS);
   const [editedTexts, setEditedTexts] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open || !sessionId) return;
-    setSecondsLeft(APPROVAL_TIMEOUT_SECONDS);
     setEditedTexts(chunks.map((c) => c.text));
   }, [open, sessionId, chunks]);
-
-  useEffect(() => {
-    if (!open || secondsLeft <= 0) return;
-    const t = setInterval(() => setSecondsLeft((s) => s - 1), 1000);
-    return () => clearInterval(t);
-  }, [open, secondsLeft]);
-
-  useEffect(() => {
-    if (timedOut) {
-      setSubmitting(false);
-      onClose();
-    }
-  }, [timedOut, onClose]);
 
   if (!open) return <></>;
 
@@ -94,29 +76,6 @@ export function ApprovalModal({
             {t("chat.approval.title")}
           </h2>
           <p className="mt-1 text-sm text-slate-400">{regulationText}</p>
-          <div className="mt-2 space-y-1.5">
-            <div className="flex items-center gap-2">
-              <span
-                className={`text-sm font-medium ${
-                  secondsLeft <= 10 ? "text-rose-400" : secondsLeft <= 30 ? "text-amber-400" : "text-slate-400"
-                }`}
-              >
-                {t("chat.approval.timeRemaining", { seconds: secondsLeft })}
-              </span>
-            </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-700">
-              <div
-                className={`h-full rounded-full transition-all duration-1000 ease-linear ${
-                  secondsLeft <= 10
-                    ? "bg-rose-500"
-                    : secondsLeft <= 30
-                      ? "bg-amber-500"
-                      : "bg-emerald-500"
-                }`}
-                style={{ width: `${(secondsLeft / APPROVAL_TIMEOUT_SECONDS) * 100}%` }}
-              />
-            </div>
-          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
@@ -178,7 +137,7 @@ export function ApprovalModal({
           <button
             type="button"
             onClick={handleApprove}
-            disabled={submitting || secondsLeft <= 0}
+            disabled={submitting}
             className="rounded-md bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
           >
             {t("chat.approval.button.approve")}
