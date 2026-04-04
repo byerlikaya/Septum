@@ -111,17 +111,40 @@ Septum, dokümanlarınız ile bulut LLM'ler arasında duran bir **gizlilik odakl
 
 ## Tespit ve Gizlilik
 
-Septum, hem yanlış negatifleri (kaçan PII) hem de yanlış pozitifleri (gereksiz maskeleme) en aza indirmek için **3 katmanlı PII tespit pipeline'ı** kullanır:
+Septum, hem yanlış negatifleri (kaçan PII) hem de yanlış pozitifleri (gereksiz maskeleme) en aza indirmek için **çok katmanlı PII tespit pipeline'ı** kullanır. Her katman tespit kapasitesi ekler; hepsi **yerelde** çalışır.
 
-| Katman | Teknoloji | Amaç |
-|--------|----------|-------|
-| 1 | Microsoft Presidio + regülasyona özel tanıyıcı paketleri | Ülke-spesifik checksum doğrulayıcılarıyla desen tabanlı tespit |
-| 2 | HuggingFace NER (XLM-RoBERTa), dile duyarlı model seçimi | 20+ dilde AI tabanlı isim ve varlık tespiti |
-| 3 | Yerel Ollama LLM (isteğe bağlı) | Bağlam duyarlı takma ad ve lakap tespiti |
+### Her Katman Neyi Tespit Eder?
 
-Tüm katmanlar **yerelde** çalışır. Sonuçlar coreference çözümleme ile birleştirilir; böylece "Ahmet", "A. Yılmaz" ve "Bay Yılmaz" hepsi aynı `[PERSON_1]` placeholder'ına eşlenir.
+| Katman | Teknoloji | Tespit Edilen Varlık Tipleri |
+|:---:|-----------|-------------|
+| 1 | **Presidio** — regex desenleri + algoritmik doğrulayıcılar (Luhn, IBAN MOD-97, TCKN checksum) | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS |
+| 2 | **NER** — HuggingFace XLM-RoBERTa, dile özgü model seçimi (20+ dil) | PERSON_NAME, LOCATION |
+| 3 | **Ollama** — bağlam duyarlı doğrulama ve takma ad tespiti için yerel LLM | PERSON_NAME takma adları/lakapları; K1/K2'den gelen yanlış pozitifleri filtreler |
 
-> Varlık tipleri ve regülasyonlar bazında resmi doğruluk kıyaslamaları hazırlanmaktadır ve burada yayınlanacaktır.
+Katmanlar kümülatiftir: K1 yapısal tanımlayıcıları yakalar, K2 desenlerin yakalayamadığı isimleri ve konumları ekler, K3 lakap gibi gayriresmi referansları yakalar ve belirsiz tespitleri doğrular. Sonuçlar coreference çözümleme ile birleştirilir; böylece "Ahmet", "A. Yılmaz" ve "Bay Yılmaz" hepsi aynı `[PERSON_1]` placeholder'ına eşlenir.
+
+> **Semantik varlık tipleri** (DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION vb.) regülasyonlar tarafından tanımlanır ancak tespit için özel kurallar veya Ollama katmanı gerektirir — yalnızca regex ile yakalanamaz.
+
+### Kıyaslama Sonuçları
+
+Tüm 17 yerleşik regülasyon aktif. 10 varlık tipinde **1 618 algoritmik olarak üretilmiş PII değeri** (geçerli Luhn, IBAN MOD-97, TCKN checksum'ları). Presidio tipi başına 150 örnek, 100 kişi ismi (EN/TR/çok dilli), 100 konum (EN/TR) ve takma ad tespiti. Tam tekrarlanabilirlik için sabit seed.
+
+<p align="center">
+  <img src="screenshots/benchmark-f1-by-type.png" alt="Varlık Tipine Göre F1 Skoru" width="900" />
+</p>
+
+<p align="center">
+  <img src="screenshots/benchmark-layer-comparison.png" alt="Katmana Göre Tespit Doğruluğu" width="700" />
+</p>
+
+| Katman | Varlıklar | Tipler | Precision | Recall | F1 |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Presidio (K1) — desenler + doğrulayıcılar | 1 200 | 8 | %100 | %100 | %100 |
+| NER (K2) — XLM-RoBERTa | 200 | 2 | %98,0 | %97,5 | %97,7 |
+| Ollama (K3) — aya-expanse:8b | 218 | 2 | %100 | %98,6 | %99,3 |
+| **Birleşik** | **1 618** | **10** | **%100** | **%99,6** | **%99,8** |
+
+> Ollama (K3), takma adları yakalayarak PERSON_NAME recall'ını %97'den %100'e çıkarır ve bağlam duyarlı doğrulama ile yanlış pozitifleri ortadan kaldırır. Tekrarlanabilir: `pytest tests/benchmark_detection.py -v -s`
 
 Pipeline detayları için bkz. [Mimari — PII Tespiti ve Anonimleştirme Akışı](ARCHITECTURE.tr.md#pii-tespiti-ve-anonimleştirme-akışı).
 

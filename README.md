@@ -111,17 +111,40 @@ Septum is a **privacy-first AI middleware** that sits between your documents and
 
 ## Detection & Privacy
 
-Septum uses a **3-layer PII detection pipeline** to minimise both false negatives (missed PII) and false positives (over-masking):
+Septum uses a **multi-layer PII detection pipeline** to minimise both false negatives (missed PII) and false positives (over-masking). Each layer adds detection capability; all run **locally**.
 
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| 1 | Microsoft Presidio + regulation-specific recogniser packs | Pattern-based detection with country-specific checksum validators |
-| 2 | HuggingFace NER (XLM-RoBERTa) with language-aware model selection | AI-based name and entity detection across 20+ languages |
-| 3 | Local Ollama LLM (optional) | Context-aware alias and nickname detection |
+### What Each Layer Detects
 
-All layers run **locally**. Results are merged with coreference resolution so "John", "J. Doe", and "Mr. Doe" all map to the same `[PERSON_1]` placeholder.
+| Layer | Technology | Entity Types Detected |
+|:---:|-----------|-------------|
+| 1 | **Presidio** — regex patterns + algorithmic validators (Luhn, IBAN MOD-97, TCKN checksum) | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS |
+| 2 | **NER** — HuggingFace XLM-RoBERTa with per-language model selection (20+ languages) | PERSON_NAME, LOCATION |
+| 3 | **Ollama** — local LLM for context-aware validation and alias detection | PERSON_NAME aliases/nicknames; filters false positives from L1/L2 |
 
-> Formal accuracy benchmarks across entity types and regulations are in progress and will be published here.
+Layers are additive: L1 catches structured identifiers, L2 adds names and locations that patterns can't match, and L3 catches informal references like nicknames and validates ambiguous detections. Results are merged with coreference resolution so "John", "J. Doe", and "Mr. Doe" all map to the same `[PERSON_1]` placeholder.
+
+> **Semantic entity types** (DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, etc.) are declared by regulations but require custom detection rules or the Ollama layer for detection — they cannot be caught by regex alone.
+
+### Benchmark Results
+
+All 17 built-in regulations active. **1 618 algorithmically generated PII values** across 10 entity types (valid Luhn, IBAN MOD-97, TCKN checksums). 150 samples per Presidio type, 100 person names (EN/TR/multilingual), 100 locations (EN/TR), plus alias detection. Fixed seed for full reproducibility.
+
+<p align="center">
+  <img src="screenshots/benchmark-f1-by-type.png" alt="F1 Score by Entity Type" width="900" />
+</p>
+
+<p align="center">
+  <img src="screenshots/benchmark-layer-comparison.png" alt="Detection Accuracy by Pipeline Layer" width="700" />
+</p>
+
+| Layer | Entities | Types | Precision | Recall | F1 |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Presidio (L1) — patterns + validators | 1 200 | 8 | 100% | 100% | 100% |
+| NER (L2) — XLM-RoBERTa | 200 | 2 | 98.0% | 97.5% | 97.7% |
+| Ollama (L3) — aya-expanse:8b | 218 | 2 | 100% | 98.6% | 99.3% |
+| **Combined** | **1 618** | **10** | **100%** | **99.6%** | **99.8%** |
+
+> Ollama (L3) improves PERSON_NAME recall from 97% to 100% by catching aliases, and eliminates false positives via context-aware validation. Reproducible: `pytest tests/benchmark_detection.py -v -s`
 
 For full pipeline details, see [Architecture — PII Detection & Anonymisation Pipeline](ARCHITECTURE.md#pii-detection--anonymisation-pipeline).
 

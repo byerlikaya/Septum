@@ -988,7 +988,8 @@ class PIISanitizer:
             if not placeholder:
                 norm_ref = normalize_for_comparison(refers_to, language)
                 for orig, ph in anon_map.entity_map.items():
-                    if normalize_for_comparison(orig, language) == norm_ref:
+                    norm_orig = normalize_for_comparison(orig, language)
+                    if norm_orig == norm_ref:
                         placeholder = ph
                         break
             if not placeholder:
