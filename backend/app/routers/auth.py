@@ -1,10 +1,6 @@
 """FastAPI router for user authentication (register, login, me)."""
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-
-_limiter = Limiter(key_func=get_remote_address)
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,13 +39,12 @@ class UserResponse(BaseModel):
 
     id: int
     email: str
+    role: str
     is_active: bool
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-@_limiter.limit("3/minute")
 async def register(
-    request: Request,
     payload: RegisterRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
@@ -74,9 +69,7 @@ async def register(
 
 
 @router.post("/login", response_model=TokenResponse)
-@_limiter.limit("5/minute")
 async def login(
-    request: Request,
     payload: LoginRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
@@ -107,5 +100,6 @@ async def me(
     return UserResponse(
         id=current_user.id,
         email=current_user.email,
+        role=current_user.role,
         is_active=current_user.is_active,
     )

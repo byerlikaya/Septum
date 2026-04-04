@@ -484,6 +484,8 @@ The project includes a custom `/test` rule inside Septum:
   - etc.  
 - If no match is found, the full test suite is executed.
 
+**Continuous integration:** GitHub Actions runs backend tests plus Ruff and Bandit, `pip-audit`, and frontend Jest, `tsc --noEmit`, and `npm audit` in parallel on every push and pull request.
+
 To run tests manually:
 
 ```bash
@@ -501,7 +503,8 @@ Any tests that would send real requests to a cloud LLM **must be mocked**; tests
 - The anonymisation map (placeholders → real values) is cached in memory, optionally in Redis, and persisted encrypted on disk with AES‑256‑GCM. It is never sent to the frontend, cloud, or logs.  
 - File types are detected by content signature, not by extension.  
 - Uploaded files are stored encrypted on disk with AES‑256‑GCM; decryption happens only in memory during preview.  
-- When multiple regulations are active at the same time, Septum always applies the **most restrictive** masking policy.
+- When multiple regulations are active at the same time, Septum always applies the **most restrictive** masking policy.  
+- Optional **JWT authentication** (`POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`): each user has a **role** (`admin`, `editor`, or `viewer`); documents and chat sessions are scoped to the signed-in user when a token is present; sensitive settings updates require `admin`.
 
 ---
 
@@ -535,14 +538,15 @@ Septum exposes a RESTful API. Key endpoint groups:
 
 | Group | Endpoints | Description |
 |-------|-----------|-------------|
-| **Documents** | `POST /api/documents`, `GET /api/documents`, `DELETE /api/documents/{id}`, `POST /api/documents/{id}/reprocess` | Upload, list, delete, and reprocess documents |
+| **Documents** | `POST /api/documents`, `GET /api/documents`, `GET /api/documents/{id}`, `GET /api/documents/{id}/raw`, `GET /api/documents/{id}/anon-summary`, `DELETE /api/documents/{id}`, `POST /api/documents/{id}/reprocess` | Upload, list, preview/decrypt original, anonymisation summary, delete, reprocess |
+| **Auth** | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` | JWT bearer accounts (roles: admin, editor, viewer) |
 | **Chat** | `POST /api/chat/ask` (SSE), `GET /api/chat/debug/{session_id}` | Privacy-preserving RAG chat with streaming |
 | **Chat sessions** | `GET/POST /api/chat-sessions`, `GET/PATCH/DELETE /api/chat-sessions/{id}`, `POST /api/chat-sessions/{id}/messages` | Persistent chat history (list sessions, update metadata, append messages) |
 | **Chunks** | `GET /api/chunks`, `GET /api/chunks/{id}` | Search and inspect document chunks |
 | **Settings** | `GET /api/settings`, `PUT /api/settings` | Application configuration |
 | **Regulations** | `GET /api/regulations`, `PUT /api/regulations/{id}` | Manage regulation rulesets and custom recognisers |
 | **Audit** | `GET /api/audit`, `GET /api/audit/{id}/report`, `GET /api/audit/metrics` | Compliance audit trail and detection metrics |
-| **Health** | `GET /health` | System health with provider and Redis status |
+| **Health** | `GET /health`, `GET /metrics` | System health and Prometheus metrics |
 
 Full OpenAPI schema is available at `http://localhost:8000/docs` when the backend is running.
 

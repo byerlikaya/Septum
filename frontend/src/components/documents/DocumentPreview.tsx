@@ -32,6 +32,7 @@ export function DocumentPreview({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [anonSummary, setAnonSummary] = useState<{ entities: Record<string, number>; total: number } | null>(null);
   const [schema, setSchema] = useState<SpreadsheetSchema | null>(null);
   const [isSchemaLoading, setIsSchemaLoading] = useState(false);
   const [schemaError, setSchemaError] = useState<string | null>(null);
@@ -54,6 +55,14 @@ export function DocumentPreview({
         });
         if (!isCancelled) {
           setChunks(response.data.items);
+        }
+        try {
+          const anonRes = await api.get<{ entities: Record<string, number>; total: number }>(
+            `/api/documents/${document.id}/anon-summary`
+          );
+          if (!isCancelled) setAnonSummary(anonRes.data);
+        } catch {
+          // anon summary is optional
         }
       } catch {
         if (!isCancelled) {
@@ -237,18 +246,91 @@ export function DocumentPreview({
               )}
             </div>
           )}
-          {!isLoading && !error && !isTranscriptionMode && document?.file_format === "pdf" && (
-            <div className="mb-4 flex flex-col gap-2">
-              <div className="text-xs font-medium text-slate-300">
-                {t("documents.preview.originalDocument")}
+          {!isLoading && !error && !isTranscriptionMode && anonSummary && anonSummary.total > 0 && (
+            <div className="mb-4 rounded-lg border border-slate-700 bg-slate-800/50 p-3">
+              <div className="mb-2 text-xs font-medium text-slate-300">
+                {t("documents.preview.anonSummary")} ({anonSummary.total})
               </div>
-              <iframe
-                src={`${baseURL}/api/documents/${document.id}/raw#toolbar=1`}
-                className="h-[50vh] w-full rounded-md border border-slate-800 bg-white"
-                title={getDocumentDisplayName(document)}
-              />
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(anonSummary.entities).map(([type, count]) => (
+                  <span
+                    key={type}
+                    className="inline-flex items-center gap-1 rounded-full bg-sky-900/40 border border-sky-700/40 px-2 py-0.5 text-[10px] font-medium text-sky-300"
+                  >
+                    {type} <span className="text-sky-400/70">{count}</span>
+                  </span>
+                ))}
+              </div>
             </div>
           )}
+
+          {!isLoading && !error && !isTranscriptionMode && document && (() => {
+            const fmt = document.file_format.toLowerCase();
+            const rawUrl = `${baseURL}/api/documents/${document.id}/raw`;
+            const title = getDocumentDisplayName(document);
+
+            if (fmt === "audio") {
+              return (
+                <div className="mb-4 flex flex-col gap-2">
+                  <div className="text-xs font-medium text-slate-300">
+                    {t("documents.preview.audioPlayer")}
+                  </div>
+                  <audio controls src={rawUrl} className="w-full">
+                    {t("documents.preview.audioUnsupported")}
+                  </audio>
+                </div>
+              );
+            }
+
+            if (fmt === "image") {
+              return (
+                <div className="mb-4 flex flex-col gap-2">
+                  <div className="text-xs font-medium text-slate-300">
+                    {t("documents.preview.originalDocument")}
+                  </div>
+                  <img
+                    src={rawUrl}
+                    alt={title}
+                    className="max-h-[60vh] w-auto rounded-md border border-slate-800 object-contain"
+                  />
+                </div>
+              );
+            }
+
+            if (fmt === "pdf") {
+              return (
+                <div className="mb-4 flex flex-col gap-2">
+                  <div className="text-xs font-medium text-slate-300">
+                    {t("documents.preview.originalDocument")}
+                  </div>
+                  <iframe
+                    src={`${rawUrl}#toolbar=1`}
+                    className="h-[50vh] w-full rounded-md border border-slate-800 bg-white"
+                    title={title}
+                  />
+                </div>
+              );
+            }
+
+            if (fmt === "docx" || fmt === "xlsx" || fmt === "ods") {
+              return (
+                <div className="mb-4 flex flex-col gap-2">
+                  <div className="text-xs font-medium text-slate-300">
+                    {t("documents.preview.originalDocument")}
+                  </div>
+                  <a
+                    href={rawUrl}
+                    download={document.original_filename}
+                    className="inline-flex items-center gap-2 rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700 transition-colors w-fit"
+                  >
+                    {t("documents.preview.download")}
+                  </a>
+                </div>
+              );
+            }
+
+            return null;
+          })()}
 
           {!isLoading && !error && !isTranscriptionMode && (
             <div

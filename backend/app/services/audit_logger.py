@@ -4,7 +4,7 @@ from __future__ import annotations
 
 All functions commit in a separate session so audit failures never block
 the main request pipeline. Raw PII values are never stored — only entity
-type names and counts.
+type names, counts, and masked placeholder examples.
 """
 
 import logging
@@ -36,8 +36,19 @@ async def log_pii_detected(
     total_count: int,
     session_id: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
+    document_name: Optional[str] = None,
+    masked_query: Optional[str] = None,
+    placeholder_samples: Optional[List[str]] = None,
 ) -> None:
     """Record a PII detection event (document upload or chat query)."""
+    merged_extra: Dict[str, Any] = extra or {}
+    if document_name:
+        merged_extra["document_name"] = document_name
+    if masked_query:
+        merged_extra["masked_query"] = masked_query[:200]
+    if placeholder_samples:
+        merged_extra["placeholder_samples"] = placeholder_samples[:5]
+
     await _persist(
         db,
         AuditEvent(
@@ -47,7 +58,7 @@ async def log_pii_detected(
             regulation_ids=regulation_ids,
             entity_types_detected=entity_type_counts,
             entity_count=total_count,
-            extra=extra,
+            extra=merged_extra,
         ),
     )
 
@@ -59,8 +70,13 @@ async def log_deanonymization(
     entity_count: int,
     strategy: str,
     session_id: Optional[str] = None,
+    document_name: Optional[str] = None,
 ) -> None:
     """Record a de-anonymization event."""
+    extra: Dict[str, Any] = {"strategy": strategy}
+    if document_name:
+        extra["document_name"] = document_name
+
     await _persist(
         db,
         AuditEvent(
@@ -70,7 +86,7 @@ async def log_deanonymization(
             regulation_ids=[],
             entity_types_detected={},
             entity_count=entity_count,
-            extra={"strategy": strategy},
+            extra=extra,
         ),
     )
 
@@ -80,9 +96,14 @@ async def log_document_event(
     *,
     document_id: int,
     event_type: str,
+    document_name: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Record a document lifecycle event (uploaded, deleted)."""
+    merged_extra: Dict[str, Any] = extra or {}
+    if document_name:
+        merged_extra["document_name"] = document_name
+
     await _persist(
         db,
         AuditEvent(
@@ -91,7 +112,7 @@ async def log_document_event(
             regulation_ids=[],
             entity_types_detected={},
             entity_count=0,
-            extra=extra,
+            extra=merged_extra,
         ),
     )
 

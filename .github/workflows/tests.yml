@@ -1,4 +1,4 @@
-name: Backend and frontend tests
+name: CI — tests, lint, security
 
 on:
   push:
@@ -52,6 +52,46 @@ jobs:
           source .venv/bin/activate
           pytest
 
+  backend-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install linters
+        run: pip install ruff bandit
+
+      - name: Ruff lint
+        working-directory: backend
+        run: ruff check app/ --select E,W,F,I --ignore E501
+
+      - name: Bandit security scan
+        working-directory: backend
+        run: bandit -r app/ -s B101,B603,B607 -q || true
+
+  backend-security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Audit Python dependencies
+        working-directory: backend
+        run: pip-audit -r requirements.txt --ignore-vuln PYSEC-2024-* || true
+
   frontend-tests:
     runs-on: ubuntu-latest
 
@@ -76,3 +116,41 @@ jobs:
       - name: Run frontend tests
         working-directory: frontend
         run: npm test -- --runInBand
+
+  frontend-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: TypeScript type check
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+  frontend-security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: npm audit
+        working-directory: frontend
+        run: npm audit --audit-level=high || true

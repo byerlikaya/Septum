@@ -606,6 +606,8 @@ async def chat_ask(
             total_count=entity_count,
             session_id=session_id,
             extra={"source": "chat_query"},
+            document_name=document.original_filename if document else None,
+            masked_query=sanitized_query if sanitized_query != request.message else None,
         )
 
     gate: ApprovalGate = get_approval_gate()
@@ -744,6 +746,7 @@ async def chat_ask(
                     entity_count=len(anon_map.entity_map),
                     strategy=getattr(effective_settings, "deanon_strategy", "simple"),
                     session_id=session_id,
+                    document_name=document.original_filename if document else None,
                 )
 
             for piece in _chunk_text(answer, max_chunk_size=256):

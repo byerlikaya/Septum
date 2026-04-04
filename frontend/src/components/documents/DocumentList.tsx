@@ -167,9 +167,10 @@ export function DocumentList({
 
   if (!uniqueDocuments.length) {
     return (
-      <div className="flex flex-1 items-center justify-center rounded-lg border border-slate-800 bg-slate-950/40">
-        <div className="text-center text-sm text-slate-400">
-          {t("documents.table.empty")}
+      <div className="flex flex-1 items-center justify-center rounded-lg border border-slate-800 bg-slate-950/40 p-8">
+        <div className="max-w-sm text-center">
+          <p className="text-sm text-slate-400">{t("documents.table.empty")}</p>
+          <p className="mt-2 text-xs text-slate-500">{t("documents.table.emptyHint")}</p>
         </div>
       </div>
     );

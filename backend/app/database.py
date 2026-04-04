@@ -109,6 +109,10 @@ async def _sqlite_ensure_columns() -> None:
             "chat_sessions",
             "ALTER TABLE chat_sessions ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE",
         ),
+        (
+            "users",
+            "ALTER TABLE users ADD COLUMN role VARCHAR NOT NULL DEFAULT 'editor'",
+        ),
     ]
 
     async with engine.begin() as conn:

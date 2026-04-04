@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Check, Info, RefreshCw, WifiOff } from "lucide-react";
+import { Copy, Check, Info, Pencil, RefreshCw, Trash2, WifiOff } from "lucide-react";
 import type { ChatMessage } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
@@ -9,16 +9,22 @@ interface MessageBubbleProps {
   message: ChatMessage;
   isThinking?: boolean;
   isLastAssistant?: boolean;
+  isLastUser?: boolean;
   onDebugClick?: (sessionId: string) => void;
   onRegenerate?: () => void;
+  onDelete?: () => void;
+  onEdit?: (content: string) => void;
 }
 
 export function MessageBubble({
   message,
   isThinking = false,
   isLastAssistant = false,
+  isLastUser = false,
   onDebugClick,
   onRegenerate,
+  onDelete,
+  onEdit,
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const { copied, copy } = useCopyToClipboard();
@@ -49,6 +55,30 @@ export function MessageBubble({
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
         )}
       </div>
+      {isUser && message.content.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-2">
+          {isLastUser && onEdit && (
+            <button
+              type="button"
+              onClick={() => onEdit(message.content)}
+              className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-slate-400 hover:bg-slate-700/80 hover:text-slate-200 transition-colors"
+              title={t("chat.message.edit")}
+            >
+              <Pencil className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            </button>
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              onClick={onDelete}
+              className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-slate-400 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
+              title={t("chat.message.delete")}
+            >
+              <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            </button>
+          )}
+        </div>
+      )}
       {!isUser && message.usedOllamaFallback && (
         <div className="mt-1.5 flex items-center gap-1.5 rounded-md border border-amber-800/60 bg-amber-950/40 px-2 py-1.5 text-xs text-amber-200">
           <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden />

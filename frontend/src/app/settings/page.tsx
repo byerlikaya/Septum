@@ -220,8 +220,8 @@ export default function SettingsPage() {
         </p>
       </header>
 
-      <div className="flex min-h-0 flex-1 gap-4">
-        <div className="w-52 shrink-0 space-y-1 rounded-lg border border-slate-800 bg-slate-950/80 p-2 text-sm">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
+        <div className="flex shrink-0 gap-1 overflow-x-auto md:w-52 md:flex-col md:overflow-x-visible rounded-lg border border-slate-800 bg-slate-950/80 p-2 text-sm">
           <SettingsTabButton
             label={t("settings.tabs.cloud.label")}
             description={t("settings.tabs.cloud.description")}

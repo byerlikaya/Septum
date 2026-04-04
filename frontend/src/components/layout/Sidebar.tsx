@@ -4,8 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { LogOut, Moon, Sun } from "lucide-react";
-import { useTheme } from "@/lib/theme";
+import { LogOut } from "lucide-react";
 import { clearAuthToken, fetchErrorLogs } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { useLanguage } from "@/lib/language";
@@ -106,7 +105,6 @@ function LanguageSelector() {
 export function Sidebar() {
   const pathname = usePathname();
   const t = useI18n();
-  const { theme, toggleTheme } = useTheme();
   const [isNavOpen, setIsNavOpen] = useState<boolean>(false);
   const [errorLogCount, setErrorLogCount] = useState<number>(0);
 
@@ -234,17 +232,7 @@ export function Sidebar() {
           ))}
         </nav>
         <div className="border-t border-slate-800 px-4 py-3 text-xs text-slate-500 space-y-2">
-          <div className="flex items-center gap-2">
-            <LanguageSelector />
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="rounded-md p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors"
-              aria-label="Toggle theme"
-            >
-              {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
-            </button>
-          </div>
+          <LanguageSelector />
           <button
             type="button"
             onClick={() => {

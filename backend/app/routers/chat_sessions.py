@@ -72,8 +72,11 @@ class AddMessagePayload(BaseModel):
 
 
 @router.get("", response_model=List[ChatSessionResponse])
-async def list_sessions(db: AsyncSession = Depends(get_db)) -> list:
-    """List all chat sessions ordered by most recently updated."""
+async def list_sessions(
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_user),
+) -> list:
+    """List chat sessions for the current user, ordered by most recently updated."""
     stmt = (
         select(
             ChatSession,
@@ -83,6 +86,8 @@ async def list_sessions(db: AsyncSession = Depends(get_db)) -> list:
         .group_by(ChatSession.id)
         .order_by(ChatSession.updated_at.desc())
     )
+    if current_user is not None:
+        stmt = stmt.where(ChatSession.user_id == current_user.id)
     rows = (await db.execute(stmt)).all()
     results = []
     for session, msg_count in rows:
@@ -227,6 +232,24 @@ async def add_message(
     return ChatMessageResponse(
         id=msg.id, role=msg.role, content=msg.content, created_at=msg.created_at
     )
+
+
+@router.delete(
+    "/{session_id}/messages/{message_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+async def delete_message(
+    session_id: int,
+    message_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete a single message from a chat session."""
+    msg = await db.get(ChatMessage, message_id)
+    if msg is None or msg.session_id != session_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+    await db.delete(msg)
+    await db.commit()
 
 
 @router.get("/{session_id}/export")

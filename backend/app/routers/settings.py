@@ -24,6 +24,7 @@ from ..database import get_db
 from ..models.settings import AppSettings
 from ..services.error_logger import log_backend_error, log_backend_message
 from ..services.llm_router import LLMRouter, LLMRouterError
+from ..utils.auth_dependency import get_optional_user
 from ..utils.db_helpers import load_settings
 from ..utils.device import get_device
 
@@ -172,6 +173,7 @@ async def get_settings_endpoint(
 async def update_settings_endpoint(
     payload: SettingsUpdatePayload,
     db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_optional_user),
 ) -> SettingsResponse:
     """Partially update global application settings."""
     settings = await load_settings(db)

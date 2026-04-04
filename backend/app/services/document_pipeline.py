@@ -96,6 +96,7 @@ class DocumentPipeline:
         await set_document_map(document.id, anon_map)
 
         if total_entities > 0:
+            placeholder_samples = list(anon_map.entity_map.values())[:5] if anon_map.entity_map else []
             await log_pii_detected(
                 db,
                 document_id=document.id,
@@ -103,6 +104,8 @@ class DocumentPipeline:
                 entity_type_counts=aggregate_type_counts,
                 total_count=total_entities,
                 extra={"source": "document_ingestion", "language": detected_language},
+                document_name=document.original_filename,
+                placeholder_samples=placeholder_samples,
             )
 
         if chunks and raw_texts_for_index:

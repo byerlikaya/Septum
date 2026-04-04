@@ -164,6 +164,7 @@ export function ChatWindow({
           ) : (
             messages.map((msg) => {
               const lastAssistantId = [...messages].reverse().find((m) => m.role === "assistant")?.id;
+              const lastUserId = [...messages].reverse().find((m) => m.role === "user")?.id;
               return (
                 <MessageBubble
                   key={msg.id}
@@ -179,7 +180,19 @@ export function ChatWindow({
                     msg.role === "assistant" &&
                     msg.id === lastAssistantId
                   }
+                  isLastUser={
+                    !streaming &&
+                    msg.role === "user" &&
+                    msg.id === lastUserId
+                  }
                   onRegenerate={regenerate}
+                  onDelete={() => {
+                    setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+                  }}
+                  onEdit={(content) => {
+                    setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+                    setInput(content);
+                  }}
                   onDebugClick={() => {
                     void handleOpenDebug();
                   }}

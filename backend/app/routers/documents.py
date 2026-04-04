@@ -574,9 +574,13 @@ async def upload_document(
 )
 async def list_documents(
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_user),
 ) -> DocumentListResponse:
-    """Return all documents ordered by upload time (newest first)."""
-    result = await db.execute(select(Document).order_by(Document.uploaded_at.desc()))
+    """Return documents for the current user, ordered by upload time (newest first)."""
+    stmt = select(Document).order_by(Document.uploaded_at.desc())
+    if current_user is not None:
+        stmt = stmt.where(Document.user_id == current_user.id)
+    result = await db.execute(stmt)
     docs = list(result.scalars().all())
     return DocumentListResponse(
         items=[DocumentResponse.model_validate(d) for d in docs]
@@ -595,6 +599,34 @@ async def get_document(
     """Return metadata for a single document."""
     document = await get_or_404(db, Document, document_id, "Document not found.")
     return DocumentResponse.model_validate(document)
+
+
+@router.get(
+    "/{document_id}/anon-summary",
+    status_code=status.HTTP_200_OK,
+)
+async def get_anon_summary(
+    document_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return a privacy-safe summary of the anonymization map (entity types and counts only)."""
+    from ..services.document_anon_store import get_document_map
+
+    await get_or_404(db, Document, document_id, "Document not found.")
+    anon_map = await get_document_map(document_id)
+    if anon_map is None:
+        return {"document_id": document_id, "entities": {}, "total": 0}
+
+    type_counts: dict[str, int] = {}
+    for placeholder in anon_map.entity_map.values():
+        entity_type = placeholder.strip("[]").rsplit("_", 1)[0] if "_" in placeholder else placeholder.strip("[]")
+        type_counts[entity_type] = type_counts.get(entity_type, 0) + 1
+
+    return {
+        "document_id": document_id,
+        "entities": type_counts,
+        "total": sum(type_counts.values()),
+    }
 
 
 @router.get(

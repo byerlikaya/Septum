@@ -1,6 +1,7 @@
 "use client";
 
-import { Download, FileText, MessageSquarePlus, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { Download, FileText, MessageSquarePlus, Pencil, Trash2, Check, X } from "lucide-react";
 import type { ChatSessionSummary } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 
@@ -10,6 +11,7 @@ interface ChatHistoryProps {
   onSelectSession: (id: number) => void;
   onNewChat: () => void;
   onDeleteSession: (id: number) => void;
+  onRenameSession?: (id: number, title: string) => void;
   onExportSession?: (id: number) => void;
   onExportSessionPDF?: (id: number) => void;
 }
@@ -20,10 +22,25 @@ export function ChatHistory({
   onSelectSession,
   onNewChat,
   onDeleteSession,
+  onRenameSession,
   onExportSession,
   onExportSessionPDF,
 }: ChatHistoryProps) {
   const t = useI18n();
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+
+  const startRename = (session: ChatSessionSummary) => {
+    setEditingId(session.id);
+    setEditTitle(session.title);
+  };
+
+  const confirmRename = () => {
+    if (editingId != null && editTitle.trim()) {
+      onRenameSession?.(editingId, editTitle.trim());
+    }
+    setEditingId(null);
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -52,9 +69,10 @@ export function ChatHistory({
               key={session.id}
               role="button"
               tabIndex={0}
-              onClick={() => onSelectSession(session.id)}
+              onClick={() => editingId !== session.id && onSelectSession(session.id)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") onSelectSession(session.id);
+                if ((e.key === "Enter" || e.key === " ") && editingId !== session.id)
+                  onSelectSession(session.id);
               }}
               className={`group flex w-full cursor-pointer items-center justify-between gap-1 px-3 py-2 text-left text-xs transition-colors ${
                 activeSessionId === session.id
@@ -62,48 +80,74 @@ export function ChatHistory({
                   : "text-slate-300 hover:bg-slate-800 hover:text-slate-100"
               }`}
             >
-              <span className="min-w-0 flex-1 truncate">{session.title}</span>
-              <span className="flex shrink-0 gap-0.5 opacity-0 group-hover:opacity-100">
-                {onExportSession && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onExportSession(session.id);
-                    }}
-                    className="rounded p-0.5 text-slate-500 hover:text-sky-400"
-                    aria-label="Export JSON"
-                    title="JSON"
-                  >
-                    <Download className="h-3 w-3" />
-                  </button>
-                )}
-                {onExportSessionPDF && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onExportSessionPDF(session.id);
-                    }}
-                    className="rounded p-0.5 text-slate-500 hover:text-violet-400"
-                    aria-label="Export PDF"
-                    title="PDF"
-                  >
-                    <FileText className="h-3 w-3" />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteSession(session.id);
-                  }}
-                  className="rounded p-0.5 text-slate-500 hover:text-rose-400"
-                  aria-label={t("common.delete")}
+              {editingId === session.id ? (
+                <form
+                  className="flex min-w-0 flex-1 items-center gap-1"
+                  onSubmit={(e) => { e.preventDefault(); confirmRename(); }}
                 >
-                  <Trash2 className="h-3 w-3" />
-                </button>
-              </span>
+                  <input
+                    type="text"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    autoFocus
+                    className="min-w-0 flex-1 rounded border border-slate-600 bg-slate-800 px-1 py-0.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500"
+                    onKeyDown={(e) => { if (e.key === "Escape") setEditingId(null); }}
+                  />
+                  <button type="submit" className="rounded p-0.5 text-emerald-400 hover:text-emerald-300">
+                    <Check className="h-3 w-3" />
+                  </button>
+                  <button type="button" onClick={() => setEditingId(null)} className="rounded p-0.5 text-slate-400 hover:text-slate-200">
+                    <X className="h-3 w-3" />
+                  </button>
+                </form>
+              ) : (
+                <>
+                  <span className="min-w-0 flex-1 truncate">{session.title}</span>
+                  <span className="flex shrink-0 gap-0.5 opacity-0 group-hover:opacity-100">
+                    {onRenameSession && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); startRename(session); }}
+                        className="rounded p-0.5 text-slate-500 hover:text-slate-300"
+                        aria-label={t("chat.history.rename")}
+                        title={t("chat.history.rename")}
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    )}
+                    {onExportSession && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onExportSession(session.id); }}
+                        className="rounded p-0.5 text-slate-500 hover:text-sky-400"
+                        aria-label="Export JSON"
+                        title="JSON"
+                      >
+                        <Download className="h-3 w-3" />
+                      </button>
+                    )}
+                    {onExportSessionPDF && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onExportSessionPDF(session.id); }}
+                        className="rounded p-0.5 text-slate-500 hover:text-violet-400"
+                        aria-label="Export PDF"
+                        title="PDF"
+                      >
+                        <FileText className="h-3 w-3" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
+                      className="rounded p-0.5 text-slate-500 hover:text-rose-400"
+                      aria-label={t("common.delete")}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </span>
+                </>
+              )}
             </div>
           ))
         )}

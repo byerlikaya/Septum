@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
-import { authMe, getAuthToken } from "@/lib/api";
+import { usePathname, useRouter } from "next/navigation";
+import { authMe, getAuthToken, clearAuthToken } from "@/lib/api";
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -12,42 +12,43 @@ const PUBLIC_PATHS = ["/login", "/register"];
 
 export function AuthGuard({ children }: AuthGuardProps) {
   const pathname = usePathname();
-  const [checked, setChecked] = useState(false);
-  const [authenticated, setAuthenticated] = useState(false);
+  const router = useRouter();
+  const [status, setStatus] = useState<"loading" | "authenticated" | "unauthenticated">("loading");
+
+  const isPublicPage = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 
   useEffect(() => {
-    const token = getAuthToken();
-    if (!token) {
-      setAuthenticated(false);
-      setChecked(true);
+    if (isPublicPage) {
+      setStatus("authenticated");
       return;
     }
+
+    const token = getAuthToken();
+    if (!token) {
+      setStatus("unauthenticated");
+      return;
+    }
+
     let cancelled = false;
     authMe()
       .then(() => {
-        if (!cancelled) setAuthenticated(true);
+        if (!cancelled) setStatus("authenticated");
       })
       .catch(() => {
-        if (!cancelled) setAuthenticated(false);
-      })
-      .finally(() => {
-        if (!cancelled) setChecked(true);
+        if (!cancelled) {
+          clearAuthToken();
+          setStatus("unauthenticated");
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isPublicPage]);
 
-  if (!checked) return null;
+  if (status === "loading") return null;
 
-  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
-    return <>{children}</>;
-  }
-
-  if (!authenticated) {
-    if (typeof window !== "undefined") {
-      window.location.href = "/login";
-    }
+  if (status === "unauthenticated" && !isPublicPage) {
+    router.replace("/login");
     return null;
   }
 

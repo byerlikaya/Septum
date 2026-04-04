@@ -3,6 +3,7 @@ export type IngestionStatus = "pending" | "processing" | "completed" | "failed";
 export interface AuthUser {
   id: number;
   email: string;
+  role: "admin" | "editor" | "viewer";
   is_active: boolean;
 }
 

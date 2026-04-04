@@ -26,7 +26,7 @@ export default function ChatPage() {
   const t = useI18n();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [settings, setSettings] = useState<AppSettingsResponse | null>(null);
-  const [regulationPills, setRegulationPills] = useState<string[]>([]);
+  const [regulationPills, setRegulationPills] = useState<{ name: string; description: string }[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(true);
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -74,7 +74,10 @@ export default function ChatPage() {
     getRegulations()
       .then((list) => {
         if (!cancelled) {
-          const active = list.filter((r) => r.is_active).map((r) => r.display_name);
+          const active = list.filter((r) => r.is_active).map((r) => ({
+            name: r.display_name,
+            description: r.description || "",
+          }));
           setRegulationPills(active);
         }
       })
@@ -194,6 +197,20 @@ export default function ChatPage() {
     [activeSessionId, handleNewChat, t]
   );
 
+  const handleRenameSession = useCallback(
+    async (id: number, title: string) => {
+      try {
+        await updateChatSession(id, { title });
+        setSessions((prev) =>
+          prev.map((s) => (s.id === id ? { ...s, title } : s))
+        );
+      } catch {
+        // ignore
+      }
+    },
+    []
+  );
+
   const handleExportSession = useCallback(async (id: number) => {
     try {
       const detail = await getChatSession(id);
@@ -247,12 +264,13 @@ export default function ChatPage() {
             )}
             {regulationPills.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2">
-                {regulationPills.slice(0, 5).map((name) => (
+                {regulationPills.slice(0, 5).map((pill) => (
                   <span
-                    key={name}
-                    className="rounded-full bg-slate-700 px-2.5 py-0.5 text-xs font-medium text-slate-200"
+                    key={pill.name}
+                    className="rounded-full bg-slate-700 px-2.5 py-0.5 text-xs font-medium text-slate-200 cursor-help"
+                    title={pill.description}
                   >
-                    {name}
+                    {pill.name}
                   </span>
                 ))}
                 {regulationPills.length > 5 && (
@@ -268,13 +286,14 @@ export default function ChatPage() {
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 lg:flex-row">
         <aside className="flex w-full shrink-0 flex-col gap-2 overflow-hidden lg:w-72">
-          <div className="h-48 shrink-0 overflow-hidden rounded-lg border border-slate-800">
+          <div className="h-32 shrink-0 overflow-hidden rounded-lg border border-slate-800 lg:h-48">
             <ChatHistory
               sessions={sessions}
               activeSessionId={activeSessionId}
               onSelectSession={handleSelectSession}
               onNewChat={handleNewChat}
               onDeleteSession={handleDeleteSession}
+              onRenameSession={handleRenameSession}
               onExportSession={handleExportSession}
               onExportSessionPDF={handleExportSessionPDF}
             />
@@ -303,7 +322,7 @@ export default function ChatPage() {
                 documentIds={documentIds}
                 requireApproval={settings?.require_approval ?? false}
                 deanonEnabled={settings?.deanon_enabled ?? true}
-                activeRegulations={regulationPills.slice(0, 5)}
+                activeRegulations={regulationPills.slice(0, 5).map((p) => p.name)}
                 showJsonOutput={settings?.show_json_output ?? false}
                 onUploadFiles={handleFilesSelected}
                 onResponseComplete={handleResponseComplete}

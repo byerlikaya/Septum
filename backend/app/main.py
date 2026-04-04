@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 import os
 import threading
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette import status as http_status
@@ -112,17 +112,24 @@ app.add_middleware(PrometheusMiddleware)
 app.add_route("/metrics", metrics_endpoint, methods=["GET"])
 
 
-app.include_router(auth_router.router)
-app.include_router(approval_router.router)
-app.include_router(audit_router.router)
-app.include_router(documents_router.router)
-app.include_router(chunks_router.router)
-app.include_router(chat_router.router)
-app.include_router(chat_sessions_router.router)
-app.include_router(settings_router.router)
-app.include_router(error_logs_router.router)
-app.include_router(regulations_router.router)
-app.include_router(text_normalization_router.router)
+# All API routers are mounted under both /api (legacy) and /api/v1 (versioned).
+_all_routers = [
+    auth_router.router,
+    approval_router.router,
+    audit_router.router,
+    documents_router.router,
+    chunks_router.router,
+    chat_router.router,
+    chat_sessions_router.router,
+    settings_router.router,
+    error_logs_router.router,
+    regulations_router.router,
+    text_normalization_router.router,
+]
+
+for _r in _all_routers:
+    app.include_router(_r)
+
 
 
 @app.exception_handler(HTTPException)

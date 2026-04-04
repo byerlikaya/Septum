@@ -485,6 +485,8 @@ Projede Septum içinde tanımlı özel bir `/test` kuralı bulunur:
   - vb.  
 - Eşleşme bulunamazsa tüm test paketi çalıştırılır.
 
+**Sürekli entegrasyon:** GitHub Actions her push ve pull request’te arka uç testleri ile birlikte Ruff ve Bandit, `pip-audit` ve ön uç Jest, `tsc --noEmit` ile `npm audit` işlerini paralel çalıştırır.
+
 Testleri manuel olarak çalıştırmak için:
 
 ```bash
@@ -503,6 +505,7 @@ Gerçek bulut LLM sağlayıcılarına istek gönderecek tüm testler **mock** ed
 - Dosya tipleri uzantıya göre değil, içerik imzasına göre tespit edilir.
 - Yüklenen dosyalar diskte AES‑256‑GCM ile şifreli saklanır; çözme işlemi sadece önizleme sırasında ve bellek içinde yapılır.
 - Birden fazla regülasyon aynı anda aktifken, her zaman **en kısıtlayıcı maskeleme** politikası uygulanır.
+- İsteğe bağlı **JWT kimlik doğrulama** (`POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`): her kullanıcının bir **rolü** vardır (`admin`, `editor`, `viewer`); oturum açıldığında dokümanlar ve sohbet oturumları ilgili kullanıcıya göre filtrelenir; hassas ayar güncellemeleri `admin` gerektirir.
 
 ---
 
@@ -536,14 +539,15 @@ Septum RESTful bir API sunar. Ana endpoint grupları:
 
 | Grup | Endpoint’ler | Açıklama |
 |------|-------------|----------|
-| **Dokümanlar** | `POST /api/documents`, `GET /api/documents`, `DELETE /api/documents/{id}`, `POST /api/documents/{id}/reprocess` | Doküman yükleme, listeleme, silme ve yeniden işleme |
+| **Dokümanlar** | `POST /api/documents`, `GET /api/documents`, `GET /api/documents/{id}`, `GET /api/documents/{id}/raw`, `GET /api/documents/{id}/anon-summary`, `DELETE /api/documents/{id}`, `POST /api/documents/{id}/reprocess` | Yükleme, listeleme, orijinal önizleme/şifre çözme, anonimleştirme özeti, silme, yeniden işleme |
+| **Kimlik** | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` | JWT bearer hesaplar (roller: admin, editor, viewer) |
 | **Sohbet** | `POST /api/chat/ask` (SSE), `GET /api/chat/debug/{session_id}` | Gizlilik korumalı RAG sohbet (streaming) |
 | **Sohbet oturumları** | `GET/POST /api/chat-sessions`, `GET/PATCH/DELETE /api/chat-sessions/{id}`, `POST /api/chat-sessions/{id}/messages` | Kalıcı sohbet geçmişi (oturum listesi, meta güncelleme, mesaj ekleme) |
 | **Parçalar** | `GET /api/chunks`, `GET /api/chunks/{id}` | Doküman parçalarını arama ve inceleme |
 | **Ayarlar** | `GET /api/settings`, `PUT /api/settings` | Uygulama yapılandırması |
 | **Regülasyonlar** | `GET /api/regulations`, `PUT /api/regulations/{id}` | Regülasyon kuralları ve özel tanıyıcı yönetimi |
 | **Denetim** | `GET /api/audit`, `GET /api/audit/{id}/report`, `GET /api/audit/metrics` | Uyumluluk denetim kaydı ve tespit metrikleri |
-| **Sağlık** | `GET /health` | Sağlayıcı ve Redis durumu ile sistem sağlığı |
+| **Sağlık** | `GET /health`, `GET /metrics` | Sistem sağlığı ve Prometheus metrikleri |
 
 Tam OpenAPI şeması, backend çalışırken `http://localhost:8000/docs` adresinde mevcuttur.
 

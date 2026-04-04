@@ -64,3 +64,37 @@ async def get_optional_user(
         return await get_current_user(token, db)
     except HTTPException:
         return None
+
+
+def require_role(*allowed_roles: str):
+    """Return a dependency that enforces one or more roles.
+
+    Usage::
+
+        @router.patch("/settings", dependencies=[Depends(require_role("admin"))])
+        async def update_settings(...): ...
+    """
+
+    async def _check(
+        current_user: User = Depends(get_current_user),
+    ) -> User:
+        if current_user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions",
+            )
+        return current_user
+
+    return _check
+
+
+async def require_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Dependency that requires the ``admin`` role."""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return current_user

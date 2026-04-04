@@ -374,6 +374,13 @@ export async function deleteChatSession(sessionId: number): Promise<void> {
   await api.delete(`/api/chat-sessions/${sessionId}`);
 }
 
+export async function deleteChatMessage(
+  sessionId: number,
+  messageId: number
+): Promise<void> {
+  await api.delete(`/api/chat-sessions/${sessionId}/messages/${messageId}`);
+}
+
 export async function addChatMessage(
   sessionId: number,
   role: string,
