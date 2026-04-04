@@ -459,6 +459,9 @@ export const trMessages: Record<string, string> = {
   "regulations.page.title": "Regülasyon Kuralları ve Özel Kurallar",
   "regulations.page.subtitle":
     "Yerleşik regülasyon paketlerini etkinleştirin ve kurumunuza özel tanıyıcılar tanımlayın.",
+  "regulations.tab.builtin": "Regülasyonlar",
+  "regulations.tab.custom": "Özel Kurallar",
+  "regulations.tab.advanced": "Gelişmiş",
   "regulations.builtin.title": "Yerleşik Regülasyon Kuralları",
   "regulations.builtin.subtitle":
     "Küresel gizlilik regülasyonlarını açıp kapatın. Aktif regülasyonlar tek bir anonimleştirme politikasında birleştirilir.",

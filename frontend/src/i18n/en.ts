@@ -435,6 +435,9 @@ export const enMessages = {
   "regulations.page.title": "Regulation Rules & Custom Rules",
   "regulations.page.subtitle":
     "Activate built-in regulation packs and define custom recognizers for your specific privacy policies.",
+  "regulations.tab.builtin": "Regulations",
+  "regulations.tab.custom": "Custom Rules",
+  "regulations.tab.advanced": "Advanced",
   "regulations.builtin.title": "Built-in Regulation Rulesets",
   "regulations.builtin.subtitle":
     "Toggle global privacy regulations on or off. Active regulations are merged into a single sanitizer policy.",
