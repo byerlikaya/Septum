@@ -10,9 +10,10 @@ import api, {
   getChatSession,
   deleteChatSession,
   addChatMessage,
+  convertRejectedToApproved,
   updateChatSession,
 } from "@/lib/api";
-import type { AppSettingsResponse, ChatSessionSummary, Document } from "@/lib/types";
+import type { AppSettingsResponse, ApprovalData, ChatSessionSummary, DebugData, Document } from "@/lib/types";
 import { DocumentSelector } from "@/components/chat/DocumentSelector";
 import { ChatWindow } from "@/components/chat/ChatWindow";
 import { ChatHistory } from "@/components/chat/ChatHistory";
@@ -38,7 +39,7 @@ export default function ChatPage() {
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
   const [chatResetKey, setChatResetKey] = useState(0);
   const [initialMessages, setInitialMessages] = useState<
-    { role: string; content: string; sessionId?: string }[]
+    { role: string; content: string; sessionId?: string; approvalData?: ApprovalData; debugData?: DebugData }[]
   >([]);
   const sessionIdRef = useRef<number | null>(null);
   const debugSessionMapRef = useRef<Map<number, string>>(new Map());
@@ -171,35 +172,56 @@ export default function ChatPage() {
     setShowDeanonBanner(deanonApplied);
   }, []);
 
+  const ensureSession = useCallback(async (userText: string): Promise<number> => {
+    let sid = sessionIdRef.current;
+    if (!sid) {
+      const title = userText.length > 60 ? userText.slice(0, 60) + "..." : userText;
+      const session = await createChatSession({
+        title,
+        document_ids: documentIds.length > 0 ? documentIds : undefined,
+      });
+      sid = session.id;
+      sessionIdRef.current = sid;
+      setActiveSessionId(sid);
+    }
+    return sid;
+  }, [documentIds]);
+
   const handleMessagePairComplete = useCallback(
-    async (userText: string, assistantText: string, sseSessionId?: string) => {
+    async (userText: string, assistantText: string, sseSessionId?: string, approvalData?: ApprovalData, isRetry?: boolean, debugData?: DebugData) => {
       if (!userText || !assistantText) return;
 
-      let sid = sessionIdRef.current;
-
-      if (!sid) {
-        const title =
-          userText.length > 60 ? userText.slice(0, 60) + "..." : userText;
-        const session = await createChatSession({
-          title,
-          document_ids: documentIds.length > 0 ? documentIds : undefined,
-        });
-        sid = session.id;
-        sessionIdRef.current = sid;
-        setActiveSessionId(sid);
-      }
+      const sid = await ensureSession(userText);
 
       if (sseSessionId) {
         debugSessionMapRef.current.set(sid, sseSessionId);
       }
 
-      await addChatMessage(sid, "user", userText);
-      await addChatMessage(sid, "assistant", assistantText);
+      if (isRetry) {
+        await convertRejectedToApproved(sid);
+      } else {
+        await addChatMessage(sid, "user", userText, approvalData);
+      }
+      await addChatMessage(sid, "assistant", assistantText, debugData);
 
       const updated = await listChatSessions();
       setSessions(updated);
     },
-    [documentIds]
+    [ensureSession]
+  );
+
+  const handleRejectedPersist = useCallback(
+    async (userText: string, approvalData: ApprovalData) => {
+      if (!userText) return;
+
+      const sid = await ensureSession(userText);
+
+      await addChatMessage(sid, "user", userText, approvalData);
+
+      const updated = await listChatSessions();
+      setSessions(updated);
+    },
+    [ensureSession]
   );
 
   const handleSelectSession = useCallback(async (id: number) => {
@@ -213,6 +235,8 @@ export default function ChatPage() {
           role: m.role,
           content: m.content,
           sessionId: m.role === "assistant" && sseId ? sseId : undefined,
+          approvalData: m.role === "user" ? ((m.approval_data as ApprovalData | null) ?? undefined) : undefined,
+          debugData: m.role === "assistant" && m.approval_data ? (m.approval_data as unknown as DebugData) : undefined,
         }))
       );
       setChatResetKey((k) => k + 1);
@@ -246,6 +270,21 @@ export default function ChatPage() {
       }
     },
     [activeSessionId, handleNewChat, t]
+  );
+
+  const handleDeleteAllSessions = useCallback(
+    async () => {
+      // eslint-disable-next-line no-alert
+      if (!window.confirm(t("chat.history.deleteAllConfirm"))) return;
+      try {
+        await Promise.all(sessions.map((s) => deleteChatSession(s.id)));
+        setSessions([]);
+        handleNewChat();
+      } catch {
+        // ignore
+      }
+    },
+    [sessions, handleNewChat, t]
   );
 
   const handleRenameSession = useCallback(
@@ -344,6 +383,7 @@ export default function ChatPage() {
               onSelectSession={handleSelectSession}
               onNewChat={handleNewChat}
               onDeleteSession={handleDeleteSession}
+              onDeleteAll={handleDeleteAllSessions}
               onRenameSession={handleRenameSession}
               onExportSession={handleExportSession}
               onExportSessionPDF={handleExportSessionPDF}
@@ -378,6 +418,7 @@ export default function ChatPage() {
                 onUploadFiles={handleFilesSelected}
                 onResponseComplete={handleResponseComplete}
                 onMessagePairComplete={handleMessagePairComplete}
+                onRejectedPersist={handleRejectedPersist}
                 initialMessages={initialMessages}
               />
             </>

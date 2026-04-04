@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Paperclip } from "lucide-react";
 import { ErrorWithRetry } from "@/components/common/ErrorWithRetry";
-import type { ApprovalChunkPayload, ChatMessage, OutputMode } from "@/lib/types";
+import type { ApprovalChunkPayload, ApprovalData, ChatMessage, OutputMode } from "@/lib/types";
+import { renderWithPlaceholders } from "@/components/common/PlaceholderText";
 import { useI18n } from "@/lib/i18n";
 import { useChatStream } from "@/hooks/useChatStream";
 import { useChatApproval } from "@/hooks/useChatApproval";
@@ -18,9 +19,10 @@ export interface ChatWindowProps {
   activeRegulations: string[];
   showJsonOutput: boolean;
   onResponseComplete?: (deanonApplied: boolean) => void;
-  onMessagePairComplete?: (userText: string, assistantText: string, sseSessionId?: string) => void;
+  onMessagePairComplete?: (userText: string, assistantText: string, sseSessionId?: string, approvalData?: ApprovalData, isRetry?: boolean, debugData?: import("@/lib/types").DebugData) => void;
+  onRejectedPersist?: (userText: string, approvalData: ApprovalData) => void;
   onUploadFiles?: (files: File[]) => void;
-  initialMessages?: { role: string; content: string; sessionId?: string }[];
+  initialMessages?: { role: string; content: string; sessionId?: string; approvalData?: ApprovalData; debugData?: import("@/lib/types").DebugData }[];
 }
 
 export function ChatWindow({
@@ -31,6 +33,7 @@ export function ChatWindow({
   showJsonOutput,
   onResponseComplete,
   onMessagePairComplete,
+  onRejectedPersist,
   onUploadFiles,
   initialMessages,
 }: ChatWindowProps) {
@@ -40,6 +43,9 @@ export function ChatWindow({
   const [lastResponseDeanon, setLastResponseDeanon] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const [reviewApprovalData, setReviewApprovalData] = useState<ApprovalData | null>(null);
+  const [reviewApprovalOpen, setReviewApprovalOpen] = useState(false);
+
   const handleResponseComplete = useCallback(
     (deanonApplied: boolean) => {
       setLastResponseDeanon(deanonApplied);
@@ -48,7 +54,6 @@ export function ChatWindow({
     [onResponseComplete]
   );
 
-  /** Stable refs to break the circular dependency between the two hooks. */
   const approvalRequiredRef = useRef<
     (
       sessionId: string,
@@ -60,6 +65,7 @@ export function ChatWindow({
   const approvalRejectedRef = useRef<
     (reason: string) => void
   >(() => {});
+  const approvalDataRef = useRef<import("@/lib/types").ApprovalData | null>(null);
 
   const {
     messages,
@@ -67,6 +73,7 @@ export function ChatWindow({
     streaming,
     streamError,
     debugData,
+    setDebugData,
     debugOpen,
     setDebugOpen,
     sendMessage: streamSendMessage,
@@ -81,6 +88,7 @@ export function ChatWindow({
     outputMode,
     onResponseComplete: handleResponseComplete,
     onMessagePairComplete,
+    getApprovalData: () => approvalDataRef.current,
     onApprovalRequired: (sessionId, maskedPrompt, chunks, regs) => {
       approvalRequiredRef.current(sessionId, maskedPrompt, chunks, regs);
     },
@@ -91,11 +99,14 @@ export function ChatWindow({
 
   const approval = useChatApproval({
     stopStreaming,
-    setMessages
+    messages,
+    setMessages,
+    onRejectedPersist,
   });
 
   approvalRequiredRef.current = approval.onApprovalRequired;
   approvalRejectedRef.current = approval.onApprovalRejected;
+  approvalDataRef.current = approval.lastApprovalDataRef.current;
 
   useEffect(() => {
     if (initialMessages?.length) {
@@ -104,6 +115,8 @@ export function ChatWindow({
         role: m.role as "user" | "assistant",
         content: m.content,
         sessionId: m.sessionId,
+        approvalData: m.approvalData,
+        debugData: m.debugData,
       }));
       setMessages(restored);
     }
@@ -164,8 +177,6 @@ export function ChatWindow({
             </p>
           ) : (
             messages.map((msg) => {
-              const lastAssistantId = [...messages].reverse().find((m) => m.role === "assistant")?.id;
-              const lastUserId = [...messages].reverse().find((m) => m.role === "user")?.id;
               return (
                 <MessageBubble
                   key={msg.id}
@@ -176,27 +187,22 @@ export function ChatWindow({
                     msg.id === pendingAssistantIdRef.current &&
                     msg.content.length === 0
                   }
-                  isLastAssistant={
-                    !streaming &&
-                    msg.role === "assistant" &&
-                    msg.id === lastAssistantId
-                  }
-                  isLastUser={
-                    !streaming &&
-                    msg.role === "user" &&
-                    msg.id === lastUserId
-                  }
-                  onRegenerate={regenerate}
-                  onDelete={() => {
-                    setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+                  onDebugClick={() => {
+                    if (msg.debugData) {
+                      setDebugData({
+                        masked_prompt: msg.debugData.masked_prompt,
+                        masked_answer: msg.debugData.masked_answer,
+                        final_answer: msg.debugData.final_answer,
+                      });
+                      setDebugOpen(true);
+                    } else if (msg.sessionId) {
+                      void handleOpenDebug(msg.sessionId);
+                    }
                   }}
-                  onEdit={(content) => {
-                    setMessages((prev) => prev.filter((m) => m.id !== msg.id));
-                    setInput(content);
-                  }}
-                  onDebugClick={(sessionId) => {
-                    void handleOpenDebug(sessionId);
-                  }}
+                  onApprovalClick={msg.approvalData ? () => {
+                    setReviewApprovalData(msg.approvalData!);
+                    setReviewApprovalOpen(true);
+                  } : undefined}
                 />
               );
             })
@@ -272,6 +278,7 @@ export function ChatWindow({
         </div>
       </div>
 
+      {/* Live approval modal */}
       <ApprovalModal
         open={approval.approvalOpen}
         sessionId={approval.approvalSessionId}
@@ -282,11 +289,35 @@ export function ChatWindow({
         onReject={approval.handleReject}
         onClose={approval.closeApprovalModal}
       />
+
+      {/* Review modal (read-only) */}
+      <ApprovalModal
+        open={reviewApprovalOpen}
+        sessionId={null}
+        maskedPrompt={reviewApprovalData?.masked_prompt ?? ""}
+        chunks={reviewApprovalData?.chunks ?? []}
+        activeRegulations={reviewApprovalData?.regulations ?? []}
+        onApprove={() => {}}
+        onReject={() => {}}
+        onClose={() => setReviewApprovalOpen(false)}
+        readOnly
+        decision={reviewApprovalData?.decision}
+        onRetry={
+          reviewApprovalData?.decision === "rejected" && reviewApprovalData.original_user_message
+            ? () => {
+                const chunksForRetry = reviewApprovalData.chunks.map((c) => ({ text: c.text }));
+                setReviewApprovalOpen(false);
+                streamSendMessage(reviewApprovalData.original_user_message!, chunksForRetry);
+              }
+            : undefined
+        }
+      />
+
       {debugOpen && debugData != null && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60">
-          <div className="max-h-[80vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 p-4 text-sm text-slate-200">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-semibold">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4">
+          <div className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-xl">
+            <div className="shrink-0 flex items-center justify-between border-b border-slate-700 px-4 py-3">
+              <h2 className="text-base font-semibold text-slate-100">
                 {t("chat.debug.title")}
               </h2>
               <button
@@ -297,31 +328,40 @@ export function ChatWindow({
                 {t("common.close")}
               </button>
             </div>
-            <div className="space-y-4">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
               <div>
-                <h3 className="mb-1 text-xs font-semibold text-slate-400">
+                <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {t("chat.debug.maskedPrompt")}
                 </h3>
-                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md border border-slate-700 bg-slate-950/60 p-2 text-xs">
-                  {debugData.masked_prompt}
-                </pre>
+                <div className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-700 bg-slate-800/60 p-3 text-sm leading-relaxed text-slate-300">
+                  {renderWithPlaceholders(debugData.masked_prompt)}
+                </div>
               </div>
               <div>
-                <h3 className="mb-1 text-xs font-semibold text-slate-400">
+                <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {t("chat.debug.maskedAnswer")}
                 </h3>
-                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md border border-slate-700 bg-slate-950/60 p-2 text-xs">
-                  {debugData.masked_answer}
-                </pre>
+                <div className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-700 bg-slate-800/60 p-3 text-sm leading-relaxed text-slate-300">
+                  {renderWithPlaceholders(debugData.masked_answer)}
+                </div>
               </div>
               <div>
-                <h3 className="mb-1 text-xs font-semibold text-slate-400">
+                <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {t("chat.debug.finalAnswer")}
                 </h3>
-                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md border border-slate-700 bg-slate-950/60 p-2 text-xs">
+                <div className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-sky-800/40 bg-sky-950/20 p-3 text-sm leading-relaxed text-slate-200">
                   {debugData.final_answer}
-                </pre>
+                </div>
               </div>
+            </div>
+            <div className="shrink-0 flex justify-end border-t border-slate-700 px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setDebugOpen(false)}
+                className="rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700"
+              >
+                {t("common.close")}
+              </button>
             </div>
           </div>
         </div>

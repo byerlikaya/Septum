@@ -28,6 +28,7 @@ class ChatMessageResponse(BaseModel):
     id: int
     role: str
     content: str
+    approval_data: Optional[dict] = None
     created_at: datetime
 
 
@@ -69,6 +70,7 @@ class AddMessagePayload(BaseModel):
 
     role: str
     content: str
+    approval_data: Optional[dict] = None
 
 
 @router.get("", response_model=List[ChatSessionResponse])
@@ -156,7 +158,8 @@ async def get_session(
         message_count=len(session.messages),
         messages=[
             ChatMessageResponse(
-                id=m.id, role=m.role, content=m.content, created_at=m.created_at
+                id=m.id, role=m.role, content=m.content,
+                approval_data=m.approval_data, created_at=m.created_at
             )
             for m in session.messages
         ],
@@ -223,6 +226,7 @@ async def add_message(
         session_id=session_id,
         role=payload.role,
         content=payload.content,
+        approval_data=payload.approval_data,
         created_at=datetime.now(timezone.utc),
     )
     db.add(msg)
@@ -230,8 +234,33 @@ async def add_message(
     await db.commit()
     await db.refresh(msg)
     return ChatMessageResponse(
-        id=msg.id, role=msg.role, content=msg.content, created_at=msg.created_at
+        id=msg.id, role=msg.role, content=msg.content,
+        approval_data=msg.approval_data, created_at=msg.created_at
     )
+
+
+@router.post(
+    "/{session_id}/convert-rejected",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+async def convert_rejected_to_approved(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Convert rejected approval_data to approved on user messages in this session."""
+    session = await db.get(ChatSession, session_id)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    stmt = (
+        select(ChatMessage)
+        .where(ChatMessage.session_id == session_id, ChatMessage.role == "user")
+    )
+    result = await db.execute(stmt)
+    for msg in result.scalars().all():
+        if isinstance(msg.approval_data, dict) and msg.approval_data.get("decision") == "rejected":
+            msg.approval_data = {**msg.approval_data, "decision": "approved"}
+    await db.commit()
 
 
 @router.delete(

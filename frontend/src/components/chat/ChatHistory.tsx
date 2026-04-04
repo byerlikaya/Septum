@@ -11,6 +11,7 @@ interface ChatHistoryProps {
   onSelectSession: (id: number) => void;
   onNewChat: () => void;
   onDeleteSession: (id: number) => void;
+  onDeleteAll?: () => void;
   onRenameSession?: (id: number, title: string) => void;
   onExportSession?: (id: number) => void;
   onExportSessionPDF?: (id: number) => void;
@@ -22,6 +23,7 @@ export function ChatHistory({
   onSelectSession,
   onNewChat,
   onDeleteSession,
+  onDeleteAll,
   onRenameSession,
   onExportSession,
   onExportSessionPDF,
@@ -48,15 +50,28 @@ export function ChatHistory({
         <span className="text-xs font-medium text-slate-400">
           {t("chat.history.title")}
         </span>
-        <button
-          type="button"
-          onClick={onNewChat}
-          className="rounded p-1 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
-          title={t("chat.history.new")}
-          aria-label={t("chat.history.new")}
-        >
-          <MessageSquarePlus className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          {onDeleteAll && sessions.length > 0 && (
+            <button
+              type="button"
+              onClick={onDeleteAll}
+              className="rounded p-1 text-slate-500 hover:bg-rose-900/40 hover:text-rose-300"
+              title={t("chat.history.deleteAll")}
+              aria-label={t("chat.history.deleteAll")}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onNewChat}
+            className="rounded p-1 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+            title={t("chat.history.new")}
+            aria-label={t("chat.history.new")}
+          >
+            <MessageSquarePlus className="h-4 w-4" />
+          </button>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto">
         {sessions.length === 0 ? (

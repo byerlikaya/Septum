@@ -1,8 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { approvalApprove, approvalReject } from "@/lib/api";
-import type { ApprovalChunkPayload } from "@/lib/types";
+import type { ApprovalChunkPayload, ApprovalData, ChatMessage } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
-import type { ChatMessage } from "@/lib/types";
 
 export interface UseChatApprovalReturn {
   approvalOpen: boolean;
@@ -14,10 +13,7 @@ export interface UseChatApprovalReturn {
     sessionId: string,
     editedChunks: ApprovalChunkPayload[]
   ) => Promise<void>;
-  handleReject: (
-    sessionId: string,
-    reason?: string
-  ) => Promise<void>;
+  handleReject: (sessionId: string, reason?: string) => void;
   onApprovalRequired: (
     sessionId: string,
     maskedPrompt: string,
@@ -26,59 +22,95 @@ export interface UseChatApprovalReturn {
   ) => void;
   onApprovalRejected: (reason: string) => void;
   closeApprovalModal: () => void;
+  lastApprovalDataRef: React.RefObject<ApprovalData | null>;
 }
 
 export interface UseChatApprovalOptions {
   stopStreaming: () => void;
+  messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  onRejectedPersist?: (userText: string, approvalData: ApprovalData) => void;
 }
 
 export function useChatApproval({
   stopStreaming,
-  setMessages
+  messages,
+  setMessages,
+  onRejectedPersist,
 }: UseChatApprovalOptions): UseChatApprovalReturn {
   const t = useI18n();
   const [approvalOpen, setApprovalOpen] = useState(false);
-  const [approvalSessionId, setApprovalSessionId] = useState<string | null>(
-    null
-  );
+  const [approvalSessionId, setApprovalSessionId] = useState<string | null>(null);
   const [approvalMaskedPrompt, setApprovalMaskedPrompt] = useState("");
-  const [approvalChunks, setApprovalChunks] = useState<
-    ApprovalChunkPayload[]
-  >([]);
+  const [approvalChunks, setApprovalChunks] = useState<ApprovalChunkPayload[]>([]);
   const [approvalRegulations, setApprovalRegulations] = useState<string[]>([]);
+
+  const maskedPromptRef = useRef("");
+  const chunksRef = useRef<ApprovalChunkPayload[]>([]);
+  const regulationsRef = useRef<string[]>([]);
+  const lastApprovalDataRef = useRef<ApprovalData | null>(null);
 
   const handleApprove = useCallback(
     async (sessionId: string, editedChunks: ApprovalChunkPayload[]) => {
+      const data: ApprovalData = {
+        decision: "approved",
+        masked_prompt: maskedPromptRef.current,
+        chunks: editedChunks,
+        regulations: regulationsRef.current,
+      };
+      lastApprovalDataRef.current = data;
       await approvalApprove(sessionId, editedChunks);
+      setMessages((prev) => {
+        const lastUser = [...prev].reverse().find((m) => m.role === "user");
+        if (!lastUser) return prev;
+        return prev.map((m) =>
+          m.id === lastUser.id ? { ...m, approvalData: data } : m
+        );
+      });
       setApprovalOpen(false);
       setApprovalSessionId(null);
       setApprovalChunks([]);
       setApprovalMaskedPrompt("");
     },
-    []
+    [setMessages]
   );
 
   const handleReject = useCallback(
-    async (sessionId: string, reason?: string) => {
-      await approvalReject(sessionId, reason);
+    (sessionId: string, reason?: string) => {
+      const lastUser = [...messages].reverse().find((m) => m.role === "user");
+      const userText = lastUser?.content ?? "";
+
+      const data: ApprovalData = {
+        decision: "rejected",
+        masked_prompt: maskedPromptRef.current,
+        chunks: chunksRef.current,
+        regulations: regulationsRef.current,
+        original_user_message: userText,
+      };
+
+      approvalReject(sessionId, reason).catch(() => {});
       setApprovalOpen(false);
       setApprovalSessionId(null);
+      stopStreaming();
+
+      setMessages((prev) => {
+        const withoutEmptyAssistant = prev.filter((m, i) => {
+          if (i === prev.length - 1 && m.role === "assistant" && m.content === "") return false;
+          return true;
+        });
+        return withoutEmptyAssistant.map((m) =>
+          m.id === lastUser?.id ? { ...m, approvalData: data } : m
+        );
+      });
+
       setApprovalChunks([]);
       setApprovalMaskedPrompt("");
-      stopStreaming();
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last?.role === "assistant" && last.content === "") {
-          return prev.slice(0, -1).concat({
-            ...last,
-            content: t("chat.approval.rejected")
-          });
-        }
-        return prev;
-      });
+
+      if (onRejectedPersist && userText) {
+        onRejectedPersist(userText, data);
+      }
     },
-    [stopStreaming, setMessages, t]
+    [messages, stopStreaming, setMessages, onRejectedPersist]
   );
 
   const onApprovalRequired = useCallback(
@@ -88,6 +120,9 @@ export function useChatApproval({
       chunks: ApprovalChunkPayload[],
       activeRegulations: string[]
     ) => {
+      maskedPromptRef.current = maskedPrompt;
+      chunksRef.current = chunks;
+      regulationsRef.current = activeRegulations;
       setApprovalSessionId(sessionId);
       setApprovalMaskedPrompt(maskedPrompt);
       setApprovalChunks(chunks);
@@ -120,6 +155,7 @@ export function useChatApproval({
     handleReject,
     onApprovalRequired,
     onApprovalRejected,
-    closeApprovalModal
+    closeApprovalModal,
+    lastApprovalDataRef,
   };
 }

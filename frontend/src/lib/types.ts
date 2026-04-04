@@ -22,7 +22,7 @@ export interface ChatSessionSummary {
 }
 
 export interface ChatSessionDetail extends ChatSessionSummary {
-  messages: { id: number; role: string; content: string; created_at: string }[];
+  messages: { id: number; role: string; content: string; created_at: string; approval_data?: ApprovalData | null }[];
 }
 
 export interface Document {
@@ -83,13 +83,28 @@ export interface ChunkListResponse {
 
 export type ChatMessageRole = "user" | "assistant";
 
+export interface ApprovalData {
+  decision: "approved" | "rejected";
+  masked_prompt: string;
+  chunks: ApprovalChunkPayload[];
+  regulations: string[];
+  original_user_message?: string;
+}
+
+export interface DebugData {
+  masked_prompt: string;
+  masked_answer: string;
+  final_answer: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatMessageRole;
   content: string;
   sessionId?: string;
-  /** True when the answer was produced by local Ollama fallback (cloud LLM unavailable). */
   usedOllamaFallback?: boolean;
+  approvalData?: ApprovalData;
+  debugData?: DebugData;
 }
 
 export type OutputMode = "chat" | "json";

@@ -71,6 +71,7 @@ class ChatRequest(BaseModel):
     output_mode: Optional[str] = "chat"
     require_approval: Optional[bool] = None
     deanon_enabled: Optional[bool] = None
+    pre_approved_chunks: Optional[List[dict]] = None
 
 
 class ChatDebugResponse(BaseModel):
@@ -638,82 +639,83 @@ async def chat_ask(
 
             context_texts: List[str] = []
 
-            sanitized_chunk_texts: List[str] = []
-            if documents_by_id and chunks:
-                prev_doc_id: Optional[int] = None
-                for c in chunks:
-                    header = ""
-                    if len(documents_by_id) > 1 and c.document_id != prev_doc_id:
-                        header = (
-                            "--- Document: "
-                            + (documents_by_id[c.document_id].original_filename or "")
-                            + " ---\n\n"
+            if request.pre_approved_chunks:
+                context_texts = [c.get("text", "") for c in request.pre_approved_chunks]
+            else:
+                sanitized_chunk_texts: List[str] = []
+                if documents_by_id and chunks:
+                    prev_doc_id: Optional[int] = None
+                    for c in chunks:
+                        header = ""
+                        if len(documents_by_id) > 1 and c.document_id != prev_doc_id:
+                            header = (
+                                "--- Document: "
+                                + (documents_by_id[c.document_id].original_filename or "")
+                                + " ---\n\n"
+                            )
+                            prev_doc_id = c.document_id
+                        chunk_text = c.sanitized_text or ""
+
+                        sanitized_chunk, _, _ = await _sanitize_query(
+                            chunk_text,
+                            language,
+                            settings,
+                            anon_map,
+                            db,
                         )
-                        prev_doc_id = c.document_id
-                    chunk_text = c.sanitized_text or ""
-                    
-                    # Chunks are stored as RAW text in DB (design decision).
-                    # Always sanitize at query time with full validation layer.
-                    sanitized_chunk, _, _ = await _sanitize_query(
-                        chunk_text,
-                        language,
-                        settings,
-                        anon_map,
-                        db,
+
+                        sanitized_chunk_texts.append(header + sanitized_chunk)
+
+                if require_approval:
+                    approval_chunks = (
+                        _build_approval_chunks(chunks, sanitized_chunk_texts)
+                        if (documents_by_id and chunks)
+                        else []
                     )
-                    
-                    sanitized_chunk_texts.append(header + sanitized_chunk)
+                    gate.create(
+                        session_id=session_id,
+                        masked_prompt=sanitized_query,
+                        masked_chunks=[c.text for c in approval_chunks],
+                        entity_count=entity_count,
+                    )
 
-            if require_approval:
-                approval_chunks = (
-                    _build_approval_chunks(chunks, sanitized_chunk_texts)
-                    if (documents_by_id and chunks)
-                    else []
-                )
-                gate.create(
-                    session_id=session_id,
-                    masked_prompt=sanitized_query,
-                    masked_chunks=[c.text for c in approval_chunks],
-                    entity_count=entity_count,
-                )
-
-                yield _encode_sse(
-                    {
-                        "type": "approval_required",
-                        "session_id": session_id,
-                        "masked_prompt": sanitized_query,
-                        "chunks": [
-                            {
-                                "id": c.id,
-                                "document_id": c.document_id,
-                                "text": c.text,
-                                "source_page": c.source_page,
-                                "section_title": c.section_title,
-                            }
-                            for c in approval_chunks
-                        ],
-                    }
-                )
-
-                decision = await gate.wait_for_approval(session_id)
-
-                if not decision.approved:
                     yield _encode_sse(
                         {
-                            "type": "approval_rejected",
+                            "type": "approval_required",
                             "session_id": session_id,
-                            "reason": decision.reason,
-                            "timed_out": decision.timed_out,
+                            "masked_prompt": sanitized_query,
+                            "chunks": [
+                                {
+                                    "id": c.id,
+                                    "document_id": c.document_id,
+                                    "text": c.text,
+                                    "source_page": c.source_page,
+                                    "section_title": c.section_title,
+                                }
+                                for c in approval_chunks
+                            ],
                         }
                     )
-                    yield _encode_sse({"type": "end"})
-                    return
 
-                context_texts = [c.text for c in decision.chunks]
-            elif documents_by_id and chunks:
-                context_texts = sanitized_chunk_texts
-            else:
-                context_texts = []
+                    decision = await gate.wait_for_approval(session_id)
+
+                    if not decision.approved:
+                        yield _encode_sse(
+                            {
+                                "type": "approval_rejected",
+                                "session_id": session_id,
+                                "reason": decision.reason,
+                                "timed_out": decision.timed_out,
+                            }
+                        )
+                        yield _encode_sse({"type": "end"})
+                        return
+
+                    context_texts = [c.text for c in decision.chunks]
+                elif documents_by_id and chunks:
+                    context_texts = sanitized_chunk_texts
+                else:
+                    context_texts = []
 
             output_mode = (request.output_mode or "chat").strip().lower()
             query_placeholder_matches = list(

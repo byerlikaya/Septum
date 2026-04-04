@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Check, Info, Pencil, RefreshCw, Trash2, WifiOff } from "lucide-react";
+import { CheckCircle, Copy, Check, Info, WifiOff, XCircle } from "lucide-react";
 import type { ChatMessage } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
@@ -8,23 +8,15 @@ import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
 interface MessageBubbleProps {
   message: ChatMessage;
   isThinking?: boolean;
-  isLastAssistant?: boolean;
-  isLastUser?: boolean;
   onDebugClick?: (sessionId: string) => void;
-  onRegenerate?: () => void;
-  onDelete?: () => void;
-  onEdit?: (content: string) => void;
+  onApprovalClick?: () => void;
 }
 
 export function MessageBubble({
   message,
   isThinking = false,
-  isLastAssistant = false,
-  isLastUser = false,
   onDebugClick,
-  onRegenerate,
-  onDelete,
-  onEdit,
+  onApprovalClick,
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const { copied, copy } = useCopyToClipboard();
@@ -55,44 +47,40 @@ export function MessageBubble({
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
         )}
       </div>
-      {isUser && message.content.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap gap-2">
-          {isLastUser && onEdit && (
-            <button
-              type="button"
-              onClick={() => onEdit(message.content)}
-              className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-slate-400 hover:bg-slate-700/80 hover:text-slate-200 transition-colors"
-              title={t("chat.message.edit")}
-            >
-              <Pencil className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            </button>
-          )}
-          {onDelete && (
-            <button
-              type="button"
-              onClick={onDelete}
-              className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-slate-400 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
-              title={t("chat.message.delete")}
-            >
-              <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            </button>
-          )}
-        </div>
-      )}
       {!isUser && message.usedOllamaFallback && (
         <div className="mt-1.5 flex items-center gap-1.5 rounded-md border border-amber-800/60 bg-amber-950/40 px-2 py-1.5 text-xs text-amber-200">
           <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>{t("chat.localFallbackBadge")}</span>
         </div>
       )}
-      {!isUser && message.content.length > 0 && (
+      {message.approvalData && onApprovalClick && (
+        <button
+          type="button"
+          onClick={onApprovalClick}
+          className={`mt-1.5 inline-flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs transition-colors ${
+            message.approvalData.decision === "approved"
+              ? "border-emerald-800/60 bg-emerald-950/40 text-emerald-200 hover:bg-emerald-900/60"
+              : "border-rose-800/60 bg-rose-950/40 text-rose-200 hover:bg-rose-900/60"
+          }`}
+        >
+          {message.approvalData.decision === "approved"
+            ? <CheckCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            : <XCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />}
+          <span>
+            {message.approvalData.decision === "approved"
+              ? t("chat.approval.badge.approved")
+              : t("chat.approval.badge.rejected")}
+          </span>
+        </button>
+      )}
+      {message.content.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => void copy(message.content)}
             className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-slate-400 hover:bg-slate-700/80 hover:text-slate-200 transition-colors"
-            title={t("chat.copyAnswer")}
-            aria-label={t("chat.copyAnswer")}
+            title={t("chat.copy")}
+            aria-label={t("chat.copy")}
           >
             {copied ? (
               <>
@@ -106,22 +94,16 @@ export function MessageBubble({
               </>
             )}
           </button>
-          {isLastAssistant && onRegenerate && (
+          {!isUser && (message.debugData || (onDebugClick && message.sessionId)) && (
             <button
               type="button"
-              onClick={onRegenerate}
-              className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-slate-400 hover:bg-slate-700/80 hover:text-slate-200 transition-colors"
-              title={t("chat.button.regenerate")}
-              aria-label={t("chat.button.regenerate")}
-            >
-              <RefreshCw className="h-4 w-4 shrink-0" aria-hidden />
-              <span>{t("chat.button.regenerate")}</span>
-            </button>
-          )}
-          {onDebugClick && message.sessionId && (
-            <button
-              type="button"
-              onClick={() => onDebugClick(message.sessionId!)}
+              onClick={() => {
+                if (message.debugData && onDebugClick) {
+                  onDebugClick(message.sessionId ?? "__stored__");
+                } else if (onDebugClick && message.sessionId) {
+                  onDebugClick(message.sessionId);
+                }
+              }}
               className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-slate-400 hover:bg-slate-700/80 hover:text-slate-200 transition-colors"
               title={t("chat.debug.button")}
               aria-label={t("chat.debug.button")}

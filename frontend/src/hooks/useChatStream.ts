@@ -19,7 +19,8 @@ export interface UseChatStreamOptions {
   deanonEnabled: boolean;
   outputMode: OutputMode;
   onResponseComplete?: (deanonApplied: boolean) => void;
-  onMessagePairComplete?: (userText: string, assistantText: string, sseSessionId?: string) => void;
+  onMessagePairComplete?: (userText: string, assistantText: string, sseSessionId?: string, approvalData?: import("@/lib/types").ApprovalData, isRetry?: boolean, debugData?: import("@/lib/types").DebugData) => void;
+  getApprovalData?: () => import("@/lib/types").ApprovalData | null;
   onApprovalRequired: (
     sessionId: string,
     maskedPrompt: string,
@@ -40,9 +41,14 @@ export interface UseChatStreamReturn {
     masked_answer: string;
     final_answer: string;
   } | null;
+  setDebugData: React.Dispatch<React.SetStateAction<{
+    masked_prompt: string;
+    masked_answer: string;
+    final_answer: string;
+  } | null>>;
   debugOpen: boolean;
   setDebugOpen: (open: boolean) => void;
-  sendMessage: (text: string) => void;
+  sendMessage: (text: string, preApprovedChunks?: { text: string }[]) => void;
   regenerate: () => void;
   stopStreaming: () => void;
   handleOpenDebug: (sessionIdOverride?: string) => Promise<void>;
@@ -56,6 +62,7 @@ export function useChatStream({
   outputMode,
   onResponseComplete,
   onMessagePairComplete,
+  getApprovalData,
   onApprovalRequired,
   onApprovalRejected
 }: UseChatStreamOptions): UseChatStreamReturn {
@@ -76,27 +83,36 @@ export function useChatStream({
   const currentSessionIdRef = useRef<string | null>(null);
   const streamedContentRef = useRef<string>("");
   const lastUserTextRef = useRef<string>("");
+  const isRetryRef = useRef(false);
 
   const sendMessage = useCallback(
-    (text: string) => {
+    (text: string, preApprovedChunks?: { text: string }[]) => {
       if (!text.trim() || streaming) return;
 
       setStreamError(null);
-      const userMsg: ChatMessage = {
-        id: generateId(),
-        role: "user",
-        content: text
-      };
       const assistantId = generateId();
 
-      setMessages((prev) => [
-        ...prev,
-        userMsg,
-        { id: assistantId, role: "assistant", content: "" }
-      ]);
+      if (preApprovedChunks) {
+        setMessages((prev) => [
+          ...prev,
+          { id: assistantId, role: "assistant", content: "" }
+        ]);
+      } else {
+        const userMsg: ChatMessage = {
+          id: generateId(),
+          role: "user",
+          content: text
+        };
+        setMessages((prev) => [
+          ...prev,
+          userMsg,
+          { id: assistantId, role: "assistant", content: "" }
+        ]);
+      }
       pendingAssistantIdRef.current = assistantId;
       streamedContentRef.current = "";
       lastUserTextRef.current = text;
+      isRetryRef.current = !!preApprovedChunks;
       setStreaming(true);
 
       let activeRegs: string[] = [];
@@ -126,15 +142,6 @@ export function useChatStream({
             const reason = event.reason ?? t("chat.approval.rejectedDefault");
             onApprovalRejected(reason);
             setStreaming(false);
-            setMessages((prev) => {
-              const idx = prev.findIndex(
-                (m) => m.id === pendingAssistantIdRef.current
-              );
-              if (idx === -1) return prev;
-              return prev.map((m, i) =>
-                i === idx ? { ...m, content: reason } : m
-              );
-            });
             break;
           }
           case "answer_chunk": {
@@ -173,13 +180,58 @@ export function useChatStream({
               );
             }
             setStreaming(false);
+            const finishedId = pendingAssistantIdRef.current;
             pendingAssistantIdRef.current = null;
-            setDebugSessionId(currentSessionIdRef.current);
-            onMessagePairComplete?.(
-              lastUserTextRef.current,
-              streamedContentRef.current,
-              currentSessionIdRef.current ?? undefined
-            );
+            const sseId = currentSessionIdRef.current;
+            setDebugSessionId(sseId);
+
+            // Fetch debug data, persist on assistant message, then notify
+            const fetchAndPersist = async () => {
+              let debug: import("@/lib/types").DebugData | undefined;
+              if (sseId) {
+                try {
+                  const payload = await getChatDebug(sseId);
+                  debug = {
+                    masked_prompt: payload.masked_prompt,
+                    masked_answer: payload.masked_answer,
+                    final_answer: payload.final_answer,
+                  };
+                  if (finishedId) {
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.id === finishedId ? { ...m, debugData: debug } : m
+                      )
+                    );
+                  }
+                } catch {
+                  // debug data unavailable
+                }
+              }
+
+              // Convert rejected to approved if this was a retry
+              if (isRetryRef.current) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.approvalData?.decision === "rejected" &&
+                    m.approvalData?.original_user_message === lastUserTextRef.current
+                      ? { ...m, approvalData: { ...m.approvalData, decision: "approved" as const } }
+                      : m
+                  )
+                );
+              }
+
+              const approvalData = getApprovalData?.() ?? undefined;
+
+              onMessagePairComplete?.(
+                lastUserTextRef.current,
+                streamedContentRef.current,
+                sseId ?? undefined,
+                approvalData,
+                isRetryRef.current,
+                debug
+              );
+            };
+            void fetchAndPersist();
             if (deanonEnabled) {
               onResponseComplete?.(true);
             } else {
@@ -210,9 +262,10 @@ export function useChatStream({
             message: text,
             document_id: documentIds.length > 0 ? documentIds[0] : undefined,
             document_ids: documentIds.length > 0 ? documentIds : undefined,
-            require_approval: requireApproval,
+            require_approval: preApprovedChunks ? false : requireApproval,
             deanon_enabled: deanonEnabled,
-            output_mode: outputMode
+            output_mode: outputMode,
+            pre_approved_chunks: preApprovedChunks,
           },
           onEvent
         );
@@ -268,10 +321,8 @@ export function useChatStream({
         final_answer: payload.final_answer
       });
       setDebugOpen(true);
-    } catch (e) {
-      setStreamError(
-        e instanceof Error ? e.message : t("chat.debug.fetchError")
-      );
+    } catch {
+      // Debug data is ephemeral — silently ignore if unavailable (e.g. after server restart)
     }
   }, [debugSessionId, t]);
 
@@ -282,6 +333,7 @@ export function useChatStream({
     streamError,
     debugSessionId,
     debugData,
+    setDebugData,
     debugOpen,
     setDebugOpen,
     sendMessage,

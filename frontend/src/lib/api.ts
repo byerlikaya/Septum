@@ -1,7 +1,9 @@
 import axios from "axios";
 import type {
   ApprovalChunkPayload,
+  ApprovalData,
   AppSettingsResponse,
+  DebugData,
   AuthTokenResponse,
   AuthUser,
   AuditEvent,
@@ -126,6 +128,7 @@ export interface ChatAskParams {
   output_mode?: "chat" | "json";
   require_approval?: boolean;
   deanon_enabled?: boolean;
+  pre_approved_chunks?: { text: string }[];
 }
 
 export interface ChatDebugPayload {
@@ -150,7 +153,8 @@ export function streamChatAsk(
     session_id: params.session_id,
     output_mode: params.output_mode ?? "chat",
     require_approval: params.require_approval,
-    deanon_enabled: params.deanon_enabled
+    deanon_enabled: params.deanon_enabled,
+    pre_approved_chunks: params.pre_approved_chunks,
   };
 
   if (typeof params.document_id === "number") {
@@ -389,6 +393,10 @@ export async function deleteChatSession(sessionId: number): Promise<void> {
   await api.delete(`/api/chat-sessions/${sessionId}`);
 }
 
+export async function convertRejectedToApproved(sessionId: number): Promise<void> {
+  await api.post(`/api/chat-sessions/${sessionId}/convert-rejected`);
+}
+
 export async function deleteChatMessage(
   sessionId: number,
   messageId: number
@@ -399,11 +407,13 @@ export async function deleteChatMessage(
 export async function addChatMessage(
   sessionId: number,
   role: string,
-  content: string
+  content: string,
+  approvalData?: ApprovalData | DebugData
 ): Promise<{ id: number; role: string; content: string; created_at: string }> {
   const { data } = await api.post(`/api/chat-sessions/${sessionId}/messages`, {
     role,
     content,
+    approval_data: approvalData ?? null,
   });
   return data;
 }
