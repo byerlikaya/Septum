@@ -224,6 +224,21 @@ export interface AppSettingsResponse {
   setup_completed: boolean;
 }
 
+export interface EntityDetection {
+  id: number;
+  chunk_id: number;
+  entity_type: string;
+  placeholder: string;
+  start_offset: number;
+  end_offset: number;
+  score: number;
+}
+
+export interface EntityDetectionListResponse {
+  items: EntityDetection[];
+  total: number;
+}
+
 export interface AuditEvent {
   id: number;
   created_at: string;

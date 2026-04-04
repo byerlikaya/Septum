@@ -19,7 +19,7 @@ export interface UseChatStreamOptions {
   deanonEnabled: boolean;
   outputMode: OutputMode;
   onResponseComplete?: (deanonApplied: boolean) => void;
-  onMessagePairComplete?: (userText: string, assistantText: string) => void;
+  onMessagePairComplete?: (userText: string, assistantText: string, sseSessionId?: string) => void;
   onApprovalRequired: (
     sessionId: string,
     maskedPrompt: string,
@@ -45,7 +45,7 @@ export interface UseChatStreamReturn {
   sendMessage: (text: string) => void;
   regenerate: () => void;
   stopStreaming: () => void;
-  handleOpenDebug: () => Promise<void>;
+  handleOpenDebug: (sessionIdOverride?: string) => Promise<void>;
   pendingAssistantIdRef: React.RefObject<string | null>;
 }
 
@@ -179,7 +179,8 @@ export function useChatStream({
             setDebugSessionId(currentSessionIdRef.current);
             onMessagePairComplete?.(
               lastUserTextRef.current,
-              streamedContentRef.current
+              streamedContentRef.current,
+              currentSessionIdRef.current ?? undefined
             );
             if (deanonEnabled) {
               onResponseComplete?.(true);
@@ -258,10 +259,11 @@ export function useChatStream({
     pendingAssistantIdRef.current = null;
   }, []);
 
-  const handleOpenDebug = useCallback(async () => {
-    if (!debugSessionId) return;
+  const handleOpenDebug = useCallback(async (sessionIdOverride?: string) => {
+    const sid = sessionIdOverride ?? debugSessionId;
+    if (!sid) return;
     try {
-      const payload = await getChatDebug(debugSessionId);
+      const payload = await getChatDebug(sid);
       setDebugData({
         masked_prompt: payload.masked_prompt,
         masked_answer: payload.masked_answer,

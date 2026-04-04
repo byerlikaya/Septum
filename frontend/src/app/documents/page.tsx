@@ -16,6 +16,7 @@ export default function DocumentsPage() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [isDeletingAll, setIsDeletingAll] = useState<boolean>(false);
+  const [isReprocessingAll, setIsReprocessingAll] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [duplicateNotice, setDuplicateNotice] = useState<string | null>(null);
   const [uploadTotal, setUploadTotal] = useState<number>(0);
@@ -234,6 +235,28 @@ export default function DocumentsPage() {
     [t, fetchDocuments]
   );
 
+  const handleReprocessAll = useCallback(async () => {
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(t("documents.confirmReprocessAll"))) return;
+    const ids = documents.map((d) => d.id);
+    if (!ids.length) return;
+    setIsReprocessingAll(true);
+    setDocuments((prev) =>
+      prev.map((d) => ({ ...d, ingestion_status: "processing" as const }))
+    );
+    try {
+      for (const id of ids) {
+        const updated = await reprocessDocument(id);
+        setDocuments((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
+      }
+    } catch {
+      setError(t("errors.documents.reprocess"));
+      await fetchDocuments();
+    } finally {
+      setIsReprocessingAll(false);
+    }
+  }, [documents, t, fetchDocuments]);
+
   const handlePreviewDocument = useCallback((doc: Document): void => {
     setPreviewDoc(doc);
   }, []);
@@ -278,16 +301,28 @@ export default function DocumentsPage() {
             </p>
           </div>
           {documents.length > 0 && (
-            <button
-              type="button"
-              onClick={handleDeleteAllDocuments}
-              disabled={isUploading || isDeletingAll}
-              className="inline-flex items-center rounded-md border border-rose-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-rose-300 shadow-sm hover:bg-rose-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isDeletingAll
-                ? t("documents.actions.deletingAll")
-                : t("documents.actions.deleteAll")}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleReprocessAll}
+                disabled={isUploading || isReprocessingAll || isDeletingAll}
+                className="inline-flex items-center rounded-md border border-sky-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-sky-300 shadow-sm hover:bg-sky-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isReprocessingAll
+                  ? t("documents.actions.reprocessingAll")
+                  : t("documents.actions.reprocessAll")}
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAllDocuments}
+                disabled={isUploading || isDeletingAll || isReprocessingAll}
+                className="inline-flex items-center rounded-md border border-rose-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-rose-300 shadow-sm hover:bg-rose-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isDeletingAll
+                  ? t("documents.actions.deletingAll")
+                  : t("documents.actions.deleteAll")}
+              </button>
+            </div>
           )}
         </div>
       </header>

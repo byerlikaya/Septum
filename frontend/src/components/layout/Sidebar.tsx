@@ -18,7 +18,6 @@ type NavItemDef = {
 const navItems: NavItemDef[] = [
   { href: "/chat", label: "Chat", exact: true },
   { href: "/documents", label: "Documents" },
-  { href: "/chunks", label: "Chunks" },
   { href: "/settings", label: "Settings", exact: true },
   { href: "/settings/regulations", label: "Regulations" },
   { href: "/settings/audit", label: "Audit Trail", exact: true },

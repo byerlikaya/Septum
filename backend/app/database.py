@@ -18,6 +18,7 @@ from .models.error_log import ErrorLog
 from .models.regulation import RegulationRuleset, NonPiiRule
 from .models.settings import AppSettings
 from .models.chat_session import ChatSession, ChatMessage  # noqa: F401
+from .models.entity_detection import EntityDetection  # noqa: F401
 from .models.user import User  # noqa: F401
 
 

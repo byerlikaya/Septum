@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
+import api, {
   getDocuments,
   getSettings,
   getRegulations,
@@ -36,10 +36,12 @@ export default function ChatPage() {
 
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
+  const [chatResetKey, setChatResetKey] = useState(0);
   const [initialMessages, setInitialMessages] = useState<
-    { role: string; content: string }[]
+    { role: string; content: string; sessionId?: string }[]
   >([]);
   const sessionIdRef = useRef<number | null>(null);
+  const debugSessionMapRef = useRef<Map<number, string>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -117,6 +119,44 @@ export default function ChatPage() {
         if (uploaded.length > 0) {
           setDocuments((prev) => [...uploaded, ...prev]);
           setUploadStatus("success");
+
+          const processingIds = uploaded
+            .filter((d) => d.ingestion_status === "processing")
+            .map((d) => d.id);
+
+          if (processingIds.length > 0) {
+            const poll = async () => {
+              const remaining = new Set(processingIds);
+              for (let attempt = 0; attempt < 30 && remaining.size > 0; attempt++) {
+                await new Promise((r) => setTimeout(r, 2000));
+                for (const docId of [...remaining]) {
+                  try {
+                    const { data } = await api.get<Document>(`/api/documents/${docId}`);
+                    if (data.ingestion_status !== "processing") {
+                      remaining.delete(docId);
+                      setDocuments((prev) =>
+                        prev.map((d) => (d.id === docId ? data : d))
+                      );
+                    }
+                  } catch {
+                    remaining.delete(docId);
+                  }
+                }
+              }
+              setSelectedIds((prev) => {
+                const next = new Set(prev);
+                for (const id of processingIds) next.add(id);
+                return next;
+              });
+            };
+            void poll();
+          } else {
+            setSelectedIds((prev) => {
+              const next = new Set(prev);
+              for (const d of uploaded) next.add(d.id);
+              return next;
+            });
+          }
         }
       } catch {
         setUploadStatus("error");
@@ -132,7 +172,7 @@ export default function ChatPage() {
   }, []);
 
   const handleMessagePairComplete = useCallback(
-    async (userText: string, assistantText: string) => {
+    async (userText: string, assistantText: string, sseSessionId?: string) => {
       if (!userText || !assistantText) return;
 
       let sid = sessionIdRef.current;
@@ -149,6 +189,10 @@ export default function ChatPage() {
         setActiveSessionId(sid);
       }
 
+      if (sseSessionId) {
+        debugSessionMapRef.current.set(sid, sseSessionId);
+      }
+
       await addChatMessage(sid, "user", userText);
       await addChatMessage(sid, "assistant", assistantText);
 
@@ -163,9 +207,15 @@ export default function ChatPage() {
       const detail = await getChatSession(id);
       sessionIdRef.current = id;
       setActiveSessionId(id);
+      const sseId = debugSessionMapRef.current.get(id);
       setInitialMessages(
-        detail.messages.map((m) => ({ role: m.role, content: m.content }))
+        detail.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+          sessionId: m.role === "assistant" && sseId ? sseId : undefined,
+        }))
       );
+      setChatResetKey((k) => k + 1);
       if (detail.document_ids?.length) {
         setSelectedIds(new Set(detail.document_ids));
       }
@@ -178,6 +228,7 @@ export default function ChatPage() {
     sessionIdRef.current = null;
     setActiveSessionId(null);
     setInitialMessages([]);
+    setChatResetKey((k) => k + 1);
   }, []);
 
   const handleDeleteSession = useCallback(
@@ -318,7 +369,7 @@ export default function ChatPage() {
               <DeanonymizationBanner visible={showDeanonBanner} />
               {showDeanonBanner && <div className="h-2 shrink-0" />}
               <ChatWindow
-                key={activeSessionId ?? "new"}
+                key={chatResetKey}
                 documentIds={documentIds}
                 requireApproval={settings?.require_approval ?? false}
                 deanonEnabled={settings?.deanon_enabled ?? true}

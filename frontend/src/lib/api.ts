@@ -11,6 +11,7 @@ import type {
   ComplianceReport,
   Document,
   DocumentListResponse,
+  EntityDetectionListResponse,
   RegulationRuleset,
   SSEChatEvent,
   SpreadsheetColumn,
@@ -307,6 +308,20 @@ export async function sendFrontendError(payload: {
   } catch {
     // Swallow errors from error reporting itself to avoid loops.
   }
+}
+
+
+// --- Entity Detections ---
+
+export async function getEntityDetections(
+  documentId: number,
+  params?: { chunk_id?: number; entity_type?: string }
+): Promise<EntityDetectionListResponse> {
+  const { data } = await api.get<EntityDetectionListResponse>(
+    `/api/documents/${documentId}/entity-detections`,
+    { params }
+  );
+  return data;
 }
 
 

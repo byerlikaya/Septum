@@ -96,24 +96,12 @@ export const trMessages: Record<string, string> = {
     '"{name}" yeniden işlensin mi? Mevcut anonimleştirici ve regülasyonlarla anonimleştirme haritası ve indeksler yeniden oluşturulacaktır.',
   "documents.actions.deleteAll": "Tüm dokümanları sil",
   "documents.actions.deletingAll": "Tüm dokümanlar siliniyor…",
+  "documents.actions.reprocessAll": "Tümünü yeniden işle",
+  "documents.actions.reprocessingAll": "Yeniden işleniyor…",
+  "documents.confirmReprocessAll": "Tüm dokümanları yeniden işlemek istediğinize emin misiniz? Bu biraz zaman alabilir.",
   "documents.confirm.deleteAll":
     "Tüm dokümanları silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.",
 
-  "chunks.title": "Parçalar",
-  "chunks.subtitle":
-    "Aşağıdan bir dokümanı genişleterek anonimize edilmiş parçalarını görüntüleyip düzenleyin.",
-  "chunks.loadingDocuments": "Dokümanlar yükleniyor…",
-  "chunks.emptyHint":
-    "Henüz parçalara ayrılmış bir doküman yok. Önce Dokümanlar sayfasından bir dosya yükleyip içe aktarın.",
-  "chunks.search.label": "Parçalar hakkında soru sor",
-  "chunks.search.placeholder": "Sorunuzu buraya yazın…",
-  "chunks.search.documentLabel": "Bu dokümanda ara",
-  "chunks.search.documentPlaceholder": "Arama yapılacak dokümanı seçin",
-  "chunks.search.button": "Parçalarda ara",
-  "chunks.search.searching": "Aranıyor…",
-  "chunks.search.resultsTitle": "Arama sonuçları ({count})",
-  "chunks.search.clear": "Sonuçları temizle",
-  "chunks.search.noResults": "Bu soruya uyan parça bulunamadı.",
 
   "settings.title": "Ayarlar",
   "settings.subtitle":
@@ -306,9 +294,6 @@ export const trMessages: Record<string, string> = {
   "errors.documents.reprocess":
     "Doküman yeniden işlenirken bir hata oluştu.",
   "errors.documents.deleteAll": "Tüm dokümanlar silinirken bir hata oluştu.",
-  "errors.chunks.loadDocuments": "Dokümanlar yüklenirken bir hata oluştu.",
-  "errors.chunks.loadChunks": "Parçalar yüklenirken bir hata oluştu.",
-  "errors.chunks.search": "Parçalar aranırken bir hata oluştu.",
   "errors.settings.load": "Ayarlar yüklenirken bir hata oluştu.",
   "errors.settings.update": "Ayar güncellenirken bir hata oluştu.",
   "errors.regulations.load":
@@ -355,6 +340,11 @@ export const trMessages: Record<string, string> = {
   "documents.preview.unsavedWarning": "Kaydedilmemiş değişiklikleriniz var.",
   "documents.preview.saving": "Kaydediliyor...",
   "documents.preview.saveSchema": "Şemayı kaydet",
+  "documents.preview.entityHighlights": "Varlık vurgulamaları",
+  "documents.preview.allTypes": "Tüm türler",
+  "documents.preview.reprocessHint": "Bu belge için varlık konum verisi mevcut değil. Varlık bazlı vurgulamayı etkinleştirmek için belgeyi yeniden işleyin.",
+  "documents.preview.prevOccurrence": "Önceki eşleşme",
+  "documents.preview.nextOccurrence": "Sonraki eşleşme",
   "documents.chunks": "parça",
 
   "preview.document.title": "Doküman Önizlemesi",
@@ -431,24 +421,6 @@ export const trMessages: Record<string, string> = {
   "chat.approval.button.reject": "Reddet",
   "chat.approval.button.approve": "Onayla ve devam et",
 
-  "chunks.error.save":
-    "Bu parçada yapılan değişiklikler kaydedilemedi.",
-  "chunks.error.delete":
-    "Bu parça silinirken bir hata oluştu.",
-  "chunks.confirm.delete":
-    "Bu parçayı silmek istediğinizden emin misiniz?",
-  "chunks.card.label": "Parça #{index}",
-  "chunks.card.showLess": "Daha az göster",
-  "chunks.card.showMore": "Daha fazla göster",
-  "chunks.card.charCount": "{count} karakter",
-  "chunks.card.lang": "Dil: {lang}",
-  "chunks.card.regs": "Reg.: {regs}",
-  "chunks.card.loadingChunks": "Parçalar yükleniyor…",
-  "chunks.card.noChunks": "Bu doküman için parça yok.",
-
-  "chunks.entity.detectedUnder":
-    "Şu kapsamda tespit edildi: {regs}",
-  "chunks.entity.placeholder": "Tespit edilen varlık yer tutucusu",
 
   "common.saving": "Kaydediliyor…",
   "common.save": "Kaydet",
@@ -650,6 +622,7 @@ export const trMessages: Record<string, string> = {
   "audit.card.total": "toplam",
   "audit.card.events": "olay",
   "audit.card.maskedQuery": "Sorunuz LLM'e su sekilde gonderildi",
+  "audit.card.viewEntities": "Tespit edilen varlıkları görüntüle",
 
   "audit.desc.piiDoc": "\"{doc}\" islenirken Septum {entities} tespit etti. Bir anonimizasyon haritasi olusturuldu, boylece dokuman sohbette kullanildiginda bunlar otomatik olarak maskelenecek.",
   "audit.desc.piiDocGeneric": "Septum, dokuman islerken {count} kisisel veri varligi tespit etti. Sohbette otomatik olarak maskelenecekler.",

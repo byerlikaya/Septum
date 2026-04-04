@@ -1,10 +1,26 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import { AuditLogTable } from "@/components/settings/AuditLogTable";
+import { DocumentPreview } from "@/components/documents/DocumentPreview";
 import { useI18n } from "@/lib/i18n";
+import api from "@/lib/api";
+import type { Document } from "@/lib/types";
 
 export default function AuditPage() {
   const t = useI18n();
+  const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  const handleViewDocument = useCallback(async (documentId: number) => {
+    try {
+      const { data } = await api.get<Document>(`/api/documents/${documentId}`);
+      setPreviewDoc(data);
+      setPreviewOpen(true);
+    } catch {
+      // document may have been deleted
+    }
+  }, []);
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-hidden">
@@ -17,8 +33,13 @@ export default function AuditPage() {
         </p>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        <AuditLogTable pageSize={50} />
+        <AuditLogTable pageSize={50} onViewDocument={handleViewDocument} />
       </div>
+      <DocumentPreview
+        document={previewDoc}
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+      />
     </div>
   );
 }

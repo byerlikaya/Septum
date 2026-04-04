@@ -142,12 +142,24 @@ class DetectedSpan:
 
 
 @dataclass
+class ResolvedSpan:
+    """A finalized PII span with its assigned placeholder after deduplication."""
+
+    start: int
+    end: int
+    entity_type: str
+    placeholder: str
+    score: float
+
+
+@dataclass
 class SanitizeResult:
     """Result of applying the PII sanitizer to an input string."""
 
     sanitized_text: str
     entity_count: int
     entity_type_counts: Dict[str, int] = field(default_factory=dict)
+    detected_spans: List["ResolvedSpan"] = field(default_factory=list)
 
 
 class BaseCustomRecognizer(EntityRecognizer):
@@ -744,7 +756,7 @@ class PIISanitizer:
             not in SANITIZER_STOPWORDS
         ]
 
-        sanitized, count = self._apply_replacements(
+        sanitized, count, resolved_spans = self._apply_replacements(
             normalized_text, spans, anon_map, language
         )
 
@@ -767,6 +779,7 @@ class PIISanitizer:
             sanitized_text=sanitized,
             entity_count=count,
             entity_type_counts=type_counts,
+            detected_spans=resolved_spans,
         )
 
     def _filter_presidio_results(
@@ -1190,12 +1203,13 @@ class PIISanitizer:
         spans: List[DetectedSpan],
         anon_map: AnonymizationMap,
         language: str,
-    ) -> tuple[str, int]:
+    ) -> tuple[str, int, List[ResolvedSpan]]:
         """Replace detected spans with placeholders using the anonymization map."""
         if not spans:
-            return text, 0
+            return text, 0, []
 
         parts: List[str] = []
+        resolved: List[ResolvedSpan] = []
         last_index = 0
         count = 0
 
@@ -1209,11 +1223,18 @@ class PIISanitizer:
                 continue
             placeholder = anon_map.add_entity(original, span.entity_type)
             parts.append(placeholder)
+            resolved.append(ResolvedSpan(
+                start=span.start,
+                end=span.end,
+                entity_type=span.entity_type,
+                placeholder=placeholder,
+                score=span.score,
+            ))
             last_index = span.end
             count += 1
 
         parts.append(text[last_index:])
-        return "".join(parts), count
+        return "".join(parts), count, resolved
 
     @staticmethod
     def _log_low_confidence(spans: List[DetectedSpan]) -> None:

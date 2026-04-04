@@ -18,9 +18,9 @@ export interface ChatWindowProps {
   activeRegulations: string[];
   showJsonOutput: boolean;
   onResponseComplete?: (deanonApplied: boolean) => void;
-  onMessagePairComplete?: (userText: string, assistantText: string) => void;
+  onMessagePairComplete?: (userText: string, assistantText: string, sseSessionId?: string) => void;
   onUploadFiles?: (files: File[]) => void;
-  initialMessages?: { role: string; content: string }[];
+  initialMessages?: { role: string; content: string; sessionId?: string }[];
 }
 
 export function ChatWindow({
@@ -103,6 +103,7 @@ export function ChatWindow({
         id: `restored-${i}`,
         role: m.role as "user" | "assistant",
         content: m.content,
+        sessionId: m.sessionId,
       }));
       setMessages(restored);
     }
@@ -193,8 +194,8 @@ export function ChatWindow({
                     setMessages((prev) => prev.filter((m) => m.id !== msg.id));
                     setInput(content);
                   }}
-                  onDebugClick={() => {
-                    void handleOpenDebug();
+                  onDebugClick={(sessionId) => {
+                    void handleOpenDebug(sessionId);
                   }}
                 />
               );

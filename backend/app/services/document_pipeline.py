@@ -7,6 +7,7 @@ from typing import Dict, List, Sequence
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.document import Chunk as DocumentChunk, Document
+from ..models.entity_detection import EntityDetection
 from ..models.settings import AppSettings
 from .anonymization_map import AnonymizationMap
 from .chunking_strategy import (
@@ -17,6 +18,7 @@ from .chunking_strategy import (
 from .bm25_retriever import BM25Retriever
 from .document_anon_store import pop_document_map, set_document_map
 from .audit_logger import log_pii_detected
+from .sanitizer import ResolvedSpan
 from .sanitizer_factory import create_sanitizer
 from .text_normalizer import TextNormalizer
 from .vector_store import VectorStore
@@ -57,6 +59,7 @@ class DocumentPipeline:
         raw_texts_for_index: List[str] = []
         total_entities = 0
         aggregate_type_counts: Dict[str, int] = {}
+        per_chunk_spans: Dict[int, List[ResolvedSpan]] = {}
 
         for semantic_chunk in semantic_chunks:
             raw_text = semantic_chunk.text
@@ -71,6 +74,8 @@ class DocumentPipeline:
             total_entities += sanitize_result.entity_count
             for etype, ecount in sanitize_result.entity_type_counts.items():
                 aggregate_type_counts[etype] = aggregate_type_counts.get(etype, 0) + ecount
+            if sanitize_result.detected_spans:
+                per_chunk_spans[semantic_chunk.index] = sanitize_result.detected_spans
             stored_chunks.append(
                 SemanticChunk(
                     text=normalized_raw,
@@ -85,6 +90,23 @@ class DocumentPipeline:
         document.ocr_confidence = ingestion_confidence
 
         chunks = await self._persist_chunks(db, document.id, stored_chunks)
+
+        if per_chunk_spans:
+            chunk_index_to_id = {c.index: c.id for c in chunks}
+            for chunk_index, resolved_spans in per_chunk_spans.items():
+                chunk_id = chunk_index_to_id.get(chunk_index)
+                if chunk_id is None:
+                    continue
+                for rs in resolved_spans:
+                    db.add(EntityDetection(
+                        document_id=document.id,
+                        chunk_id=chunk_id,
+                        entity_type=rs.entity_type,
+                        placeholder=rs.placeholder,
+                        start_offset=rs.start,
+                        end_offset=rs.end,
+                        score=rs.score,
+                    ))
 
         document.chunk_count = len(chunks)
         document.entity_count = total_entities

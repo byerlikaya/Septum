@@ -18,6 +18,7 @@ import { useI18n } from "@/lib/i18n";
 
 type AuditLogTableProps = {
   pageSize?: number;
+  onViewDocument?: (documentId: number) => void;
 };
 
 const EVENT_TYPES = [
@@ -68,7 +69,7 @@ function accentBorder(type: string): string {
   }
 }
 
-function EventCard({ event, t }: { event: AuditEvent; t: ReturnType<typeof useI18n> }) {
+function EventCard({ event, t, onViewDocument }: { event: AuditEvent; t: ReturnType<typeof useI18n>; onViewDocument?: (documentId: number) => void }) {
   const [expanded, setExpanded] = useState(false);
   const extra = event.extra || {};
   const docName = extra.document_name as string | undefined;
@@ -176,6 +177,18 @@ function EventCard({ event, t }: { event: AuditEvent; t: ReturnType<typeof useI1
             </div>
           )}
 
+          {/* View entities in document */}
+          {event.event_type === "pii_detected" && event.document_id && onViewDocument && (
+            <button
+              type="button"
+              className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800/60 px-2.5 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors"
+              onClick={() => onViewDocument(event.document_id!)}
+            >
+              <Search className="h-3 w-3" />
+              {t("audit.card.viewEntities")}
+            </button>
+          )}
+
           {/* Expandable entity breakdown */}
           {entities.length > 0 && (
             <div className="mt-3">
@@ -208,7 +221,7 @@ function EventCard({ event, t }: { event: AuditEvent; t: ReturnType<typeof useI1
   );
 }
 
-export function AuditLogTable({ pageSize = 50 }: AuditLogTableProps) {
+export function AuditLogTable({ pageSize = 50, onViewDocument }: AuditLogTableProps) {
   const t = useI18n();
   const [items, setItems] = useState<AuditEvent[]>([]);
   const [total, setTotal] = useState(0);
@@ -272,7 +285,7 @@ export function AuditLogTable({ pageSize = 50 }: AuditLogTableProps) {
       ) : (
         <div className="space-y-2">
           {items.map((item) => (
-            <EventCard key={item.id} event={item} t={t} />
+            <EventCard key={item.id} event={item} t={t} onViewDocument={onViewDocument} />
           ))}
         </div>
       )}

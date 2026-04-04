@@ -31,7 +31,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..database import get_db
+from ..models.audit_event import AuditEvent
 from ..models.document import Chunk as DocumentChunk, Document
+from ..models.entity_detection import EntityDetection
 from ..models.spreadsheet_schema import SpreadsheetSchema, SpreadsheetColumn
 from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
@@ -629,6 +631,59 @@ async def get_anon_summary(
     }
 
 
+class EntityDetectionResponse(BaseModel):
+    """Serialized view of a single detected entity with position data."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    chunk_id: int
+    entity_type: str
+    placeholder: str
+    start_offset: int
+    end_offset: int
+    score: float
+
+
+class EntityDetectionListResponse(BaseModel):
+    """Wrapper for entity detection results."""
+
+    items: List[EntityDetectionResponse]
+    total: int
+
+
+@router.get(
+    "/{document_id}/entity-detections",
+    response_model=EntityDetectionListResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_entity_detections(
+    document_id: int,
+    chunk_id: Optional[int] = None,
+    entity_type: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+) -> EntityDetectionListResponse:
+    """Return per-entity detection records with positions for a document."""
+    await get_or_404(db, Document, document_id, "Document not found.")
+
+    stmt = (
+        select(EntityDetection)
+        .where(EntityDetection.document_id == document_id)
+        .order_by(EntityDetection.chunk_id, EntityDetection.start_offset)
+    )
+    if chunk_id is not None:
+        stmt = stmt.where(EntityDetection.chunk_id == chunk_id)
+    if entity_type is not None:
+        stmt = stmt.where(EntityDetection.entity_type == entity_type)
+
+    result = await db.execute(stmt)
+    rows = list(result.scalars().all())
+    return EntityDetectionListResponse(
+        items=[EntityDetectionResponse.model_validate(r) for r in rows],
+        total=len(rows),
+    )
+
+
 @router.get(
     "/{document_id}/raw",
     status_code=status.HTTP_200_OK,
@@ -695,6 +750,10 @@ async def delete_document(
 
     await DocumentPipeline.cleanup_artifacts(document_id)
 
+    from sqlalchemy import delete as sa_delete
+    await db.execute(
+        sa_delete(AuditEvent).where(AuditEvent.document_id == document_id)
+    )
     await db.delete(document)
     await db.commit()
 
@@ -725,6 +784,9 @@ async def reprocess_document(
     try:
         from sqlalchemy import delete as sa_delete
 
+        await db.execute(
+            sa_delete(EntityDetection).where(EntityDetection.document_id == document_id)
+        )
         await db.execute(
             sa_delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
         )

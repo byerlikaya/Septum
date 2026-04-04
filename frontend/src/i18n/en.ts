@@ -92,6 +92,9 @@ export const enMessages = {
   "documents.actions.reprocess": "Reprocess",
   "documents.actions.deleteAll": "Delete all documents",
   "documents.actions.deletingAll": "Deleting all…",
+  "documents.actions.reprocessAll": "Reprocess all",
+  "documents.actions.reprocessingAll": "Reprocessing…",
+  "documents.confirmReprocessAll": "Are you sure you want to reprocess all documents? This may take a while.",
   "documents.confirm.delete":
     'Are you sure you want to delete "{name}"?',
   "documents.confirm.reprocess":
@@ -99,20 +102,6 @@ export const enMessages = {
   "documents.confirm.deleteAll":
     "Are you sure you want to delete all documents? This action cannot be undone.",
 
-  "chunks.title": "Chunks",
-  "chunks.subtitle": "Expand a document below to view and edit its sanitized chunks.",
-  "chunks.loadingDocuments": "Loading documents…",
-  "chunks.emptyHint":
-    "No documents with chunks yet. Upload and ingest a document from the Documents page first.",
-  "chunks.search.label": "Ask a question about chunks",
-  "chunks.search.placeholder": "Type your question here…",
-  "chunks.search.documentLabel": "Search within document",
-  "chunks.search.documentPlaceholder": "Select a document to search",
-  "chunks.search.button": "Search chunks",
-  "chunks.search.searching": "Searching…",
-  "chunks.search.resultsTitle": "Search results ({count})",
-  "chunks.search.clear": "Clear results",
-  "chunks.search.noResults": "No chunks matched this question.",
 
   "settings.title": "Settings",
   "settings.subtitle":
@@ -290,9 +279,6 @@ export const enMessages = {
     "An error occurred while reprocessing the document.",
   "errors.documents.deleteAll":
     "An error occurred while deleting all documents.",
-  "errors.chunks.loadDocuments": "An error occurred while loading documents.",
-  "errors.chunks.loadChunks": "An error occurred while loading chunks.",
-  "errors.chunks.search": "An error occurred while searching chunks.",
   "errors.settings.load": "An error occurred while loading settings.",
   "errors.settings.update": "An error occurred while updating the setting.",
   "errors.regulations.load": "An error occurred while loading regulation settings.",
@@ -333,6 +319,11 @@ export const enMessages = {
   "documents.preview.unsavedWarning": "You have unsaved changes.",
   "documents.preview.saving": "Saving...",
   "documents.preview.saveSchema": "Save schema",
+  "documents.preview.entityHighlights": "Entity highlights",
+  "documents.preview.allTypes": "All types",
+  "documents.preview.reprocessHint": "Entity location data is not available for this document. Reprocess the document to enable per-entity highlighting.",
+  "documents.preview.prevOccurrence": "Previous occurrence",
+  "documents.preview.nextOccurrence": "Next occurrence",
   "documents.chunks": "chunks",
 
   "preview.document.title": "Document Preview",
@@ -406,20 +397,6 @@ export const enMessages = {
   "chat.approval.button.reject": "Reject",
   "chat.approval.button.approve": "Approve & continue",
 
-  "chunks.error.save": "Unable to save changes to this chunk.",
-  "chunks.error.delete": "Unable to delete this chunk.",
-  "chunks.confirm.delete": "Are you sure you want to delete this chunk?",
-  "chunks.card.label": "Chunk #{index}",
-  "chunks.card.showLess": "Show less",
-  "chunks.card.showMore": "Show more",
-  "chunks.card.charCount": "{count} chars",
-  "chunks.card.lang": "Lang: {lang}",
-  "chunks.card.regs": "Regs: {regs}",
-  "chunks.card.loadingChunks": "Loading chunks…",
-  "chunks.card.noChunks": "No chunks for this document.",
-
-  "chunks.entity.detectedUnder": "Detected under: {regs}",
-  "chunks.entity.placeholder": "Detected entity placeholder",
 
   "common.saving": "Saving…",
   "common.save": "Save",
@@ -624,6 +601,7 @@ export const enMessages = {
   "audit.card.total": "total",
   "audit.card.events": "events",
   "audit.card.maskedQuery": "Your question was sent to the LLM as",
+  "audit.card.viewEntities": "View detected entities",
 
   "audit.desc.piiDoc": "While processing \"{doc}\", Septum detected {entities}. An anonymization map was created so these will be automatically masked whenever the document is used in chat.",
   "audit.desc.piiDocGeneric": "Septum detected {count} personal data entities during document processing. They will be masked automatically in chat.",
