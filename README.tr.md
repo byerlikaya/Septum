@@ -141,8 +141,8 @@ Tüm 17 yerleşik regülasyon aktif. 10 varlık tipinde **1 618 algoritmik olara
 |---|:---:|:---:|:---:|:---:|:---:|
 | Presidio (K1) — desenler + doğrulayıcılar | 1 200 | 8 | %100 | %100 | %100 |
 | NER (K2) — XLM-RoBERTa | 200 | 2 | %98,0 | %97,5 | %97,7 |
-| Ollama (K3) — aya-expanse:8b | 218 | 2 | %100 | %98,6 | %99,3 |
-| **Birleşik** | **1 618** | **10** | **%100** | **%99,6** | **%99,8** |
+| Ollama (K3) — aya-expanse:8b | 218 | 2 | %100 | %99,1 | %99,5 |
+| **Birleşik** | **1 618** | **10** | **%99,8** | **%99,6** | **%99,7** |
 
 > Ollama (K3), takma adları yakalayarak PERSON_NAME recall'ını %97'den %100'e çıkarır ve bağlam duyarlı doğrulama ile yanlış pozitifleri ortadan kaldırır. Tekrarlanabilir: `pytest tests/benchmark_detection.py -v -s`
 

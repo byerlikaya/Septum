@@ -141,8 +141,8 @@ All 17 built-in regulations active. **1 618 algorithmically generated PII values
 |---|:---:|:---:|:---:|:---:|:---:|
 | Presidio (L1) — patterns + validators | 1 200 | 8 | 100% | 100% | 100% |
 | NER (L2) — XLM-RoBERTa | 200 | 2 | 98.0% | 97.5% | 97.7% |
-| Ollama (L3) — aya-expanse:8b | 218 | 2 | 100% | 98.6% | 99.3% |
-| **Combined** | **1 618** | **10** | **100%** | **99.6%** | **99.8%** |
+| Ollama (L3) — aya-expanse:8b | 218 | 2 | 100% | 99.1% | 99.5% |
+| **Combined** | **1 618** | **10** | **99.8%** | **99.6%** | **99.7%** |
 
 > Ollama (L3) improves PERSON_NAME recall from 97% to 100% by catching aliases, and eliminates false positives via context-aware validation. Reproducible: `pytest tests/benchmark_detection.py -v -s`
 
