@@ -1,5 +1,16 @@
 export type IngestionStatus = "pending" | "processing" | "completed" | "failed";
 
+export interface AuthUser {
+  id: number;
+  email: string;
+  is_active: boolean;
+}
+
+export interface AuthTokenResponse {
+  access_token: string;
+  token_type: string;
+}
+
 export interface ChatSessionSummary {
   id: number;
   title: string;

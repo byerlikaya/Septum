@@ -4,7 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { fetchErrorLogs } from "@/lib/api";
+import { LogOut } from "lucide-react";
+import { clearAuthToken, fetchErrorLogs } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { useLanguage } from "@/lib/language";
 
@@ -185,8 +186,19 @@ export function Sidebar() {
               />
             ))}
           </div>
-          <div className="mt-4 border-t border-slate-800 pt-3 text-xs text-slate-500">
+          <div className="mt-4 border-t border-slate-800 pt-3 text-xs text-slate-500 space-y-2">
             <LanguageSelector />
+            <button
+              type="button"
+              onClick={() => {
+                clearAuthToken();
+                window.location.href = "/login";
+              }}
+              className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              <span>{t("sidebar.logout")}</span>
+            </button>
             <span>{t("sidebar.footer")}</span>
           </div>
         </div>
@@ -219,8 +231,19 @@ export function Sidebar() {
             />
           ))}
         </nav>
-        <div className="border-t border-slate-800 px-4 py-3 text-xs text-slate-500">
+        <div className="border-t border-slate-800 px-4 py-3 text-xs text-slate-500 space-y-2">
           <LanguageSelector />
+          <button
+            type="button"
+            onClick={() => {
+              clearAuthToken();
+              window.location.href = "/login";
+            }}
+            className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            <span>{t("sidebar.logout")}</span>
+          </button>
           <span>{t("sidebar.footer")}</span>
         </div>
       </div>

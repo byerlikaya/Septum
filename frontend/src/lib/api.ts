@@ -2,6 +2,8 @@ import axios from "axios";
 import type {
   ApprovalChunkPayload,
   AppSettingsResponse,
+  AuthTokenResponse,
+  AuthUser,
   AuditEvent,
   AuditListResponse,
   ChatSessionDetail,
@@ -25,6 +27,42 @@ export const baseURL =
 export const api = axios.create({
   baseURL
 });
+
+const AUTH_TOKEN_KEY = "septum_auth_token";
+
+export function getAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+export function setAuthToken(token: string): void {
+  localStorage.setItem(AUTH_TOKEN_KEY, token);
+}
+
+export function clearAuthToken(): void {
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+}
+
+api.interceptors.request.use((config) => {
+  const token = getAuthToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 && typeof window !== "undefined") {
+      clearAuthToken();
+      if (!window.location.pathname.startsWith("/login") && !window.location.pathname.startsWith("/register")) {
+        window.location.href = "/login";
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 export default api;
 
@@ -123,7 +161,10 @@ export function streamChatAsk(
     try {
       const res = await fetch(`${baseURL}/api/chat/ask`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
+        },
         body: JSON.stringify(body),
         signal: controller.signal
       });
@@ -342,6 +383,36 @@ export async function addChatMessage(
     role,
     content,
   });
+  return data;
+}
+
+
+// --- Auth ---
+
+export async function authRegister(
+  email: string,
+  password: string
+): Promise<AuthTokenResponse> {
+  const { data } = await api.post<AuthTokenResponse>("/api/auth/register", {
+    email,
+    password,
+  });
+  return data;
+}
+
+export async function authLogin(
+  email: string,
+  password: string
+): Promise<AuthTokenResponse> {
+  const { data } = await api.post<AuthTokenResponse>("/api/auth/login", {
+    email,
+    password,
+  });
+  return data;
+}
+
+export async function authMe(): Promise<AuthUser> {
+  const { data } = await api.get<AuthUser>("/api/auth/me");
   return data;
 }
 

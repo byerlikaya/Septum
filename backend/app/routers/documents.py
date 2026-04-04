@@ -35,6 +35,8 @@ from ..models.document import Chunk as DocumentChunk, Document
 from ..models.spreadsheet_schema import SpreadsheetSchema, SpreadsheetColumn
 from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
+from ..models.user import User
+from ..utils.auth_dependency import get_optional_user
 from ..utils.db_helpers import get_or_404, load_settings, detect_language
 from ..services.chunking_strategy import (
     StructuredDocumentChunker,
@@ -444,6 +446,7 @@ async def _ensure_spreadsheet_schema(
 async def upload_document(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_user),
 ) -> DocumentResponse:
     """Upload a document, ingest it, and build its vector index.
 
@@ -497,6 +500,7 @@ async def upload_document(
         active_regulation_ids=active_reg_ids,
         ingestion_status="processing",
         ingestion_error=None,
+        user_id=current_user.id if current_user else None,
     )
     db.add(document)
     await db.commit()
@@ -523,14 +527,29 @@ async def upload_document(
             await db.refresh(document)
             return DocumentResponse.model_validate(document)
 
-        pipeline = DocumentPipeline(settings=settings)
-        await pipeline.run(
-            db=db,
-            document=document,
-            file_format=file_format,
-            ingested_text=ingestion_result.text,
-            ingestion_confidence=ingestion_result.confidence,
-        )
+        async def _run_pipeline_background(doc_id: int) -> None:
+            """Run the ingestion pipeline in a background task."""
+            from ..database import async_session_maker as _asm
+            async with _asm() as bg_db:
+                bg_doc = await bg_db.get(Document, doc_id)
+                if bg_doc is None:
+                    return
+                try:
+                    bg_settings = await load_settings(bg_db)
+                    bg_pipeline = DocumentPipeline(settings=bg_settings)
+                    await bg_pipeline.run(
+                        db=bg_db,
+                        document=bg_doc,
+                        file_format=file_format,
+                        ingested_text=ingestion_result.text,
+                        ingestion_confidence=ingestion_result.confidence,
+                    )
+                except Exception as bg_exc:  # noqa: BLE001
+                    bg_doc.ingestion_status = "failed"
+                    bg_doc.ingestion_error = f"{type(bg_exc).__name__}: {bg_exc}"
+                    await bg_db.commit()
+
+        asyncio.create_task(_run_pipeline_background(document.id))
 
     except Exception as exc:  # noqa: BLE001
         document.ingestion_status = "failed"

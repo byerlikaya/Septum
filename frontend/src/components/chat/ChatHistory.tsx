@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquarePlus, Trash2 } from "lucide-react";
+import { Download, MessageSquarePlus, Trash2 } from "lucide-react";
 import type { ChatSessionSummary } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 
@@ -10,6 +10,7 @@ interface ChatHistoryProps {
   onSelectSession: (id: number) => void;
   onNewChat: () => void;
   onDeleteSession: (id: number) => void;
+  onExportSession?: (id: number) => void;
 }
 
 export function ChatHistory({
@@ -18,6 +19,7 @@ export function ChatHistory({
   onSelectSession,
   onNewChat,
   onDeleteSession,
+  onExportSession,
 }: ChatHistoryProps) {
   const t = useI18n();
 
@@ -59,17 +61,32 @@ export function ChatHistory({
               }`}
             >
               <span className="min-w-0 flex-1 truncate">{session.title}</span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteSession(session.id);
-                }}
-                className="shrink-0 rounded p-0.5 text-slate-500 opacity-0 hover:text-rose-400 group-hover:opacity-100"
-                aria-label={t("common.delete")}
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
+              <span className="flex shrink-0 gap-0.5 opacity-0 group-hover:opacity-100">
+                {onExportSession && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onExportSession(session.id);
+                    }}
+                    className="rounded p-0.5 text-slate-500 hover:text-sky-400"
+                    aria-label="Export"
+                  >
+                    <Download className="h-3 w-3" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteSession(session.id);
+                  }}
+                  className="rounded p-0.5 text-slate-500 hover:text-rose-400"
+                  aria-label={t("common.delete")}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </span>
             </div>
           ))
         )}

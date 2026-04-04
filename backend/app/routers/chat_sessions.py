@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +14,8 @@ from sqlalchemy.orm import selectinload
 
 from ..database import get_db
 from ..models.chat_session import ChatSession, ChatMessage
+from ..models.user import User
+from ..utils.auth_dependency import get_optional_user
 
 router = APIRouter(prefix="/api/chat-sessions", tags=["chat-sessions"])
 
@@ -100,6 +103,7 @@ async def list_sessions(db: AsyncSession = Depends(get_db)) -> list:
 async def create_session(
     payload: CreateSessionPayload,
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_user),
 ) -> ChatSessionDetailResponse:
     """Create a new chat session."""
     now = datetime.now(timezone.utc)
@@ -108,6 +112,7 @@ async def create_session(
         created_at=now,
         updated_at=now,
         document_ids=payload.document_ids,
+        user_id=current_user.id if current_user else None,
     )
     db.add(session)
     await db.commit()
@@ -221,4 +226,44 @@ async def add_message(
     await db.refresh(msg)
     return ChatMessageResponse(
         id=msg.id, role=msg.role, content=msg.content, created_at=msg.created_at
+    )
+
+
+@router.get("/{session_id}/export")
+async def export_session(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Export a chat session with all messages as a downloadable JSON file."""
+    stmt = (
+        select(ChatSession)
+        .where(ChatSession.id == session_id)
+        .options(selectinload(ChatSession.messages))
+    )
+    session = (await db.execute(stmt)).scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    export_data = {
+        "session": {
+            "id": session.id,
+            "title": session.title,
+            "created_at": session.created_at.isoformat(),
+            "updated_at": session.updated_at.isoformat(),
+            "document_ids": session.document_ids,
+        },
+        "messages": [
+            {
+                "role": m.role,
+                "content": m.content,
+                "created_at": m.created_at.isoformat(),
+            }
+            for m in session.messages
+        ],
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+    }
+    filename = f"septum-chat-{session.id}.json"
+    return JSONResponse(
+        content=export_data,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

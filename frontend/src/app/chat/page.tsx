@@ -18,6 +18,7 @@ import { ChatWindow } from "@/components/chat/ChatWindow";
 import { ChatHistory } from "@/components/chat/ChatHistory";
 import { DeanonymizationBanner } from "@/components/chat/DeanonymizationBanner";
 import { BlockingLoader } from "@/components/common/BlockingLoader";
+import { downloadJSON } from "@/lib/export";
 import { useI18n } from "@/lib/i18n";
 import { uploadDocuments } from "@/lib/uploadDocuments";
 
@@ -193,6 +194,22 @@ export default function ChatPage() {
     [activeSessionId, handleNewChat, t]
   );
 
+  const handleExportSession = useCallback(async (id: number) => {
+    try {
+      const detail = await getChatSession(id);
+      downloadJSON(
+        {
+          session: { id: detail.id, title: detail.title, created_at: detail.created_at },
+          messages: detail.messages,
+          exported_at: new Date().toISOString(),
+        },
+        `septum-chat-${id}.json`
+      );
+    } catch {
+      // ignore
+    }
+  }, []);
+
   return (
     <div className="relative flex h-full min-h-0 min-w-0 flex-col gap-4">
       <BlockingLoader visible={isUploading} label={t("chat.uploading")} />
@@ -245,6 +262,7 @@ export default function ChatPage() {
               onSelectSession={handleSelectSession}
               onNewChat={handleNewChat}
               onDeleteSession={handleDeleteSession}
+              onExportSession={handleExportSession}
             />
           </div>
           <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-slate-800">

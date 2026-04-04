@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, getDocuments, reprocessDocument } from "@/lib/api";
 import type { Document } from "@/lib/types";
 import { DocumentUploader } from "@/components/documents/DocumentUploader";
@@ -41,6 +41,41 @@ export default function DocumentsPage() {
   useEffect(() => {
     void fetchDocuments();
   }, [fetchDocuments]);
+
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    const hasProcessing = documents.some(
+      (d) => d.ingestion_status === "processing" || d.ingestion_status === "pending"
+    );
+    if (hasProcessing && !pollingRef.current) {
+      pollingRef.current = setInterval(async () => {
+        try {
+          const items = await getDocuments();
+          setDocuments(items);
+          const stillProcessing = items.some(
+            (d) => d.ingestion_status === "processing" || d.ingestion_status === "pending"
+          );
+          if (!stillProcessing && pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+          }
+        } catch {
+          // ignore polling errors
+        }
+      }, 3000);
+    }
+    if (!hasProcessing && pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [documents]);
 
   const handleFilesSelected = useCallback(
     async (files: File[]): Promise<void> => {

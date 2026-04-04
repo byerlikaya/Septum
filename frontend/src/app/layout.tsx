@@ -3,6 +3,7 @@ import "./globals.css";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { GlobalErrorListener } from "@/components/GlobalErrorListener";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { AuthGuard } from "@/components/common/AuthGuard";
 import { SetupGuard } from "@/components/common/SetupGuard";
 import { LanguageProvider } from "@/lib/language";
 
@@ -24,16 +25,18 @@ export default function RootLayout(props: RootLayoutProps) {
         <LanguageProvider>
           <ErrorBoundary>
             <GlobalErrorListener />
-            <SetupGuard>
-              <div className="flex h-full min-w-0 flex-col md:flex-row">
-                <Sidebar />
-                <main className="min-h-0 min-w-0 flex-1 overflow-hidden bg-slate-950">
-                  <div className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden px-4 py-5 sm:px-6 lg:px-8">
-                    {children}
-                  </div>
-                </main>
-              </div>
-            </SetupGuard>
+            <AuthGuard>
+              <SetupGuard>
+                <div className="flex h-full min-w-0 flex-col md:flex-row">
+                  <Sidebar />
+                  <main className="min-h-0 min-w-0 flex-1 overflow-hidden bg-slate-950">
+                    <div className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden px-4 py-5 sm:px-6 lg:px-8">
+                      {children}
+                    </div>
+                  </main>
+                </div>
+              </SetupGuard>
+            </AuthGuard>
           </ErrorBoundary>
         </LanguageProvider>
       </body>

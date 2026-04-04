@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .database import async_session_maker, get_db, init_db
 from .models.settings import AppSettings
+from .routers import auth as auth_router
 from .routers import approval as approval_router
 from .routers import audit as audit_router
 from .routers import chat as chat_router
@@ -71,7 +72,23 @@ async def lifespan(app: FastAPI):
     yield
 
 
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+
+_rate_limit_default = os.getenv("RATE_LIMIT_DEFAULT", "60/minute")
+_redis_url = os.getenv("REDIS_URL", "")
+_limiter_storage = f"redis://{_redis_url.split('://')[-1]}" if _redis_url else "memory://"
+
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=[_rate_limit_default],
+    storage_uri=_limiter_storage,
+)
+
 app = FastAPI(title="Septum API", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
 _cors_origins = [
@@ -89,6 +106,7 @@ app.add_middleware(
 )
 
 
+app.include_router(auth_router.router)
 app.include_router(approval_router.router)
 app.include_router(audit_router.router)
 app.include_router(documents_router.router)

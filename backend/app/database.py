@@ -18,6 +18,7 @@ from .models.error_log import ErrorLog
 from .models.regulation import RegulationRuleset, NonPiiRule
 from .models.settings import AppSettings
 from .models.chat_session import ChatSession, ChatMessage  # noqa: F401
+from .models.user import User  # noqa: F401
 
 
 DB_PATH_ENV_VAR = "DB_PATH"
@@ -99,6 +100,14 @@ async def _sqlite_ensure_columns() -> None:
         (
             "app_settings",
             "ALTER TABLE app_settings ADD COLUMN setup_completed BOOLEAN NOT NULL DEFAULT 0",
+        ),
+        (
+            "documents",
+            "ALTER TABLE documents ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE",
+        ),
+        (
+            "chat_sessions",
+            "ALTER TABLE chat_sessions ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE",
         ),
     ]
 

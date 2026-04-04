@@ -164,13 +164,30 @@ def test_e2e_turkish_pii_upload_ask_approve_deanonymized(
     doc = upload_response.json()
     document_id = doc["id"]
     assert document_id >= 1
-    assert doc["ingestion_status"] == "completed"
-    assert doc["entity_count"] >= 0
+    assert doc["ingestion_status"] in ("completed", "processing")
+
+    import asyncio
+    import time
+
+    # Wait for async pipeline to complete (up to 30s)
+    for _ in range(30):
+        poll = client.get(f"/api/documents")
+        poll_doc = next((d for d in poll.json()["items"] if d["id"] == document_id), None)
+        if poll_doc and poll_doc["ingestion_status"] == "completed":
+            break
+        time.sleep(1)
+        # Pump the event loop so background tasks can progress
+        try:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(asyncio.sleep(0.1))
+        except RuntimeError:
+            pass
+    else:
+        pytest.fail("Document ingestion did not complete within 30s")
 
     from app.routers import chat as chat_router
     from app.services.document_anon_store import get_document_map
 
-    import asyncio
     stored_map = asyncio.run(get_document_map(document_id))
     assert stored_map is not None, "Document anon map must be stored after upload"
 
