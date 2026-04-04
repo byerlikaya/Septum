@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """GDPR-specific Presidio recognizers."""
 
-from typing import Iterable, List
+from typing import List
 
 from presidio_analyzer import EntityRecognizer
 

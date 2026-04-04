@@ -8,12 +8,12 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..database import get_db
-from ..models.chat_session import ChatSession, ChatMessage
+from ..models.chat_session import ChatMessage, ChatSession
 from ..models.user import User
 from ..utils.auth_dependency import get_optional_user
 

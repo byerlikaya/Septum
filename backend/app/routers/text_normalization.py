@@ -13,7 +13,6 @@ from ..database import get_db
 from ..models.text_normalization import TextNormalizationRule
 from ..utils.db_helpers import validate_regex
 
-
 router = APIRouter(prefix="/api/text-normalization", tags=["text-normalization"])
 
 

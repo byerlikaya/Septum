@@ -2,12 +2,12 @@ from __future__ import annotations
 
 """Country-specific national ID validators."""
 
-from .validator_base import BaseIDValidator, ValidationResult
-from .tckn import TCKNValidator
-from .ssn import SSNValidator
-from .cpf import CPFValidator
 from .aadhaar import AadhaarValidator
+from .cpf import CPFValidator
 from .iban import IBANValidator
+from .ssn import SSNValidator
+from .tckn import TCKNValidator
+from .validator_base import BaseIDValidator, ValidationResult
 
 __all__ = [
     "BaseIDValidator",

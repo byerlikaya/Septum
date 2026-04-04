@@ -14,13 +14,11 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from .models import Base
-from .models.error_log import ErrorLog
-from .models.regulation import RegulationRuleset, NonPiiRule
-from .models.settings import AppSettings
-from .models.chat_session import ChatSession, ChatMessage  # noqa: F401
+from .models.chat_session import ChatMessage, ChatSession  # noqa: F401
 from .models.entity_detection import EntityDetection  # noqa: F401
+from .models.regulation import NonPiiRule, RegulationRuleset
+from .models.settings import AppSettings
 from .models.user import User  # noqa: F401
-
 
 DB_PATH_ENV_VAR = "DB_PATH"
 DEFAULT_DB_PATH = "./septum.db"
@@ -127,7 +125,6 @@ async def _sqlite_ensure_columns() -> None:
 
 async def _seed_defaults() -> None:
     """Seed default AppSettings and built-in RegulationRuleset entries."""
-    from sqlalchemy import func
 
     async with async_session_maker() as session:
         settings_result = await session.execute(

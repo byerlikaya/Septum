@@ -2,6 +2,8 @@
   <img src="septum_logo.png" alt="Septum logo" width="220" />
 </p>
 
+<h3 align="center">Use AI on your company data without leaking personal information.</h3>
+
 <p align="center">
   <img src="https://img.shields.io/badge/backend-FastAPI-blue" alt="Backend: FastAPI" />
   <img src="https://img.shields.io/badge/frontend-Next.js%2016-black" alt="Frontend: Next.js 16" />
@@ -16,386 +18,181 @@
 </p>
 
 <p align="center">
-  <a href="#screenshots"><strong>View screenshots</strong></a>
-  ·
+  <a href="#screenshots"><strong>Screenshots</strong></a>
+  &middot;
+  <a href="#quick-start"><strong>Quick Start</strong></a>
+  &middot;
+  <a href="ARCHITECTURE.md"><strong>Architecture</strong></a>
+  &middot;
   <a href="CHANGELOG.md"><strong>Changelog</strong></a>
-  ·
+  &middot;
   <a href="LICENSE"><strong>License</strong></a>
 </p>
 
-## Septum — Privacy‑First AI Assistant
+---
 
-Septum is a **privacy‑first middleware and web app** that lets organisations use their **own data** with large language models (LLMs) without exposing raw personal data to the cloud.
+## What is Septum?
 
-In short:
-- You upload your documents (PDF, Word, Excel, OpenDocument spreadsheets (.ods), images, audio, etc.).
-- Septum **locally detects and anonymises** personal data (PII) in them.
-- Your questions are answered using this anonymised view of your data.
-- The answer is then **re‑mapped locally** so you see real names and values again.
+Septum is a **privacy-first AI middleware** that sits between your documents and cloud LLMs. It lets you query sensitive company data with ChatGPT, Claude, or any LLM — while ensuring **no raw personal data ever leaves your machine**.
 
-No raw, directly identifying personal data ever leaves your machine.
+1. You upload documents (PDF, Word, Excel, images, audio, etc.).
+2. Septum **detects and masks** all personal data locally.
+3. Only anonymised text is sent to the LLM.
+4. The answer comes back with real names and values restored — **locally**.
+
+> **In one sentence:** Septum is a safety layer for teams who want LLM power without leaking personal data.
 
 ---
 
 ## What Problems Does It Solve?
 
-- **Safe enterprise document Q&A**  
-  - Query sensitive content such as policies, contracts, customer files, health or HR records with an LLM.  
-  - The LLM only ever sees masked placeholders (e.g. `[PERSON_1]`, `[EMAIL_2]`), not real identities.
+**Safe enterprise document Q&A** — Query contracts, customer files, health records, or HR documents with an LLM. The LLM only sees placeholders like `[PERSON_1]` and `[EMAIL_2]`, never real identities.
 
-- **Regulation‑friendly data sharing**  
-  - Helps reduce GDPR / KVKK / HIPAA compliance risk by anonymising data **before** anything touches the cloud.
+**Regulation compliance** — Helps reduce GDPR, KVKK, HIPAA, CCPA, and other regulation risks by anonymising data **before** anything touches the cloud. 17 built-in regulation packs, with the most restrictive rule always winning.
 
-- **Internal knowledge assistant**  
-  - Indexes your own documents into a vector store (RAG) so you can build powerful internal search and Q&A over company knowledge.
-
-In one sentence: Septum is a **safety layer** for teams who want LLM power **without leaking personal data**.
+**Internal knowledge assistant** — Indexes your documents into a vector store (RAG) so you can build powerful search and Q&A over company knowledge.
 
 ---
 
-## Where Can It Be Used?
+## How It Works
 
-- **Finance**  
-  Search and summarise customer contracts, credit files, internal procedures, while keeping PII protected.
+1. **Upload your documents**
+   Use the Documents page or the chat sidebar to add PDFs, Office files, images or audio files.
 
-- **Healthcare**  
-  Use anonymised patient files, reports and lab results in clinical support tools without exposing raw health data.
+2. **Septum anonymises locally**
+   Automatically detects file type, language and personal data. Masks all PII and prepares anonymised content for search.
 
-- **Legal & Compliance**  
-  Explore contracts, case files, GDPR/KVKK docs without sending names, IDs or addresses to the cloud.
+3. **Ask questions**
+   *"What are the termination conditions in this contract?"*
+   *"Which products does this customer have?"*
+   *"Summarise the last 6 months of case files."*
 
-- **HR & Operations**  
-  Build internal assistants over personnel files, reviews and salary information without leaking sensitive details.
+4. **Approve before sending**
+   See exactly what anonymised content will be sent to the LLM. Approve or reject.
 
-The common theme: **leverage LLMs while keeping personal data encrypted and on‑premise**.
+5. **Get answers with real values**
+   Septum locally restores placeholders to original values, giving you a natural, human-readable answer.
 
 ---
 
 ## Key Features
 
-- **Local PII Protection**
-  - Raw personal data (names, IDs, addresses, emails, etc.) never leaves your machine.
-  - Documents are stored encrypted at rest; decryption only happens in memory when needed for display.
-
-- **Multi‑Regulation Support**
-  - Built‑in packs for GDPR, KVKK, CCPA, HIPAA, LGPD and more.
-  - Multiple regulations can be active at once; Septum applies the **most restrictive** masking policy.
-
-- **Custom Rules**
-  - Define your own patterns: “mask everything matching this regex”, “whenever these keywords appear, treat them as sensitive”, “catch any salary‑related expressions”, etc.
-
-- **Rich Document Format Support**
-  - PDFs, Office and spreadsheet files (e.g. XLSX, ODS), images (OCR), audio recordings (transcripts), emails and more.
-
-- **Approval‑Based Chat**
-  - Before anything is sent to the LLM, you see a summary of what will be shared and can approve or reject it.
-
-- **Professional Hybrid Retrieval**
-  - Combines BM25 (keyword matching) with FAISS (semantic similarity) using Reciprocal Rank Fusion (RRF).
-  - Delivers superior retrieval quality for legal/contract queries by blending exact term matching with semantic understanding.
-  - Configurable weights (alpha/beta) for fine-tuning retrieval balance.
-  - Adaptive context size and document-theme retrieval improve answers for holistic questions (e.g. “interpret this document”, “summarise the report”) without requiring targeted phrasing.
-
-- **Structured Data Extraction**
-  - Automatically detects and extracts tables and key-value pairs from PDF documents (e.g., "Employee Title: Engineer").
-  - Creates separate field chunks with metadata for better retrieval of structured contract information.
-  - Uses pdfplumber for precise table detection and field extraction.
-
-- **Enhanced Semantic Chunking**
-  - Intelligent document splitting that preserves structure while respecting semantic coherence.
-  - Hybrid approach: structural phase (numbered sections) + semantic phase (embedding-based similarity).
-  - Uses LangChain's SemanticChunker with gradient threshold for optimal chunk boundaries.
-  - Prevents arbitrary splits mid-clause, improving LLM context quality.
+- **Local PII Protection** — Raw personal data never leaves your machine. Documents stored encrypted (AES-256-GCM).
+- **Multi-Regulation Support** — 17 built-in packs (GDPR, KVKK, CCPA, HIPAA, LGPD, PIPEDA, PDPA, APPI, PIPL, POPIA, DPDP, UK GDPR, and more). Multiple active simultaneously; most restrictive wins.
+- **Approval Gate** — Review exactly what will be sent to the LLM before it leaves your environment.
+- **Custom Rules** — Define your own patterns: regex, keyword lists, or LLM-prompt based detection.
+- **Rich Format Support** — PDFs, Office files, spreadsheets, images (OCR), audio (Whisper transcription), emails.
+- **Hybrid Retrieval** — BM25 keyword matching + FAISS semantic search with Reciprocal Rank Fusion.
+- **Structured Data Extraction** — Automatically detects tables and key-value pairs from PDFs.
+- **Audit Trail** — Append-only compliance log with entity detection metrics. No raw PII in audit events.
+- **Multi-Provider** — Works with Anthropic, OpenAI, OpenRouter, and local Ollama. Switch from the UI.
+- **JWT Auth & RBAC** — User roles (admin/editor/viewer) with document and session scoping.
 
 ---
 
-## How It Works (Short Scenario)
+## Why Septum?
 
-1. **Upload your documents**  
-   Use the Documents page or the upload area in the Chat sidebar to add PDFs, Office files, images or audio files into Septum.
+| Capability | Septum | Plain ChatGPT / Claude | Azure Presidio (standalone) | Custom LangChain pipeline |
+|---|:---:|:---:|:---:|:---:|
+| PII masked before cloud | **Yes** | No | Detection only | Build yourself |
+| Multi-regulation (17 packs) | **Yes** | No | No | Build yourself |
+| Approval gate before LLM | **Yes** | No | No | Build yourself |
+| De-anonymisation (real values in answers) | **Yes** | N/A | No | Build yourself |
+| Document RAG with hybrid retrieval | **Yes** | No | No | Partial |
+| Custom detection rules (regex, keywords, LLM) | **Yes** | No | Limited | Build yourself |
+| Ready-to-use web UI | **Yes** | N/A | No | No |
+| Audit trail & compliance reporting | **Yes** | No | No | Build yourself |
+| Works with any LLM provider | **Yes** | Single provider | Azure only | Configurable |
+| Fully self-hosted, no data leaves | **Yes** | No | Cloud service | Depends |
 
-2. **Septum processes and anonymises**  
-   - Automatically detects file type, language and personal data inside.  
-   - Masks all PII locally and prepares an anonymised representation for search/RAG.
-
-3. **Ask questions**  
-   - Example: “What are the termination conditions in this contract?”,  
-     “Which products does this customer have?”,  
-     “How many recent cases mention X in the last 6 months?”.  
-   - When you upload a document from the chat screen, that document is selected by default so your questions are scoped to it immediately.
-
-4. **Approve before sending**  
-   - Septum shows you what anonymised content is about to be sent to the LLM.  
-   - Only after your approval is the masked text sent.
-
-5. **See the answer with real values**  
-   - When the LLM responds, Septum locally replaces placeholders with the original values so you see a natural, human‑readable answer.
+**The key difference:** Other tools offer pieces of the puzzle — detection here, a vector store there. Septum is the **complete end-to-end pipeline**: detection → anonymisation → mapping → retrieval → approval → LLM call → de-anonymisation → audit. Out of the box, with a UI, for any regulation.
 
 ---
 
-## Short Technical Overview
+## Detection & Privacy
 
-- **Backend**: Python + FastAPI  
-  - Handles document processing, anonymisation, encryption and LLM integration.  
-  - All PII handling happens on the server side you control.
+Septum uses a **3-layer PII detection pipeline** to minimise both false negatives (missed PII) and false positives (over-masking):
 
-- **Frontend**: Next.js 16 + React 19  
-  - Provides chat, document management, settings and regulation views.  
-  - Communicates with the backend over HTTP and SSE streams.
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| 1 | Microsoft Presidio + regulation-specific recogniser packs | Pattern-based detection with country-specific checksum validators |
+| 2 | HuggingFace NER (XLM-RoBERTa) with language-aware model selection | AI-based name and entity detection across 20+ languages |
+| 3 | Local Ollama LLM (optional) | Context-aware alias and nickname detection |
 
-These details are mainly for developers; end‑users interact with the web UI only.
+All layers run **locally**. Results are merged with coreference resolution so "John", "J. Doe", and "Mr. Doe" all map to the same `[PERSON_1]` placeholder.
 
-## High‑Level Architecture
+> Formal accuracy benchmarks across entity types and regulations are in progress and will be published here.
 
-High‑level flow:
-
-1. **Document upload**
-   - The frontend sends files via `POST /api/documents/upload`.
-   - The backend:
-     1. Detects the file type using **python‑magic**.  
-     2. Detects the language (lingua + langdetect).  
-     3. Routes to the appropriate ingester for the format (PDF, DOCX, XLSX, ODS, image, audio, etc.).  
-     4. Sends the extracted plain text through the **PolicyComposer + PIISanitizer** pipeline.  
-     5. Produces **anonymised chunks** and embeds them into FAISS.  
-     6. Encrypts the original file with AES‑256‑GCM on disk and stores metadata in SQLite.
-
-2. **Chat flow**
-   - The frontend sends messages to `/api/chat/ask` using SSE.
-   - The backend:
-     1. Sanitises the user query with the same pipeline (active regulations + custom rules).  
-     2. Retrieves contextual chunks from FAISS.  
-     3. Uses the **Approval Gate** to show which information will be sent to the cloud.  
-     4. If the user approves, sends only **placeholder‑masked text** to the cloud LLM.  
-     5. Runs the response through the local **de‑anonymiser** so placeholders are mapped back to real values.  
-     6. Streams the final result to the frontend via SSE.
-
-3. **Settings and regulation management**
-   - From the Settings screens you can manage:
-     - LLM / Ollama / Whisper / OCR options  
-     - Default active regulations  
-     - Custom recognisers  
-     - NER model mappings
+For full pipeline details, see [Architecture — PII Detection & Anonymisation Pipeline](ARCHITECTURE.md#pii-detection--anonymisation-pipeline).
 
 ---
 
-## PII Detection & Anonymisation Pipeline
+## Screenshots
 
-Septum’s core is a **multi‑layer PII detection pipeline** that combines regulation‑aware recognisers, language‑specific NER models and country‑specific validators under the active policies.
+**1. Chat — ask questions, approve before sending**
 
-At a high level:
+<p align="center">
+  <img src="screenshots/1-chat.png" alt="Chat screen with approval-based sharing" width="900" />
+</p>
 
-1. **Policy composition**
-   - Active regulation rulesets (e.g. GDPR, KVKK, HIPAA, CCPA, LGPD, etc.) are merged into a single **composed policy** via the `PolicyComposer`.
-   - The composed policy contains:
-     - The union of all entity types that must be protected.
-     - A list of recognisers (built‑in + custom) that should run for the current configuration.
-   - Custom recognisers (regex, keyword list, LLM‑prompt based) are also injected into this policy.
+**2. Documents — upload and manage**
 
-2. **Layer 1 — Presidio recognisers**
-   - Septum uses **Microsoft Presidio** as the first line of detection, with recogniser packs organised by regulation.
-   - Each regulation pack contributes recognisers for:
-     - Identity (names, national IDs, passports, etc.)
-     - Contact details (emails, phones, addresses, IPs, URLs, social handles)
-     - Financial identifiers (credit cards, bank accounts, IBAN/SWIFT, tax IDs)
-     - Health, demographic and organisational attributes
-   - Users can extend this layer with **custom recognisers** (regex patterns, keyword lists, or LLM‑prompt based rules).
-   - National IDs and financial identifiers use **country‑specific checksum validators** to reduce false positives.
-   - Only recognisers that are relevant for the active regulations are loaded into the Presidio registry.
+<p align="center">
+  <img src="screenshots/2-documents.png" alt="Documents list and upload view" width="900" />
+</p>
 
-3. **Layer 2 — Language‑specific NER**
-   - For each document and query, Septum detects the language and loads a **language‑appropriate HuggingFace NER model**, with a multilingual fallback when needed.
-   - The NER layer:
-     - Maps only **PERSON_NAME** and **EMAIL_ADDRESS** from model output; ORG and LOC labels are intentionally suppressed to avoid false positives on common words (address/location detection is delegated to Presidio).
-     - Uses state‑of‑the‑art XLM‑RoBERTa based models (e.g. `Davlan/xlm-roberta-base-wikiann-ner` for 20 languages, `akdeniz27/xlm-roberta-base-turkish-ner` for Turkish).
-     - Applies a uniform confidence threshold of **0.85**, a minimum span length of **3 characters**, and snaps all spans to **word boundaries** to prevent mid‑word replacements caused by subword tokenisation.
-     - NER results are filtered against the active policy's entity types, so only entity types required by active regulations are kept.
-     - Skipped entirely for texts shorter than 50 characters to avoid over‑sanitisation of short queries.
-     - Runs device‑aware (CUDA → MPS → CPU) and uses cached pipelines for efficiency.
-   - This layer is configurable per language via the **NER Model Settings** screen.
-   - An optional **Ollama PII validation layer** (Settings → Privacy) can be enabled to filter false‑positive PII candidates at query time (e.g. generic job titles, role names, organisational locations), so that only truly identifying information is masked. Validated national IDs, IBANs, and phone numbers from Presidio **never** go through this LLM step; if the model returns nothing, candidate spans are retained so structured identifiers are not leaked.
+**3. Regulations — 17 built-in packs, custom rules**
 
-4. **Layer 3 — Ollama context‑aware layer**
-   - When enabled (`use_ollama_layer=True`), Septum uses a **local Ollama LLM** strictly focused on detecting **person names and aliases** that the first two layers may miss:
-     - Nicknames, aliases, and informal mentions (e.g. "john" when "John Doe" was detected earlier).
-     - Only outputs of type PERSON_NAME, ALIAS, FIRST_NAME, and LAST_NAME are accepted from this layer.
-   - This layer preserves exact casing and runs entirely on‑device, ensuring no PII leaves the local machine.
-   - Skipped for texts shorter than 80 characters. Disabled for numeric‑heavy structured content (e.g. price lists, invoices) to avoid noisy detections.
+<p align="center">
+  <img src="screenshots/11-regulations.png" alt="Regulation ruleset management view" width="900" />
+</p>
 
-5. **Anonymisation & coreference**
-   - All spans from the above layers are merged, deduplicated and fed into the `AnonymizationMap`:
-     - Each unique entity is replaced with a stable placeholder (e.g. `[PERSON_1]`, `[EMAIL_2]`).
-     - Coreference handling ensures that repeated mentions (e.g. full name → first name) are mapped to the **same** placeholder.
-     - The **blocklist** is restricted to person‑identifying entity types only (PERSON_NAME, FIRST_NAME, LAST_NAME, ALIAS, USERNAME) to prevent common words from being incorrectly masked as collateral.
-   - The anonymisation map never leaves memory and is never written to disk.
+**4. Settings — LLM, privacy, RAG configuration**
 
-6. **Multi‑regulation conflict handling**
-   - When multiple regulations are active at the same time, Septum always applies the **most restrictive** masking behaviour:
-     - If any regulation considers a value PII, it is treated as PII.
-     - Overlapping entities are merged into a single placeholder while retaining metadata about which regulations required masking.
+<p align="center">
+  <img src="screenshots/4-cloudllm.png" alt="Cloud LLM configuration settings" width="900" />
+</p>
 
-In practice, this means Septum does not rely on a single heuristic: it combines regulation packs, NER, custom rules and algorithmic validators into one consistent anonymisation step before anything can leave your environment.
+<details>
+<summary><strong>More screenshots</strong></summary>
 
----
+**Privacy & sanitisation layers**
+<p align="center">
+  <img src="screenshots/5-privacySanitization.png" alt="Privacy and sanitisation settings" width="900" />
+</p>
 
-## Septum as an AI Privacy Gateway
+**Local model configuration**
+<p align="center">
+  <img src="screenshots/6-localmodels.png" alt="Local model settings" width="900" />
+</p>
 
-Beyond the web UI, Septum can act as an **HTTP gateway in front of any LLM‑powered application**. Instead of calling a cloud LLM directly, your app can call Septum, which:
+**RAG configuration**
+<p align="center">
+  <img src="screenshots/7-rag.png" alt="RAG configuration settings" width="900" />
+</p>
 
-1. Sanitises the request (masking PII according to active regulations and custom rules).
-2. Retrieves anonymised context from the vector store when RAG is enabled.
-3. Forwards only **masked text** to the configured LLM provider.
-4. De‑anonymises the response locally before returning it to the caller.
+**Ingestion pipeline settings**
+<p align="center">
+  <img src="screenshots/8-ingestion.png" alt="Ingestion and OCR/transcription settings" width="900" />
+</p>
 
-Conceptually:
+**Text normalisation rules**
+<p align="center">
+  <img src="screenshots/9-textNormalizationRules.png" alt="Text normalisation rule configuration" width="900" />
+</p>
 
-Your app → **Septum (sanitise + RAG + approval)** → Cloud LLM  
-Your data and raw PII never leave your environment.
+**NER model mappings**
+<p align="center">
+  <img src="screenshots/10-NERModels.png" alt="Language to NER model mapping settings" width="900" />
+</p>
 
-A simplified example flow:
-
-1. **Your app** sends a chat request:
-
-   ```json
-   POST /api/chat/ask
-   {
-     "messages": [
-       { "role": "user", "content": "Summarise the last 3 contracts for Ahmet Yılmaz at ACME Corp." }
-     ],
-     "document_ids": [123, 124, 125],
-     "metadata": {
-       "regulations": ["gdpr", "kvkk"],
-       "require_approval": true
-     }
-   }
-   ```
-
-2. **Septum**:
-   - Detects language and relevant PII in the query and related documents.
-   - Replaces identifiers with placeholders (e.g. `[PERSON_1]`, `[ORG_1]`).
-   - Retrieves anonymised chunks from the vector store (RAG).
-   - Optionally shows an **approval view** of what will be sent upstream.
-   - Calls the configured LLM provider with masked context only.
-
-3. **Cloud LLM** responds with an answer that only contains placeholders.
-
-4. **Septum**:
-   - Uses the in‑memory anonymisation map to replace placeholders back to original values.
-   - Streams the final, human‑readable answer back to your app over HTTP/SSE.
-
-In this mode, Septum behaves as a **drop‑in privacy layer**:
-
-- Existing tools keep their own UI and logic.
-- You centralise PII handling, regulation rules and auditability in one place.
-- You can switch or mix LLM providers behind Septum without changing how your app handles personal data.
+</details>
 
 ---
 
-## Backend (FastAPI) Structure
+## Quick Start
 
-Backend root: `backend/`
-
-- `app/main.py` — FastAPI application definition and router registration  
-- `app/config.py` — configuration via Pydantic Settings  
-- `app/database.py` — SQLite connection and `RegulationRuleset` seeding  
-- `app/models/` — SQLAlchemy models:  
-  - `document.py`, `chunk.py`, `settings.py`, `regulation.py`, `custom_recognizer.py`  
-- `app/schemas/` — Pydantic schemas:  
-  - `document.py`, `chat.py`, `settings.py`, `regulation.py`, `custom_recognizer.py`  
-- `app/routers/` — FastAPI routers:
-  - `documents.py`, `chunks.py`, `chat.py`, `approval.py`, `settings.py`, `regulations.py`, `error_logs.py`, `text_normalization.py`
-- `app/services/`:
-  - `ingestion/` — format‑specific ingesters (PDF, DOCX, XLSX, ODS, image/OCR, audio/Whisper)
-  - `recognizers/` — regulation packs (gdpr, hipaa, kvkk, lgpd, ccpa, …) and `registry.py`
-  - `national_ids/` — country‑specific ID validators (TCKN, SSN, CPF, Aadhaar, IBAN, etc.)
-  - `policy_composer.py` — composes active regulations and custom rules into a single policy
-  - `ner_model_registry.py` — language → model mapping and lazy loading
-  - `sanitizer.py` — PII detection and placeholder pipeline
-  - `anonymization_map.py` — session‑scoped anonymisation map + coreference handling
-  - `document_pipeline.py`, `vector_store.py`, `llm_router.py`, `deanonymizer.py`, `approval_gate.py`
-  - `prompts.py` — centralized LLM prompt catalog
-  - `error_logger.py`, `ollama_client.py`, `non_pii_filter.py`, `text_normalizer.py`
-- `app/utils/`:
-  - `device.py` — CPU/MPS/CUDA selection
-  - `crypto.py` — AES‑256‑GCM file encryption
-  - `text_utils.py` — Unicode NFC + locale‑aware lowercasing
-- `tests/` — pytest scenarios (sanitizer, anonymization_map, national_ids, policy_composer, deanonymizer, llm_router, crypto, ingesters, etc.).
-
-With FastAPI we follow Context7 best practices:
-
-- API endpoints are modularised with **APIRouter**.  
-- Request/response validation uses Pydantic models.  
-- DB session, settings and other dependencies are injected via `Depends(...)`.  
-- All path functions are async; CPU‑bound tasks run in a thread pool.
-
----
-
-## Frontend (Next.js App Router) Structure
-
-Frontend root: `frontend/`
-
-- `src/app/`  
-  - `layout.tsx` — root layout  
-  - `page.tsx` — landing / redirect  
-  - `chat/page.tsx` — chat screen (connected to backend via SSE)  
-  - `documents/page.tsx` — document list and upload  
-  - `chunks/page.tsx` — chunk views  
-  - `settings/` — sub‑pages:  
-    - `page.tsx` — general settings  
-    - `regulations/page.tsx` — regulation management  
-    - `custom-rules/page.tsx` — custom recogniser builder  
-- `src/components/`  
-  - `layout/Sidebar.tsx`, `layout/Header.tsx`  
-  - `chat/ChatWindow.tsx`, `MessageBubble.tsx`, `ApprovalModal.tsx`, `JsonOutputPanel.tsx`, `DeanonymizationBanner.tsx`  
-  - `documents/DocumentUploader.tsx`, `DocumentList.tsx`, `DocumentCard.tsx`, `DocumentPreview.tsx`, `TranscriptionPreview.tsx`  
-  - `chunks/ChunkList.tsx`, `ChunkCard.tsx`, `EntityBadge.tsx`  
-  - `settings/*` — `LLMSettings`, `PrivacySettings`, `LocalModelSettings`, `RAGSettings`, `IngestionSettings`, `NERModelSettings`, `RegulationManager`, `CustomRuleBuilder`  
-- `src/store/`  
-  - `chatStore.ts`, `documentStore.ts`, `settingsStore.ts`, `regulationStore.ts`  
-- `src/lib/`  
-  - `api.ts` — backend HTTP client  
-  - `types.ts` — shared types
-
-On the Next.js side we follow Context7 best practices:
-
-- Uses the App Router (segment‑based routing).  
-- SSE and streaming responses use `EventSource` or `fetch` + `ReadableStream`.  
-- Tailwind CSS is configured to scan `app`, `components` and related directories.
-
----
-
-## Technology Stack
-
-**Backend**
-- Python, FastAPI, Uvicorn  
-- Presidio Analyzer/Anonymizer  
-- HuggingFace Transformers + sentence‑transformers  
-- faiss‑cpu  
-- lingua‑language‑detector, langdetect  
-- PaddleOCR, OpenCV, Pillow  
-- Whisper, ffmpeg‑python  
-- SQLAlchemy + asyncpg (PostgreSQL) / aiosqlite (SQLite)  
-- Alembic (schema migrations)  
-- Redis (optional anonymization map caching)  
-- cryptography (AES‑256‑GCM)
-
-**Frontend**
-- Next.js 16 (App Router)  
-- React 19  
-- TypeScript  
-- Tailwind CSS  
-- axios, react‑dropzone, lucide‑react
-
-**Infrastructure**
-- Docker Compose (PostgreSQL 16 + Redis 7 + backend + frontend)  
-- Ollama (optional local LLM fallback)
-
----
-
-## Setup
-
-### Option A: Docker Compose (recommended)
-
-The fastest way to get Septum running with all dependencies (PostgreSQL, Redis):
+### Docker Compose (recommended)
 
 ```bash
 cp .env.example .env
@@ -403,11 +200,7 @@ cp .env.example .env
 docker compose up
 ```
 
-This starts:
-- **PostgreSQL 16** — production database  
-- **Redis 7** — anonymization map caching for multi-worker support  
-- **Septum Backend** (port 8000) — FastAPI + Presidio + NER  
-- **Septum Frontend** (port 3000) — Next.js UI  
+Open `http://localhost:3000`. A setup wizard guides you through the first-time configuration.
 
 To include a local Ollama instance:
 
@@ -415,219 +208,29 @@ To include a local Ollama instance:
 docker compose --profile ollama up
 ```
 
-### Option B: Local development
-
-#### 1. Shared prerequisites
-
-- Python 3.10+  
-- Node.js 18+ (for Next.js 16)  
-- ffmpeg (for Whisper)
-
-#### 2. Backend setup
+### Local Development
 
 ```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install --upgrade pip
+# Backend
+cd backend && python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-Create your `.env` from `backend/.env.example`:
-
-```bash
-cp .env.example .env
-```
-
-Fill in the required variables:
-
-- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` (if used)  
-- `LLM_PROVIDER` (e.g. `anthropic`)  
-- `USE_OLLAMA`, `OLLAMA_BASE_URL`, `OLLAMA_CHAT_MODEL`, `OLLAMA_DEANON_MODEL`  
-- `WHISPER_MODEL`  
-- `ENCRYPTION_KEY` (32‑byte base64 or hex; if left empty, the app will auto‑generate it on first run according to its key‑management logic)  
-- `DB_PATH`, `LOG_LEVEL`, `DEFAULT_ACTIVE_REGULATIONS`, etc.
-
-Then start the backend:
-
-```bash
+cp .env.example .env  # Fill in your API key(s)
 uvicorn app.main:app --reload
+
+# Frontend (in another terminal)
+cd frontend && npm install && npm run dev
 ```
 
-#### 3. Frontend setup
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-By default:
-- Backend: `http://localhost:8000`  
-- Frontend: `http://localhost:3000`
-
-Ensure the backend base URL in `src/lib/api.ts` matches your environment.
-
-**First launch:** The web UI runs a short setup wizard (LLM provider and connection test) until onboarding is marked complete in application settings. Chat conversations are persisted server-side (`/api/chat-sessions`) and can be switched from the chat sidebar.
+For full setup options (Docker, local dev, environment variables), see [Architecture — Setup](ARCHITECTURE.md#setup).
 
 ---
 
-## Running Tests
+## For Developers
 
-The project includes a custom `/test` rule inside Septum:
-
-- Based on the changed file, the corresponding pytest file is executed. Examples:  
-  - `sanitizer.py` → `tests/test_sanitizer.py`  
-  - `anonymization_map.py` → `tests/test_anonymization_map.py`  
-  - `app/services/national_ids/*` → `tests/test_national_ids.py`  
-  - `app/services/ingestion/*` → `tests/test_ingesters.py`  
-  - etc.  
-- If no match is found, the full test suite is executed.
-
-**Continuous integration:** GitHub Actions runs backend tests plus Ruff and Bandit, `pip-audit`, and frontend Jest, `tsc --noEmit`, and `npm audit` in parallel on every push and pull request.
-
-To run tests manually:
-
-```bash
-cd backend
-pytest tests/ -v
-```
-
-Any tests that would send real requests to a cloud LLM **must be mocked**; tests that hit real external LLM APIs are treated as bugs.
+Septum's internals — PII pipeline details, code structure, API reference, technology stack, and deployment options — are documented in **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ---
 
-## Security & Privacy Highlights
+## License
 
-- Raw PII is never logged and never sent to the cloud.  
-- The anonymisation map (placeholders → real values) is cached in memory, optionally in Redis, and persisted encrypted on disk with AES‑256‑GCM. It is never sent to the frontend, cloud, or logs.  
-- File types are detected by content signature, not by extension.  
-- Uploaded files are stored encrypted on disk with AES‑256‑GCM; decryption happens only in memory during preview.  
-- When multiple regulations are active at the same time, Septum always applies the **most restrictive** masking policy.  
-- Optional **JWT authentication** (`POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`): each user has a **role** (`admin`, `editor`, or `viewer`); documents and chat sessions are scoped to the signed-in user when a token is present; sensitive settings updates require `admin`.
-
----
-
-## Audit Trail & Compliance Reporting
-
-Septum maintains an **append-only audit trail** for GDPR, KVKK, and other regulation compliance:
-
-- **Events tracked:** PII detection (per entity type and count), de-anonymisation, document upload/delete, regulation changes.  
-- **No raw PII stored:** Audit events record entity type names and counts only — never original values.  
-- **REST API:**  
-  - `GET /api/audit` — paginated, filterable by event type, document, session, and date range.  
-  - `GET /api/audit/{document_id}/report` — compliance report for a specific document.  
-  - `GET /api/audit/session/{session_id}` — full audit trail for a chat session.  
-  - `GET /api/audit/metrics` — aggregate PII detection quality metrics (entity type distribution, coverage ratios, per-document averages).  
-- **Frontend:** Audit log viewer in Settings → Audit Trail with event type badges, entity breakdowns, and pagination.
-
----
-
-## LLM Resilience & Observability
-
-- **Circuit breaker:** After 3 consecutive cloud LLM failures within 120 seconds, the provider is temporarily disabled (60-second cooldown). Requests skip directly to the local Ollama fallback without wasting retry time. After cooldown, a single probe request tests recovery.  
-- **Multi-provider support:** Anthropic, OpenAI, OpenRouter, and local Ollama. Switch providers via Settings UI without code changes.  
-- **Retry with exponential backoff:** Cloud HTTP calls retry up to 3 times with exponential backoff (0.5s → 1s → 2s).  
-- **Health endpoint:** `GET /health` reports backend status, device info, LLM provider, Redis connectivity, and per-provider circuit breaker state.
-
----
-
-## API Reference
-
-Septum exposes a RESTful API. Key endpoint groups:
-
-| Group | Endpoints | Description |
-|-------|-----------|-------------|
-| **Documents** | `POST /api/documents`, `GET /api/documents`, `GET /api/documents/{id}`, `GET /api/documents/{id}/raw`, `GET /api/documents/{id}/anon-summary`, `DELETE /api/documents/{id}`, `POST /api/documents/{id}/reprocess` | Upload, list, preview/decrypt original, anonymisation summary, delete, reprocess |
-| **Auth** | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` | JWT bearer accounts (roles: admin, editor, viewer) |
-| **Chat** | `POST /api/chat/ask` (SSE), `GET /api/chat/debug/{session_id}` | Privacy-preserving RAG chat with streaming |
-| **Chat sessions** | `GET/POST /api/chat-sessions`, `GET/PATCH/DELETE /api/chat-sessions/{id}`, `POST /api/chat-sessions/{id}/messages` | Persistent chat history (list sessions, update metadata, append messages) |
-| **Chunks** | `GET /api/chunks`, `GET /api/chunks/{id}` | Search and inspect document chunks |
-| **Settings** | `GET /api/settings`, `PUT /api/settings` | Application configuration |
-| **Regulations** | `GET /api/regulations`, `PUT /api/regulations/{id}` | Manage regulation rulesets and custom recognisers |
-| **Audit** | `GET /api/audit`, `GET /api/audit/{id}/report`, `GET /api/audit/metrics` | Compliance audit trail and detection metrics |
-| **Health** | `GET /health`, `GET /metrics` | System health and Prometheus metrics |
-
-Full OpenAPI schema is available at `http://localhost:8000/docs` when the backend is running.
-
----
-
-## Roadmap & Extensibility
-
-- Add new country regulations by creating new regulation packs in the recogniser registry.  
-- Add new national ID formats by adding validators and recognisers in the national ID module.  
-- Add new document formats by implementing dedicated ingesters in the ingestion layer.  
-- Update NER model mappings from the Settings → NER Models screen.  
-- Pronoun coreference resolution via local LLM (Ollama) detects implied subject references.  
-- PII detection quality metrics for data-driven assessment of detection coverage.
-
----
-
-## Screenshots
-
-**1. Chat experience**
-
-<p align="center">
-  <img src="screenshots/1-chat.png" alt="Chat screen with approval-based sharing" width="900" />
-</p>
-
-**2. Documents overview**
-
-<p align="center">
-  <img src="screenshots/2-documents.png" alt="Documents list and upload view" width="900" />
-</p>
-
-**3. Chunks and entities**
-
-<p align="center">
-  <img src="screenshots/3-chunks.png" alt="Chunks view with detected entities" width="900" />
-</p>
-
-**4. Cloud LLM settings**
-
-<p align="center">
-  <img src="screenshots/4-cloudllm.png" alt="Cloud LLM configuration settings" width="900" />
-</p>
-
-**5. Privacy & sanitisation layers**
-
-<p align="center">
-  <img src="screenshots/5-privacySanitization.png" alt="Privacy and sanitisation settings" width="900" />
-</p>
-
-**6. Local model configuration**
-
-<p align="center">
-  <img src="screenshots/6-localmodels.png" alt="Local model settings" width="900" />
-</p>
-
-**7. RAG configuration**
-
-<p align="center">
-  <img src="screenshots/7-rag.png" alt="RAG configuration settings" width="900" />
-</p>
-
-**8. Ingestion pipeline settings**
-
-<p align="center">
-  <img src="screenshots/8-ingestion.png" alt="Ingestion and OCR/transcription settings" width="900" />
-</p>
-
-**9. Text normalisation rules**
-
-<p align="center">
-  <img src="screenshots/9-textNormalizationRules.png" alt="Text normalisation rule configuration" width="900" />
-</p>
-
-**10. NER model mappings**
-
-<p align="center">
-  <img src="screenshots/10-NERModels.png" alt="Language to NER model mapping settings" width="900" />
-</p>
-
-**11. Regulation manager**
-
-<p align="center">
-  <img src="screenshots/11-regulations.png" alt="Regulation ruleset management view" width="900" />
-</p>
-
+See [LICENSE](LICENSE) for details.

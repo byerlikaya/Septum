@@ -9,7 +9,7 @@ not couple to specific LLM providers.
 """
 
 from dataclasses import dataclass
-from typing import List, Literal, Optional
+from typing import List, Literal
 
 
 @dataclass

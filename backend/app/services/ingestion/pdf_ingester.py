@@ -16,7 +16,6 @@ sanitization pipeline and is not persisted in plaintext on disk.
 
 import asyncio
 import io
-import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -131,15 +130,15 @@ class PdfIngester(BaseIngester):
         # We need to write decrypted PDF bytes to a temp file for pdfplumber
         try:
             import tempfile
-            
+
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
                 tmp.write(pdf_bytes)
                 tmp_path = tmp.name
-            
+
             try:
                 extractor = TableFieldExtractor()
                 fields, tables = extractor.extract_from_pdf(tmp_path)
-                
+
                 if fields:
                     fields_text_raw = "\n".join(
                         f"{f.label} : {f.value}" for f in fields

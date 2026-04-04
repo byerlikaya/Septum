@@ -9,7 +9,6 @@ from .base import LLMProvider, LLMProviderConfig
 from .openai import OpenAIProvider
 from .openrouter import OpenRouterProvider
 
-
 _PROVIDER_MAP: Mapping[str, type[LLMProvider]] = {
     "anthropic": AnthropicProvider,
     "openai": OpenAIProvider,

@@ -18,7 +18,7 @@ from ..base_recognizer import RegexPatternConfig, ValidatedPatternRecognizer
 
 def _validated_national_id_recognizer() -> EntityRecognizer:
     """11-digit national ID recognizer for KVKK compliance.
-    
+
     Detects 11-digit numeric IDs starting with 1-9.
     Checksum validation handled separately by ValidatedNationalIDRecognizer.
     """
@@ -67,7 +67,7 @@ def _email_recognizer() -> EntityRecognizer:
 
 def _phone_recognizer() -> EntityRecognizer:
     """Phone number recognizer for KVKK compliance.
-    
+
     Detects phone numbers with optional country code prefix.
     Pattern: optional +XX prefix followed by 10 digits.
     """

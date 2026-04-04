@@ -17,15 +17,14 @@ Two strategies are supported via ``AppSettings.deanon_strategy``:
   All processing is local (OLLAMA_BASE_URL).
 """
 
-import json
-from typing import Any
 import asyncio
+import json
 import re
 
+from ..models.settings import AppSettings
 from .anonymization_map import AnonymizationMap
 from .ollama_client import call_ollama_async, use_ollama_enabled
 from .prompts import PromptCatalog
-from ..models.settings import AppSettings
 
 
 class Deanonymizer:

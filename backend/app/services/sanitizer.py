@@ -15,15 +15,15 @@ ensures that placeholders are stable and that a token-level blocklist
 is applied as a final safety net.
 """
 
-from dataclasses import dataclass, field
 import logging
 import re
 import threading
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
 from presidio_analyzer import AnalyzerEngine, EntityRecognizer, RecognizerResult
 
-from .anonymization_map import AnonymizationMap, SANITIZER_STOPWORDS
+from .anonymization_map import SANITIZER_STOPWORDS, AnonymizationMap
 from .ner_model_registry import NERModelRegistry
 
 _cached_nlp_engine: object | None = None
@@ -64,9 +64,15 @@ def _adjust_spacy_max_length(nlp_engine: object) -> None:
                 current_max = getattr(model, "max_length", 0)
                 if current_max < 2_000_000:
                     model.max_length = 2_000_000
-from .non_pii_filter import NonPiiFilter, SpanView
-from .ollama_client import extract_json_array, call_ollama_sync
+from ..models.settings import AppSettings
+from ..utils.text_utils import (
+    normalize_for_comparison,
+    normalize_unicode,
+    starts_with_uppercase,
+)
 from .national_ids import IBANValidator, TCKNValidator
+from .non_pii_filter import NonPiiFilter, SpanView
+from .ollama_client import call_ollama_sync, extract_json_array
 from .policy_composer import ComposedPolicy
 from .prompts import PromptCatalog
 from .span_processing import (
@@ -74,8 +80,6 @@ from .span_processing import (
     expand_person_name_spans,
     merge_adjacent_person_name_spans,
 )
-from ..models.settings import AppSettings
-from ..utils.text_utils import normalize_unicode, normalize_for_comparison, starts_with_uppercase
 
 logger = logging.getLogger(__name__)
 

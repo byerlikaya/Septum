@@ -6,18 +6,21 @@ from typing import Dict, List, Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models.document import Chunk as DocumentChunk, Document
+from ..models.document import Chunk as DocumentChunk
+from ..models.document import Document
 from ..models.entity_detection import EntityDetection
 from ..models.settings import AppSettings
 from .anonymization_map import AnonymizationMap
+from .audit_logger import log_pii_detected
+from .bm25_retriever import BM25Retriever
 from .chunking_strategy import (
     Chunk as SemanticChunk,
+)
+from .chunking_strategy import (
     SlidingWindowChunker,
     StructuredDocumentChunker,
 )
-from .bm25_retriever import BM25Retriever
 from .document_anon_store import pop_document_map, set_document_map
-from .audit_logger import log_pii_detected
 from .sanitizer import ResolvedSpan
 from .sanitizer_factory import create_sanitizer
 from .text_normalizer import TextNormalizer

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 """FastAPI application entrypoint for Septum."""
 
-import logging
 import os as _os
 import warnings
 
@@ -16,23 +15,22 @@ from .utils.logging_config import setup_structured_logging
 
 setup_structured_logging(_os.getenv("LOG_LEVEL", "INFO"))
 
-import asyncio
-from contextlib import asynccontextmanager
 import os
 import threading
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from starlette import status as http_status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette import status as http_status
 
 from .database import async_session_maker, get_db, init_db
 from .models.settings import AppSettings
-from .routers import auth as auth_router
 from .routers import approval as approval_router
 from .routers import audit as audit_router
+from .routers import auth as auth_router
 from .routers import chat as chat_router
 from .routers import chat_sessions as chat_sessions_router
 from .routers import chunks as chunks_router
@@ -180,8 +178,8 @@ async def health(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
         else os.getenv("LLM_PROVIDER", "anthropic")
     )
 
-    from .services.redis_client import redis_ping
     from .services.llm_providers.health import get_all_statuses
+    from .services.redis_client import redis_ping
 
     redis_ok = await redis_ping()
 

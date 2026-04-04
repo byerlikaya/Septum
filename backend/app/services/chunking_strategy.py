@@ -17,7 +17,9 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional
 
-from langchain_experimental.text_splitter import SemanticChunker as LangChainSemanticChunker
+from langchain_experimental.text_splitter import (
+    SemanticChunker as LangChainSemanticChunker,
+)
 
 
 @dataclass
@@ -54,7 +56,7 @@ class StructuredDocumentChunker(SemanticChunker):
     1. Structural phase: detect numbered sections/clauses
     2. Semantic phase: split large sections using embeddings
     3. Preserves structure while respecting semantic coherence
-    
+
     Uses LangChain's SemanticChunker with gradient threshold for
     embedding-based splitting of large sections.
     """
@@ -79,8 +81,9 @@ class StructuredDocumentChunker(SemanticChunker):
     def _get_semantic_splitter(self) -> LangChainSemanticChunker:
         """Lazy-load the LangChain SemanticChunker with embeddings."""
         if self._semantic_splitter is None:
-            from .vector_store import get_shared_sentence_transformer
             from langchain_core.embeddings import Embeddings
+
+            from .vector_store import get_shared_sentence_transformer
 
             embeddings_model = get_shared_sentence_transformer()
 
@@ -142,7 +145,7 @@ class StructuredDocumentChunker(SemanticChunker):
 
         for line in lines:
             stripped = line.strip()
-            
+
             if not stripped:
                 if current_section_lines:
                     current_section_lines.append(line)
@@ -184,7 +187,7 @@ class StructuredDocumentChunker(SemanticChunker):
 
     def _is_heading(self, line: str) -> bool:
         """Check if line is a heading using ONLY structural features.
-        
+
         Structural features (language-agnostic):
         - Ends with colon (common heading pattern)
         - High uppercase ratio (>70%)
@@ -193,16 +196,16 @@ class StructuredDocumentChunker(SemanticChunker):
         """
         if len(line) < 5 or len(line) > 150:
             return False
-        
+
         # Colon suffix strongly indicates heading
         if line.endswith(":"):
             return True
-        
+
         # High uppercase ratio indicates heading (works across all scripts that have case)
         alpha_chars = [c for c in line if c.isalpha()]
         if not alpha_chars:
             return False
-        
+
         upper_ratio = sum(1 for c in alpha_chars if c.isupper()) / len(alpha_chars)
         return upper_ratio > 0.7
 
@@ -213,7 +216,7 @@ class StructuredDocumentChunker(SemanticChunker):
         try:
             splitter = self._get_semantic_splitter()
             langchain_docs = splitter.split_text(text)
-            
+
             chunks: List[Chunk] = []
             for doc_text in langchain_docs:
                 if len(doc_text.strip()) >= self.min_chunk_size:
@@ -224,7 +227,7 @@ class StructuredDocumentChunker(SemanticChunker):
                             section_title=section_title,
                         )
                     )
-            
+
             return chunks if chunks else [Chunk(text=text, index=0, section_title=section_title)]
         except Exception:
             # Fallback to paragraph-based splitting if semantic fails
@@ -275,12 +278,12 @@ class StructuredDocumentChunker(SemanticChunker):
         try:
             splitter = self._get_semantic_splitter()
             langchain_docs = splitter.split_text(text)
-            
+
             chunks: List[Chunk] = []
             for idx, doc_text in enumerate(langchain_docs):
                 if len(doc_text.strip()) >= self.min_chunk_size:
                     chunks.append(Chunk(text=doc_text, index=idx))
-            
+
             return chunks if chunks else [Chunk(text=text, index=0)]
         except Exception:
             # Final fallback to paragraph-based

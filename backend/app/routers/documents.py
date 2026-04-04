@@ -8,12 +8,11 @@ This router is responsible for:
 * Exposing lightweight metadata and chunk counts for the frontend.
 """
 
-import json
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
-from datetime import datetime
 
 from fastapi import (
     APIRouter,
@@ -32,29 +31,24 @@ from sqlalchemy.orm import selectinload
 
 from ..database import get_db
 from ..models.audit_event import AuditEvent
-from ..models.document import Chunk as DocumentChunk, Document
+from ..models.document import Chunk as DocumentChunk
+from ..models.document import Document
 from ..models.entity_detection import EntityDetection
-from ..models.spreadsheet_schema import SpreadsheetSchema, SpreadsheetColumn
 from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
+from ..models.spreadsheet_schema import SpreadsheetColumn, SpreadsheetSchema
 from ..models.user import User
-from ..utils.auth_dependency import get_optional_user
-from ..utils.db_helpers import get_or_404, load_settings, detect_language
-from ..services.chunking_strategy import (
-    StructuredDocumentChunker,
-    SlidingWindowChunker,
-    Chunk as SemanticChunk,
-)
-from ..services.document_anon_store import set_document_map
-from ..services.ingestion.pdf_ingester import PdfIngester
-from ..services.ingestion.docx_ingester import DocxIngester
-from ..services.ingestion.xlsx_ingester import XlsxIngester
-from ..services.ingestion.ods_ingester import OdsIngester
-from ..services.ingestion.audio_ingester import AudioIngester
-from ..services.ingestion.image_ingester import ImageIngester
-from ..services.ingestion.router import IngestionRouter
 from ..services.document_pipeline import DocumentPipeline
+from ..services.ingestion.audio_ingester import AudioIngester
+from ..services.ingestion.docx_ingester import DocxIngester
+from ..services.ingestion.image_ingester import ImageIngester
+from ..services.ingestion.ods_ingester import OdsIngester
+from ..services.ingestion.pdf_ingester import PdfIngester
+from ..services.ingestion.router import IngestionRouter
+from ..services.ingestion.xlsx_ingester import XlsxIngester
+from ..utils.auth_dependency import get_optional_user
 from ..utils.crypto import decrypt, encrypt
+from ..utils.db_helpers import detect_language, get_or_404, load_settings
 
 try:  # python-magic with system libmagic; may fail if libmagic is missing.
     import magic as _magic  # type: ignore[import]

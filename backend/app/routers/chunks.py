@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +15,6 @@ from ..models.document import Chunk, Document
 from ..services.vector_store import VectorStore
 from ..utils.db_helpers import get_or_404
 from ..utils.text_utils import normalize_unicode
-
 
 router = APIRouter(prefix="/api/chunks", tags=["chunks"])
 

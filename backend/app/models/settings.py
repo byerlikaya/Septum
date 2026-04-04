@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Boolean, Integer, JSON, String
+from sqlalchemy import JSON, Boolean, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from . import Base

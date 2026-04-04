@@ -12,17 +12,21 @@ The resulting recognizers are meant to be plugged into Presidio's
 `AnalyzerEngine` as part of the sanitization pipeline.
 """
 
-from dataclasses import dataclass
 import importlib
 import logging
 import re
+from dataclasses import dataclass
 from typing import List, Sequence
 
-from presidio_analyzer import EntityRecognizer, Pattern, PatternRecognizer, RecognizerResult
+from presidio_analyzer import (
+    EntityRecognizer,
+    Pattern,
+    PatternRecognizer,
+    RecognizerResult,
+)
 
 from ...models.regulation import CustomRecognizer as CustomRecognizerModel
 from ...models.regulation import RegulationRuleset
-
 from ..ollama_client import call_ollama_sync, extract_json_array, use_ollama_enabled
 from ..prompts import PromptCatalog
 

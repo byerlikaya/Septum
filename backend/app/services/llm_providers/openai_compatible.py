@@ -6,9 +6,9 @@ import os
 from abc import ABC, abstractmethod
 from typing import Any, Mapping, Sequence
 
+from ..llm_errors import LLMRouterError
 from .base import ChatMessage, LLMProviderConfig
 from .http_client import post_with_retries
-from ..llm_errors import LLMRouterError
 
 
 class OpenAICompatibleProvider(ABC):

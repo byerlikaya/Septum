@@ -7,7 +7,10 @@ Provides deduplication, expansion and merging logic for detected PII spans.
 These functions are stateless and operate on lists of ``DetectedSpan`` objects.
 """
 
-from typing import List, Set
+from typing import TYPE_CHECKING, List, Set
+
+if TYPE_CHECKING:
+    from .sanitizer import DetectedSpan
 
 
 def deduplicate_spans(
@@ -21,7 +24,6 @@ def deduplicate_spans(
     LOCATION when their spans overlap. Non-overlapping low-priority spans
     are still preserved.
     """
-    from .sanitizer import DetectedSpan  # deferred to avoid circular imports
 
     if not spans:
         return []

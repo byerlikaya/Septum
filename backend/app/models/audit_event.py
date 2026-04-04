@@ -10,7 +10,7 @@ counts.
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import DateTime, Integer, JSON, String
+from sqlalchemy import JSON, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from . import Base

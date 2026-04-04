@@ -11,40 +11,46 @@ import asyncio
 import copy
 import json
 import logging
-import os
 import re
-from typing import Any, AsyncGenerator, List, Optional
+from typing import TYPE_CHECKING, Any, AsyncGenerator, List, Optional
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from ..services.bm25_retriever import BM25Retriever
+    from ..services.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from langdetect import DetectorFactory
 from pydantic import BaseModel
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from ..database import get_db
 from ..models.document import Chunk, Document
-from ..models.spreadsheet_schema import SpreadsheetSchema, SpreadsheetColumn
 from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
+from ..models.spreadsheet_schema import SpreadsheetSchema
 from ..services.anonymization_map import AnonymizationMap
 from ..services.approval_gate import ApprovalChunk, ApprovalGate, get_approval_gate
-from ..services.document_anon_store import get_document_map
+from ..services.audit_logger import log_deanonymization, log_pii_detected
+from ..services.chat_context import ChatContextPayload, build_chat_prompt
+from ..services.chat_debug_store import (
+    ChatDebugRecord,
+    get_chat_debug_record,
+    set_chat_debug_record,
+)
 from ..services.deanonymizer import Deanonymizer
+from ..services.document_anon_store import get_document_map
+from ..services.error_logger import log_backend_error, log_backend_message
 from ..services.llm_router import LLMRouter, LLMRouterError, _chunk_text
+from ..services.prompts import PromptCatalog
 from ..services.sanitizer_factory import create_sanitizer
 from ..services.text_normalizer import TextNormalizer
-from ..services.chat_context import ChatContextPayload, build_chat_prompt
-from ..services.chat_debug_store import set_chat_debug_record, get_chat_debug_record, ChatDebugRecord
-from ..services.audit_logger import log_pii_detected, log_deanonymization
-from ..services.error_logger import log_backend_error, log_backend_message
-from ..services.prompts import PromptCatalog
-from ..utils.db_helpers import get_or_404, load_settings, detect_language
-
+from ..utils.db_helpers import detect_language, get_or_404, load_settings
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -167,6 +173,7 @@ async def _retrieve_chunks(
     chunk is also included so conclusion/summary content is available.
     """
     import re
+
     from ..services.vector_store import merge_rrf_result_lists
 
     vector_store = _get_vector_store()
@@ -224,8 +231,6 @@ async def _retrieve_chunks(
             alpha=0.5,
             beta=0.5,
         )
-
-    used_vector_index = bool(results)
 
     if results:
         chunk_ids = [cid for cid, _ in results]

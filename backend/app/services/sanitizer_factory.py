@@ -3,10 +3,10 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .policy_composer import PolicyComposer
-from .ner_model_registry import get_shared_ner_registry
-from .sanitizer import PIISanitizer
 from ..models.settings import AppSettings
+from .ner_model_registry import get_shared_ner_registry
+from .policy_composer import PolicyComposer
+from .sanitizer import PIISanitizer
 
 
 async def create_sanitizer(

@@ -19,13 +19,12 @@ import asyncio
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .base import BaseIngester, IngestionResult
-
 import ffmpeg  # type: ignore[import]
 import numpy as np  # type: ignore[import]
 
 from ...utils.crypto import decrypt
 from ...utils.device import get_device
+from .base import BaseIngester, IngestionResult
 
 _WHISPER_SAMPLE_RATE = 16000
 

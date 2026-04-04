@@ -11,9 +11,9 @@ code; all behavior is driven by database configuration.
 from dataclasses import dataclass
 from typing import Iterable, List, Sequence
 
-from .anonymization_map import SANITIZER_STOPWORDS
 from ..models.regulation import NonPiiRule
 from ..utils.text_utils import normalize_for_comparison
+from .anonymization_map import SANITIZER_STOPWORDS
 
 
 @dataclass

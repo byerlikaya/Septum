@@ -3,9 +3,9 @@ from __future__ import annotations
 import os
 from typing import Any, List, Sequence
 
+from ..llm_errors import LLMRouterError
 from .base import ChatMessage, LLMProvider, LLMProviderConfig
 from .http_client import post_with_retries
-from ..llm_errors import LLMRouterError
 
 
 class AnthropicProvider(LLMProvider):

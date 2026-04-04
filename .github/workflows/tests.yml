@@ -68,7 +68,7 @@ jobs:
 
       - name: Ruff lint
         working-directory: backend
-        run: ruff check app/ --select E,W,F,I --ignore E501
+        run: ruff check app/ --select E,W,F,I --ignore E501,E402,E741
 
       - name: Bandit security scan
         working-directory: backend

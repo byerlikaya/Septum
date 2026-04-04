@@ -5,7 +5,16 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from . import Base
@@ -48,7 +57,7 @@ class Document(Base):
 
 class Chunk(Base):
     """Represents a text chunk derived from a document.
-    
+
     Chunks can be either clause-based (free-form text from sections/paragraphs)
     or field-based (structured key-value pairs extracted from tables/forms).
     """
@@ -68,7 +77,7 @@ class Chunk(Base):
     source_timestamp_start: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     source_timestamp_end: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     section_title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    
+
     chunk_type: Mapped[str] = mapped_column(
         String, nullable=False, default="clause"
     )

@@ -8,26 +8,23 @@ configuration. All fields are strongly typed and partial updates are
 supported via a dedicated PATCH schema.
 """
 
-from typing import Any, Optional
-import os
 import asyncio
+import os
 import shutil
 from pathlib import Path
+from typing import Any, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models.settings import AppSettings
 from ..services.error_logger import log_backend_error, log_backend_message
 from ..services.llm_router import LLMRouter, LLMRouterError
 from ..utils.auth_dependency import get_optional_user
 from ..utils.db_helpers import load_settings
 from ..utils.device import get_device
-
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 

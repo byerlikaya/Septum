@@ -15,8 +15,8 @@ from presidio_analyzer import EntityRecognizer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..models.regulation import CustomRecognizer, NonPiiRule, RegulationRuleset
 from .recognizers.registry import RecognizerRegistry
-from ..models.regulation import CustomRecognizer, RegulationRuleset, NonPiiRule
 
 
 @dataclass

@@ -8,9 +8,9 @@ The classes in this module provide small, well-typed wrappers around Presidio's
 in a concise and consistent way.
 """
 
-from dataclasses import dataclass
 import logging
 import re
+from dataclasses import dataclass
 from typing import Final
 
 from presidio_analyzer import Pattern, PatternRecognizer

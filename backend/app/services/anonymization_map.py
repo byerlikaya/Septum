@@ -11,9 +11,9 @@ The map is intentionally kept local to the current process and is never
 persisted to disk in order to avoid leaking raw PII.
 """
 
+import re
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Set
-import re
 
 from ..utils.text_utils import normalize_for_comparison, strip_possessive_suffix
 

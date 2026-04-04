@@ -15,21 +15,21 @@ Design notes
 - Token-level matching (better for legal/contract terminology)
 """
 
-from dataclasses import dataclass, field
 import os
-from pathlib import Path
 import pickle
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import List, Sequence, Tuple
 
+from cryptography.exceptions import InvalidTag
 from rank_bm25 import BM25Okapi
 
 from ..utils.crypto import decrypt, encrypt
-from cryptography.exceptions import InvalidTag
 
 
 def _tokenize(text: str) -> List[str]:
     """Simple whitespace tokenizer with lowercase normalization.
-    
+
     For production, consider more sophisticated tokenization:
     - Language-specific stemmers
     - N-gram tokens for better recall

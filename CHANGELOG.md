@@ -5,6 +5,7 @@ All notable changes to this project are documented here in a high‑level, date�
 ### 2026-04-05
 
 - **Chat retry path & ingestion hygiene**: Chat handler skips chunk retrieval and top‑k tuning when `pre_approved_chunks` is present (fixes unnecessary vector search on approval retry). Removed unused `PolicyComposer` instantiation from chat. Document pipeline persists entity detections with `add_all` instead of row‑by‑row `add`. Dropped unused `require_admin` helper (admin routes use `require_role("admin")`). ChatWindow derives read‑only approval modal open state from stored approval data only. Refactored `entityColors` with shared classification and badge/highlight maps. Tests and minor import/format cleanups (`main`, `vector_store`, `metrics`).
+- **README restructure for product positioning**: Split README into user‑focused README (EN/TR) and technical ARCHITECTURE (EN/TR). README now leads with a clear value proposition, "How It Works" scenario, "Why Septum?" comparison table (vs plain ChatGPT, Azure Presidio, custom LangChain), detection pipeline summary with benchmark placeholder, simplified Quick Start, and curated screenshots with expandable extras. All architecture details (pipeline internals, code structure, API reference, tech stack, full setup, tests, security, audit trail, resilience) moved to ARCHITECTURE.md / ARCHITECTURE.tr.md. Both language pairs maintain identical section order. CI Ruff step ignores `E402` and `E741`; backend `app/` imports reordered for isort/Ruff consistency.
 
 ### 2026-04-04
 

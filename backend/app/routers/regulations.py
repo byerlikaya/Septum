@@ -17,10 +17,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models.regulation import CustomRecognizer, RegulationRuleset, NonPiiRule
+from ..models.regulation import CustomRecognizer, NonPiiRule, RegulationRuleset
 from ..services.recognizers.registry import RecognizerRegistry
 from ..utils.db_helpers import validate_regex
-
 
 router = APIRouter(prefix="/api/regulations", tags=["regulations"])
 

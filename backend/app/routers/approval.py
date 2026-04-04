@@ -24,7 +24,6 @@ from ..services.approval_gate import (
     get_approval_gate,
 )
 
-
 router = APIRouter(prefix="/api/approval", tags=["approval"])
 
 

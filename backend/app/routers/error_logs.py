@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.error_log import ErrorLog
 
-
 router = APIRouter(prefix="/api/error-logs", tags=["error-logs"])
 
 

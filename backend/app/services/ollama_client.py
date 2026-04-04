@@ -93,7 +93,7 @@ async def call_ollama_async(
 
 def extract_json_array(text: str) -> list[dict[str, Any]]:
     """Extract a JSON array from LLM output, tolerating markdown or extra text.
-    
+
     This parser handles multiple common LLM output formats:
     - Bare JSON array: [...]
     - Markdown code fence: ```json [...] ```
@@ -103,23 +103,23 @@ def extract_json_array(text: str) -> list[dict[str, Any]]:
     """
     if not text or not text.strip():
         return []
-    
+
     stripped = text.strip()
-    
+
     # Strategy 1: Try removing markdown code fences first
     cleaned = re.sub(r"```(?:json)?\s*", "", stripped)
     cleaned = re.sub(r"```\s*$", "", cleaned)
-    
+
     # Strategy 2: Find all potential JSON arrays (greedy match from [ to ])
     # Use a more conservative pattern that matches balanced brackets
     potential_arrays = re.finditer(r"\[[\s\S]*?\](?=\s*(?:\]|$|```|[^,\s\[\]]))", cleaned)
-    
+
     for match in potential_arrays:
         candidate = match.group(0)
         candidate = candidate.strip()
         # Remove trailing commas before closing brackets (common LLM mistake)
         candidate = re.sub(r",(\s*\])", r"\1", candidate)
-        
+
         try:
             parsed = json.loads(candidate)
             if isinstance(parsed, list):
@@ -127,7 +127,7 @@ def extract_json_array(text: str) -> list[dict[str, Any]]:
                 return parsed
         except json.JSONDecodeError:
             continue
-    
+
     # Strategy 3: Last resort - try the entire stripped text
     try:
         parsed = json.loads(stripped)
@@ -135,7 +135,7 @@ def extract_json_array(text: str) -> list[dict[str, Any]]:
             return parsed
     except json.JSONDecodeError:
         pass
-    
+
     logger.warning(
         "Could not extract valid JSON array from Ollama response (length=%d). "
         "First 200 chars: %s",

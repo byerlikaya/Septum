@@ -22,11 +22,21 @@ the anonymization map.
 """
 
 import logging
-from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Iterable, List, Mapping, Sequence
+from typing import (
+    Any,
+    AsyncGenerator,
+    Awaitable,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Sequence,
+)
 
 from ..models.settings import AppSettings
 from . import ollama_client
-from .llm_errors import LLMRouterError
+from .llm_errors import LLMRouterError  # noqa: F401 — re-exported
 from .llm_providers.factory import build_provider
 from .llm_providers.health import is_available, record_failure, record_success
 
