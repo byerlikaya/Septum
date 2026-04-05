@@ -68,6 +68,16 @@ class AppSettings(Base):
         JSON, nullable=True
     )
 
+    anthropic_api_key: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
+    openai_api_key: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
+    openrouter_api_key: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
+
     setup_completed: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, server_default="0"
     )

@@ -16,6 +16,7 @@ from typing import Any, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,6 +71,10 @@ class SettingsResponse(BaseModel):
     default_active_regulations: list[str]
     ner_model_overrides: Optional[dict[str, str]] = None
 
+    has_anthropic_key: bool = False
+    has_openai_key: bool = False
+    has_openrouter_key: bool = False
+
     setup_completed: bool
 
 
@@ -109,6 +114,10 @@ class SettingsUpdatePayload(BaseModel):
 
     default_active_regulations: Optional[list[str]] = None
     ner_model_overrides: Optional[dict[str, str]] = None
+
+    anthropic_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = None
+    openrouter_api_key: Optional[str] = None
 
     setup_completed: Optional[bool] = None
 
@@ -159,7 +168,11 @@ async def get_settings_endpoint(
 ) -> SettingsResponse:
     """Return the current global application settings."""
     settings = await load_settings(db)
-    return SettingsResponse.model_validate(settings)
+    data = {c.key: getattr(settings, c.key) for c in settings.__table__.columns}
+    data["has_anthropic_key"] = bool(settings.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY"))
+    data["has_openai_key"] = bool(settings.openai_api_key or os.getenv("OPENAI_API_KEY"))
+    data["has_openrouter_key"] = bool(settings.openrouter_api_key or os.getenv("OPENROUTER_API_KEY"))
+    return SettingsResponse(**data)
 
 
 @router.patch(
@@ -182,7 +195,11 @@ async def update_settings_endpoint(
     await db.commit()
     await db.refresh(settings)
 
-    return SettingsResponse.model_validate(settings)
+    data = {c.key: getattr(settings, c.key) for c in settings.__table__.columns}
+    data["has_anthropic_key"] = bool(settings.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY"))
+    data["has_openai_key"] = bool(settings.openai_api_key or os.getenv("OPENAI_API_KEY"))
+    data["has_openrouter_key"] = bool(settings.openrouter_api_key or os.getenv("OPENROUTER_API_KEY"))
+    return SettingsResponse(**data)
 
 
 @router.post(
@@ -299,10 +316,74 @@ async def test_local_models_endpoint(
             ),
         ) from exc
 
+    # Check if the configured model is available.
+    models_data = response.json()
+    available = [m.get("name", "") for m in models_data.get("models", [])]
+    chat_model = settings.ollama_chat_model or ""
+    model_found = any(chat_model == m or chat_model == m.split(":")[0] for m in available)
+
+    if not model_found and chat_model:
+        return TestConnectionResponse(
+            ok=False,
+            message=f"Ollama is running but model '{chat_model}' is not installed. Pull it first.",
+        )
+
     return TestConnectionResponse(
         ok=True,
-        message="Local model server is reachable.",
+        message="Local model server is reachable and model is available.",
     )
+
+
+class OllamaPullRequest(BaseModel):
+    """Request body for pulling an Ollama model."""
+
+    model: str
+    base_url: Optional[str] = None
+
+
+@router.post("/ollama-pull")
+async def ollama_pull_endpoint(
+    payload: OllamaPullRequest,
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Pull an Ollama model and stream download progress via SSE."""
+    settings = await load_settings(db)
+    base_url = (payload.base_url or settings.ollama_base_url or "").rstrip("/")
+    if not base_url:
+        raise HTTPException(status_code=400, detail="Ollama base URL not configured.")
+
+    import json as _json
+
+    async def event_stream():
+        async with httpx.AsyncClient(timeout=None) as client:
+            try:
+                async with client.stream(
+                    "POST",
+                    f"{base_url}/api/pull",
+                    json={"name": payload.model, "stream": True},
+                ) as resp:
+                    async for line in resp.aiter_lines():
+                        if not line.strip():
+                            continue
+                        try:
+                            data = _json.loads(line)
+                        except _json.JSONDecodeError:
+                            continue
+                        total = data.get("total", 0)
+                        completed = data.get("completed", 0)
+                        pct = int(completed * 100 / total) if total else 0
+                        msg = data.get("status", "")
+                        evt = {"status": msg, "percent": pct, "done": False}
+                        if msg == "success" or data.get("status") == "success":
+                            evt["done"] = True
+                            evt["percent"] = 100
+                        yield f"data: {_json.dumps(evt)}\n\n"
+                        if evt["done"]:
+                            return
+            except Exception as exc:
+                yield f"data: {_json.dumps({'status': str(exc), 'percent': 0, 'done': True, 'error': True})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.get(

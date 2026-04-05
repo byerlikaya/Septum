@@ -20,9 +20,9 @@ class AnthropicProvider(LLMProvider):
         temperature: float,
         max_tokens: int | None,
     ) -> str:
-        api_key = os.getenv("ANTHROPIC_API_KEY")
+        api_key = self._config.api_key or os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
-            raise LLMRouterError("ANTHROPIC_API_KEY environment variable is not set.")
+            raise LLMRouterError("ANTHROPIC_API_KEY is not configured.")
 
         url = "https://api.anthropic.com/v1/messages"
         headers = {
