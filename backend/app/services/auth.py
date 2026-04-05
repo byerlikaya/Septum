@@ -2,15 +2,22 @@ from __future__ import annotations
 
 """JWT token and password hashing utilities."""
 
-import os
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
 
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-me-in-production")
+from ..bootstrap import get_config
+
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRATION_MINUTES = int(os.getenv("JWT_EXPIRATION_MINUTES", "1440"))
+
+
+def _jwt_secret() -> str:
+    return get_config().jwt_secret_key
+
+
+def _jwt_expiration_minutes() -> int:
+    return get_config().jwt_expiration_minutes
 
 
 def hash_password(plain: str) -> str:
@@ -25,13 +32,13 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(user_id: int, email: str) -> str:
     """Create a signed JWT access token."""
-    expire = datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRATION_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=_jwt_expiration_minutes())
     payload = {
         "sub": str(user_id),
         "email": email,
         "exp": expire,
     }
-    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    return jwt.encode(payload, _jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
 def decode_access_token(token: str) -> dict:
@@ -39,4 +46,4 @@ def decode_access_token(token: str) -> dict:
 
     Raises ``jwt.InvalidTokenError`` on failure.
     """
-    return jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+    return jwt.decode(token, _jwt_secret(), algorithms=[JWT_ALGORITHM])

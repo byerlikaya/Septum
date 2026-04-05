@@ -1,13 +1,12 @@
 """Alembic environment configuration for Septum.
 
 Supports async PostgreSQL (asyncpg) and sync SQLite fallback.
-Reads DATABASE_URL from environment; falls back to DB_PATH-based SQLite.
+Reads the database URL from bootstrap configuration.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -31,14 +30,9 @@ target_metadata = Base.metadata
 
 
 def _get_url() -> str:
-    """Resolve the database URL from environment."""
-    url = os.getenv("DATABASE_URL")
-    if url:
-        if url.startswith("postgresql://"):
-            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
-        return url
-    db_path = os.getenv("DB_PATH", "./septum.db")
-    return f"sqlite+aiosqlite:///{db_path}"
+    """Resolve the database URL from bootstrap config (with env override)."""
+    from app.database import build_database_url
+    return build_database_url()
 
 
 def run_migrations_offline() -> None:

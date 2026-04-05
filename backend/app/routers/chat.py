@@ -472,7 +472,7 @@ async def _run_llm_and_deanonymize(
     if not anon_map.entity_map and _PLACEHOLDER_PATTERN.search(result):
         result += (
             "\n\n(Names and other values could not be loaded. "
-            "Set ENCRYPTION_KEY in the backend .env file and re-upload the document.)"
+            "Check the encryption key in Settings and re-upload the document.)"
         )
     return result
 
@@ -535,7 +535,7 @@ async def chat_ask(
         if map_entries == 0 and getattr(settings, "deanon_enabled", True):
             logger.warning(
                 "Deanonymization will have no effect: no map for document_id=%s. "
-                "Set ENCRYPTION_KEY in .env and re-upload the document so the map can be loaded after restart.",
+                "Encryption key may have changed — re-upload the document so the map can be loaded.",
                 document.id,
             )
     else:

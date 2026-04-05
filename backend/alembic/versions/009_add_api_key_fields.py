@@ -1,7 +1,7 @@
 """Add API key fields to app_settings.
 
 Stores LLM API keys in the database so the setup wizard can configure
-them through the UI without requiring .env files.
+them through the setup wizard UI.
 
 Revision ID: 009
 """

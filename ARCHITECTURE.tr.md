@@ -275,16 +275,13 @@ Next.js tarafında Context7 en iyi pratikleri takip edilir:
 Septum'u tüm bağımlılıklarıyla (PostgreSQL, Redis) çalıştırmanın en hızlı yolu:
 
 ```bash
-cp .env.example .env
-# .env dosyasını düzenleyin — en az bir LLM API anahtarı ayarlayın (ANTHROPIC_API_KEY veya OPENAI_API_KEY)
 docker compose up
 ```
 
-Bu komut şunları başlatır:
+Kurulum sihirbazı ilk ziyarette tüm yapılandırmayı halleder. Bu komut şunları başlatır:
 - **PostgreSQL 16** — production veritabanı
 - **Redis 7** — çoklu worker desteği için anonymization map cache
-- **Septum Backend** (port 8000) — FastAPI + Presidio + NER
-- **Septum Frontend** (port 3000) — Next.js arayüzü
+- **Septum** (port 8000 + 3000) — Backend + Frontend tek container'da
 
 Yerel Ollama instance'ı eklemek için:
 
@@ -310,20 +307,7 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-`backend/.env.example` dosyasından `.env` oluşturun:
-
-```bash
-cp .env.example .env
-```
-
-Aşağıdaki değişkenleri kendi ortamınıza göre doldurun:
-
-- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` (kullanıyorsanız)
-- `LLM_PROVIDER` (örn. `anthropic`)
-- `USE_OLLAMA`, `OLLAMA_BASE_URL`, `OLLAMA_CHAT_MODEL`, `OLLAMA_DEANON_MODEL`
-- `WHISPER_MODEL`
-- `ENCRYPTION_KEY` (32-byte base64 veya hex; boş bırakılırsa uygulama ilk çalıştırmada kendi anahtar yönetimi mantığına göre otomatik üretir)
-- `DB_PATH`, `LOG_LEVEL`, `DEFAULT_ACTIVE_REGULATIONS` vb.
+Tüm yapılandırma ilk çalıştırmada kurulum sihirbazı tarafından yapılır. `backend/` dizininde şifreleme anahtarları ve altyapı ayarlarını içeren bir `config.json` dosyası otomatik oluşturulur. Manuel yapılandırma dosyasına gerek yoktur.
 
 Ardından backend'i başlatın:
 

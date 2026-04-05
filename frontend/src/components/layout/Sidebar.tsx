@@ -4,8 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { LogOut } from "lucide-react";
-import { clearAuthToken, fetchErrorLogs } from "@/lib/api";
+import { ArrowUpCircle } from "lucide-react";
+import api, { fetchErrorLogs } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { useLanguage } from "@/lib/language";
 
@@ -133,6 +133,17 @@ export function Sidebar() {
     return () => window.removeEventListener("error-logs-cleared", handler);
   }, []);
 
+  // Update check
+  const [updateInfo, setUpdateInfo] = useState<{ latest: string; command: string } | null>(null);
+
+  useEffect(() => {
+    api.get<{ update_available: boolean; latest_version: string; update_command: string }>("/api/setup/check-update")
+      .then(({ data }) => {
+        if (data.update_available) setUpdateInfo({ latest: data.latest_version, command: data.update_command });
+      })
+      .catch(() => {});
+  }, []);
+
   const toggleNav = (): void => {
     setIsNavOpen(prev => !prev);
   };
@@ -154,9 +165,16 @@ export function Sidebar() {
                   priority
                 />
               </div>
-              <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-slate-400">
-                {t("sidebar.tagline")}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-slate-400">
+                  {t("sidebar.tagline")}
+                </span>
+                {process.env.NEXT_PUBLIC_APP_VERSION && (
+                  <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-500">
+                    v{process.env.NEXT_PUBLIC_APP_VERSION}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <button
@@ -187,17 +205,6 @@ export function Sidebar() {
           </div>
           <div className="mt-4 border-t border-slate-800 pt-3 text-xs text-slate-500 space-y-2">
             <LanguageSelector />
-            <button
-              type="button"
-              onClick={() => {
-                clearAuthToken();
-                window.location.href = "/login";
-              }}
-              className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-              <span>{t("sidebar.logout")}</span>
-            </button>
             <span>{t("sidebar.footer")}</span>
           </div>
         </div>
@@ -231,18 +238,16 @@ export function Sidebar() {
           ))}
         </nav>
         <div className="border-t border-slate-800 px-4 py-3 text-xs text-slate-500 space-y-2">
+          {updateInfo && (
+            <div className="rounded-md border border-sky-800 bg-sky-950/50 p-2 space-y-1">
+              <div className="flex items-center gap-1.5 text-sky-300 font-medium">
+                <ArrowUpCircle className="h-3.5 w-3.5" />
+                <span>v{updateInfo.latest} {t("sidebar.updateAvailable")}</span>
+              </div>
+              <code className="block rounded bg-slate-950 px-1.5 py-1 text-[10px] text-slate-400 select-all">{updateInfo.command}</code>
+            </div>
+          )}
           <LanguageSelector />
-          <button
-            type="button"
-            onClick={() => {
-              clearAuthToken();
-              window.location.href = "/login";
-            }}
-            className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-            <span>{t("sidebar.logout")}</span>
-          </button>
           <span>{t("sidebar.footer")}</span>
         </div>
       </div>

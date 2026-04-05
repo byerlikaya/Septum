@@ -526,8 +526,8 @@ async def upload_document(
 
         async def _run_pipeline_background(doc_id: int) -> None:
             """Run the ingestion pipeline in a background task."""
-            from ..database import async_session_maker as _asm
-            async with _asm() as bg_db:
+            from ..database import get_session_maker
+            async with get_session_maker()() as bg_db:
                 bg_doc = await bg_db.get(Document, doc_id)
                 if bg_doc is None:
                     return

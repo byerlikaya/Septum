@@ -5,7 +5,7 @@
 - **Commit messages in English**, imperative style ("Add feature", "Fix bug").
 - **Never push** unless explicitly asked.
 - **Scan for secrets** before committing — warn and block if credentials, API keys, or private keys are detected.
-- **Never commit** build artifacts, logs, `.env`, or machine-generated files.
+- **Never commit** build artifacts, logs, `config.json`, or machine-generated files.
 - **Always include a CHANGELOG.md update** in the same commit as the code change.
 
 ## Changelog Format

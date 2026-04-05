@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.database import async_session_maker, init_db
+from app.database import get_session_maker, init_db
 from app.main import app
 from app.routers import documents as documents_router
 
@@ -67,11 +67,11 @@ def e2e_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     )
 
     monkeypatch.setattr(
-        "app.database.engine",
+        "app.database._engine",
         test_engine,
     )
     monkeypatch.setattr(
-        "app.database.async_session_maker",
+        "app.database._session_maker",
         test_session_maker,
     )
     monkeypatch.setattr(

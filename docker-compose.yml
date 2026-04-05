@@ -1,5 +1,6 @@
-# Septum — backend, frontend, PostgreSQL, Redis, optional Ollama
-# Copy .env.example to .env and set values. Compose reads .env automatically.
+# Septum — combined image with PostgreSQL, Redis, optional Ollama
+# No .env file needed. Just run: docker compose up
+# For local LLMs: docker compose --profile ollama up
 
 services:
   postgres:
@@ -7,10 +8,10 @@ services:
     container_name: septum-postgres
     environment:
       POSTGRES_USER: septum
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-septum_secret}
+      POSTGRES_PASSWORD: septum_secret
       POSTGRES_DB: septum
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "5432:5432"
     volumes:
       - septum-pgdata:/var/lib/postgresql/data
     restart: unless-stopped
@@ -34,21 +35,18 @@ services:
       start_period: 5s
       retries: 3
 
-  septum-backend:
+  septum:
     build:
-      context: ./backend
+      context: .
       dockerfile: Dockerfile
-    image: byerlikaya/septum-backend:latest
-    container_name: septum-backend
-    env_file: .env
+    image: byerlikaya/septum:latest
+    container_name: septum
     environment:
-      - DATABASE_URL=postgresql+asyncpg://septum:${POSTGRES_PASSWORD:-septum_secret}@postgres:5432/septum
+      - DATABASE_URL=postgresql+asyncpg://septum:septum_secret@postgres:5432/septum
       - REDIS_URL=redis://redis:6379/0
-      - DOCUMENT_STORAGE_DIR=/app/uploads
-      - ANON_MAP_STORAGE_DIR=/app/anon_maps
-      - FRONTEND_ORIGIN=${FRONTEND_ORIGIN:-http://localhost:3000}
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "8000:8000"
+      - "3000:3000"
     volumes:
       - septum-data:/app/data
       - septum-uploads:/app/uploads
@@ -63,36 +61,14 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 30s
       timeout: 5s
-      start_period: 30s
-      retries: 3
-
-  septum-frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-    image: byerlikaya/septum-frontend:latest
-    container_name: septum-frontend
-    env_file: .env
-    ports:
-      - "${FRONTEND_PORT:-3000}:3000"
-    depends_on:
-      septum-backend:
-        condition: service_healthy
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
-      interval: 30s
-      timeout: 5s
-      start_period: 10s
+      start_period: 60s
       retries: 3
 
   ollama:
     image: ollama/ollama:latest
     container_name: septum-ollama
     ports:
-      - "${OLLAMA_PORT:-11434}:11434"
+      - "11434:11434"
     volumes:
       - ollama-data:/root/.ollama
     restart: unless-stopped

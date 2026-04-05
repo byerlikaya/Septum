@@ -11,13 +11,9 @@ fi
 
 echo "Project root: $PROJECT_ROOT"
 
-if [[ -f "$PROJECT_ROOT/.env" ]]; then
-  # Load shared environment variables for both backend and frontend
-  set -a
-  # shellcheck disable=SC1090
-  source "$PROJECT_ROOT/.env"
-  set +a
-fi
+# Bootstrap config for local development
+export SEPTUM_CONFIG_PATH="${SEPTUM_CONFIG_PATH:-$PROJECT_ROOT/backend/config.json}"
+export NEXT_PUBLIC_APP_VERSION=$(cat "$PROJECT_ROOT/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "dev")
 
 find_available_port() {
   local port=$1

@@ -42,10 +42,10 @@ if ! grep -q "### $TODAY" "$PROJECT_ROOT/CHANGELOG.md" 2>/dev/null; then
   ERRORS+=("[CHANGELOG] No entry for today ($TODAY) in CHANGELOG.md")
 fi
 
-# 4. No .env files staged
-STAGED_ENV=$(cd "$PROJECT_ROOT" && git diff --cached --name-only 2>/dev/null | grep '^\.env' | grep -v '\.env\.example' || true)
-if [[ -n "$STAGED_ENV" ]]; then
-  ERRORS+=("[SECURITY] .env file staged for commit: $STAGED_ENV")
+# 4. No secrets files staged (.env or config.json)
+STAGED_SECRETS=$(cd "$PROJECT_ROOT" && git diff --cached --name-only 2>/dev/null | grep -E '(^\.env|config\.json$)' || true)
+if [[ -n "$STAGED_SECRETS" ]]; then
+  ERRORS+=("[SECURITY] Secrets file staged for commit: $STAGED_SECRETS")
 fi
 
 # 5. README sync — if one README changed, both must change

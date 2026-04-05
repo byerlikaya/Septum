@@ -14,10 +14,13 @@ import type {
   Document,
   DocumentListResponse,
   EntityDetectionListResponse,
+  InitializeResponse,
   RegulationRuleset,
+  SetupStatus,
   SSEChatEvent,
   SpreadsheetColumn,
-  SpreadsheetSchema
+  SpreadsheetSchema,
+  TestConnectionResponse,
 } from "./types";
 
 const fallbackBaseURL = "http://localhost:8000";
@@ -83,6 +86,30 @@ export async function reprocessDocument(documentId: number): Promise<Document> {
 
 export async function getSettings(): Promise<AppSettingsResponse> {
   const { data } = await api.get<AppSettingsResponse>("/api/settings");
+  return data;
+}
+
+export async function getSetupStatus(): Promise<SetupStatus> {
+  const { data } = await api.get<SetupStatus>("/api/setup/status");
+  return data;
+}
+
+export async function testDatabaseConnection(database_url: string): Promise<TestConnectionResponse> {
+  const { data } = await api.post<TestConnectionResponse>("/api/setup/test-database", { database_url });
+  return data;
+}
+
+export async function testRedisConnection(redis_url: string): Promise<TestConnectionResponse> {
+  const { data } = await api.post<TestConnectionResponse>("/api/setup/test-redis", { redis_url });
+  return data;
+}
+
+export async function initializeInfrastructure(body: {
+  database_type: string;
+  database_url?: string;
+  redis_url?: string;
+}): Promise<InitializeResponse> {
+  const { data } = await api.post<InitializeResponse>("/api/setup/initialize", body);
   return data;
 }
 

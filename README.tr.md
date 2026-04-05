@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="#ekran-görüntüleri"><strong>Ekran Görüntüleri</strong></a>
+  <a href="#hızlı-başlangıç"><strong>Hızlı Başlangıç</strong></a>
   &middot;
   <a href="#hızlı-başlangıç"><strong>Hızlı Başlangıç</strong></a>
   &middot;
@@ -153,106 +153,50 @@ Pipeline detayları için bkz. [Mimari — PII Tespiti ve Anonimleştirme Akış
 
 ---
 
-## Ekran Görüntüleri
-
-**1. Sohbet — soru sorun, göndermeden önce onaylayın**
-
-<p align="center">
-  <img src="screenshots/1-chat.png" alt="Onay adımlı sohbet ekranı" width="900" />
-</p>
-
-**2. Dokümanlar — yükleyin ve yönetin**
-
-<p align="center">
-  <img src="screenshots/2-documents.png" alt="Doküman listesi ve yükleme ekranı" width="900" />
-</p>
-
-**3. Regülasyonlar — 17 hazır paket, özel kurallar**
-
-<p align="center">
-  <img src="screenshots/11-regulations.png" alt="Regülasyon ruleset yönetimi ekranı" width="900" />
-</p>
-
-**4. Ayarlar — LLM, gizlilik, RAG yapılandırması**
-
-<p align="center">
-  <img src="screenshots/4-cloudllm.png" alt="Bulut LLM yapılandırma ayarları" width="900" />
-</p>
-
-<details>
-<summary><strong>Daha fazla ekran görüntüsü</strong></summary>
-
-**Gizlilik ve anonimleştirme katmanları**
-<p align="center">
-  <img src="screenshots/5-privacySanitization.png" alt="Gizlilik ve anonimleştirme ayarları" width="900" />
-</p>
-
-**Yerel model yapılandırması**
-<p align="center">
-  <img src="screenshots/6-localmodels.png" alt="Yerel model ayarları" width="900" />
-</p>
-
-**RAG yapılandırması**
-<p align="center">
-  <img src="screenshots/7-rag.png" alt="RAG yapılandırma ayarları" width="900" />
-</p>
-
-**Ingestion / içe aktarma ayarları**
-<p align="center">
-  <img src="screenshots/8-ingestion.png" alt="Ingestion, OCR ve transkripsiyon ayarları" width="900" />
-</p>
-
-**Metin normalizasyon kuralları**
-<p align="center">
-  <img src="screenshots/9-textNormalizationRules.png" alt="Metin normalizasyon kuralı yapılandırması" width="900" />
-</p>
-
-**NER model eşleştirmeleri**
-<p align="center">
-  <img src="screenshots/10-NERModels.png" alt="Dil → NER modeli eşleştirme ayarları" width="900" />
-</p>
-
-</details>
+<!-- Ekran görüntüleri / demo GIF buraya eklenecek -->
 
 ---
 
 ## Hızlı Başlangıç
 
-### Hemen deneyin (tek komut)
+### Docker (önerilen)
 
 ```bash
+docker pull byerlikaya/septum
 docker run -p 3000:3000 -p 8000:8000 \
-  -e LLM_PROVIDER=anthropic \
-  -e ANTHROPIC_API_KEY=your-key-here \
+  -v septum-data:/app/data \
+  -v septum-uploads:/app/uploads \
+  -v septum-anon-maps:/app/anon_maps \
   byerlikaya/septum
 ```
 
-`http://localhost:3000` adresini açın. Backend + frontend tek container'da, SQLite dahil — harici bağımlılık yok.
+**http://localhost:3000** adresini açın — kurulum sihirbazı her şeyi adım adım yapılandırır:
 
-### Docker Compose (production)
+1. **Veritabanı** — SQLite (varsayılan, sıfır konfigürasyon) veya PostgreSQL
+2. **Önbellek** — In-memory (varsayılan) veya Redis
+3. **LLM Provider** — Anthropic, OpenAI, OpenRouter veya Ollama (lokal)
+4. **Ses modeli** — Whisper model seçimi (opsiyonel)
+
+`.env` dosyası yok, manuel konfigürasyon yok. Veriler Docker volume'lar aracılığıyla otomatik korunur.
+
+### Docker Compose (PostgreSQL + Redis)
 
 ```bash
-cp .env.example .env
-# .env dosyasını düzenleyin — en az bir LLM API anahtarı ayarlayın (ANTHROPIC_API_KEY veya OPENAI_API_KEY)
 docker compose up
 ```
 
-PostgreSQL, Redis, backend ve frontend'i başlatır. Yerel Ollama için `--profile ollama` ekleyin.
+PostgreSQL, Redis ve Septum'u tek komutla başlatır. Yerel Ollama için `--profile ollama` ekleyin. Kurulum sihirbazı ilk ziyarette LLM provider'ı yapılandırır.
 
 ### Yerel Geliştirme
 
 ```bash
-# Backend
-cd backend && python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env  # API anahtarınızı girin
-uvicorn app.main:app --reload
-
-# Frontend (ayrı terminalde)
-cd frontend && npm install && npm run dev
+./dev.sh --setup   # İlk kurulum: bağımlılıkları yükle
+./dev.sh           # Backend (port 8000) + frontend (port 3000) başlat
 ```
 
-Tüm kurulum seçenekleri (Docker, yerel geliştirme, ortam değişkenleri) için bkz. [Mimari — Kurulum](ARCHITECTURE.tr.md#kurulum).
+İlk ziyarette kurulum sihirbazı açılır.
+
+Mimari detaylar için bkz. **[ARCHITECTURE.tr.md](ARCHITECTURE.tr.md)**.
 
 ---
 

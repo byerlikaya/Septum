@@ -3,38 +3,30 @@ set -euo pipefail
 
 # ---------------------------------------------------------------------------
 # Septum Docker Entrypoint
-# Validates environment, runs migrations, starts the application.
+# Ensures bootstrap config exists, runs migrations, starts the application.
 # ---------------------------------------------------------------------------
 
 log() { echo "[entrypoint] $*"; }
 
-# --- Auto-generate ENCRYPTION_KEY if not set ---
-if [ -z "${ENCRYPTION_KEY:-}" ]; then
-  ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
-  export ENCRYPTION_KEY
-  log "ENCRYPTION_KEY auto-generated (not persisted — set it in .env for stable encryption across restarts)"
-fi
+# --- Ensure bootstrap config.json (auto-generates keys if needed) ---
+python -c "from app.bootstrap import get_config; get_config()"
 
-# --- Validate at least one LLM provider key is available ---
-if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${OPENAI_API_KEY:-}" ] && [ "${LLM_PROVIDER:-}" != "ollama" ]; then
-  log "WARNING: No ANTHROPIC_API_KEY or OPENAI_API_KEY set and LLM_PROVIDER is not 'ollama'."
-  log "         Chat functionality will not work until an API key is configured via Settings UI."
-fi
-
-# --- Run database migrations ---
-if [ -n "${DATABASE_URL:-}" ]; then
-  log "Running Alembic migrations..."
-  python -m alembic upgrade head
-else
-  log "No DATABASE_URL set — using SQLite with auto-init"
-fi
-
-# --- Seed defaults (idempotent) ---
-log "Seeding defaults..."
+# --- Run database migrations (PostgreSQL only; SQLite uses create_all) ---
 python -c "
-import asyncio
-from app.database import init_db
-asyncio.run(init_db())
+from app.bootstrap import get_config, needs_setup
+config = get_config()
+if config.database_url and not needs_setup():
+    import subprocess, os
+    env = os.environ.copy()
+    env['DATABASE_URL'] = config.database_url
+    result = subprocess.run(
+        ['python', '-m', 'alembic', 'upgrade', 'head'],
+        env=env,
+    )
+    if result.returncode != 0:
+        print('[entrypoint] WARNING: Alembic migration failed')
+else:
+    print('[entrypoint] No DATABASE_URL configured — using SQLite with auto-init')
 "
 
 # --- Start application ---

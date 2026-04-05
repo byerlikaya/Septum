@@ -2,7 +2,6 @@ from __future__ import annotations
 
 """FastAPI application entrypoint for Septum."""
 
-import os as _os
 import warnings
 
 warnings.filterwarnings(
@@ -12,10 +11,10 @@ warnings.filterwarnings(
 )
 
 from .utils.logging_config import setup_structured_logging
+from . import bootstrap as _bootstrap_early
 
-setup_structured_logging(_os.getenv("LOG_LEVEL", "INFO"))
+setup_structured_logging(_bootstrap_early.get_config().log_level)
 
-import os
 import threading
 from contextlib import asynccontextmanager
 from typing import Any
@@ -27,7 +26,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status as http_status
 
-from .database import async_session_maker, get_db, init_db
+from . import bootstrap
+from .database import (
+    build_database_url,
+    engine_is_ready,
+    get_db,
+    get_session_maker,
+    init_db,
+    initialize_engine,
+)
 from .models.settings import AppSettings
 from .routers import approval as approval_router
 from .routers import audit as audit_router
@@ -39,6 +46,7 @@ from .routers import documents as documents_router
 from .routers import error_logs as error_logs_router
 from .routers import regulations as regulations_router
 from .routers import settings as settings_router
+from .routers import setup as setup_router
 from .routers import text_normalization as text_normalization_router
 from .services.error_logger import log_backend_error
 from .utils.device import get_device
@@ -66,9 +74,13 @@ def _preload_models() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """FastAPI lifespan handler to initialize the database on startup."""
-    await init_db()
-    threading.Thread(target=_preload_models, daemon=True).start()
+    """FastAPI lifespan handler — initialise database if already configured."""
+    config = bootstrap.get_config()
+    if not bootstrap.needs_setup():
+        url = build_database_url(config.database_url, config.db_path)
+        initialize_engine(url)
+        await init_db()
+        threading.Thread(target=_preload_models, daemon=True).start()
     yield
 
 
@@ -76,24 +88,42 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-_rate_limit_default = os.getenv("RATE_LIMIT_DEFAULT", "60/minute")
-_redis_url = os.getenv("REDIS_URL", "")
-_limiter_storage = f"redis://{_redis_url.split('://')[-1]}" if _redis_url else "memory://"
+_boot_cfg = bootstrap.get_config()
+_limiter_storage = (
+    f"redis://{_boot_cfg.redis_url.split('://')[-1]}"
+    if _boot_cfg.redis_url else "memory://"
+)
 
 limiter = Limiter(
     key_func=get_remote_address,
-    default_limits=[_rate_limit_default],
+    default_limits=[_boot_cfg.rate_limit],
     storage_uri=_limiter_storage,
 )
 
-app = FastAPI(title="Septum API", lifespan=lifespan)
+def _app_version() -> str:
+    from pathlib import Path
+    vf = Path(__file__).resolve().parents[2] / "VERSION"
+    return vf.read_text().strip() if vf.exists() else "dev"
+
+
+app = FastAPI(
+    title="Septum API",
+    description=(
+        "Privacy-first AI middleware. Anonymize documents, chat with LLMs, "
+        "and keep raw PII local.\n\n"
+        "**Tag groups:** setup (first-run wizard), settings (app config), "
+        "documents (upload & ingestion), chat (RAG conversations), "
+        "regulations (PII detection rules), audit (compliance trail)."
+    ),
+    version=_app_version(),
+    lifespan=lifespan,
+)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
 _cors_origins = [
     origin.strip()
-    for origin in frontend_origin.split(",")
+    for origin in _boot_cfg.frontend_origin.split(",")
     if origin.strip()
 ]
 
@@ -113,6 +143,7 @@ app.add_route("/metrics", metrics_endpoint, methods=["GET"])
 
 # All API routers are mounted under both /api (legacy) and /api/v1 (versioned).
 _all_routers = [
+    setup_router.router,
     auth_router.router,
     approval_router.router,
     audit_router.router,
@@ -148,14 +179,16 @@ async def global_exception_handler(
 ) -> JSONResponse:
     """Global fallback exception handler that also persists an error log entry."""
     try:
-        async with async_session_maker() as db:
-            await log_backend_error(
-                db=db,
-                request=request,
-                exc=exc,
-                level="ERROR",
-                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        if engine_is_ready():
+            sm = get_session_maker()
+            async with sm() as db:
+                await log_backend_error(
+                    db=db,
+                    request=request,
+                    exc=exc,
+                    level="ERROR",
+                    status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
     except Exception:
         pass
 
@@ -168,27 +201,36 @@ async def global_exception_handler(
 
 
 @app.get("/health")
-async def health(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+async def health() -> dict[str, Any]:
     """Health check endpoint that reports backend status and configuration."""
-    result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
-    settings = result.scalar_one_or_none()
-
-    llm_provider = (
-        settings.llm_provider
-        if settings is not None
-        else os.getenv("LLM_PROVIDER", "anthropic")
-    )
-
-    from .services.llm_providers.health import get_all_statuses
     from .services.redis_client import redis_ping
 
-    redis_ok = await redis_ping()
+    from pathlib import Path as _Path
+    _version_file = _Path(__file__).resolve().parents[2] / "VERSION"
+    _version = _version_file.read_text().strip() if _version_file.exists() else "dev"
 
-    return {
+    result: dict[str, Any] = {
         "status": "ok",
+        "version": _version,
         "device": get_device(),
-        "llm_provider": llm_provider,
-        "redis": "connected" if redis_ok else "unavailable",
-        "llm_providers": get_all_statuses(),
+        "setup_required": bootstrap.needs_setup(),
     }
+
+    if engine_is_ready():
+        try:
+            sm = get_session_maker()
+            async with sm() as db:
+                row = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+                settings = row.scalar_one_or_none()
+                if settings:
+                    result["llm_provider"] = settings.llm_provider
+        except Exception:
+            pass
+
+    from .services.llm_providers.health import get_all_statuses
+    redis_ok = await redis_ping()
+    result["redis"] = "connected" if redis_ok else "unavailable"
+    result["llm_providers"] = get_all_statuses()
+
+    return result
 

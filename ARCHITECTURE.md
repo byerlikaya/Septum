@@ -277,16 +277,13 @@ On the Next.js side we follow Context7 best practices:
 The fastest way to get Septum running with all dependencies (PostgreSQL, Redis):
 
 ```bash
-cp .env.example .env
-# Edit .env — set at least one LLM API key (ANTHROPIC_API_KEY or OPENAI_API_KEY)
 docker compose up
 ```
 
-This starts:
+The setup wizard handles all configuration on first visit. This starts:
 - **PostgreSQL 16** — production database
 - **Redis 7** — anonymization map caching for multi-worker support
-- **Septum Backend** (port 8000) — FastAPI + Presidio + NER
-- **Septum Frontend** (port 3000) — Next.js UI
+- **Septum** (ports 8000 + 3000) — Backend + Frontend in a single container
 
 To include a local Ollama instance:
 
@@ -312,20 +309,7 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Create your `.env` from `backend/.env.example`:
-
-```bash
-cp .env.example .env
-```
-
-Fill in the required variables:
-
-- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` (if used)
-- `LLM_PROVIDER` (e.g. `anthropic`)
-- `USE_OLLAMA`, `OLLAMA_BASE_URL`, `OLLAMA_CHAT_MODEL`, `OLLAMA_DEANON_MODEL`
-- `WHISPER_MODEL`
-- `ENCRYPTION_KEY` (32-byte base64 or hex; if left empty, the app will auto-generate it on first run according to its key-management logic)
-- `DB_PATH`, `LOG_LEVEL`, `DEFAULT_ACTIVE_REGULATIONS`, etc.
+All configuration is handled by the setup wizard on first run. A `config.json` file is auto-generated in `backend/` with encryption keys and infrastructure settings. No manual configuration files needed.
 
 Then start the backend:
 

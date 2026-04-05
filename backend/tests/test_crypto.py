@@ -30,8 +30,7 @@ def test_get_encryption_key_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     key2 = crypto.get_encryption_key()
 
     assert key1 == key2
-    # Environment variable should be set for the current process.
-    assert os.getenv("ENCRYPTION_KEY") is not None
+    assert len(key1) == 32
 
 
 def test_encrypt_decrypt_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:

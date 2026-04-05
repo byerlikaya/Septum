@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getSettings } from "@/lib/api";
-import type { AppSettingsResponse } from "@/lib/types";
+import { getSettings, getSetupStatus } from "@/lib/api";
+import type { AppSettingsResponse, SetupStatus } from "@/lib/types";
 import { SetupWizard } from "./SetupWizard";
 
 interface SetupGuardProps {
@@ -10,21 +10,27 @@ interface SetupGuardProps {
 }
 
 export function SetupGuard({ children }: SetupGuardProps) {
+  const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [settings, setSettings] = useState<AppSettingsResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showWizard, setShowWizard] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    getSettings()
-      .then((s) => {
-        if (!cancelled) {
-          setSettings(s);
-          setShowWizard(!s.setup_completed);
+    getSetupStatus()
+      .then(async (s) => {
+        if (cancelled) return;
+        setSetupStatus(s);
+        if (s.status === "needs_application_setup") {
+          try {
+            const appSettings = await getSettings();
+            if (!cancelled) setSettings(appSettings);
+          } catch {
+            /* settings not yet available */
+          }
         }
       })
       .catch(() => {
-        if (!cancelled) setShowWizard(false);
+        if (!cancelled) setSetupStatus({ status: "complete", version: "" });
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -36,12 +42,14 @@ export function SetupGuard({ children }: SetupGuardProps) {
 
   if (loading) return null;
 
-  if (showWizard && settings) {
+  if (setupStatus && setupStatus.status !== "complete") {
     return (
       <SetupWizard
-        initialProvider={settings.llm_provider}
-        initialModel={settings.llm_model}
-        onComplete={() => setShowWizard(false)}
+        startPhase={setupStatus.status}
+        initialProvider={settings?.llm_provider ?? "anthropic"}
+        initialModel={settings?.llm_model ?? ""}
+        version={setupStatus.version}
+        onComplete={() => setSetupStatus({ status: "complete", version: setupStatus.version })}
       />
     );
   }

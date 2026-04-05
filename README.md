@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="#screenshots"><strong>Screenshots</strong></a>
+  <a href="#quick-start"><strong>Quick Start</strong></a>
   &middot;
   <a href="#quick-start"><strong>Quick Start</strong></a>
   &middot;
@@ -153,106 +153,50 @@ For full pipeline details, see [Architecture — PII Detection & Anonymisation P
 
 ---
 
-## Screenshots
-
-**1. Chat — ask questions, approve before sending**
-
-<p align="center">
-  <img src="screenshots/1-chat.png" alt="Chat screen with approval-based sharing" width="900" />
-</p>
-
-**2. Documents — upload and manage**
-
-<p align="center">
-  <img src="screenshots/2-documents.png" alt="Documents list and upload view" width="900" />
-</p>
-
-**3. Regulations — 17 built-in packs, custom rules**
-
-<p align="center">
-  <img src="screenshots/11-regulations.png" alt="Regulation ruleset management view" width="900" />
-</p>
-
-**4. Settings — LLM, privacy, RAG configuration**
-
-<p align="center">
-  <img src="screenshots/4-cloudllm.png" alt="Cloud LLM configuration settings" width="900" />
-</p>
-
-<details>
-<summary><strong>More screenshots</strong></summary>
-
-**Privacy & sanitisation layers**
-<p align="center">
-  <img src="screenshots/5-privacySanitization.png" alt="Privacy and sanitisation settings" width="900" />
-</p>
-
-**Local model configuration**
-<p align="center">
-  <img src="screenshots/6-localmodels.png" alt="Local model settings" width="900" />
-</p>
-
-**RAG configuration**
-<p align="center">
-  <img src="screenshots/7-rag.png" alt="RAG configuration settings" width="900" />
-</p>
-
-**Ingestion pipeline settings**
-<p align="center">
-  <img src="screenshots/8-ingestion.png" alt="Ingestion and OCR/transcription settings" width="900" />
-</p>
-
-**Text normalisation rules**
-<p align="center">
-  <img src="screenshots/9-textNormalizationRules.png" alt="Text normalisation rule configuration" width="900" />
-</p>
-
-**NER model mappings**
-<p align="center">
-  <img src="screenshots/10-NERModels.png" alt="Language to NER model mapping settings" width="900" />
-</p>
-
-</details>
+<!-- Screenshots / demo GIF will be added here -->
 
 ---
 
 ## Quick Start
 
-### Try it now (single command)
+### Docker (recommended)
 
 ```bash
+docker pull byerlikaya/septum
 docker run -p 3000:3000 -p 8000:8000 \
-  -e LLM_PROVIDER=anthropic \
-  -e ANTHROPIC_API_KEY=your-key-here \
+  -v septum-data:/app/data \
+  -v septum-uploads:/app/uploads \
+  -v septum-anon-maps:/app/anon_maps \
   byerlikaya/septum
 ```
 
-Open `http://localhost:3000`. Backend + frontend in one container, SQLite included — no external dependencies.
+Open **http://localhost:3000** — the setup wizard walks you through everything:
 
-### Docker Compose (production)
+1. **Database** — SQLite (default, zero config) or PostgreSQL
+2. **Cache** — In-memory (default) or Redis
+3. **LLM Provider** — Anthropic, OpenAI, OpenRouter, or Ollama (local)
+4. **Audio model** — Whisper model for speech-to-text (optional)
+
+No `.env` file, no manual configuration. Data persists automatically via Docker volumes.
+
+### Docker Compose (PostgreSQL + Redis)
 
 ```bash
-cp .env.example .env
-# Edit .env — set at least one LLM API key (ANTHROPIC_API_KEY or OPENAI_API_KEY)
 docker compose up
 ```
 
-Starts PostgreSQL, Redis, backend, and frontend. Add `--profile ollama` for a local Ollama instance.
+Starts PostgreSQL, Redis, and Septum in a single command. Add `--profile ollama` for a local Ollama instance. The setup wizard configures the LLM provider on first visit.
 
 ### Local Development
 
 ```bash
-# Backend
-cd backend && python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env  # Fill in your API key(s)
-uvicorn app.main:app --reload
-
-# Frontend (in another terminal)
-cd frontend && npm install && npm run dev
+./dev.sh --setup   # First-time: install dependencies
+./dev.sh           # Start backend (port 8000) + frontend (port 3000)
 ```
 
-For full setup options (Docker, local dev, environment variables), see [Architecture — Setup](ARCHITECTURE.md#setup).
+The setup wizard opens on first visit.
+
+For architecture details, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ---
 

@@ -33,8 +33,9 @@ npm test -- --runInBand   # Sequential tests (CI mode)
 
 ### Docker
 ```bash
-docker compose up                          # Backend + frontend
-docker compose --profile ollama up         # With local Ollama models
+docker run -p 3000:3000 -p 8000:8000 -v septum-data:/app/data -v septum-uploads:/app/uploads -v septum-anon-maps:/app/anon_maps byerlikaya/septum
+docker compose up                                          # With PostgreSQL + Redis
+docker compose --profile ollama up                         # With local Ollama models
 ```
 
 ## Architecture
@@ -50,6 +51,9 @@ Upload → content-based type detection (python-magic) → format-specific inges
 User query → sanitize query → hybrid retrieval (FAISS + BM25) → optional approval gate → send masked context to cloud LLM → de-anonymize response locally → stream to user via SSE
 
 ### Key Backend Services
+- `bootstrap.py` — Infrastructure config (`config.json`): encryption key, JWT secret, DB/Redis URLs. Auto-generates secrets on first run. Env vars override file values.
+- `database.py` — Lazy async engine. `initialize_engine()` called from lifespan or setup wizard. `get_db()` returns 503 if engine not ready.
+- `routers/setup.py` — Setup wizard API: `/api/setup/status`, `/api/setup/initialize`, `/api/setup/test-database`, `/api/setup/test-redis`. No auth, no DB dependency.
 - `services/sanitizer.py` — Main anonymization engine (3-layer: Presidio, HuggingFace NER, optional Ollama)
 - `services/anonymization_map.py` — Session-scoped PII↔placeholder mapping with coreference resolution
 - `services/deanonymizer.py` — Re-maps placeholders back to originals
@@ -124,7 +128,7 @@ All LLM calls in tests must be mocked — never send real requests to cloud LLMs
 - **Commit messages in English**, imperative style ("Add feature", "Fix bug").
 - **Never push** unless explicitly asked.
 - **Scan for secrets** before committing — warn and block if credentials, API keys, or private keys are detected.
-- **Never commit** build artifacts, logs, `.env`, or machine-generated files.
+- **Never commit** build artifacts, logs, `config.json`, or machine-generated files.
 
 ## Changelog Maintenance
 
@@ -169,13 +173,17 @@ Invoke `/security-scan` for a comprehensive audit (`.claude/skills/security-scan
 - Zero-tolerance violations (country/language names in production code)
 - Language-specific if-branches detected
 - CHANGELOG.md missing entry for today's date
-- `.env` files staged for commit
+- Secrets files (`config.json`) staged for commit
 - README.md changed without README.tr.md (or vice versa)
 - `database.py` entity_types changed without REGULATION_ENTITY_SOURCES.md update
 
 ## Environment Setup
 
-Copy `.env.example` to `.env` at project root. Key vars: `LLM_PROVIDER` (anthropic/openai/ollama), `LLM_MODEL`, API keys, `ENCRYPTION_KEY` (auto-generated if blank), `DEFAULT_ACTIVE_REGULATIONS`.
+**Docker (recommended):** No `.env` needed. Run `docker run -p 3000:3000 -p 8000:8000 byerlikaya/septum` and the setup wizard configures everything (database, cache, LLM provider).
+
+**Local development:** Run `./dev.sh --setup` then `./dev.sh`. Bootstrap auto-generates `config.json` with encryption key and JWT secret. Set `SEPTUM_CONFIG_PATH` to override the default `/app/data/config.json` location. Environment variables (`DATABASE_URL`, `REDIS_URL`, `ENCRYPTION_KEY`, etc.) override `config.json` values.
+
+**docker-compose:** No `.env` needed. `docker compose up` starts PostgreSQL + Redis + Septum with sensible defaults. Database and Redis URLs are wired in `docker-compose.yml`.
 
 ## CI/CD
 

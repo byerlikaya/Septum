@@ -3,15 +3,23 @@ from __future__ import annotations
 """Database configuration and initialization for Septum.
 
 Supports both SQLite (local dev) and PostgreSQL (production).
-When DATABASE_URL is set, PostgreSQL is used via asyncpg.
-Otherwise, falls back to SQLite via aiosqlite.
+The engine is created lazily — either by the setup wizard (first run)
+or automatically at startup when ``config.json`` already has database
+configuration.
 """
 
+import logging
 import os
 from typing import Any, AsyncGenerator, List
 
+from fastapi import HTTPException
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from .models import Base
 from .models.chat_session import ChatMessage, ChatSession  # noqa: F401
@@ -21,24 +29,13 @@ from .models.regulation import NonPiiRule, RegulationRuleset
 from .models.settings import AppSettings
 from .models.user import User  # noqa: F401
 
-DB_PATH_ENV_VAR = "DB_PATH"
-DEFAULT_DB_PATH = "./septum.db"
+logger = logging.getLogger(__name__)
 
-
-def _build_database_url() -> str:
-    """Build the async database URL from environment variables.
-
-    Priority: DATABASE_URL (PostgreSQL) > DB_PATH (SQLite).
-    """
-    database_url = os.getenv("DATABASE_URL")
-    if database_url:
-        if database_url.startswith("postgresql://"):
-            database_url = database_url.replace(
-                "postgresql://", "postgresql+asyncpg://", 1
-            )
-        return database_url
-    db_path = os.getenv(DB_PATH_ENV_VAR, DEFAULT_DB_PATH)
-    return f"sqlite+aiosqlite:///{db_path}"
+# ---------------------------------------------------------------------------
+# Lazy engine — initialised by ``initialize_engine()``
+# ---------------------------------------------------------------------------
+_engine: AsyncEngine | None = None
+_session_maker: async_sessionmaker[AsyncSession] | None = None
 
 
 def _engine_kwargs(url: str) -> dict[str, Any]:
@@ -54,42 +51,101 @@ def _engine_kwargs(url: str) -> dict[str, Any]:
     return {"echo": False, "future": True}
 
 
-DATABASE_URL = _build_database_url()
+def build_database_url(database_url: str = "", db_path: str = "") -> str:
+    """Build an async-compatible database URL.
 
-engine = create_async_engine(DATABASE_URL, **_engine_kwargs(DATABASE_URL))
-async_session_maker = async_sessionmaker(
-    bind=engine,
-    expire_on_commit=False,
-    class_=AsyncSession,
-)
+    Falls back to environment variables for backwards compatibility with
+    scripts that do not use the bootstrap layer.
+    """
+    url = database_url or os.getenv("DATABASE_URL", "")
+    if url:
+        if url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return url
+    path = db_path or os.getenv("DB_PATH", "./septum.db")
+    return f"sqlite+aiosqlite:///{path}"
+
+
+def initialize_engine(database_url: str) -> None:
+    """Create the global async engine and session maker.
+
+    Called once — either from the application lifespan handler (when
+    ``config.json`` already contains database configuration) or from the
+    setup wizard after the user selects a database.
+    """
+    global _engine, _session_maker
+    if _engine is not None:
+        logger.info("Re-initialising database engine")
+
+    # Ensure the parent directory exists for SQLite databases.
+    if "sqlite" in database_url:
+        from pathlib import Path
+        # sqlite+aiosqlite:///path → strip scheme prefix
+        raw_path = database_url.split("///", 1)[-1] if "///" in database_url else ""
+        if raw_path:
+            Path(raw_path).parent.mkdir(parents=True, exist_ok=True)
+
+    _engine = create_async_engine(database_url, **_engine_kwargs(database_url))
+    _session_maker = async_sessionmaker(
+        bind=_engine,
+        expire_on_commit=False,
+        class_=AsyncSession,
+    )
+    logger.info("Database engine initialised (%s)", "PostgreSQL" if "postgresql" in database_url else "SQLite")
+
+
+def engine_is_ready() -> bool:
+    """Return True if the database engine has been initialised."""
+    return _engine is not None
+
+
+def get_engine() -> AsyncEngine:
+    """Return the global async engine, raising if not yet initialised."""
+    if _engine is None:
+        raise RuntimeError("Database engine not initialised — call initialize_engine() first")
+    return _engine
+
+
+def get_session_maker() -> async_sessionmaker[AsyncSession]:
+    """Return the global session maker, raising if not yet initialised."""
+    if _session_maker is None:
+        raise RuntimeError("Database session maker not initialised")
+    return _session_maker
 
 
 def is_sqlite() -> bool:
     """Return True if the current database backend is SQLite."""
-    return "sqlite" in DATABASE_URL
+    if _engine is None:
+        return True
+    return "sqlite" in str(_engine.url)
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency that yields an async database session."""
-    async with async_session_maker() as session:
+    if _session_maker is None:
+        raise HTTPException(503, "Database not configured yet")
+    async with _session_maker() as session:
         yield session
 
 
 async def init_db() -> None:
     """Create all tables and seed default application settings and regulations.
 
-    For SQLite: uses create_all (development convenience).
+    For SQLite: uses ``create_all`` (development convenience).
     For PostgreSQL: tables should be managed by Alembic; this only seeds defaults.
     """
+    eng = get_engine()
+    sm = get_session_maker()
+
     if is_sqlite():
-        async with engine.begin() as conn:
+        async with eng.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        await _sqlite_ensure_columns()
+        await _sqlite_ensure_columns(eng)
 
-    await _seed_defaults()
+    await _seed_defaults(sm)
 
 
-async def _sqlite_ensure_columns() -> None:
+async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:
     """Add columns that may be missing in an existing SQLite database.
 
     ``create_all`` only creates *new* tables; it never ALTERs existing ones.
@@ -115,7 +171,7 @@ async def _sqlite_ensure_columns() -> None:
         ),
     ]
 
-    async with engine.begin() as conn:
+    async with eng.begin() as conn:
         for table, ddl in migrations:
             cols = await conn.execute(text(f"PRAGMA table_info({table})"))
             col_name = ddl.split("ADD COLUMN ")[1].split()[0]
@@ -124,10 +180,10 @@ async def _sqlite_ensure_columns() -> None:
                 await conn.execute(text(ddl))
 
 
-async def _seed_defaults() -> None:
+async def _seed_defaults(sm: async_sessionmaker[AsyncSession]) -> None:
     """Seed default AppSettings and built-in RegulationRuleset entries."""
 
-    async with async_session_maker() as session:
+    async with sm() as session:
         settings_result = await session.execute(
             select(AppSettings).where(AppSettings.id == 1)
         )
@@ -146,7 +202,7 @@ async def _seed_defaults() -> None:
             settings = AppSettings(
                 id=1,
                 llm_provider=os.getenv("LLM_PROVIDER", "anthropic"),
-                llm_model=os.getenv("LLM_MODEL", "claude-3-5-sonnet-latest"),
+                llm_model=os.getenv("LLM_MODEL", "claude-sonnet-4-20250514"),
                 ollama_base_url=os.getenv(
                     "OLLAMA_BASE_URL", "http://localhost:11434"
                 ),
@@ -204,8 +260,6 @@ async def _seed_defaults() -> None:
             if reg.id not in existing_ids:
                 session.add(reg)
 
-        # Seed minimal Non-PII rules (language-agnostic examples only).
-        # Users should define language-specific rules through the UI/API.
         await session.execute(
             text(
                 "UPDATE app_settings SET ocr_provider = 'paddleocr' "

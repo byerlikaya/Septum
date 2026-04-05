@@ -8,24 +8,24 @@ import { useI18n } from "@/lib/i18n";
 import { ErrorWithRetry } from "@/components/common/ErrorWithRetry";
 import { SkeletonFormFields } from "@/components/common/Skeleton";
 import type { SettingsUpdatePayload, TestStatus } from "@/components/settings/types";
-import { CloudLLMTab } from "@/components/settings/CloudLLMTab";
+import { LLMProviderTab } from "@/components/settings/LLMProviderTab";
 import { PrivacyTab } from "@/components/settings/PrivacyTab";
-import { LocalModelsTab } from "@/components/settings/LocalModelsTab";
 import { RagTab } from "@/components/settings/RagTab";
 import { IngestionTab } from "@/components/settings/IngestionTab";
+import { InfrastructureTab } from "@/components/settings/InfrastructureTab";
 
 type SettingsResponse = AppSettingsResponse;
 
 type SettingsTab =
-  | "cloud-llm"
+  | "llm-provider"
   | "privacy"
-  | "local-models"
   | "rag"
-  | "ingestion";
+  | "ingestion"
+  | "infrastructure";
 
 export default function SettingsPage() {
   const t = useI18n();
-  const [activeTab, setActiveTab] = useState<SettingsTab>("cloud-llm");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("llm-provider");
   const [settings, setSettings] = useState<SettingsResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -102,13 +102,13 @@ export default function SettingsPage() {
         message:
           response.data.message ??
           (response.data.ok
-            ? t("settings.cloud.test.success")
-            : t("settings.cloud.test.failed"))
+            ? t("settings.llm.test.success")
+            : t("settings.llm.test.failed"))
       });
     } catch (err: unknown) {
       // eslint-disable-next-line no-console
       console.error(err);
-      let message = t("settings.cloud.test.failed");
+      let message = t("settings.llm.test.failed");
       const anyErr = err as {
         response?: { data?: { detail?: string; message?: string } };
       };
@@ -138,13 +138,13 @@ export default function SettingsPage() {
         message:
           response.data.message ??
           (response.data.ok
-            ? t("settings.local.test.success")
-            : t("settings.local.test.failed"))
+            ? t("settings.llm.test.success")
+            : t("settings.llm.test.failed"))
       });
     } catch (err: unknown) {
       // eslint-disable-next-line no-console
       console.error(err);
-      let message = t("settings.local.test.failed");
+      let message = t("settings.llm.test.failed");
       const anyErr = err as {
         response?: { data?: { detail?: string; message?: string } };
       };
@@ -164,14 +164,16 @@ export default function SettingsPage() {
     if (!settings) return null;
 
     switch (activeTab) {
-      case "cloud-llm":
+      case "llm-provider":
         return (
-          <CloudLLMTab
+          <LLMProviderTab
             settings={settings}
             onChange={updateField}
             isSaving={isSaving}
-            onTestConnection={handleCloudTest}
-            testStatus={cloudTest}
+            onTestCloud={handleCloudTest}
+            cloudTestStatus={cloudTest}
+            onTestLocal={handleLocalTest}
+            localTestStatus={localTest}
           />
         );
       case "privacy":
@@ -180,16 +182,6 @@ export default function SettingsPage() {
             settings={settings}
             onChange={updateField}
             isSaving={isSaving}
-          />
-        );
-      case "local-models":
-        return (
-          <LocalModelsTab
-            settings={settings}
-            onChange={updateField}
-            isSaving={isSaving}
-            onTestConnection={handleLocalTest}
-            testStatus={localTest}
           />
         );
       case "rag":
@@ -204,6 +196,8 @@ export default function SettingsPage() {
             isSaving={isSaving}
           />
         );
+      case "infrastructure":
+        return <InfrastructureTab />;
       default:
         return null;
     }
@@ -223,22 +217,16 @@ export default function SettingsPage() {
       <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
         <div className="flex shrink-0 gap-1 overflow-x-auto md:w-52 md:flex-col md:overflow-x-visible rounded-lg border border-slate-800 bg-slate-950/80 p-2 text-sm">
           <SettingsTabButton
-            label={t("settings.tabs.cloud.label")}
-            description={t("settings.tabs.cloud.description")}
-            active={activeTab === "cloud-llm"}
-            onClick={() => setActiveTab("cloud-llm")}
+            label={t("settings.tabs.llm.label")}
+            description={t("settings.tabs.llm.description")}
+            active={activeTab === "llm-provider"}
+            onClick={() => setActiveTab("llm-provider")}
           />
           <SettingsTabButton
             label={t("settings.tabs.privacy.label")}
             description={t("settings.tabs.privacy.description")}
             active={activeTab === "privacy"}
             onClick={() => setActiveTab("privacy")}
-          />
-          <SettingsTabButton
-            label={t("settings.tabs.local.label")}
-            description={t("settings.tabs.local.description")}
-            active={activeTab === "local-models"}
-            onClick={() => setActiveTab("local-models")}
           />
           <SettingsTabButton
             label={t("settings.tabs.rag.label")}
@@ -251,6 +239,12 @@ export default function SettingsPage() {
             description={t("settings.tabs.ingestion.description")}
             active={activeTab === "ingestion"}
             onClick={() => setActiveTab("ingestion")}
+          />
+          <SettingsTabButton
+            label={t("settings.tabs.infrastructure.label")}
+            description={t("settings.tabs.infrastructure.description")}
+            active={activeTab === "infrastructure"}
+            onClick={() => setActiveTab("infrastructure")}
           />
         </div>
 

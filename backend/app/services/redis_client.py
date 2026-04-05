@@ -8,7 +8,6 @@ rest of the application operates without Redis.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -18,7 +17,9 @@ _redis_unavailable = False
 
 
 def _get_redis_url() -> str | None:
-    return os.getenv("REDIS_URL") or None
+    from ..bootstrap import get_config
+    url = get_config().redis_url
+    return url or None
 
 
 async def get_redis():

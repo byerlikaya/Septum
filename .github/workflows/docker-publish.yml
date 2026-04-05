@@ -15,9 +15,7 @@ on:
       - main
 
 env:
-  COMBINED_IMAGE: byerlikaya/septum
-  BACKEND_IMAGE: byerlikaya/septum-backend
-  FRONTEND_IMAGE: byerlikaya/septum-frontend
+  IMAGE: byerlikaya/septum
 
 jobs:
   publish:
@@ -60,43 +58,26 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push combined image
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: true
           tags: |
-            ${{ env.COMBINED_IMAGE }}:${{ steps.version.outputs.current }}
-            ${{ env.COMBINED_IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ steps.version.outputs.current }}
+            ${{ env.IMAGE }}:latest
           cache-from: type=gha,scope=combined
           cache-to: type=gha,mode=max,scope=combined
 
-      - name: Build and push backend
-        uses: docker/build-push-action@v6
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@v4
         with:
-          context: ./backend
-          file: ./backend/Dockerfile
-          push: true
-          tags: |
-            ${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.current }}
-            ${{ env.BACKEND_IMAGE }}:latest
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,mode=max,scope=backend
-
-      - name: Build and push frontend
-        uses: docker/build-push-action@v6
-        with:
-          context: ./frontend
-          file: ./frontend/Dockerfile
-          push: true
-          tags: |
-            ${{ env.FRONTEND_IMAGE }}:${{ steps.version.outputs.current }}
-            ${{ env.FRONTEND_IMAGE }}:latest
-          build-args: |
-            NEXT_PUBLIC_API_URL=http://localhost:8000
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=max,scope=frontend
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.IMAGE }}
+          short-description: "Privacy-first AI middleware — anonymize documents, chat with LLMs, no raw PII leaves your machine."
+          readme-filepath: ./README.md
 
       - name: Bump version for next release
         run: |

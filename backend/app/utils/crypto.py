@@ -4,12 +4,10 @@ This module is responsible for managing the application-wide encryption key
 and providing simple helpers to encrypt and decrypt data using AES-256-GCM.
 
 Key management:
-    - The key is expected in the ``ENCRYPTION_KEY`` environment variable as a
+    - The key is loaded from bootstrap configuration (``config.json``) as a
       urlsafe base64-encoded 32-byte value.
-    - If ``ENCRYPTION_KEY`` is missing, a new 256-bit key is generated on the
-      first call to :func:`get_encryption_key` and stored in-process. The
-      generated key is also written back to ``os.environ`` so that subsequent
-      code in the same process can access it.
+    - If the key is missing, a new 256-bit key is generated on the first
+      call to :func:`get_encryption_key` and cached in-process.
 
 All functions are fully type-hinted and avoid logging any sensitive material.
 """
@@ -31,13 +29,14 @@ def generate_key() -> bytes:
     return AESGCM.generate_key(bit_length=256)
 
 
-def _load_key_from_env() -> Optional[bytes]:
-    """Load the encryption key from the ENCRYPTION_KEY environment variable.
+def _load_key_from_config() -> Optional[bytes]:
+    """Load the encryption key from bootstrap configuration.
 
     The value is expected to be urlsafe base64-encoded and must decode to
     exactly 32 bytes.
     """
-    value = os.getenv("ENCRYPTION_KEY")
+    from ..bootstrap import get_config
+    value = get_config().encryption_key
     if not value:
         return None
 
@@ -68,12 +67,9 @@ def get_encryption_key() -> bytes:
     if _ENCRYPTION_KEY is not None:
         return _ENCRYPTION_KEY
 
-    key = _load_key_from_env()
+    key = _load_key_from_config()
     if key is None:
         key = generate_key()
-        os.environ["ENCRYPTION_KEY"] = base64.urlsafe_b64encode(key).decode(
-            "ascii"
-        )
 
     _ENCRYPTION_KEY = key
     return key

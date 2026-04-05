@@ -1,9 +1,9 @@
 # -----------------------------------------------------------------------------
 # Septum — combined backend + frontend image
 #
-# Single-container deployment for quick evaluation. Uses SQLite (no external
-# PostgreSQL or Redis required). For production, use docker-compose.yml with
-# separate backend/frontend images and PostgreSQL + Redis.
+# Single-container deployment. Uses SQLite by default (no external
+# PostgreSQL or Redis required). The setup wizard guides configuration
+# on first run — no .env file needed.
 #
 #   docker run -p 3000:3000 -p 8000:8000 byerlikaya/septum
 # -----------------------------------------------------------------------------
@@ -34,9 +34,10 @@ COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci || npm install
 
 COPY frontend/ .
+COPY VERSION /tmp/VERSION
 RUN mkdir -p public
 ENV NEXT_PUBLIC_API_URL=http://localhost:8000
-RUN npm run build
+RUN NEXT_PUBLIC_APP_VERSION=$(cat /tmp/VERSION | tr -d '[:space:]') npm run build
 
 # ── Stage 3: combined runtime ──
 FROM python:3.12-slim AS runtime
@@ -61,6 +62,9 @@ RUN apt-get update \
 
 WORKDIR /app
 
+# Copy version file
+COPY --chown=septum:septum VERSION /app/VERSION
+
 # Copy backend
 COPY --from=backend-builder /build/.venv /app/backend/.venv
 COPY --chown=septum:septum backend/app/ /app/backend/app/
@@ -73,9 +77,11 @@ COPY --from=frontend-builder --chown=septum:septum /app/.next/standalone /app/fr
 COPY --from=frontend-builder --chown=septum:septum /app/.next/static /app/frontend/.next/static
 COPY --from=frontend-builder --chown=septum:septum /app/public /app/frontend/public
 
-# Writable dirs
+# Writable dirs — declared as VOLUME so data persists across container recreations
 RUN mkdir -p /app/data /app/uploads /app/anon_maps \
     && chown -R septum:septum /app/data /app/uploads /app/anon_maps
+
+VOLUME ["/app/data", "/app/uploads", "/app/anon_maps"]
 
 # Startup script
 COPY --chown=septum:septum <<'STARTUP' /app/start.sh

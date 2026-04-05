@@ -242,6 +242,21 @@ export interface AppSettingsResponse {
   setup_completed: boolean;
 }
 
+export interface SetupStatus {
+  status: "needs_infrastructure" | "needs_application_setup" | "complete";
+  version: string;
+}
+
+export interface TestConnectionResponse {
+  ok: boolean;
+  message?: string;
+}
+
+export interface InitializeResponse {
+  ok: boolean;
+  message?: string;
+}
+
 export interface EntityDetection {
   id: number;
   chunk_id: number;
