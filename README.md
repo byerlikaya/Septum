@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="septum_logo.png" alt="Septum logo" width="220" />
+  <img src="https://raw.githubusercontent.com/byerlikaya/Septum/main/septum_logo.png" alt="Septum logo" width="220" />
 </p>
 
 <h3 align="center">Your data never leaves. Your AI still works.</h3>
@@ -133,11 +133,11 @@ Layers are additive: L1 catches structured identifiers, L2 adds names and locati
 All 17 built-in regulations active. **1 618 algorithmically generated PII values** across 10 entity types (valid Luhn, IBAN MOD-97, TCKN checksums). 150 samples per Presidio type, 100 person names (EN/TR/multilingual), 100 locations (EN/TR), plus alias detection. Fixed seed for full reproducibility.
 
 <p align="center">
-  <img src="screenshots/benchmark-f1-by-type.png" alt="F1 Score by Entity Type" width="900" />
+  <img src="https://raw.githubusercontent.com/byerlikaya/Septum/main/screenshots/benchmark-f1-by-type.png" alt="F1 Score by Entity Type" width="900" />
 </p>
 
 <p align="center">
-  <img src="screenshots/benchmark-layer-comparison.png" alt="Detection Accuracy by Pipeline Layer" width="700" />
+  <img src="https://raw.githubusercontent.com/byerlikaya/Septum/main/screenshots/benchmark-layer-comparison.png" alt="Detection Accuracy by Pipeline Layer" width="700" />
 </p>
 
 | Layer | Entities | Types | Precision | Recall | F1 |

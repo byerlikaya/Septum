@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="septum_logo.png" alt="Septum logosu" width="220" />
+  <img src="https://raw.githubusercontent.com/byerlikaya/Septum/main/septum_logo.png" alt="Septum logosu" width="220" />
 </p>
 
 <h3 align="center">Veriniz dışarı çıkmaz. Yapay zekanız çalışmaya devam eder.</h3>
@@ -133,11 +133,11 @@ Katmanlar kümülatiftir: K1 yapısal tanımlayıcıları yakalar, K2 desenlerin
 Tüm 17 yerleşik regülasyon aktif. 10 varlık tipinde **1 618 algoritmik olarak üretilmiş PII değeri** (geçerli Luhn, IBAN MOD-97, TCKN checksum'ları). Presidio tipi başına 150 örnek, 100 kişi ismi (EN/TR/çok dilli), 100 konum (EN/TR) ve takma ad tespiti. Tam tekrarlanabilirlik için sabit seed.
 
 <p align="center">
-  <img src="screenshots/benchmark-f1-by-type.png" alt="Varlık Tipine Göre F1 Skoru" width="900" />
+  <img src="https://raw.githubusercontent.com/byerlikaya/Septum/main/screenshots/benchmark-f1-by-type.png" alt="Varlık Tipine Göre F1 Skoru" width="900" />
 </p>
 
 <p align="center">
-  <img src="screenshots/benchmark-layer-comparison.png" alt="Katmana Göre Tespit Doğruluğu" width="700" />
+  <img src="https://raw.githubusercontent.com/byerlikaya/Septum/main/screenshots/benchmark-layer-comparison.png" alt="Katmana Göre Tespit Doğruluğu" width="700" />
 </p>
 
 | Katman | Varlıklar | Tipler | Precision | Recall | F1 |
