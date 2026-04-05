@@ -2,7 +2,7 @@
   <img src="septum_logo.png" alt="Septum logo" width="220" />
 </p>
 
-<h3 align="center">Use AI on your company data without leaking personal information.</h3>
+<h3 align="center">Your data never leaves. Your AI still works.</h3>
 
 <p align="center">
   <img src="https://img.shields.io/badge/backend-FastAPI-blue" alt="Backend: FastAPI" />

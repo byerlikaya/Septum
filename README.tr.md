@@ -2,7 +2,7 @@
   <img src="septum_logo.png" alt="Septum logosu" width="220" />
 </p>
 
-<h3 align="center">Kişisel veri sızdırmadan, şirket verinizle yapay zekâ kullanın.</h3>
+<h3 align="center">Veriniz dışarı çıkmaz. Yapay zekanız çalışmaya devam eder.</h3>
 
 <p align="center">
   <img src="https://img.shields.io/badge/backend-FastAPI-blue" alt="Backend: FastAPI" />
