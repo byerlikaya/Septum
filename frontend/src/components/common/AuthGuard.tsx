@@ -45,12 +45,14 @@ export function AuthGuard({ children }: AuthGuardProps) {
     };
   }, [isPublicPage]);
 
-  if (status === "loading") return null;
+  useEffect(() => {
+    if (status === "unauthenticated" && !isPublicPage) {
+      router.replace("/login");
+    }
+  }, [status, isPublicPage, router]);
 
-  if (status === "unauthenticated" && !isPublicPage) {
-    router.replace("/login");
-    return null;
-  }
+  if (status === "loading") return null;
+  if (status === "unauthenticated" && !isPublicPage) return null;
 
   return <>{children}</>;
 }

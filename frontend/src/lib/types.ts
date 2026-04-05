@@ -236,6 +236,9 @@ export interface AppSettingsResponse {
   recursive_email_attachments: boolean;
   default_active_regulations: string[];
   ner_model_overrides: Record<string, string> | null;
+  has_anthropic_key: boolean;
+  has_openai_key: boolean;
+  has_openrouter_key: boolean;
   setup_completed: boolean;
 }
 
