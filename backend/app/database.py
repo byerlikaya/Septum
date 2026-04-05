@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from .models import Base
 from .models.chat_session import ChatMessage, ChatSession  # noqa: F401
+from .models.document import Chunk, Document  # noqa: F401
 from .models.entity_detection import EntityDetection  # noqa: F401
 from .models.regulation import NonPiiRule, RegulationRuleset
 from .models.settings import AppSettings

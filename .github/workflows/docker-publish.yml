@@ -1,9 +1,16 @@
 name: Docker Hub Publish
 
+# Triggered when a commit to main contains [release] in its message.
+# Version is read from the VERSION file, images are tagged and pushed,
+# then VERSION is auto-bumped (patch) and committed back.
+#
+# Commit message tags:
+#   [release]        — bump patch  (0.1.0 → 0.1.1)
+#   [release:minor]  — bump minor  (0.1.0 → 0.2.0)
+#   [release:major]  — bump major  (0.1.0 → 1.0.0)
+
 on:
   push:
-    tags:
-      - "v*"
     branches:
       - main
 
@@ -13,14 +20,36 @@ env:
   FRONTEND_IMAGE: byerlikaya/septum-frontend
 
 jobs:
-  build-and-push:
+  publish:
+    if: contains(github.event.head_commit.message, '[release]')
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Read version and determine bump type
+        id: version
+        run: |
+          CURRENT=$(cat VERSION | tr -d '[:space:]')
+          echo "current=${CURRENT}" >> "$GITHUB_OUTPUT"
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          MSG="${{ github.event.head_commit.message }}"
+
+          if echo "$MSG" | grep -q '\[release:major\]'; then
+            MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0
+          elif echo "$MSG" | grep -q '\[release:minor\]'; then
+            MINOR=$((MINOR + 1)); PATCH=0
+          else
+            PATCH=$((PATCH + 1))
+          fi
+
+          NEXT="${MAJOR}.${MINOR}.${PATCH}"
+          echo "next=${NEXT}" >> "$GITHUB_OUTPUT"
+          echo "Publishing v${CURRENT}, next will be v${NEXT}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -31,30 +60,15 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extract version from tag
-        id: meta
-        run: |
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            VERSION="${{ github.ref_name }}"
-            VERSION="${VERSION#v}"
-            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "tags_combined=${{ env.COMBINED_IMAGE }}:${VERSION},${{ env.COMBINED_IMAGE }}:latest" >> "$GITHUB_OUTPUT"
-            echo "tags_backend=${{ env.BACKEND_IMAGE }}:${VERSION},${{ env.BACKEND_IMAGE }}:latest" >> "$GITHUB_OUTPUT"
-            echo "tags_frontend=${{ env.FRONTEND_IMAGE }}:${VERSION},${{ env.FRONTEND_IMAGE }}:latest" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=latest" >> "$GITHUB_OUTPUT"
-            echo "tags_combined=${{ env.COMBINED_IMAGE }}:latest" >> "$GITHUB_OUTPUT"
-            echo "tags_backend=${{ env.BACKEND_IMAGE }}:latest" >> "$GITHUB_OUTPUT"
-            echo "tags_frontend=${{ env.FRONTEND_IMAGE }}:latest" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Build and push combined image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags_combined }}
+          tags: |
+            ${{ env.COMBINED_IMAGE }}:${{ steps.version.outputs.current }}
+            ${{ env.COMBINED_IMAGE }}:latest
           cache-from: type=gha,scope=combined
           cache-to: type=gha,mode=max,scope=combined
 
@@ -64,7 +78,9 @@ jobs:
           context: ./backend
           file: ./backend/Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags_backend }}
+          tags: |
+            ${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.current }}
+            ${{ env.BACKEND_IMAGE }}:latest
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
@@ -74,8 +90,19 @@ jobs:
           context: ./frontend
           file: ./frontend/Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags_frontend }}
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:${{ steps.version.outputs.current }}
+            ${{ env.FRONTEND_IMAGE }}:latest
           build-args: |
             NEXT_PUBLIC_API_URL=http://localhost:8000
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
+
+      - name: Bump version for next release
+        run: |
+          echo "${{ steps.version.outputs.next }}" > VERSION
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          git commit -m "Bump version to ${{ steps.version.outputs.next }}"
+          git push

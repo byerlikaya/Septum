@@ -18,6 +18,7 @@ setup_structured_logging(_os.getenv("LOG_LEVEL", "INFO"))
 import os
 import threading
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -167,7 +168,7 @@ async def global_exception_handler(
 
 
 @app.get("/health")
-async def health(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
+async def health(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     """Health check endpoint that reports backend status and configuration."""
     result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
     settings = result.scalar_one_or_none()

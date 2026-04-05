@@ -45,7 +45,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/app/backend/.venv/bin:$PATH" \
     NODE_ENV=production \
-    DB_PATH=/app/data/septum.db
+    DB_PATH=/app/data/septum.db \
+    DOCUMENT_STORAGE_DIR=/app/uploads \
+    ANON_MAP_STORAGE_DIR=/app/anon_maps
 
 # Install runtime dependencies + Node.js
 RUN apt-get update \
