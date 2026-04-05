@@ -4,9 +4,7 @@ name: Docker Hub Publish
 # Publishes the version in the VERSION file, then bumps patch for next.
 
 on:
-  workflow_run:
-    workflows: ["CI — tests, lint, security"]
-    types: [completed]
+  push:
     branches: [main]
 
 env:
@@ -14,9 +12,7 @@ env:
 
 jobs:
   publish:
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      contains(github.event.workflow_run.head_commit.message, '[release]')
+    if: contains(github.event.head_commit.message, '[release]')
     runs-on: ubuntu-latest
     permissions:
       contents: write
