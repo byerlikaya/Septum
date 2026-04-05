@@ -1,25 +1,22 @@
 name: Docker Hub Publish
 
-# Triggered when a commit to main contains [release] in its message.
-# Version is read from the VERSION file, images are tagged and pushed,
-# then VERSION is auto-bumped (patch) and committed back.
-#
-# Commit message tags:
-#   [release]        — bump patch  (0.1.0 → 0.1.1)
-#   [release:minor]  — bump minor  (0.1.0 → 0.2.0)
-#   [release:major]  — bump major  (0.1.0 → 1.0.0)
+# Triggered when a [release] commit passes all CI tests.
+# Publishes the version in the VERSION file, then bumps patch for next.
 
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows: ["CI — tests, lint, security"]
+    types: [completed]
+    branches: [main]
 
 env:
   IMAGE: byerlikaya/septum
 
 jobs:
   publish:
-    if: contains(github.event.head_commit.message, '[release]')
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      contains(github.event.workflow_run.head_commit.message, '[release]')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -28,26 +25,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Read version and determine bump type
+      - name: Read version
         id: version
         run: |
           CURRENT=$(cat VERSION | tr -d '[:space:]')
           echo "current=${CURRENT}" >> "$GITHUB_OUTPUT"
 
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-          MSG="${{ github.event.head_commit.message }}"
-
-          if echo "$MSG" | grep -q '\[release:major\]'; then
-            MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0
-          elif echo "$MSG" | grep -q '\[release:minor\]'; then
-            MINOR=$((MINOR + 1)); PATCH=0
-          else
-            PATCH=$((PATCH + 1))
-          fi
-
-          NEXT="${MAJOR}.${MINOR}.${PATCH}"
-          echo "next=${NEXT}" >> "$GITHUB_OUTPUT"
-          echo "Publishing v${CURRENT}, next will be v${NEXT}"
+          PATCH=$((PATCH + 1))
+          echo "next=${MAJOR}.${MINOR}.${PATCH}" >> "$GITHUB_OUTPUT"
+          echo "Publishing v${CURRENT}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

@@ -8,12 +8,11 @@ not required — these endpoints are only meaningful during first-time setup.
 """
 
 import logging
-from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from .. import bootstrap
@@ -316,8 +315,8 @@ async def whisper_status(model: str = "base") -> WhisperStatusResponse:
     except ImportError:
         return WhisperStatusResponse(installed=False, model=model, message="whisper package not available")
 
-    from pathlib import Path
     import os
+    from pathlib import Path
     base_cache = Path(os.getenv("XDG_CACHE_HOME", str(Path.home() / ".cache")))
     cache_dir = base_cache / "whisper"
     models_map = getattr(whisper, "_MODELS", {})
@@ -345,6 +344,7 @@ async def install_whisper(body: InstallWhisperRequest):
     import json as _json
     import os
     from pathlib import Path
+
     from fastapi.responses import StreamingResponse
 
     model_name = body.model.strip() or "base"
@@ -439,7 +439,6 @@ class UpdateCheckResponse(BaseModel):
 @router.get("/check-update", response_model=UpdateCheckResponse)
 async def check_update() -> UpdateCheckResponse:
     """Check Docker Hub for a newer version of the Septum image."""
-    import asyncio
     current = _read_version()
 
     try:
@@ -496,8 +495,8 @@ def _version_gt(a: str, b: str) -> bool:
 async def _run_alembic_upgrade(database_url: str) -> None:
     """Run Alembic migrations programmatically."""
     import asyncio
-    import subprocess
     import os
+    import subprocess
 
     env = os.environ.copy()
     env["DATABASE_URL"] = database_url

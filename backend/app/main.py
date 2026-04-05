@@ -10,27 +10,25 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
-from .utils.logging_config import setup_structured_logging
 from . import bootstrap as _bootstrap_early
+from .utils.logging_config import setup_structured_logging
 
 setup_structured_logging(_bootstrap_early.get_config().log_level)
 
-import threading
-from contextlib import asynccontextmanager
-from typing import Any
+import threading  # noqa: E402
+from contextlib import asynccontextmanager  # noqa: E402
+from typing import Any  # noqa: E402
 
-from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from starlette import status as http_status
+from fastapi import FastAPI, HTTPException, Request  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+from sqlalchemy import select  # noqa: E402
+from starlette import status as http_status  # noqa: E402
 
-from . import bootstrap
-from .database import (
+from . import bootstrap  # noqa: E402
+from .database import (  # noqa: E402
     build_database_url,
     engine_is_ready,
-    get_db,
     get_session_maker,
     init_db,
     initialize_engine,
@@ -203,9 +201,10 @@ async def global_exception_handler(
 @app.get("/health")
 async def health() -> dict[str, Any]:
     """Health check endpoint that reports backend status and configuration."""
+    from pathlib import Path as _Path
+
     from .services.redis_client import redis_ping
 
-    from pathlib import Path as _Path
     _version_file = _Path(__file__).resolve().parents[2] / "VERSION"
     _version = _version_file.read_text().strip() if _version_file.exists() else "dev"
 

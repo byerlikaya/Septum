@@ -9,6 +9,7 @@ All notable changes to this project are documented here in a high‑level, date�
 - **Docker improvements**: `VOLUME` directive for data persistence. Named volumes in README commands. VERSION file baked into image + shown in wizard welcome and sidebar. Docker Hub description auto-updated from README on release. `paddlepaddle` pinned to 3.2.2 for Docker Linux ARM64 compatibility. `python-dotenv` dependency removed.
 - **Update notification**: `GET /api/setup/check-update` checks Docker Hub for newer versions. Sidebar shows banner with `docker pull` command when update available.
 - **Misc fixes**: API key fields use `WebkitTextSecurity` to prevent browser password prompts. Whisper downloads use `whisper._download()` instead of `load_model()` to avoid OOM. Regulation activation uses correct endpoint (`/activate`). Default log level changed to DEBUG. `host.docker.internal` as default Ollama URL for Docker environments. Old screenshots removed from README (placeholder for demo GIF).
+- **CI-gated Docker releases and backend import hygiene**: Docker Hub publish workflow runs after the main CI workflow completes successfully on `main`, and only when that run’s head commit message contains `[release]` (failed CI no longer triggers a push). Post-publish `VERSION` bump is patch-only (`[release:minor]` / `[release:major]` handling removed from the workflow). Unused imports and import order cleaned up in `main`, `setup` router, and `bootstrap`.
 
 ### 2026-04-05
 
