@@ -13,6 +13,9 @@
     <img src="https://img.shields.io/badge/lang-TR-red" alt="Turkish README" />
   </a>
   <br />
+  <a href="https://hub.docker.com/r/byerlikaya/septum">
+    <img src="https://img.shields.io/docker/pulls/byerlikaya/septum?label=docker%20pulls" alt="Docker Pulls" />
+  </a>
   <img src="https://img.shields.io/badge/security_scan-passing_(2026--03--10)-brightgreen" alt="Security Scan: passing (2026-03-10)" />
   <img src="https://img.shields.io/badge/deps-audit_clean-brightgreen" alt="Dependencies: audit clean" />
 </p>
@@ -215,7 +218,18 @@ For full pipeline details, see [Architecture — PII Detection & Anonymisation P
 
 ## Quick Start
 
-### Docker Compose (recommended)
+### Try it now (single command)
+
+```bash
+docker run -p 3000:3000 -p 8000:8000 \
+  -e LLM_PROVIDER=anthropic \
+  -e ANTHROPIC_API_KEY=your-key-here \
+  byerlikaya/septum
+```
+
+Open `http://localhost:3000`. Backend + frontend in one container, SQLite included — no external dependencies.
+
+### Docker Compose (production)
 
 ```bash
 cp .env.example .env
@@ -223,13 +237,7 @@ cp .env.example .env
 docker compose up
 ```
 
-Open `http://localhost:3000`. A setup wizard guides you through the first-time configuration.
-
-To include a local Ollama instance:
-
-```bash
-docker compose --profile ollama up
-```
+Starts PostgreSQL, Redis, backend, and frontend. Add `--profile ollama` for a local Ollama instance.
 
 ### Local Development
 

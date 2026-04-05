@@ -13,6 +13,9 @@
     <img src="https://img.shields.io/badge/lang-EN-blue" alt="English README" />
   </a>
   <br />
+  <a href="https://hub.docker.com/r/byerlikaya/septum">
+    <img src="https://img.shields.io/docker/pulls/byerlikaya/septum?label=docker%20pulls" alt="Docker Pulls" />
+  </a>
   <img src="https://img.shields.io/badge/guvenlik_taramasi-passing_(2026--03--10)-brightgreen" alt="Güvenlik taraması: passing (2026-03-10)" />
   <img src="https://img.shields.io/badge/bagimliliklar-denetim_temiz-brightgreen" alt="Bağımlılıklar: denetim temiz" />
 </p>
@@ -215,7 +218,18 @@ Pipeline detayları için bkz. [Mimari — PII Tespiti ve Anonimleştirme Akış
 
 ## Hızlı Başlangıç
 
-### Docker Compose (önerilen)
+### Hemen deneyin (tek komut)
+
+```bash
+docker run -p 3000:3000 -p 8000:8000 \
+  -e LLM_PROVIDER=anthropic \
+  -e ANTHROPIC_API_KEY=your-key-here \
+  byerlikaya/septum
+```
+
+`http://localhost:3000` adresini açın. Backend + frontend tek container'da, SQLite dahil — harici bağımlılık yok.
+
+### Docker Compose (production)
 
 ```bash
 cp .env.example .env
@@ -223,13 +237,7 @@ cp .env.example .env
 docker compose up
 ```
 
-`http://localhost:3000` adresini açın. Kurulum sihirbazı ilk yapılandırma adımlarında size rehberlik eder.
-
-Yerel Ollama instance'ı eklemek için:
-
-```bash
-docker compose --profile ollama up
-```
+PostgreSQL, Redis, backend ve frontend'i başlatır. Yerel Ollama için `--profile ollama` ekleyin.
 
 ### Yerel Geliştirme
 
