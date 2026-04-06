@@ -48,6 +48,8 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          platforms: linux/amd64
+          provenance: false
           push: true
           tags: |
             ${{ env.IMAGE }}:${{ steps.version.outputs.current }}
