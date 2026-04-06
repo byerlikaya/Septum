@@ -21,7 +21,7 @@ export default function LoginPage() {
     try {
       const { access_token } = await authLogin(email, password);
       setAuthToken(access_token);
-      router.push("/chat");
+      window.location.href = "/chat";
     } catch {
       setError(t("auth.login.error"));
     } finally {

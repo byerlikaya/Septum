@@ -26,7 +26,7 @@ export default function RegisterPage() {
     try {
       const { access_token } = await authRegister(email, password);
       setAuthToken(access_token);
-      router.push("/chat");
+      window.location.href = "/chat";
     } catch {
       setError(t("auth.register.error"));
     } finally {
