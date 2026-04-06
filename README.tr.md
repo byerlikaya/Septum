@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/byerlikaya/Septum/main/septum_logo.png" alt="Septum logosu" width="220" />
+  <img src="septum_logo.png" alt="Septum logosu" width="220" />
 </p>
 
 <h3 align="center">Veriniz dışarı çıkmaz. Yapay zekanız çalışmaya devam eder.</h3>
@@ -36,7 +36,7 @@
 
 ## Septum Nedir?
 
-Septum, dokümanlarınız ile bulut LLM'ler arasında duran bir **gizlilik odaklı AI ara katmanıdır**. ChatGPT, Claude veya herhangi bir LLM ile hassas şirket verilerinizi sorgulamanızı sağlar — **ham kişisel veriler asla makinenizi terk etmeden**.
+Septum, dokümanlarınız ile bulut LLM'ler arasında duran bir **gizlilik odaklı AI ara katmanıdır**. ChatGPT, Claude veya herhangi bir LLM ile hassas şirket verilerinizi sorgulamanızı sağlar — **kişisel verileri otomatik tespit edip maskeleyerek buluta göndermeden önce korur**.
 
 1. Dokümanlarınızı (PDF, Word, Excel, görsel, ses vb.) yüklersiniz.
 2. Septum tüm kişisel verileri **yerelde tespit edip maskeler**.
@@ -98,7 +98,7 @@ LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerç
 
 ## Temel Özellikler
 
-- **Yerel PII Koruması** — Ham kişisel veri asla makinenizi terk etmez. Dosyalar şifreli saklanır (AES-256-GCM).
+- **Yerel PII Koruması** — Kişisel verileri buluta göndermeden önce tespit edip maskeler. Dosyalar şifreli saklanır (AES-256-GCM). **Onay Mekanizması** her LLM çağrısından önce maskelenmiş çıktıyı incelemenizi sağlar — onayınız olmadan hiçbir şey gönderilmez.
 - **Çoklu Regülasyon Desteği** — 17 hazır paket (GDPR, KVKK, CCPA, HIPAA, LGPD, PIPEDA, PDPA, APPI, PIPL, POPIA, DPDP, UK GDPR ve daha fazlası). Aynı anda birden fazla aktif; en kısıtlayıcı kazanır.
 - **Onay Mekanizması** — LLM'e gönderilmeden önce neyin paylaşılacağını görün ve onaylayın.
 - **Özel Kurallar** — Kendi kalıplarınızı tanımlayın: regex, anahtar kelime listeleri veya LLM-tabanlı tespit.
@@ -138,34 +138,46 @@ Septum, hem yanlış negatifleri (kaçan PII) hem de yanlış pozitifleri (gerek
 
 | Katman | Teknoloji | Tespit Edilen Varlık Tipleri |
 |:---:|-----------|-------------|
-| 1 | **Presidio** — regex desenleri + algoritmik doğrulayıcılar (Luhn, IBAN MOD-97, TCKN checksum) | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS |
-| 2 | **NER** — HuggingFace XLM-RoBERTa, dile özgü model seçimi (20+ dil) | PERSON_NAME, LOCATION |
-| 3 | **Ollama** — bağlam duyarlı doğrulama ve takma ad tespiti için yerel LLM | PERSON_NAME takma adları/lakapları; K1/K2'den gelen yanlış pozitifleri filtreler |
+| 1 | **Presidio** — regex desenleri + algoritmik doğrulayıcılar (Luhn, IBAN MOD-97, TCKN, CPF, SSN checksum'ları). Çok dilli bağlam anahtar kelimeleri ile context-aware tanıma. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE |
+| 2 | **NER** — HuggingFace XLM-RoBERTa, dile özgü model seçimi (20+ dil). BÜYÜK HARF girdi otomatik başlık formatına dönüştürülür. | PERSON_NAME, LOCATION, ORGANIZATION_NAME |
+| 3 | **Ollama** — bağlam duyarlı doğrulama, takma ad tespiti ve semantik varlık tespiti için yerel LLM | PERSON_NAME takma adları/lakapları; DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE |
 
-Katmanlar kümülatiftir: K1 yapısal tanımlayıcıları yakalar, K2 desenlerin yakalayamadığı isimleri ve konumları ekler, K3 lakap gibi gayriresmi referansları yakalar ve belirsiz tespitleri doğrular. Sonuçlar coreference çözümleme ile birleştirilir; böylece "Ahmet", "A. Yılmaz" ve "Bay Yılmaz" hepsi aynı `[PERSON_1]` placeholder'ına eşlenir.
+Katmanlar kümülatiftir: K1 yapısal tanımlayıcıları ve bağlam etiketli değerleri (doğum tarihleri, pasaport numaraları, cihaz ID'leri vb.) yakalar, K2 transformer NER ile isimleri, konumları ve kuruluşları ekler (BÜYÜK HARF metin dahil), K3 yerel LLM ile semantik tipleri (tıbbi teşhisler, ilaçlar, dini/siyasi/etnik referanslar) ve takma adları tespit eder. Sonuçlar coreference çözümleme ile birleştirilir; böylece "Ahmet", "A. Yılmaz" ve "Bay Yılmaz" hepsi aynı `[PERSON_1]` placeholder'ına eşlenir.
 
-> **Semantik varlık tipleri** (DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION vb.) regülasyonlar tarafından tanımlanır ancak tespit için özel kurallar veya Ollama katmanı gerektirir — yalnızca regex ile yakalanamaz.
+> **Kıyaslama modelleri:** NER, `akdeniz27/xlm-roberta-base-turkish-ner` (TR) ve `Davlan/xlm-roberta-base-wikiann-ner` (diğer tüm diller) kullanır. Ollama katmanı `aya-expanse:8b` kullanır. Sonuçlar farklı Ollama modelleri ile değişebilir — daha büyük modeller genellikle semantik tespit doğruluğunu artırır.
 
 ### Kıyaslama Sonuçları
 
-Tüm 17 yerleşik regülasyon aktif. 10 varlık tipinde **1 618 algoritmik olarak üretilmiş PII değeri** (geçerli Luhn, IBAN MOD-97, TCKN checksum'ları). Presidio tipi başına 150 örnek, 100 kişi ismi (EN/TR/çok dilli), 100 konum (EN/TR) ve takma ad tespiti. Tam tekrarlanabilirlik için sabit seed.
+Tüm 17 yerleşik regülasyon aktif. 23 varlık tipinde **3,268 algoritmik olarak üretilmiş PII değeri** (geçerli Luhn, IBAN MOD-97, TCKN checksum'ları). Presidio tipi başına 150 örnek, 160 kişi ismi (karma büyük/küçük harf + BÜYÜK HARF, EN/TR), 100 konum (EN/TR), 30 kuruluş ismi (EN/TR) ve takma ad tespiti. Tam tekrarlanabilirlik için sabit seed.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/byerlikaya/Septum/main/screenshots/benchmark-f1-by-type.png" alt="Varlık Tipine Göre F1 Skoru" width="900" />
+  <img src="screenshots/benchmark-f1-by-type.png" alt="Varlık Tipine Göre F1 Skoru" width="900" />
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/byerlikaya/Septum/main/screenshots/benchmark-layer-comparison.png" alt="Katmana Göre Tespit Doğruluğu" width="700" />
+  <img src="screenshots/benchmark-layer-comparison.png" alt="Katmana Göre Tespit Doğruluğu" width="700" />
 </p>
 
 | Katman | Varlıklar | Tipler | Precision | Recall | F1 |
 |---|:---:|:---:|:---:|:---:|:---:|
-| Presidio (K1) — desenler + doğrulayıcılar | 1 200 | 8 | %100 | %100 | %100 |
-| NER (K2) — XLM-RoBERTa | 200 | 2 | %98,0 | %97,5 | %97,7 |
-| Ollama (K3) — aya-expanse:8b | 218 | 2 | %100 | %99,1 | %99,5 |
-| **Birleşik** | **1 618** | **10** | **%99,8** | **%99,6** | **%99,7** |
+| Presidio (K1) — desenler + doğrulayıcılar | 1,710 | 20 | %100 | %94,4 | %97,1 |
+| NER (K2) — XLM-RoBERTa + BÜYÜK HARF normalizasyonu | 770 | 3 | %97,5 | %92,7 | %95,1 |
+| Ollama (K3) — aya-expanse:8b | 788 | 3 | %99,7 | %91,6 | %95,5 |
+| **Birleşik** | **3,268** | **23** | **%99,3** | **%93,3** | **%96,2** |
 
-> Ollama (K3), takma adları yakalayarak PERSON_NAME recall'ını %97'den %100'e çıkarır ve bağlam duyarlı doğrulama ile yanlış pozitifleri ortadan kaldırır. Tekrarlanabilir: `pytest tests/benchmark_detection.py -v -s`
+> NER (K2), tıbbi ve hukuki belgelerde yaygın olan BÜYÜK HARF isimleri otomatik başlık formatı normalizasyonuyla tespit eder ve kuruluş isimlerini tanır. Ollama (K3) adayları doğrular ve takma adları yakalar. Benchmark, gerçek dünya seviyelerine düşüren adversarial edge case'leri (boşluklu IBAN, noktalı telefon numaraları vb.) içerir. Tekrarlanabilir: `pytest tests/benchmark_detection.py -v -s`
+
+### Tespit Kapsamı ve Sınırlamalar
+
+**Hiçbir PII tespit sistemi %100 doğru değildir.** Septum'un benchmark'ı bu konuda şeffaftır:
+
+- **Regülasyonlardaki 37 varlık tipinin tamamı artık tespit edilebilir** — 21'i Presidio pattern recognizer'ları, 3'ü NER, 9'u Ollama semantik tespit, 7'si üst tip kapsamı (örn. CITY → LOCATION, FIRST_NAME → PERSON_NAME) ile.
+- **23 varlık tipi aktif olarak kıyaslanır** — 14 dilde 3.268 test değeri ve adversarial edge case'ler dahil.
+- **Semantik tipler** (DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION vb.) Ollama katmanı tarafından tespit edilir ve çalışan bir yerel LLM gerektirir. Tespit doğruluğu kullanılan modele bağlıdır (benchmark `aya-expanse:8b` kullanır).
+- **Bağlam bağımlı tanıyıcılar** (DATE_OF_BIRTH, PASSPORT_NUMBER, SSN, TAX_ID vb.) false positive'leri azaltmak için değer yakınında bağlam anahtar kelimeleri gerektirir. 8+ dilde çok dilli anahtar kelimeler desteklenir.
+- **Adversarial formatlar** (boşluklu TCKN, noktalı telefon numaraları) kontrollü format testlerinden daha düşük tespit oranları gösterir. Bu dürüstçe raporlanır.
+
+**Onay Mekanizması güvenlik ağınızdır.** LLM'e metin gönderilmeden önce neyin iletileceğini tam olarak görür ve reddedebilirsiniz. Bu tasarım gereğidir — otomatik tespit riski azaltır, insan incelemesi ortadan kaldırır.
 
 Pipeline detayları için bkz. [Mimari — PII Tespiti ve Anonimleştirme Akışı](ARCHITECTURE.tr.md#pii-tespiti-ve-anonimleştirme-akışı).
 

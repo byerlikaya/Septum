@@ -99,6 +99,29 @@ _OLLAMA_VALIDATION_PASSTHROUGH_TYPES: frozenset[str] = frozenset(
 _MIN_TEXT_LENGTH_FOR_NER = 50
 _MIN_TEXT_LENGTH_FOR_OLLAMA_ALIAS = 80
 
+_UPPER_WORD_RE = re.compile(r"\b\w{2,}\b")
+
+
+def _titlecase_upper_segments(text: str) -> str:
+    """Convert ALL CAPS words to title case for NER processing.
+
+    Transformer NER models are trained on mixed-case text and perform
+    poorly on ALL CAPS input.  This converts consecutive uppercase words
+    (2+ chars each) to title case so models can recognise names like
+    "BARIŞ YERLİKAYA" → "Barış Yerlikaya".
+    Character positions stay the same (only case changes, not length).
+    """
+    def _to_title(m: re.Match) -> str:
+        word = m.group()
+        if word.isupper() and len(word) >= 2:
+            # Turkish İ (U+0130) lowercases to i + combining dot (U+0307)
+            # in Python; strip the combining dot to get plain 'i'.
+            lowered = word[1:].lower().replace("i\u0307", "i")
+            return word[0] + lowered
+        return word
+
+    return _UPPER_WORD_RE.sub(_to_title, text)
+
 # FUTURE: extend Presidio to run with the detected document language once
 # per-language SpaCy models are registered.  Until then, the custom regex-
 # and validator-based recognizers all declare supported_language="en", so
@@ -121,17 +144,28 @@ _PRESIDIO_REVERSE_ALIASES: dict[str, str] = {
 # Ollama layers rather than Presidio pattern recognizers.  Excluded from
 # the recognizer coverage validation to avoid noisy warnings.
 _NER_LAYER_ENTITY_TYPES: frozenset[str] = frozenset({
-    "PERSON_NAME", "FIRST_NAME", "LAST_NAME", "LOCATION",
+    "PERSON_NAME", "FIRST_NAME", "LAST_NAME", "LOCATION", "ORGANIZATION_NAME",
 })
 
 # Entity types that are inherently contextual / semantic and cannot be
 # detected by regex pattern matching.  These rely entirely on the NER and
 # Ollama layers for detection.
+# Entity sub-types that are inherently covered when a parent type is
+# detected. For example, any PERSON_NAME detection also satisfies
+# FIRST_NAME and LAST_NAME requirements from regulations.
+_PARENT_TYPE_COVERAGE: dict[str, str] = {
+    "FIRST_NAME": "PERSON_NAME",
+    "LAST_NAME": "PERSON_NAME",
+    "CITY": "LOCATION",
+    "STREET_ADDRESS": "POSTAL_ADDRESS",
+    "BANK_ACCOUNT_NUMBER": "IBAN",
+    "FINANCIAL_ACCOUNT": "CREDIT_CARD_NUMBER",
+}
+
 _CONTEXTUAL_ENTITY_TYPES: frozenset[str] = frozenset({
     "DIAGNOSIS", "MEDICATION", "CLINICAL_NOTE",
     "POLITICAL_OPINION", "RELIGION", "ETHNICITY", "SEXUAL_ORIENTATION",
     "BIOMETRIC_ID", "DNA_PROFILE",
-    "COOKIE_ID", "DEVICE_ID",
 })
 
 
@@ -541,6 +575,398 @@ class CreditCardNumberRecognizer(BaseCustomRecognizer):
         return results
 
 
+class DateOfBirthRecognizer(BaseCustomRecognizer):
+    """Detects dates preceded by birth-related context labels.
+
+    Matches common date formats (DD/MM/YYYY, YYYY-MM-DD, DD.MM.YYYY, etc.)
+    when a contextual keyword appears within 40 characters before the date.
+    Context keywords are language-agnostic abbreviations and common labels.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            supported_entities=["DATE_OF_BIRTH"],
+            supported_language="en",
+        )
+        self._date_pattern = re.compile(
+            r"\b"
+            r"(?:"
+            r"\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}"  # DD/MM/YYYY, DD.MM.YY
+            r"|\d{4}[/.\-]\d{1,2}[/.\-]\d{1,2}"    # YYYY-MM-DD
+            r")"
+            r"\b"
+        )
+        self._context_pattern = re.compile(
+            r"(?:d\.?o\.?b\.?|birth\s*date|date\s*of\s*birth"
+            r"|born\s*(?:on)?|naissance|nacimiento|nascimento"
+            r"|geburtsdatum|geboortedatum|data\s*di\s*nascita"
+            r"|do[gğ]um\s*tarihi|fecha\s*de\s*nacimiento"
+            r"|data\s*de\s*nascimento|дата\s*рождения"
+            r"|تاريخ\s*الميلاد|出生日期|生年月日|जन्म\s*तिथि)",
+            re.IGNORECASE,
+        )
+
+    def analyze(self, text: str, entities: Optional[List[str]] = None,
+                nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
+        if self._entity_filter(entities):
+            return []
+        results: List[RecognizerResult] = []
+        for m in self._date_pattern.finditer(text):
+            window_start = max(0, m.start() - 40)
+            window = text[window_start:m.start()]
+            if self._context_pattern.search(window):
+                results.append(RecognizerResult(
+                    entity_type="DATE_OF_BIRTH", start=m.start(), end=m.end(), score=0.96,
+                ))
+        return results
+
+
+class MACAddressRecognizer(BaseCustomRecognizer):
+    """Detects MAC addresses in colon, dash, or dot notation."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            supported_entities=["MAC_ADDRESS"],
+            supported_language="en",
+        )
+        self._pattern = re.compile(
+            r"\b(?:[0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}\b"
+            r"|\b(?:[0-9A-Fa-f]{4}\.){2}[0-9A-Fa-f]{4}\b"
+        )
+
+    def analyze(self, text: str, entities: Optional[List[str]] = None,
+                nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
+        if self._entity_filter(entities):
+            return []
+        return [RecognizerResult(entity_type="MAC_ADDRESS", start=m.start(), end=m.end(), score=0.90)
+                for m in self._pattern.finditer(text)]
+
+
+class URLRecognizer(BaseCustomRecognizer):
+    """Detects HTTP/HTTPS URLs."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            supported_entities=["URL"],
+            supported_language="en",
+        )
+        self._pattern = re.compile(
+            r"https?://[^\s<>\"')\]},;]+",
+            re.IGNORECASE,
+        )
+
+    def analyze(self, text: str, entities: Optional[List[str]] = None,
+                nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
+        if self._entity_filter(entities):
+            return []
+        return [RecognizerResult(entity_type="URL", start=m.start(), end=m.end(), score=0.90)
+                for m in self._pattern.finditer(text)]
+
+
+class CoordinatesRecognizer(BaseCustomRecognizer):
+    """Detects geographic coordinates in decimal degrees or DMS notation."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            supported_entities=["COORDINATES"],
+            supported_language="en",
+        )
+        # Decimal degrees: 41.0082, 28.9784 or 41.0082°N 28.9784°E
+        self._decimal_pattern = re.compile(
+            r"-?\d{1,3}\.\d{3,8}\s*[°]?\s*[NSns]?\s*[,/;\s]\s*-?\d{1,3}\.\d{3,8}\s*[°]?\s*[EWew]?"
+        )
+        # DMS: 41°0'29"N 28°58'42"E
+        self._dms_pattern = re.compile(
+            r"\d{1,3}°\s*\d{1,2}[′']\s*\d{1,2}(?:\.\d+)?[″\"]\s*[NSns]\s*"
+            r"\d{1,3}°\s*\d{1,2}[′']\s*\d{1,2}(?:\.\d+)?[″\"]\s*[EWew]"
+        )
+
+    def analyze(self, text: str, entities: Optional[List[str]] = None,
+                nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
+        if self._entity_filter(entities):
+            return []
+        results: List[RecognizerResult] = []
+        for pat in (self._decimal_pattern, self._dms_pattern):
+            for m in pat.finditer(text):
+                results.append(RecognizerResult(
+                    entity_type="COORDINATES", start=m.start(), end=m.end(), score=0.85,
+                ))
+        return results
+
+
+class CookieIDRecognizer(BaseCustomRecognizer):
+    """Detects tracking cookie identifiers (Google Analytics, UUID-based, etc.)."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            supported_entities=["COOKIE_ID"],
+            supported_language="en",
+        )
+        # GA cookie: _ga=GA1.2.123456789.1234567890
+        self._ga_pattern = re.compile(r"_ga\s*=\s*GA\d\.\d+\.\d+\.\d+")
+        # Generic cookie assignment with UUID-like value
+        self._cookie_uuid_pattern = re.compile(
+            r"(?:cookie|session[_\-]?id|tracking[_\-]?id)\s*[=:]\s*"
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+            re.IGNORECASE,
+        )
+
+    def analyze(self, text: str, entities: Optional[List[str]] = None,
+                nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
+        if self._entity_filter(entities):
+            return []
+        results: List[RecognizerResult] = []
+        for pat in (self._ga_pattern, self._cookie_uuid_pattern):
+            for m in pat.finditer(text):
+                results.append(RecognizerResult(
+                    entity_type="COOKIE_ID", start=m.start(), end=m.end(), score=0.88,
+                ))
+        return results
+
+
+class DeviceIDRecognizer(BaseCustomRecognizer):
+    """Detects device identifiers (IMEI, Android ID, UUID-based device IDs)."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            supported_entities=["DEVICE_ID"],
+            supported_language="en",
+        )
+        # IMEI: 15 or 17 digits, optionally with context
+        self._imei_pattern = re.compile(
+            r"(?:IMEI|imei)\s*[=:]\s*\d{15,17}"
+        )
+        # Device/Android ID with UUID
+        self._device_uuid_pattern = re.compile(
+            r"(?:device[_\-]?id|android[_\-]?id|udid|idfa|idfv|gaid)\s*[=:]\s*"
+            r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}",
+            re.IGNORECASE,
+        )
+        # Serial number with context
+        self._serial_pattern = re.compile(
+            r"(?:serial\s*(?:number|no|#)?|s/n)\s*[=:]\s*[A-Za-z0-9]{8,20}",
+            re.IGNORECASE,
+        )
+
+    def analyze(self, text: str, entities: Optional[List[str]] = None,
+                nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
+        if self._entity_filter(entities):
+            return []
+        results: List[RecognizerResult] = []
+        for pat in (self._imei_pattern, self._device_uuid_pattern, self._serial_pattern):
+            for m in pat.finditer(text):
+                results.append(RecognizerResult(
+                    entity_type="DEVICE_ID", start=m.start(), end=m.end(), score=0.85,
+                ))
+        return results
+
+
+class SSNRecognizer(BaseCustomRecognizer):
+    """Detects Social Security Numbers with context keywords."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            supported_entities=["SOCIAL_SECURITY_NUMBER"],
+            supported_language="en",
+        )
+        # XXX-XX-XXXX or XXXXXXXXX with context
+        self._pattern = re.compile(r"\b\d{3}[\s\-]?\d{2}[\s\-]?\d{4}\b")
+        self._context = re.compile(
+            r"(?:SSN|social\s*security|sosyal\s*güvenlik|sgk)",
+            re.IGNORECASE,
+        )
+
+    def analyze(self, text: str, entities: Optional[List[str]] = None,
+                nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
+        if self._entity_filter(entities):
+            return []
+        from .national_ids import SSNValidator
+        validator = SSNValidator()
+        results: List[RecognizerResult] = []
+        for m in self._pattern.finditer(text):
+            window_start = max(0, m.start() - 40)
+            window = text[window_start:m.start()]
+            if not self._context.search(window):
+                continue
+            digits = re.sub(r"[\s\-]", "", m.group())
+            if validator.validate(digits):
+                results.append(RecognizerResult(
+                    entity_type="SOCIAL_SECURITY_NUMBER", start=m.start(), end=m.end(), score=0.92,
+                ))
+        return results
+
+
+class CPFRecognizer(BaseCustomRecognizer):
+    """Detects Brazilian CPF numbers with algorithmic validation."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            supported_entities=["CPF"],
+            supported_language="en",
+        )
+        # XXX.XXX.XXX-XX or XXXXXXXXXXX
+        self._pattern = re.compile(r"\b\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}\b")
+
+    def analyze(self, text: str, entities: Optional[List[str]] = None,
+                nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
+        if self._entity_filter(entities):
+            return []
+        from .national_ids import CPFValidator
+        validator = CPFValidator()
+        results: List[RecognizerResult] = []
+        for m in self._pattern.finditer(text):
+            digits = re.sub(r"[.\-]", "", m.group())
+            if validator.validate(digits):
+                results.append(RecognizerResult(
+                    entity_type="CPF", start=m.start(), end=m.end(), score=0.95,
+                ))
+        return results
+
+
+class PassportNumberRecognizer(BaseCustomRecognizer):
+    """Detects passport numbers with context keywords.
+
+    Passport formats vary by country but share common structural patterns:
+    1-2 letters followed by 6-9 digits, or purely numeric (9 digits).
+    Requires a contextual keyword to reduce false positives.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            supported_entities=["PASSPORT_NUMBER"],
+            supported_language="en",
+        )
+        self._pattern = re.compile(
+            r"\b[A-Z]{0,2}\d{6,9}\b"
+        )
+        self._context = re.compile(
+            r"(?:passport|pasaport|reisepass|passeport|passaporto|paspoort"
+            r"|паспорт|جواز\s*سفر|护照|パスポート|पासपोर्ट)",
+            re.IGNORECASE,
+        )
+
+    def analyze(self, text: str, entities: Optional[List[str]] = None,
+                nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
+        if self._entity_filter(entities):
+            return []
+        results: List[RecognizerResult] = []
+        for m in self._pattern.finditer(text):
+            window_start = max(0, m.start() - 50)
+            window = text[window_start:m.start()]
+            if self._context.search(window):
+                results.append(RecognizerResult(
+                    entity_type="PASSPORT_NUMBER", start=m.start(), end=m.end(), score=0.88,
+                ))
+        return results
+
+
+class DriversLicenseRecognizer(BaseCustomRecognizer):
+    """Detects driver's license numbers with context keywords.
+
+    Formats vary widely; requires contextual keyword to reduce false positives.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            supported_entities=["DRIVERS_LICENSE"],
+            supported_language="en",
+        )
+        self._pattern = re.compile(r"\b[A-Z0-9]{5,15}\b")
+        self._context = re.compile(
+            r"(?:driver'?s?\s*licen[sc]e|driving\s*licen[sc]e|DL\s*#?|ehliyet"
+            r"|permis\s*de\s*conduire|führerschein|rijbewijs|patente\s*di\s*guida"
+            r"|licencia\s*de\s*conducir|carta\s*de\s*condução"
+            r"|водительское\s*удостоверение)",
+            re.IGNORECASE,
+        )
+
+    def analyze(self, text: str, entities: Optional[List[str]] = None,
+                nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
+        if self._entity_filter(entities):
+            return []
+        results: List[RecognizerResult] = []
+        for m in self._pattern.finditer(text):
+            window_start = max(0, m.start() - 50)
+            window = text[window_start:m.start()]
+            if self._context.search(window):
+                val = m.group()
+                if len(val) >= 5 and any(c.isdigit() for c in val):
+                    results.append(RecognizerResult(
+                        entity_type="DRIVERS_LICENSE", start=m.start(), end=m.end(), score=0.85,
+                    ))
+        return results
+
+
+class TaxIDRecognizer(BaseCustomRecognizer):
+    """Detects tax identification numbers with context keywords."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            supported_entities=["TAX_ID"],
+            supported_language="en",
+        )
+        self._pattern = re.compile(r"\b\d{2}[\-]?\d{7,10}\b")
+        self._context = re.compile(
+            r"(?:tax\s*id|TIN|EIN|vergi\s*(?:no|numarası|kimlik)"
+            r"|steuer[\-\s]?(?:nummer|id)|NIF|codice\s*fiscale"
+            r"|numéro\s*fiscal|ИНН|الرقم\s*الضريبي|税号)",
+            re.IGNORECASE,
+        )
+
+    def analyze(self, text: str, entities: Optional[List[str]] = None,
+                nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
+        if self._entity_filter(entities):
+            return []
+        results: List[RecognizerResult] = []
+        for m in self._pattern.finditer(text):
+            window_start = max(0, m.start() - 40)
+            window = text[window_start:m.start()]
+            if self._context.search(window):
+                results.append(RecognizerResult(
+                    entity_type="TAX_ID", start=m.start(), end=m.end(), score=0.85,
+                ))
+        return results
+
+
+class LicensePlateRecognizer(BaseCustomRecognizer):
+    """Detects vehicle license plate numbers with context keywords.
+
+    Matches common alphanumeric plate patterns when preceded by
+    vehicle/plate context to avoid false positives on generic codes.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            supported_entities=["LICENSE_PLATE"],
+            supported_language="en",
+        )
+        # Covers: 34 ABC 123, ABC-1234, AB12CDE, etc.
+        self._pattern = re.compile(
+            r"\b\d{2}\s*[A-Z]{1,3}\s*\d{2,4}\b"            # TR-style: 34 ABC 123
+            r"|\b[A-Z]{1,3}[\s\-]?\d{1,4}[\s\-]?[A-Z]{0,3}\b"  # EU/US-style
+        )
+        self._context = re.compile(
+            r"(?:licen[sc]e\s*plate|plate\s*(?:no|number)|plaka|vehicle\s*reg"
+            r"|kennzeichen|immatriculation|targa|matrícula|kenteken"
+            r"|номерной\s*знак|لوحة\s*السيارة|车牌|ナンバープレート)",
+            re.IGNORECASE,
+        )
+
+    def analyze(self, text: str, entities: Optional[List[str]] = None,
+                nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
+        if self._entity_filter(entities):
+            return []
+        results: List[RecognizerResult] = []
+        for m in self._pattern.finditer(text):
+            window_start = max(0, m.start() - 40)
+            window = text[window_start:m.start()]
+            if self._context.search(window):
+                results.append(RecognizerResult(
+                    entity_type="LICENSE_PLATE", start=m.start(), end=m.end(), score=0.84,
+                ))
+        return results
+
+
 class PIISanitizer:
     """High-level orchestrator for multi-layer PII detection and masking."""
 
@@ -607,7 +1033,7 @@ class PIISanitizer:
             if presidio_type in supported:
                 supported.add(septum_type)
 
-        skip = _NER_LAYER_ENTITY_TYPES | _CONTEXTUAL_ENTITY_TYPES
+        skip = _NER_LAYER_ENTITY_TYPES | _CONTEXTUAL_ENTITY_TYPES | frozenset(_PARENT_TYPE_COVERAGE)
         uncovered = [
             et for et in self._entity_types
             if et not in supported and et not in skip
@@ -647,6 +1073,18 @@ class PIISanitizer:
         registry.add_recognizer(HeuristicPersonNameRecognizer())
         registry.add_recognizer(StructuralAddressRecognizer())
         registry.add_recognizer(CreditCardNumberRecognizer())
+        registry.add_recognizer(DateOfBirthRecognizer())
+        registry.add_recognizer(MACAddressRecognizer())
+        registry.add_recognizer(URLRecognizer())
+        registry.add_recognizer(CoordinatesRecognizer())
+        registry.add_recognizer(CookieIDRecognizer())
+        registry.add_recognizer(DeviceIDRecognizer())
+        registry.add_recognizer(SSNRecognizer())
+        registry.add_recognizer(CPFRecognizer())
+        registry.add_recognizer(PassportNumberRecognizer())
+        registry.add_recognizer(DriversLicenseRecognizer())
+        registry.add_recognizer(TaxIDRecognizer())
+        registry.add_recognizer(LicensePlateRecognizer())
 
     def sanitize(
         self,
@@ -679,6 +1117,15 @@ class PIISanitizer:
             ner_pipeline = self._ner_registry.get_pipeline(language)
             ner_results = ner_pipeline(normalized_text)
             ner_spans = self._from_ner_results(ner_results, normalized_text, language)
+
+            # Re-run NER on title-cased text to catch ALL CAPS names that
+            # transformer models miss (trained on mixed-case text).
+            titlecased = _titlecase_upper_segments(normalized_text)
+            if titlecased != normalized_text:
+                tc_results = ner_pipeline(titlecased)
+                tc_spans = self._from_ner_results(tc_results, normalized_text, language)
+                existing = {(s.start, s.end) for s in ner_spans}
+                ner_spans.extend(s for s in tc_spans if (s.start, s.end) not in existing)
             if self._entity_types is not None:
                 allowed = set(self._entity_types)
                 ner_spans = [s for s in ner_spans if s.entity_type in allowed]
@@ -713,6 +1160,24 @@ class PIISanitizer:
                 spans.extend(ollama_spans)
             except Exception as e:  # noqa: BLE001
                 logger.warning("Ollama PII layer failed, continuing without it: %s", e)
+
+            # Semantic PII detection — entity types that require LLM understanding
+            semantic_types = [
+                et for et in (self._entity_types or [])
+                if et in _CONTEXTUAL_ENTITY_TYPES
+            ]
+            if semantic_types:
+                try:
+                    semantic_spans = self._ollama_semantic_detection(
+                        normalized_text, semantic_types
+                    )
+                    logger.debug(
+                        "Ollama semantic layer returned %d spans",
+                        len(semantic_spans),
+                    )
+                    spans.extend(semantic_spans)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("Ollama semantic layer failed: %s", e)
 
         if self._non_pii_filter is not None:
             span_views = [
@@ -1093,6 +1558,47 @@ class PIISanitizer:
                 )
         return spans_list
 
+    def _ollama_semantic_detection(
+        self, normalized_text: str, entity_types: list[str]
+    ) -> List[DetectedSpan]:
+        """Call local Ollama to detect semantic entity types (DIAGNOSIS, MEDICATION, etc.).
+
+        Uses a dedicated prompt that instructs the model to find spans matching
+        the requested semantic entity types. Returns spans with text positions
+        resolved against the original text.
+        """
+        prompt = PromptCatalog.semantic_pii_detection(normalized_text, entity_types)
+        response = call_ollama_sync(
+            prompt=prompt,
+            base_url=self._settings.ollama_base_url,
+            model=self._settings.ollama_deanon_model,
+        )
+        if not response or not response.strip():
+            return []
+
+        items = extract_json_array(response)
+        valid_types = set(entity_types)
+        spans: List[DetectedSpan] = []
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            text_val = item.get("text")
+            etype = str(item.get("type", "")).upper().replace(" ", "_")
+            if not text_val or etype not in valid_types:
+                continue
+
+            text_str = str(text_val).strip()
+            idx = normalized_text.lower().find(text_str.lower())
+            if idx >= 0:
+                spans.append(DetectedSpan(
+                    start=idx,
+                    end=idx + len(text_str),
+                    entity_type=etype,
+                    score=0.80,
+                ))
+        return spans
+
     @staticmethod
     def _from_presidio_results(
         results: List[RecognizerResult],
@@ -1171,6 +1677,11 @@ class PIISanitizer:
             if entity_type == "LOCATION" and span_text and not starts_with_uppercase(span_text):
                 continue
 
+            if entity_type == "ORGANIZATION_NAME":
+                words = span_text.split()
+                if len(words) < 2 and score < 0.95:
+                    continue
+
             spans.append(
                 DetectedSpan(
                     start=start,
@@ -1200,6 +1711,8 @@ class PIISanitizer:
             return "EMAIL_ADDRESS"
         if "LOC" in upper or upper.startswith("B-LOC") or upper.startswith("I-LOC"):
             return "LOCATION"
+        if "ORG" in upper or upper.startswith("B-ORG") or upper.startswith("I-ORG"):
+            return "ORGANIZATION_NAME"
         return None
 
     @staticmethod

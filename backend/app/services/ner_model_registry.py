@@ -54,8 +54,8 @@ class NERModelRegistry:
             "nl": "Babelscape/wikineural-multilingual-ner",
             "pl": "Babelscape/wikineural-multilingual-ner",
             "ru": "Babelscape/wikineural-multilingual-ner",
-            # Japanese: Keep existing specialized model
-            "ja": "cl-tohoku/bert-base-japanese",
+            # Japanese: Davlan multilingual covers Japanese via WikiANN
+            "ja": "Davlan/xlm-roberta-base-wikiann-ner",
             # Fallback: Babelscape for best multilingual coverage
             "fallback": "Babelscape/wikineural-multilingual-ner",
         }

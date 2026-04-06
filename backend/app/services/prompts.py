@@ -7,6 +7,44 @@ class PromptCatalog:
     """Central catalog for backend LLM prompts."""
 
     @staticmethod
+    def semantic_pii_detection(normalized_text: str, entity_types: list[str]) -> str:
+        """Prompt for Ollama-based semantic PII detection.
+
+        Detects entity types that cannot be caught by regex patterns:
+        DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION,
+        SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE.
+        """
+        types_str = ", ".join(entity_types)
+        system_part = (
+            "You are a precise PII detection assistant specialized in semantic "
+            "entity types. Your task is to find spans of text that match the "
+            "requested entity types. Be conservative — only tag clear, "
+            "unambiguous matches.\n\n"
+            "Entity type definitions:\n"
+            "- DIAGNOSIS: Medical diagnoses, conditions, diseases (e.g. 'Type 2 diabetes', 'hypertension', 'COVID-19')\n"
+            "- MEDICATION: Drug names, prescriptions (e.g. 'metformin 500mg', 'aspirin', 'ibuprofen')\n"
+            "- CLINICAL_NOTE: Clinical observations or medical notes that identify patient condition\n"
+            "- RELIGION: Religious affiliation or belief (e.g. 'Muslim', 'Catholic', 'Buddhist')\n"
+            "- POLITICAL_OPINION: Political party membership or political views\n"
+            "- SEXUAL_ORIENTATION: Sexual orientation references\n"
+            "- ETHNICITY: Ethnic or racial identity references\n"
+            "- BIOMETRIC_ID: Biometric identifiers (fingerprint ID, retina scan reference, etc.)\n"
+            "- DNA_PROFILE: Genetic marker or DNA profile references\n\n"
+            "CRITICAL RULES:\n"
+            "1. Return the EXACT text as it appears in the input — do not modify, rephrase, or translate.\n"
+            "2. Only tag SPECIFIC instances, not general medical/legal terminology.\n"
+            "3. When in doubt, do NOT tag.\n"
+            "4. Return ONLY a valid JSON array, no explanation."
+        )
+        user_part = (
+            f"Find spans matching these entity types: {types_str}\n\n"
+            'Return JSON array: [{"text": "exact span", "type": "ENTITY_TYPE"}]. '
+            "If nothing found return [].\n\n"
+            f"Text:\n{normalized_text}"
+        )
+        return f"System: {system_part}\n\nUser: {user_part}"
+
+    @staticmethod
     def sanitizer_alias_layer(normalized_text: str) -> str:
         """Prompt for Ollama-based PII detection in the sanitizer.
 

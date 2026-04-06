@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/byerlikaya/Septum/main/septum_logo.png" alt="Septum logo" width="220" />
+  <img src="septum_logo.png" alt="Septum logo" width="220" />
 </p>
 
 <h3 align="center">Your data never leaves. Your AI still works.</h3>
@@ -36,7 +36,7 @@
 
 ## What is Septum?
 
-Septum is a **privacy-first AI middleware** that sits between your documents and cloud LLMs. It lets you query sensitive company data with ChatGPT, Claude, or any LLM — while ensuring **no raw personal data ever leaves your machine**.
+Septum is a **privacy-first AI middleware** that sits between your documents and cloud LLMs. It lets you query sensitive company data with ChatGPT, Claude, or any LLM — while **automatically detecting and masking personal data before anything leaves your machine**.
 
 1. You upload documents (PDF, Word, Excel, images, audio, etc.).
 2. Septum **detects and masks** all personal data locally.
@@ -98,7 +98,7 @@ The LLM answers using placeholders. Septum restores real values locally before s
 
 ## Key Features
 
-- **Local PII Protection** — Raw personal data never leaves your machine. Documents stored encrypted (AES-256-GCM).
+- **Local PII Protection** — Detects and masks personal data before anything is sent to the cloud. Documents stored encrypted (AES-256-GCM). The **Approval Gate** lets you verify the masked output before each LLM call — nothing is sent without your review.
 - **Multi-Regulation Support** — 17 built-in packs (GDPR, KVKK, CCPA, HIPAA, LGPD, PIPEDA, PDPA, APPI, PIPL, POPIA, DPDP, UK GDPR, and more). Multiple active simultaneously; most restrictive wins.
 - **Approval Gate** — Review exactly what will be sent to the LLM before it leaves your environment.
 - **Custom Rules** — Define your own patterns: regex, keyword lists, or LLM-prompt based detection.
@@ -138,34 +138,46 @@ Septum uses a **multi-layer PII detection pipeline** to minimise both false nega
 
 | Layer | Technology | Entity Types Detected |
 |:---:|-----------|-------------|
-| 1 | **Presidio** — regex patterns + algorithmic validators (Luhn, IBAN MOD-97, TCKN checksum) | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS |
-| 2 | **NER** — HuggingFace XLM-RoBERTa with per-language model selection (20+ languages) | PERSON_NAME, LOCATION |
-| 3 | **Ollama** — local LLM for context-aware validation and alias detection | PERSON_NAME aliases/nicknames; filters false positives from L1/L2 |
+| 1 | **Presidio** — regex patterns + algorithmic validators (Luhn, IBAN MOD-97, TCKN, CPF, SSN checksums). Context-aware recognizers with multilingual keywords. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE |
+| 2 | **NER** — HuggingFace XLM-RoBERTa with per-language model selection (20+ languages). ALL CAPS input auto-normalised to title case. | PERSON_NAME, LOCATION, ORGANIZATION_NAME |
+| 3 | **Ollama** — local LLM for context-aware validation, alias detection, and semantic entity detection | PERSON_NAME aliases/nicknames; DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE |
 
-Layers are additive: L1 catches structured identifiers, L2 adds names and locations that patterns can't match, and L3 catches informal references like nicknames and validates ambiguous detections. Results are merged with coreference resolution so "John", "J. Doe", and "Mr. Doe" all map to the same `[PERSON_1]` placeholder.
+Layers are additive: L1 catches structured identifiers and context-tagged values (dates of birth, passport numbers, device IDs, etc.), L2 adds names, locations, and organisations via transformer NER (including ALL CAPS text), and L3 uses a local LLM for semantic types (medical diagnoses, medications, religious/political/ethnic references) plus alias detection. Results are merged with coreference resolution so "John", "J. Doe", and "Mr. Doe" all map to the same `[PERSON_1]` placeholder.
 
-> **Semantic entity types** (DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, etc.) are declared by regulations but require custom detection rules or the Ollama layer for detection — they cannot be caught by regex alone.
+> **Benchmark models:** NER uses `akdeniz27/xlm-roberta-base-turkish-ner` (TR) and `Davlan/xlm-roberta-base-wikiann-ner` (all other languages). Ollama layer uses `aya-expanse:8b`. Results will vary with different Ollama models — larger models generally improve semantic detection accuracy.
 
 ### Benchmark Results
 
-All 17 built-in regulations active. **1 618 algorithmically generated PII values** across 10 entity types (valid Luhn, IBAN MOD-97, TCKN checksums). 150 samples per Presidio type, 100 person names (EN/TR/multilingual), 100 locations (EN/TR), plus alias detection. Fixed seed for full reproducibility.
+All 17 built-in regulations active. **3,268 algorithmically generated PII values** across 23 entity types (valid Luhn, IBAN MOD-97, TCKN checksums). 150 samples per Presidio type, 160 person names (mixed case + ALL CAPS, EN/TR), 100 locations (EN/TR), 30 organisation names (EN/TR), plus alias detection. Fixed seed for full reproducibility.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/byerlikaya/Septum/main/screenshots/benchmark-f1-by-type.png" alt="F1 Score by Entity Type" width="900" />
+  <img src="screenshots/benchmark-f1-by-type.png" alt="F1 Score by Entity Type" width="900" />
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/byerlikaya/Septum/main/screenshots/benchmark-layer-comparison.png" alt="Detection Accuracy by Pipeline Layer" width="700" />
+  <img src="screenshots/benchmark-layer-comparison.png" alt="Detection Accuracy by Pipeline Layer" width="700" />
 </p>
 
 | Layer | Entities | Types | Precision | Recall | F1 |
 |---|:---:|:---:|:---:|:---:|:---:|
-| Presidio (L1) — patterns + validators | 1 200 | 8 | 100% | 100% | 100% |
-| NER (L2) — XLM-RoBERTa | 200 | 2 | 98.0% | 97.5% | 97.7% |
-| Ollama (L3) — aya-expanse:8b | 218 | 2 | 100% | 99.1% | 99.5% |
-| **Combined** | **1 618** | **10** | **99.8%** | **99.6%** | **99.7%** |
+| Presidio (L1) — patterns + validators | 1,710 | 20 | 100% | 94.4% | 97.1% |
+| NER (L2) — XLM-RoBERTa + ALL CAPS normalisation | 770 | 3 | 97.5% | 92.7% | 95.1% |
+| Ollama (L3) — aya-expanse:8b | 788 | 3 | 99.7% | 91.6% | 95.5% |
+| **Combined** | **3,268** | **23** | **99.3%** | **93.3%** | **96.2%** |
 
-> Ollama (L3) improves PERSON_NAME recall from 97% to 100% by catching aliases, and eliminates false positives via context-aware validation. Reproducible: `pytest tests/benchmark_detection.py -v -s`
+> NER (L2) detects ALL CAPS names (common in medical/legal documents) via automatic titlecase normalisation, and recognises organisation names. Ollama (L3) validates candidates and catches aliases. Benchmark includes adversarial edge cases (spaced IBANs, dotted phone numbers, etc.) that lower Presidio recall to real-world levels. Reproducible: `pytest tests/benchmark_detection.py -v -s`
+
+### Detection Coverage & Limitations
+
+**No PII detection system is 100% accurate.** Septum's benchmark is transparent about this:
+
+- **All 37 regulation entity types are now detectable** — 21 via Presidio pattern recognizers, 3 via NER, 9 via Ollama semantic detection, and 7 via parent-type coverage (e.g. CITY covered by LOCATION, FIRST_NAME by PERSON_NAME).
+- **23 entity types are actively benchmarked** across 3,268 test values in 14 languages with adversarial edge cases.
+- **Semantic types** (DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, etc.) are detected by the Ollama layer and require a local LLM to be running. Detection accuracy depends on the model used (benchmark uses `aya-expanse:8b`).
+- **Context-dependent recognizers** (DATE_OF_BIRTH, PASSPORT_NUMBER, SSN, TAX_ID, etc.) require contextual keywords near the value to reduce false positives. Multilingual keywords in 8+ languages are supported.
+- **Adversarial formats** (spaced TCKNs, dotted phone numbers) show lower detection rates than controlled-format tests. This is reported honestly in the benchmark.
+
+**The Approval Gate is your safety net.** Before any text is sent to the LLM, you see exactly what will be transmitted and can reject it. This is by design — automated detection reduces risk, human review eliminates it.
 
 For full pipeline details, see [Architecture — PII Detection & Anonymisation Pipeline](ARCHITECTURE.md#pii-detection--anonymisation-pipeline).
 

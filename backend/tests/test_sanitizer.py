@@ -263,3 +263,164 @@ def test_ner_location_keeps_capitalized_place_names(sanitizer: PIISanitizer) -> 
     assert len(spans) == 2
     assert all(s.entity_type == "LOCATION" for s in spans)
 
+
+# ── New recognizer tests ──
+
+
+def test_date_of_birth_with_context(sanitizer: PIISanitizer) -> None:
+    """Date of birth preceded by contextual keyword should be detected."""
+    text = "Patient date of birth: 15/03/1990 registered today."
+    anon_map = AnonymizationMap(document_id=100, language="en")
+    result = sanitizer.sanitize(text=text, language="en", anon_map=anon_map)
+    assert "15/03/1990" not in result.sanitized_text
+    assert "[DATE_OF_BIRTH_1]" in result.sanitized_text
+
+
+def test_date_of_birth_turkish_context(sanitizer: PIISanitizer) -> None:
+    """Turkish birth date label should trigger detection."""
+    text = "Doğum tarihi: 1985-07-22 olan hasta kaydı."
+    anon_map = AnonymizationMap(document_id=101, language="tr")
+    result = sanitizer.sanitize(text=text, language="tr", anon_map=anon_map)
+    assert "1985-07-22" not in result.sanitized_text
+
+
+def test_date_without_birth_context_not_dob(sanitizer: PIISanitizer) -> None:
+    """A bare date without birth context should NOT be flagged as DATE_OF_BIRTH (may be DATE_TIME)."""
+    text = "The report was published on 15/03/2024."
+    anon_map = AnonymizationMap(document_id=102, language="en")
+    result = sanitizer.sanitize(text=text, language="en", anon_map=anon_map)
+    assert "[DATE_OF_BIRTH" not in result.sanitized_text
+
+
+def test_mac_address_colon_format(sanitizer: PIISanitizer) -> None:
+    """MAC addresses in colon notation should be detected."""
+    text = "Device MAC: 00:1A:2B:3C:4D:5E connected."
+    anon_map = AnonymizationMap(document_id=103, language="en")
+    result = sanitizer.sanitize(text=text, language="en", anon_map=anon_map)
+    assert "00:1A:2B:3C:4D:5E" not in result.sanitized_text
+
+
+def test_mac_address_dash_format(sanitizer: PIISanitizer) -> None:
+    """MAC addresses in dash notation should be detected."""
+    text = "NIC: 00-1A-2B-3C-4D-5E registered."
+    anon_map = AnonymizationMap(document_id=104, language="en")
+    result = sanitizer.sanitize(text=text, language="en", anon_map=anon_map)
+    assert "00-1A-2B-3C-4D-5E" not in result.sanitized_text
+
+
+def test_url_detected(sanitizer: PIISanitizer) -> None:
+    """HTTP/HTTPS URLs should be detected."""
+    text = "Visit https://internal.company.com/patient/12345 for records."
+    anon_map = AnonymizationMap(document_id=105, language="en")
+    result = sanitizer.sanitize(text=text, language="en", anon_map=anon_map)
+    assert "https://internal.company.com/patient/12345" not in result.sanitized_text
+
+
+def test_coordinates_decimal(sanitizer: PIISanitizer) -> None:
+    """Decimal degree coordinates should be detected."""
+    text = "Location logged at 41.0082, 28.9784 during incident."
+    anon_map = AnonymizationMap(document_id=106, language="en")
+    result = sanitizer.sanitize(text=text, language="en", anon_map=anon_map)
+    assert "41.0082" not in result.sanitized_text
+
+
+def test_cookie_id_ga(sanitizer: PIISanitizer) -> None:
+    """Google Analytics cookie IDs should be detected."""
+    text = "Tracking cookie: _ga=GA1.2.1234567890.1234567890 was set."
+    anon_map = AnonymizationMap(document_id=107, language="en")
+    result = sanitizer.sanitize(text=text, language="en", anon_map=anon_map)
+    assert "_ga=GA1.2.1234567890.1234567890" not in result.sanitized_text
+
+
+def test_device_id_imei(sanitizer: PIISanitizer) -> None:
+    """IMEI device identifiers should be detected."""
+    text = "Phone registered with IMEI=353456789012345 on network."
+    anon_map = AnonymizationMap(document_id=108, language="en")
+    result = sanitizer.sanitize(text=text, language="en", anon_map=anon_map)
+    assert "353456789012345" not in result.sanitized_text
+
+
+def test_device_id_uuid(sanitizer: PIISanitizer) -> None:
+    """UUID-based device IDs should be detected."""
+    text = "device_id=550e8400-e29b-41d4-a716-446655440000 logged."
+    anon_map = AnonymizationMap(document_id=109, language="en")
+    result = sanitizer.sanitize(text=text, language="en", anon_map=anon_map)
+    assert "550e8400-e29b-41d4-a716-446655440000" not in result.sanitized_text
+
+
+def test_ssn_with_context(sanitizer: PIISanitizer) -> None:
+    """US SSN with context keyword should be detected."""
+    text = "Employee SSN: 078-05-1120 on file."
+    anon_map = AnonymizationMap(document_id=110, language="en")
+    result = sanitizer.sanitize(text=text, language="en", anon_map=anon_map)
+    assert "078-05-1120" not in result.sanitized_text
+
+
+def test_ssn_without_context_not_detected(sanitizer: PIISanitizer) -> None:
+    """A 9-digit number without SSN context should not be flagged."""
+    text = "Order number is 123-45-6789 for reference."
+    anon_map = AnonymizationMap(document_id=111, language="en")
+    result = sanitizer.sanitize(text=text, language="en", anon_map=anon_map)
+    assert "[SOCIAL_SECURITY_NUMBER" not in result.sanitized_text
+
+
+def test_cpf_valid(sanitizer: PIISanitizer) -> None:
+    """Valid Brazilian CPF should be detected."""
+    text = "CPF do cliente: 529.982.247-25 cadastrado."
+    anon_map = AnonymizationMap(document_id=112, language="pt")
+    result = sanitizer.sanitize(text=text, language="pt", anon_map=anon_map)
+    assert "529.982.247-25" not in result.sanitized_text
+
+
+def test_passport_multilingual_context(sanitizer: PIISanitizer) -> None:
+    """Passport numbers should be detected with multilingual context keywords."""
+    cases = [
+        ("Passport number: U12345678 issued 2024.", "en"),
+        ("Pasaport numarası: U12345678 düzenlendi.", "tr"),
+        ("Reisepass Nummer: U12345678 ausgestellt.", "de"),
+        ("Numéro de passeport: U12345678 délivré.", "fr"),
+    ]
+    for text, lang in cases:
+        anon_map = AnonymizationMap(document_id=113, language=lang)
+        result = sanitizer.sanitize(text=text, language=lang, anon_map=anon_map)
+        assert "U12345678" not in result.sanitized_text, f"Failed for lang={lang}: {result.sanitized_text}"
+
+
+def test_drivers_license_multilingual(sanitizer: PIISanitizer) -> None:
+    """Driver's license numbers should be detected with multilingual context."""
+    cases = [
+        ("Driver's license: D12345678 on record.", "en"),
+        ("Ehliyet no: D12345678 kayıtlı.", "tr"),
+        ("Führerschein Nr: D12345678 registriert.", "de"),
+    ]
+    for text, lang in cases:
+        anon_map = AnonymizationMap(document_id=114, language=lang)
+        result = sanitizer.sanitize(text=text, language=lang, anon_map=anon_map)
+        assert "D12345678" not in result.sanitized_text, f"Failed for lang={lang}: {result.sanitized_text}"
+
+
+def test_tax_id_multilingual(sanitizer: PIISanitizer) -> None:
+    """Tax IDs should be detected with multilingual context."""
+    cases = [
+        ("Tax ID: 12-3456789 on file.", "en"),
+        ("Vergi numarası: 12-3456789 kayıtlı.", "tr"),
+        ("Steuernummer: 12-3456789 registriert.", "de"),
+    ]
+    for text, lang in cases:
+        anon_map = AnonymizationMap(document_id=115, language=lang)
+        result = sanitizer.sanitize(text=text, language=lang, anon_map=anon_map)
+        assert "12-3456789" not in result.sanitized_text, f"Failed for lang={lang}: {result.sanitized_text}"
+
+
+def test_license_plate_multilingual(sanitizer: PIISanitizer) -> None:
+    """License plates should be detected with multilingual context."""
+    cases = [
+        ("Vehicle plate number: 34 ABC 1234 registered.", "en"),
+        ("Plaka: 34 ABC 1234 kayıtlı.", "tr"),
+        ("Kennzeichen: B AB 1234 registriert.", "de"),
+    ]
+    for text, lang in cases:
+        anon_map = AnonymizationMap(document_id=116, language=lang)
+        result = sanitizer.sanitize(text=text, language=lang, anon_map=anon_map)
+        assert "[LICENSE_PLATE" in result.sanitized_text, f"Failed for lang={lang}: {result.sanitized_text}"
+
