@@ -163,7 +163,7 @@ Pipeline detayları için bkz. [Mimari — PII Tespiti ve Anonimleştirme Akış
 
 ```bash
 docker pull byerlikaya/septum
-docker run -p 3000:3000 -p 8000:8000 \
+docker run --name septum -p 3000:3000 -p 8000:8000 \
   -v septum-data:/app/data \
   -v septum-uploads:/app/uploads \
   -v septum-anon-maps:/app/anon_maps \

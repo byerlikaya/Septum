@@ -89,13 +89,10 @@ export default function SettingsPage() {
     setCloudTest({ status: "pending" });
 
     try {
-      const response = await api.post<{ ok: boolean; message?: string }>(
-        "/api/settings/test-llm",
-        {
-          provider: settings.llm_provider,
-          model: settings.llm_model
-        }
-      );
+      const isOllama = settings.llm_provider === "ollama";
+      const endpoint = isOllama ? "/api/settings/test-local-models" : "/api/settings/test-llm";
+      const body = isOllama ? { base_url: settings.ollama_base_url } : { provider: settings.llm_provider, model: settings.llm_model };
+      const response = await api.post<{ ok: boolean; message?: string }>(endpoint, body);
 
       setCloudTest({
         status: response.data.ok ? "success" : "error",
