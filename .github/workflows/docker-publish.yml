@@ -34,9 +34,6 @@ jobs:
           echo "next=${MAJOR}.${MINOR}.${PATCH}" >> "$GITHUB_OUTPUT"
           echo "Publishing v${CURRENT}"
 
-      - name: Set up QEMU (multi-platform)
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -51,7 +48,6 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ env.IMAGE }}:${{ steps.version.outputs.current }}
