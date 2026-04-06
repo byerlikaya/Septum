@@ -201,7 +201,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col gap-4">
+    <div className="flex min-h-full md:h-full min-w-0 flex-col gap-4">
       <header className="shrink-0 border-b border-slate-800 pb-4 text-slate-50">
         <h1 className="text-xl font-semibold tracking-tight">
           {t("settings.title")}

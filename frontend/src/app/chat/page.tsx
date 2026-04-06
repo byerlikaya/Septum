@@ -331,7 +331,7 @@ export default function ChatPage() {
   }, []);
 
   return (
-    <div className="relative flex h-full min-h-0 min-w-0 flex-col gap-4">
+    <div className="relative flex min-h-full md:h-full min-w-0 flex-col gap-4">
       <BlockingLoader visible={isUploading} label={t("chat.uploading")} />
       <header className="shrink-0 border-b border-slate-800 pb-4">
         <div className="flex items-start justify-between gap-4">
@@ -376,7 +376,7 @@ export default function ChatPage() {
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 lg:flex-row">
         <aside className="flex w-full shrink-0 flex-col gap-2 overflow-hidden lg:w-72">
-          <div className="h-32 shrink-0 overflow-hidden rounded-lg border border-slate-800 lg:h-48">
+          <div className="hidden shrink-0 overflow-hidden rounded-lg border border-slate-800 lg:block lg:h-48">
             <ChatHistory
               sessions={sessions}
               activeSessionId={activeSessionId}
@@ -389,13 +389,39 @@ export default function ChatPage() {
               onExportSessionPDF={handleExportSessionPDF}
             />
           </div>
-          <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-slate-800">
+          <div className="hidden min-h-0 flex-1 overflow-hidden rounded-lg border border-slate-800 lg:block">
             <DocumentSelector
               documents={documents}
               isLoading={loadingDocs}
               selectedIds={selectedIds}
               onSelectionChange={setSelectedIds}
             />
+          </div>
+          {/* Mobile: compact document selector */}
+          <div className="flex items-center gap-2 overflow-x-auto rounded-lg border border-slate-800 px-3 py-2 lg:hidden">
+            <span className="shrink-0 text-xs text-slate-400">{t("chat.documents")}:</span>
+            {documents.filter((d) => d.ingestion_status === "completed").length === 0 ? (
+              <span className="text-xs text-slate-500">{t("chat.noDocuments")}</span>
+            ) : (
+              documents.filter((d) => d.ingestion_status === "completed").map((doc) => (
+                <button
+                  key={doc.id}
+                  type="button"
+                  onClick={() => setSelectedIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(doc.id)) next.delete(doc.id); else next.add(doc.id);
+                    return next;
+                  })}
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                    selectedIds.has(doc.id)
+                      ? "bg-sky-600 text-white"
+                      : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  }`}
+                >
+                  {doc.original_filename}
+                </button>
+              ))
+            )}
           </div>
         </aside>
 

@@ -52,7 +52,7 @@ export function AppShell({ children }: AppShellProps) {
   if (isAuthPage) return <>{children}</>;
   if (status === "unauthenticated") return null;
 
-  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const apiBase = typeof window !== "undefined" ? `${window.location.protocol}//${window.location.hostname}:8000` : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 
   return (
     <div className="flex h-full min-w-0 flex-col md:flex-row">
@@ -60,15 +60,15 @@ export function AppShell({ children }: AppShellProps) {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-950">
         {/* Top bar */}
         <div className="flex shrink-0 items-center justify-end gap-3 border-b border-slate-800/50 px-4 py-2 sm:px-6 lg:px-8">
-          <a href={`${apiBase}/docs`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors">
+          <a href={`${apiBase}/docs`} target="_blank" rel="noopener noreferrer" className="hidden items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors sm:flex">
             <FileCode className="h-3.5 w-3.5" />
             <span>Swagger</span>
           </a>
-          <a href={`${apiBase}/redoc`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors">
+          <a href={`${apiBase}/redoc`} target="_blank" rel="noopener noreferrer" className="hidden items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors sm:flex">
             <BookOpen className="h-3.5 w-3.5" />
             <span>API Docs</span>
           </a>
-          <div className="h-3 w-px bg-slate-700" />
+          <div className="hidden h-3 w-px bg-slate-700 sm:block" />
           <button
             type="button"
             onClick={() => { clearAuthToken(); window.location.href = "/login"; }}
@@ -79,8 +79,8 @@ export function AppShell({ children }: AppShellProps) {
           </button>
         </div>
         {/* Content */}
-        <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
-          <div className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden px-4 py-5 sm:px-6 lg:px-8">
+        <main className="min-h-0 min-w-0 flex-1 overflow-auto md:overflow-hidden">
+          <div className="flex min-h-full md:h-full min-w-0 w-full flex-col overflow-visible md:overflow-hidden px-4 py-5 sm:px-6 lg:px-8">
             {children}
           </div>
         </main>

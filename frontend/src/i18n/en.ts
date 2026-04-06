@@ -67,6 +67,8 @@ export const enMessages = {
   "chat.uploading": "Uploading document…",
   "chat.uploadSuccess": "Document uploaded successfully.",
   "chat.uploadError": "Document upload failed. Please try again.",
+  "chat.documents": "Docs",
+  "chat.noDocuments": "No documents yet",
   "chat.loadingSettings": "Loading settings…",
 
   "documents.title": "Documents",

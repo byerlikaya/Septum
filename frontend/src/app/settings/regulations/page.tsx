@@ -170,7 +170,7 @@ export default function RegulationsPage() {
   ];
 
   return (
-    <div className="flex h-full min-w-0 flex-col gap-4 text-slate-50">
+    <div className="flex min-h-full md:h-full min-w-0 flex-col gap-4 text-slate-50">
       {/* Header with summary */}
       <header className="shrink-0 border-b border-slate-800 pb-4">
         <h1 className="text-xl font-semibold tracking-tight">

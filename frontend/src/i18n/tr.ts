@@ -67,6 +67,8 @@ export const trMessages: Record<string, string> = {
   "chat.uploading": "Doküman yükleniyor…",
   "chat.uploadSuccess": "Doküman başarıyla yüklendi.",
   "chat.uploadError": "Doküman yüklenirken bir hata oluştu. Lütfen tekrar deneyin.",
+  "chat.documents": "Dokümanlar",
+  "chat.noDocuments": "Henüz doküman yok",
   "chat.loadingSettings": "Ayarlar yükleniyor…",
 
   "documents.title": "Dokümanlar",

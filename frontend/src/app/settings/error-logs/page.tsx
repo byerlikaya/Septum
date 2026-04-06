@@ -33,7 +33,7 @@ export default function ErrorLogsPage() {
   }, []);
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-hidden">
+    <div className="flex min-h-full md:h-full flex-col gap-4 overflow-visible md:overflow-hidden">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-slate-50">

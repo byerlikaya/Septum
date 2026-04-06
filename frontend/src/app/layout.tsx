@@ -10,6 +10,13 @@ type RootLayoutProps = {
   children: ReactNode;
 };
 
+import type { Viewport } from "next";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
+
 export const metadata = {
   title: "Septum",
   description: "Privacy-first AI middleware"
@@ -19,8 +26,8 @@ export default function RootLayout(props: RootLayoutProps) {
   const { children } = props;
 
   return (
-    <html lang="en" className="dark suppressHydrationWarning">
-      <body className="h-screen overflow-hidden bg-slate-950 text-foreground antialiased">
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <body className="h-screen bg-slate-950 text-foreground antialiased overflow-auto md:overflow-hidden">
         <LanguageProvider>
           <ErrorBoundary>
             <GlobalErrorListener />

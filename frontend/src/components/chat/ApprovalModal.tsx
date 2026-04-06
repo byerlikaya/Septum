@@ -111,15 +111,15 @@ export function ApprovalModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-2 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="approval-modal-title"
     >
-      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-xl">
-        <div className="shrink-0 border-b border-slate-700 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <h2 id="approval-modal-title" className="text-lg font-semibold text-slate-100">
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-xl overflow-hidden">
+        <div className="shrink-0 border-b border-slate-700 px-3 py-3 sm:px-4">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 id="approval-modal-title" className="text-base sm:text-lg font-semibold text-slate-100">
               {readOnly ? t("chat.approval.review.title") : t("chat.approval.title")}
             </h2>
             {readOnly && decision === "approved" && (
@@ -159,7 +159,7 @@ export function ApprovalModal({
           )}
         </div>
 
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3">
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4 space-y-3">
           {/* Masked prompt */}
           <div>
             <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -263,7 +263,7 @@ export function ApprovalModal({
           </div>
         </div>
 
-        <div className="shrink-0 flex justify-end gap-2 border-t border-slate-700 px-4 py-3">
+        <div className="shrink-0 flex flex-wrap justify-end gap-2 border-t border-slate-700 px-3 py-3 sm:px-4">
           {readOnly ? (
             <>
               {onRetry && (

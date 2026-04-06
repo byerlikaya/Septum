@@ -23,12 +23,19 @@ import type {
   TestConnectionResponse,
 } from "./types";
 
-const fallbackBaseURL = "http://localhost:8000";
+function resolveBaseURL(): string {
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (host !== "localhost" && host !== "127.0.0.1") {
+      return `${window.location.protocol}//${host}:8000`;
+    }
+  }
+  const envURL = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (envURL) return envURL;
+  return "http://localhost:8000";
+}
 
-export const baseURL =
-  process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL.trim().length > 0
-    ? process.env.NEXT_PUBLIC_API_URL
-    : fallbackBaseURL;
+export const baseURL = resolveBaseURL();
 
 export const api = axios.create({
   baseURL
@@ -191,7 +198,8 @@ export function streamChatAsk(
 
   (async () => {
     try {
-      const res = await fetch(`${baseURL}/api/chat/ask`, {
+      const streamBase = resolveBaseURL();
+      const res = await fetch(`${streamBase}/api/chat/ask`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -246,9 +254,10 @@ export function streamChatAsk(
       }
     } catch (err) {
       if ((err as { name?: string }).name === "AbortError") return;
+      const url = `${streamBase}/api/chat/ask`;
       onEvent({
         type: "error",
-        message: err instanceof Error ? err.message : "Stream failed"
+        message: err instanceof Error ? `${err.message} [${url}]` : "Stream failed"
       });
     }
   })();

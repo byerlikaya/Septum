@@ -267,7 +267,7 @@ export default function DocumentsPage() {
   }, []);
 
   return (
-    <div className="relative flex h-full min-h-0 min-w-0 flex-col gap-4">
+    <div className="relative flex min-h-full md:h-full min-w-0 flex-col gap-4">
       {isUploading && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="w-full max-w-sm rounded-lg border border-slate-700 bg-slate-900 p-6 shadow-xl">
