@@ -167,6 +167,8 @@ docker run -p 3000:3000 -p 8000:8000 \
   -v septum-data:/app/data \
   -v septum-uploads:/app/uploads \
   -v septum-anon-maps:/app/anon_maps \
+  -v septum-vector-indexes:/app/vector_indexes \
+  -v septum-bm25-indexes:/app/bm25_indexes \
   byerlikaya/septum
 ```
 

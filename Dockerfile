@@ -37,7 +37,7 @@ COPY frontend/ .
 COPY VERSION /tmp/VERSION
 RUN mkdir -p public
 ENV NEXT_PUBLIC_API_URL=http://localhost:8000
-RUN NEXT_PUBLIC_APP_VERSION=$(cat /tmp/VERSION | tr -d '[:space:]') npm run build
+RUN echo "NEXT_PUBLIC_APP_VERSION=$(cat /tmp/VERSION | tr -d '[:space:]')" >> .env.local && npm run build
 
 # ── Stage 3: combined runtime ──
 FROM python:3.12-slim AS runtime
@@ -48,7 +48,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     NODE_ENV=production \
     DB_PATH=/app/data/septum.db \
     DOCUMENT_STORAGE_DIR=/app/uploads \
-    ANON_MAP_STORAGE_DIR=/app/anon_maps
+    ANON_MAP_STORAGE_DIR=/app/anon_maps \
+    VECTOR_INDEX_DIR=/app/vector_indexes \
+    BM25_INDEX_DIR=/app/bm25_indexes
 
 # Install runtime dependencies + Node.js
 RUN apt-get update \
@@ -78,10 +80,10 @@ COPY --from=frontend-builder --chown=septum:septum /app/.next/static /app/fronte
 COPY --from=frontend-builder --chown=septum:septum /app/public /app/frontend/public
 
 # Writable dirs — declared as VOLUME so data persists across container recreations
-RUN mkdir -p /app/data /app/uploads /app/anon_maps \
-    && chown -R septum:septum /app/data /app/uploads /app/anon_maps
+RUN mkdir -p /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes \
+    && chown -R septum:septum /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes
 
-VOLUME ["/app/data", "/app/uploads", "/app/anon_maps"]
+VOLUME ["/app/data", "/app/uploads", "/app/anon_maps", "/app/vector_indexes", "/app/bm25_indexes"]
 
 # Startup script
 COPY --chown=septum:septum <<'STARTUP' /app/start.sh
