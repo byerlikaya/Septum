@@ -254,10 +254,9 @@ export function streamChatAsk(
       }
     } catch (err) {
       if ((err as { name?: string }).name === "AbortError") return;
-      const url = `${streamBase}/api/chat/ask`;
       onEvent({
         type: "error",
-        message: err instanceof Error ? `${err.message} [${url}]` : "Stream failed"
+        message: err instanceof Error ? err.message : "Stream failed"
       });
     }
   })();
