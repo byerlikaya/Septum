@@ -156,6 +156,10 @@ export const enMessages = {
   "settings.llm.ollama.deanonModel.label": "De-anonymization model",
   "settings.llm.ollama.deanonModel.hint":
     "Ollama model used for local de-anonymization.",
+  "ollama.models.loading": "Loading models\u2026",
+  "ollama.models.empty": "No models found. Type a model name manually.",
+  "ollama.models.noMatch": "No matching models. Press Enter to use a custom name.",
+
   "settings.llm.test.success": "LLM connectivity test succeeded.",
   "settings.llm.test.failed": "LLM connectivity test failed.",
 

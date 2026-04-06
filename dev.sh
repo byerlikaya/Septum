@@ -5,8 +5,24 @@ set -e
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SETUP_MODE=false
-if [[ "${1:-}" == "--setup" ]]; then
-  SETUP_MODE=true
+RESET_MODE=false
+for arg in "$@"; do
+  case "$arg" in
+    --setup) SETUP_MODE=true ;;
+    --reset) RESET_MODE=true ;;
+  esac
+done
+
+if [[ "$RESET_MODE" == true ]]; then
+  echo "[reset] Wiping all local data (database, uploads, indexes, config) ..."
+  rm -f  "$PROJECT_ROOT/backend/config.json"
+  rm -f  "$PROJECT_ROOT/backend/septum.db"
+  rm -rf "$PROJECT_ROOT/backend/uploads"
+  rm -rf "$PROJECT_ROOT/backend/anon_maps"
+  rm -rf "$PROJECT_ROOT/backend/vector_indexes"
+  rm -rf "$PROJECT_ROOT/backend/bm25_indexes"
+  rm -rf "$PROJECT_ROOT/bm25_indexes"
+  echo "[reset] Done — next start will launch the setup wizard."
 fi
 
 echo "Project root: $PROJECT_ROOT"

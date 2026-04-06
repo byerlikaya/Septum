@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="#quick-start"><strong>Quick Start</strong></a>
+  <a href="#who-is-this-for"><strong>Who Is This For?</strong></a>
   &middot;
   <a href="#quick-start"><strong>Quick Start</strong></a>
   &middot;
@@ -44,6 +44,24 @@ Septum is a **privacy-first AI middleware** that sits between your documents and
 4. The answer comes back with real names and values restored — **locally**.
 
 > **In one sentence:** Septum is a safety layer for teams who want LLM power without leaking personal data.
+
+**Before and after — what the LLM actually sees:**
+
+```
+Input:  "Ahmet Yılmaz lives in Berlin, email ahmet.yilmaz@corp.de, ID 12345678901"
+Masked: "[PERSON_1] lives in [LOCATION_1], email [EMAIL_1], ID [NATIONAL_ID_1]"
+```
+
+The LLM answers using placeholders. Septum restores real values locally before showing you the response.
+
+---
+
+## Who Is This For?
+
+- **Developers** building AI-powered apps that handle real customer data
+- **Teams** subject to GDPR, KVKK, HIPAA, or other privacy regulations
+- **Companies** running LLMs against internal documents (contracts, HR files, health records)
+- **Self-hosting advocates** who want full control — no data leaves your infrastructure
 
 ---
 
@@ -204,7 +222,26 @@ For architecture details, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ## For Developers
 
-Septum's internals — PII pipeline details, code structure, API reference, technology stack, and deployment options — are documented in **[ARCHITECTURE.md](ARCHITECTURE.md)**.
+### Quick API Example
+
+```bash
+# Upload a document
+curl -X POST http://localhost:8000/api/documents/upload \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@contract.pdf"
+
+# Ask a question (streamed response via SSE)
+curl -N -X POST http://localhost:8000/api/chat/ask \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What are the termination clauses?", "document_id": 1}'
+```
+
+The chat endpoint returns Server-Sent Events: `meta` (session info) → `approval_required` (masked chunks for review) → `answer_chunk` (streamed response) → `end`.
+
+Septum handles everything in between: PII detection, anonymisation, retrieval, LLM call, and de-anonymisation. Your app just sends questions and receives clean answers.
+
+For full API reference, pipeline details, code structure, and deployment options, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ---
 

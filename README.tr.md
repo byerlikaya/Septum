@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="#hızlı-başlangıç"><strong>Hızlı Başlangıç</strong></a>
+  <a href="#bu-kimin-için"><strong>Bu Kimin İçin?</strong></a>
   &middot;
   <a href="#hızlı-başlangıç"><strong>Hızlı Başlangıç</strong></a>
   &middot;
@@ -44,6 +44,24 @@ Septum, dokümanlarınız ile bulut LLM'ler arasında duran bir **gizlilik odakl
 4. Cevap, gerçek isim ve değerlerle **yerelde** geri birleştirilir.
 
 > **Tek cümleyle:** Septum, LLM gücünü kullanırken kişisel veri sızdırmak istemeyen ekipler için bir güvenlik katmanıdır.
+
+**Önce ve sonra — LLM'in gerçekte gördüğü:**
+
+```
+Girdi:    "Ahmet Yılmaz Berlin'de yaşıyor, e-posta ahmet.yilmaz@corp.de, TC 12345678901"
+Maskeli:  "[PERSON_1] [LOCATION_1]'de yaşıyor, e-posta [EMAIL_1], TC [NATIONAL_ID_1]"
+```
+
+LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerçek değerleri yerelde geri yükler.
+
+---
+
+## Bu Kimin İçin?
+
+- **Geliştiriciler** — gerçek müşteri verisiyle çalışan yapay zeka uygulamaları geliştiren
+- **Ekipler** — GDPR, KVKK, HIPAA veya diğer gizlilik regülasyonlarına tabi olan
+- **Şirketler** — iç dokümanlarla (sözleşmeler, İK dosyaları, sağlık kayıtları) LLM kullanan
+- **Self-hosting savunucuları** — tam kontrol isteyen, verilerin altyapısından çıkmasını istemeyen
 
 ---
 
@@ -204,7 +222,26 @@ Mimari detaylar için bkz. **[ARCHITECTURE.tr.md](ARCHITECTURE.tr.md)**.
 
 ## Geliştiriciler İçin
 
-Septum'un iç yapısı — PII pipeline detayları, kod yapısı, API referansı, teknoloji yığını ve dağıtım seçenekleri — **[ARCHITECTURE.tr.md](ARCHITECTURE.tr.md)** dosyasında belgelenmiştir.
+### Hızlı API Örneği
+
+```bash
+# Doküman yükle
+curl -X POST http://localhost:8000/api/documents/upload \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@contract.pdf"
+
+# Soru sor (SSE ile akışlı yanıt)
+curl -N -X POST http://localhost:8000/api/chat/ask \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Fesih koşulları neler?", "document_id": 1}'
+```
+
+Chat endpoint'i Server-Sent Events döner: `meta` (oturum bilgisi) → `approval_required` (onay için maskelenmiş parçalar) → `answer_chunk` (akışlı yanıt) → `end`.
+
+Septum aradaki her şeyi yönetir: PII tespiti, anonimleştirme, arama, LLM çağrısı ve de-anonimleştirme. Uygulamanız sadece soru gönderir ve temiz cevaplar alır.
+
+Tam API referansı, pipeline detayları, kod yapısı ve dağıtım seçenekleri için bkz. **[ARCHITECTURE.tr.md](ARCHITECTURE.tr.md)**.
 
 ---
 

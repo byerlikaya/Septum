@@ -1,6 +1,7 @@
 "use client";
 
 import { useI18n } from "@/lib/i18n";
+import { OllamaModelCombobox } from "@/components/common/OllamaModelCombobox";
 import type { SettingsTabProps, TestStatus } from "./types";
 import { FieldHint } from "./FieldHint";
 import { SavingIndicator } from "./SavingIndicator";
@@ -161,14 +162,10 @@ export function LLMProviderTab({
             <label className="text-xs font-medium text-slate-200">
               {t("settings.llm.ollama.chatModel.label")}
             </label>
-            <input
-              type="text"
-              className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-none transition focus:border-sky-500"
-              defaultValue={settings.ollama_chat_model}
-              onBlur={async (e) => {
-                const value = e.target.value.trim();
-                if (value && value !== settings.ollama_chat_model) await onChange("ollama_chat_model", value);
-              }}
+            <OllamaModelCombobox
+              value={settings.ollama_chat_model}
+              onChange={async (v) => { if (v !== settings.ollama_chat_model) await onChange("ollama_chat_model", v); }}
+              baseUrl={settings.ollama_base_url}
               placeholder="llama3.2:3b"
             />
             <FieldHint text={t("settings.llm.ollama.chatModel.hint")} />
@@ -179,14 +176,10 @@ export function LLMProviderTab({
             <label className="text-xs font-medium text-slate-200">
               {t("settings.llm.ollama.deanonModel.label")}
             </label>
-            <input
-              type="text"
-              className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-none transition focus:border-sky-500"
-              defaultValue={settings.ollama_deanon_model}
-              onBlur={async (e) => {
-                const value = e.target.value.trim();
-                if (value && value !== settings.ollama_deanon_model) await onChange("ollama_deanon_model", value);
-              }}
+            <OllamaModelCombobox
+              value={settings.ollama_deanon_model}
+              onChange={async (v) => { if (v !== settings.ollama_deanon_model) await onChange("ollama_deanon_model", v); }}
+              baseUrl={settings.ollama_base_url}
               placeholder="llama3.2:3b"
             />
             <FieldHint text={t("settings.llm.ollama.deanonModel.hint")} />
@@ -197,14 +190,10 @@ export function LLMProviderTab({
             <label className="text-xs font-medium text-slate-200">
               {t("settings.llm.model.label")}
             </label>
-            <input
-              type="text"
-              className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-none transition focus:border-sky-500"
-              defaultValue={settings.llm_model}
-              onBlur={async (e) => {
-                const value = e.target.value.trim();
-                if (value && value !== settings.llm_model) await onChange("llm_model", value);
-              }}
+            <OllamaModelCombobox
+              value={settings.llm_model}
+              onChange={async (v) => { if (v !== settings.llm_model) await onChange("llm_model", v); }}
+              baseUrl={settings.ollama_base_url}
               placeholder="llama3.2:3b"
             />
             <FieldHint text={t("settings.llm.model.hint")} />

@@ -334,6 +334,72 @@ async def test_local_models_endpoint(
     )
 
 
+class OllamaModelInfo(BaseModel):
+    """Single Ollama model entry returned by the listing endpoint."""
+
+    name: str
+    size: str
+    parameter_size: Optional[str] = None
+    quantization: Optional[str] = None
+
+
+class OllamaModelsResponse(BaseModel):
+    """Response containing locally available Ollama models."""
+
+    models: list[OllamaModelInfo]
+
+
+def _format_size(size_bytes: int) -> str:
+    """Convert byte count to a human-readable string (e.g. '2.0 GB')."""
+    if size_bytes >= 1_000_000_000:
+        return f"{size_bytes / 1_000_000_000:.1f} GB"
+    if size_bytes >= 1_000_000:
+        return f"{size_bytes / 1_000_000:.0f} MB"
+    return f"{size_bytes / 1_000:.0f} KB"
+
+
+@router.get(
+    "/ollama-models",
+    response_model=OllamaModelsResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def list_ollama_models_endpoint(
+    base_url: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+) -> OllamaModelsResponse:
+    """List locally available Ollama models.
+
+    Queries the Ollama ``/api/tags`` endpoint and returns model names with
+    human-readable sizes so the frontend can offer a selection dropdown.
+    Returns an empty list when Ollama is unreachable.
+    """
+    settings = await load_settings(db)
+    url = (base_url or settings.ollama_base_url or "").rstrip("/")
+    if not url:
+        return OllamaModelsResponse(models=[])
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{url}/api/tags")
+        response.raise_for_status()
+    except httpx.HTTPError:
+        return OllamaModelsResponse(models=[])
+
+    result: list[OllamaModelInfo] = []
+    for m in response.json().get("models", []):
+        details = m.get("details", {})
+        result.append(
+            OllamaModelInfo(
+                name=m.get("name", ""),
+                size=_format_size(m.get("size", 0)),
+                parameter_size=details.get("parameter_size"),
+                quantization=details.get("quantization_level"),
+            )
+        )
+
+    return OllamaModelsResponse(models=result)
+
+
 class OllamaPullRequest(BaseModel):
     """Request body for pulling an Ollama model."""
 

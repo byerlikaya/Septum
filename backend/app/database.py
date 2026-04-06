@@ -214,12 +214,12 @@ async def _seed_defaults(sm: async_sessionmaker[AsyncSession]) -> None:
                 ),
                 deanon_enabled=_env_bool("DEANON_ENABLED_DEFAULT", True),
                 deanon_strategy=os.getenv("DEANON_STRATEGY", "simple"),
-                require_approval=_env_bool("REQUIRE_APPROVAL_DEFAULT", False),
+                require_approval=_env_bool("REQUIRE_APPROVAL_DEFAULT", True),
                 show_json_output=_env_bool("SHOW_JSON_OUTPUT_DEFAULT", False),
                 use_presidio_layer=_env_bool("USE_PRESIDIO_LAYER_DEFAULT", True),
                 use_ner_layer=_env_bool("USE_NER_LAYER_DEFAULT", True),
                 use_ollama_validation_layer=_env_bool("USE_OLLAMA_VALIDATION_LAYER_DEFAULT", True),
-                use_ollama_layer=_env_bool("USE_OLLAMA_LAYER_DEFAULT", False),
+                use_ollama_layer=_env_bool("USE_OLLAMA_LAYER_DEFAULT", True),
                 chunk_size=_env_int("CHUNK_SIZE_DEFAULT", 800),
                 chunk_overlap=_env_int("CHUNK_OVERLAP_DEFAULT", 200),
                 top_k_retrieval=_env_int("TOP_K_RETRIEVAL_DEFAULT", 5),
@@ -231,7 +231,7 @@ async def _seed_defaults(sm: async_sessionmaker[AsyncSession]) -> None:
                 whisper_model=os.getenv("WHISPER_MODEL", "base"),
                 default_audio_language=os.getenv("DEFAULT_AUDIO_LANGUAGE") or None,
                 image_ocr_languages=_csv_env_to_list(
-                    "DEFAULT_OCR_LANGUAGES", default="en"
+                    "DEFAULT_OCR_LANGUAGES", default="en,tr,de,ru,fr"
                 ),
                 ocr_provider=os.getenv("OCR_PROVIDER", "paddleocr").strip().lower()
                 or "paddleocr",

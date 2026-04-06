@@ -156,6 +156,10 @@ export const trMessages: Record<string, string> = {
   "settings.llm.ollama.deanonModel.label": "De-anonymization model",
   "settings.llm.ollama.deanonModel.hint":
     "Lokal de-anonymization için kullanılan Ollama modeli.",
+  "ollama.models.loading": "Modeller yükleniyor\u2026",
+  "ollama.models.empty": "Model bulunamadı. Model adını manuel olarak yazabilirsiniz.",
+  "ollama.models.noMatch": "Eşleşen model yok. Özel bir model adı yazabilirsiniz.",
+
   "settings.llm.test.success": "LLM bağlantı testi başarılı.",
   "settings.llm.test.failed": "LLM bağlantı testi başarısız.",
 

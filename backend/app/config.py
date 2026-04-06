@@ -78,7 +78,7 @@ def get_settings() -> AppSettings:
         audio_chunk_size=_env_int("AUDIO_CHUNK_SIZE_DEFAULT", 60),
         spreadsheet_chunk_size=_env_int("SPREADSHEET_CHUNK_SIZE_DEFAULT", 200),
         whisper_model=os.getenv("WHISPER_MODEL", "base"),
-        image_ocr_languages=_csv_env_to_list("DEFAULT_OCR_LANGUAGES", default="en"),
+        image_ocr_languages=_csv_env_to_list("DEFAULT_OCR_LANGUAGES", default="en,tr,de,ru,fr"),
         extract_embedded_images=_env_bool("EXTRACT_EMBEDDED_IMAGES_DEFAULT", True),
         recursive_email_attachments=_env_bool(
             "RECURSIVE_EMAIL_ATTACHMENTS_DEFAULT", True

@@ -25,7 +25,7 @@ class AppSettings(Base):
 
     deanon_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     deanon_strategy: Mapped[str] = mapped_column(String, nullable=False)
-    require_approval: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    require_approval: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     show_json_output: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     use_presidio_layer: Mapped[bool] = mapped_column(
@@ -35,7 +35,7 @@ class AppSettings(Base):
     use_ollama_validation_layer: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False
     )
-    use_ollama_layer: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    use_ollama_layer: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     chunk_size: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_overlap: Mapped[int] = mapped_column(Integer, nullable=False)

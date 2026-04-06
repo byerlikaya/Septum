@@ -64,7 +64,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ env.IMAGE }}
           short-description: "Privacy-first AI middleware — anonymize documents, chat with LLMs, no raw PII leaves your machine."
-          readme-filepath: ./README.md
+          readme-filepath: ./DOCKERHUB.md
 
       - name: Bump version for next release
         run: |

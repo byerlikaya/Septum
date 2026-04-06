@@ -5,6 +5,7 @@ import { Shield, Zap, Check, AlertCircle, Loader2, Globe, Database, HardDrive, M
 import api, { initializeInfrastructure, setAuthToken, testDatabaseConnection, testRedisConnection } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { useLanguage, type AppLanguage } from "@/lib/language";
+import { OllamaModelCombobox } from "./OllamaModelCombobox";
 
 interface SetupWizardProps {
   startPhase: "needs_infrastructure" | "needs_application_setup";
@@ -75,7 +76,7 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
     return initialModel && initialModel !== "test" ? initialModel : (prov?.defaultModel ?? "");
   });
   const [apiKey, setApiKey] = useState("");
-  const [ollamaUrl, setOllamaUrl] = useState("http://host.docker.internal:11434");
+  const [ollamaUrl, setOllamaUrl] = useState("http://localhost:11434");
   const [ollamaMode, setOllamaMode] = useState<"compose" | "external" | "none">("none");
   const [deanonModel, setDeanonModel] = useState("llama3.2:3b");
   const [providerTestStatus, setProviderTestStatus] = useState<TestStatus>("idle");
@@ -138,7 +139,7 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
     setProviderTestStatus("pending"); setProviderTestMessage(""); setNeedsPull(false);
     // Save settings first
     const payload: Record<string, string> = { llm_provider: provider, llm_model: model, whisper_model: whisperModel };
-    const effectiveOllamaUrl = provider === "ollama" ? ollamaUrl.trim() || "http://host.docker.internal:11434" : ollamaMode === "compose" ? "http://ollama:11434" : ollamaMode === "external" ? ollamaUrl.trim() || "http://host.docker.internal:11434" : "";
+    const effectiveOllamaUrl = provider === "ollama" ? ollamaUrl.trim() || "http://localhost:11434" : ollamaMode === "compose" ? "http://ollama:11434" : ollamaMode === "external" ? ollamaUrl.trim() || "http://localhost:11434" : "";
     if (effectiveOllamaUrl) { payload.ollama_base_url = effectiveOllamaUrl; payload.ollama_deanon_model = deanonModel.trim() || "llama3.2:3b"; }
     if (provider !== "ollama" && ollamaMode === "none") { payload.use_ollama_validation_layer = "false"; payload.use_ollama_layer = "false"; }
     if (provider === "ollama") { payload.ollama_chat_model = model; } else if (apiKey.trim()) { payload[apiKeyField] = apiKey.trim(); }
@@ -300,12 +301,12 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
             <div><label className="mb-1.5 block text-xs font-medium text-slate-300">{t("setup.step.provider.label")}</label>
               <select value={provider} onChange={(e) => { setProvider(e.target.value); const def = PROVIDERS.find((p) => p.value === e.target.value); if (def) setModel(def.defaultModel); setProviderTestStatus("idle"); }} className={inputCls}>{PROVIDERS.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</select></div>
             {provider === "ollama" ? (
-              <div><label className="mb-1.5 block text-xs font-medium text-slate-300">Ollama URL</label><input type="text" value={ollamaUrl} onChange={(e) => setOllamaUrl(e.target.value)} placeholder="http://host.docker.internal:11434" className={inputCls} /><p className="mt-1 text-xs text-slate-500">{t("setup.step.provider.ollamaHint")}</p></div>
+              <div><label className="mb-1.5 block text-xs font-medium text-slate-300">Ollama URL</label><input type="text" value={ollamaUrl} onChange={(e) => setOllamaUrl(e.target.value)} placeholder="http://localhost:11434" className={inputCls} /><p className="mt-1 text-xs text-slate-500">{t("setup.step.provider.ollamaHint")}</p></div>
             ) : (
               <div><label className="mb-1.5 block text-xs font-medium text-slate-300">API Key</label><input type="text" autoComplete="off" data-1p-ignore data-lpignore="true" style={{ WebkitTextSecurity: "disc" } as React.CSSProperties} value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={provider === "anthropic" ? "sk-ant-..." : provider === "openai" ? "sk-..." : "sk-or-..."} className={inputCls} /><p className="mt-1 text-xs text-slate-500">{t("setup.step.provider.apiKeyHint")}</p></div>
             )}
-            <div><label className="mb-1.5 block text-xs font-medium text-slate-300">{t("setup.step.provider.model")}</label><input type="text" value={model} onChange={(e) => setModel(e.target.value)} className={inputCls} /></div>
-            {provider === "ollama" && (<div><label className="mb-1.5 block text-xs font-medium text-slate-300">{t("setup.step.provider.deanonModel")}</label><input type="text" value={deanonModel} onChange={(e) => setDeanonModel(e.target.value)} placeholder="llama3.2:3b" className={inputCls} /><p className="mt-1 text-xs text-slate-500">{t("setup.step.provider.deanonHint")}</p></div>)}
+            <div><label className="mb-1.5 block text-xs font-medium text-slate-300">{t("setup.step.provider.model")}</label>{provider === "ollama" ? <OllamaModelCombobox value={model} onChange={setModel} baseUrl={ollamaUrl} placeholder="llama3.2:3b" /> : <input type="text" value={model} onChange={(e) => setModel(e.target.value)} className={inputCls} />}</div>
+            {provider === "ollama" && (<div><label className="mb-1.5 block text-xs font-medium text-slate-300">{t("setup.step.provider.deanonModel")}</label><OllamaModelCombobox value={deanonModel} onChange={setDeanonModel} baseUrl={ollamaUrl} placeholder="llama3.2:3b" /><p className="mt-1 text-xs text-slate-500">{t("setup.step.provider.deanonHint")}</p></div>)}
             {/* Ollama for privacy — cloud only */}
             {provider !== "ollama" && (<div className="rounded-lg border border-slate-700 bg-slate-800/30 p-4 space-y-3">
               <div><h3 className="text-xs font-semibold text-slate-200">{t("setup.step.provider.ollamaPrivacy.title")}</h3><p className="mt-0.5 text-[11px] text-slate-500">{t("setup.step.provider.ollamaPrivacy.description")}</p></div>
@@ -313,9 +314,9 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
                 { value: "compose" as const, label: t("setup.step.provider.ollamaPrivacy.compose"), d: t("setup.step.provider.ollamaPrivacy.compose.description") },
                 { value: "external" as const, label: t("setup.step.provider.ollamaPrivacy.external"), d: t("setup.step.provider.ollamaPrivacy.external.description") },
                 { value: "none" as const, label: t("setup.step.provider.ollamaPrivacy.none"), d: t("setup.step.provider.ollamaPrivacy.none.description") },
-              ]).map((o) => (<button key={o.value} type="button" onClick={() => { setOllamaMode(o.value); if (o.value === "compose") setOllamaUrl("http://ollama:11434"); else if (o.value === "external") setOllamaUrl("http://host.docker.internal:11434"); }} className={`w-full rounded-md border p-2.5 text-left transition-colors ${ollamaMode === o.value ? "border-sky-500 bg-sky-600/10" : "border-slate-700 bg-slate-800/50 hover:border-slate-600"}`}><div className="text-xs font-medium text-slate-200">{o.label}</div><div className="text-[11px] text-slate-400">{o.d}</div></button>))}</div>
-              {ollamaMode === "external" && (<div><label className="mb-1 block text-xs font-medium text-slate-300">Ollama URL</label><input type="text" value={ollamaUrl} onChange={(e) => setOllamaUrl(e.target.value)} placeholder="http://host.docker.internal:11434" className={inputCls} /></div>)}
-              {ollamaMode !== "none" && (<div><label className="mb-1 block text-xs font-medium text-slate-300">{t("setup.step.provider.deanonModel")}</label><input type="text" value={deanonModel} onChange={(e) => setDeanonModel(e.target.value)} placeholder="llama3.2:3b" className={inputCls} /></div>)}
+              ]).map((o) => (<button key={o.value} type="button" onClick={() => { setOllamaMode(o.value); if (o.value === "compose") setOllamaUrl("http://ollama:11434"); else if (o.value === "external") setOllamaUrl("http://localhost:11434"); }} className={`w-full rounded-md border p-2.5 text-left transition-colors ${ollamaMode === o.value ? "border-sky-500 bg-sky-600/10" : "border-slate-700 bg-slate-800/50 hover:border-slate-600"}`}><div className="text-xs font-medium text-slate-200">{o.label}</div><div className="text-[11px] text-slate-400">{o.d}</div></button>))}</div>
+              {ollamaMode === "external" && (<div><label className="mb-1 block text-xs font-medium text-slate-300">Ollama URL</label><input type="text" value={ollamaUrl} onChange={(e) => setOllamaUrl(e.target.value)} placeholder="http://localhost:11434" className={inputCls} /></div>)}
+              {ollamaMode !== "none" && (<div><label className="mb-1 block text-xs font-medium text-slate-300">{t("setup.step.provider.deanonModel")}</label><OllamaModelCombobox value={deanonModel} onChange={setDeanonModel} baseUrl={ollamaUrl} placeholder="llama3.2:3b" /></div>)}
             </div>)}
           </div>
           <StatusBadge status={providerTestStatus} msg={providerTestMessage} />
