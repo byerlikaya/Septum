@@ -13,8 +13,6 @@ import os
 from typing import Any, AsyncGenerator, List
 
 from fastapi import HTTPException
-
-from .config import default_ollama_url
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -23,6 +21,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from .config import default_ollama_url
 from .models import Base
 from .models.chat_session import ChatMessage, ChatSession  # noqa: F401
 from .models.document import Chunk, Document  # noqa: F401
