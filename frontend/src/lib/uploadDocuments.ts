@@ -43,7 +43,8 @@ export async function uploadDocuments(
     const response = await api.post<Document>("/api/documents/upload", formData, {
       headers: {
         "Content-Type": "multipart/form-data"
-      }
+      },
+      timeout: 300_000,
     });
 
     uploaded.push(response.data);

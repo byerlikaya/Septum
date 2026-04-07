@@ -79,6 +79,10 @@ _MIME_TO_FORMAT: dict[str, str] = {
     "audio/x-wav": "audio",
     "audio/flac": "audio",
     "audio/ogg": "audio",
+    "audio/mp4": "audio",
+    "audio/m4a": "audio",
+    "audio/x-m4a": "audio",
+    "video/mp4": "audio",
 }
 
 

@@ -66,7 +66,7 @@ export BACKEND_INTERNAL_URL="http://localhost:$BACKEND_PORT"
   cd "$PROJECT_ROOT/backend"
   # Avoid OMP Error #179 (pthread_mutex_init) on macOS with PyTorch/MPS
   export OMP_NUM_THREADS=1
-  python -m uvicorn app.main:app --reload --host 0.0.0.0 --port "$BACKEND_PORT" --log-level warning
+  python -m uvicorn app.main:app --reload --host 0.0.0.0 --port "$BACKEND_PORT"
 ) &
 
 BACKEND_PID=$!

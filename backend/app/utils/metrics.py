@@ -1,9 +1,9 @@
 """Prometheus metrics for Septum API."""
 
 import time
-from typing import Callable
+from typing import Any
 
-from fastapi import Request, Response
+from fastapi import Request
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     Counter,
@@ -11,8 +11,8 @@ from prometheus_client import (
     Info,
     generate_latest,
 )
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as StarletteResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 REQUEST_COUNT = Counter(
     "septum_http_requests_total",
@@ -50,26 +50,48 @@ APP_INFO = Info(
 APP_INFO.info({"version": "1.0.0"})
 
 
-class PrometheusMiddleware(BaseHTTPMiddleware):
-    """Middleware that records request count and latency for Prometheus."""
+class PrometheusMiddleware:
+    """Pure ASGI middleware that records request count and latency.
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        if request.url.path == "/metrics":
-            return await call_next(request)
+    Uses the raw ASGI interface instead of ``BaseHTTPMiddleware`` to avoid
+    the known Starlette issue where ``BaseHTTPMiddleware`` cancels
+    long-lived streaming connections (SSE).
+    """
 
-        method = request.method
-        path = self._normalize_path(request.url.path)
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        if path == "/metrics":
+            await self.app(scope, receive, send)
+            return
+
+        method = scope.get("method", "GET")
+        normalized_path = self._normalize_path(path)
         start = time.perf_counter()
+        status_code = 500
 
-        response = await call_next(request)
+        async def send_wrapper(message: dict[str, Any]) -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message.get("status", 500)
+            await send(message)
 
-        elapsed = time.perf_counter() - start
-        status = str(response.status_code)
-
-        REQUEST_COUNT.labels(method=method, path=path, status=status).inc()
-        REQUEST_LATENCY.labels(method=method, path=path).observe(elapsed)
-
-        return response
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            elapsed = time.perf_counter() - start
+            REQUEST_COUNT.labels(
+                method=method, path=normalized_path, status=str(status_code)
+            ).inc()
+            REQUEST_LATENCY.labels(
+                method=method, path=normalized_path
+            ).observe(elapsed)
 
     @staticmethod
     def _normalize_path(path: str) -> str:
