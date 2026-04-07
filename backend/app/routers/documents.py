@@ -9,6 +9,7 @@ This router is responsible for:
 """
 
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -704,7 +705,9 @@ async def get_document_raw(
     return Response(
         content=raw_bytes,
         media_type=document.file_type,
-        headers={"Content-Disposition": f'inline; filename="{document.original_filename}"'},
+        headers={"Content-Disposition": 'inline; filename="{}"'.format(
+            re.sub(r'["\\\r\n]', "_", document.original_filename)
+        )},
     )
 
 

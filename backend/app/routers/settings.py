@@ -29,6 +29,27 @@ from ..utils.device import get_device
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
+_ALLOWED_OLLAMA_HOSTS = {"localhost", "127.0.0.1", "host.docker.internal", "ollama"}
+
+
+def _validate_ollama_url(url: str) -> str:
+    """Validate that an Ollama URL points to an allowed host.
+
+    Prevents SSRF by restricting base_url to a known-safe set of
+    hostnames (localhost variants, Docker internal DNS, Compose service).
+    Raises HTTPException 400 if the host is not allowed.
+    """
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or "").lower()
+    if hostname not in _ALLOWED_OLLAMA_HOSTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Ollama URL host '{hostname}' is not allowed. Use localhost, host.docker.internal, or ollama.",
+        )
+    return url
+
 
 class SettingsResponse(BaseModel):
     """Serialized view of global application settings."""
@@ -300,6 +321,7 @@ async def test_local_models_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="OLLAMA_BASE_URL is not configured.",
         )
+    _validate_ollama_url(base_url)
 
     url = f"{base_url}/api/tags"
 
@@ -415,6 +437,7 @@ async def list_ollama_models_endpoint(
     url = (base_url or settings.ollama_base_url or "").rstrip("/")
     if not url:
         return OllamaModelsResponse(models=[])
+    _validate_ollama_url(url)
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -455,11 +478,12 @@ async def ollama_pull_endpoint(
     base_url = (payload.base_url or settings.ollama_base_url or "").rstrip("/")
     if not base_url:
         raise HTTPException(status_code=400, detail="Ollama base URL not configured.")
+    _validate_ollama_url(base_url)
 
     import json as _json
 
     async def event_stream():
-        async with httpx.AsyncClient(timeout=None) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)) as client:
             try:
                 async with client.stream(
                     "POST",
