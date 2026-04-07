@@ -281,7 +281,7 @@ docker compose up
 Kurulum sihirbazı ilk ziyarette tüm yapılandırmayı halleder. Bu komut şunları başlatır:
 - **PostgreSQL 16** — production veritabanı
 - **Redis 7** — çoklu worker desteği için anonymization map cache
-- **Septum** (port 8000 + 3000) — Backend + Frontend tek container'da
+- **Septum** (port 3000) — Backend + Frontend tek container, tek port
 
 Yerel Ollama instance'ı eklemek için:
 
@@ -323,9 +323,11 @@ npm install
 npm run dev
 ```
 
-Varsayılan olarak:
-- Backend: `http://localhost:8000`
-- Frontend: `http://localhost:3000`
+Varsayılan olarak her şey tek port üzerinden sunulur:
+- UI + API: `http://localhost:3000`
+- API dökümantasyonu: `http://localhost:3000/docs`
+
+Next.js rewrites, `/api/*`, `/docs`, `/health` ve `/metrics` isteklerini container içindeki backend'e (port 8000) proxy eder. Port 8000 dışarıya açılmaz.
 
 `src/lib/api.ts` içindeki backend base URL'inin kendi ortamınızla uyumlu olduğundan emin olun.
 
@@ -409,7 +411,7 @@ Septum RESTful bir API sunar. Ana endpoint grupları:
 | **Denetim** | `GET /api/audit`, `GET /api/audit/{id}/report`, `GET /api/audit/metrics` | Uyumluluk denetim kaydı ve tespit metrikleri |
 | **Sağlık** | `GET /health`, `GET /metrics` | Sistem sağlığı ve Prometheus metrikleri |
 
-Tam OpenAPI şeması, backend çalışırken `http://localhost:8000/docs` adresinde mevcuttur.
+Tam OpenAPI şeması, uygulama çalışırken `http://localhost:3000/docs` adresinde mevcuttur.
 
 ---
 

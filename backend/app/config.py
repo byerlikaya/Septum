@@ -10,9 +10,22 @@ used by the main application, without going through the database layer.
 """
 
 import os
+from pathlib import Path
 from typing import List
 
 from .models.settings import AppSettings
+
+
+def _is_docker() -> bool:
+    """Detect if running inside a Docker container."""
+    if os.getenv("DOCKER") == "true":
+        return True
+    return Path("/.dockerenv").exists()
+
+
+def default_ollama_url() -> str:
+    """Return the default Ollama base URL for the current environment."""
+    return "http://host.docker.internal:11434" if _is_docker() else "http://localhost:11434"
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -60,7 +73,7 @@ def get_settings() -> AppSettings:
         id=1,
         llm_provider=os.getenv("LLM_PROVIDER", "anthropic"),
         llm_model=os.getenv("LLM_MODEL", "claude-3-5-sonnet-latest"),
-        ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+        ollama_base_url=os.getenv("OLLAMA_BASE_URL", default_ollama_url()),
         ollama_chat_model=os.getenv("OLLAMA_CHAT_MODEL", "llama3.2:3b"),
         ollama_deanon_model=os.getenv("OLLAMA_DEANON_MODEL", "llama3.2:3b"),
         deanon_enabled=_env_bool("DEANON_ENABLED_DEFAULT", True),

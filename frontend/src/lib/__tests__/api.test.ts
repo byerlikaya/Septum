@@ -1,12 +1,10 @@
 import { baseURL } from "../api";
 
 describe("api", () => {
-  it("exports baseURL", () => {
+  it("exports baseURL as empty string for same-origin proxy", () => {
+    // In the browser (jsdom), baseURL is "" so requests use relative URLs
+    // and Next.js rewrites proxy them to the backend.
     expect(typeof baseURL).toBe("string");
-    expect(baseURL.length).toBeGreaterThan(0);
-  });
-
-  it("uses fallback or env for baseURL", () => {
-    expect(baseURL).toMatch(/^https?:\/\//);
+    expect(baseURL).toBe("");
   });
 });

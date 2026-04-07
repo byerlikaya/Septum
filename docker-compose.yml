@@ -45,8 +45,9 @@ services:
       - DATABASE_URL=postgresql+asyncpg://septum:septum_secret@postgres:5432/septum
       - REDIS_URL=redis://redis:6379/0
     ports:
-      - "8000:8000"
       - "3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - septum-data:/app/data
       - septum-uploads:/app/uploads
@@ -60,7 +61,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health')"]
       interval: 30s
       timeout: 5s
       start_period: 60s

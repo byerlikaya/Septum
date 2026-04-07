@@ -334,6 +334,44 @@ async def test_local_models_endpoint(
     )
 
 
+class OllamaProbeResponse(BaseModel):
+    """Result of probing multiple Ollama URLs to find a reachable instance."""
+
+    url: Optional[str] = None
+    models: list[str] = []
+
+
+_OLLAMA_PROBE_URLS = [
+    "http://host.docker.internal:11434",
+    "http://ollama:11434",
+    "http://localhost:11434",
+]
+
+
+@router.get(
+    "/ollama-probe",
+    response_model=OllamaProbeResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def ollama_probe_endpoint() -> OllamaProbeResponse:
+    """Probe common Ollama URLs and return the first reachable one.
+
+    Tries ``host.docker.internal`` (Docker → host), ``ollama`` (Compose
+    service), and ``localhost`` in order. Returns the first URL that
+    responds to ``/api/tags`` along with the available model names.
+    """
+    async with httpx.AsyncClient(timeout=2.0) as client:
+        for base in _OLLAMA_PROBE_URLS:
+            try:
+                resp = await client.get(f"{base}/api/tags")
+                resp.raise_for_status()
+                names = [m.get("name", "") for m in resp.json().get("models", [])]
+                return OllamaProbeResponse(url=base, models=names)
+            except httpx.HTTPError:
+                continue
+    return OllamaProbeResponse()
+
+
 class OllamaModelInfo(BaseModel):
     """Single Ollama model entry returned by the listing endpoint."""
 

@@ -5,19 +5,12 @@
 <h3 align="center">Your data never leaves. Your AI still works.</h3>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/backend-FastAPI-blue" alt="Backend: FastAPI" />
-  <img src="https://img.shields.io/badge/frontend-Next.js%2016-black" alt="Frontend: Next.js 16" />
-  <img src="https://img.shields.io/badge/tests-pytest-informational" alt="Tests: pytest" />
-  <img src="https://img.shields.io/badge/focus-Privacy--First-green" alt="Focus: Privacy-First" />
-  <a href="README.tr.md">
-    <img src="https://img.shields.io/badge/lang-TR-red" alt="Turkish README" />
-  </a>
-  <br />
   <a href="https://hub.docker.com/r/byerlikaya/septum">
     <img src="https://img.shields.io/docker/pulls/byerlikaya/septum?label=docker%20pulls" alt="Docker Pulls" />
   </a>
-  <img src="https://img.shields.io/badge/security_scan-passing_(2026--03--10)-brightgreen" alt="Security Scan: passing (2026-03-10)" />
-  <img src="https://img.shields.io/badge/deps-audit_clean-brightgreen" alt="Dependencies: audit clean" />
+  <a href="README.tr.md">
+    <img src="https://img.shields.io/badge/lang-TR-red" alt="Turkish README" />
+  </a>
 </p>
 
 <p align="center">
@@ -193,7 +186,9 @@ For full pipeline details, see [Architecture — PII Detection & Anonymisation P
 
 ```bash
 docker pull byerlikaya/septum
-docker run --name septum -p 3000:3000 -p 8000:8000 \
+docker run --name septum \
+  --add-host=host.docker.internal:host-gateway \
+  -p 3000:3000 \
   -v septum-data:/app/data \
   -v septum-uploads:/app/uploads \
   -v septum-anon-maps:/app/anon_maps \
@@ -216,7 +211,9 @@ No `.env` file, no manual configuration. Data persists automatically via Docker 
 ```bash
 docker stop septum && docker rm septum
 docker pull byerlikaya/septum
-docker run --name septum -p 3000:3000 -p 8000:8000 \
+docker run --name septum \
+  --add-host=host.docker.internal:host-gateway \
+  -p 3000:3000 \
   -v septum-data:/app/data \
   -v septum-uploads:/app/uploads \
   -v septum-anon-maps:/app/anon_maps \
@@ -239,7 +236,7 @@ Starts PostgreSQL, Redis, and Septum in a single command. Add `--profile ollama`
 
 ```bash
 ./dev.sh --setup   # First-time: install dependencies
-./dev.sh           # Start backend (port 8000) + frontend (port 3000)
+./dev.sh           # Start dev servers (port 3000)
 ```
 
 The setup wizard opens on first visit.
@@ -254,12 +251,12 @@ For architecture details, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ```bash
 # Upload a document
-curl -X POST http://localhost:8000/api/documents/upload \
+curl -X POST http://localhost:3000/api/documents/upload \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@contract.pdf"
 
 # Ask a question (streamed response via SSE)
-curl -N -X POST http://localhost:8000/api/chat/ask \
+curl -N -X POST http://localhost:3000/api/chat/ask \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"message": "What are the termination clauses?", "document_id": 1}'

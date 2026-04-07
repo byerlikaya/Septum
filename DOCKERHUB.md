@@ -25,7 +25,9 @@
 ## Quick Start
 
 ```bash
-docker run --name septum -p 3000:3000 -p 8000:8000 \
+docker run --name septum \
+  --add-host=host.docker.internal:host-gateway \
+  -p 3000:3000 \
   -v septum-data:/app/data \
   -v septum-uploads:/app/uploads \
   -v septum-anon-maps:/app/anon_maps \
@@ -41,7 +43,9 @@ Open **http://localhost:3000** — the setup wizard configures everything (datab
 ```bash
 docker stop septum && docker rm septum
 docker pull byerlikaya/septum
-docker run --name septum -p 3000:3000 -p 8000:8000 \
+docker run --name septum \
+  --add-host=host.docker.internal:host-gateway \
+  -p 3000:3000 \
   -v septum-data:/app/data \
   -v septum-uploads:/app/uploads \
   -v septum-anon-maps:/app/anon_maps \
@@ -87,8 +91,9 @@ See [`docker-compose.yml`](https://github.com/byerlikaya/Septum/blob/main/docker
 
 | Port | Service |
 |------|---------|
-| `3000` | Web UI (Next.js) |
-| `8000` | API (FastAPI) |
+| `3000` | Web UI + API (single port) |
+
+All API endpoints (`/api/*`, `/docs`, `/health`) are served through port 3000. No need to expose port 8000.
 
 ## Links
 

@@ -36,7 +36,6 @@ RUN npm ci || npm install
 COPY frontend/ .
 COPY VERSION /tmp/VERSION
 RUN mkdir -p public
-ENV NEXT_PUBLIC_API_URL=http://localhost:8000
 RUN echo "NEXT_PUBLIC_APP_VERSION=$(cat /tmp/VERSION | tr -d '[:space:]')" >> .env.local && npm run build
 
 # ── Stage 3: combined runtime ──
@@ -46,6 +45,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/app/backend/.venv/bin:$PATH" \
     NODE_ENV=production \
+    DOCKER=true \
     DB_PATH=/app/data/septum.db \
     DOCUMENT_STORAGE_DIR=/app/uploads \
     ANON_MAP_STORAGE_DIR=/app/anon_maps \
@@ -112,7 +112,7 @@ cd /app/frontend
 HOSTNAME=0.0.0.0 PORT=3000 node server.js &
 FRONTEND_PID=$!
 
-echo "Septum is running — backend :8000, frontend :3000"
+echo "Septum is running on http://localhost:3000"
 
 # Wait for either process to exit
 wait -n $BACKEND_PID $FRONTEND_PID
@@ -122,9 +122,9 @@ RUN chmod +x /app/start.sh
 
 USER septum
 
-EXPOSE 8000 3000
+EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health')" || exit 1
 
 CMD ["/app/start.sh"]

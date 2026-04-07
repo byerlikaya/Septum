@@ -84,6 +84,7 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
   const [pullProgress, setPullProgress] = useState<number | null>(null);
   const [pullStatus, setPullStatus] = useState("");
   const [needsPull, setNeedsPull] = useState(false);
+  const [ollamaProbeResult, setOllamaProbeResult] = useState<"idle" | "probing" | "found" | "not_found">("idle");
 
   // Regulations
   interface RegulationItem { id: string; display_name: string; region: string; is_active: boolean; is_builtin: boolean }
@@ -105,6 +106,24 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
   const [regMessage, setRegMessage] = useState("");
 
   const apiKeyField = provider === "anthropic" ? "anthropic_api_key" : provider === "openai" ? "openai_api_key" : "openrouter_api_key";
+
+  // Auto-probe Ollama when provider switches to ollama
+  const probeOllama = useCallback(async () => {
+    if (ollamaProbeResult !== "idle") return;
+    setOllamaProbeResult("probing");
+    try {
+      const { data } = await api.get<{ url: string | null; models: string[] }>("/api/settings/ollama-probe");
+      if (data.url) {
+        setOllamaUrl(data.url);
+        if (data.models.length > 0 && model === "llama3.2:3b") setModel(data.models[0]);
+        setOllamaProbeResult("found");
+      } else {
+        setOllamaProbeResult("not_found");
+      }
+    } catch {
+      setOllamaProbeResult("not_found");
+    }
+  }, [ollamaProbeResult, model]);
 
   // --- Handlers ---
   const handleTestDatabase = useCallback(async () => {
@@ -299,9 +318,9 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
           <StepHeader icon={Zap} title={t("setup.step.provider")} desc={t("setup.step.provider.description")} />
           <div className="space-y-4">
             <div><label className="mb-1.5 block text-xs font-medium text-slate-300">{t("setup.step.provider.label")}</label>
-              <select value={provider} onChange={(e) => { setProvider(e.target.value); const def = PROVIDERS.find((p) => p.value === e.target.value); if (def) setModel(def.defaultModel); setProviderTestStatus("idle"); }} className={inputCls}>{PROVIDERS.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</select></div>
+              <select value={provider} onChange={(e) => { const v = e.target.value; setProvider(v); const def = PROVIDERS.find((p) => p.value === v); if (def) setModel(def.defaultModel); setProviderTestStatus("idle"); if (v === "ollama") probeOllama(); }} className={inputCls}>{PROVIDERS.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</select></div>
             {provider === "ollama" ? (
-              <div><label className="mb-1.5 block text-xs font-medium text-slate-300">Ollama URL</label><input type="text" value={ollamaUrl} onChange={(e) => setOllamaUrl(e.target.value)} placeholder="http://localhost:11434" className={inputCls} /><p className="mt-1 text-xs text-slate-500">{t("setup.step.provider.ollamaHint")}</p></div>
+              <div><label className="mb-1.5 block text-xs font-medium text-slate-300">Ollama URL</label><div className="relative"><input type="text" value={ollamaUrl} onChange={(e) => setOllamaUrl(e.target.value)} placeholder="http://localhost:11434" className={inputCls} />{ollamaProbeResult === "probing" && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-slate-500" />}</div><p className="mt-1 text-xs text-slate-500">{t("setup.step.provider.ollamaHint")}</p>{ollamaProbeResult === "not_found" && (<div className="mt-2 rounded-md bg-amber-950/40 border border-amber-800/50 px-3 py-2 text-xs text-amber-300/90 space-y-1"><p>{t("setup.step.provider.ollamaNotFound")}</p><ul className="list-disc pl-4 space-y-0.5"><li>{t("setup.step.provider.ollamaNotFound.install")}: <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-amber-200">ollama.com</a></li><li>{t("setup.step.provider.ollamaNotFound.compose")}: <code className="bg-slate-800 px-1 rounded">docker compose --profile ollama up</code></li></ul></div>)}</div>
             ) : (
               <div><label className="mb-1.5 block text-xs font-medium text-slate-300">API Key</label><input type="text" autoComplete="off" data-1p-ignore data-lpignore="true" style={{ WebkitTextSecurity: "disc" } as React.CSSProperties} value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={provider === "anthropic" ? "sk-ant-..." : provider === "openai" ? "sk-..." : "sk-or-..."} className={inputCls} /><p className="mt-1 text-xs text-slate-500">{t("setup.step.provider.apiKeyHint")}</p></div>
             )}

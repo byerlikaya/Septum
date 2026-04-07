@@ -52,19 +52,17 @@ export function AppShell({ children }: AppShellProps) {
   if (isAuthPage) return <>{children}</>;
   if (status === "unauthenticated") return null;
 
-  const apiBase = typeof window !== "undefined" ? `${window.location.protocol}//${window.location.hostname}:8000` : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
-
   return (
     <div className="flex h-full min-w-0 flex-col md:flex-row">
       <Sidebar />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-950">
         {/* Top bar */}
         <div className="flex shrink-0 items-center justify-end gap-3 border-b border-slate-800/50 px-4 py-2 sm:px-6 lg:px-8">
-          <a href={`${apiBase}/docs`} target="_blank" rel="noopener noreferrer" className="hidden items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors sm:flex">
+          <a href="/docs" target="_blank" rel="noopener noreferrer" className="hidden items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors sm:flex">
             <FileCode className="h-3.5 w-3.5" />
             <span>Swagger</span>
           </a>
-          <a href={`${apiBase}/redoc`} target="_blank" rel="noopener noreferrer" className="hidden items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors sm:flex">
+          <a href="/redoc" target="_blank" rel="noopener noreferrer" className="hidden items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors sm:flex">
             <BookOpen className="h-3.5 w-3.5" />
             <span>API Docs</span>
           </a>

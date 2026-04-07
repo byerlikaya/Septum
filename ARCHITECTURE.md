@@ -325,9 +325,11 @@ npm install
 npm run dev
 ```
 
-By default:
-- Backend: `http://localhost:8000`
-- Frontend: `http://localhost:3000`
+By default, everything is served on a single port:
+- UI + API: `http://localhost:3000`
+- API docs: `http://localhost:3000/docs`
+
+Next.js rewrites proxy `/api/*`, `/docs`, `/health`, and `/metrics` to the internal backend (port 8000 inside the container). Port 8000 is not exposed externally.
 
 Ensure the backend base URL in `src/lib/api.ts` matches your environment.
 
@@ -411,7 +413,7 @@ Septum exposes a RESTful API. Key endpoint groups:
 | **Audit** | `GET /api/audit`, `GET /api/audit/{id}/report`, `GET /api/audit/metrics` | Compliance audit trail and detection metrics |
 | **Health** | `GET /health`, `GET /metrics` | System health and Prometheus metrics |
 
-Full OpenAPI schema is available at `http://localhost:8000/docs` when the backend is running.
+Full OpenAPI schema is available at `http://localhost:3000/docs` when the application is running.
 
 ---
 

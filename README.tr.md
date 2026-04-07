@@ -5,19 +5,12 @@
 <h3 align="center">Veriniz dışarı çıkmaz. Yapay zekanız çalışmaya devam eder.</h3>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/backend-FastAPI-blue" alt="Backend: FastAPI" />
-  <img src="https://img.shields.io/badge/frontend-Next.js%2016-black" alt="Frontend: Next.js 16" />
-  <img src="https://img.shields.io/badge/testler-pytest-informational" alt="Testler: pytest" />
-  <img src="https://img.shields.io/badge/odak-Gizlilik--Öncelikli-green" alt="Odak: Gizlilik-Öncelikli" />
-  <a href="README.md">
-    <img src="https://img.shields.io/badge/lang-EN-blue" alt="English README" />
-  </a>
-  <br />
   <a href="https://hub.docker.com/r/byerlikaya/septum">
     <img src="https://img.shields.io/docker/pulls/byerlikaya/septum?label=docker%20pulls" alt="Docker Pulls" />
   </a>
-  <img src="https://img.shields.io/badge/guvenlik_taramasi-passing_(2026--03--10)-brightgreen" alt="Güvenlik taraması: passing (2026-03-10)" />
-  <img src="https://img.shields.io/badge/bagimliliklar-denetim_temiz-brightgreen" alt="Bağımlılıklar: denetim temiz" />
+  <a href="README.md">
+    <img src="https://img.shields.io/badge/lang-EN-blue" alt="English README" />
+  </a>
 </p>
 
 <p align="center">
@@ -193,7 +186,9 @@ Pipeline detayları için bkz. [Mimari — PII Tespiti ve Anonimleştirme Akış
 
 ```bash
 docker pull byerlikaya/septum
-docker run --name septum -p 3000:3000 -p 8000:8000 \
+docker run --name septum \
+  --add-host=host.docker.internal:host-gateway \
+  -p 3000:3000 \
   -v septum-data:/app/data \
   -v septum-uploads:/app/uploads \
   -v septum-anon-maps:/app/anon_maps \
@@ -216,7 +211,9 @@ docker run --name septum -p 3000:3000 -p 8000:8000 \
 ```bash
 docker stop septum && docker rm septum
 docker pull byerlikaya/septum
-docker run --name septum -p 3000:3000 -p 8000:8000 \
+docker run --name septum \
+  --add-host=host.docker.internal:host-gateway \
+  -p 3000:3000 \
   -v septum-data:/app/data \
   -v septum-uploads:/app/uploads \
   -v septum-anon-maps:/app/anon_maps \
@@ -239,7 +236,7 @@ PostgreSQL, Redis ve Septum'u tek komutla başlatır. Yerel Ollama için `--prof
 
 ```bash
 ./dev.sh --setup   # İlk kurulum: bağımlılıkları yükle
-./dev.sh           # Backend (port 8000) + frontend (port 3000) başlat
+./dev.sh           # Dev sunucularını başlat (port 3000)
 ```
 
 İlk ziyarette kurulum sihirbazı açılır.
@@ -254,12 +251,12 @@ Mimari detaylar için bkz. **[ARCHITECTURE.tr.md](ARCHITECTURE.tr.md)**.
 
 ```bash
 # Doküman yükle
-curl -X POST http://localhost:8000/api/documents/upload \
+curl -X POST http://localhost:3000/api/documents/upload \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@contract.pdf"
 
 # Soru sor (SSE ile akışlı yanıt)
-curl -N -X POST http://localhost:8000/api/chat/ask \
+curl -N -X POST http://localhost:3000/api/chat/ask \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"message": "Fesih koşulları neler?", "document_id": 1}'

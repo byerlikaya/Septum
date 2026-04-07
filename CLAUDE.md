@@ -11,7 +11,7 @@ Septum is a privacy-first AI middleware that lets organizations use their own do
 ### Development
 ```bash
 ./dev.sh --setup          # First-time: install backend (pip) + frontend (npm) deps
-./dev.sh                  # Start backend (port 8000) + frontend (port 3000)
+./dev.sh                  # Start dev servers (port 3000)
 ```
 
 ### Backend (from `backend/`)
@@ -33,7 +33,7 @@ npm test -- --runInBand   # Sequential tests (CI mode)
 
 ### Docker
 ```bash
-docker run --name septum -p 3000:3000 -p 8000:8000 -v septum-data:/app/data -v septum-uploads:/app/uploads -v septum-anon-maps:/app/anon_maps -v septum-vector-indexes:/app/vector_indexes -v septum-bm25-indexes:/app/bm25_indexes byerlikaya/septum
+docker run --name septum --add-host=host.docker.internal:host-gateway -p 3000:3000 -v septum-data:/app/data -v septum-uploads:/app/uploads -v septum-anon-maps:/app/anon_maps -v septum-vector-indexes:/app/vector_indexes -v septum-bm25-indexes:/app/bm25_indexes byerlikaya/septum
 docker compose up                                          # With PostgreSQL + Redis
 docker compose --profile ollama up                         # With local Ollama models
 ```
@@ -179,7 +179,7 @@ Invoke `/security-scan` for a comprehensive audit (`.claude/skills/security-scan
 
 ## Environment Setup
 
-**Docker (recommended):** No `.env` needed. Run `docker run -p 3000:3000 -p 8000:8000 byerlikaya/septum` and the setup wizard configures everything (database, cache, LLM provider).
+**Docker (recommended):** No `.env` needed. Run `docker run --add-host=host.docker.internal:host-gateway -p 3000:3000 byerlikaya/septum` and the setup wizard configures everything (database, cache, LLM provider). Everything is served on port 3000 (API proxied via Next.js rewrites).
 
 **Local development:** Run `./dev.sh --setup` then `./dev.sh`. Bootstrap auto-generates `config.json` with encryption key and JWT secret. Set `SEPTUM_CONFIG_PATH` to override the default `/app/data/config.json` location. Environment variables (`DATABASE_URL`, `REDIS_URL`, `ENCRYPTION_KEY`, etc.) override `config.json` values.
 

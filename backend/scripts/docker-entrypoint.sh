@@ -31,4 +31,4 @@ else:
 
 # --- Start application ---
 log "Starting Septum backend..."
-exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level warning

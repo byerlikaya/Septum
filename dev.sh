@@ -60,21 +60,20 @@ fi
 BACKEND_PORT=$(find_available_port "${BACKEND_PORT:-8000}")
 FRONTEND_PORT=$(find_available_port "${FRONTEND_PORT:-3000}")
 
-export NEXT_PUBLIC_API_URL="http://localhost:$BACKEND_PORT"
+export BACKEND_INTERNAL_URL="http://localhost:$BACKEND_PORT"
 
 (
   cd "$PROJECT_ROOT/backend"
   # Avoid OMP Error #179 (pthread_mutex_init) on macOS with PyTorch/MPS
   export OMP_NUM_THREADS=1
-  echo "Starting backend on http://localhost:$BACKEND_PORT ..."
-  python -m uvicorn app.main:app --reload --host 0.0.0.0 --port "$BACKEND_PORT"
+  python -m uvicorn app.main:app --reload --host 0.0.0.0 --port "$BACKEND_PORT" --log-level warning
 ) &
 
 BACKEND_PID=$!
 
 cd "$PROJECT_ROOT/frontend"
 
-echo "Starting frontend on http://localhost:$FRONTEND_PORT ..."
+echo "Septum starting on http://localhost:$FRONTEND_PORT ..."
 PORT=$FRONTEND_PORT npm run dev
 
 echo "Stopping backend process (PID: $BACKEND_PID) ..."

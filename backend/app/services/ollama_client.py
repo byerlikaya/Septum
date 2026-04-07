@@ -31,7 +31,8 @@ def use_ollama_enabled() -> bool:
 
 
 def _default_base_url() -> str:
-    return os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+    from ..config import default_ollama_url
+    return os.getenv("OLLAMA_BASE_URL", default_ollama_url()).rstrip("/")
 
 
 def _default_deanon_model() -> str:

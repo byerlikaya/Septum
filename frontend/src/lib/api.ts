@@ -24,15 +24,10 @@ import type {
 } from "./types";
 
 function resolveBaseURL(): string {
-  if (typeof window !== "undefined") {
-    const host = window.location.hostname;
-    if (host !== "localhost" && host !== "127.0.0.1") {
-      return `${window.location.protocol}//${host}:8000`;
-    }
-  }
-  const envURL = process.env.NEXT_PUBLIC_API_URL?.trim();
-  if (envURL) return envURL;
-  return "http://localhost:8000";
+  // In the browser, use relative URLs — Next.js rewrites proxy to the backend.
+  if (typeof window !== "undefined") return "";
+  // Server-side (SSR / build): use the backend internal URL directly.
+  return process.env.BACKEND_INTERNAL_URL?.trim() || "http://127.0.0.1:8000";
 }
 
 export const baseURL = resolveBaseURL();

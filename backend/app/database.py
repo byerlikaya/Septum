@@ -13,6 +13,8 @@ import os
 from typing import Any, AsyncGenerator, List
 
 from fastapi import HTTPException
+
+from .config import default_ollama_url
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -204,7 +206,7 @@ async def _seed_defaults(sm: async_sessionmaker[AsyncSession]) -> None:
                 llm_provider=os.getenv("LLM_PROVIDER", "anthropic"),
                 llm_model=os.getenv("LLM_MODEL", "claude-sonnet-4-20250514"),
                 ollama_base_url=os.getenv(
-                    "OLLAMA_BASE_URL", "http://localhost:11434"
+                    "OLLAMA_BASE_URL", default_ollama_url()
                 ),
                 ollama_chat_model=os.getenv(
                     "OLLAMA_CHAT_MODEL", "llama3.2:3b"
