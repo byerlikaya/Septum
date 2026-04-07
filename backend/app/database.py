@@ -39,6 +39,18 @@ _engine: AsyncEngine | None = None
 _session_maker: async_sessionmaker[AsyncSession] | None = None
 
 
+def _sqlite_wal_connect(dbapi_conn: Any, _record: Any) -> None:
+    """Enable WAL journal mode and set a busy timeout for SQLite.
+
+    WAL allows concurrent readers with one writer and avoids
+    ``database is locked`` errors during background processing.
+    """
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.close()
+
+
 def _engine_kwargs(url: str) -> dict[str, Any]:
     """Return dialect-specific engine keyword arguments."""
     if "postgresql" in url:
@@ -87,6 +99,9 @@ def initialize_engine(database_url: str) -> None:
             Path(raw_path).parent.mkdir(parents=True, exist_ok=True)
 
     _engine = create_async_engine(database_url, **_engine_kwargs(database_url))
+    if "sqlite" in database_url:
+        from sqlalchemy import event
+        event.listen(_engine.sync_engine, "connect", _sqlite_wal_connect)
     _session_maker = async_sessionmaker(
         bind=_engine,
         expire_on_commit=False,

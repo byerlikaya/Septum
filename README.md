@@ -106,18 +106,18 @@ The LLM answers using placeholders. Septum restores real values locally before s
 
 ## Why Septum?
 
-| Capability | Septum | Plain ChatGPT / Claude | Azure Presidio (standalone) | Custom LangChain pipeline |
-|---|:---:|:---:|:---:|:---:|
-| PII masked before cloud | **Yes** | No | Detection only | Build yourself |
-| Multi-regulation (17 packs) | **Yes** | No | No | Build yourself |
-| Approval gate before LLM | **Yes** | No | No | Build yourself |
-| De-anonymisation (real values in answers) | **Yes** | N/A | No | Build yourself |
-| Document RAG with hybrid retrieval | **Yes** | No | No | Partial |
-| Custom detection rules (regex, keywords, LLM) | **Yes** | No | Limited | Build yourself |
-| Ready-to-use web UI | **Yes** | N/A | No | No |
-| Audit trail & compliance reporting | **Yes** | No | No | Build yourself |
-| Works with any LLM provider | **Yes** | Single provider | Azure only | Configurable |
-| Fully self-hosted, no data leaves | **Yes** | No | Cloud service | Depends |
+| Capability | Septum | Plain ChatGPT / Claude | Azure Presidio | LangChain Pipeline |
+|:---|:---:|:---:|:---:|:---:|
+| **PII masked before cloud** | **Yes** | No | Detection only | Build yourself |
+| **Multi-regulation (17 packs)** | **Yes** | No | No | Build yourself |
+| **Approval gate before LLM** | **Yes** | No | No | Build yourself |
+| **De-anonymisation (real values)** | **Yes** | N/A | No | Build yourself |
+| **Document RAG with hybrid retrieval** | **Yes** | No | No | Partial |
+| **Custom detection rules** | **Yes** | No | Limited | Build yourself |
+| **Ready-to-use web UI** | **Yes** | N/A | No | No |
+| **Audit trail & compliance** | **Yes** | No | No | Build yourself |
+| **Works with any LLM provider** | **Yes** | Single provider | Azure only | Configurable |
+| **Fully self-hosted** | **Yes** | No | Cloud service | Depends |
 
 **The key difference:** Other tools offer pieces of the puzzle — detection here, a vector store there. Septum is the **complete end-to-end pipeline**: detection → anonymisation → mapping → retrieval → approval → LLM call → de-anonymisation → audit. Out of the box, with a UI, for any regulation.
 
@@ -130,7 +130,7 @@ Septum uses a **multi-layer PII detection pipeline** to minimise both false nega
 ### What Each Layer Detects
 
 | Layer | Technology | Entity Types Detected |
-|:---:|-----------|-------------|
+|:---:|:---|:---|
 | 1 | **Presidio** — regex patterns + algorithmic validators (Luhn, IBAN MOD-97, TCKN, CPF, SSN checksums). Context-aware recognizers with multilingual keywords. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE |
 | 2 | **NER** — HuggingFace XLM-RoBERTa with per-language model selection (20+ languages). ALL CAPS input auto-normalised to title case. | PERSON_NAME, LOCATION, ORGANIZATION_NAME |
 | 3 | **Ollama** — local LLM for context-aware validation, alias detection, and semantic entity detection | PERSON_NAME aliases/nicknames; DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE |
@@ -152,10 +152,10 @@ All 17 built-in regulations active. **3,268 algorithmically generated PII values
 </p>
 
 | Layer | Entities | Types | Precision | Recall | F1 |
-|---|:---:|:---:|:---:|:---:|:---:|
-| Presidio (L1) — patterns + validators | 1,710 | 20 | 100% | 94.4% | 97.1% |
-| NER (L2) — XLM-RoBERTa + ALL CAPS normalisation | 770 | 3 | 97.5% | 92.7% | 95.1% |
-| Ollama (L3) — aya-expanse:8b | 788 | 3 | 99.7% | 91.6% | 95.5% |
+|:---|:---:|:---:|:---:|:---:|:---:|
+| **Presidio (L1)** — patterns + validators | 1,710 | 20 | 100% | 94.4% | 97.1% |
+| **NER (L2)** — XLM-RoBERTa + ALL CAPS normalisation | 770 | 3 | 97.5% | 92.7% | 95.1% |
+| **Ollama (L3)** — aya-expanse:8b | 788 | 3 | 99.7% | 91.6% | 95.5% |
 | **Combined** | **3,268** | **23** | **99.3%** | **93.3%** | **96.2%** |
 
 > NER (L2) detects ALL CAPS names (common in medical/legal documents) via automatic titlecase normalisation, and recognises organisation names. Ollama (L3) validates candidates and catches aliases. Benchmark includes adversarial edge cases (spaced IBANs, dotted phone numbers, etc.) that lower Presidio recall to real-world levels. Reproducible: `pytest tests/benchmark_detection.py -v -s`
@@ -194,6 +194,7 @@ docker run --name septum \
   -v septum-anon-maps:/app/anon_maps \
   -v septum-vector-indexes:/app/vector_indexes \
   -v septum-bm25-indexes:/app/bm25_indexes \
+  -v septum-models:/app/models \
   byerlikaya/septum
 ```
 
@@ -219,6 +220,7 @@ docker run --name septum \
   -v septum-anon-maps:/app/anon_maps \
   -v septum-vector-indexes:/app/vector_indexes \
   -v septum-bm25-indexes:/app/bm25_indexes \
+  -v septum-models:/app/models \
   byerlikaya/septum
 ```
 
@@ -240,6 +242,23 @@ Starts PostgreSQL, Redis, and Septum in a single command. Add `--profile ollama`
 ```
 
 The setup wizard opens on first visit.
+
+### Docker vs Local
+
+All features work identically in both deployment modes — no functionality is lost in Docker:
+
+| Feature | Docker | Local |
+|:---|:---:|:---:|
+| **NER / PII detection** | CPU | GPU-accelerated |
+| **OCR (PaddleOCR)** | CPU | GPU-accelerated |
+| **Audio transcription (Whisper)** | CPU | GPU-accelerated |
+| **Semantic search (FAISS)** | CPU | CPU |
+| **Chat & de-anonymization** | Full | Full |
+| **Setup complexity** | Single command | Python + Node.js |
+
+**Docker is recommended for most users.** CPU inference handles typical workloads (single documents, interactive chat) with no issues. GPU acceleration (requires local install with NVIDIA CUDA) only makes a noticeable difference when batch-processing large volumes of documents with OCR or audio transcription.
+
+**Performance note:** On Apple Silicon (M1/M2/M3/M4), the Docker image runs under x86 emulation (QEMU/Rosetta), which adds overhead to ML operations (NER, OCR, embeddings). If you experience slow chat responses or document processing, consider running locally with `./dev.sh` for native performance.
 
 For architecture details, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 

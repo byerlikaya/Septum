@@ -22,6 +22,7 @@ import { SkeletonTableRows } from "@/components/common/Skeleton";
 interface DocumentListProps {
   documents: Document[];
   isLoading?: boolean;
+  processingProgress?: Record<number, number>;
   onDelete: (document: Document) => void;
   onReprocess: (document: Document) => void;
   onPreview: (document: Document) => void;
@@ -72,6 +73,7 @@ const FORMAT_OPTIONS = ["pdf", "docx", "xlsx", "ods", "audio", "image"] as const
 export function DocumentList({
   documents,
   isLoading = false,
+  processingProgress = {},
   onDelete,
   onReprocess,
   onPreview,
@@ -339,16 +341,34 @@ export function DocumentList({
                     {formatFileSize(doc.file_size_bytes)}
                   </td>
                   <td className="px-4 py-2 align-middle">
-                    <span
-                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusBadgeClasses(
-                        doc.ingestion_status
-                      )}`}
-                    >
-                      {doc.ingestion_status === "completed" && t("documents.status.completed")}
-                      {doc.ingestion_status === "processing" && t("documents.status.processing")}
-                      {doc.ingestion_status === "pending" && t("documents.status.pending")}
-                      {doc.ingestion_status === "failed" && t("documents.status.failed")}
-                    </span>
+                    {(doc.ingestion_status === "processing" || doc.ingestion_status === "pending") ? (
+                      <div className="flex items-center gap-2">
+                        <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-700">
+                          {processingProgress[doc.id] > 0 ? (
+                            <div
+                              className="h-full rounded-full bg-sky-500 transition-all duration-500 ease-out"
+                              style={{ width: `${processingProgress[doc.id]}%` }}
+                            />
+                          ) : (
+                            <div className="h-full w-full animate-pulse rounded-full bg-sky-500/30" />
+                          )}
+                        </div>
+                        <span className="text-xs text-slate-400">
+                          {processingProgress[doc.id] > 0
+                            ? `${processingProgress[doc.id]}%`
+                            : t("documents.status.processing")}
+                        </span>
+                      </div>
+                    ) : (
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusBadgeClasses(
+                          doc.ingestion_status
+                        )}`}
+                      >
+                        {doc.ingestion_status === "completed" && t("documents.status.completed")}
+                        {doc.ingestion_status === "failed" && t("documents.status.failed")}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-2 text-right align-middle text-xs text-slate-300">
                     {doc.chunk_count}

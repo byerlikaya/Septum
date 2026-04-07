@@ -476,29 +476,17 @@ async def upload_document(
 
     active_reg_ids = await _snapshot_active_regulations(db)
 
-    settings = await load_settings(db)
-
-    ingester_kwargs = _build_ingester_kwargs(file_format, settings)
-    ingestion_result = await _INGESTION_ROUTER.ingest(
-        file_path=encrypted_path,
-        mime_type=mime_type,
-        file_format=file_format,
-        ingester_kwargs=ingester_kwargs,
-    )
-
-    detected_language = _detect_document_language(file_format, ingestion_result)
-
     document = Document(
         filename=str(encrypted_path.name),
         original_filename=file.filename or "",
         file_type=mime_type,
         file_format=file_format,
-        detected_language=detected_language,
+        detected_language="en",
         language_override=None,
         encrypted_path=str(encrypted_path),
         file_size_bytes=len(raw_bytes),
         transcription_text=None,
-        ocr_confidence=ingestion_result.confidence,
+        ocr_confidence=0.0,
         active_regulation_ids=active_reg_ids,
         ingestion_status="processing",
         ingestion_error=None,
@@ -508,64 +496,94 @@ async def upload_document(
     await db.commit()
     await db.refresh(document)
 
-    # If this is a tabular document, initialise a generic spreadsheet schema
-    # based on ingestion metadata. This schema can later be refined by the user.
-    if file_format in {"xlsx", "ods", "csv", "tsv"}:
-        await _ensure_spreadsheet_schema(db, document.id, ingestion_result.metadata)
+    async def _run_full_background(doc_id: int) -> None:
+        """Run ingestion + pipeline in a background task."""
+        from ..database import get_session_maker
+        from ..services.document_progress import clear_progress, set_progress
 
-    try:
-        # Short-circuit for audio documents with no transcription.
-        if file_format == "audio" and not (ingestion_result.text or "").strip():
-            document.ingestion_status = "failed"
-            base_msg = "Audio transcription failed: decoder produced no samples or text."
-            if ingestion_result.warnings:
-                detail = "; ".join(ingestion_result.warnings)
-                document.ingestion_error = f"{base_msg} ({detail})"
-            else:
-                document.ingestion_error = base_msg
-            document.chunk_count = 0
-            document.entity_count = 0
-            await db.commit()
-            await db.refresh(document)
-            return DocumentResponse.model_validate(document)
+        async with get_session_maker()() as bg_db:
+            bg_doc = await bg_db.get(Document, doc_id)
+            if bg_doc is None:
+                return
+            try:
+                bg_settings = await load_settings(bg_db)
 
-        async def _run_pipeline_background(doc_id: int) -> None:
-            """Run the ingestion pipeline in a background task."""
-            from ..database import get_session_maker
-            async with get_session_maker()() as bg_db:
-                bg_doc = await bg_db.get(Document, doc_id)
-                if bg_doc is None:
-                    return
-                try:
-                    bg_settings = await load_settings(bg_db)
-                    bg_pipeline = DocumentPipeline(settings=bg_settings)
-                    await bg_pipeline.run(
-                        db=bg_db,
-                        document=bg_doc,
-                        file_format=file_format,
-                        ingested_text=ingestion_result.text,
-                        ingestion_confidence=ingestion_result.confidence,
+                ingester_kwargs = _build_ingester_kwargs(file_format, bg_settings)
+                ingestion_result = await _INGESTION_ROUTER.ingest(
+                    file_path=encrypted_path,
+                    mime_type=mime_type,
+                    file_format=file_format,
+                    ingester_kwargs=ingester_kwargs,
+                )
+                set_progress(doc_id, 1)
+                bg_doc.detected_language = _detect_document_language(
+                    file_format, ingestion_result
+                )
+                bg_doc.ocr_confidence = ingestion_result.confidence
+
+                if file_format in {"xlsx", "ods", "csv", "tsv"}:
+                    await _ensure_spreadsheet_schema(
+                        bg_db, bg_doc.id, ingestion_result.metadata
                     )
-                except Exception as bg_exc:  # noqa: BLE001
+
+                if (
+                    file_format == "audio"
+                    and not (ingestion_result.text or "").strip()
+                ):
                     bg_doc.ingestion_status = "failed"
-                    bg_doc.ingestion_error = f"{type(bg_exc).__name__}: {bg_exc}"
+                    base_msg = (
+                        "Audio transcription failed: "
+                        "decoder produced no samples or text."
+                    )
+                    if ingestion_result.warnings:
+                        detail = "; ".join(ingestion_result.warnings)
+                        bg_doc.ingestion_error = f"{base_msg} ({detail})"
+                    else:
+                        bg_doc.ingestion_error = base_msg
+                    bg_doc.chunk_count = 0
+                    bg_doc.entity_count = 0
                     await bg_db.commit()
+                    return
 
-        background_tasks.add_task(_run_pipeline_background, document.id)
+                bg_pipeline = DocumentPipeline(settings=bg_settings)
+                await bg_pipeline.run(
+                    db=bg_db,
+                    document=bg_doc,
+                    file_format=file_format,
+                    ingested_text=ingestion_result.text,
+                    ingestion_confidence=ingestion_result.confidence,
+                    on_progress=lambda pct: set_progress(doc_id, pct),
+                )
+            except Exception as bg_exc:  # noqa: BLE001
+                bg_doc.ingestion_status = "failed"
+                bg_doc.ingestion_error = f"{type(bg_exc).__name__}: {bg_exc}"
+                await bg_db.commit()
+            finally:
+                clear_progress(doc_id)
 
-    except Exception as exc:  # noqa: BLE001
-        document.ingestion_status = "failed"
-        document.ingestion_error = f"{type(exc).__name__}: {exc}"
-        await db.commit()
-        detail = "Document ingestion failed."
-        if document.ingestion_error:
-            detail = f"{detail} {document.ingestion_error}"
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=detail,
-        ) from exc
+    background_tasks.add_task(_run_full_background, document.id)
 
     return DocumentResponse.model_validate(document)
+
+
+@router.get(
+    "/progress",
+    status_code=status.HTTP_200_OK,
+)
+async def get_processing_progress(
+    ids: str = "",
+) -> dict:
+    """Return processing progress for documents being processed.
+
+    Accepts a comma-separated list of document IDs.
+    Returns a mapping of document_id → percent (0-99).
+    """
+    from ..services.document_progress import get_progress
+
+    if not ids.strip():
+        return {}
+    doc_ids = [int(x) for x in ids.split(",") if x.strip().isdigit()]
+    return {did: get_progress(did) for did in doc_ids}
 
 
 @router.get(
@@ -766,6 +784,7 @@ async def delete_document(
 )
 async def reprocess_document(
     document_id: int,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentResponse:
     """Re-run the sanitization, chunking, and indexing pipeline for an existing document."""
@@ -778,66 +797,76 @@ async def reprocess_document(
             detail="Encrypted source file not found on disk.",
         )
 
+    from sqlalchemy import delete as sa_delete
+
+    await db.execute(
+        sa_delete(EntityDetection).where(EntityDetection.document_id == document_id)
+    )
+    await db.execute(
+        sa_delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
+    )
     document.ingestion_status = "processing"
     document.ingestion_error = None
+    document.chunk_count = 0
+    document.entity_count = 0
     await db.commit()
-
-    try:
-        from sqlalchemy import delete as sa_delete
-
-        await db.execute(
-            sa_delete(EntityDetection).where(EntityDetection.document_id == document_id)
-        )
-        await db.execute(
-            sa_delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
-        )
-        await db.commit()
-
-        await DocumentPipeline.cleanup_artifacts(document_id)
-
-        document.active_regulation_ids = await _snapshot_active_regulations(db)
-        settings = await load_settings(db)
-
-        ingester_kwargs = _build_ingester_kwargs(document.file_format, settings)
-        ingestion_result = await _INGESTION_ROUTER.ingest(
-            file_path=encrypted_path,
-            mime_type=document.file_type,
-            file_format=document.file_format,
-            ingester_kwargs=ingester_kwargs,
-        )
-
-        document.detected_language = _detect_document_language(
-            document.file_format, ingestion_result
-        )
-        await db.commit()
-
-        if document.file_format == "audio" and not (ingestion_result.text or "").strip():
-            document.ingestion_status = "failed"
-            document.ingestion_error = "Audio transcription produced no text."
-            document.chunk_count = 0
-            document.entity_count = 0
-            await db.commit()
-            await db.refresh(document)
-            return DocumentResponse.model_validate(document)
-
-        pipeline = DocumentPipeline(settings=settings)
-        await pipeline.run(
-            db=db,
-            document=document,
-            file_format=document.file_format,
-            ingested_text=ingestion_result.text,
-            ingestion_confidence=ingestion_result.confidence,
-        )
-
-    except Exception as exc:
-        document.ingestion_status = "failed"
-        document.ingestion_error = f"{type(exc).__name__}: {exc}"
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Reprocessing failed: {document.ingestion_error}",
-        ) from exc
-
     await db.refresh(document)
+
+    file_format = document.file_format
+    mime_type = document.file_type
+
+    async def _reprocess_background(doc_id: int) -> None:
+        from ..database import get_session_maker
+        from ..services.document_progress import clear_progress, set_progress
+
+        async with get_session_maker()() as bg_db:
+            bg_doc = await bg_db.get(Document, doc_id)
+            if bg_doc is None:
+                return
+            try:
+                await DocumentPipeline.cleanup_artifacts(doc_id)
+
+                bg_doc.active_regulation_ids = await _snapshot_active_regulations(bg_db)
+                bg_settings = await load_settings(bg_db)
+
+                ingester_kwargs = _build_ingester_kwargs(file_format, bg_settings)
+                ingestion_result = await _INGESTION_ROUTER.ingest(
+                    file_path=encrypted_path,
+                    mime_type=mime_type,
+                    file_format=file_format,
+                    ingester_kwargs=ingester_kwargs,
+                )
+                set_progress(doc_id, 1)
+
+                bg_doc.detected_language = _detect_document_language(
+                    file_format, ingestion_result
+                )
+                bg_doc.ocr_confidence = ingestion_result.confidence
+                await bg_db.commit()
+
+                if file_format == "audio" and not (ingestion_result.text or "").strip():
+                    bg_doc.ingestion_status = "failed"
+                    bg_doc.ingestion_error = "Audio transcription produced no text."
+                    await bg_db.commit()
+                    return
+
+                pipeline = DocumentPipeline(settings=bg_settings)
+                await pipeline.run(
+                    db=bg_db,
+                    document=bg_doc,
+                    file_format=file_format,
+                    ingested_text=ingestion_result.text,
+                    ingestion_confidence=ingestion_result.confidence,
+                    on_progress=lambda pct: set_progress(doc_id, pct),
+                )
+            except Exception as bg_exc:  # noqa: BLE001
+                bg_doc.ingestion_status = "failed"
+                bg_doc.ingestion_error = f"{type(bg_exc).__name__}: {bg_exc}"
+                await bg_db.commit()
+            finally:
+                clear_progress(doc_id)
+
+    background_tasks.add_task(_reprocess_background, document.id)
+
     return DocumentResponse.model_validate(document)
 

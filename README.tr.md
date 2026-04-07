@@ -106,18 +106,18 @@ LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerç
 
 ## Neden Septum?
 
-| Özellik | Septum | ChatGPT / Claude (düz) | Azure Presidio (bağımsız) | Özel LangChain pipeline |
-|---|:---:|:---:|:---:|:---:|
-| PII buluta gitmeden maskelenir | **Evet** | Hayır | Yalnızca tespit | Kendin yap |
-| Çoklu regülasyon (17 paket) | **Evet** | Hayır | Hayır | Kendin yap |
-| LLM öncesi onay mekanizması | **Evet** | Hayır | Hayır | Kendin yap |
-| De-anonimleştirme (cevaplarda gerçek değerler) | **Evet** | N/A | Hayır | Kendin yap |
-| Hibrit arama ile doküman RAG | **Evet** | Hayır | Hayır | Kısmi |
-| Özel tespit kuralları (regex, anahtar kelime, LLM) | **Evet** | Hayır | Sınırlı | Kendin yap |
-| Kullanıma hazır web arayüzü | **Evet** | N/A | Hayır | Hayır |
-| Denetim kaydı ve uyumluluk raporlama | **Evet** | Hayır | Hayır | Kendin yap |
-| Herhangi bir LLM sağlayıcı ile çalışır | **Evet** | Tek sağlayıcı | Yalnızca Azure | Yapılandırılabilir |
-| Tamamen self-hosted, veri dışarı çıkmaz | **Evet** | Hayır | Bulut servisi | Duruma bağlı |
+| Özellik | Septum | ChatGPT / Claude | Azure Presidio | LangChain Pipeline |
+|:---|:---:|:---:|:---:|:---:|
+| **PII buluta gitmeden maskelenir** | **Evet** | Hayır | Yalnızca tespit | Kendin yap |
+| **Çoklu regülasyon (17 paket)** | **Evet** | Hayır | Hayır | Kendin yap |
+| **LLM öncesi onay mekanizması** | **Evet** | Hayır | Hayır | Kendin yap |
+| **De-anonimleştirme (gerçek değerler)** | **Evet** | N/A | Hayır | Kendin yap |
+| **Hibrit arama ile doküman RAG** | **Evet** | Hayır | Hayır | Kısmi |
+| **Özel tespit kuralları** | **Evet** | Hayır | Sınırlı | Kendin yap |
+| **Kullanıma hazır web arayüzü** | **Evet** | N/A | Hayır | Hayır |
+| **Denetim kaydı ve uyumluluk** | **Evet** | Hayır | Hayır | Kendin yap |
+| **Herhangi bir LLM sağlayıcı** | **Evet** | Tek sağlayıcı | Yalnızca Azure | Yapılandırılabilir |
+| **Tamamen self-hosted** | **Evet** | Hayır | Bulut servisi | Duruma bağlı |
 
 **Temel fark:** Diğer araçlar bulmacının parçalarını sunar — burada tespit, orada bir vektör veritabanı. Septum **uçtan uca komple pipeline'dır**: tespit → anonimleştirme → eşleme → arama → onay → LLM çağrısı → de-anonimleştirme → denetim. Kutudan çıktığı gibi, arayüzüyle, her regülasyon için.
 
@@ -130,7 +130,7 @@ Septum, hem yanlış negatifleri (kaçan PII) hem de yanlış pozitifleri (gerek
 ### Her Katman Neyi Tespit Eder?
 
 | Katman | Teknoloji | Tespit Edilen Varlık Tipleri |
-|:---:|-----------|-------------|
+|:---:|:---|:---|
 | 1 | **Presidio** — regex desenleri + algoritmik doğrulayıcılar (Luhn, IBAN MOD-97, TCKN, CPF, SSN checksum'ları). Çok dilli bağlam anahtar kelimeleri ile context-aware tanıma. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE |
 | 2 | **NER** — HuggingFace XLM-RoBERTa, dile özgü model seçimi (20+ dil). BÜYÜK HARF girdi otomatik başlık formatına dönüştürülür. | PERSON_NAME, LOCATION, ORGANIZATION_NAME |
 | 3 | **Ollama** — bağlam duyarlı doğrulama, takma ad tespiti ve semantik varlık tespiti için yerel LLM | PERSON_NAME takma adları/lakapları; DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE |
@@ -152,10 +152,10 @@ Tüm 17 yerleşik regülasyon aktif. 23 varlık tipinde **3,268 algoritmik olara
 </p>
 
 | Katman | Varlıklar | Tipler | Precision | Recall | F1 |
-|---|:---:|:---:|:---:|:---:|:---:|
-| Presidio (K1) — desenler + doğrulayıcılar | 1,710 | 20 | %100 | %94,4 | %97,1 |
-| NER (K2) — XLM-RoBERTa + BÜYÜK HARF normalizasyonu | 770 | 3 | %97,5 | %92,7 | %95,1 |
-| Ollama (K3) — aya-expanse:8b | 788 | 3 | %99,7 | %91,6 | %95,5 |
+|:---|:---:|:---:|:---:|:---:|:---:|
+| **Presidio (K1)** — desenler + doğrulayıcılar | 1,710 | 20 | %100 | %94,4 | %97,1 |
+| **NER (K2)** — XLM-RoBERTa + BÜYÜK HARF normalizasyonu | 770 | 3 | %97,5 | %92,7 | %95,1 |
+| **Ollama (K3)** — aya-expanse:8b | 788 | 3 | %99,7 | %91,6 | %95,5 |
 | **Birleşik** | **3,268** | **23** | **%99,3** | **%93,3** | **%96,2** |
 
 > NER (K2), tıbbi ve hukuki belgelerde yaygın olan BÜYÜK HARF isimleri otomatik başlık formatı normalizasyonuyla tespit eder ve kuruluş isimlerini tanır. Ollama (K3) adayları doğrular ve takma adları yakalar. Benchmark, gerçek dünya seviyelerine düşüren adversarial edge case'leri (boşluklu IBAN, noktalı telefon numaraları vb.) içerir. Tekrarlanabilir: `pytest tests/benchmark_detection.py -v -s`
@@ -194,6 +194,7 @@ docker run --name septum \
   -v septum-anon-maps:/app/anon_maps \
   -v septum-vector-indexes:/app/vector_indexes \
   -v septum-bm25-indexes:/app/bm25_indexes \
+  -v septum-models:/app/models \
   byerlikaya/septum
 ```
 
@@ -219,6 +220,7 @@ docker run --name septum \
   -v septum-anon-maps:/app/anon_maps \
   -v septum-vector-indexes:/app/vector_indexes \
   -v septum-bm25-indexes:/app/bm25_indexes \
+  -v septum-models:/app/models \
   byerlikaya/septum
 ```
 
@@ -240,6 +242,23 @@ PostgreSQL, Redis ve Septum'u tek komutla başlatır. Yerel Ollama için `--prof
 ```
 
 İlk ziyarette kurulum sihirbazı açılır.
+
+### Docker ve Yerel Kurulum Karşılaştırması
+
+Tüm özellikler her iki dağıtım modunda da aynı şekilde çalışır — Docker'da hiçbir işlevsellik kaybı yoktur:
+
+| Özellik | Docker | Yerel |
+|:---|:---:|:---:|
+| **NER / PII tespiti** | CPU | GPU hızlandırmalı |
+| **OCR (PaddleOCR)** | CPU | GPU hızlandırmalı |
+| **Ses transkripsiyonu (Whisper)** | CPU | GPU hızlandırmalı |
+| **Semantik arama (FAISS)** | CPU | CPU |
+| **Sohbet ve de-anonimleştirme** | Tam | Tam |
+| **Kurulum karmaşıklığı** | Tek komut | Python + Node.js |
+
+**Docker çoğu kullanıcı için önerilir.** CPU çıkarımı tipik iş yükleri (tek doküman, interaktif sohbet) için fazlasıyla yeterlidir. GPU hızlandırma (NVIDIA CUDA ile yerel kurulum gerektirir) yalnızca OCR veya ses transkripsiyonu ile büyük hacimli dokümanları toplu işlerken belirgin fark yaratır.
+
+**Performans notu:** Apple Silicon (M1/M2/M3/M4) üzerinde Docker image'ı x86 emülasyonu (QEMU/Rosetta) altında çalışır ve ML işlemlerinde (NER, OCR, embedding) ek gecikme yaratır. Sohbet yanıtları veya doküman işleme yavaş geliyorsa, yerel kurulum (`./dev.sh`) ile native performans elde edebilirsiniz.
 
 Mimari detaylar için bkz. **[ARCHITECTURE.tr.md](ARCHITECTURE.tr.md)**.
 

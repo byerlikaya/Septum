@@ -6,6 +6,7 @@ export interface UploadDocumentsOptions {
   files: File[];
   existingDocuments: Document[];
   onProgress?: (completed: number, total: number, doc: Document) => void;
+  onUploadProgress?: (percent: number) => void;
 }
 
 export interface UploadDocumentsResult {
@@ -17,7 +18,7 @@ export interface UploadDocumentsResult {
 export async function uploadDocuments(
   options: UploadDocumentsOptions
 ): Promise<UploadDocumentsResult> {
-  const { files, existingDocuments, onProgress } = options;
+  const { files, existingDocuments, onProgress, onUploadProgress } = options;
 
   if (files.length === 0) {
     return {
@@ -45,6 +46,13 @@ export async function uploadDocuments(
         "Content-Type": "multipart/form-data"
       },
       timeout: 300_000,
+      onUploadProgress: (progressEvent) => {
+        if (progressEvent.total && onUploadProgress) {
+          const filePct = progressEvent.loaded / progressEvent.total;
+          const overall = Math.round(((i + filePct) / uniqueFiles.length) * 100);
+          onUploadProgress(Math.min(overall, 99));
+        }
+      },
     });
 
     uploaded.push(response.data);

@@ -47,7 +47,7 @@ class ErrorLogListResponse(BaseModel):
     page_size: int
 
 
-@router.get("/", response_model=ErrorLogListResponse)
+@router.get("", response_model=ErrorLogListResponse)
 async def list_error_logs(
     page: int = 1,
     page_size: int = 50,
@@ -164,7 +164,7 @@ async def ingest_frontend_error(
     )
 
 
-@router.delete("/", status_code=204, response_model=None)
+@router.delete("", status_code=204, response_model=None)
 async def clear_error_logs(
     source: Optional[str] = None,
     db: AsyncSession = Depends(get_db),

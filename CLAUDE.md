@@ -33,7 +33,7 @@ npm test -- --runInBand   # Sequential tests (CI mode)
 
 ### Docker
 ```bash
-docker run --name septum --add-host=host.docker.internal:host-gateway -p 3000:3000 -v septum-data:/app/data -v septum-uploads:/app/uploads -v septum-anon-maps:/app/anon_maps -v septum-vector-indexes:/app/vector_indexes -v septum-bm25-indexes:/app/bm25_indexes byerlikaya/septum
+docker run --name septum --add-host=host.docker.internal:host-gateway -p 3000:3000 -v septum-data:/app/data -v septum-uploads:/app/uploads -v septum-anon-maps:/app/anon_maps -v septum-vector-indexes:/app/vector_indexes -v septum-bm25-indexes:/app/bm25_indexes -v septum-models:/app/models byerlikaya/septum
 docker compose up                                          # With PostgreSQL + Redis
 docker compose --profile ollama up                         # With local Ollama models
 ```

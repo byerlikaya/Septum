@@ -50,7 +50,7 @@ from ..services.llm_router import LLMRouter, LLMRouterError, _chunk_text
 from ..services.prompts import PromptCatalog
 from ..services.sanitizer_factory import create_sanitizer
 from ..services.text_normalizer import TextNormalizer
-from ..utils.db_helpers import detect_language, get_or_404, load_settings
+from ..utils.db_helpers import detect_language, load_settings
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -508,126 +508,171 @@ async def chat_ask(
         document_ids_list = [request.document_id]
     document_id = document_ids_list[0] if document_ids_list else None
 
-    settings = await load_settings(db)
-    regulation_names = await _active_regulation_names(db)
-
-    documents_by_id: dict[int, Document] = {}
-    if document_ids_list:
-        for did in document_ids_list:
-            documents_by_id[did] = await get_or_404(db, Document, did, "Document not found.")
-    document: Document | None = documents_by_id.get(document_id) if document_id is not None else None
-
-    base_language = (document.language_override or document.detected_language) if document else "en"
-    language = detect_language(message_text, fallback=base_language)
-
-    if document is not None:
-        anon_map = await get_document_map(document.id) or AnonymizationMap(
-            document_id=document.id,
-            language=language,
-        )
-        map_entries = len(anon_map.entity_map)
-        logger.info(
-            "chat document_id=%s anon_map_entries=%s deanon_enabled=%s",
-            document.id,
-            map_entries,
-            getattr(settings, "deanon_enabled", True),
-        )
-        if map_entries == 0 and getattr(settings, "deanon_enabled", True):
-            logger.warning(
-                "Deanonymization will have no effect: no map for document_id=%s. "
-                "Encryption key may have changed — re-upload the document so the map can be loaded.",
-                document.id,
-            )
-    else:
-        anon_map = AnonymizationMap(document_id=0, language=language)
-        logger.info(
-            "chat document_id=None anon_map_entries=%s deanon_enabled=%s",
-            len(anon_map.entity_map),
-            getattr(settings, "deanon_enabled", True),
-        )
-
-    sanitized_query, entity_count, query_type_counts = await _sanitize_query(
-        message_text, language, settings, anon_map, db
-    )
-    chunks: List[Chunk] = []
-    if not request.pre_approved_chunks and documents_by_id:
-        base_top_k = request.top_k or settings.top_k_retrieval
-        total_chunk_count = sum(d.chunk_count for d in documents_by_id.values())
-        use_full_document = (
-            total_chunk_count > 0 and total_chunk_count <= FULL_DOCUMENT_CHUNK_THRESHOLD
-        )
-        top_k = (
-            _effective_top_k(base_top_k, total_chunk_count)
-            if not use_full_document
-            else base_top_k
-        )
-        if use_full_document:
-            for doc in sorted(documents_by_id.values(), key=lambda d: d.id):
-                stmt = (
-                    select(Chunk)
-                    .where(Chunk.document_id == doc.id)
-                    .order_by(Chunk.index)
-                )
-                result = await db.execute(stmt)
-                chunks.extend(result.scalars().all())
-        elif len(documents_by_id) == 1:
-            doc = next(iter(documents_by_id.values()))
-            chunks = await _retrieve_chunks(
-                db=db,
-                document_id=doc.id,
-                query=sanitized_query,
-                top_k=top_k,
-                chunk_count=doc.chunk_count,
-            )
-        else:
-            MIN_PER_DOC = 10
-            MAX_TOTAL = 50
-            num_docs = len(documents_by_id)
-            per_doc_k = max(MIN_PER_DOC, min(MAX_TOTAL // num_docs, top_k // num_docs))
-            for doc in documents_by_id.values():
-                chunks_doc = await _retrieve_chunks(
-                    db=db,
-                    document_id=doc.id,
-                    query=sanitized_query,
-                    top_k=per_doc_k,
-                    chunk_count=doc.chunk_count,
-                )
-                chunks.extend(chunks_doc)
-
-    session_id = request.session_id or uuid4().hex
-
-    if entity_count > 0:
-        await log_pii_detected(
-            db,
-            document_id=document.id if document else 0,
-            regulation_ids=list(document.active_regulation_ids) if document else [],
-            entity_type_counts=query_type_counts,
-            total_count=entity_count,
-            session_id=session_id,
-            extra={"source": "chat_query"},
-            document_name=document.original_filename if document else None,
-            masked_query=sanitized_query if sanitized_query != request.message else None,
-        )
-
-    gate: ApprovalGate = get_approval_gate()
-    require_approval = (
-        request.require_approval
-        if request.require_approval is not None
-        else settings.require_approval
-    )
-
-    effective_settings = settings
-    if request.deanon_enabled is not None:
-        effective_settings = copy.copy(settings)
-        effective_settings.deanon_enabled = request.deanon_enabled
-
     async def event_stream() -> AsyncGenerator[bytes, None]:
         try:
+            settings = await load_settings(db)
+            regulation_names = await _active_regulation_names(db)
+
+            documents_by_id: dict[int, Document] = {}
+            if document_ids_list:
+                for did in document_ids_list:
+                    result = await db.execute(
+                        select(Document).where(Document.id == did)
+                    )
+                    doc = result.scalar_one_or_none()
+                    if doc is None:
+                        yield _encode_sse(
+                            {"type": "error", "message": "Document not found."}
+                        )
+                        return
+                    documents_by_id[did] = doc
+            document: Document | None = (
+                documents_by_id.get(document_id)
+                if document_id is not None
+                else None
+            )
+
+            base_language = (
+                (document.language_override or document.detected_language)
+                if document
+                else "en"
+            )
+            language = detect_language(message_text, fallback=base_language)
+
+            if document is not None:
+                anon_map = await get_document_map(
+                    document.id
+                ) or AnonymizationMap(
+                    document_id=document.id,
+                    language=language,
+                )
+                map_entries = len(anon_map.entity_map)
+                logger.info(
+                    "chat document_id=%s anon_map_entries=%s deanon_enabled=%s",
+                    document.id,
+                    map_entries,
+                    getattr(settings, "deanon_enabled", True),
+                )
+                if map_entries == 0 and getattr(
+                    settings, "deanon_enabled", True
+                ):
+                    logger.warning(
+                        "Deanonymization will have no effect: no map for document_id=%s. "
+                        "Encryption key may have changed — re-upload the document so the map can be loaded.",
+                        document.id,
+                    )
+            else:
+                anon_map = AnonymizationMap(
+                    document_id=0, language=language
+                )
+                logger.info(
+                    "chat document_id=None anon_map_entries=%s deanon_enabled=%s",
+                    len(anon_map.entity_map),
+                    getattr(settings, "deanon_enabled", True),
+                )
+
+            sanitized_query, entity_count, query_type_counts = (
+                await _sanitize_query(
+                    message_text, language, settings, anon_map, db
+                )
+            )
+            chunks: List[Chunk] = []
+            if not request.pre_approved_chunks and documents_by_id:
+                base_top_k = request.top_k or settings.top_k_retrieval
+                total_chunk_count = sum(
+                    d.chunk_count for d in documents_by_id.values()
+                )
+                use_full_document = (
+                    total_chunk_count > 0
+                    and total_chunk_count <= FULL_DOCUMENT_CHUNK_THRESHOLD
+                )
+                top_k = (
+                    _effective_top_k(base_top_k, total_chunk_count)
+                    if not use_full_document
+                    else base_top_k
+                )
+                if use_full_document:
+                    for doc in sorted(
+                        documents_by_id.values(), key=lambda d: d.id
+                    ):
+                        stmt = (
+                            select(Chunk)
+                            .where(Chunk.document_id == doc.id)
+                            .order_by(Chunk.index)
+                        )
+                        result = await db.execute(stmt)
+                        chunks.extend(result.scalars().all())
+                elif len(documents_by_id) == 1:
+                    doc = next(iter(documents_by_id.values()))
+                    chunks = await _retrieve_chunks(
+                        db=db,
+                        document_id=doc.id,
+                        query=sanitized_query,
+                        top_k=top_k,
+                        chunk_count=doc.chunk_count,
+                    )
+                else:
+                    MIN_PER_DOC = 10
+                    MAX_TOTAL = 50
+                    num_docs = len(documents_by_id)
+                    per_doc_k = max(
+                        MIN_PER_DOC,
+                        min(MAX_TOTAL // num_docs, top_k // num_docs),
+                    )
+                    for doc in documents_by_id.values():
+                        chunks_doc = await _retrieve_chunks(
+                            db=db,
+                            document_id=doc.id,
+                            query=sanitized_query,
+                            top_k=per_doc_k,
+                            chunk_count=doc.chunk_count,
+                        )
+                        chunks.extend(chunks_doc)
+
+            session_id = request.session_id or uuid4().hex
+
+            if entity_count > 0:
+                await log_pii_detected(
+                    db,
+                    document_id=document.id if document else 0,
+                    regulation_ids=(
+                        list(document.active_regulation_ids)
+                        if document
+                        else []
+                    ),
+                    entity_type_counts=query_type_counts,
+                    total_count=entity_count,
+                    session_id=session_id,
+                    extra={"source": "chat_query"},
+                    document_name=(
+                        document.original_filename if document else None
+                    ),
+                    masked_query=(
+                        sanitized_query
+                        if sanitized_query != request.message
+                        else None
+                    ),
+                )
+
+            gate: ApprovalGate = get_approval_gate()
+            require_approval = (
+                request.require_approval
+                if request.require_approval is not None
+                else settings.require_approval
+            )
+
+            effective_settings = settings
+            if request.deanon_enabled is not None:
+                effective_settings = copy.copy(settings)
+                effective_settings.deanon_enabled = request.deanon_enabled
+
             yield _encode_sse(
                 {
                     "type": "meta",
                     "session_id": session_id,
-                    "document_id": document.id if document is not None else None,
+                    "document_id": (
+                        document.id if document is not None else None
+                    ),
                     "language": language,
                     "require_approval": require_approval,
                     "retrieved_chunk_count": len(chunks),
@@ -638,17 +683,28 @@ async def chat_ask(
             context_texts: List[str] = []
 
             if request.pre_approved_chunks:
-                context_texts = [c.get("text", "") for c in request.pre_approved_chunks]
+                context_texts = [
+                    c.get("text", "")
+                    for c in request.pre_approved_chunks
+                ]
             else:
                 sanitized_chunk_texts: List[str] = []
                 if documents_by_id and chunks:
                     prev_doc_id: Optional[int] = None
                     for c in chunks:
                         header = ""
-                        if len(documents_by_id) > 1 and c.document_id != prev_doc_id:
+                        if (
+                            len(documents_by_id) > 1
+                            and c.document_id != prev_doc_id
+                        ):
                             header = (
                                 "--- Document: "
-                                + (documents_by_id[c.document_id].original_filename or "")
+                                + (
+                                    documents_by_id[
+                                        c.document_id
+                                    ].original_filename
+                                    or ""
+                                )
                                 + " ---\n\n"
                             )
                             prev_doc_id = c.document_id
@@ -662,18 +718,24 @@ async def chat_ask(
                             db,
                         )
 
-                        sanitized_chunk_texts.append(header + sanitized_chunk)
+                        sanitized_chunk_texts.append(
+                            header + sanitized_chunk
+                        )
 
                 if require_approval:
                     approval_chunks = (
-                        _build_approval_chunks(chunks, sanitized_chunk_texts)
+                        _build_approval_chunks(
+                            chunks, sanitized_chunk_texts
+                        )
                         if (documents_by_id and chunks)
                         else []
                     )
                     gate.create(
                         session_id=session_id,
                         masked_prompt=sanitized_query,
-                        masked_chunks=[c.text for c in approval_chunks],
+                        masked_chunks=[
+                            c.text for c in approval_chunks
+                        ],
                         entity_count=entity_count,
                     )
 
@@ -695,7 +757,9 @@ async def chat_ask(
                         }
                     )
 
-                    decision = await gate.wait_for_approval(session_id)
+                    decision = await gate.wait_for_approval(
+                        session_id
+                    )
 
                     if not decision.approved:
                         yield _encode_sse(
@@ -709,17 +773,23 @@ async def chat_ask(
                         yield _encode_sse({"type": "end"})
                         return
 
-                    context_texts = [c.text for c in decision.chunks]
+                    context_texts = [
+                        c.text for c in decision.chunks
+                    ]
                 elif documents_by_id and chunks:
                     context_texts = sanitized_chunk_texts
                 else:
                     context_texts = []
 
-            output_mode = (request.output_mode or "chat").strip().lower()
+            output_mode = (
+                (request.output_mode or "chat").strip().lower()
+            )
             query_placeholder_matches = list(
                 _PLACEHOLDER_PATTERN.finditer(message_text or "")
             )
-            query_placeholders = [m.group(0) for m in query_placeholder_matches]
+            query_placeholders = [
+                m.group(0) for m in query_placeholder_matches
+            ]
             query_has_placeholder = bool(query_placeholders)
             used_ollama_fallback: List[bool] = [False]
             answer = await _run_llm_and_deanonymize(
@@ -732,9 +802,13 @@ async def chat_ask(
                 language=language,
                 output_mode=output_mode,
                 session_id=session_id,
-                document_id=document.id if document is not None else None,
+                document_id=(
+                    document.id if document is not None else None
+                ),
                 query_has_placeholder=query_has_placeholder,
-                query_placeholders=query_placeholders if query_has_placeholder else None,
+                query_placeholders=(
+                    query_placeholders if query_has_placeholder else None
+                ),
                 http_request=http_request,
                 used_ollama_fallback_ref=used_ollama_fallback,
             )
@@ -744,21 +818,32 @@ async def chat_ask(
                     db,
                     document_id=document.id if document else 0,
                     entity_count=len(anon_map.entity_map),
-                    strategy=getattr(effective_settings, "deanon_strategy", "simple"),
+                    strategy=getattr(
+                        effective_settings, "deanon_strategy", "simple"
+                    ),
                     session_id=session_id,
-                    document_name=document.original_filename if document else None,
+                    document_name=(
+                        document.original_filename if document else None
+                    ),
                 )
 
             for piece in _chunk_text(answer, max_chunk_size=256):
-                yield _encode_sse({"type": "answer_chunk", "text": piece})
+                yield _encode_sse(
+                    {"type": "answer_chunk", "text": piece}
+                )
 
             yield _encode_sse({
                 "type": "end",
                 "used_ollama_fallback": used_ollama_fallback[0],
             })
+        except asyncio.CancelledError:
+            logger.debug("Client disconnected from chat SSE stream")
+            return
         except LLMRouterError as exc:
             try:
-                await log_backend_error(db, http_request, exc, status_code=400)
+                await log_backend_error(
+                    db, http_request, exc, status_code=400
+                )
             except Exception:  # noqa: BLE001
                 pass
             yield _encode_sse(
@@ -768,9 +853,13 @@ async def chat_ask(
                 }
             )
         except Exception as exc:
-            logger.exception("Unhandled exception in chat event stream")
+            logger.exception(
+                "Unhandled exception in chat event stream"
+            )
             try:
-                await log_backend_error(db, http_request, exc, status_code=500)
+                await log_backend_error(
+                    db, http_request, exc, status_code=500
+                )
             except Exception:  # noqa: BLE001
                 pass
             yield _encode_sse(

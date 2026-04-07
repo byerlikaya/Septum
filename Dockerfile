@@ -24,6 +24,11 @@ RUN python -m venv /build/.venv
 ENV PATH="/build/.venv/bin:$PATH"
 
 COPY backend/requirements.txt .
+# Install CPU-only PyTorch first (saves ~6 GB by excluding CUDA/nvidia/triton).
+# pip will skip torch when processing requirements.txt because 2.10.0+cpu
+# satisfies the torch==2.10.0 pin (PEP 440 ignores local version tags).
+RUN pip install --no-warn-script-location \
+    torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-warn-script-location -r requirements.txt
 
 # ── Stage 2: build Next.js frontend ──
@@ -80,15 +85,23 @@ COPY --from=frontend-builder --chown=septum:septum /app/.next/static /app/fronte
 COPY --from=frontend-builder --chown=septum:septum /app/public /app/frontend/public
 
 # Writable dirs — declared as VOLUME so data persists across container recreations
-RUN mkdir -p /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes \
-    && chown -R septum:septum /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes
+RUN mkdir -p /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models \
+    && chown -R septum:septum /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models
 
-VOLUME ["/app/data", "/app/uploads", "/app/anon_maps", "/app/vector_indexes", "/app/bm25_indexes"]
+VOLUME ["/app/data", "/app/uploads", "/app/anon_maps", "/app/vector_indexes", "/app/bm25_indexes", "/app/models"]
 
 # Startup script
 COPY --chown=septum:septum <<'STARTUP' /app/start.sh
 #!/bin/bash
 set -e
+
+# Symlink ML model caches to the persistent /app/models volume so
+# Whisper, HuggingFace, and PaddleOCR models survive container recreation.
+mkdir -p /app/models/whisper /app/models/huggingface /app/models/paddlex \
+         /home/septum/.cache
+ln -sfn /app/models/whisper /home/septum/.cache/whisper
+ln -sfn /app/models/huggingface /home/septum/.cache/huggingface
+ln -sfn /app/models/paddlex /home/septum/.paddlex
 
 # Start backend
 cd /app/backend

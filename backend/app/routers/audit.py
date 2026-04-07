@@ -55,7 +55,7 @@ class ComplianceReportResponse(BaseModel):
     events: List[AuditEventResponse]
 
 
-@router.get("/", response_model=AuditListResponse)
+@router.get("", response_model=AuditListResponse)
 async def list_audit_events(
     db: AsyncSession = Depends(get_db),
     event_type: Optional[str] = Query(None),

@@ -23,18 +23,12 @@ import type {
   TestConnectionResponse,
 } from "./types";
 
-function resolveBaseURL(): string {
-  // In the browser, use relative URLs — Next.js rewrites proxy to the backend.
-  if (typeof window !== "undefined") return "";
-  // Server-side (SSR / build): use the backend internal URL directly.
-  return process.env.BACKEND_INTERNAL_URL?.trim() || "http://127.0.0.1:8000";
-}
+// Always use relative URLs. Next.js rewrites proxy /api/* to the backend.
+// Server-side rendering never calls API endpoints through this instance
+// (all calls happen in useEffect / event handlers, which are client-only).
+export const baseURL = "";
 
-export const baseURL = resolveBaseURL();
-
-export const api = axios.create({
-  baseURL
-});
+export const api = axios.create({ baseURL: "" });
 
 const AUTH_TOKEN_KEY = "septum_auth_token";
 
@@ -193,8 +187,7 @@ export function streamChatAsk(
 
   (async () => {
     try {
-      const streamBase = resolveBaseURL();
-      const res = await fetch(`${streamBase}/api/chat/ask`, {
+      const res = await fetch(`${baseURL}/api/chat/ask`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

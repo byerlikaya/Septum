@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here in a high‑level, date‑based format.
 
+### 2026-04-08
+
+- **Docker proxy timeout fixes**: Chat SSE endpoint returns `StreamingResponse` immediately — all pre-processing moved inside the generator. Document upload and reprocess endpoints run ingestion (OCR, text extraction, Whisper) in background tasks so responses return instantly. Fixes `socket hang up` errors when proxied through Next.js rewrites.
+- **Document processing progress**: Real-time progress bar in document list during chunk sanitization and indexing. Animated pulse indicator during ingestion phase (OCR/Whisper). Backend progress endpoint (`GET /api/documents/progress`) with in-memory tracking per document.
+- **Whisper download progress fix**: Byte-level progress tracking replaces unreliable file-size polling. Document upload reports byte-level progress via `onUploadProgress`.
+- **Docker image size reduction (~6 GB)**: CPU-only PyTorch eliminates unused NVIDIA CUDA/Triton libraries. Image size reduced from ~17 GB to ~6 GB. README includes Docker vs Local comparison table.
+- **Model cache persistence**: New `septum-models` Docker volume persists Whisper, HuggingFace, and PaddleOCR models across container recreations via symlinks.
+- **SQLite WAL mode**: Enables concurrent reads/writes, prevents `database is locked` errors during parallel document processing.
+- **Trailing slash redirect fix**: Routes using `"/"` changed to `""` in error-logs and audit routers, preventing FastAPI 307 redirects that exposed the internal backend URL to the browser.
+- **Orphaned document cleanup**: Documents stuck in `processing` status after server restart are automatically marked as `failed` on startup.
+- **API baseURL fix**: Axios instance uses empty `baseURL` consistently, preventing SSR URL leak to the client.
+
 ### 2026-04-07
 
 - **Single-port turnkey Docker deployment**: All traffic served through port 3000 — port 8000 no longer exposed. Next.js rewrites proxy `/api/*`, `/docs`, `/health`, and `/metrics` to the internal backend. Eliminates CORS issues and port conflict risk. `--add-host=host.docker.internal:host-gateway` added to `docker run` command for cross-platform Ollama host access (Mac/Windows/Linux).

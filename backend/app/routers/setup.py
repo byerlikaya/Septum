@@ -380,14 +380,42 @@ async def install_whisper(body: InstallWhisperRequest):
             yield f"data: {_json.dumps({'percent': 100, 'status': 'ready', 'done': True})}\n\n"
         return StreamingResponse(_already_done(), media_type="text/event-stream")
 
-    # Start download in background thread (download only, don't load into RAM)
+    # Download with direct byte-level progress tracking instead of
+    # polling file size (which is unreliable under Docker/QEMU I/O).
+    import hashlib
+    import urllib.request
+
     download_error: list[str] = []
     download_done = asyncio.Event()
+    progress = {"downloaded": 0, "total": expected_size}
 
     def _download_sync():
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
-            whisper._download(model_url, str(cache_dir), False)
+            download_target = cache_dir / Path(model_url).name
+            expected_sha256 = model_url.split("/")[-2]
+
+            if download_target.is_file():
+                with open(download_target, "rb") as f:
+                    if hashlib.sha256(f.read()).hexdigest() == expected_sha256:
+                        progress["downloaded"] = progress["total"]
+                        return
+
+            with urllib.request.urlopen(model_url) as source:
+                content_len = source.info().get("Content-Length")
+                if content_len:
+                    progress["total"] = int(content_len)
+                with open(download_target, "wb") as output:
+                    while True:
+                        buf = source.read(8192)
+                        if not buf:
+                            break
+                        output.write(buf)
+                        progress["downloaded"] += len(buf)
+
+            with open(download_target, "rb") as f:
+                if hashlib.sha256(f.read()).hexdigest() != expected_sha256:
+                    raise RuntimeError("SHA256 checksum mismatch — please retry")
         except Exception as exc:
             download_error.append(str(exc))
         finally:
@@ -401,19 +429,12 @@ async def install_whisper(body: InstallWhisperRequest):
 
         while not download_done.is_set():
             await asyncio.sleep(1)
-            percent = 0
-            if expected_path and expected_size > 0:
-                try:
-                    # Check both final file and any partial downloads in cache dir
-                    if expected_path.exists():
-                        current = expected_path.stat().st_size
-                    else:
-                        # torch.hub may write to a temp file during download
-                        partials = list(cache_dir.glob("*.pt*"))
-                        current = max((f.stat().st_size for f in partials), default=0)
-                    percent = min(int(current * 100 / expected_size), 99)
-                except OSError:
-                    pass
+            total = progress["total"]
+            percent = (
+                min(int(progress["downloaded"] * 100 / total), 99)
+                if total > 0
+                else 0
+            )
             yield f"data: {_json.dumps({'percent': percent, 'status': 'downloading'})}\n\n"
 
         if download_error:

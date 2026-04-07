@@ -44,6 +44,7 @@ export default function DocumentsPage() {
   }, [fetchDocuments]);
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [processingProgress, setProcessingProgress] = useState<Record<number, number>>({});
 
   useEffect(() => {
     const hasProcessing = documents.some(
@@ -54,21 +55,34 @@ export default function DocumentsPage() {
         try {
           const items = await getDocuments();
           setDocuments(items);
-          const stillProcessing = items.some(
-            (d) => d.ingestion_status === "processing" || d.ingestion_status === "pending"
-          );
-          if (!stillProcessing && pollingRef.current) {
-            clearInterval(pollingRef.current);
-            pollingRef.current = null;
+          const processingIds = items
+            .filter((d) => d.ingestion_status === "processing" || d.ingestion_status === "pending")
+            .map((d) => d.id);
+          if (processingIds.length > 0) {
+            try {
+              const { data } = await api.get<Record<number, number>>(
+                `/api/documents/progress?ids=${processingIds.join(",")}`
+              );
+              setProcessingProgress(data);
+            } catch {
+              // ignore progress errors
+            }
+          } else {
+            setProcessingProgress({});
+            if (pollingRef.current) {
+              clearInterval(pollingRef.current);
+              pollingRef.current = null;
+            }
           }
         } catch {
           // ignore polling errors
         }
-      }, 3000);
+      }, 2000);
     }
     if (!hasProcessing && pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
+      setProcessingProgress({});
     }
     return () => {
       if (pollingRef.current) {
@@ -96,9 +110,11 @@ export default function DocumentsPage() {
           onProgress: (completed, total, doc) => {
             setUploadTotal(total);
             setUploadCompleted(completed);
-            setUploadProgress(Math.round((completed / total) * 100));
             setDocuments((prev) => [doc, ...prev]);
-          }
+          },
+          onUploadProgress: (percent) => {
+            setUploadProgress(percent);
+          },
         });
 
         if (duplicateFiles.length > 0) {
@@ -279,14 +295,12 @@ export default function DocumentsPage() {
             <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-700">
               <div
                 className="h-full rounded-full bg-sky-500 transition-all duration-300 ease-out"
-                style={{ width: `${uploadTotal > 0 ? uploadProgress : 0}%` }}
+                style={{ width: `${uploadProgress}%` }}
               />
             </div>
-            {uploadTotal > 0 && (
-              <p className="mt-2 text-center text-xs text-slate-400">
-                {uploadProgress}%
-              </p>
-            )}
+            <p className="mt-2 text-center text-xs text-slate-400">
+              {uploadProgress}%
+            </p>
           </div>
         </div>
       )}
@@ -342,6 +356,7 @@ export default function DocumentsPage() {
         <DocumentList
           documents={documents}
           isLoading={isLoading}
+          processingProgress={processingProgress}
           onDelete={handleDeleteDocument}
           onReprocess={handleReprocessDocument}
           onPreview={handlePreviewDocument}

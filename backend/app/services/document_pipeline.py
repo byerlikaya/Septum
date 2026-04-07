@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Dict, List, Sequence
+from typing import Callable, Dict, List, Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,6 +40,7 @@ class DocumentPipeline:
         file_format: str,
         ingested_text: str,
         ingestion_confidence: float | None,
+        on_progress: Callable[[int], None] | None = None,
     ) -> None:
         """Create chunks, build anonymization map, and index them in the vector store.
 
@@ -49,6 +50,10 @@ class DocumentPipeline:
         anonymization map and entity counters, but the sanitized strings are not
         stored; masking happens only when chunks are sent to the LLM.
         """
+        def _emit(pct: int) -> None:
+            if on_progress is not None:
+                on_progress(pct)
+
         detected_language = document.detected_language
         anon_map = AnonymizationMap(document_id=document.id, language=detected_language)
 
@@ -64,7 +69,9 @@ class DocumentPipeline:
         aggregate_type_counts: Dict[str, int] = {}
         per_chunk_spans: Dict[int, List[ResolvedSpan]] = {}
 
-        for semantic_chunk in semantic_chunks:
+        num_chunks = max(len(semantic_chunks), 1)
+        for chunk_idx, semantic_chunk in enumerate(semantic_chunks):
+            _emit(int((chunk_idx + 1) * 90 / num_chunks))
             raw_text = semantic_chunk.text
             normalized_raw = await normalizer.normalize(db, raw_text)
             raw_texts_for_index.append(normalized_raw)
@@ -137,12 +144,14 @@ class DocumentPipeline:
             )
 
         if chunks and raw_texts_for_index:
+            _emit(92)
             await asyncio.to_thread(
                 self._index_chunks,
                 document.id,
                 chunks,
                 raw_texts_for_index,
             )
+            _emit(96)
             await asyncio.to_thread(
                 self._index_chunks_bm25,
                 document.id,

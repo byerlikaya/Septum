@@ -2,7 +2,10 @@ from __future__ import annotations
 
 """FastAPI application entrypoint for Septum."""
 
+import logging
 import warnings
+
+logger = logging.getLogger(__name__)
 
 warnings.filterwarnings(
     "ignore",
@@ -70,6 +73,35 @@ def _preload_models() -> None:
         pass
 
 
+async def _reset_orphaned_processing_docs() -> None:
+    """Mark documents stuck in 'processing' as 'failed' on startup.
+
+    Background tasks are lost when the server restarts. Documents left
+    in 'processing' status will never complete, so we mark them as
+    failed so the user can reprocess them manually.
+    """
+    from sqlalchemy import update
+
+    from .database import get_session_maker
+    from .models.document import Document
+
+    session_maker = get_session_maker()
+    if session_maker is None:
+        return
+    async with session_maker() as db:
+        result = await db.execute(
+            update(Document)
+            .where(Document.ingestion_status.in_(["processing", "pending"]))
+            .values(
+                ingestion_status="failed",
+                ingestion_error="Processing interrupted by server restart. Please reprocess.",
+            )
+        )
+        if result.rowcount > 0:
+            await db.commit()
+            logger.info("Reset %d orphaned processing documents to failed", result.rowcount)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan handler — initialise database if already configured."""
@@ -78,6 +110,7 @@ async def lifespan(app: FastAPI):
         url = build_database_url(config.database_url, config.db_path)
         initialize_engine(url)
         await init_db()
+        await _reset_orphaned_processing_docs()
         threading.Thread(target=_preload_models, daemon=True).start()
     yield
 
