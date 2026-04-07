@@ -119,17 +119,18 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 from .utils.metrics import PrometheusMiddleware, metrics_endpoint
 
 app.add_middleware(PrometheusMiddleware)
+
+# CORS must be the outermost middleware (added last = wraps everything)
+# so that preflight OPTIONS responses always carry the correct headers.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.add_route("/metrics", metrics_endpoint, methods=["GET"])
 
 

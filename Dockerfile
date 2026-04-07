@@ -106,9 +106,10 @@ for i in $(seq 1 60); do
   sleep 2
 done
 
-# Start frontend
+# Start frontend (HOSTNAME=0.0.0.0 required for Docker — Next.js 14+
+# defaults to localhost which is unreachable from outside the container)
 cd /app/frontend
-node server.js &
+HOSTNAME=0.0.0.0 PORT=3000 node server.js &
 FRONTEND_PID=$!
 
 echo "Septum is running — backend :8000, frontend :3000"

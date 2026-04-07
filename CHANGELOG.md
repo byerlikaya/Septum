@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here in a high‑level, date‑based format.
 
+### 2026-04-07
+
+- **Docker networking and CORS fixes**: CORS middleware reordered to be outermost (wraps PrometheusMiddleware) so preflight OPTIONS responses always carry correct headers. Removed unnecessary `allow_credentials` from CORS config (token auth uses headers, not cookies). Next.js standalone server in Docker now binds to `0.0.0.0` instead of `localhost` (fixes unreachable frontend on Linux Docker and some Windows Docker Desktop configurations). Version number in sidebar now fetched from backend API instead of build-time env var. Default Ollama URL changed to `http://localhost:11434`. Default privacy settings (`require_approval`, `use_ollama_layer`) now `true`. Default OCR languages expanded to `en,tr,de,ru,fr`. "Updating" section added to README (EN, TR) and Docker Hub description. `./dev.sh --reset` flag added to wipe local data and restart from setup wizard.
+
 ### 2026-04-06
 
 - **Full entity type coverage — 37/37 regulation entity types now detectable**: 12 new Presidio pattern recognizers (DATE_OF_BIRTH, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE) — all with multilingual context keywords (EN/TR/DE/FR/ES/PT/AR/ZH). SSN uses structural validation, CPF uses modulo-11 checksum. 7 sub-types (FIRST_NAME, LAST_NAME, CITY, etc.) formally mapped to parent types. 9 semantic types (DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, etc.) now detected via Ollama semantic layer with dedicated prompt. Japanese NER model fixed (was using base BERT, now uses Davlan multilingual XLM-RoBERTa). Benchmark expanded to 3,000+ entities across 23 types, 14 languages, with adversarial edge cases. README "Detection Coverage & Limitations" section added with honest disclosure of what is and isn't detected.

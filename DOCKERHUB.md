@@ -36,6 +36,22 @@ docker run --name septum -p 3000:3000 -p 8000:8000 \
 
 Open **http://localhost:3000** — the setup wizard configures everything (database, cache, LLM provider). No `.env` file needed.
 
+## Updating
+
+```bash
+docker stop septum && docker rm septum
+docker pull byerlikaya/septum
+docker run --name septum -p 3000:3000 -p 8000:8000 \
+  -v septum-data:/app/data \
+  -v septum-uploads:/app/uploads \
+  -v septum-anon-maps:/app/anon_maps \
+  -v septum-vector-indexes:/app/vector_indexes \
+  -v septum-bm25-indexes:/app/bm25_indexes \
+  byerlikaya/septum
+```
+
+The `docker pull` step is required — `docker run` alone reuses the cached image. Your data is preserved in the named volumes.
+
 ## Docker Compose (PostgreSQL + Redis)
 
 ```bash

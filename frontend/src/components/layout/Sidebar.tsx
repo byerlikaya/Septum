@@ -133,12 +133,14 @@ export function Sidebar() {
     return () => window.removeEventListener("error-logs-cleared", handler);
   }, []);
 
-  // Update check
+  // Version + update check
+  const [appVersion, setAppVersion] = useState<string>("");
   const [updateInfo, setUpdateInfo] = useState<{ latest: string; command: string } | null>(null);
 
   useEffect(() => {
-    api.get<{ update_available: boolean; latest_version: string; update_command: string }>("/api/setup/check-update")
+    api.get<{ update_available: boolean; current_version: string; latest_version: string; update_command: string }>("/api/setup/check-update")
       .then(({ data }) => {
+        setAppVersion(data.current_version);
         if (data.update_available) setUpdateInfo({ latest: data.latest_version, command: data.update_command });
       })
       .catch(() => {});
@@ -169,9 +171,9 @@ export function Sidebar() {
                 <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-slate-400">
                   {t("sidebar.tagline")}
                 </span>
-                {process.env.NEXT_PUBLIC_APP_VERSION && (
+                {appVersion && (
                   <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-500">
-                    v{process.env.NEXT_PUBLIC_APP_VERSION}
+                    v{appVersion}
                   </span>
                 )}
               </div>
@@ -223,9 +225,16 @@ export function Sidebar() {
                 priority
               />
             </div>
-            <span className="text-[11px] font-medium uppercase tracking-[0.26em] text-slate-400">
-              {t("sidebar.tagline")}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-medium uppercase tracking-[0.26em] text-slate-400">
+                {t("sidebar.tagline")}
+              </span>
+              {appVersion && (
+                <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-500">
+                  v{appVersion}
+                </span>
+              )}
+            </div>
           </div>
         <nav className="flex-1 space-y-1 px-2 py-4">
           {navItems.map(item => (

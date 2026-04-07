@@ -211,6 +211,22 @@ docker run --name septum -p 3000:3000 -p 8000:8000 \
 
 `.env` dosyası yok, manuel konfigürasyon yok. Veriler Docker volume'lar aracılığıyla otomatik korunur.
 
+### Güncelleme
+
+```bash
+docker stop septum && docker rm septum
+docker pull byerlikaya/septum
+docker run --name septum -p 3000:3000 -p 8000:8000 \
+  -v septum-data:/app/data \
+  -v septum-uploads:/app/uploads \
+  -v septum-anon-maps:/app/anon_maps \
+  -v septum-vector-indexes:/app/vector_indexes \
+  -v septum-bm25-indexes:/app/bm25_indexes \
+  byerlikaya/septum
+```
+
+`docker pull` adımı gereklidir — `docker run` tek başına önbellekteki eski image'ı kullanır. Verileriniz named volume'larda korunur.
+
 ### Docker Compose (PostgreSQL + Redis)
 
 ```bash
