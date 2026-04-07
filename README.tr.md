@@ -258,7 +258,7 @@ Tüm özellikler her iki dağıtım modunda da aynı şekilde çalışır — Do
 
 **Docker çoğu kullanıcı için önerilir.** CPU çıkarımı tipik iş yükleri (tek doküman, interaktif sohbet) için fazlasıyla yeterlidir. GPU hızlandırma (NVIDIA CUDA ile yerel kurulum gerektirir) yalnızca OCR veya ses transkripsiyonu ile büyük hacimli dokümanları toplu işlerken belirgin fark yaratır.
 
-**Performans notu:** Apple Silicon (M1/M2/M3/M4) üzerinde Docker image'ı x86 emülasyonu (QEMU/Rosetta) altında çalışır ve ML işlemlerinde (NER, OCR, embedding) ek gecikme yaratır. Sohbet yanıtları veya doküman işleme yavaş geliyorsa, yerel kurulum (`./dev.sh`) ile native performans elde edebilirsiniz.
+**Apple Silicon:** Docker image'ı native `linux/arm64` build içerir. M1/M2/M3/M4 Mac'ler x86 emülasyonu olmadan çalışır — performans kaybı yoktur.
 
 Mimari detaylar için bkz. **[ARCHITECTURE.tr.md](ARCHITECTURE.tr.md)**.
 

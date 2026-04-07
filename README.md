@@ -258,7 +258,7 @@ All features work identically in both deployment modes — no functionality is l
 
 **Docker is recommended for most users.** CPU inference handles typical workloads (single documents, interactive chat) with no issues. GPU acceleration (requires local install with NVIDIA CUDA) only makes a noticeable difference when batch-processing large volumes of documents with OCR or audio transcription.
 
-**Performance note:** On Apple Silicon (M1/M2/M3/M4), the Docker image runs under x86 emulation (QEMU/Rosetta), which adds overhead to ML operations (NER, OCR, embeddings). If you experience slow chat responses or document processing, consider running locally with `./dev.sh` for native performance.
+**Apple Silicon:** The Docker image includes native `linux/arm64` builds. M1/M2/M3/M4 Macs run without x86 emulation — no performance penalty.
 
 For architecture details, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 

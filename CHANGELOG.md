@@ -13,6 +13,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 - **Trailing slash redirect fix**: Routes using `"/"` changed to `""` in error-logs and audit routers, preventing FastAPI 307 redirects that exposed the internal backend URL to the browser.
 - **Orphaned document cleanup**: Documents stuck in `processing` status after server restart are automatically marked as `failed` on startup.
 - **API baseURL fix**: Axios instance uses empty `baseURL` consistently, preventing SSR URL leak to the client.
+- **Multi-arch Docker image (amd64 + arm64)**: Docker image now builds for both `linux/amd64` and `linux/arm64`. Apple Silicon Macs (M1/M2/M3/M4) run natively without x86 emulation, eliminating the 5-10x ML performance penalty.
 
 ### 2026-04-07
 
