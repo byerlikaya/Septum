@@ -6,6 +6,7 @@ from ...models.settings import AppSettings
 from ..llm_errors import LLMRouterError
 from .anthropic import AnthropicProvider
 from .base import LLMProvider, LLMProviderConfig
+from .ollama import OllamaProvider
 from .openai import OpenAIProvider
 from .openrouter import OpenRouterProvider
 
@@ -13,6 +14,7 @@ _PROVIDER_MAP: Mapping[str, type[LLMProvider]] = {
     "anthropic": AnthropicProvider,
     "openai": OpenAIProvider,
     "openrouter": OpenRouterProvider,
+    "ollama": OllamaProvider,
 }
 
 
