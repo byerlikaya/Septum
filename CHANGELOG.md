@@ -14,6 +14,13 @@ All notable changes to this project are documented here in a high‑level, date�
 - **Orphaned document cleanup**: Documents stuck in `processing` status after server restart are automatically marked as `failed` on startup.
 - **API baseURL fix**: Axios instance uses empty `baseURL` consistently, preventing SSR URL leak to the client.
 - **Multi-arch Docker image (amd64 + arm64)**: Docker image now builds for both `linux/amd64` and `linux/arm64`. Apple Silicon Macs (M1/M2/M3/M4) run natively without x86 emulation, eliminating the 5-10x ML performance penalty.
+- **Chat performance overhaul**: Chunk masking at chat time now uses pure string replacement against the document's existing anonymization map (no model calls per query). Query sanitization defaults to `enable_ollama=False` because the alias/pronoun layers added several seconds of latency per request and the document's map is already populated during ingestion. Reduces a typical chat round-trip from minutes to seconds.
+- **Sanitizer Ollama validation**: Ollama responses are filtered against word-boundary, ambiguity, fragment-length, ALL-CAPS heading, and ID-shape heuristics so small models stop polluting the anonymization map with hallucinated spans. Semantic detection layer (DIAGNOSIS, MEDICATION, CLINICAL_NOTE, …) is now opt-in via the new `use_ollama_semantic_layer` setting (default off).
+- **Whisper model cache**: AudioIngester caches the loaded Whisper model at the class level so subsequent uploads reuse the in-memory weights instead of reloading multi-gigabyte files from disk on every call.
+- **PaddleOCR detection upgrade**: Switched detection from `PP-OCRv5_server_det` to `PP-OCRv5_mobile_det` while keeping the server recognition model. Significantly faster on dense layouts (verified on real menu/document images) and empirically catches more text regions, with no recognition accuracy loss.
+- **Parallel document upload**: Frontend `uploadDocuments` runs up to four uploads concurrently via a worker pool, reporting overall byte progress across all in-flight files instead of one-at-a-time sequencing.
+- **Next.js compression disabled for SSE**: `compress: false` in `next.config.mjs` so the dev/proxy layer no longer gzip-buffers chat streaming events, which caused approval modals to never appear in the browser.
+- **Audio transcription preview removed**: Dedicated transcription button, modal mode, related state, and i18n strings dropped from the documents page. The standard preview already shows the transcript, so this was redundant UI.
 
 ### 2026-04-07
 
