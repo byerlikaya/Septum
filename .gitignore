@@ -20,7 +20,11 @@ htmlcov/
 
 # Databases & local state
 *.db
+*.db-shm
+*.db-wal
 *.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
 septum.db
 
 # Build artifacts
@@ -50,6 +54,7 @@ out/
 
 # Claude Code (local-only settings, not project rules)
 .claude/settings.local.json
+.claude/launch.json
 
 # Project-specific
 bm25_indexes/
