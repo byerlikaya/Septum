@@ -35,7 +35,8 @@ def _paddle_ocr_predict(
     image_bytes: bytes,
     image_shape: Tuple[int, ...],
     image_dtype_str: str,
-    model_name: str,
+    rec_model_name: str,
+    det_model_name: str,
 ) -> List[Dict[str, Any]]:
     """Run PaddleOCR in the worker subprocess.
 
@@ -48,7 +49,10 @@ def _paddle_ocr_predict(
         os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
         from paddleocr import PaddleOCR  # type: ignore[import]
 
-        _worker_engine = PaddleOCR(text_recognition_model_name=model_name)
+        _worker_engine = PaddleOCR(
+            text_detection_model_name=det_model_name,
+            text_recognition_model_name=rec_model_name,
+        )
 
     image = np.frombuffer(image_bytes, dtype=np.dtype(image_dtype_str)).reshape(
         image_shape
@@ -121,7 +125,11 @@ class PaddleOcrProvider(OcrProvider):
     cached in the worker, so only the first call pays the loading cost.
     """
 
-    _MODEL_NAME = "PP-OCRv5_server_rec"
+    # Recognition uses the server model for accuracy; detection uses the
+    # lighter mobile model, which is faster and empirically catches more
+    # text regions on dense layouts.
+    _REC_MODEL_NAME = "PP-OCRv5_server_rec"
+    _DET_MODEL_NAME = "PP-OCRv5_mobile_det"
 
     def __init__(self, **options: Any) -> None:
         self._options = dict(options)
@@ -183,7 +191,8 @@ class PaddleOcrProvider(OcrProvider):
                     image_array.tobytes(),
                     image_array.shape,
                     str(image_array.dtype),
-                    self._MODEL_NAME,
+                    self._REC_MODEL_NAME,
+                    self._DET_MODEL_NAME,
                 ),
             )
         except Exception as exc:

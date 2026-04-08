@@ -50,6 +50,11 @@ def _suffix_for_audio(mime_type: str) -> str:
 class AudioIngester(BaseIngester):
     """Ingests encrypted audio files and extracts textual content via Whisper."""
 
+    # Cached at the class level because the router constructs a new
+    # AudioIngester per upload — an instance-level cache would reload the
+    # multi-GB Whisper weights from disk on every call.
+    _model_cache: Dict[str, Any] = {}
+
     def __init__(
         self,
         model_name: str = "base",
@@ -68,7 +73,6 @@ class AudioIngester(BaseIngester):
 
         self._model_name = model_name
         self._language = (language.strip().lower() if language else None) or None
-        self._model = None
 
     async def extract(self, data: bytes, filename: str) -> IngestionResult:
         """Extract a transcript from raw (unencrypted) audio bytes.
@@ -268,21 +272,26 @@ class AudioIngester(BaseIngester):
     def _load_model(self) -> Any:
         """Lazily load the Whisper model on the appropriate device.
 
-        Prefers CPU when the default device is MPS (Apple Silicon), because
-        Whisper inference is known to produce NaN logits on MPS and then fail
-        in the decoder. CUDA and CPU are used as returned by get_device().
+        The loaded model is cached at the class level so subsequent uploads
+        reuse the in-memory weights instead of reloading multi-GB files from
+        disk. Prefers CPU when the default device is MPS (Apple Silicon),
+        because Whisper inference is known to produce NaN logits on MPS and
+        then fail in the decoder. CUDA and CPU are used as returned by
+        ``get_device()``.
         """
 
-        if self._model is not None:
-            return self._model
+        cached = AudioIngester._model_cache.get(self._model_name)
+        if cached is not None:
+            return cached
 
         import whisper  # type: ignore[import]
 
         device = get_device()
         if device == "mps":
             device = "cpu"
-        self._model = whisper.load_model(self._model_name, device=device)
-        return self._model
+        model = whisper.load_model(self._model_name, device=device)
+        AudioIngester._model_cache[self._model_name] = model
+        return model
 
     def _transcribe(
         self,
