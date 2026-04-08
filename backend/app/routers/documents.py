@@ -8,6 +8,7 @@ This router is responsible for:
 * Exposing lightweight metadata and chunk counts for the frontend.
 """
 
+import asyncio
 import os
 import re
 from datetime import datetime
@@ -97,6 +98,11 @@ _INGESTION_ROUTER = IngestionRouter(
         "image": ImageIngester,
     }
 )
+
+# Limits how many ingestion + sanitization pipelines run at once. Beyond two
+# concurrent jobs, SQLite write contention and Python GIL contention on NER
+# models make total throughput worse, not better.
+_INGESTION_SEMAPHORE = asyncio.Semaphore(2)
 
 DetectorFactory.seed = 42
 
@@ -501,7 +507,7 @@ async def upload_document(
         from ..database import get_session_maker
         from ..services.document_progress import clear_progress, set_progress
 
-        async with get_session_maker()() as bg_db:
+        async with _INGESTION_SEMAPHORE, get_session_maker()() as bg_db:
             bg_doc = await bg_db.get(Document, doc_id)
             if bg_doc is None:
                 return
@@ -819,7 +825,7 @@ async def reprocess_document(
         from ..database import get_session_maker
         from ..services.document_progress import clear_progress, set_progress
 
-        async with get_session_maker()() as bg_db:
+        async with _INGESTION_SEMAPHORE, get_session_maker()() as bg_db:
             bg_doc = await bg_db.get(Document, doc_id)
             if bg_doc is None:
                 return

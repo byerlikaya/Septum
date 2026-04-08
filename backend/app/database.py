@@ -40,14 +40,16 @@ _session_maker: async_sessionmaker[AsyncSession] | None = None
 
 
 def _sqlite_wal_connect(dbapi_conn: Any, _record: Any) -> None:
-    """Enable WAL journal mode and set a busy timeout for SQLite.
+    """Enable WAL journal mode and a generous busy timeout for SQLite.
 
-    WAL allows concurrent readers with one writer and avoids
-    ``database is locked`` errors during background processing.
+    WAL lets readers and a single writer run concurrently. The 30s
+    busy timeout absorbs spikes when several background ingestion tasks
+    flush chunk and entity rows for parallel uploads at the same time.
     """
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.execute("PRAGMA synchronous=NORMAL")
     cursor.close()
 
 
