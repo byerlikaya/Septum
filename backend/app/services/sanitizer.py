@@ -90,6 +90,47 @@ _HIGH_PRIORITY_ENTITY_TYPES: set[str] = {
     "CREDIT_CARD_NUMBER",
 }
 
+_OLLAMA_BOUNDARY_CHARS: frozenset[str] = frozenset(" \t\n\r.,;:!?()[]{}\"'/-")
+
+_OLLAMA_ID_LIKE_TYPES: frozenset[str] = frozenset({"BIOMETRIC_ID", "DNA_PROFILE"})
+
+_OLLAMA_HEADING_PRONE_TYPES: frozenset[str] = frozenset({
+    "DIAGNOSIS", "MEDICATION", "CLINICAL_NOTE", "RELIGION",
+    "ETHNICITY", "POLITICAL_OPINION", "SEXUAL_ORIENTATION",
+    "BIOMETRIC_ID", "DNA_PROFILE",
+})
+
+
+def _is_span_at_word_boundary(text: str, start: int, end: int) -> bool:
+    """Verify the substring ``text[start:end]`` aligns to whitespace/punctuation.
+
+    Used to reject Ollama responses that point at mid-word fragments such as
+    ``eneme süresi`` (the model dropped the leading ``d`` of ``deneme``).
+    """
+    if start < 0 or end > len(text) or start >= end:
+        return False
+    if start > 0 and text[start - 1] not in _OLLAMA_BOUNDARY_CHARS:
+        return False
+    if end < len(text) and text[end] not in _OLLAMA_BOUNDARY_CHARS:
+        return False
+    return True
+
+
+def _is_heading_like(text: str) -> bool:
+    """Detect ALL-CAPS short phrases that are almost always section headings."""
+    stripped = text.strip()
+    if not stripped or not any(c.isalpha() for c in stripped):
+        return False
+    words = stripped.split()
+    if len(words) > 6:
+        return False
+    return stripped == stripped.upper()
+
+
+def _is_section_marker(text: str) -> bool:
+    """Detect numbered or bulleted section labels (e.g. ``2. ``, ``11) ``)."""
+    return bool(re.match(r"^\d+[\.\)]\s", text.strip()))
+
 # Spans that must never be subject to LLM-based validation (Ollama may drop them
 # or return empty JSON, which would leak structured identifiers to downstream layers).
 _OLLAMA_VALIDATION_PASSTHROUGH_TYPES: frozenset[str] = frozenset(
@@ -1161,23 +1202,28 @@ class PIISanitizer:
             except Exception as e:  # noqa: BLE001
                 logger.warning("Ollama PII layer failed, continuing without it: %s", e)
 
-            # Semantic PII detection — entity types that require LLM understanding
-            semantic_types = [
-                et for et in (self._entity_types or [])
-                if et in _CONTEXTUAL_ENTITY_TYPES
-            ]
-            if semantic_types:
-                try:
-                    semantic_spans = self._ollama_semantic_detection(
-                        normalized_text, semantic_types
-                    )
-                    logger.debug(
-                        "Ollama semantic layer returned %d spans",
-                        len(semantic_spans),
-                    )
-                    spans.extend(semantic_spans)
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("Ollama semantic layer failed: %s", e)
+            # Semantic PII detection — entity types that require LLM understanding.
+            # Disabled by default: small Ollama models (e.g. 8B) hallucinate
+            # semantic categories on non-medical documents, polluting the anon
+            # map with false positives. Users with reliable models can enable
+            # via settings.use_ollama_semantic_layer.
+            if getattr(self._settings, "use_ollama_semantic_layer", False):
+                semantic_types = [
+                    et for et in (self._entity_types or [])
+                    if et in _CONTEXTUAL_ENTITY_TYPES
+                ]
+                if semantic_types:
+                    try:
+                        semantic_spans = self._ollama_semantic_detection(
+                            normalized_text, semantic_types
+                        )
+                        logger.debug(
+                            "Ollama semantic layer returned %d spans",
+                            len(semantic_spans),
+                        )
+                        spans.extend(semantic_spans)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("Ollama semantic layer failed: %s", e)
 
         if self._non_pii_filter is not None:
             span_views = [
@@ -1525,6 +1571,7 @@ class PIISanitizer:
             logger.warning("Layer 3 Ollama returned empty response")
         items = extract_json_array(response)
         logger.debug("Layer 3 Ollama parsed %d JSON items", len(items))
+
         spans_list: List[DetectedSpan] = []
         for item in items:
             if not isinstance(item, dict):
@@ -1537,25 +1584,29 @@ class PIISanitizer:
             if entity_type_upper not in {"PERSON_NAME", "ALIAS", "FIRST_NAME", "LAST_NAME"}:
                 continue
             text_str = str(text).strip()
-            start_idx = -1
-            end_idx = -1
+            if len(text_str) < 3:
+                continue
 
             text_lower = normalized_text.lower()
             search_lower = text_str.lower()
-
             idx = text_lower.find(search_lower)
-            if idx >= 0:
-                start_idx = idx
-                end_idx = idx + len(text_str)
-            if start_idx >= 0:
-                spans_list.append(
-                    DetectedSpan(
-                        start=start_idx,
-                        end=end_idx,
-                        entity_type=entity_type_upper,
-                        score=0.85,
-                    )
+            if idx < 0:
+                continue
+            end_idx = idx + len(text_str)
+
+            if not _is_span_at_word_boundary(normalized_text, idx, end_idx):
+                continue
+            if text_lower.count(search_lower) > 1:
+                continue
+
+            spans_list.append(
+                DetectedSpan(
+                    start=idx,
+                    end=end_idx,
+                    entity_type=entity_type_upper,
+                    score=0.85,
                 )
+            )
         return spans_list
 
     def _ollama_semantic_detection(
@@ -1589,14 +1640,38 @@ class PIISanitizer:
                 continue
 
             text_str = str(text_val).strip()
+            if len(text_str) < 4:
+                continue
+
             idx = normalized_text.lower().find(text_str.lower())
-            if idx >= 0:
-                spans.append(DetectedSpan(
-                    start=idx,
-                    end=idx + len(text_str),
-                    entity_type=etype,
-                    score=0.80,
-                ))
+            if idx < 0:
+                continue
+            end_idx = idx + len(text_str)
+
+            if not _is_span_at_word_boundary(normalized_text, idx, end_idx):
+                continue
+            if normalized_text.lower().count(text_str.lower()) > 1:
+                continue
+
+            # ID-like categories must contain at least one digit; otherwise
+            # the model is almost certainly hallucinating a generic phrase.
+            if etype in _OLLAMA_ID_LIKE_TYPES and not any(
+                c.isdigit() for c in text_str
+            ):
+                continue
+            # Section headings (ALL CAPS short phrases or numbered markers)
+            # are a frequent false positive for semantic categories.
+            if etype in _OLLAMA_HEADING_PRONE_TYPES and (
+                _is_heading_like(text_str) or _is_section_marker(text_str)
+            ):
+                continue
+
+            spans.append(DetectedSpan(
+                start=idx,
+                end=end_idx,
+                entity_type=etype,
+                score=0.80,
+            ))
         return spans
 
     @staticmethod

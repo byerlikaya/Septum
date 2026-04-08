@@ -84,6 +84,7 @@ def get_settings() -> AppSettings:
         use_ner_layer=_env_bool("USE_NER_LAYER_DEFAULT", True),
         use_ollama_validation_layer=_env_bool("USE_OLLAMA_VALIDATION_LAYER_DEFAULT", True),
         use_ollama_layer=_env_bool("USE_OLLAMA_LAYER_DEFAULT", False),
+        use_ollama_semantic_layer=_env_bool("USE_OLLAMA_SEMANTIC_LAYER_DEFAULT", False),
         chunk_size=_env_int("CHUNK_SIZE_DEFAULT", 800),
         chunk_overlap=_env_int("CHUNK_OVERLAP_DEFAULT", 200),
         top_k_retrieval=_env_int("TOP_K_RETRIEVAL_DEFAULT", 5),

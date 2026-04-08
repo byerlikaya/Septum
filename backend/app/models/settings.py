@@ -36,6 +36,9 @@ class AppSettings(Base):
         Boolean, default=True, nullable=False
     )
     use_ollama_layer: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    use_ollama_semantic_layer: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
 
     chunk_size: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_overlap: Mapped[int] = mapped_column(Integer, nullable=False)

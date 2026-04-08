@@ -101,9 +101,16 @@ async def _sanitize_query(
     settings: AppSettings,
     anon_map: AnonymizationMap,
     db: AsyncSession,
+    enable_ollama: bool = False,
 ) -> tuple[str, int, dict[str, int]]:
-    """Run the sanitizer on the incoming user message."""
-    sanitizer = await create_sanitizer(db, settings, enable_ollama=True)
+    """Run the sanitizer on the incoming user message.
+
+    Defaults to ``enable_ollama=False`` because the alias/pronoun layers add
+    several seconds of latency per call. The user query is short and its own
+    PII is reliably caught by Presidio + NER. The document's anon_map is
+    already populated during ingestion (where Ollama runs once).
+    """
+    sanitizer = await create_sanitizer(db, settings, enable_ollama=enable_ollama)
     result = await asyncio.to_thread(
         sanitizer.sanitize,
         message,
@@ -111,6 +118,25 @@ async def _sanitize_query(
         anon_map,
     )
     return result.sanitized_text, result.entity_count, result.entity_type_counts
+
+
+def _mask_with_anon_map(text: str, anon_map: AnonymizationMap) -> str:
+    """Mask PII in ``text`` using the document's existing anonymization map.
+
+    Deterministic string replacement against ``entity_map`` followed by
+    token-level coreference replacement via ``apply_blocklist``. No model
+    inference — chunks were already analyzed when the document was ingested,
+    so the map is the source of truth at chat time.
+    """
+    if not text:
+        return text
+    if not anon_map.entity_map:
+        return anon_map.apply_blocklist(text, language=anon_map.language)
+    # Longest entities first so nested matches resolve correctly.
+    for original in sorted(anon_map.entity_map.keys(), key=len, reverse=True):
+        if original and original in text:
+            text = text.replace(original, anon_map.entity_map[original])
+    return anon_map.apply_blocklist(text, language=anon_map.language)
 
 
 THEME_SNIPPET_LEN = 400
@@ -709,17 +735,9 @@ async def chat_ask(
                             )
                             prev_doc_id = c.document_id
                         chunk_text = c.sanitized_text or ""
-
-                        sanitized_chunk, _, _ = await _sanitize_query(
-                            chunk_text,
-                            language,
-                            settings,
-                            anon_map,
-                            db,
-                        )
-
+                        masked_chunk = _mask_with_anon_map(chunk_text, anon_map)
                         sanitized_chunk_texts.append(
-                            header + sanitized_chunk
+                            header + masked_chunk
                         )
 
                 if require_approval:

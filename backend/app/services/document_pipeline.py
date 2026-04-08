@@ -57,6 +57,9 @@ class DocumentPipeline:
         detected_language = document.detected_language
         anon_map = AnonymizationMap(document_id=document.id, language=detected_language)
 
+        # Ingestion uses only Presidio + NER (no Ollama). Coreference is
+        # handled at masking time via the blocklist mechanism — Ollama would
+        # be redundant here and slow down ingestion significantly.
         sanitizer = await create_sanitizer(db, self._settings, enable_ollama=False)
 
         semantic_chunks = await self._build_chunks(file_format, ingested_text)

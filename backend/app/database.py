@@ -185,6 +185,10 @@ async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:
             "users",
             "ALTER TABLE users ADD COLUMN role VARCHAR NOT NULL DEFAULT 'editor'",
         ),
+        (
+            "app_settings",
+            "ALTER TABLE app_settings ADD COLUMN use_ollama_semantic_layer BOOLEAN NOT NULL DEFAULT 0",
+        ),
     ]
 
     async with eng.begin() as conn:
@@ -236,6 +240,9 @@ async def _seed_defaults(sm: async_sessionmaker[AsyncSession]) -> None:
                 use_ner_layer=_env_bool("USE_NER_LAYER_DEFAULT", True),
                 use_ollama_validation_layer=_env_bool("USE_OLLAMA_VALIDATION_LAYER_DEFAULT", True),
                 use_ollama_layer=_env_bool("USE_OLLAMA_LAYER_DEFAULT", True),
+                use_ollama_semantic_layer=_env_bool(
+                    "USE_OLLAMA_SEMANTIC_LAYER_DEFAULT", False
+                ),
                 chunk_size=_env_int("CHUNK_SIZE_DEFAULT", 800),
                 chunk_overlap=_env_int("CHUNK_OVERLAP_DEFAULT", 200),
                 top_k_retrieval=_env_int("TOP_K_RETRIEVAL_DEFAULT", 5),

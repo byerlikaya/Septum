@@ -73,6 +73,7 @@ class SettingsResponse(BaseModel):
     use_ner_layer: bool
     use_ollama_validation_layer: bool
     use_ollama_layer: bool
+    use_ollama_semantic_layer: bool
 
     chunk_size: int
     chunk_overlap: int
@@ -117,6 +118,7 @@ class SettingsUpdatePayload(BaseModel):
     use_ner_layer: Optional[bool] = None
     use_ollama_validation_layer: Optional[bool] = None
     use_ollama_layer: Optional[bool] = None
+    use_ollama_semantic_layer: Optional[bool] = None
 
     chunk_size: Optional[int] = None
     chunk_overlap: Optional[int] = None
