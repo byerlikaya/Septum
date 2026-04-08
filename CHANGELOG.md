@@ -21,6 +21,9 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 - **Parallel document upload**: Frontend `uploadDocuments` runs up to four uploads concurrently via a worker pool, reporting overall byte progress across all in-flight files instead of one-at-a-time sequencing.
 - **Next.js compression disabled for SSE**: `compress: false` in `next.config.mjs` so the dev/proxy layer no longer gzip-buffers chat streaming events, which caused approval modals to never appear in the browser.
 - **Audio transcription preview removed**: Dedicated transcription button, modal mode, related state, and i18n strings dropped from the documents page. The standard preview already shows the transcript, so this was redundant UI.
+- **First-class Ollama LLM provider**: Added a dedicated `OllamaProvider` and registered it in the LLM provider factory. Selecting `llm_provider="ollama"` now goes through the normal provider path instead of raising `Unsupported LLM provider` and falling back via the error path.
+- **Background ingestion concurrency cap**: New `_INGESTION_SEMAPHORE` (max 2) limits how many ingestion + sanitization pipelines run at once. Beyond two concurrent jobs SQLite write contention and GIL contention on NER models hurt total throughput, and the unbounded fan-out caused `database is locked` failures on parallel uploads.
+- **SQLite tuning for parallel writes**: Bumped the SQLite busy timeout from 5s to 30s and set `synchronous=NORMAL` so background ingestion bursts can wait out short write locks instead of failing immediately.
 
 ### 2026-04-07
 
