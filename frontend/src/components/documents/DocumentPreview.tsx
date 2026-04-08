@@ -20,7 +20,6 @@ interface DocumentPreviewProps {
   document: Document | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  mode?: "full" | "transcription";
   highlightEntityType?: string | null;
 }
 
@@ -28,7 +27,6 @@ export function DocumentPreview({
   document,
   open,
   onOpenChange,
-  mode = "full",
   highlightEntityType = null,
 }: DocumentPreviewProps): ReactElement | null {
   const t = useI18n();
@@ -133,25 +131,12 @@ export function DocumentPreview({
         }
       } catch {
         if (!isCancelled) {
-          setError(
-            mode === "transcription"
-              ? t("errors.preview.transcription")
-              : t("errors.preview.document")
-          );
+          setError(t("errors.preview.document"));
         }
       } finally {
         if (!isCancelled) {
           setIsLoading(false);
         }
-      }
-
-      if (mode === "transcription") {
-        if (!isCancelled) {
-          setSchema(null);
-          setSchemaError(null);
-          setSchemaDirty(false);
-        }
-        return;
       }
 
       const fileFormat = document.file_format.toLowerCase();
@@ -194,19 +179,16 @@ export function DocumentPreview({
     return () => {
       isCancelled = true;
     };
-  }, [open, document?.id, document?.file_format, document?.chunk_count, mode]);
+  }, [open, document?.id, document?.file_format, document?.chunk_count]);
 
   if (!open || !document) {
     return null;
   }
 
-  const isTranscriptionMode = mode === "transcription";
-
   const isTabularDocument =
-    !isTranscriptionMode &&
-    (document.file_format.toLowerCase() === "xlsx" ||
-      document.file_format.toLowerCase() === "xls" ||
-      document.file_format.toLowerCase() === "ods");
+    document.file_format.toLowerCase() === "xlsx" ||
+    document.file_format.toLowerCase() === "xls" ||
+    document.file_format.toLowerCase() === "ods";
 
   const combinedText =
     chunks.length > 0
@@ -217,7 +199,7 @@ export function DocumentPreview({
   const rawUrl = `${baseURL}/api/documents/${document.id}/raw`;
   const docTitle = getDocumentDisplayName(document);
   const hasSideBySide =
-    !isTranscriptionMode && !isTabularDocument && (fmt === "pdf" || fmt === "image" || fmt === "audio");
+    !isTabularDocument && (fmt === "pdf" || fmt === "image" || fmt === "audio");
 
   const handleSchemaFieldChange = (
     columnIndex: number,
@@ -261,17 +243,9 @@ export function DocumentPreview({
     }
   };
 
-  const previewTitle = isTranscriptionMode
-    ? t("preview.transcription.title")
-    : t("preview.document.title");
-
-  const loadingText = isTranscriptionMode
-    ? t("preview.transcription.loading")
-    : t("preview.document.loading");
-
-  const emptyText = isTranscriptionMode
-    ? t("preview.transcription.empty")
-    : t("preview.document.empty");
+  const previewTitle = t("preview.document.title");
+  const loadingText = t("preview.document.loading");
+  const emptyText = t("preview.document.empty");
 
   const pdfSrc = pdfPage != null
     ? `${rawUrl}#toolbar=1&page=${pdfPage}`
@@ -384,7 +358,7 @@ export function DocumentPreview({
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4">
       <div
         className={`relative flex max-h-[85vh] w-full flex-col rounded-lg border border-slate-800 bg-slate-950 shadow-xl ${
-          isTranscriptionMode ? "max-w-3xl" : hasSideBySide ? "max-w-6xl" : "max-w-4xl"
+          hasSideBySide ? "max-w-6xl" : "max-w-4xl"
         }`}
       >
         <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/80 px-4 py-3">
@@ -404,7 +378,7 @@ export function DocumentPreview({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className={`flex-1 min-h-0 ${isTranscriptionMode ? "overflow-hidden" : "overflow-y-auto"} px-4 py-3`}>
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
           {isLoading && (
             <div className="flex h-full items-center justify-center text-sm text-slate-400">
               {loadingText}
@@ -415,20 +389,8 @@ export function DocumentPreview({
               {error}
             </div>
           )}
-          {!isLoading && !error && isTranscriptionMode && (
-            <div className="h-full overflow-auto rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-relaxed text-slate-100">
-              {combinedText ? (
-                combinedText
-              ) : (
-                <span className="text-slate-400">
-                  {emptyText}
-                </span>
-              )}
-            </div>
-          )}
-
           {/* Sticky entity filter bar */}
-          {!isLoading && !error && !isTranscriptionMode && anonSummary && anonSummary.total > 0 && (
+          {!isLoading && !error && anonSummary && anonSummary.total > 0 && (
             <div className="sticky top-0 z-10 -mx-4 mb-4 border-b border-slate-700 bg-slate-950 px-4 pb-3 pt-1">
               <div className="mb-2 text-xs font-medium text-slate-300">
                 {detections.length > 0
@@ -498,14 +460,14 @@ export function DocumentPreview({
             </div>
           )}
 
-          {!isLoading && !error && !isTranscriptionMode && detections.length === 0 && document.entity_count > 0 && (
+          {!isLoading && !error && detections.length === 0 && document.entity_count > 0 && (
             <div className="mb-4 rounded-md border border-amber-800/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
               {t("documents.preview.reprocessHint")}
             </div>
           )}
 
           {/* Side-by-side layout for formats with original preview */}
-          {!isLoading && !error && !isTranscriptionMode && hasSideBySide && (
+          {!isLoading && !error && hasSideBySide && (
             <div className="grid h-[55vh] gap-4 md:grid-cols-2">
               <div className="min-h-0 overflow-auto">
                 {renderOriginalDocument()}
@@ -517,7 +479,7 @@ export function DocumentPreview({
           )}
 
           {/* Stacked layout for non-previewable formats (docx, download-only) */}
-          {!isLoading && !error && !isTranscriptionMode && !hasSideBySide && (
+          {!isLoading && !error && !hasSideBySide && (
             <>
               {(fmt === "docx" || fmt === "xlsx" || fmt === "ods") && (
                 <div className="mb-4">

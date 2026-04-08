@@ -91,7 +91,6 @@ export const trMessages: Record<string, string> = {
   "documents.status.pending": "Beklemede",
   "documents.status.failed": "Hata",
   "documents.actions.preview": "Önizleme",
-  "documents.actions.transcription": "Transkripsiyon",
   "documents.actions.delete": "Sil",
   "documents.actions.reprocess": "Yeniden İşle",
   "documents.confirm.delete":
@@ -309,8 +308,6 @@ export const trMessages: Record<string, string> = {
   "errors.textNormalization.delete": "Kural silinemedi.",
   "errors.preview.document":
     "Doküman önizlemesi yüklenirken bir hata oluştu.",
-  "errors.preview.transcription":
-    "Transkripsiyon önizlemesi yüklenirken bir hata oluştu.",
 
   "documents.upload.duplicates":
     'Zaten yüklenmiş dosyalar atlandı: {names}.',
@@ -351,10 +348,6 @@ export const trMessages: Record<string, string> = {
   "preview.document.loading": "Doküman önizlemesi yükleniyor…",
   "preview.document.empty":
     "Bu doküman için gösterilecek bir önizleme içeriği yok.",
-  "preview.transcription.title": "Ses Transkripsiyonu",
-  "preview.transcription.loading": "Transkripsiyon yükleniyor…",
-  "preview.transcription.empty":
-    "Henüz bu doküman için transkripsiyon metni yok.",
   "preview.close": "Kapat",
 
   "chat.history.title": "Sohbet Gecmisi",

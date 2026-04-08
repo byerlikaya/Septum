@@ -26,7 +26,6 @@ interface DocumentListProps {
   onDelete: (document: Document) => void;
   onReprocess: (document: Document) => void;
   onPreview: (document: Document) => void;
-  onPreviewTranscription: (document: Document) => void;
   onBulkDelete?: (ids: number[]) => void;
   onBulkReprocess?: (ids: number[]) => void;
 }
@@ -77,7 +76,6 @@ export function DocumentList({
   onDelete,
   onReprocess,
   onPreview,
-  onPreviewTranscription,
   onBulkDelete,
   onBulkReprocess,
 }: DocumentListProps) {
@@ -290,10 +288,6 @@ export function DocumentList({
           </thead>
           <tbody className="divide-y divide-slate-800/80">
             {filtered.map((doc) => {
-              const isAudio =
-                doc.file_format.toLowerCase() === "audio" ||
-                doc.file_type.startsWith("audio/");
-
               return (
                 <tr
                   key={doc.id}
@@ -386,16 +380,6 @@ export function DocumentList({
                         <Eye className="h-3.5 w-3.5" />
                         <span>{t("documents.actions.preview")}</span>
                       </button>
-                      {isAudio && (
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-medium text-slate-100 shadow-sm hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                          onClick={() => onPreviewTranscription(doc)}
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          <span>{t("documents.actions.transcription")}</span>
-                        </button>
-                      )}
                       {(doc.ingestion_status === "completed" || doc.ingestion_status === "failed") && (
                         <button
                           type="button"

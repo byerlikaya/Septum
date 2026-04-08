@@ -91,7 +91,6 @@ export const enMessages = {
   "documents.status.pending": "Pending",
   "documents.status.failed": "Failed",
   "documents.actions.preview": "Preview",
-  "documents.actions.transcription": "Transcription",
   "documents.actions.delete": "Delete",
   "documents.actions.reprocess": "Reprocess",
   "documents.actions.deleteAll": "Delete all documents",
@@ -294,7 +293,6 @@ export const enMessages = {
   "errors.textNormalization.create": "Failed to create rule. Please check the regex pattern.",
   "errors.textNormalization.delete": "Failed to delete rule.",
   "errors.preview.document": "An error occurred while loading the document preview.",
-  "errors.preview.transcription": "An error occurred while loading the transcription preview.",
 
   "documents.upload.duplicates": "Skipped already uploaded file(s): {names}.",
 
@@ -333,9 +331,6 @@ export const enMessages = {
   "preview.document.title": "Document Preview",
   "preview.document.loading": "Document preview is loading…",
   "preview.document.empty": "No preview content is available for this document.",
-  "preview.transcription.title": "Audio Transcription",
-  "preview.transcription.loading": "Transcription is loading…",
-  "preview.transcription.empty": "No transcription text is available yet.",
   "preview.close": "Close",
 
   "chat.history.title": "Chat History",

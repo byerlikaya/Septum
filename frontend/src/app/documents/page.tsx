@@ -23,8 +23,6 @@ export default function DocumentsPage() {
   const [uploadCompleted, setUploadCompleted] = useState<number>(0);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
-  const [transcriptionDoc, setTranscriptionDoc] = useState<Document | null>(null);
-  const [isTranscriptionOpen, setIsTranscriptionOpen] = useState<boolean>(false);
 
   const fetchDocuments = useCallback(async (): Promise<void> => {
     try {
@@ -277,11 +275,6 @@ export default function DocumentsPage() {
     setPreviewDoc(doc);
   }, []);
 
-  const handlePreviewTranscription = useCallback((doc: Document): void => {
-    setTranscriptionDoc(doc);
-    setIsTranscriptionOpen(true);
-  }, []);
-
   return (
     <div className="relative flex min-h-full md:h-full min-w-0 flex-col gap-4">
       {isUploading && (
@@ -360,7 +353,6 @@ export default function DocumentsPage() {
           onDelete={handleDeleteDocument}
           onReprocess={handleReprocessDocument}
           onPreview={handlePreviewDocument}
-          onPreviewTranscription={handlePreviewTranscription}
           onBulkDelete={handleBulkDelete}
           onBulkReprocess={handleBulkReprocess}
         />
@@ -374,17 +366,6 @@ export default function DocumentsPage() {
             setPreviewDoc(null);
           }
         }}
-      />
-      <DocumentPreview
-        document={transcriptionDoc}
-        open={isTranscriptionOpen}
-        onOpenChange={open => {
-          setIsTranscriptionOpen(open);
-          if (!open) {
-            setTranscriptionDoc(null);
-          }
-        }}
-        mode="transcription"
       />
     </div>
   );
