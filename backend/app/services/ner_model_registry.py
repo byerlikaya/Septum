@@ -16,6 +16,17 @@ import threading
 from dataclasses import dataclass, field
 from typing import Dict
 
+# Eagerly import the transformers symbol at module load time. The
+# transformers package uses a ``_LazyModule`` for top-level attribute
+# access, and concurrent ``from transformers import pipeline`` calls from
+# multiple ingestion worker threads were observed to race the lazy
+# loader: one thread would see ``transformers.pipeline`` as a not-yet-
+# materialized attribute and raise ``ImportError: cannot import name
+# 'pipeline' from 'transformers'``. Pulling the import to module scope
+# happens exactly once on first import (under the GIL) and removes the
+# race entirely. Don't move this back inside ``get_pipeline``.
+from transformers import pipeline  # noqa: E402
+
 from ..utils.device import get_device
 
 
@@ -29,6 +40,16 @@ class NERModelRegistry:
 
     _loaded_models: Dict[str, object] = field(default_factory=dict)
     _overrides: Dict[str, str] = field(default_factory=dict)
+    # Guards the actual ``pipeline(...)`` call inside ``get_pipeline``.
+    # Without this, two concurrent ingestion workers asking for the same
+    # language would both pass the ``if lang not in self._loaded_models``
+    # check and both download + initialize the same HuggingFace model,
+    # wasting memory and racing on the cache files. Double-checked
+    # locking pattern: fast path takes no lock, slow path takes the lock
+    # and re-checks before committing to a load.
+    _load_lock: threading.Lock = field(
+        default_factory=threading.Lock, init=False, repr=False
+    )
 
     DEFAULT_MODEL_MAP: Dict[str, str] = field(
         default_factory=lambda: {
@@ -62,11 +83,21 @@ class NERModelRegistry:
     )
 
     def get_pipeline(self, language: str) -> object:
-        """Return a cached NER pipeline for the given language."""
-        lang = (language or "en").lower()
-        if lang not in self._loaded_models:
-            from transformers import pipeline
+        """Return a cached NER pipeline for the given language.
 
+        Thread-safe: the actual ``pipeline(...)`` initialization is
+        guarded by ``_load_lock`` so concurrent ingestion tasks for the
+        same language do not redundantly download or load the model.
+        The fast path (already-loaded model) is lock-free.
+        """
+        lang = (language or "en").lower()
+        cached = self._loaded_models.get(lang)
+        if cached is not None:
+            return cached
+        with self._load_lock:
+            cached = self._loaded_models.get(lang)
+            if cached is not None:
+                return cached
             model_name = self._get_model_name(lang)
             device = get_device()
             device_index = -1 if device == "cpu" else 0
@@ -76,7 +107,7 @@ class NERModelRegistry:
                 aggregation_strategy="simple",
                 device=device_index,
             )
-        return self._loaded_models[lang]
+            return self._loaded_models[lang]
 
     def _get_model_name(self, language: str) -> str:
         """Resolve the model name for a language.

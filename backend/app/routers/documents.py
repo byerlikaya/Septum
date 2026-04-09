@@ -27,7 +27,7 @@ from fastapi import (
 )
 from langdetect import DetectorFactory
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -41,6 +41,7 @@ from ..models.settings import AppSettings
 from ..models.spreadsheet_schema import SpreadsheetColumn, SpreadsheetSchema
 from ..models.user import User
 from ..services.document_pipeline import DocumentPipeline
+from ..services.error_logger import log_backend_error
 from ..services.ingestion.audio_ingester import AudioIngester
 from ..services.ingestion.docx_ingester import DocxIngester
 from ..services.ingestion.image_ingester import ImageIngester
@@ -445,6 +446,63 @@ async def _ensure_spreadsheet_schema(
     await db.commit()
 
 
+async def _record_background_failure(
+    bg_db: AsyncSession, doc_id: int, exc: BaseException
+) -> None:
+    """Record an ingestion failure on a document, recovering the session if needed.
+
+    Background ingestion tasks may hit transient SQLite write-lock contention
+    during a query-invoked autoflush, which leaves the session in
+    ``PendingRollbackError`` state. A subsequent ``commit()`` issued from an
+    ``except`` block then masks the original error with a second exception and
+    leaves the row stuck in ``processing`` status. This helper rolls back any
+    pending transaction first and then issues a direct ``UPDATE`` (so it does
+    not depend on the dirty ORM identity map, which rollback expires) so the
+    real error message is preserved on the document row.
+
+    The error is also forwarded to the backend ``errorlog`` table via
+    :func:`log_backend_error` so it surfaces in the Error Logs UI; previously
+    these failures were only attached to the Document row and the user had no
+    way to see the stack trace from the UI without poking at the database.
+    """
+    try:
+        await bg_db.rollback()
+    except Exception:  # noqa: BLE001 - best-effort recovery
+        pass
+    try:
+        await bg_db.execute(
+            update(Document)
+            .where(Document.id == doc_id)
+            .values(
+                ingestion_status="failed",
+                ingestion_error=f"{type(exc).__name__}: {exc}",
+            )
+        )
+        await bg_db.commit()
+    except Exception:  # noqa: BLE001
+        # If even the recovery UPDATE cannot land, the connection is
+        # unsalvageable; the original error is still surfaced via the caller's
+        # logs and the document will be picked up by the orphaned-cleanup pass
+        # on the next server restart.
+        pass
+
+    # Also write the failure to the centralized error log so it shows up in
+    # the Error Logs UI alongside HTTP-handler failures. ``log_backend_error``
+    # opens its own commit, so we want to call it AFTER the document UPDATE
+    # has either landed or been given up on. Best-effort: if logging itself
+    # fails (e.g. broken connection), swallow so the original error is still
+    # at least attached to the Document row.
+    try:
+        await log_backend_error(
+            bg_db,
+            None,
+            exc,
+            extra={"source": "ingestion", "document_id": doc_id},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @router.post(
     "/upload",
     response_model=DocumentResponse,
@@ -526,6 +584,10 @@ async def upload_document(
                     file_format, ingestion_result
                 )
                 bg_doc.ocr_confidence = ingestion_result.confidence
+                # Flush these two fields immediately so they cannot become
+                # stale dirty state that a query-invoked autoflush inside the
+                # pipeline tries to write under SQLite write-lock contention.
+                await bg_db.commit()
 
                 if file_format in {"xlsx", "ods", "csv", "tsv"}:
                     await _ensure_spreadsheet_schema(
@@ -561,9 +623,7 @@ async def upload_document(
                     on_progress=lambda pct: set_progress(doc_id, pct),
                 )
             except Exception as bg_exc:  # noqa: BLE001
-                bg_doc.ingestion_status = "failed"
-                bg_doc.ingestion_error = f"{type(bg_exc).__name__}: {bg_exc}"
-                await bg_db.commit()
+                await _record_background_failure(bg_db, doc_id, bg_exc)
             finally:
                 clear_progress(doc_id)
 
@@ -866,9 +926,7 @@ async def reprocess_document(
                     on_progress=lambda pct: set_progress(doc_id, pct),
                 )
             except Exception as bg_exc:  # noqa: BLE001
-                bg_doc.ingestion_status = "failed"
-                bg_doc.ingestion_error = f"{type(bg_exc).__name__}: {bg_exc}"
-                await bg_db.commit()
+                await _record_background_failure(bg_db, doc_id, bg_exc)
             finally:
                 clear_progress(doc_id)
 
