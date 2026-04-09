@@ -29,20 +29,27 @@
 
 ## What is Septum?
 
-Septum is a **privacy-first AI middleware** that sits between your documents and cloud LLMs. It lets you query sensitive company data with ChatGPT, Claude, or any LLM — while **automatically detecting and masking personal data before anything leaves your machine**.
+Septum is a **privacy-first AI middleware** that sits between you and cloud LLMs. It lets you query sensitive company data — and chat freely — with ChatGPT, Claude, or any LLM, while **automatically detecting and masking personal data before anything leaves your machine**.
 
-1. You upload documents (PDF, Word, Excel, images, audio, etc.).
-2. Septum **detects and masks** all personal data locally.
-3. Only anonymised text is sent to the LLM.
+1. You upload documents (PDF, Word, Excel, images, audio, etc.) **and** type questions in chat.
+2. Septum **detects and masks** all personal data locally — in both your documents *and* your chat messages.
+3. Only anonymised text is sent to the LLM (the question, the retrieved context, everything).
 4. The answer comes back with real names and values restored — **locally**.
 
-> **In one sentence:** Septum is a safety layer for teams who want LLM power without leaking personal data.
+> **In one sentence:** Septum is a safety layer for teams who want LLM power without leaking personal data — whether it's in a document or in something you just typed.
 
 **Before and after — what the LLM actually sees:**
 
+Both your documents and your chat messages go through the same masking pipeline.
+
 ```
-Input:  "Ahmet Yılmaz lives in Berlin, email ahmet.yilmaz@corp.de, ID 12345678901"
-Masked: "[PERSON_1] lives in [LOCATION_1], email [EMAIL_1], ID [NATIONAL_ID_1]"
+Document chunk: "Ahmet Yılmaz lives in Berlin, email ahmet.yilmaz@corp.de, ID 12345678901"
+Masked:         "[PERSON_1] lives in [LOCATION_1], email [EMAIL_1], ID [NATIONAL_ID_1]"
+
+User question:  "Write a welcome email using these details: customer name Ahmet Yılmaz,
+                 email ahmet.yilmaz@corp.de, member ID 12345678901."
+Masked:         "Write a welcome email using these details: customer name [PERSON_1],
+                 email [EMAIL_1], member ID [NATIONAL_ID_1]."
 ```
 
 The LLM answers using placeholders. Septum restores real values locally before showing you the response.
@@ -71,18 +78,18 @@ The LLM answers using placeholders. Septum restores real values locally before s
 ## How It Works
 
 1. **Upload your documents**
-   Use the Documents page or the chat sidebar to add PDFs, Office files, images or audio files.
+   Use the Documents page or the chat sidebar to add PDFs, Office files, images or audio files. Septum automatically detects file type, language and personal data, masks all PII, and prepares anonymised content for search.
 
-2. **Septum anonymises locally**
-   Automatically detects file type, language and personal data. Masks all PII and prepares anonymised content for search.
-
-3. **Ask questions**
+2. **Ask questions in chat**
    *"What are the termination conditions in this contract?"*
-   *"Which products does this customer have?"*
+   *"Write a welcome email for new customer Ahmet Yılmaz (ahmet.yilmaz@corp.de, member ID 12345678901)."*
    *"Summarise the last 6 months of case files."*
 
+3. **Septum anonymises your question too**
+   Your chat message is run through the **same** PII detection pipeline as your documents. Names, phone numbers, emails, IDs and any other personal data you typed are replaced with placeholders before retrieval and before the LLM call. PII never leaves the machine — not from documents, not from what you type.
+
 4. **Approve before sending**
-   See exactly what anonymised content will be sent to the LLM. Approve or reject.
+   See exactly what anonymised content (your masked question **and** the masked document chunks) will be sent to the LLM. Approve or reject.
 
 5. **Get answers with real values**
    Septum locally restores placeholders to original values, giving you a natural, human-readable answer.
@@ -91,7 +98,7 @@ The LLM answers using placeholders. Septum restores real values locally before s
 
 ## Key Features
 
-- **Local PII Protection** — Detects and masks personal data before anything is sent to the cloud. Documents stored encrypted (AES-256-GCM). The **Approval Gate** lets you verify the masked output before each LLM call — nothing is sent without your review.
+- **Local PII Protection** — Detects and masks personal data before anything is sent to the cloud — both inside uploaded documents **and** inside the chat messages you type. Documents stored encrypted (AES-256-GCM). The **Approval Gate** lets you verify the masked output before each LLM call — nothing is sent without your review.
 - **Multi-Regulation Support** — 17 built-in packs (GDPR, KVKK, CCPA, HIPAA, LGPD, PIPEDA, PDPA, APPI, PIPL, POPIA, DPDP, UK GDPR, and more). Multiple active simultaneously; most restrictive wins.
 - **Approval Gate** — Review exactly what will be sent to the LLM before it leaves your environment.
 - **Custom Rules** — Define your own patterns: regex, keyword lists, or LLM-prompt based detection.
