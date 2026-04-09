@@ -36,7 +36,9 @@ class Document(Base):
     detected_language: Mapped[str] = mapped_column(String, nullable=False)
     language_override: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
     )
     encrypted_path: Mapped[str] = mapped_column(String, nullable=False)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

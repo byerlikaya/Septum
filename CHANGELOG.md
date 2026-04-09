@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here in a high‑level, date‑based format.
 
+### 2026-04-09
+
+- **PostgreSQL deploy fixes — missing migration + tz-naive timestamp columns**: First real PostgreSQL deployment exposed two systemic bugs that SQLite had been quietly tolerating. (1) `use_ollama_semantic_layer` was added to `AppSettings` in commit 5be3c45 with only the `_sqlite_ensure_columns` ALTER, no Alembic migration — so Postgres setups that ran `alembic upgrade head` ended up missing the column and crashed the very first `SELECT app_settings…` with `UndefinedColumnError`. Backfill migration `011_add_use_ollama_semantic_layer.py` added. (2) Multiple models declared their `created_at` / `updated_at` / `uploaded_at` columns as bare `DateTime` (mapped to PostgreSQL `TIMESTAMP WITHOUT TIME ZONE`) but used `datetime.now(timezone.utc)` as the default, which asyncpg refuses to insert into a tz-naive column. The seed step in `_seed_defaults` always inserts a `non_pii_rule` on first startup, so Septum crashed on application startup before the user could even reach the chat. Updated 5 model files (`document.py`, `user.py`, `chat_session.py`, `regulation.py`, `spreadsheet_schema.py`) to declare these columns as `DateTime(timezone=True)`, and added migration `012_make_datetimes_tz_aware.py` that ALTERs 9 columns (`documents.uploaded_at`, `users.created_at`, `chat_sessions.created_at/updated_at`, `chat_messages.created_at`, `custom_recognizers.created_at`, `non_pii_rules.created_at`, `spreadsheet_schemas.created_at/updated_at`) using `column AT TIME ZONE 'UTC'` to interpret existing values. Migration is a no-op on SQLite since SQLite does not enforce the timestamp-with-timezone distinction.
+
 ### 2026-04-08
 
 - **Docker proxy timeout fixes**: Chat SSE endpoint returns `StreamingResponse` immediately — all pre-processing moved inside the generator. Document upload and reprocess endpoints run ingestion (OCR, text extraction, Whisper) in background tasks so responses return instantly. Fixes `socket hang up` errors when proxied through Next.js rewrites.

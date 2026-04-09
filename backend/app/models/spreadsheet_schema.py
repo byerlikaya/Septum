@@ -31,10 +31,10 @@ class SpreadsheetSchema(Base):
         ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=_utc_now, nullable=False
+        DateTime(timezone=True), default=_utc_now, nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=_utc_now, onupdate=_utc_now, nullable=False
+        DateTime(timezone=True), default=_utc_now, onupdate=_utc_now, nullable=False
     )
 
     columns: Mapped[list["SpreadsheetColumn"]] = relationship(
