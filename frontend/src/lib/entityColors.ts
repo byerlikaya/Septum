@@ -20,19 +20,32 @@ const BADGE_CLASSES: Record<EntityColorKey, string> = {
   slate: "bg-slate-700/60 text-slate-50 border-slate-500/60",
 };
 
-const HIGHLIGHT_CLASSES: Record<EntityColorKey, string> = {
-  sky: "bg-sky-500/25 border-b-2 border-sky-400",
-  emerald: "bg-emerald-500/25 border-b-2 border-emerald-400",
-  violet: "bg-violet-500/25 border-b-2 border-violet-400",
-  rose: "bg-rose-500/25 border-b-2 border-rose-400",
-  amber: "bg-amber-500/25 border-b-2 border-amber-400",
-  slate: "bg-slate-500/25 border-b-2 border-slate-400",
+const HIGHLIGHT_OUTLINE_CLASSES: Record<EntityColorKey, string> = {
+  sky: "border border-sky-400/70 text-sky-100",
+  emerald: "border border-emerald-400/70 text-emerald-100",
+  violet: "border border-violet-400/70 text-violet-100",
+  rose: "border border-rose-400/70 text-rose-100",
+  amber: "border border-amber-400/70 text-amber-100",
+  slate: "border border-slate-400/70 text-slate-100",
+};
+
+const HIGHLIGHT_FILLED_CLASSES: Record<EntityColorKey, string> = {
+  sky: "bg-sky-500/60 border border-sky-200 text-sky-50",
+  emerald: "bg-emerald-500/60 border border-emerald-200 text-emerald-50",
+  violet: "bg-violet-500/60 border border-violet-200 text-violet-50",
+  rose: "bg-rose-500/60 border border-rose-200 text-rose-50",
+  amber: "bg-amber-500/60 border border-amber-200 text-amber-50",
+  slate: "bg-slate-500/70 border border-slate-200 text-slate-50",
 };
 
 export function getEntityBadgeClasses(entityType: string): string {
   return BADGE_CLASSES[classifyEntityColor(entityType)];
 }
 
-export function getEntityHighlightClasses(entityType: string): string {
-  return HIGHLIGHT_CLASSES[classifyEntityColor(entityType)];
+export function getEntityOutlineClasses(entityType: string): string {
+  return HIGHLIGHT_OUTLINE_CLASSES[classifyEntityColor(entityType)];
+}
+
+export function getEntityFilledClasses(entityType: string): string {
+  return HIGHLIGHT_FILLED_CLASSES[classifyEntityColor(entityType)];
 }

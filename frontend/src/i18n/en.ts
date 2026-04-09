@@ -323,6 +323,8 @@ export const enMessages = {
   "documents.preview.saveSchema": "Save schema",
   "documents.preview.entityHighlights": "Entity highlights",
   "documents.preview.allTypes": "All types",
+  "documents.preview.detectedEntities": "Detected entities",
+  "documents.preview.entityListEmpty": "No entities to display.",
   "documents.preview.reprocessHint": "Entity location data is not available for this document. Reprocess the document to enable per-entity highlighting.",
   "documents.preview.prevOccurrence": "Previous occurrence",
   "documents.preview.nextOccurrence": "Next occurrence",

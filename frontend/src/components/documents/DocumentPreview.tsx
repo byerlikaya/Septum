@@ -7,6 +7,10 @@ import api, { baseURL, getAuthToken, getEntityDetections } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { getDocumentDisplayName } from "@/lib/utils";
 import { CopyButton } from "@/components/common/CopyButton";
+import {
+  getEntityFilledClasses,
+  getEntityOutlineClasses,
+} from "@/lib/entityColors";
 import { HighlightedText } from "./HighlightedText";
 import type {
   Chunk,
@@ -47,12 +51,15 @@ export function DocumentPreview({
 
   const [pdfPage, setPdfPage] = useState<number | null>(null);
   const textScrollRef = useRef<HTMLDivElement>(null);
+  const entityListScrollRef = useRef<HTMLDivElement>(null);
 
   const filteredDetections = useMemo(() => {
-    if (!activeFilter) return [];
-    return detections
-      .filter((d) => d.entity_type === activeFilter)
-      .sort((a, b) => a.chunk_id - b.chunk_id || a.start_offset - b.start_offset);
+    const list = activeFilter
+      ? detections.filter((d) => d.entity_type === activeFilter)
+      : detections;
+    return [...list].sort(
+      (a, b) => a.chunk_id - b.chunk_id || a.start_offset - b.start_offset
+    );
   }, [detections, activeFilter]);
 
   const activeDetectionId = filteredDetections[occurrenceIndex]?.id ?? null;
@@ -86,6 +93,21 @@ export function DocumentPreview({
     [filteredDetections, chunks, scrollToDetection]
   );
 
+  const navigateToDetection = useCallback(
+    (detectionId: number) => {
+      const idx = filteredDetections.findIndex((d) => d.id === detectionId);
+      if (idx === -1) return;
+      setOccurrenceIndex(idx);
+      setTimeout(() => scrollToDetection(detectionId), 50);
+      const det = filteredDetections[idx];
+      const chunk = chunks.find((c) => c.id === det.chunk_id);
+      if (chunk?.source_page != null) {
+        setPdfPage(chunk.source_page);
+      }
+    },
+    [filteredDetections, chunks, scrollToDetection]
+  );
+
   useEffect(() => {
     setOccurrenceIndex(0);
     if (filteredDetections.length > 0) {
@@ -97,6 +119,14 @@ export function DocumentPreview({
       }
     }
   }, [activeFilter]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (activeDetectionId == null) return;
+    const row = entityListScrollRef.current?.querySelector(
+      `[data-entity-row-id="${activeDetectionId}"]`
+    );
+    row?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [activeDetectionId]);
 
   useEffect(() => {
     if (!open || !document) {
@@ -311,6 +341,65 @@ export function DocumentPreview({
     return null;
   };
 
+  const renderEntityList = () => (
+    <div className="flex h-full flex-col gap-2">
+      <div className="text-xs font-medium text-slate-300">
+        {t("documents.preview.detectedEntities")} ({filteredDetections.length})
+      </div>
+      <div
+        ref={entityListScrollRef}
+        className="flex-1 overflow-auto rounded-md border border-slate-800 bg-slate-950"
+      >
+        {filteredDetections.length === 0 ? (
+          <div className="p-3 text-xs text-slate-400">
+            {t("documents.preview.entityListEmpty")}
+          </div>
+        ) : (
+          <ul className="divide-y divide-slate-800/60">
+            {filteredDetections.map((det) => {
+              const isFocused = activeDetectionId === det.id;
+              const colorClass = isFocused
+                ? getEntityFilledClasses(det.entity_type)
+                : getEntityOutlineClasses(det.entity_type);
+              const chunk = chunks.find((c) => c.id === det.chunk_id);
+              const entityText = chunk
+                ? chunk.sanitized_text.slice(det.start_offset, det.end_offset)
+                : det.placeholder;
+              const scorePct = Math.round(det.score * 100);
+              return (
+                <li key={det.id}>
+                  <button
+                    type="button"
+                    data-entity-row-id={det.id}
+                    onClick={() => navigateToDetection(det.id)}
+                    title={`${entityText} → ${det.placeholder} (${scorePct}%)`}
+                    className={`flex w-full items-start justify-between gap-2 px-2 py-1.5 text-left transition-colors hover:bg-slate-900/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500 ${
+                      isFocused ? "bg-slate-900/80" : ""
+                    }`}
+                  >
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span
+                        className={`inline-block max-w-full truncate rounded px-1.5 py-0.5 text-[11px] ${colorClass}`}
+                      >
+                        {entityText}
+                      </span>
+                      <span className="truncate text-[9px] uppercase tracking-wide text-slate-500">
+                        {det.entity_type}
+                      </span>
+                    </div>
+                    <span className="shrink-0 font-mono text-[10px] text-slate-400">
+                      {scorePct}%
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+
   const renderSanitizedContent = () => (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
@@ -358,7 +447,13 @@ export function DocumentPreview({
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4">
       <div
         className={`relative flex max-h-[85vh] w-full flex-col rounded-lg border border-slate-800 bg-slate-950 shadow-xl ${
-          hasSideBySide ? "max-w-6xl" : "max-w-4xl"
+          hasSideBySide && detections.length > 0
+            ? "max-w-7xl"
+            : hasSideBySide
+              ? "max-w-6xl"
+              : detections.length > 0 && !isTabularDocument
+                ? "max-w-5xl"
+                : "max-w-4xl"
         }`}
       >
         <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/80 px-4 py-3">
@@ -433,7 +528,7 @@ export function DocumentPreview({
                 ))}
 
                 {/* Occurrence navigation */}
-                {activeFilter && filteredDetections.length > 0 && (
+                {filteredDetections.length > 0 && (
                   <div className="ml-auto flex items-center gap-1">
                     <span className="text-[11px] font-mono text-slate-400">
                       {occurrenceIndex + 1} / {filteredDetections.length}
@@ -468,13 +563,22 @@ export function DocumentPreview({
 
           {/* Side-by-side layout for formats with original preview */}
           {!isLoading && !error && hasSideBySide && (
-            <div className="grid h-[55vh] gap-4 md:grid-cols-2">
+            <div
+              className={`grid h-[55vh] gap-4 ${
+                detections.length > 0
+                  ? "md:grid-cols-2 lg:grid-cols-[1fr_1fr_17rem]"
+                  : "md:grid-cols-2"
+              }`}
+            >
               <div className="min-h-0 overflow-auto">
                 {renderOriginalDocument()}
               </div>
               <div className="min-h-0">
                 {renderSanitizedContent()}
               </div>
+              {detections.length > 0 && (
+                <div className="min-h-0">{renderEntityList()}</div>
+              )}
             </div>
           )}
 
@@ -488,10 +592,18 @@ export function DocumentPreview({
               )}
               <div
                 className={`grid h-full gap-4 ${
-                  isTabularDocument ? "md:grid-cols-2" : "md:grid-cols-1"
+                  isTabularDocument
+                    ? "md:grid-cols-2"
+                    : detections.length > 0
+                      ? "md:grid-cols-[1fr_17rem]"
+                      : "md:grid-cols-1"
                 }`}
               >
                 {renderSanitizedContent()}
+
+                {!isTabularDocument && detections.length > 0 && (
+                  <div className="min-h-0">{renderEntityList()}</div>
+                )}
 
                 {isTabularDocument && (
                   <div className="flex flex-col gap-2">

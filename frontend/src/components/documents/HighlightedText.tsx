@@ -2,7 +2,10 @@
 
 import { useMemo } from "react";
 import type { EntityDetection } from "@/lib/types";
-import { getEntityHighlightClasses } from "@/lib/entityColors";
+import {
+  getEntityFilledClasses,
+  getEntityOutlineClasses,
+} from "@/lib/entityColors";
 
 interface HighlightedTextProps {
   text: string;
@@ -65,17 +68,21 @@ export function HighlightedText({
         const isFocused = activeDetectionId === seg.detection.id;
         const isActive =
           !activeEntityType || seg.detection.entity_type === activeEntityType;
-        const highlightClass = isActive
-          ? getEntityHighlightClasses(seg.detection.entity_type)
-          : "opacity-40";
+
+        let highlightClass: string;
+        if (!isActive) {
+          highlightClass = "opacity-30";
+        } else if (isFocused) {
+          highlightClass = getEntityFilledClasses(seg.detection.entity_type);
+        } else {
+          highlightClass = getEntityOutlineClasses(seg.detection.entity_type);
+        }
 
         return (
           <span
             key={i}
             data-detection-id={seg.detection.id}
-            className={`rounded-sm px-0.5 cursor-default transition-opacity ${highlightClass}${
-              isFocused ? " ring-2 ring-sky-400 ring-offset-1 ring-offset-slate-950" : ""
-            }`}
+            className={`rounded-sm px-0.5 cursor-default transition-colors ${highlightClass}`}
             title={`${seg.detection.placeholder} (${Math.round(seg.detection.score * 100)}%)`}
           >
             {seg.text}

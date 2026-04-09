@@ -339,6 +339,8 @@ export const trMessages: Record<string, string> = {
   "documents.preview.saveSchema": "Şemayı kaydet",
   "documents.preview.entityHighlights": "Varlık vurgulamaları",
   "documents.preview.allTypes": "Tüm türler",
+  "documents.preview.detectedEntities": "Tespit edilen varlıklar",
+  "documents.preview.entityListEmpty": "Gösterilecek varlık yok.",
   "documents.preview.reprocessHint": "Bu belge için varlık konum verisi mevcut değil. Varlık bazlı vurgulamayı etkinleştirmek için belgeyi yeniden işleyin.",
   "documents.preview.prevOccurrence": "Önceki eşleşme",
   "documents.preview.nextOccurrence": "Sonraki eşleşme",
