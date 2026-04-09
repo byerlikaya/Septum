@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, getDocuments, reprocessDocument } from "@/lib/api";
+import {
+  api,
+  getDocuments,
+  reprocessDocument,
+  sendFrontendError,
+} from "@/lib/api";
 import type { Document } from "@/lib/types";
 import { DocumentUploader } from "@/components/documents/DocumentUploader";
 import { DocumentList } from "@/components/documents/DocumentList";
@@ -123,8 +128,35 @@ export default function DocumentsPage() {
         } else {
           setDuplicateNotice(null);
         }
-      } catch {
-        setError(t("errors.documents.upload"));
+      } catch (err) {
+        // Surface the real reason for the upload failure both in the UI
+        // and in the backend Error Logs. The previous bare ``catch {}``
+        // discarded ``err`` entirely, so a single failing upload in the
+        // batch produced a generic toast and left ``errorlog`` empty —
+        // there was no way to figure out what actually went wrong.
+        const axiosErr = err as {
+          response?: { status?: number; data?: { detail?: string } };
+          message?: string;
+          stack?: string;
+        };
+        const detail =
+          axiosErr?.response?.data?.detail ?? axiosErr?.message ?? "Unknown error";
+        const status = axiosErr?.response?.status;
+        const friendly = status
+          ? `${t("errors.documents.upload")} (${status}: ${detail})`
+          : `${t("errors.documents.upload")} (${detail})`;
+        setError(friendly);
+        void sendFrontendError({
+          message: `Document upload failed: ${detail}`,
+          stack_trace: axiosErr?.stack,
+          route: "/documents",
+          level: "ERROR",
+          extra: {
+            http_status: status,
+            file_count: files.length,
+            file_names: files.slice(0, 5).map((f) => f.name),
+          },
+        });
       } finally {
         setIsUploading(false);
       }

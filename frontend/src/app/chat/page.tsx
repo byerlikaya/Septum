@@ -12,6 +12,7 @@ import api, {
   addChatMessage,
   convertRejectedToApproved,
   updateChatSession,
+  sendFrontendError,
 } from "@/lib/api";
 import type { AppSettingsResponse, ApprovalData, ChatSessionSummary, DebugData, Document } from "@/lib/types";
 import { DocumentSelector } from "@/components/chat/DocumentSelector";
@@ -159,8 +160,28 @@ export default function ChatPage() {
             });
           }
         }
-      } catch {
+      } catch (err) {
+        // Forward the real reason to the backend Error Logs so the user
+        // does not just see a generic toast with no detail in the UI.
         setUploadStatus("error");
+        const axiosErr = err as {
+          response?: { status?: number; data?: { detail?: string } };
+          message?: string;
+          stack?: string;
+        };
+        const detail =
+          axiosErr?.response?.data?.detail ?? axiosErr?.message ?? "Unknown error";
+        void sendFrontendError({
+          message: `Document upload failed (chat page): ${detail}`,
+          stack_trace: axiosErr?.stack,
+          route: "/chat",
+          level: "ERROR",
+          extra: {
+            http_status: axiosErr?.response?.status,
+            file_count: files.length,
+            file_names: files.slice(0, 5).map((f) => f.name),
+          },
+        });
       } finally {
         setIsUploading(false);
       }

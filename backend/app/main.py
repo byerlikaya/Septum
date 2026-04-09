@@ -49,7 +49,7 @@ from .routers import regulations as regulations_router
 from .routers import settings as settings_router
 from .routers import setup as setup_router
 from .routers import text_normalization as text_normalization_router
-from .services.error_logger import log_backend_error
+from .services.error_logger import log_backend_error, log_backend_message
 from .utils.device import get_device
 
 
@@ -190,9 +190,32 @@ for _r in _all_routers:
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(
-    _request: Request, exc: HTTPException
+    request: Request, exc: HTTPException
 ) -> JSONResponse:
-    """Return standard JSON for HTTPException so routes keep correct status codes."""
+    """Return standard JSON for HTTPException so routes keep correct status codes.
+
+    Also persists an error_log entry for any 4xx/5xx so the Error Logs UI
+    surfaces these failures. Without this, ``raise HTTPException(400, …)``
+    from a route handler returned the correct HTTP response but the user
+    saw an empty Error Logs page (only the global 500-fallback handler
+    used to write to ``errorlog``). 404s are excluded because they are
+    noisy under healthchecks/probes; everything else 4xx+ is logged.
+    """
+    if exc.status_code >= 400 and exc.status_code != http_status.HTTP_404_NOT_FOUND:
+        try:
+            if engine_is_ready():
+                sm = get_session_maker()
+                async with sm() as db:
+                    await log_backend_message(
+                        db=db,
+                        request=request,
+                        message=str(exc.detail) if exc.detail else exc.__class__.__name__,
+                        level="ERROR" if exc.status_code >= 500 else "WARNING",
+                        status_code=exc.status_code,
+                    )
+        except Exception:  # noqa: BLE001
+            # Logging must never break the response.
+            pass
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail},
