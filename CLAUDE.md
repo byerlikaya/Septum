@@ -162,7 +162,7 @@ Skill templates in `.claude/skills/` (also mirrored in `.cursor/rules/` for Curs
 
 ## Security Scan
 
-Invoke `/security-scan` for a comprehensive audit (`.claude/skills/security-scan.md`):
+Invoke `/security-scan` for a comprehensive audit (`.claude/skills/security-scan/SKILL.md`):
 - Dependency audit (pip-audit, npm audit), OWASP Top 10, Septum-specific checks (PII in logs, crypto keys, anon map exposure), config scan
 - Report format: `[SEVERITY] Title — file:LINE` with Issue/Impact/Fix
 - Rules: never auto-install tools, mask secrets, never auto-fix without confirmation
