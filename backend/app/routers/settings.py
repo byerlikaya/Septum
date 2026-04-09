@@ -67,6 +67,7 @@ class SettingsResponse(BaseModel):
     deanon_enabled: bool
     deanon_strategy: str
     require_approval: bool
+    approval_timeout_seconds: int
     show_json_output: bool
 
     use_presidio_layer: bool
@@ -112,6 +113,7 @@ class SettingsUpdatePayload(BaseModel):
     deanon_enabled: Optional[bool] = None
     deanon_strategy: Optional[str] = None
     require_approval: Optional[bool] = None
+    approval_timeout_seconds: Optional[int] = None
     show_json_output: Optional[bool] = None
 
     use_presidio_layer: Optional[bool] = None

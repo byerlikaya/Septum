@@ -275,6 +275,17 @@ export async function approvalReject(
   return data;
 }
 
+export async function previewApprovalPrompt(
+  sessionId: string,
+  chunks: ApprovalChunkPayload[]
+): Promise<{ session_id: string; assembled_prompt: string }> {
+  const { data } = await api.post(
+    `/api/approval/${sessionId}/preview-prompt`,
+    { chunks }
+  );
+  return data;
+}
+
 export interface ErrorLogItem {
   id: number;
   created_at: string;

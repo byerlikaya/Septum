@@ -13,9 +13,11 @@ so that the frontend can:
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..database import get_db
 from ..services.approval_gate import (
     ApprovalChunk,
     ApprovalDecision,
@@ -116,6 +118,19 @@ class RejectRequest(BaseModel):
     reason: Optional[str] = None
 
 
+class PreviewPromptRequest(BaseModel):
+    """Request body for re-assembling the user prompt with edited chunks."""
+
+    chunks: List[ApprovalChunkPayload]
+
+
+class PreviewPromptResponse(BaseModel):
+    """Response body carrying the rebuilt masked user prompt."""
+
+    session_id: str
+    assembled_prompt: str
+
+
 def _get_gate() -> ApprovalGate:
     return get_approval_gate()
 
@@ -194,4 +209,57 @@ async def reject_session(
         ) from None
 
     return ApprovalDecisionResponse.from_domain(session_id, decision)
+
+
+@router.post(
+    "/{session_id}/preview-prompt",
+    response_model=PreviewPromptResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def preview_prompt(
+    session_id: str,
+    request: PreviewPromptRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PreviewPromptResponse:
+    """Re-assemble the masked user prompt with (possibly edited) chunks.
+
+    This endpoint is called by the frontend approval modal whenever the
+    user edits a chunk, so the "Bulut LLM'e gönderilecek tam prompt" preview
+    stays byte-for-byte in sync with what would actually be sent to the
+    cloud LLM. It looks up the original assembly context (sanitized query,
+    regulation list, language, output mode, etc.) from the in-memory
+    approval session, swaps the chunks, and runs the exact same
+    ``_assemble_user_prompt`` helper the chat handler uses.
+    """
+    # Imported lazily to avoid a circular import between the chat router
+    # (which depends on approval_gate) and this router (which now wants to
+    # share the chat router's prompt-assembly helper).
+    from .chat import _assemble_user_prompt
+
+    gate = _get_gate()
+    context = await gate.get_assembly_context(session_id)
+    if context is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "Approval session not found or missing assembly context; "
+                "cannot rebuild the prompt preview."
+            ),
+        )
+
+    assembled = await _assemble_user_prompt(
+        db=db,
+        sanitized_query=context.get("sanitized_query", ""),
+        context_chunks=[c.text for c in request.chunks],
+        regulation_names=list(context.get("regulation_names", []) or []),
+        language=context.get("language", "en"),
+        output_mode=context.get("output_mode", "chat"),
+        document_id=context.get("document_id"),
+        query_has_placeholder=bool(context.get("query_has_placeholder", False)),
+    )
+
+    return PreviewPromptResponse(
+        session_id=session_id,
+        assembled_prompt=assembled,
+    )
 

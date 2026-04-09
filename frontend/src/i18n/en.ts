@@ -176,6 +176,9 @@ export const enMessages = {
   "settings.privacy.requireApproval.label": "Require approval by default",
   "settings.privacy.requireApproval.description":
     "Ask for explicit approval before sending masked chunks to cloud LLMs.",
+  "settings.privacy.approvalTimeout.label": "Approval timeout (seconds)",
+  "settings.privacy.approvalTimeout.hint":
+    "How long the chat backend waits for an approval decision before auto-rejecting the session as timed out. Use 0 to wait indefinitely.",
   "settings.privacy.showJson.label": "Show JSON output",
   "settings.privacy.showJson.description":
     "Expose raw JSON payloads alongside chat responses for debugging.",
@@ -356,6 +359,16 @@ export const enMessages = {
   "chat.status.thinking": "Thinking",
   "chat.copy": "Copy",
   "chat.copied": "Copied",
+  "chat.approval.assembledPrompt.title": "Full prompt sent to cloud LLM",
+  "chat.approval.assembledPrompt.hint":
+    "This is the exact masked text that would be sent to the cloud LLM right now. Editing a chunk below updates this preview automatically.",
+  "chat.approval.assembledPrompt.refresh": "Refresh preview",
+  "chat.approval.assembledPrompt.previewing": "Refreshing…",
+  "chat.approval.assembledPrompt.stale":
+    "Edited — preview may be out of date. Click Refresh or wait for auto-update.",
+  "chat.approval.assembledPrompt.error": "Could not refresh preview.",
+  "chat.approval.assembledPrompt.empty": "No prompt preview available for this turn.",
+  "chat.approval.regulationsHeading": "Active regulations",
   "chat.localFallbackBadge": "Answered via local model (cloud unavailable)",
   "chat.copyAnswer": "Copy answer",
   "chat.deanonBanner":

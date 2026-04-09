@@ -24,9 +24,9 @@ anonymization maps are persisted or exposed.
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,13 @@ class _ApprovalSession:
     decision: Optional[ApprovalDecision] = None
     masked_prompt: Optional[str] = None
     entity_count: Optional[int] = None
+    # Snapshot of the parameters needed to rebuild the assembled user
+    # prompt (sanitized_query, regulation_names, language, output_mode,
+    # document_id, query_has_placeholder). Stored here so the approval
+    # router's preview-prompt endpoint can re-run ``_assemble_user_prompt``
+    # with freshly edited chunks without the chat handler having to hold
+    # any request-scoped state.
+    assembly_context: Optional[Dict[str, Any]] = field(default=None)
 
 
 class ApprovalSessionNotFoundError(KeyError):
@@ -127,6 +134,7 @@ class ApprovalGate:
         masked_prompt: str,
         masked_chunks: List[str],
         entity_count: int,
+        assembly_context: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Legacy helper to open a session using masked prompt/chunks.
 
@@ -148,6 +156,7 @@ class ApprovalGate:
             event=event,
             masked_prompt=masked_prompt,
             entity_count=entity_count,
+            assembly_context=assembly_context,
         )
 
         # Replacing an existing session is allowed but logged.
@@ -155,14 +164,44 @@ class ApprovalGate:
             logger.warning("Replacing existing approval session: %s", session_id)
         self._sessions[session_id] = session
 
-    async def wait_for_decision(self, session_id: str) -> ApprovalDecision:
-        """Wait for a user decision or timeout for the given session.
+    async def get_assembly_context(
+        self, session_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Return the stored prompt-assembly context for a session.
+
+        Used by the preview-prompt endpoint to rebuild the assembled user
+        prompt when the user edits chunks in the approval modal. Returns
+        ``None`` if the session does not exist or has no stored context.
+        """
+        async with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                return None
+            return (
+                dict(session.assembly_context)
+                if session.assembly_context is not None
+                else None
+            )
+
+    async def wait_for_decision(
+        self,
+        session_id: str,
+        timeout: Optional[float] = None,
+    ) -> ApprovalDecision:
+        """Wait for a user decision (or a timeout) for the given session.
 
         This coroutine blocks the calling task until one of the following
         happens:
 
         * :meth:`approve` is called for ``session_id``.
         * :meth:`reject` is called for ``session_id``.
+        * The optional ``timeout`` (in seconds) elapses, in which case the
+          session is auto-rejected with ``timed_out=True``.
+
+        A non-positive ``timeout`` (``None``, ``0``, negative) disables the
+        timeout entirely and waits indefinitely. Callers that want to bound
+        the wait should pass a positive value (e.g. the user-configurable
+        ``settings.approval_timeout_seconds``).
 
         Returns
         -------
@@ -177,10 +216,33 @@ class ApprovalGate:
                 )
             event = session.event
 
-        await event.wait()
+        timed_out = False
+        if timeout is not None and timeout > 0:
+            try:
+                await asyncio.wait_for(event.wait(), timeout=timeout)
+            except asyncio.TimeoutError:
+                timed_out = True
+                logger.warning(
+                    "Approval session %s timed out after %.1fs",
+                    session_id,
+                    timeout,
+                )
+        else:
+            await event.wait()
 
         async with self._lock:
             session = self._sessions.pop(session_id, None)
+
+        if timed_out:
+            # Session was popped above; even if a late decision arrives via
+            # approve/reject it will hit ApprovalSessionNotFoundError, which
+            # the HTTP layer surfaces as 404 to the user.
+            return ApprovalDecision(
+                approved=False,
+                chunks=[],
+                reason="approval-timeout",
+                timed_out=True,
+            )
 
         if session is None or session.decision is None:
             # As a safety net, treat missing decisions as a hard rejection.
@@ -197,14 +259,18 @@ class ApprovalGate:
 
         return session.decision
 
-    async def wait_for_approval(self, session_id: str) -> ApprovalDecision:
+    async def wait_for_approval(
+        self,
+        session_id: str,
+        timeout: Optional[float] = None,
+    ) -> ApprovalDecision:
         """Legacy wrapper that waits for a decision and returns it.
 
         Older call sites may expect a simple approval gate named
         ``wait_for_approval``. The richer :class:`ApprovalDecision` object is
         returned so that newer code can still access edited chunks.
         """
-        return await self.wait_for_decision(session_id)
+        return await self.wait_for_decision(session_id, timeout=timeout)
 
     # ------------------------------------------------------------------
     # User actions

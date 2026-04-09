@@ -58,7 +58,8 @@ export function ChatWindow({
       sessionId: string,
       maskedPrompt: string,
       chunks: ApprovalChunkPayload[],
-      activeRegulations: string[]
+      activeRegulations: string[],
+      assembledPrompt: string
     ) => void
   >(() => {});
   const approvalRejectedRef = useRef<
@@ -88,8 +89,8 @@ export function ChatWindow({
     onResponseComplete: handleResponseComplete,
     onMessagePairComplete,
     getApprovalData: () => approvalDataRef.current,
-    onApprovalRequired: (sessionId, maskedPrompt, chunks, regs) => {
-      approvalRequiredRef.current(sessionId, maskedPrompt, chunks, regs);
+    onApprovalRequired: (sessionId, maskedPrompt, chunks, regs, assembledPrompt) => {
+      approvalRequiredRef.current(sessionId, maskedPrompt, chunks, regs, assembledPrompt);
     },
     onApprovalRejected: (reason) => {
       approvalRejectedRef.current(reason);
@@ -280,6 +281,7 @@ export function ChatWindow({
         open={approval.approvalOpen}
         sessionId={approval.approvalSessionId}
         maskedPrompt={approval.approvalMaskedPrompt}
+        assembledPrompt={approval.approvalAssembledPrompt}
         chunks={approval.approvalChunks}
         activeRegulations={approval.approvalRegulations}
         onApprove={approval.handleApprove}
@@ -291,6 +293,7 @@ export function ChatWindow({
         open={reviewApprovalData !== null}
         sessionId={null}
         maskedPrompt={reviewApprovalData?.masked_prompt ?? ""}
+        assembledPrompt={reviewApprovalData?.assembled_prompt ?? ""}
         chunks={reviewApprovalData?.chunks ?? []}
         activeRegulations={reviewApprovalData?.regulations ?? []}
         onApprove={() => {}}

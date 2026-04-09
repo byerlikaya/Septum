@@ -86,6 +86,7 @@ export type ChatMessageRole = "user" | "assistant";
 export interface ApprovalData {
   decision: "approved" | "rejected";
   masked_prompt: string;
+  assembled_prompt?: string;
   chunks: ApprovalChunkPayload[];
   regulations: string[];
   original_user_message?: string;
@@ -135,6 +136,7 @@ export interface SSEApprovalRequiredEvent {
   type: "approval_required";
   session_id: string;
   masked_prompt?: string;
+  assembled_prompt?: string;
   chunks: ApprovalChunkPayload[];
 }
 
@@ -215,6 +217,7 @@ export interface AppSettingsResponse {
   deanon_enabled: boolean;
   deanon_strategy: string;
   require_approval: boolean;
+  approval_timeout_seconds: number;
   show_json_output: boolean;
   use_presidio_layer: boolean;
   use_ner_layer: boolean;

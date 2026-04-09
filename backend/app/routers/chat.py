@@ -8,10 +8,12 @@ Pipeline:
 """
 
 import asyncio
+import contextlib
 import copy
 import json
 import logging
 import re
+import time
 from typing import TYPE_CHECKING, Any, AsyncGenerator, List, Optional
 from uuid import uuid4
 
@@ -20,6 +22,34 @@ if TYPE_CHECKING:
     from ..services.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
+
+
+@contextlib.asynccontextmanager
+async def _phase_timer(session_id: str, phase: str) -> AsyncGenerator[None, None]:
+    """Log how long a chat pipeline phase takes.
+
+    Wraps a section of the chat ``event_stream`` so that each major phase
+    (sanitize, retrieve, mask, approval-wait, llm, deanonymize, …) emits a
+    single ``chat phase session_id=… phase=… elapsed_ms=…`` log line on
+    completion. The structured fields make it trivial to grep a hung
+    request's session_id in stdout / Error Logs and see which phase was the
+    last to start (and how long it took).
+
+    The timer also fires on exception so a phase that raises still records
+    its elapsed time before the exception propagates.
+    """
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        logger.info(
+            "chat phase session_id=%s phase=%s elapsed_ms=%.1f",
+            session_id,
+            phase,
+            elapsed_ms,
+        )
+
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -142,7 +172,20 @@ def _mask_with_anon_map(text: str, anon_map: AnonymizationMap) -> str:
 THEME_SNIPPET_LEN = 400
 MIN_CHUNKS_FOR_LAST = 6
 TOP_K_RETRIEVAL_MAX_CAP = 25
-FULL_DOCUMENT_CHUNK_THRESHOLD = 100
+# Absolute relevance floor for the hybrid-retrieval score filter. Scores
+# from :func:`VectorStore.hybrid_search` are max-normalized to ``[0, 1]``
+# against the best match for the current query, and any candidate below
+# this ratio is dropped before being shown in the approval modal or sent
+# to the LLM. The main job of this filter is to cut noise at the tail of
+# the retrieval (chunks that only match in one source at a low rank), not
+# to do adaptive "elbow" detection — an earlier version of this code
+# attempted that and systematically dropped the substantively-relevant
+# chunks on small documents because BM25+FAISS score cliffs often
+# correspond to document structure (headers/footers scoring higher than
+# body content), not user-perceived relevance. The user's configured
+# ``top_k_retrieval`` is still the primary control for how many chunks
+# end up in the modal; lower it to make the modal tighter.
+RELEVANCE_SCORE_THRESHOLD = 0.4
 
 
 def _effective_top_k(base_top_k: int, chunk_count: int) -> int:
@@ -185,116 +228,89 @@ async def _retrieve_chunks(
     top_k: int,
     chunk_count: Optional[int] = None,
 ) -> List[Chunk]:
-    """Retrieve top-k chunks using hybrid search (BM25 + FAISS).
+    """Retrieve relevance-filtered chunks using hybrid search (BM25 + FAISS).
 
     Combines keyword-based BM25 search with semantic FAISS search using
     Reciprocal Rank Fusion (RRF). When chunk_count > 1, also runs a
     document-theme search (first chunk snippet) and merges with RRF so
-    holistic queries get both query-relevant and document-representative chunks.
-    Falls back to FAISS-only if BM25 index is unavailable, and to first
-    top_k chunks if neither index exists.
+    holistic queries get both query-relevant and document-representative
+    chunks.
 
-    The first chunk (index 0) is always included when the document has multiple
-    chunks. For long documents (chunk_count >= MIN_CHUNKS_FOR_LAST), the last
-    chunk is also included so conclusion/summary content is available.
+    After the hybrid search the raw RRF scores are max-normalized to [0, 1]
+    and any chunk below :data:`RELEVANCE_SCORE_THRESHOLD` is dropped. This
+    gives the approval modal a question-shaped chunk set instead of a fixed
+    ``top_k`` — a narrow question may return 2 chunks, a broad one 8.
+    ``top_k`` is only an upper bound on how many candidates are fetched from
+    hybrid_search; the filter decides how many of them actually survive.
+
+    Falls back to the first ``top_k`` chunks by document order if the hybrid
+    search returns nothing at all (e.g. the indexes are missing).
     """
-    import re
-
-    from ..services.vector_store import merge_rrf_result_lists
-
     vector_store = _get_vector_store()
     bm25_retriever = _get_bm25_retriever()
 
-    if chunk_count is not None and chunk_count > 1:
-        first_chunk_stmt = (
-            select(Chunk).where(Chunk.document_id == document_id, Chunk.index == 0)
-        )
-        first_chunk_result = await db.execute(first_chunk_stmt)
-        first_chunk_row = first_chunk_result.scalar_one_or_none()
-        theme_snippet = ""
-        if first_chunk_row and first_chunk_row.sanitized_text:
-            theme_snippet = (first_chunk_row.sanitized_text or "")[:THEME_SNIPPET_LEN]
-        if theme_snippet.strip():
-            fetch_top_k = min(top_k * 2, 50)
-            results_user, results_theme = await asyncio.gather(
-                asyncio.to_thread(
-                    vector_store.hybrid_search,
-                    document_id=document_id,
-                    query=query,
-                    top_k=fetch_top_k,
-                    bm25_retriever=bm25_retriever,
-                    alpha=0.5,
-                    beta=0.5,
-                ),
-                asyncio.to_thread(
-                    vector_store.hybrid_search,
-                    document_id=document_id,
-                    query=theme_snippet,
-                    top_k=fetch_top_k,
-                    bm25_retriever=bm25_retriever,
-                    alpha=0.5,
-                    beta=0.5,
-                ),
-            )
-            results = merge_rrf_result_lists([results_user, results_theme], top_k)
-        else:
-            results = await asyncio.to_thread(
-                vector_store.hybrid_search,
-                document_id=document_id,
-                query=query,
-                top_k=top_k,
-                bm25_retriever=bm25_retriever,
-                alpha=0.5,
-                beta=0.5,
-            )
-    else:
-        results = await asyncio.to_thread(
-            vector_store.hybrid_search,
-            document_id=document_id,
-            query=query,
-            top_k=top_k,
-            bm25_retriever=bm25_retriever,
-            alpha=0.5,
-            beta=0.5,
-        )
+    # Single hybrid search against the user's actual query. A previous
+    # revision also fused a second "document theme" retrieval (first-chunk
+    # snippet) via RRF to help holistic queries, but that systematically
+    # pulled in any chunk "generally related" to the document, which made
+    # the approval-modal chunk set basically question-independent on small
+    # documents. The score-based relevance filter below relies on the
+    # scores being meaningful *relative to the user's query*, so we run
+    # one hybrid search and let the user's query speak for itself. If a
+    # user wants holistic coverage, raising ``top_k_retrieval`` in Settings
+    # is the proper knob.
+    results = await asyncio.to_thread(
+        vector_store.hybrid_search,
+        document_id=document_id,
+        query=query,
+        top_k=top_k,
+        bm25_retriever=bm25_retriever,
+        alpha=0.5,
+        beta=0.5,
+    )
 
     if results:
-        chunk_ids = [cid for cid, _ in results]
+        # Normalize the RRF fusion scores against the best match so the
+        # filter has a consistent meaning across queries. RRF scores are
+        # unbounded sums of 1/(rrf_k + rank) terms; comparing raw values
+        # across different queries is meaningless, but a chunk that scores
+        # X% of the current query's top result has a stable interpretation.
+        max_score = max((score for _, score in results), default=0.0)
+        if max_score <= 0:
+            normalized = [(cid, 0.0) for cid, _ in results]
+        else:
+            normalized = [(cid, score / max_score) for cid, score in results]
 
-        stmt = select(Chunk).where(Chunk.id.in_(chunk_ids))
+        # Drop any candidate below the absolute relevance floor. The top
+        # result (normalized score 1.0) always survives, so the filter can
+        # shrink the count below ``top_k`` when the tail of the retrieval
+        # is clearly unrelated, but never returns an empty set.
+        filtered = [
+            (cid, score)
+            for cid, score in normalized
+            if score >= RELEVANCE_SCORE_THRESHOLD
+        ]
+        if not filtered:
+            # Defensive: keep at least the top result so the caller never
+            # has to deal with "retrieval returned nothing".
+            filtered = normalized[:1]
+
+        chunk_id_order = [cid for cid, _ in filtered]
+        stmt = select(Chunk).where(Chunk.id.in_(chunk_id_order))
         db_result = await db.execute(stmt)
         base_chunks = list(db_result.scalars().all())
-
-        # Derive numeric section prefixes (e.g., "2." from "2.4.") in a language-agnostic way.
-        section_prefixes: set[str] = set()
-        for c in base_chunks:
-            if not c.section_title:
-                continue
-            match = re.match(r"^(\d+)\.", c.section_title.strip())
-            if match:
-                section_prefixes.add(match.group(1))
-
-        # If no numeric prefixes are present, fall back to the base chunks only.
-        if not section_prefixes:
-            chunks = base_chunks
-        else:
-            # Fetch all chunks for the document once and expand the retrieval set
-            # with any chunks that share the same top-level numeric section prefix.
-            all_stmt = select(Chunk).where(Chunk.document_id == document_id)
-            all_result = await db.execute(all_stmt)
-            all_chunks = list(all_result.scalars().all())
-
-            expanded_chunks: dict[int, Chunk] = {c.id: c for c in base_chunks}
-            for c in all_chunks:
-                if not c.section_title:
-                    continue
-                match = re.match(r"^(\d+)\.", c.section_title.strip())
-                if match and match.group(1) in section_prefixes:
-                    expanded_chunks.setdefault(c.id, c)
-
-            # Sort expanded set by document index to keep section ordering natural.
-            chunks = sorted(expanded_chunks.values(), key=lambda c: c.index)
+        # Preserve retrieval order (by normalized score desc) rather than
+        # the DB's natural order so the highest-scoring chunks appear first
+        # in the approval modal.
+        order_index = {cid: idx for idx, cid in enumerate(chunk_id_order)}
+        chunks = sorted(
+            base_chunks, key=lambda c: order_index.get(c.id, len(chunk_id_order))
+        )
     else:
+        # Hybrid retrieval returned nothing at all (e.g. both indexes are
+        # missing or the document was not yet indexed). Fall back to the
+        # first ``top_k`` chunks by document order so the chat still has
+        # some context to work with.
         fallback_stmt = (
             select(Chunk)
             .where(Chunk.document_id == document_id)
@@ -303,29 +319,6 @@ async def _retrieve_chunks(
         )
         db_result = await db.execute(fallback_stmt)
         chunks = list(db_result.scalars().all())
-    if len(chunks) > 1:
-        first_stmt = (
-            select(Chunk).where(Chunk.document_id == document_id, Chunk.index == 0)
-        )
-        first_result = await db.execute(first_stmt)
-        first_chunk = first_result.scalar_one_or_none()
-        if first_chunk and first_chunk.id is not None and first_chunk.id not in (c.id for c in chunks):
-            chunks = [first_chunk] + [c for c in chunks if c.id != first_chunk.id][: top_k - 1]
-
-    if chunk_count is not None and chunk_count >= MIN_CHUNKS_FOR_LAST:
-        last_index = chunk_count - 1
-        last_stmt = (
-            select(Chunk).where(
-                Chunk.document_id == document_id,
-                Chunk.index == last_index,
-            )
-        )
-        last_result = await db.execute(last_stmt)
-        last_chunk = last_result.scalar_one_or_none()
-        chunk_ids = {c.id for c in chunks}
-        if last_chunk and last_chunk.id is not None and last_chunk.id not in chunk_ids:
-            chunks = chunks + [last_chunk]
-            chunks = sorted(chunks, key=lambda c: c.index)[:top_k]
 
     return chunks
 
@@ -373,34 +366,31 @@ def _encode_sse(payload: dict[str, Any]) -> bytes:
     return f"data: {data}\n\n".encode("utf-8")
 
 
-async def _run_llm_and_deanonymize(
+async def _assemble_user_prompt(
     db: AsyncSession,
-    settings: AppSettings,
-    anon_map: AnonymizationMap,
     sanitized_query: str,
     context_chunks: List[str],
     regulation_names: List[str],
     language: str,
     output_mode: str = "chat",
-    session_id: Optional[str] = None,
     document_id: Optional[int] = None,
     query_has_placeholder: bool = False,
-    query_placeholders: Optional[List[str]] = None,
-    http_request: Optional[Request] = None,
-    used_ollama_fallback_ref: Optional[List[bool]] = None,
 ) -> str:
-    """Call the LLM and apply local de-anonymization."""
-    llm = LLMRouter(settings)
+    """Build the full masked user prompt that will be sent to the cloud LLM.
 
-    async def on_cloud_failure(message: str, extra: dict[str, Any]) -> None:
-        if used_ollama_fallback_ref is not None:
-            used_ollama_fallback_ref[0] = True
-        if http_request is not None:
-            try:
-                await log_backend_message(db, http_request, message, level="ERROR", extra=extra)
-            except Exception:  # noqa: BLE001
-                pass
+    This is the exact string the cloud LLM receives as the ``user`` message:
+    system-ish instructions from :class:`PromptCatalog`, the active regulation
+    list, any spreadsheet-schema instruction the document contributes, the
+    context chunks interpolated as ``Chunk N:\\n…`` blocks, and the user's
+    sanitized question.
 
+    The helper is shared between the approval gate (which shows this exact
+    string in the approval modal so the user knows byte-for-byte what will
+    be sent) and :func:`_run_llm_and_deanonymize` (which actually sends it).
+    If the user edits chunks in the approval modal the preview endpoint
+    re-runs this function with the edited chunks so the preview stays in
+    sync with what will eventually hit the cloud.
+    """
     schema_instruction = ""
     if document_id is not None:
         schema_result = await db.execute(
@@ -429,7 +419,9 @@ async def _run_llm_and_deanonymize(
             lines_tmp.append(f"Chunk {idx}:\n{chunk}")
         context_text_for_placeholders = "\n\n".join(lines_tmp)
 
-    placeholders_in_context = _extract_placeholders_from_context(context_text_for_placeholders)
+    placeholders_in_context = _extract_placeholders_from_context(
+        context_text_for_placeholders
+    )
 
     placeholder_list_str = ""
     if placeholders_in_context and query_has_placeholder:
@@ -447,7 +439,60 @@ async def _run_llm_and_deanonymize(
         output_mode=output_mode,
     )
 
-    user_prompt = build_chat_prompt(payload)
+    return build_chat_prompt(payload)
+
+
+async def _run_llm_and_deanonymize(
+    db: AsyncSession,
+    settings: AppSettings,
+    anon_map: AnonymizationMap,
+    sanitized_query: str,
+    context_chunks: List[str],
+    regulation_names: List[str],
+    language: str,
+    output_mode: str = "chat",
+    session_id: Optional[str] = None,
+    document_id: Optional[int] = None,
+    query_has_placeholder: bool = False,
+    query_placeholders: Optional[List[str]] = None,
+    http_request: Optional[Request] = None,
+    used_ollama_fallback_ref: Optional[List[bool]] = None,
+) -> str:
+    """Call the LLM and apply local de-anonymization."""
+    llm = LLMRouter(settings)
+
+    async def on_cloud_failure(message: str, extra: dict[str, Any]) -> None:
+        if used_ollama_fallback_ref is not None:
+            used_ollama_fallback_ref[0] = True
+        if http_request is not None:
+            try:
+                await log_backend_message(db, http_request, message, level="ERROR", extra=extra)
+            except Exception:  # noqa: BLE001
+                pass
+
+    user_prompt = await _assemble_user_prompt(
+        db=db,
+        sanitized_query=sanitized_query,
+        context_chunks=context_chunks,
+        regulation_names=regulation_names,
+        language=language,
+        output_mode=output_mode,
+        document_id=document_id,
+        query_has_placeholder=query_has_placeholder,
+    )
+
+    # Keep the placeholder-aware list available for downstream answer
+    # post-processing (which needs to know which placeholders were actually
+    # present in the context).
+    context_text_for_placeholders = ""
+    if context_chunks:
+        lines_tmp: List[str] = []
+        for idx, chunk in enumerate(context_chunks, start=1):
+            lines_tmp.append(f"Chunk {idx}:\n{chunk}")
+        context_text_for_placeholders = "\n\n".join(lines_tmp)
+    placeholders_in_context = _extract_placeholders_from_context(
+        context_text_for_placeholders
+    )
 
     messages = [
         {"role": "user", "content": user_prompt},
@@ -535,6 +580,10 @@ async def chat_ask(
     document_id = document_ids_list[0] if document_ids_list else None
 
     async def event_stream() -> AsyncGenerator[bytes, None]:
+        # Generated up-front so per-phase timing logs can correlate every
+        # phase of this turn under a single session_id, even if the user has
+        # not supplied one.
+        session_id = request.session_id or uuid4().hex
         try:
             settings = await load_settings(db)
             regulation_names = await _active_regulation_names(db)
@@ -597,65 +646,61 @@ async def chat_ask(
                     getattr(settings, "deanon_enabled", True),
                 )
 
-            sanitized_query, entity_count, query_type_counts = (
-                await _sanitize_query(
-                    message_text, language, settings, anon_map, db
+            async with _phase_timer(session_id, "sanitize_query"):
+                sanitized_query, entity_count, query_type_counts = (
+                    await _sanitize_query(
+                        message_text, language, settings, anon_map, db
+                    )
                 )
-            )
             chunks: List[Chunk] = []
             if not request.pre_approved_chunks and documents_by_id:
-                base_top_k = request.top_k or settings.top_k_retrieval
-                total_chunk_count = sum(
-                    d.chunk_count for d in documents_by_id.values()
-                )
-                use_full_document = (
-                    total_chunk_count > 0
-                    and total_chunk_count <= FULL_DOCUMENT_CHUNK_THRESHOLD
-                )
-                top_k = (
-                    _effective_top_k(base_top_k, total_chunk_count)
-                    if not use_full_document
-                    else base_top_k
-                )
-                if use_full_document:
-                    for doc in sorted(
-                        documents_by_id.values(), key=lambda d: d.id
-                    ):
-                        stmt = (
-                            select(Chunk)
-                            .where(Chunk.document_id == doc.id)
-                            .order_by(Chunk.index)
-                        )
-                        result = await db.execute(stmt)
-                        chunks.extend(result.scalars().all())
-                elif len(documents_by_id) == 1:
-                    doc = next(iter(documents_by_id.values()))
-                    chunks = await _retrieve_chunks(
-                        db=db,
-                        document_id=doc.id,
-                        query=sanitized_query,
-                        top_k=top_k,
-                        chunk_count=doc.chunk_count,
+                async with _phase_timer(session_id, "retrieve_chunks"):
+                    base_top_k = request.top_k or settings.top_k_retrieval
+                    total_chunk_count = sum(
+                        d.chunk_count for d in documents_by_id.values()
                     )
-                else:
-                    MIN_PER_DOC = 10
-                    MAX_TOTAL = 50
-                    num_docs = len(documents_by_id)
-                    per_doc_k = max(
-                        MIN_PER_DOC,
-                        min(MAX_TOTAL // num_docs, top_k // num_docs),
-                    )
-                    for doc in documents_by_id.values():
-                        chunks_doc = await _retrieve_chunks(
+                    top_k = _effective_top_k(base_top_k, total_chunk_count)
+                    # Always run hybrid retrieval. Septum's approval modal
+                    # shows whatever ends up in ``chunks``, so bypassing
+                    # retrieval for small documents would surface every
+                    # chunk for approval and defeat the curation step the
+                    # user is asked to perform. If you want a larger slice
+                    # of the document in the LLM prompt, raise
+                    # ``top_k_retrieval`` in Settings.
+                    if len(documents_by_id) == 1:
+                        doc = next(iter(documents_by_id.values()))
+                        # Honour the user's top_k_retrieval verbatim in
+                        # single-doc mode. The ``_effective_top_k`` bonus
+                        # was designed to give multi-doc queries enough
+                        # chunks *per document*; in single-doc mode it
+                        # over-fetches and blunts the relevance filter.
+                        # The approval modal now shows only the chunks
+                        # that actually survive the filter, so respecting
+                        # the user's setting keeps the result compact.
+                        chunks = await _retrieve_chunks(
                             db=db,
                             document_id=doc.id,
                             query=sanitized_query,
-                            top_k=per_doc_k,
+                            top_k=base_top_k,
                             chunk_count=doc.chunk_count,
                         )
-                        chunks.extend(chunks_doc)
-
-            session_id = request.session_id or uuid4().hex
+                    else:
+                        MIN_PER_DOC = 10
+                        MAX_TOTAL = 50
+                        num_docs = len(documents_by_id)
+                        per_doc_k = max(
+                            MIN_PER_DOC,
+                            min(MAX_TOTAL // num_docs, top_k // num_docs),
+                        )
+                        for doc in documents_by_id.values():
+                            chunks_doc = await _retrieve_chunks(
+                                db=db,
+                                document_id=doc.id,
+                                query=sanitized_query,
+                                top_k=per_doc_k,
+                                chunk_count=doc.chunk_count,
+                            )
+                            chunks.extend(chunks_doc)
 
             if entity_count > 0:
                 await log_pii_detected(
@@ -708,6 +753,19 @@ async def chat_ask(
 
             context_texts: List[str] = []
 
+            # Compute output_mode and placeholder info up-front so the
+            # approval-modal assembled-prompt preview uses exactly the same
+            # parameters the real LLM call will use, and so both the
+            # pre-approved and fresh-approval branches share one definition.
+            output_mode = (request.output_mode or "chat").strip().lower()
+            query_placeholder_matches = list(
+                _PLACEHOLDER_PATTERN.finditer(message_text or "")
+            )
+            query_placeholders = [
+                m.group(0) for m in query_placeholder_matches
+            ]
+            query_has_placeholder = bool(query_placeholders)
+
             if request.pre_approved_chunks:
                 context_texts = [
                     c.get("text", "")
@@ -748,6 +806,25 @@ async def chat_ask(
                         if (documents_by_id and chunks)
                         else []
                     )
+
+                    # Build the exact masked prompt that would be sent to the
+                    # cloud LLM right now so the approval modal can show it
+                    # byte-for-byte. If the user edits chunks in the modal a
+                    # dedicated preview endpoint re-runs this with the edited
+                    # chunks to keep the preview in sync.
+                    assembled_prompt = await _assemble_user_prompt(
+                        db=db,
+                        sanitized_query=sanitized_query,
+                        context_chunks=[c.text for c in approval_chunks],
+                        regulation_names=regulation_names,
+                        language=language,
+                        output_mode=output_mode,
+                        document_id=(
+                            document.id if document is not None else None
+                        ),
+                        query_has_placeholder=query_has_placeholder,
+                    )
+
                     gate.create(
                         session_id=session_id,
                         masked_prompt=sanitized_query,
@@ -755,6 +832,16 @@ async def chat_ask(
                             c.text for c in approval_chunks
                         ],
                         entity_count=entity_count,
+                        assembly_context={
+                            "sanitized_query": sanitized_query,
+                            "regulation_names": regulation_names,
+                            "language": language,
+                            "output_mode": output_mode,
+                            "document_id": (
+                                document.id if document is not None else None
+                            ),
+                            "query_has_placeholder": query_has_placeholder,
+                        },
                     )
 
                     yield _encode_sse(
@@ -762,6 +849,7 @@ async def chat_ask(
                             "type": "approval_required",
                             "session_id": session_id,
                             "masked_prompt": sanitized_query,
+                            "assembled_prompt": assembled_prompt,
                             "chunks": [
                                 {
                                     "id": c.id,
@@ -775,9 +863,13 @@ async def chat_ask(
                         }
                     )
 
-                    decision = await gate.wait_for_approval(
-                        session_id
-                    )
+                    async with _phase_timer(session_id, "approval_wait"):
+                        decision = await gate.wait_for_approval(
+                            session_id,
+                            timeout=getattr(
+                                settings, "approval_timeout_seconds", 300
+                            ),
+                        )
 
                     if not decision.approved:
                         yield _encode_sse(
@@ -798,38 +890,28 @@ async def chat_ask(
                     context_texts = sanitized_chunk_texts
                 else:
                     context_texts = []
-
-            output_mode = (
-                (request.output_mode or "chat").strip().lower()
-            )
-            query_placeholder_matches = list(
-                _PLACEHOLDER_PATTERN.finditer(message_text or "")
-            )
-            query_placeholders = [
-                m.group(0) for m in query_placeholder_matches
-            ]
-            query_has_placeholder = bool(query_placeholders)
             used_ollama_fallback: List[bool] = [False]
-            answer = await _run_llm_and_deanonymize(
-                db=db,
-                settings=effective_settings,
-                anon_map=anon_map,
-                sanitized_query=sanitized_query,
-                context_chunks=context_texts,
-                regulation_names=regulation_names,
-                language=language,
-                output_mode=output_mode,
-                session_id=session_id,
-                document_id=(
-                    document.id if document is not None else None
-                ),
-                query_has_placeholder=query_has_placeholder,
-                query_placeholders=(
-                    query_placeholders if query_has_placeholder else None
-                ),
-                http_request=http_request,
-                used_ollama_fallback_ref=used_ollama_fallback,
-            )
+            async with _phase_timer(session_id, "llm_and_deanonymize"):
+                answer = await _run_llm_and_deanonymize(
+                    db=db,
+                    settings=effective_settings,
+                    anon_map=anon_map,
+                    sanitized_query=sanitized_query,
+                    context_chunks=context_texts,
+                    regulation_names=regulation_names,
+                    language=language,
+                    output_mode=output_mode,
+                    session_id=session_id,
+                    document_id=(
+                        document.id if document is not None else None
+                    ),
+                    query_has_placeholder=query_has_placeholder,
+                    query_placeholders=(
+                        query_placeholders if query_has_placeholder else None
+                    ),
+                    http_request=http_request,
+                    used_ollama_fallback_ref=used_ollama_fallback,
+                )
 
             if effective_settings.deanon_enabled and anon_map.entity_map:
                 await log_deanonymization(

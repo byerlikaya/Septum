@@ -25,7 +25,8 @@ export interface UseChatStreamOptions {
     sessionId: string,
     maskedPrompt: string,
     chunks: ApprovalChunkPayload[],
-    activeRegulations: string[]
+    activeRegulations: string[],
+    assembledPrompt: string
   ) => void;
   onApprovalRejected: (reason: string) => void;
 }
@@ -135,7 +136,8 @@ export function useChatStream({
               event.session_id,
               event.masked_prompt ?? "",
               event.chunks,
-              activeRegs
+              activeRegs,
+              event.assembled_prompt ?? ""
             );
             break;
           case "approval_rejected": {

@@ -80,6 +80,26 @@ export function PrivacyTab({
           saving={isSaving("require_approval")}
         />
 
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-slate-200">
+            {t("settings.privacy.approvalTimeout.label")}
+          </label>
+          <input
+            type="number"
+            min={0}
+            step={30}
+            className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
+            value={settings.approval_timeout_seconds}
+            onChange={async (event) => {
+              const parsed = Number(event.target.value);
+              const value = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+              await onChange("approval_timeout_seconds", value);
+            }}
+          />
+          <FieldHint text={t("settings.privacy.approvalTimeout.hint")} />
+          {isSaving("approval_timeout_seconds") && <SavingIndicator />}
+        </div>
+
         <ToggleField
           label={t("settings.privacy.showJson.label")}
           description={t("settings.privacy.showJson.description")}

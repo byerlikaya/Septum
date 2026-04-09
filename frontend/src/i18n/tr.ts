@@ -178,6 +178,9 @@ export const trMessages: Record<string, string> = {
     "Varsayılan olarak onay iste",
   "settings.privacy.requireApproval.description":
     "Maskelenmiş parçalar bulut LLM'lere gönderilmeden önce açık onay iste.",
+  "settings.privacy.approvalTimeout.label": "Onay zaman aşımı (saniye)",
+  "settings.privacy.approvalTimeout.hint":
+    "Sohbet backend'i onay kararını ne kadar süre bekler; bu süre dolarsa oturum zaman aşımına uğramış olarak otomatik reddedilir. Sınırsız beklemek için 0 girin.",
   "settings.privacy.showJson.label": "JSON çıktısını göster",
   "settings.privacy.showJson.description":
     "Hata ayıklama için sohbet yanıtlarının yanında ham JSON yüklerini göster.",
@@ -373,6 +376,16 @@ export const trMessages: Record<string, string> = {
   "chat.status.thinking": "Düşünüyor",
   "chat.copy": "Kopyala",
   "chat.copied": "Kopyalandı",
+  "chat.approval.assembledPrompt.title": "Bulut LLM'e gönderilecek tam prompt",
+  "chat.approval.assembledPrompt.hint":
+    "Bu, şu an bulut LLM'e gönderilecek olan tam maskeli metindir. Aşağıdaki bir chunk'ı düzenlersen bu önizleme otomatik güncellenir.",
+  "chat.approval.assembledPrompt.refresh": "Önizlemeyi yenile",
+  "chat.approval.assembledPrompt.previewing": "Yenileniyor…",
+  "chat.approval.assembledPrompt.stale":
+    "Düzenlendi — önizleme güncel olmayabilir. Yenile'ye bas ya da otomatik güncellemeyi bekle.",
+  "chat.approval.assembledPrompt.error": "Önizleme yenilenemedi.",
+  "chat.approval.assembledPrompt.empty": "Bu tur için prompt önizlemesi bulunmuyor.",
+  "chat.approval.regulationsHeading": "Aktif yönetmelikler",
   "chat.localFallbackBadge": "Yanıt yerel model ile verildi (bulut kullanılamadı)",
   "chat.copyAnswer": "Cevabı kopyala",
   "chat.deanonBanner":

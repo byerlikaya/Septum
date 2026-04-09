@@ -26,6 +26,9 @@ class AppSettings(Base):
     deanon_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     deanon_strategy: Mapped[str] = mapped_column(String, nullable=False)
     require_approval: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    approval_timeout_seconds: Mapped[int] = mapped_column(
+        Integer, default=300, nullable=False, server_default="300"
+    )
     show_json_output: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     use_presidio_layer: Mapped[bool] = mapped_column(

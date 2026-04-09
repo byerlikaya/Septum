@@ -191,6 +191,10 @@ async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:
             "app_settings",
             "ALTER TABLE app_settings ADD COLUMN use_ollama_semantic_layer BOOLEAN NOT NULL DEFAULT 0",
         ),
+        (
+            "app_settings",
+            "ALTER TABLE app_settings ADD COLUMN approval_timeout_seconds INTEGER NOT NULL DEFAULT 300",
+        ),
     ]
 
     async with eng.begin() as conn:
@@ -237,6 +241,9 @@ async def _seed_defaults(sm: async_sessionmaker[AsyncSession]) -> None:
                 deanon_enabled=_env_bool("DEANON_ENABLED_DEFAULT", True),
                 deanon_strategy=os.getenv("DEANON_STRATEGY", "simple"),
                 require_approval=_env_bool("REQUIRE_APPROVAL_DEFAULT", True),
+                approval_timeout_seconds=_env_int(
+                    "APPROVAL_TIMEOUT_SECONDS_DEFAULT", 300
+                ),
                 show_json_output=_env_bool("SHOW_JSON_OUTPUT_DEFAULT", False),
                 use_presidio_layer=_env_bool("USE_PRESIDIO_LAYER_DEFAULT", True),
                 use_ner_layer=_env_bool("USE_NER_LAYER_DEFAULT", True),

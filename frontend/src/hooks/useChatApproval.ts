@@ -7,6 +7,7 @@ export interface UseChatApprovalReturn {
   approvalOpen: boolean;
   approvalSessionId: string | null;
   approvalMaskedPrompt: string;
+  approvalAssembledPrompt: string;
   approvalChunks: ApprovalChunkPayload[];
   approvalRegulations: string[];
   handleApprove: (
@@ -18,7 +19,8 @@ export interface UseChatApprovalReturn {
     sessionId: string,
     maskedPrompt: string,
     chunks: ApprovalChunkPayload[],
-    activeRegulations: string[]
+    activeRegulations: string[],
+    assembledPrompt: string
   ) => void;
   onApprovalRejected: (reason: string) => void;
   closeApprovalModal: () => void;
@@ -42,10 +44,12 @@ export function useChatApproval({
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [approvalSessionId, setApprovalSessionId] = useState<string | null>(null);
   const [approvalMaskedPrompt, setApprovalMaskedPrompt] = useState("");
+  const [approvalAssembledPrompt, setApprovalAssembledPrompt] = useState("");
   const [approvalChunks, setApprovalChunks] = useState<ApprovalChunkPayload[]>([]);
   const [approvalRegulations, setApprovalRegulations] = useState<string[]>([]);
 
   const maskedPromptRef = useRef("");
+  const assembledPromptRef = useRef("");
   const chunksRef = useRef<ApprovalChunkPayload[]>([]);
   const regulationsRef = useRef<string[]>([]);
   const lastApprovalDataRef = useRef<ApprovalData | null>(null);
@@ -55,6 +59,7 @@ export function useChatApproval({
       const data: ApprovalData = {
         decision: "approved",
         masked_prompt: maskedPromptRef.current,
+        assembled_prompt: assembledPromptRef.current,
         chunks: editedChunks,
         regulations: regulationsRef.current,
       };
@@ -83,6 +88,7 @@ export function useChatApproval({
       const data: ApprovalData = {
         decision: "rejected",
         masked_prompt: maskedPromptRef.current,
+        assembled_prompt: assembledPromptRef.current,
         chunks: chunksRef.current,
         regulations: regulationsRef.current,
         original_user_message: userText,
@@ -118,13 +124,16 @@ export function useChatApproval({
       sessionId: string,
       maskedPrompt: string,
       chunks: ApprovalChunkPayload[],
-      activeRegulations: string[]
+      activeRegulations: string[],
+      assembledPrompt: string
     ) => {
       maskedPromptRef.current = maskedPrompt;
+      assembledPromptRef.current = assembledPrompt;
       chunksRef.current = chunks;
       regulationsRef.current = activeRegulations;
       setApprovalSessionId(sessionId);
       setApprovalMaskedPrompt(maskedPrompt);
+      setApprovalAssembledPrompt(assembledPrompt);
       setApprovalChunks(chunks);
       setApprovalRegulations(activeRegulations);
       setApprovalOpen(true);
@@ -149,6 +158,7 @@ export function useChatApproval({
     approvalOpen,
     approvalSessionId,
     approvalMaskedPrompt,
+    approvalAssembledPrompt,
     approvalChunks,
     approvalRegulations,
     handleApprove,
