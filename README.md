@@ -5,12 +5,28 @@
 <h3 align="center">Your data never leaves. Your AI still works.</h3>
 
 <p align="center">
+  <a href="https://github.com/byerlikaya/Septum/actions/workflows/tests.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/byerlikaya/Septum/tests.yml?branch=main&label=tests" alt="CI Tests" />
+  </a>
+  <a href="https://hub.docker.com/r/byerlikaya/septum">
+    <img src="https://img.shields.io/docker/v/byerlikaya/septum?label=docker%20image&color=blue&sort=semver" alt="Docker Image Version" />
+  </a>
   <a href="https://hub.docker.com/r/byerlikaya/septum">
     <img src="https://img.shields.io/docker/pulls/byerlikaya/septum?label=docker%20pulls" alt="Docker Pulls" />
+  </a>
+  <a href="https://github.com/byerlikaya/Septum/stargazers">
+    <img src="https://img.shields.io/github/stars/byerlikaya/Septum?color=yellow&label=stars" alt="GitHub Stars" />
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/github/license/byerlikaya/Septum?color=blue" alt="License: MIT" />
   </a>
   <a href="README.tr.md">
     <img src="https://img.shields.io/badge/lang-TR-red" alt="Turkish README" />
   </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/byerlikaya/Septum/stargazers"><b>⭐ Star the repo if Septum helps you keep PII out of the cloud — it's the single biggest signal that this project is worth building.</b></a>
 </p>
 
 <p align="center">
@@ -365,6 +381,24 @@ The chat endpoint returns Server-Sent Events: `meta` (session info) → `approva
 Septum handles everything in between: PII detection, anonymisation, retrieval, LLM call, and de-anonymisation. Your app just sends questions and receives clean answers.
 
 For full API reference, pipeline details, code structure, and deployment options, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
+
+---
+
+## Support the Project
+
+Septum is open source (MIT) and maintained in the open. If it saves you from a privacy incident, helps your team ship faster, or just makes your LLM workflow safer, please consider:
+
+- ⭐ **Star the repo on [GitHub](https://github.com/byerlikaya/Septum)** — the single biggest signal that this project is worth continued investment.
+- **Open issues and discussions** for bugs or features you need — every report shapes the roadmap.
+- **Tell your team** — privacy-first AI tooling is still rare, and word of mouth matters more than any ad.
+
+### Star History
+
+<p align="center">
+  <a href="https://star-history.com/#byerlikaya/Septum&Date">
+    <img src="https://api.star-history.com/svg?repos=byerlikaya/Septum&type=Date" alt="Star History Chart" width="720" />
+  </a>
+</p>
 
 ---
 

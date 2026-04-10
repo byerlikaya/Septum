@@ -5,12 +5,28 @@
 <h3 align="center">Veriniz dışarı çıkmaz. Yapay zekanız çalışmaya devam eder.</h3>
 
 <p align="center">
+  <a href="https://github.com/byerlikaya/Septum/actions/workflows/tests.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/byerlikaya/Septum/tests.yml?branch=main&label=tests" alt="CI Testler" />
+  </a>
+  <a href="https://hub.docker.com/r/byerlikaya/septum">
+    <img src="https://img.shields.io/docker/v/byerlikaya/septum?label=docker%20image&color=blue&sort=semver" alt="Docker Image Sürümü" />
+  </a>
   <a href="https://hub.docker.com/r/byerlikaya/septum">
     <img src="https://img.shields.io/docker/pulls/byerlikaya/septum?label=docker%20pulls" alt="Docker Pulls" />
+  </a>
+  <a href="https://github.com/byerlikaya/Septum/stargazers">
+    <img src="https://img.shields.io/github/stars/byerlikaya/Septum?color=yellow&label=stars" alt="GitHub Yıldızları" />
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/github/license/byerlikaya/Septum?color=blue" alt="Lisans: MIT" />
   </a>
   <a href="README.md">
     <img src="https://img.shields.io/badge/lang-EN-blue" alt="English README" />
   </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/byerlikaya/Septum/stargazers"><b>⭐ Septum PII'yi bulutun dışında tutmanıza yardımcı oluyorsa, GitHub'da bir yıldız bu projenin devam etmesi için en büyük sinyaldir.</b></a>
 </p>
 
 <p align="center">
@@ -365,6 +381,24 @@ Chat endpoint'i Server-Sent Events döner: `meta` (oturum bilgisi) → `approval
 Septum aradaki her şeyi yönetir: PII tespiti, anonimleştirme, arama, LLM çağrısı ve de-anonimleştirme. Uygulamanız sadece soru gönderir ve temiz cevaplar alır.
 
 Tam API referansı, pipeline detayları, kod yapısı ve dağıtım seçenekleri için bkz. **[ARCHITECTURE.tr.md](ARCHITECTURE.tr.md)**.
+
+---
+
+## Projeye Destek Ol
+
+Septum açık kaynak (MIT lisanslı) ve halka açık olarak geliştiriliyor. Eğer sizi bir gizlilik ihlalinden kurtardıysa, ekibinizin daha hızlı ilerlemesine yardım ettiyse veya LLM iş akışınızı daha güvenli hâle getirdiyse lütfen şunları değerlendirin:
+
+- ⭐ **[GitHub'da repoya yıldız verin](https://github.com/byerlikaya/Septum)** — bu projeye yatırım yapmaya devam etmenin değeceğine dair en güçlü sinyal budur.
+- **Issue ve discussion açın** — bildirdiğiniz her hata ve istediğiniz her özellik yol haritasını şekillendirir.
+- **Ekibinizle paylaşın** — gizlilik odaklı AI araçları hâlâ nadir; kulaktan kulağa yayılmak her reklamdan daha değerli.
+
+### Yıldız Geçmişi
+
+<p align="center">
+  <a href="https://star-history.com/#byerlikaya/Septum&Date">
+    <img src="https://api.star-history.com/svg?repos=byerlikaya/Septum&type=Date" alt="Yıldız Geçmişi Grafiği" width="720" />
+  </a>
+</p>
 
 ---
 
