@@ -16,6 +16,8 @@
 <p align="center">
   <a href="#who-is-this-for"><strong>Who Is This For?</strong></a>
   &middot;
+  <a href="#see-it-in-action"><strong>Screenshots</strong></a>
+  &middot;
   <a href="#quick-start"><strong>Quick Start</strong></a>
   &middot;
   <a href="ARCHITECTURE.md"><strong>Architecture</strong></a>
@@ -183,7 +185,77 @@ For full pipeline details, see [Architecture — PII Detection & Anonymisation P
 
 ---
 
-<!-- Screenshots / demo GIF will be added here -->
+## See It in Action
+
+### Setup wizard — from `docker run` to a working stack in under 2 minutes
+
+<p align="center">
+  <img src="screenshots/setup-wizard.gif" alt="Setup wizard walkthrough — database, cache, LLM provider, regulations, audio model, admin account" width="900" />
+</p>
+
+Pick your database (SQLite or PostgreSQL), cache (in-memory or Redis), LLM provider (Anthropic, OpenAI, OpenRouter, or local Ollama), privacy regulations, and audio transcription model — all from a guided wizard. No `.env` files, no manual configuration.
+
+### The approval gate — see exactly what leaves your machine
+
+<p align="center">
+  <img src="screenshots/chat-flow.gif" alt="Chat approval flow — masked prompt, retrieved chunks, assembled cloud prompt, and the deanonymised answer" width="900" />
+</p>
+
+Before every LLM call, Septum shows you three side-by-side panes: the **masked prompt** you typed, the **retrieved document chunks** (editable), and the **full assembled prompt** that will actually be sent to the cloud. Approve it and the answer comes back with real values restored — locally, never in the cloud.
+
+### Document preview with entity highlights
+
+<p align="center">
+  <img src="screenshots/document-preview.gif" alt="Documents list and preview with detected PII entities highlighted inline" width="900" />
+</p>
+
+Every detected entity — names, addresses, dates of birth, phone numbers, medical diagnoses, IDs — is highlighted inline on the original document with a colour coded by entity type. Click any entity to jump to its location; the side panel lists every match with its score and placeholder.
+
+<details>
+<summary><b>More screenshots</b> — Settings, custom regulation rules, audit trail</summary>
+
+<br />
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <b>LLM Provider</b><br />
+      <img src="screenshots/14-settings-llm-provider.png" alt="LLM provider settings" />
+    </td>
+    <td width="50%" align="center">
+      <b>Privacy & Sanitization (3-layer pipeline)</b><br />
+      <img src="screenshots/15-settings-privacy-sanitization.png" alt="Privacy sanitization settings" />
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <b>RAG & Hybrid Retrieval</b><br />
+      <img src="screenshots/16-settings-rag.png" alt="RAG settings" />
+    </td>
+    <td align="center">
+      <b>Document Ingestion</b><br />
+      <img src="screenshots/17-settings-ingestion.png" alt="Ingestion settings" />
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <b>Infrastructure</b><br />
+      <img src="screenshots/18-settings-infrastructure.png" alt="Infrastructure settings" />
+    </td>
+    <td align="center">
+      <b>Custom Regulation Rules</b><br />
+      <img src="screenshots/19-regulations-custom-rules.png" alt="Custom regulation rules — regex, keyword list, LLM prompt" />
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">
+      <b>Audit Trail</b> — append-only compliance log with entity detection metrics, no raw PII<br />
+      <img src="screenshots/23-audit-trail.png" alt="Audit trail" width="720" />
+    </td>
+  </tr>
+</table>
+
+</details>
 
 ---
 

@@ -16,6 +16,8 @@
 <p align="center">
   <a href="#bu-kimin-için"><strong>Bu Kimin İçin?</strong></a>
   &middot;
+  <a href="#ekran-görüntüleri"><strong>Ekran Görüntüleri</strong></a>
+  &middot;
   <a href="#hızlı-başlangıç"><strong>Hızlı Başlangıç</strong></a>
   &middot;
   <a href="ARCHITECTURE.tr.md"><strong>Mimari</strong></a>
@@ -183,7 +185,77 @@ Pipeline detayları için bkz. [Mimari — PII Tespiti ve Anonimleştirme Akış
 
 ---
 
-<!-- Ekran görüntüleri / demo GIF buraya eklenecek -->
+## Ekran Görüntüleri
+
+### Kurulum sihirbazı — `docker run`'dan çalışan bir yığına 2 dakikadan kısa sürede
+
+<p align="center">
+  <img src="screenshots/setup-wizard.gif" alt="Kurulum sihirbazı adımları — veritabanı, önbellek, LLM sağlayıcı, regülasyonlar, ses modeli, admin hesabı" width="900" />
+</p>
+
+Veritabanınızı (SQLite veya PostgreSQL), önbelleği (in-memory veya Redis), LLM sağlayıcınızı (Anthropic, OpenAI, OpenRouter veya yerel Ollama), gizlilik regülasyonlarını ve ses transkripsiyon modelini rehberli bir sihirbazdan seçin. `.env` dosyası yok, manuel konfigürasyon yok.
+
+### Onay mekanizması — makinenizden tam olarak neyin çıktığını görün
+
+<p align="center">
+  <img src="screenshots/chat-flow.gif" alt="Sohbet onay akışı — maskelenmiş prompt, getirilen parçalar, bulut LLM'e giden tam prompt ve deanonimleştirilmiş cevap" width="900" />
+</p>
+
+Her LLM çağrısından önce Septum size yan yana üç panel gösterir: yazdığınız **maskelenmiş prompt**, getirilen **doküman parçaları** (düzenlenebilir) ve buluta gerçekten gönderilecek **tam birleştirilmiş prompt**. Onayladığınızda cevap gerçek değerlerle birlikte geri döner — yerelde, asla bulutta değil.
+
+### Doküman önizleme — varlık vurguları ile
+
+<p align="center">
+  <img src="screenshots/document-preview.gif" alt="Doküman listesi ve tespit edilen PII varlıklarının satır içi vurgulandığı önizleme" width="900" />
+</p>
+
+Tespit edilen her varlık — isimler, adresler, doğum tarihleri, telefon numaraları, tıbbi teşhisler, kimlikler — orijinal doküman üzerinde varlık tipine göre renklendirilmiş olarak satır içi vurgulanır. Herhangi bir varlığa tıklayarak konumuna gidin; yan panel her eşleşmeyi skoru ve placeholder'ı ile birlikte listeler.
+
+<details>
+<summary><b>Daha fazla ekran görüntüsü</b> — Ayarlar, özel regülasyon kuralları, denetim kaydı</summary>
+
+<br />
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <b>LLM Sağlayıcı</b><br />
+      <img src="screenshots/14-settings-llm-provider.png" alt="LLM sağlayıcı ayarları" />
+    </td>
+    <td width="50%" align="center">
+      <b>Gizlilik ve Maskeleme (3 katmanlı pipeline)</b><br />
+      <img src="screenshots/15-settings-privacy-sanitization.png" alt="Gizlilik maskeleme ayarları" />
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <b>RAG ve Hibrit Arama</b><br />
+      <img src="screenshots/16-settings-rag.png" alt="RAG ayarları" />
+    </td>
+    <td align="center">
+      <b>Doküman Ingestion</b><br />
+      <img src="screenshots/17-settings-ingestion.png" alt="Ingestion ayarları" />
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <b>Altyapı</b><br />
+      <img src="screenshots/18-settings-infrastructure.png" alt="Altyapı ayarları" />
+    </td>
+    <td align="center">
+      <b>Özel Regülasyon Kuralları</b><br />
+      <img src="screenshots/19-regulations-custom-rules.png" alt="Özel regülasyon kuralları — regex, anahtar kelime listesi, LLM prompt" />
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">
+      <b>Denetim Kaydı</b> — salt-ekleme uyumluluk günlüğü, varlık tespit metrikleri, ham PII yok<br />
+      <img src="screenshots/23-audit-trail.png" alt="Denetim kaydı" width="720" />
+    </td>
+  </tr>
+</table>
+
+</details>
 
 ---
 

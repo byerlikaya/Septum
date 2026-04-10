@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here in a high‑level, date‑based format.
 
+### 2026-04-10
+
+- **"See It in Action" screenshot gallery with animated demos**: Added a new section to `README.md` / `README.tr.md` with three optimised slideshow GIFs — setup wizard walkthrough (11 frames of the full wizard flow, ~13 s loop), chat approval flow (approve context → 3-column detailed modal → deanonymised KVKK response, ~7 s loop), and document preview with inline entity highlights (list → health form → insurance form, ~6 s loop). GIFs are generated from the existing PNG screenshots via `ffmpeg` concat demuxer with lanczos scaling to 1280 px and palette optimisation (`palettegen` / `paletteuse` with `stats_mode=diff`, 192 colours, bayer dither), landing at 220–425 KB each with no visible quality loss. Below the hero GIFs, a collapsible `<details>` block holds a 2-column grid of six configuration screens (LLM provider, Privacy & Sanitization, RAG, Ingestion, Infrastructure, Custom Regulation Rules) plus the Audit Trail. The old 11 legacy screenshots are replaced by 27 new PNGs in `screenshots/`, and a "Screenshots" / "Ekran Görüntüleri" entry is added to both README navigation headers. English and Turkish READMEs kept in lockstep.
+
 ### 2026-04-09
 
 - **Claude Code project skills migrated to directory format**: Running `/security-scan`, `/new-regulation`, `/new-recognizer` or `/new-ingester` inside Claude Code returned `Unknown skill` because the project's `.claude/skills/*.md` files were still in the old flat-file layout. Current Claude Code versions only auto-load project skills that live at `.claude/skills/<name>/SKILL.md` (directory with `SKILL.md` entrypoint). Moved all four files to the directory layout via `git mv` so history is preserved, and updated the `/security-scan` path reference in `CLAUDE.md` accordingly. All four slash commands are now registered and invocable. No change to skill contents or frontmatter.
