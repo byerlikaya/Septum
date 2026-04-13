@@ -117,7 +117,7 @@ The LLM answers using placeholders. Septum restores real values locally before s
 ## Key Features
 
 - **Local PII Protection** — Detects and masks personal data before anything is sent to the cloud — both inside uploaded documents **and** inside the chat messages you type. Documents stored encrypted (AES-256-GCM). The **Approval Gate** lets you verify the masked output before each LLM call — nothing is sent without your review.
-- **Multi-Regulation Support** — 17 built-in packs (GDPR, KVKK, CCPA, HIPAA, LGPD, PIPEDA, PDPA, APPI, PIPL, POPIA, DPDP, UK GDPR, and more). Multiple active simultaneously; most restrictive wins.
+- **Multi-Regulation Support** — 17 built-in packs (GDPR, KVKK, CCPA, HIPAA, LGPD, PIPEDA, PDPA, APPI, PIPL, POPIA, DPDP, UK GDPR, and more). Each regulation ships its own recognizer pack with region-specific national ID detectors (TCKN checksum, Aadhaar Verhoeff, NRIC/FIN, Resident ID, NINO, CNPJ, My Number, and more). Multiple active simultaneously; most restrictive wins.
 - **Approval Gate** — Review exactly what will be sent to the LLM before it leaves your environment.
 - **Custom Rules** — Define your own patterns: regex, keyword lists, or LLM-prompt based detection.
 - **Rich Format Support** — PDFs, Office files, spreadsheets, images (OCR), audio (Whisper transcription), emails.

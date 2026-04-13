@@ -117,7 +117,7 @@ LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerç
 ## Temel Özellikler
 
 - **Yerel PII Koruması** — Kişisel verileri buluta göndermeden önce tespit edip maskeler — hem yüklediğiniz dokümanların içinde **hem de** yazdığınız sohbet mesajlarınızda. Dosyalar şifreli saklanır (AES-256-GCM). **Onay Mekanizması** her LLM çağrısından önce maskelenmiş çıktıyı incelemenizi sağlar — onayınız olmadan hiçbir şey gönderilmez.
-- **Çoklu Regülasyon Desteği** — 17 hazır paket (GDPR, KVKK, CCPA, HIPAA, LGPD, PIPEDA, PDPA, APPI, PIPL, POPIA, DPDP, UK GDPR ve daha fazlası). Aynı anda birden fazla aktif; en kısıtlayıcı kazanır.
+- **Çoklu Regülasyon Desteği** — 17 hazır paket (GDPR, KVKK, CCPA, HIPAA, LGPD, PIPEDA, PDPA, APPI, PIPL, POPIA, DPDP, UK GDPR ve daha fazlası). Her regülasyon, kendi bölgesine özgü kimlik numarası algılayıcılarıyla (TCKN checksum, Aadhaar Verhoeff, NRIC/FIN, Resident ID, NINO, CNPJ, My Number ve daha fazlası) birlikte kendi recognizer paketiyle geliyor. Aynı anda birden fazla aktif; en kısıtlayıcı kazanır.
 - **Onay Mekanizması** — LLM'e gönderilmeden önce neyin paylaşılacağını görün ve onaylayın.
 - **Özel Kurallar** — Kendi kalıplarınızı tanımlayın: regex, anahtar kelime listeleri veya LLM-tabanlı tespit.
 - **Zengin Format Desteği** — PDF, Office, hesap tabloları, görseller (OCR), ses (Whisper transkripsiyon), e-postalar.
