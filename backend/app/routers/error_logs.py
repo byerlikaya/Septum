@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.error_log import ErrorLog
+from ..models.user import User
+from ..utils.auth_dependency import get_optional_user, require_role
 
 router = APIRouter(prefix="/api/error-logs", tags=["error-logs"])
 
@@ -54,6 +56,7 @@ async def list_error_logs(
     source: Optional[str] = None,
     level: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> ErrorLogListResponse:
     """Return a paginated list of error logs."""
     page = max(page, 1)
@@ -101,7 +104,9 @@ async def list_error_logs(
 
 @router.get("/{log_id}", response_model=ErrorLogDetailOut)
 async def get_error_log(
-    log_id: int, db: AsyncSession = Depends(get_db)
+    log_id: int,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> ErrorLogDetailOut:
     """Return a single error log entry with full details."""
     result = await db.execute(select(ErrorLog).where(ErrorLog.id == log_id))
@@ -145,8 +150,13 @@ async def ingest_frontend_error(
     payload: FrontendErrorIn,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    _user: User | None = Depends(get_optional_user),
 ) -> None:
-    """Accept an error report from the frontend and persist it."""
+    """Accept an error report from the frontend and persist it.
+
+    Uses optional auth because frontend error reporting must work for
+    pre-login failures (network errors on the login page itself).
+    """
     from ..services.error_logger import log_frontend_error
 
     client_ip = request.client.host if request.client else None
@@ -168,6 +178,7 @@ async def ingest_frontend_error(
 async def clear_error_logs(
     source: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> None:
     """Delete error log entries, optionally filtered by source."""
     if source:

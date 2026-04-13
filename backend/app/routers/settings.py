@@ -21,9 +21,10 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
+from ..models.user import User
 from ..services.error_logger import log_backend_error, log_backend_message
 from ..services.llm_router import LLMRouter, LLMRouterError
-from ..utils.auth_dependency import get_optional_user
+from ..utils.auth_dependency import get_current_user, require_role
 from ..utils.db_helpers import load_settings
 from ..utils.device import get_device
 
@@ -190,6 +191,7 @@ class WhisperInstallResponse(BaseModel):
 )
 async def get_settings_endpoint(
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> SettingsResponse:
     """Return the current global application settings."""
     settings = await load_settings(db)
@@ -208,7 +210,7 @@ async def get_settings_endpoint(
 async def update_settings_endpoint(
     payload: SettingsUpdatePayload,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_optional_user),
+    _user: User = Depends(require_role("admin")),
 ) -> SettingsResponse:
     """Partially update global application settings."""
     settings = await load_settings(db)
@@ -236,6 +238,7 @@ async def test_llm_connection_endpoint(
     payload: TestLLMRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> TestConnectionResponse:
     """Validate connectivity to the configured cloud LLM provider.
 
@@ -310,6 +313,7 @@ async def test_llm_connection_endpoint(
 async def test_local_models_endpoint(
     payload: TestLocalModelsRequest,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> TestConnectionResponse:
     """Check that the local model server (for example Ollama) is reachable.
 
@@ -379,7 +383,9 @@ _OLLAMA_PROBE_URLS = [
     response_model=OllamaProbeResponse,
     status_code=status.HTTP_200_OK,
 )
-async def ollama_probe_endpoint() -> OllamaProbeResponse:
+async def ollama_probe_endpoint(
+    _user: User = Depends(require_role("admin")),
+) -> OllamaProbeResponse:
     """Probe common Ollama URLs and return the first reachable one.
 
     Tries ``host.docker.internal`` (Docker → host), ``ollama`` (Compose
@@ -430,6 +436,7 @@ def _format_size(size_bytes: int) -> str:
 async def list_ollama_models_endpoint(
     base_url: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> OllamaModelsResponse:
     """List locally available Ollama models.
 
@@ -476,6 +483,7 @@ class OllamaPullRequest(BaseModel):
 async def ollama_pull_endpoint(
     payload: OllamaPullRequest,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> StreamingResponse:
     """Pull an Ollama model and stream download progress via SSE."""
     settings = await load_settings(db)
@@ -525,6 +533,7 @@ async def ollama_pull_endpoint(
 )
 async def get_ingestion_health_endpoint(
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> AudioPipelineHealthResponse:
     """Return health information for the local ingestion pipeline.
 
@@ -602,6 +611,7 @@ async def get_ingestion_health_endpoint(
 )
 async def install_whisper_model_endpoint(
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> WhisperInstallResponse:
     """Download and cache the configured Whisper model.
 

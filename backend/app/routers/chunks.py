@@ -12,7 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.document import Chunk, Document
+from ..models.user import User
 from ..services.vector_store import VectorStore
+from ..utils.auth_dependency import get_current_user, require_role
 from ..utils.db_helpers import get_or_404
 from ..utils.text_utils import normalize_unicode
 
@@ -82,6 +84,7 @@ async def list_chunks(
         description="If provided, only chunks for this document are returned.",
     ),
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> ChunkListResponse:
     """Return sanitized chunks, optionally filtered by document."""
     stmt = select(Chunk)
@@ -106,6 +109,7 @@ async def list_chunks(
 async def get_chunk(
     chunk_id: int,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> ChunkResponse:
     """Return a single sanitized chunk by id."""
     chunk = await get_or_404(db, Chunk, chunk_id, "Chunk not found.")
@@ -121,6 +125,7 @@ async def update_chunk(
     chunk_id: int,
     payload: ChunkUpdateRequest,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin", "editor")),
 ) -> ChunkResponse:
     """Update mutable fields of a chunk (inline edit support)."""
     chunk = await get_or_404(db, Chunk, chunk_id, "Chunk not found.")
@@ -146,6 +151,7 @@ async def update_chunk(
 async def delete_chunk(
     chunk_id: int,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin", "editor")),
 ) -> None:
     """Delete a chunk."""
     chunk = await get_or_404(db, Chunk, chunk_id, "Chunk not found.")
@@ -162,6 +168,7 @@ async def delete_chunk(
 async def search_chunks(
     payload: ChunkSearchRequest,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> ChunkSearchResponse:
     """Search chunks for a given document using the vector index."""
     await get_or_404(db, Document, payload.document_id, "Document not found.")

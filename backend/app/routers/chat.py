@@ -64,6 +64,8 @@ from ..models.document import Chunk, Document
 from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
 from ..models.spreadsheet_schema import SpreadsheetSchema
+from ..models.user import User
+from ..utils.auth_dependency import get_current_user, require_role
 from ..services.anonymization_map import AnonymizationMap
 from ..services.approval_gate import ApprovalChunk, ApprovalGate, get_approval_gate
 from ..services.audit_logger import log_deanonymization, log_pii_detected
@@ -557,6 +559,7 @@ async def chat_ask(
     request: ChatRequest,
     http_request: Request,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     """Chat endpoint that streams an SSE response for a single turn."""
     message_text = request.message or request.query
@@ -977,7 +980,10 @@ async def chat_ask(
     response_model=ChatDebugResponse,
     status_code=status.HTTP_200_OK,
 )
-async def chat_debug(session_id: str) -> ChatDebugResponse:
+async def chat_debug(
+    session_id: str,
+    _user: User = Depends(require_role("admin")),
+) -> ChatDebugResponse:
     """Return masked prompt/answer and final answer for a given chat session.
 
     This endpoint is intended only for local debugging and never exposes the

@@ -18,7 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.regulation import CustomRecognizer, NonPiiRule, RegulationRuleset
+from ..models.user import User
 from ..services.recognizers.registry import RecognizerRegistry
+from ..utils.auth_dependency import get_current_user, require_role
 from ..utils.db_helpers import validate_regex
 
 router = APIRouter(prefix="/api/regulations", tags=["regulations"])
@@ -190,6 +192,7 @@ async def _get_custom_or_404(
 )
 async def list_regulation_rulesets(
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> List[RegulationRulesetResponse]:
     """Return all regulation rulesets, both built-in and custom."""
     result = await db.execute(select(RegulationRuleset).order_by(RegulationRuleset.id))
@@ -206,6 +209,7 @@ async def activate_regulation_ruleset(
     ruleset_id: str,
     payload: RegulationActivatePayload,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> RegulationRulesetResponse:
     """Activate or deactivate a specific regulation ruleset."""
     ruleset = await _get_ruleset_or_404(db, ruleset_id)
@@ -223,6 +227,7 @@ async def activate_regulation_ruleset(
 async def get_regulation_entities(
     ruleset_id: str,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> List[str]:
     """Return the entity types covered by a specific regulation ruleset."""
     ruleset = await _get_ruleset_or_404(db, ruleset_id)
@@ -236,6 +241,7 @@ async def get_regulation_entities(
 )
 async def list_custom_recognizers(
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> List[CustomRecognizerResponse]:
     """Return all user-defined custom recognizers."""
     result = await db.execute(select(CustomRecognizer).order_by(CustomRecognizer.id))
@@ -251,6 +257,7 @@ async def list_custom_recognizers(
 async def create_custom_recognizer(
     payload: CustomRecognizerCreatePayload,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> CustomRecognizerResponse:
     """Create a new custom recognizer definition.
 
@@ -295,6 +302,7 @@ async def update_custom_recognizer(
     recognizer_id: int,
     payload: CustomRecognizerUpdatePayload,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> CustomRecognizerResponse:
     """Update an existing custom recognizer definition."""
     recognizer = await _get_custom_or_404(db, recognizer_id)
@@ -327,6 +335,7 @@ async def update_custom_recognizer(
 async def delete_custom_recognizer(
     recognizer_id: int,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> None:
     """Delete a custom recognizer definition."""
     recognizer = await _get_custom_or_404(db, recognizer_id)
@@ -343,6 +352,7 @@ async def test_custom_recognizer(
     recognizer_id: int,
     payload: CustomRecognizerTestRequest,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> CustomRecognizerTestResponse:
     """Test a custom recognizer against a sample text.
 
@@ -388,6 +398,7 @@ async def test_custom_recognizer(
 )
 async def list_non_pii_rules(
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> List[NonPiiRuleResponse]:
     """Return all configured Non-PII rules."""
     result = await db.execute(select(NonPiiRule).order_by(NonPiiRule.id))
@@ -403,6 +414,7 @@ async def list_non_pii_rules(
 async def create_non_pii_rule(
     payload: NonPiiRuleCreatePayload,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> NonPiiRuleResponse:
     """Create a new Non-PII rule."""
     data = payload.model_dump()
@@ -437,6 +449,7 @@ async def update_non_pii_rule(
     rule_id: int,
     payload: NonPiiRuleUpdatePayload,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> NonPiiRuleResponse:
     """Update an existing Non-PII rule."""
     result = await db.execute(select(NonPiiRule).where(NonPiiRule.id == rule_id))
@@ -474,6 +487,7 @@ async def update_non_pii_rule(
 async def delete_non_pii_rule(
     rule_id: int,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> None:
     """Delete a Non-PII rule."""
     result = await db.execute(select(NonPiiRule).where(NonPiiRule.id == rule_id))

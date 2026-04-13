@@ -1,13 +1,31 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, List, Optional
+from typing import Any, Iterator, List, Optional
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.models.user import User
 from app.routers import approval as approval_router
 from app.services.approval_gate import ApprovalSessionNotFoundError
+from app.utils.auth_dependency import get_current_user
+
+
+@pytest.fixture(autouse=True)
+def _override_auth() -> Iterator[None]:
+    """Inject a fake admin so auth-gated approval endpoints are reachable."""
+    fake = User(
+        id=1,
+        email="test-admin@example.com",
+        hashed_password="x",
+        role="admin",
+        is_active=True,
+    )
+    app.dependency_overrides[get_current_user] = lambda: fake
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 class _DummyDecision:

@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.text_normalization import TextNormalizationRule
+from ..models.user import User
+from ..utils.auth_dependency import require_role
 from ..utils.db_helpers import validate_regex
 
 router = APIRouter(prefix="/api/text-normalization", tags=["text-normalization"])
@@ -32,7 +34,10 @@ class TextNormalizationRulePayload(BaseModel):
     response_model=List[TextNormalizationRulePayload],
     status_code=status.HTTP_200_OK,
 )
-async def list_rules(db: AsyncSession = Depends(get_db)) -> List[TextNormalizationRulePayload]:
+async def list_rules(
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> List[TextNormalizationRulePayload]:
     """Return all text normalization rules ordered by priority."""
 
     stmt = select(TextNormalizationRule).order_by(
@@ -61,6 +66,7 @@ async def list_rules(db: AsyncSession = Depends(get_db)) -> List[TextNormalizati
 async def create_rule(
     payload: TextNormalizationRulePayload,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> TextNormalizationRulePayload:
     """Create a new text normalization rule."""
 
@@ -100,6 +106,7 @@ async def update_rule(
     rule_id: int,
     payload: TextNormalizationRulePayload,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> TextNormalizationRulePayload:
     """Update an existing text normalization rule."""
 
@@ -145,6 +152,7 @@ async def update_rule(
 async def delete_rule(
     rule_id: int,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> None:
     """Delete a text normalization rule."""
 

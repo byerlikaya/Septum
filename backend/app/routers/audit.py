@@ -16,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.audit_event import AuditEvent
+from ..models.user import User
+from ..utils.auth_dependency import require_role
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
@@ -65,6 +67,7 @@ async def list_audit_events(
     date_to: Optional[datetime] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    _user: User = Depends(require_role("admin")),
 ) -> AuditListResponse:
     """List audit events with optional filters and pagination."""
     stmt = select(AuditEvent)
@@ -106,6 +109,7 @@ async def list_audit_events(
 async def get_document_compliance_report(
     document_id: int,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> ComplianceReportResponse:
     """Generate a compliance report for a specific document."""
     stmt = (
@@ -143,6 +147,7 @@ async def get_document_compliance_report(
 async def get_session_audit(
     session_id: str,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> List[AuditEventResponse]:
     """Get all audit events for a chat session."""
     stmt = (
@@ -170,6 +175,7 @@ class DetectionMetricsResponse(BaseModel):
 @router.get("/metrics", response_model=DetectionMetricsResponse)
 async def get_detection_metrics(
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
 ) -> DetectionMetricsResponse:
     """Aggregate PII detection quality metrics from audit trail.
 

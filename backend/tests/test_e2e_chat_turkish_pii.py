@@ -19,7 +19,9 @@ from sqlalchemy.ext.asyncio import (
 
 from app.database import get_session_maker, init_db
 from app.main import app
+from app.models.user import User
 from app.routers import documents as documents_router
+from app.utils.auth_dependency import get_current_user, get_optional_user
 
 
 def _make_turkish_pii_pdf_bytes() -> bytes:
@@ -137,9 +139,21 @@ def e2e_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     asyncio.run(init_db())
 
+    fake_admin = User(
+        id=1,
+        email="test-admin@example.com",
+        hashed_password="x",
+        role="admin",
+        is_active=True,
+    )
+    app.dependency_overrides[get_current_user] = lambda: fake_admin
+    app.dependency_overrides[get_optional_user] = lambda: fake_admin
+
     try:
         yield TestClient(app), mock_llm_return
     finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_optional_user, None)
         asyncio.run(test_engine.dispose())
 
 

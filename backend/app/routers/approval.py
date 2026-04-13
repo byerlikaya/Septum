@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
+from ..models.user import User
+from ..utils.auth_dependency import get_current_user
 from ..services.approval_gate import (
     ApprovalChunk,
     ApprovalDecision,
@@ -140,7 +142,10 @@ def _get_gate() -> ApprovalGate:
     response_model=ApprovalSessionStatus,
     status_code=status.HTTP_200_OK,
 )
-async def get_session_status(session_id: str) -> ApprovalSessionStatus:
+async def get_session_status(
+    session_id: str,
+    _user: User = Depends(get_current_user),
+) -> ApprovalSessionStatus:
     """Return basic status information for an approval session.
 
     This endpoint is intended primarily for debugging and optional UI polling.
@@ -172,6 +177,7 @@ async def get_session_status(session_id: str) -> ApprovalSessionStatus:
 async def approve_session(
     session_id: str,
     request: ApproveRequest,
+    _user: User = Depends(get_current_user),
 ) -> ApprovalDecisionResponse:
     """Approve an existing session with the (possibly edited) chunks."""
     gate = _get_gate()
@@ -197,6 +203,7 @@ async def approve_session(
 async def reject_session(
     session_id: str,
     request: RejectRequest,
+    _user: User = Depends(get_current_user),
 ) -> ApprovalDecisionResponse:
     """Explicitly reject an existing approval session."""
     gate = _get_gate()
@@ -220,6 +227,7 @@ async def preview_prompt(
     session_id: str,
     request: PreviewPromptRequest,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> PreviewPromptResponse:
     """Re-assemble the masked user prompt with (possibly edited) chunks.
 

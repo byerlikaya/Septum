@@ -9,7 +9,7 @@ not required — these endpoints are only meaningful during first-time setup.
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -24,6 +24,8 @@ from ..database import (
     initialize_engine,
 )
 from ..models.settings import AppSettings
+from ..models.user import User
+from ..utils.auth_dependency import require_role
 
 logger = logging.getLogger(__name__)
 
@@ -234,7 +236,9 @@ def _mask_url(url: str) -> str:
 # ---------------------------------------------------------------------------
 
 @router.get("/infrastructure", response_model=InfrastructureResponse)
-async def get_infrastructure() -> InfrastructureResponse:
+async def get_infrastructure(
+    _user: User = Depends(require_role("admin")),
+) -> InfrastructureResponse:
     """Return current infrastructure configuration for the settings page."""
     config = bootstrap.get_config()
     return InfrastructureResponse(
@@ -253,7 +257,10 @@ async def get_infrastructure() -> InfrastructureResponse:
 # ---------------------------------------------------------------------------
 
 @router.patch("/infrastructure", response_model=InitializeResponse)
-async def update_infrastructure(body: InfrastructureUpdateRequest) -> InitializeResponse:
+async def update_infrastructure(
+    body: InfrastructureUpdateRequest,
+    _user: User = Depends(require_role("admin")),
+) -> InitializeResponse:
     """Update infrastructure settings from the settings page.
 
     Unlike ``/initialize`` (wizard-only), this allows reconfiguring

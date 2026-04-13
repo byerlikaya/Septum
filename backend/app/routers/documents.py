@@ -49,7 +49,7 @@ from ..services.ingestion.ods_ingester import OdsIngester
 from ..services.ingestion.pdf_ingester import PdfIngester
 from ..services.ingestion.router import IngestionRouter
 from ..services.ingestion.xlsx_ingester import XlsxIngester
-from ..utils.auth_dependency import get_optional_user
+from ..utils.auth_dependency import get_current_user, require_role
 from ..utils.crypto import decrypt, encrypt
 from ..utils.db_helpers import detect_language, get_or_404, load_settings
 
@@ -178,6 +178,7 @@ class SpreadsheetSchemaUpdatePayload(BaseModel):
 async def get_spreadsheet_schema(
     document_id: int,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> SpreadsheetSchemaResponse:
     """Return the spreadsheet schema for a document, if any."""
 
@@ -215,6 +216,7 @@ async def update_spreadsheet_schema(
     document_id: int,
     payload: SpreadsheetSchemaUpdatePayload,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin", "editor")),
 ) -> SpreadsheetSchemaResponse:
     """Update the spreadsheet schema for a document.
 
@@ -512,7 +514,7 @@ async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User | None = Depends(get_optional_user),
+    current_user: User = Depends(require_role("admin", "editor")),
 ) -> DocumentResponse:
     """Upload a document, ingest it, and build its vector index.
 
@@ -554,7 +556,7 @@ async def upload_document(
         active_regulation_ids=active_reg_ids,
         ingestion_status="processing",
         ingestion_error=None,
-        user_id=current_user.id if current_user else None,
+        user_id=current_user.id,
     )
     db.add(document)
     await db.commit()
@@ -638,6 +640,7 @@ async def upload_document(
 )
 async def get_processing_progress(
     ids: str = "",
+    _user: User = Depends(get_current_user),
 ) -> dict:
     """Return processing progress for documents being processed.
 
@@ -659,12 +662,14 @@ async def get_processing_progress(
 )
 async def list_documents(
     db: AsyncSession = Depends(get_db),
-    current_user: User | None = Depends(get_optional_user),
+    _user: User = Depends(get_current_user),
 ) -> DocumentListResponse:
-    """Return documents for the current user, ordered by upload time (newest first)."""
+    """Return every document, ordered by upload time (newest first).
+
+    Documents are shared across all authenticated users regardless of role;
+    ``Document.user_id`` is kept as audit attribution for who uploaded what.
+    """
     stmt = select(Document).order_by(Document.uploaded_at.desc())
-    if current_user is not None:
-        stmt = stmt.where(Document.user_id == current_user.id)
     result = await db.execute(stmt)
     docs = list(result.scalars().all())
     return DocumentListResponse(
@@ -680,6 +685,7 @@ async def list_documents(
 async def get_document(
     document_id: int,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> DocumentResponse:
     """Return metadata for a single document."""
     document = await get_or_404(db, Document, document_id, "Document not found.")
@@ -693,6 +699,7 @@ async def get_document(
 async def get_anon_summary(
     document_id: int,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ):
     """Return a privacy-safe summary of the anonymization map (entity types and counts only)."""
     from ..services.document_anon_store import get_document_map
@@ -745,6 +752,7 @@ async def get_entity_detections(
     chunk_id: Optional[int] = None,
     entity_type: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ) -> EntityDetectionListResponse:
     """Return per-entity detection records with positions for a document."""
     await get_or_404(db, Document, document_id, "Document not found.")
@@ -774,6 +782,7 @@ async def get_entity_detections(
 async def get_document_raw(
     document_id: int,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ):
     """Stream the decrypted original file for in-browser preview."""
     from fastapi.responses import Response
@@ -804,6 +813,7 @@ async def update_document_language(
     document_id: int,
     payload: LanguageUpdatePayload,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin", "editor")),
 ) -> DocumentResponse:
     """Override the detected language for a document."""
     document = await get_or_404(db, Document, document_id, "Document not found.")
@@ -822,6 +832,7 @@ async def update_document_language(
 async def delete_document(
     document_id: int,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin", "editor")),
 ) -> None:
     """Delete a document, its chunks, encrypted file, and vector index."""
     document = await get_or_404(db, Document, document_id, "Document not found.")
@@ -852,6 +863,7 @@ async def reprocess_document(
     document_id: int,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin", "editor")),
 ) -> DocumentResponse:
     """Re-run the sanitization, chunking, and indexing pipeline for an existing document."""
     document = await get_or_404(db, Document, document_id, "Document not found.")
