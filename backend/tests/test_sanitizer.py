@@ -511,3 +511,65 @@ def test_license_plate_multilingual(sanitizer: PIISanitizer) -> None:
         result = sanitizer.sanitize(text=text, language=lang, anon_map=anon_map)
         assert "[LICENSE_PLATE" in result.sanitized_text, f"Failed for lang={lang}: {result.sanitized_text}"
 
+
+# ── Phase 2a: structural recognizer improvements ──
+
+
+def test_iban_space_grouped_valid(sanitizer: PIISanitizer) -> None:
+    """Valid IBANs in paper/statement grouping must be detected."""
+    text = "Hesap: DE89 3704 0044 0532 0130 00 aktif."
+    anon_map = AnonymizationMap(document_id=200, language="de")
+    result = sanitizer.sanitize(text=text, language="de", anon_map=anon_map)
+    assert "DE89 3704 0044 0532 0130 00" not in result.sanitized_text
+    assert "[IBAN_1]" in result.sanitized_text
+
+
+def test_iban_format_only_fallback_for_synthetic(sanitizer: PIISanitizer) -> None:
+    """Synthetic IBANs that fail MOD 97-10 still get the IBAN placeholder.
+
+    Credit-card detection already prefers over-detection in a
+    privacy-first pipeline. The IBAN fallback extends the same
+    philosophy: a mis-typed IBAN is still bank-account information.
+    """
+    text = "IBAN: DE89 2004 1010 0540 1420 00 listed."
+    anon_map = AnonymizationMap(document_id=201, language="de")
+    result = sanitizer.sanitize(text=text, language="de", anon_map=anon_map)
+    assert "DE89 2004 1010 0540 1420 00" not in result.sanitized_text
+    assert "[IBAN_1]" in result.sanitized_text
+
+
+def test_date_of_birth_month_name_multilingual(sanitizer: PIISanitizer) -> None:
+    """DOB recognizer must catch ``day + month-name + year`` formats."""
+    cases = [
+        ("Geburtsdatum: 22. Juli 1991", "de"),
+        ("Date de naissance: 09 février 1987", "fr"),
+        ("Data de nascimento: 12 de março de 1983", "pt"),
+        ("Fecha de nacimiento: 01 de octubre de 2024", "es"),
+        ("DOB: August 15, 1980", "en"),
+    ]
+    for text, lang in cases:
+        anon_map = AnonymizationMap(document_id=202, language=lang)
+        result = sanitizer.sanitize(text=text, language=lang, anon_map=anon_map)
+        assert "[DATE_OF_BIRTH" in result.sanitized_text, (
+            f"DOB not detected for lang={lang}: {result.sanitized_text}"
+        )
+
+
+def test_tax_id_broadened_patterns(sanitizer: PIISanitizer) -> None:
+    """TAX_ID pattern must cover slash / prefix / spaced / dotted variants."""
+    cases = [
+        ("Steuernummer: 27/431/07892", "27/431/07892", "de"),
+        ("USt-IdNr.: DE298431076", "DE298431076", "de"),
+        ("Steuer-ID: 77 523 164 890", "77 523 164 890", "de"),
+        ("CIF: B-86432178", "B-86432178", "es"),
+        ("N° TVA intracommunautaire: FR 47 834291076", "FR 47 834291076", "fr"),
+        ("Inscrição Estadual: 123.456.789.112", "123.456.789.112", "pt"),
+    ]
+    for text, value, lang in cases:
+        anon_map = AnonymizationMap(document_id=203, language=lang)
+        result = sanitizer.sanitize(text=text, language=lang, anon_map=anon_map)
+        assert value not in result.sanitized_text, (
+            f"TAX_ID value not masked for {lang}: {result.sanitized_text}"
+        )
+
+

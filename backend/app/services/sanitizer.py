@@ -314,10 +314,24 @@ class ExtendedPhoneRecognizer(BaseCustomRecognizer):
 
 
 class ValidatedIBANRecognizer(BaseCustomRecognizer):
-    """Presidio recognizer for IBAN values using ISO 7064 algorithmic validation.
+    """Presidio recognizer for IBAN values with a format-only fallback.
 
-    Supports all country prefixes globally through ISO 7064 MOD 97-10 checksum.
-    No country-specific logic in this class - validator handles all variations.
+    Two detection tiers:
+
+    - Primary: ISO 7064 MOD 97-10 checksum. A passing value is an actual
+      IBAN and is emitted at high confidence (``0.96``).
+    - Fallback: a structurally-shaped IBAN that fails the checksum
+      (synthetic data, mis-typed digit, OCR noise). Still emitted as
+      IBAN but at a lower score (``0.65``) so downstream filters can
+      weigh it accordingly. Privacy-first: a mis-typed IBAN is still
+      account information and should not leak to a cloud LLM.
+
+    The compiled pattern accepts both the contiguous form
+    (``DE89220041010054014200``) and the paper / statement form with
+    4-character groups separated by spaces (``DE89 2004 1010 0540 1420
+    00``).  ``BaseIDValidator._normalize`` strips whitespace and common
+    separators before checksum evaluation, so a single match path feeds
+    both tiers.
     """
 
     def __init__(self, validator: Optional[IBANValidator] = None) -> None:
@@ -326,7 +340,12 @@ class ValidatedIBANRecognizer(BaseCustomRecognizer):
             supported_language="en",
         )
         self._validator = validator or IBANValidator()
-        self._pattern = re.compile(r"\b[A-Za-z]{2}[0-9A-Za-z]{13,32}\b")
+        # 2 letters + 2 digits + 11-32 chars of alphanumerics and spaces.
+        # The post-strip length check below narrows this to the 15-34
+        # total-char IBAN window mandated by ISO 13616.
+        self._pattern = re.compile(
+            r"\b[A-Za-z]{2}\d{2}[\s0-9A-Za-z]{11,32}"
+        )
 
     def analyze(  # type: ignore[override]
         self,
@@ -339,16 +358,22 @@ class ValidatedIBANRecognizer(BaseCustomRecognizer):
 
         results: List[RecognizerResult] = []
         for match in self._pattern.finditer(text):
-            candidate = match.group(0)
-            if not self._validator.validate(candidate):
+            candidate = match.group(0).rstrip()
+            stripped = re.sub(r"[\s.-]", "", candidate)
+            if not (15 <= len(stripped) <= 34):
                 continue
-            start, end = match.span()
+            # Re-check the compact length fits inside the matched span
+            # so the reported offsets are never out of alignment with
+            # Presidio's view of the text.
+            start = match.start()
+            end = start + len(candidate)
+            score = 0.96 if self._validator.validate(candidate) else 0.65
             results.append(
                 RecognizerResult(
                     entity_type="IBAN",
                     start=start,
                     end=end,
-                    score=0.96,
+                    score=score,
                 )
             )
         return results
@@ -578,24 +603,67 @@ class CreditCardNumberRecognizer(BaseCustomRecognizer):
 class DateOfBirthRecognizer(BaseCustomRecognizer):
     """Detects dates preceded by birth-related context labels.
 
-    Matches common date formats (DD/MM/YYYY, YYYY-MM-DD, DD.MM.YYYY, etc.)
-    when a contextual keyword appears within 40 characters before the date.
-    Context keywords are language-agnostic abbreviations and common labels.
+    Matches both numeric date formats (``DD/MM/YYYY``, ``YYYY-MM-DD``,
+    ``DD.MM.YYYY``) and natural-language "day + month-name + year"
+    formats (``22. Juli 1991``, ``09 février 1987``, ``12 de março de
+    1983``, ``01 de octubre de 2024``, ``August 15, 1980``) when a
+    contextual keyword appears within 40 characters before the date.
+    Context keywords are language-agnostic abbreviations and common
+    labels.
     """
+
+    # FUTURE: move to DB so admins can extend month vocabularies
+    # without code changes. List is kept minimal and covers the
+    # Western-European languages we currently benchmark.
+    _MONTH_NAMES: tuple[str, ...] = (
+        # English
+        "january", "february", "march", "april", "may", "june",
+        "july", "august", "september", "october", "november", "december",
+        # German
+        "januar", "februar", "märz", "maerz", "april", "mai", "juni",
+        "juli", "august", "september", "oktober", "november", "dezember",
+        # French
+        "janvier", "février", "fevrier", "mars", "avril", "mai", "juin",
+        "juillet", "août", "aout", "septembre", "octobre", "novembre", "décembre", "decembre",
+        # Spanish
+        "enero", "febrero", "marzo", "abril", "mayo", "junio",
+        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+        # Portuguese
+        "janeiro", "fevereiro", "março", "marco", "abril", "maio", "junho",
+        "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+        # Italian
+        "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+        "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
+        # Turkish
+        "ocak", "şubat", "subat", "mart", "nisan", "mayıs", "mayis", "haziran",
+        "temmuz", "ağustos", "agustos", "eylül", "eylul", "ekim", "kasım", "kasim", "aralık", "aralik",
+    )
 
     def __init__(self) -> None:
         super().__init__(
             supported_entities=["DATE_OF_BIRTH"],
             supported_language="en",
         )
-        self._date_pattern = re.compile(
-            r"\b"
-            r"(?:"
-            r"\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}"  # DD/MM/YYYY, DD.MM.YY
-            r"|\d{4}[/.\-]\d{1,2}[/.\-]\d{1,2}"    # YYYY-MM-DD
-            r")"
-            r"\b"
+        month_alt = "|".join(
+            sorted({re.escape(name) for name in self._MONTH_NAMES}, key=len, reverse=True)
         )
+        self._date_pattern = re.compile(
+            r"(?:"
+            # Purely numeric: DD/MM/YYYY, DD.MM.YY, DD-MM-YYYY
+            r"\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}\b"
+            # ISO: YYYY-MM-DD
+            r"|\b\d{4}[/.\-]\d{1,2}[/.\-]\d{1,2}\b"
+            # "22. Juli 1991" / "22 Juli 1991" / "22 de julio de 1983"
+            # / "22 de março de 1983" — day + optional "de" + month-name
+            # + optional "de" + year. Case-insensitive.
+            rf"|\b\d{{1,2}}\.?\s+(?:de\s+)?(?:{month_alt})\s+(?:de\s+)?\d{{2,4}}\b"
+            # "August 15, 1980" / "Juli 22 1991" — month-name + day + year
+            rf"|\b(?:{month_alt})\s+\d{{1,2}}(?:,)?\s+\d{{2,4}}\b"
+            r")",
+            re.IGNORECASE | re.UNICODE,
+        )
+        # FUTURE: move context keywords to DB so new locales can be
+        # enrolled without editing production code.
         self._context_pattern = re.compile(
             r"(?:d\.?o\.?b\.?|birth\s*date|date\s*of\s*birth"
             r"|born\s*(?:on)?|naissance|nacimiento|nascimento"
@@ -905,20 +973,59 @@ class DriversLicenseRecognizer(BaseCustomRecognizer):
 
 
 class TaxIDRecognizer(BaseCustomRecognizer):
-    """Detects tax identification numbers with context keywords."""
+    """Detects tax identification numbers with context keywords.
+
+    Matches a number of structural families preceded by a tax-related
+    context keyword. The patterns intentionally overlap so that
+    space/dot/slash variants and the optional 2-letter country prefix
+    used by EU VAT identifiers all resolve to the same TAX_ID entity:
+
+    * ``12-3456789`` / ``12 3456789`` (US-style with 2-digit prefix)
+    * ``27/431/07892`` (German Steuernummer — slashes)
+    * ``DE298431076`` / ``FR 47 834291076`` (EU VAT with country prefix)
+    * ``B-86432178`` / ``B86432178`` (Spanish CIF — single letter prefix)
+    * ``123.456.789.112`` / ``12.345.678-9`` (dotted formats used by
+      Brazilian Inscrição Estadual and Latin-American TINs)
+    """
 
     def __init__(self) -> None:
         super().__init__(
             supported_entities=["TAX_ID"],
             supported_language="en",
         )
-        self._pattern = re.compile(r"\b\d{2}[\-]?\d{7,10}\b")
+        self._pattern = re.compile(
+            r"(?:"
+            # EU VAT: 2-letter country prefix + 8-12 alphanumerics,
+            # optionally space-separated.
+            r"\b[A-Z]{2}\s?\d{2}\s?\d{6,10}\b"
+            # Single-letter prefix (Spanish CIF) + 7-8 alphanumerics,
+            # optional dash after the letter.
+            r"|\b[A-Z]-?\d{7,8}[A-Z0-9]?\b"
+            # German Steuernummer: 2-3 digits + slash + 3-4 digits +
+            # slash + 4-5 digits.
+            r"|\b\d{2,3}/\d{3,4}/\d{4,5}\b"
+            # Dotted numeric (BR Inscrição Estadual, LatAm TINs):
+            # groups of 2-3 digits separated by dots, optional trailing
+            # ``-X`` check digit.
+            r"|\b\d{2,3}(?:\.\d{3}){2,3}(?:[-.]\d{1,2})?\b"
+            # 11-digit spaced (German Steuer-ID ``77 523 164 890``)
+            r"|\b\d{2}\s\d{3}\s\d{3}\s\d{3}\b"
+            # Classic compact US-style: 2 digits + optional dash + 7-10
+            # digits. Kept last so the richer families above win in a
+            # tie-breaking dedup pass.
+            r"|\b\d{2}[\-]?\d{7,10}\b"
+            r")",
+            re.IGNORECASE,
+        )
         # FUTURE: move context keywords to DB so each regulation pack can
         # register its own locale-specific preamble vocabulary.
         self._context = re.compile(
             r"(?:tax\s*id|TIN|EIN|vergi\s*(?:no|numarası|kimlik)"
-            r"|steuer[\-\s]?(?:nummer|id)|NIF|codice\s*fiscale"
-            r"|numéro\s*fiscal|ИНН|الرقم\s*الضريبي|税号)",
+            r"|steuer[\-\s]?(?:nummer|id)|ust[\-\s]?id|USt[\-\s]?IdNr"
+            r"|NIF|CIF|NIE|N(?:º|[oO]\.?)\s*SIREN|SIRET|tva\s*intracommunautaire"
+            r"|codice\s*fiscale|partita\s*iva|numéro\s*fiscal"
+            r"|inscrição\s*estadual|CNPJ|CPF"
+            r"|ИНН|الرقم\s*الضريبي|税号)",
             re.IGNORECASE,
         )
 
@@ -1061,11 +1168,25 @@ class PIISanitizer:
     def _expand_with_aliases(
         entity_types: Optional[List[str]],
     ) -> Optional[List[str]]:
-        """Expand entity type list with Presidio built-in aliases.
+        """Expand entity type list with Presidio and parent-coverage aliases.
 
-        Returns a new list that includes both Septum entity types and their
-        Presidio counterparts, so Presidio's built-in recognizers activate
-        automatically when a matching alias exists.
+        The policy may reference a Septum entity type that is actually
+        *covered* by a sibling detector — for example a regulation
+        declares ``BANK_ACCOUNT_NUMBER`` and we satisfy it with
+        ``IBAN``, or the regulation lists ``FIRST_NAME`` but we only
+        run a single ``PERSON_NAME`` detector. This helper returns a
+        new list that contains:
+
+        1. the original types,
+        2. each type's Presidio built-in alias (``CREDIT_CARD_NUMBER``
+           → ``CREDIT_CARD``, ``IBAN`` → ``IBAN_CODE``),
+        3. each type's ``_PARENT_TYPE_COVERAGE`` parent (e.g.
+           ``BANK_ACCOUNT_NUMBER`` → ``IBAN``).
+
+        Without the parent-coverage expansion, Presidio's entity filter
+        would hide the IBAN / PERSON_NAME detectors whenever a
+        regulation only names the child alias, which is a silent
+        detection regression.
         """
         if entity_types is None:
             return None
@@ -1074,6 +1195,9 @@ class PIISanitizer:
             alias = _PRESIDIO_ENTITY_ALIASES.get(septum_type)
             if alias and alias not in expanded:
                 expanded.append(alias)
+            parent = _PARENT_TYPE_COVERAGE.get(septum_type)
+            if parent and parent not in expanded:
+                expanded.append(parent)
         return expanded
 
     def _register_custom_recognizers(self) -> None:
