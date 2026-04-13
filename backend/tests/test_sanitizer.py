@@ -286,15 +286,21 @@ def test_valid_tckn_with_prefix_narrows_span_to_digits(
     assert "Kimlik No:" in result.sanitized_text
 
 
-def test_invalid_tckn_with_prefix_is_not_detected_as_national_id(
+def test_invalid_tckn_with_prefix_is_still_masked_at_fallback_score(
     sanitizer: PIISanitizer,
 ) -> None:
-    """An 11-digit number whose TCKN checksum fails must not be masked as NATIONAL_ID.
+    """Synthetic / mistyped 11-digit TCKNs still get a NATIONAL_ID placeholder.
 
-    The generic phone-number recognizer may still pick the string up (any
-    11-digit sequence can structurally look like a phone), which is out of
-    scope for this test — we only assert that the algorithmically invalid
-    number never receives a NATIONAL_ID placeholder.
+    Earlier behaviour dropped every TCKN that failed the checksum
+    validator, which silently leaked synthetic test data, typos, and
+    OCR-mangled real IDs. The new ``fallback_score`` contract on
+    ``ValidatedPatternRecognizer`` mirrors the policy already used by
+    ``CreditCardNumberRecognizer`` (no Luhn check) and the
+    format-only IBAN fallback: keep the match alive at a reduced
+    score so privacy-first pipelines still mask the value. The
+    ``Test verisi No:`` context keyword is enough to promote
+    ``61504839271`` to a ``NATIONAL_ID`` placeholder even though the
+    TCKN checksum rejects it.
     """
     invalid_tckn = "61504839271"
     text = f"Test verisi No: {invalid_tckn} sahte bir belgede geçmektedir."
@@ -302,7 +308,8 @@ def test_invalid_tckn_with_prefix_is_not_detected_as_national_id(
 
     result = sanitizer.sanitize(text=text, language="tr", anon_map=anon_map)
 
-    assert "[NATIONAL_ID_" not in result.sanitized_text
+    assert "[NATIONAL_ID_" in result.sanitized_text
+    assert invalid_tckn not in result.sanitized_text
 
 
 def test_coverage_validation_logs_uncovered_types(
@@ -617,6 +624,69 @@ def test_gdpr_pack_country_specific_national_ids(
         assert value not in result.sanitized_text, (
             f"{lang}: expected {value!r} masked, got {result.sanitized_text!r}"
         )
+
+
+def test_phone_regex_rejects_bare_long_digit_sequences(
+    sanitizer: PIISanitizer,
+) -> None:
+    """Bare ``11-13`` digit identifiers must not be caught as PHONE_NUMBER.
+
+    Before tightening ExtendedPhoneRecognizer, the optional international
+    prefix ``(?:\\+?\\d{1,3}\\s*)?`` greedily consumed 1-3 digits and
+    turned Japanese My Number, Saudi Iqama and similar contiguous
+    national identifiers into phone matches. The new pattern requires
+    either an explicit ``+`` prefix or 3+ separator-delimited groups,
+    so these strings are rejected by PHONE entirely.
+    """
+    cases = [
+        "701040108923",   # Japan My Number
+        "101048293",      # Saudi Iqama (9 digits contiguous)
+        "7408125800082",  # South African ID (13 digits contiguous)
+    ]
+    for bare in cases:
+        text = f"Reference: {bare} attached."
+        anon_map = AnonymizationMap(document_id=300, language="en")
+        result = sanitizer.sanitize(text=text, language="en", anon_map=anon_map)
+        types = {sp.entity_type for sp in result.detected_spans}
+        assert "PHONE_NUMBER" not in types, (
+            f"Bare {bare!r} was mis-classified as PHONE_NUMBER: {types}"
+        )
+
+
+def test_national_id_wins_over_phone_on_equal_span(
+    app_settings: AppSettings,
+) -> None:
+    """When PHONE and NATIONAL_ID cover the same span, NATIONAL_ID wins.
+
+    A 12-digit My Number written as ``1234-5678-9012`` is a legitimate
+    phone *shape* (four groups of digits separated by dashes) and a
+    legitimate national ID shape (4-4-4 grouped). Dedup must prefer
+    the more specific identifier type via the entity-type priority
+    tiebreaker introduced alongside this test.
+    """
+    from backend.app.services.recognizers.appi.recognizers import (
+        get_recognizers as appi_get_recognizers,
+    )
+
+    policy = ComposedPolicy(
+        entity_types=["NATIONAL_ID", "PHONE_NUMBER", "EMAIL_ADDRESS"],
+        recognizers=list(appi_get_recognizers()),
+        regulation_ids=["appi"],
+        non_pii_rules=[],
+    )
+    sanitizer = PIISanitizer(settings=app_settings, policy=policy)
+
+    text = "My Number: 1234-5678-9012"
+    anon_map = AnonymizationMap(document_id=301, language="en")
+    result = sanitizer.sanitize(text=text, language="en", anon_map=anon_map)
+
+    types = {sp.entity_type for sp in result.detected_spans}
+    assert "NATIONAL_ID" in types, (
+        f"Expected NATIONAL_ID in {types}, got {result.sanitized_text!r}"
+    )
+    assert "PHONE_NUMBER" not in types, (
+        f"PHONE_NUMBER should have lost dedup: {types}"
+    )
 
 
 def test_lgpd_pack_civil_identity_document(

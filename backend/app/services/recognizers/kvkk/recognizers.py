@@ -30,13 +30,21 @@ _NATIONAL_ID_CONTEXT_KEYWORDS: tuple[str, ...] = (
 
 
 def _validated_national_id_recognizer() -> EntityRecognizer:
-    """11-digit national ID recognizer with checksum validation."""
+    """11-digit national ID recognizer with checksum validation.
+
+    A passing TCKN is emitted at the full Presidio-promoted score of
+    ``1.0``; a syntactically valid 11-digit sequence that fails the
+    checksum is still surfaced at a reduced ``0.55`` so
+    synthetic / typo'd / test data is masked rather than silently
+    leaked. Privacy-first: over-detection is cheaper than a PII leak.
+    """
     return ValidatedPatternRecognizer(
         entity_type="NATIONAL_ID",
         config=RegexPatternConfig(
             name="kvkk_national_id_11digit",
             pattern=r"\b[1-9][0-9]{10}\b",
             score=0.7,
+            fallback_score=0.55,
         ),
         algorithmic_validator=_NATIONAL_ID_VALIDATOR.validate,
     )
@@ -47,9 +55,11 @@ def _contextual_national_id_recognizer() -> EntityRecognizer:
 
     Looks for 8-12 digit sequences preceded by a national-ID context
     keyword (see ``_NATIONAL_ID_CONTEXT_KEYWORDS``). The capture group
-    narrows the reported entity span to the digits alone, and the
-    configured checksum validator keeps algorithmically invalid numbers
-    out of the result.
+    narrows the reported entity span to the digits alone. The TCKN
+    checksum is still run, but when it fails the match is kept at a
+    reduced ``0.5`` fallback score — the context keyword is a strong
+    signal that the digits are an identifier, so over-detection is
+    preferred over silently dropping synthetic data.
     """
     keyword_alternation = "|".join(_NATIONAL_ID_CONTEXT_KEYWORDS)
     return ValidatedPatternRecognizer(
@@ -62,6 +72,7 @@ def _contextual_national_id_recognizer() -> EntityRecognizer:
             ),
             score=0.6,
             narrow_to_group=1,
+            fallback_score=0.5,
         ),
         algorithmic_validator=_NATIONAL_ID_VALIDATOR.validate,
     )
@@ -78,28 +89,19 @@ def _email_recognizer() -> EntityRecognizer:
     )
 
 
-def _phone_recognizer() -> EntityRecognizer:
-    """Phone number recognizer for KVKK compliance.
-
-    Detects phone numbers with optional country code prefix.
-    Pattern: optional +XX prefix followed by 10 digits.
-    """
-    return ValidatedPatternRecognizer(
-        entity_type="PHONE_NUMBER",
-        config=RegexPatternConfig(
-            name="kvkk_phone",
-            pattern=r"\b\+?[0-9]{2}[0-9]{10}\b",
-            score=0.75,
-        ),
-    )
-
-
 def get_recognizers() -> List[EntityRecognizer]:
-    """Return all KVKK-specific recognizers."""
+    """Return all kvkk-specific recognizers.
+
+    Phone detection is intentionally delegated to the baseline
+    ``ExtendedPhoneRecognizer`` in ``services/sanitizer.py`` — a
+    pack-level ``\\b\\+?[0-9]{12}\\b`` pattern silently gobbled
+    11-12 digit national-ID numbers (TCKN, Iqama, Japan My Number
+    prefixes) whenever the `+` was optional, and there is no
+    regulation-specific phone format that the baseline misses.
+    """
     recognizers: List[EntityRecognizer] = []
     recognizers.append(_validated_national_id_recognizer())
     recognizers.append(_email_recognizer())
-    recognizers.append(_phone_recognizer())
     recognizers.append(_contextual_national_id_recognizer())
     return recognizers
 

@@ -16,13 +16,19 @@ from ..base_recognizer import RegexPatternConfig, ValidatedPatternRecognizer
 
 
 def _national_id_recognizer() -> EntityRecognizer:
-    """Format-only 13-digit national ID."""
+    """Format-only 13-digit national ID.
+
+    Matches both the contiguous form ``8803175432087`` and the common
+    printed / statement form ``880317 5432 087`` / ``880317-5432-087``
+    (six digit YYMMDD + four digit sequence + three-digit checksum
+    group, optionally separated by a single space or dash).
+    """
     return ValidatedPatternRecognizer(
         entity_type="NATIONAL_ID",
         config=RegexPatternConfig(
             name="popia_national_id",
-            pattern=r"\b\d{13}\b",
-            score=0.55,
+            pattern=r"\b\d{6}[\s\-]?\d{4}[\s\-]?\d{3}\b",
+            score=0.6,
         ),
     )
 

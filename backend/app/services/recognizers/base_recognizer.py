@@ -27,12 +27,23 @@ class RegexPatternConfig:
     (for example "No: 12345678901") while reporting only a specific capture
     group as the detected entity span (the digits themselves). This keeps
     the span tight without sacrificing context-aware matching.
+
+    ``fallback_score`` controls what happens when an algorithmic
+    validator rejects a match. When it is ``None`` (the default) the
+    match is dropped entirely — appropriate when a wide regex would
+    otherwise leak unrelated digit sequences. When it is set to a
+    positive float, the match is still emitted but at that reduced
+    score, mirroring the over-detection philosophy already applied
+    to ``CreditCardNumberRecognizer`` (no Luhn check) and the
+    format-only IBAN fallback. This is how synthetic or typo'd
+    national IDs stay masked in privacy-first pipelines.
     """
 
     name: str
     pattern: str
     score: float = 0.6
     narrow_to_group: Optional[int] = None
+    fallback_score: Optional[float] = None
 
 
 class ValidatedPatternRecognizer(PatternRecognizer):
@@ -40,8 +51,9 @@ class ValidatedPatternRecognizer(PatternRecognizer):
 
     When an ``algorithmic_validator`` is supplied, each regex match is
     routed through Presidio's ``validate_result`` hook so that
-    checksum-bearing identifiers are verified at detection time. Invalid
-    matches are filtered out instead of surviving at a reduced score.
+    checksum-bearing identifiers are verified at detection time.
+    Invalid matches are either filtered out entirely or kept at a
+    lower ``fallback_score`` depending on the ``RegexPatternConfig``.
 
     When ``narrow_to_group`` is set, the ``analyze`` override rewrites
     each ``RecognizerResult`` so the span reflects only the given capture
@@ -87,6 +99,7 @@ class ValidatedPatternRecognizer(PatternRecognizer):
         )
 
         self._narrow_to_group = config.narrow_to_group
+        self._fallback_score = config.fallback_score
         self._algorithmic_validator = algorithmic_validator
         self._compiled_pattern = compiled
 
@@ -95,8 +108,9 @@ class ValidatedPatternRecognizer(PatternRecognizer):
 
         Returning ``True`` makes Presidio promote the score to 1.0;
         returning ``False`` drives it to 0.0 which the sanitizer treats
-        as a non-detection. Returning ``None`` (when no validator is
-        attached) leaves the base pattern score untouched.
+        as a non-detection (unless a ``fallback_score`` is set — see
+        the ``analyze`` override below). Returning ``None`` (when no
+        validator is attached) leaves the base pattern score untouched.
         """
         if self._algorithmic_validator is None:
             return None
@@ -117,18 +131,17 @@ class ValidatedPatternRecognizer(PatternRecognizer):
         entities: List[str],
         nlp_artifacts: Optional[NlpArtifacts] = None,
     ) -> List[RecognizerResult]:
-        """Extend Presidio's ``analyze`` with capture-group span narrowing.
+        """Extend Presidio's ``analyze`` with capture-group narrowing.
 
-        When ``narrow_to_group`` is configured we bypass Presidio's
-        finditer-over-the-whole-match path because Presidio has no public
-        hook for reporting capture-group offsets. We replicate its score
-        + validation logic locally: score starts at the pattern base,
-        gets pinned to 1.0 on a passing validator, dropped to 0.0 on a
-        failing one. Recognizers without a narrow_to_group fall back to
-        the stock Presidio behaviour (which already calls
-        ``validate_result``).
+        The stock Presidio path handles recognizers that do not need
+        ``narrow_to_group`` and that rely on the default drop-on-false
+        behaviour. When either a capture-group narrow or a
+        ``fallback_score`` is configured we fully replicate Presidio's
+        scoring logic locally because there is no public hook that
+        lets us both report a capture-group offset and keep a match
+        alive after a failing validator.
         """
-        if self._narrow_to_group is None:
+        if self._narrow_to_group is None and self._fallback_score is None:
             return super().analyze(text, entities, nlp_artifacts)
 
         if entities and self.supported_entities[0] not in entities:
@@ -139,22 +152,32 @@ class ValidatedPatternRecognizer(PatternRecognizer):
         group_index = self._narrow_to_group
 
         for match in self._compiled_pattern.finditer(text):
-            group_start = match.start(group_index)
-            group_end = match.end(group_index)
-            if group_start < 0 or group_end < 0:
-                continue
-            group_text = match.group(group_index)
+            if group_index is not None:
+                span_start = match.start(group_index)
+                span_end = match.end(group_index)
+                if span_start < 0 or span_end < 0:
+                    continue
+                candidate_text = match.group(group_index)
+            else:
+                span_start = match.start()
+                span_end = match.end()
+                candidate_text = match.group(0)
 
-            validation = self.validate_result(group_text)
+            validation = self.validate_result(candidate_text)
             if validation is False:
-                continue
-            score = 1.0 if validation is True else base_score
+                if self._fallback_score is None:
+                    continue
+                score = self._fallback_score
+            elif validation is True:
+                score = 1.0
+            else:
+                score = base_score
 
             results.append(
                 RecognizerResult(
                     entity_type=self.supported_entities[0],
-                    start=group_start,
-                    end=group_end,
+                    start=span_start,
+                    end=span_end,
                     score=score,
                     analysis_explanation=None,
                     recognition_metadata={

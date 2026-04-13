@@ -13,6 +13,28 @@ if TYPE_CHECKING:
     from .sanitizer import DetectedSpan
 
 
+# Entity-type priority used as a tiebreaker inside ``_dedup_simple``.
+# Higher number wins when two spans cover exactly the same offsets.
+# The intent is to stop loose numeric recognizers (PHONE_NUMBER) from
+# capturing identifiers that deserve a more specific label
+# (NATIONAL_ID, IBAN, credit card). The absolute numbers here are not
+# significant — only the relative ordering matters.
+_ENTITY_TYPE_PRIORITY: dict[str, int] = {
+    "CREDIT_CARD_NUMBER": 100,
+    "IBAN": 100,
+    "CPF": 95,
+    "NATIONAL_ID": 95,
+    "SOCIAL_SECURITY_NUMBER": 95,
+    "HEALTH_INSURANCE_ID": 90,
+    "MEDICAL_RECORD_NUMBER": 90,
+    "PASSPORT_NUMBER": 90,
+    "TAX_ID": 85,
+    "DRIVERS_LICENSE": 80,
+    "LICENSE_PLATE": 75,
+    "PHONE_NUMBER": 70,
+}
+
+
 def deduplicate_spans(
     spans: "List[DetectedSpan]",
     high_priority_types: Set[str],
@@ -23,6 +45,12 @@ def deduplicate_spans(
     ``IBAN``) always win over more generic entities such as PERSON or
     LOCATION when their spans overlap. Non-overlapping low-priority spans
     are still preserved.
+
+    Tiebreaks inside the high-priority pool prefer: larger span, then
+    higher entity-type priority (see ``_ENTITY_TYPE_PRIORITY``), then
+    higher recognizer score. Without the type-priority step, a loose
+    10-digit PHONE_NUMBER pattern at 0.80 would silently beat a
+    NATIONAL_ID detector at 0.60 on the exact same offsets.
     """
 
     if not spans:
@@ -34,7 +62,12 @@ def deduplicate_spans(
     def _dedup_simple(candidates: List[DetectedSpan]) -> List[DetectedSpan]:
         ordered = sorted(
             candidates,
-            key=lambda s: (s.start, -(s.end - s.start), -s.score),
+            key=lambda s: (
+                s.start,
+                -(s.end - s.start),
+                -_ENTITY_TYPE_PRIORITY.get(s.entity_type, 50),
+                -s.score,
+            ),
         )
         chosen: List[DetectedSpan] = []
         for span in ordered:

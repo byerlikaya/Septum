@@ -17,13 +17,20 @@ _AADHAAR_VALIDATOR = AadhaarValidator()
 
 
 def _aadhaar_recognizer() -> EntityRecognizer:
-    """12-digit Aadhaar recognizer with Verhoeff checksum validation."""
+    """12-digit Aadhaar recognizer with Verhoeff checksum validation.
+
+    A checksum-valid Aadhaar is emitted at the Presidio-promoted
+    ``1.0``; a 12-digit sequence in the correct format that fails
+    Verhoeff is still surfaced at ``0.55`` so synthetic or typo'd
+    Aadhaar numbers are masked rather than silently leaked.
+    """
     return ValidatedPatternRecognizer(
         entity_type="NATIONAL_ID",
         config=RegexPatternConfig(
             name="dpdp_aadhaar_12digit",
             pattern=r"\b[2-9]\d{3}\s?\d{4}\s?\d{4}\b",
             score=0.75,
+            fallback_score=0.55,
         ),
         algorithmic_validator=lambda raw: _AADHAAR_VALIDATOR.validate(
             raw.replace(" ", "")

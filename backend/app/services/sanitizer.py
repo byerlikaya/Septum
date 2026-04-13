@@ -84,10 +84,24 @@ from .span_processing import (
 logger = logging.getLogger(__name__)
 
 _HIGH_PRIORITY_ENTITY_TYPES: set[str] = {
+    # Structural identifiers that fight over overlapping digit spans.
+    # All of these must live in the same dedup pool so the
+    # ``_ENTITY_TYPE_PRIORITY`` tiebreak in ``deduplicate_spans``
+    # can actually apply — otherwise CPF/SSN/TAX_ID etc. land in the
+    # low-priority bucket and lose automatically to a PHONE_NUMBER
+    # span that overlaps them from the high-priority bucket.
     "PHONE_NUMBER",
     "NATIONAL_ID",
     "IBAN",
     "CREDIT_CARD_NUMBER",
+    "CPF",
+    "SOCIAL_SECURITY_NUMBER",
+    "TAX_ID",
+    "PASSPORT_NUMBER",
+    "DRIVERS_LICENSE",
+    "MEDICAL_RECORD_NUMBER",
+    "HEALTH_INSURANCE_ID",
+    "LICENSE_PLATE",
 }
 
 _OLLAMA_BOUNDARY_CHARS: frozenset[str] = frozenset(" \t\n\r.,;:!?()[]{}\"'/-")
@@ -276,8 +290,20 @@ class BaseCustomRecognizer(EntityRecognizer):
 class ExtendedPhoneRecognizer(BaseCustomRecognizer):
     """Presidio recognizer for phone numbers with international format support.
 
-    Detects phone numbers with country codes and various formatting patterns.
-    Pattern accommodates multiple regional formats without hardcoding countries.
+    Phone patterns share a lot of surface area with numeric national
+    IDs (Japan My Number, Saudi Iqama, SA ID, Brazilian CPF, …), so a
+    loose ``\\d{10,13}`` regex silently eats real identifiers and
+    mis-labels them as PHONE_NUMBER. To avoid that, this recognizer
+    requires one of the following:
+
+    * an explicit ``+`` international prefix, or
+    * at least three digit groups separated by space / dash / dot
+      (e.g. ``0505 182 37 96`` or ``(555) 123-4567`` — a bare
+      contiguous ``701040108923`` is rejected).
+
+    Span length is capped at 9-15 digits to prevent the optional
+    international prefix from greedily consuming the first digits of
+    an 11-13 digit identifier.
     """
 
     def __init__(self) -> None:
@@ -285,9 +311,15 @@ class ExtendedPhoneRecognizer(BaseCustomRecognizer):
             supported_entities=["PHONE_NUMBER"],
             supported_language="en",
         )
-        # Pattern: optional country code (+XX or 0), followed by 10 digits with flexible separators
+        # Mode 1 — explicit ``+`` international prefix.
+        # Mode 2 — 3+ separator-delimited digit groups, optional
+        # parenthesised area code.
         self._pattern = re.compile(
-            r"\b(?:\+?\d{1,3}\s*)?(?:0\s*)?(?:\d{3})[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}\b"
+            r"(?:"
+            r"\+\d{1,3}[\s\-.]*\(?\d{1,4}\)?(?:[\s\-.]*\d{2,4}){1,4}"
+            r"|"
+            r"\(?\b\d{3,4}\)?[\s\-.]\d{3,4}[\s\-.]\d{2,4}(?:[\s\-.]\d{2,4})?\b"
+            r")"
         )
 
     def analyze(  # type: ignore[override]
@@ -301,6 +333,10 @@ class ExtendedPhoneRecognizer(BaseCustomRecognizer):
 
         results: List[RecognizerResult] = []
         for match in self._pattern.finditer(text):
+            span_text = match.group(0)
+            digit_count = sum(1 for c in span_text if c.isdigit())
+            if not (9 <= digit_count <= 15):
+                continue
             start, end = match.span()
             results.append(
                 RecognizerResult(
@@ -830,7 +866,14 @@ class DeviceIDRecognizer(BaseCustomRecognizer):
 
 
 class SSNRecognizer(BaseCustomRecognizer):
-    """Detects Social Security Numbers with context keywords."""
+    """Detects Social Security Numbers with context keywords.
+
+    Matches only when a ``SSN`` / ``social security`` context keyword
+    appears within 40 characters before the candidate. A checksum-valid
+    SSN is emitted at ``0.92``; a synthetic or typo'd SSN that still
+    sits in the correct format after the context gate is kept at a
+    reduced ``0.55`` so the raw digits never leak through unmasked.
+    """
 
     def __init__(self) -> None:
         super().__init__(
@@ -859,15 +902,23 @@ class SSNRecognizer(BaseCustomRecognizer):
             if not self._context.search(window):
                 continue
             digits = re.sub(r"[\s\-]", "", m.group())
-            if validator.validate(digits):
-                results.append(RecognizerResult(
-                    entity_type="SOCIAL_SECURITY_NUMBER", start=m.start(), end=m.end(), score=0.92,
-                ))
+            score = 0.92 if validator.validate(digits) else 0.55
+            results.append(RecognizerResult(
+                entity_type="SOCIAL_SECURITY_NUMBER", start=m.start(), end=m.end(), score=score,
+            ))
         return results
 
 
 class CPFRecognizer(BaseCustomRecognizer):
-    """Detects CPF numbers with algorithmic checksum validation."""
+    """Detects CPF numbers with algorithmic checksum validation.
+
+    A checksum-valid CPF is emitted at ``0.95`` without needing any
+    context. A 11-digit dotted candidate that fails the checksum is
+    still kept at ``0.55`` when a ``CPF`` context keyword sits within
+    40 characters before the candidate — the context gate is the
+    safety net against random 11-digit dotted sequences slipping
+    through as CPF.
+    """
 
     def __init__(self) -> None:
         super().__init__(
@@ -876,6 +927,7 @@ class CPFRecognizer(BaseCustomRecognizer):
         )
         # XXX.XXX.XXX-XX or XXXXXXXXXXX
         self._pattern = re.compile(r"\b\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}\b")
+        self._context = re.compile(r"\bcpf\b", re.IGNORECASE)
 
     def analyze(self, text: str, entities: Optional[List[str]] = None,
                 nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
@@ -887,9 +939,15 @@ class CPFRecognizer(BaseCustomRecognizer):
         for m in self._pattern.finditer(text):
             digits = re.sub(r"[.\-]", "", m.group())
             if validator.validate(digits):
-                results.append(RecognizerResult(
-                    entity_type="CPF", start=m.start(), end=m.end(), score=0.95,
-                ))
+                score = 0.95
+            else:
+                window = text[max(0, m.start() - 40): m.start()]
+                if not self._context.search(window):
+                    continue
+                score = 0.55
+            results.append(RecognizerResult(
+                entity_type="CPF", start=m.start(), end=m.end(), score=score,
+            ))
         return results
 
 

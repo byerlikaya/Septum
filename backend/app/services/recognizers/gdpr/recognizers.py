@@ -97,17 +97,6 @@ def _ip_address_recognizer() -> EntityRecognizer:
     )
 
 
-def _phone_recognizer() -> EntityRecognizer:
-    return ValidatedPatternRecognizer(
-        entity_type="PHONE_NUMBER",
-        config=RegexPatternConfig(
-            name="gdpr_phone",
-            pattern=r"\b\+?[0-9]{7,15}\b",
-            score=0.7,
-        ),
-    )
-
-
 def _letter_prefix_8digit_national_id_recognizer() -> EntityRecognizer:
     """Letter + 8-digit national ID preceded by an ID-card context keyword.
 
@@ -272,7 +261,6 @@ def get_recognizers() -> List[EntityRecognizer]:
     recognizers: List[EntityRecognizer] = []
     recognizers.append(_email_recognizer())
     recognizers.append(_ip_address_recognizer())
-    recognizers.append(_phone_recognizer())
     recognizers.append(_letter_prefix_8digit_national_id_recognizer())
     recognizers.append(_eleven_digit_tax_identifier_recognizer())
     recognizers.append(_pension_insurance_number_recognizer())
