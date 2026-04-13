@@ -20,7 +20,12 @@ from ..database import get_db
 from ..models.regulation import CustomRecognizer, NonPiiRule, RegulationRuleset
 from ..models.user import User
 from ..services.recognizers.registry import RecognizerRegistry
-from ..utils.auth_dependency import get_current_user, require_role
+from ..utils.auth_dependency import (
+    get_current_user,
+    require_admin_or_bootstrap,
+    require_role,
+    require_user_or_bootstrap,
+)
 from ..utils.db_helpers import validate_regex
 
 router = APIRouter(prefix="/api/regulations", tags=["regulations"])
@@ -192,9 +197,15 @@ async def _get_custom_or_404(
 )
 async def list_regulation_rulesets(
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User | None = Depends(require_user_or_bootstrap),
 ) -> List[RegulationRulesetResponse]:
-    """Return all regulation rulesets, both built-in and custom."""
+    """Return all regulation rulesets, both built-in and custom.
+
+    Any authenticated user may list regulations — this is a read-only
+    surface used by the chat context and the settings UI. During the
+    first-run bootstrap window the setup wizard additionally reaches
+    this endpoint anonymously to render the regulation picker.
+    """
     result = await db.execute(select(RegulationRuleset).order_by(RegulationRuleset.id))
     rulesets = list(result.scalars().all())
     return [RegulationRulesetResponse.model_validate(r) for r in rulesets]
@@ -209,9 +220,14 @@ async def activate_regulation_ruleset(
     ruleset_id: str,
     payload: RegulationActivatePayload,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User | None = Depends(require_admin_or_bootstrap),
 ) -> RegulationRulesetResponse:
-    """Activate or deactivate a specific regulation ruleset."""
+    """Activate or deactivate a specific regulation ruleset.
+
+    Admin-only once the system is past first-run bootstrap. During
+    the wizard window the setup flow needs to toggle regulations
+    before an admin exists.
+    """
     ruleset = await _get_ruleset_or_404(db, ruleset_id)
     ruleset.is_active = payload.is_active
     await db.commit()

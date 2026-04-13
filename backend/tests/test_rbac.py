@@ -50,13 +50,23 @@ def _auth(token: str) -> dict[str, str]:
 
 
 class TestUnauthenticatedAccess:
-    """Every protected endpoint must reject calls without a Bearer token."""
+    """Every protected endpoint must reject calls without a Bearer token.
+
+    Each test creates the bootstrap admin first so the system is out
+    of first-run setup. Endpoints that the wizard reaches (regulations
+    list, settings PATCH, ollama-models, …) loosen to anonymous while
+    the ``users`` table is empty AND ``setup_completed`` is still
+    ``False`` — that bootstrap relaxation is covered separately in
+    ``TestBootstrapModeAccess`` below.
+    """
 
     async def test_documents_list_requires_auth(self, router_client: AsyncClient) -> None:
+        await _bootstrap_admin(router_client)
         resp = await router_client.get("/api/documents")
         assert resp.status_code == 401
 
     async def test_chat_ask_requires_auth(self, router_client: AsyncClient) -> None:
+        await _bootstrap_admin(router_client)
         resp = await router_client.post(
             "/api/chat/ask",
             json={"message": "hello"},
@@ -64,18 +74,22 @@ class TestUnauthenticatedAccess:
         assert resp.status_code == 401
 
     async def test_settings_get_requires_auth(self, router_client: AsyncClient) -> None:
+        await _bootstrap_admin(router_client)
         resp = await router_client.get("/api/settings")
         assert resp.status_code == 401
 
     async def test_regulations_list_requires_auth(self, router_client: AsyncClient) -> None:
+        await _bootstrap_admin(router_client)
         resp = await router_client.get("/api/regulations")
         assert resp.status_code == 401
 
     async def test_audit_requires_auth(self, router_client: AsyncClient) -> None:
+        await _bootstrap_admin(router_client)
         resp = await router_client.get("/api/audit")
         assert resp.status_code == 401
 
     async def test_error_logs_list_requires_auth(self, router_client: AsyncClient) -> None:
+        await _bootstrap_admin(router_client)
         resp = await router_client.get("/api/error-logs")
         assert resp.status_code == 401
 
@@ -88,6 +102,59 @@ class TestUnauthenticatedAccess:
             json={"message": "test", "level": "ERROR"},
         )
         assert resp.status_code == 204
+
+
+class TestBootstrapModeAccess:
+    """First-run wizard window must reach its configuration endpoints.
+
+    Bootstrap mode is defined as: ``users`` table empty **and**
+    ``AppSettings.setup_completed`` still ``False``. The setup wizard
+    runs in that window and cannot carry a JWT because no admin user
+    exists yet. Each test below asserts that the endpoints the wizard
+    touches accept anonymous requests while the system is in that
+    state — and the paired post-bootstrap tests in
+    ``TestUnauthenticatedAccess`` confirm the gate snaps shut once an
+    admin exists.
+    """
+
+    async def test_regulations_list_open_during_bootstrap(
+        self, router_client: AsyncClient
+    ) -> None:
+        resp = await router_client.get("/api/regulations")
+        assert resp.status_code == 200
+
+    async def test_settings_patch_open_during_bootstrap(
+        self, router_client: AsyncClient
+    ) -> None:
+        resp = await router_client.patch(
+            "/api/settings",
+            json={"llm_provider": "anthropic"},
+        )
+        assert resp.status_code != 401
+        assert resp.status_code != 403
+
+    async def test_ollama_models_open_during_bootstrap(
+        self, router_client: AsyncClient
+    ) -> None:
+        resp = await router_client.get(
+            "/api/settings/ollama-models",
+            params={"base_url": "http://localhost:11434"},
+        )
+        # Ollama may be unreachable in the test environment; the
+        # guarantee here is that the auth gate does not reject the
+        # call, not that Ollama itself is available.
+        assert resp.status_code != 401
+        assert resp.status_code != 403
+
+    async def test_regulations_activate_open_during_bootstrap(
+        self, router_client: AsyncClient
+    ) -> None:
+        resp = await router_client.patch(
+            "/api/regulations/gdpr/activate",
+            json={"is_active": True},
+        )
+        assert resp.status_code != 401
+        assert resp.status_code != 403
 
 
 class TestEditorRole:

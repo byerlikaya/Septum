@@ -24,7 +24,11 @@ from ..database import get_db
 from ..models.user import User
 from ..services.error_logger import log_backend_error, log_backend_message
 from ..services.llm_router import LLMRouter, LLMRouterError
-from ..utils.auth_dependency import get_current_user, require_role
+from ..utils.auth_dependency import (
+    get_current_user,
+    require_admin_or_bootstrap,
+    require_role,
+)
 from ..utils.db_helpers import load_settings
 from ..utils.device import get_device
 
@@ -210,9 +214,16 @@ async def get_settings_endpoint(
 async def update_settings_endpoint(
     payload: SettingsUpdatePayload,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User | None = Depends(require_admin_or_bootstrap),
 ) -> SettingsResponse:
-    """Partially update global application settings."""
+    """Partially update global application settings.
+
+    Admin-only once the wizard has completed. During the first-run
+    bootstrap window (``users`` table empty and ``setup_completed``
+    still ``False``) the setup wizard can PATCH this endpoint
+    anonymously so it can persist LLM / infra choices before the
+    admin account is created.
+    """
     settings = await load_settings(db)
 
     update_data = payload.model_dump(exclude_unset=True)
@@ -238,7 +249,7 @@ async def test_llm_connection_endpoint(
     payload: TestLLMRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User | None = Depends(require_admin_or_bootstrap),
 ) -> TestConnectionResponse:
     """Validate connectivity to the configured cloud LLM provider.
 
@@ -313,7 +324,7 @@ async def test_llm_connection_endpoint(
 async def test_local_models_endpoint(
     payload: TestLocalModelsRequest,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User | None = Depends(require_admin_or_bootstrap),
 ) -> TestConnectionResponse:
     """Check that the local model server (for example Ollama) is reachable.
 
@@ -384,7 +395,8 @@ _OLLAMA_PROBE_URLS = [
     status_code=status.HTTP_200_OK,
 )
 async def ollama_probe_endpoint(
-    _user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+    _user: User | None = Depends(require_admin_or_bootstrap),
 ) -> OllamaProbeResponse:
     """Probe common Ollama URLs and return the first reachable one.
 
@@ -436,7 +448,7 @@ def _format_size(size_bytes: int) -> str:
 async def list_ollama_models_endpoint(
     base_url: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User | None = Depends(require_admin_or_bootstrap),
 ) -> OllamaModelsResponse:
     """List locally available Ollama models.
 
@@ -483,7 +495,7 @@ class OllamaPullRequest(BaseModel):
 async def ollama_pull_endpoint(
     payload: OllamaPullRequest,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    _user: User | None = Depends(require_admin_or_bootstrap),
 ) -> StreamingResponse:
     """Pull an Ollama model and stream download progress via SSE."""
     settings = await load_settings(db)

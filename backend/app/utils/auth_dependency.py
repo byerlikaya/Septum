@@ -5,10 +5,11 @@ from __future__ import annotations
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
+from ..models.settings import AppSettings
 from ..models.user import User
 from ..services.auth import decode_access_token
 
@@ -86,3 +87,76 @@ def require_role(*allowed_roles: str):
         return current_user
 
     return _check
+
+
+async def _is_bootstrap_mode(db: AsyncSession) -> bool:
+    """Return True while the system is still in first-run bootstrap.
+
+    Bootstrap mode is defined as: the ``users`` table is empty **and**
+    ``AppSettings.setup_completed`` is ``False``. This is the window
+    the setup wizard runs in — no admin user exists yet, so admin-only
+    endpoints cannot be protected by a JWT. Once the first admin is
+    created or the wizard flips ``setup_completed`` to ``True``, this
+    returns ``False`` and admin enforcement resumes.
+    """
+    user_count_result = await db.execute(select(func.count()).select_from(User))
+    user_count = int(user_count_result.scalar_one())
+    if user_count > 0:
+        return False
+
+    settings_result = await db.execute(
+        select(AppSettings.setup_completed).where(AppSettings.id == 1)
+    )
+    completed = settings_result.scalar_one_or_none()
+    return not bool(completed)
+
+
+async def require_admin_or_bootstrap(
+    token: str | None = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
+    """Admin-only under normal operation, anonymous during bootstrap.
+
+    The setup wizard needs to configure LLM providers, activate
+    regulations and patch app settings before the first admin exists.
+    Those endpoints used to be open when the role column on
+    ``users`` was cosmetic; after the RBAC commit they are all gated
+    by ``require_role("admin")``, which breaks the wizard because no
+    admin is present yet.
+
+    This dependency relaxes admin enforcement **only** while the
+    system is still in first-run bootstrap state (see
+    :func:`_is_bootstrap_mode`). Once the first admin is created or
+    ``setup_completed`` flips to ``True``, the dependency becomes
+    strictly admin-only — equivalent to ``require_role("admin")``.
+    Returns ``None`` during bootstrap so handlers that want to use
+    the user must handle the optional case.
+    """
+    if await _is_bootstrap_mode(db):
+        return None
+
+    user = await get_current_user(token, db)
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+    return user
+
+
+async def require_user_or_bootstrap(
+    token: str | None = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
+    """Authenticated under normal operation, anonymous during bootstrap.
+
+    Same bootstrap escape hatch as :func:`require_admin_or_bootstrap`
+    but for endpoints that only require *some* authenticated user
+    (admin / editor / viewer) outside of first-run setup. The setup
+    wizard's ``GET /api/regulations`` call is the canonical consumer:
+    after setup completes, any role may list regulations, but during
+    first-run the wizard has no token to present.
+    """
+    if await _is_bootstrap_mode(db):
+        return None
+    return await get_current_user(token, db)
