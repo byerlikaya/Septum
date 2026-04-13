@@ -4,12 +4,11 @@ These utilities provide Unicode normalization and simple locale-aware
 lowercasing suitable for case-insensitive comparisons in a multilingual
 environment.
 
-Locale-specific casing rules handle edge cases like:
-- Dotted/dotless I (İ→i, I→ı in certain locales)
-- German ß handling
-- Other script-specific case folding
-
-All transformations use ISO 639-1 language codes as keys.
+Locale-specific casing rules handle edge cases such as the dotted /
+dotless I (``İ→i``, ``I→ı``) in certain locales, sharp-s / eszett
+folding, and other script-specific case-fold irregularities that the
+default ``str.lower`` does not cover. All transformations use
+ISO 639-1 language codes as keys.
 """
 
 from __future__ import annotations
@@ -85,10 +84,11 @@ _COMMON_POSSESSIVE_SUFFIXES = ["'s", "'s", "s'", "s'"]
 
 
 def strip_possessive_suffix(text: str, language: str = "en") -> str:
-    """Remove possessive suffixes for coreference resolution.
+    """Remove possessive/genitive suffixes for coreference resolution.
 
-    Handles English ``'s`` / ``s'``, Turkish genitive markers (``'in``,
-    ``'ın``, etc.), and smart-quote variants. Idempotent and pure.
+    Looks up language-specific suffixes via ``_POSSESSIVE_SUFFIXES``
+    keyed by ISO 639-1 code, then falls back to the shared smart-quote
+    variants in ``_COMMON_POSSESSIVE_SUFFIXES``. Idempotent and pure.
     """
     if not text or len(text) < 3:
         return text

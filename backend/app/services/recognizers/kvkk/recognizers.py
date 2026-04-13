@@ -1,27 +1,36 @@
 from __future__ import annotations
 
-"""KVKK-specific Presidio recognizers.
+"""Recognizer pack for the KVKK regulation.
 
-Entity types align with 6698 sayılı KVKK Madde 3(d) (kişisel veri: kimliği belirli
-veya belirlenebilir gerçek kişiye ilişkin her türlü bilgi) and Madde 6 (özel nitelikli
-kişisel veriler: ırk, etnik köken, siyasi düşünce, din, sağlık, cinsel hayat, biyometrik,
-genetik vb.). Kurum rehberi örnekleri: ad, soyad, ana/baba adı, adres, doğum tarihi,
-telefon, plaka, SGK, pasaport. See backend/docs/REGULATION_ENTITY_SOURCES.md.
+Entity-type coverage and legal basis are documented in
+``backend/docs/REGULATION_ENTITY_SOURCES.md``.
 """
 
 from typing import List
 
 from presidio_analyzer import EntityRecognizer
 
+from ...national_ids.tckn import TCKNValidator
 from ..base_recognizer import RegexPatternConfig, ValidatedPatternRecognizer
+
+_NATIONAL_ID_VALIDATOR = TCKNValidator()
+
+# FUTURE: move to DB as a per-regulation context-keyword list so each
+# regulation pack can declare its own preamble vocabulary without editing
+# code. Kept minimal and ASCII-only until then.
+_NATIONAL_ID_CONTEXT_KEYWORDS: tuple[str, ...] = (
+    "id",
+    "national",
+    "citizen",
+    "passport",
+    "identity",
+    "identification",
+    "no",
+)
 
 
 def _validated_national_id_recognizer() -> EntityRecognizer:
-    """11-digit national ID recognizer for KVKK compliance.
-
-    Detects 11-digit numeric IDs starting with 1-9.
-    Checksum validation handled separately by ValidatedNationalIDRecognizer.
-    """
+    """11-digit national ID recognizer with checksum validation."""
     return ValidatedPatternRecognizer(
         entity_type="NATIONAL_ID",
         config=RegexPatternConfig(
@@ -29,28 +38,32 @@ def _validated_national_id_recognizer() -> EntityRecognizer:
             pattern=r"\b[1-9][0-9]{10}\b",
             score=0.7,
         ),
+        algorithmic_validator=_NATIONAL_ID_VALIDATOR.validate,
     )
 
 
-def _generic_national_id_with_context() -> EntityRecognizer:
-    """Generic NATIONAL_ID recognizer using numeric pattern plus context words.
+def _contextual_national_id_recognizer() -> EntityRecognizer:
+    """Context-assisted NATIONAL_ID recognizer.
 
-    This recognizer is more permissive than the algorithmic national ID
-    validator and is intended to catch obvious ID-like numbers even when
-    stricter checksum-based validators do not fire.
-    It looks for 8-12 digit sequences that appear close to generic
-    ID-related context terms as defined in its regex pattern.
+    Looks for 8-12 digit sequences preceded by a national-ID context
+    keyword (see ``_NATIONAL_ID_CONTEXT_KEYWORDS``). The capture group
+    narrows the reported entity span to the digits alone, and the
+    configured checksum validator keeps algorithmically invalid numbers
+    out of the result.
     """
+    keyword_alternation = "|".join(_NATIONAL_ID_CONTEXT_KEYWORDS)
     return ValidatedPatternRecognizer(
         entity_type="NATIONAL_ID",
         config=RegexPatternConfig(
             name="kvkk_national_id_context",
             pattern=(
-                r"(?i)(?:id|national|citizen|passport|identity|identification|no)"
-                r"[^\d]{0,16}\d{8,12}"
+                rf"(?i)\b(?:{keyword_alternation})\b"
+                r"[^\d]{0,16}(\d{8,12})"
             ),
             score=0.6,
+            narrow_to_group=1,
         ),
+        algorithmic_validator=_NATIONAL_ID_VALIDATOR.validate,
     )
 
 
@@ -87,6 +100,6 @@ def get_recognizers() -> List[EntityRecognizer]:
     recognizers.append(_validated_national_id_recognizer())
     recognizers.append(_email_recognizer())
     recognizers.append(_phone_recognizer())
-    recognizers.append(_generic_national_id_with_context())
+    recognizers.append(_contextual_national_id_recognizer())
     return recognizers
 

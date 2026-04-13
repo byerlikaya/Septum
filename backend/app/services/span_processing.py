@@ -37,11 +37,12 @@ def deduplicate_spans(
             key=lambda s: (s.start, -(s.end - s.start), -s.score),
         )
         chosen: List[DetectedSpan] = []
-        current_end = -1
         for span in ordered:
-            if span.start >= current_end:
+            overlaps = any(
+                not (span.end <= c.start or span.start >= c.end) for c in chosen
+            )
+            if not overlaps:
                 chosen.append(span)
-                current_end = span.end
         return chosen
 
     high_dedup = _dedup_simple(high_priority)

@@ -70,7 +70,7 @@ from ..utils.text_utils import (
     normalize_unicode,
     starts_with_uppercase,
 )
-from .national_ids import IBANValidator, TCKNValidator
+from .national_ids import IBANValidator
 from .non_pii_filter import NonPiiFilter, SpanView
 from .ollama_client import call_ollama_sync, extract_json_array
 from .policy_composer import ComposedPolicy
@@ -147,16 +147,17 @@ def _titlecase_upper_segments(text: str) -> str:
     """Convert ALL CAPS words to title case for NER processing.
 
     Transformer NER models are trained on mixed-case text and perform
-    poorly on ALL CAPS input.  This converts consecutive uppercase words
-    (2+ chars each) to title case so models can recognise names like
-    "BARIŞ YERLİKAYA" → "Barış Yerlikaya".
+    poorly on ALL CAPS input. This converts uppercase word runs (2+
+    characters each) to title case so models can still recognise
+    proper nouns that appear screaming-upper in the source document.
     Character positions stay the same (only case changes, not length).
     """
     def _to_title(m: re.Match) -> str:
         word = m.group()
         if word.isupper() and len(word) >= 2:
-            # Turkish İ (U+0130) lowercases to i + combining dot (U+0307)
-            # in Python; strip the combining dot to get plain 'i'.
+            # U+0130 (LATIN CAPITAL LETTER I WITH DOT ABOVE) lowercases
+            # to i + combining dot (U+0307) in Python; strip the
+            # combining dot to get plain 'i'.
             lowered = word[1:].lower().replace("i\u0307", "i")
             return word[0] + lowered
         return word
@@ -307,48 +308,6 @@ class ExtendedPhoneRecognizer(BaseCustomRecognizer):
                     start=start,
                     end=end,
                     score=0.8,
-                )
-            )
-        return results
-
-
-class ValidatedNationalIDRecognizer(BaseCustomRecognizer):
-    """Presidio recognizer for algorithmically validated national ID numbers.
-
-    Uses pluggable validator for checksum-based validation.
-    Default validator handles 11-digit IDs with specific checksum algorithm.
-    Validator can be swapped to support different countries' ID formats.
-    """
-
-    def __init__(self, validator: Optional[TCKNValidator] = None) -> None:
-        super().__init__(
-            supported_entities=["NATIONAL_ID"],
-            supported_language="en",
-        )
-        self._validator = validator or TCKNValidator()
-        self._pattern = re.compile(r"\b[1-9]\d{10}\b")
-
-    def analyze(  # type: ignore[override]
-        self,
-        text: str,
-        entities: Optional[List[str]] = None,
-        nlp_artifacts: Optional[object] = None,
-    ) -> List[RecognizerResult]:
-        if self._entity_filter(entities):
-            return []
-
-        results: List[RecognizerResult] = []
-        for match in self._pattern.finditer(text):
-            candidate = match.group(0)
-            if not self._validator.validate(candidate):
-                continue
-            start, end = match.span()
-            results.append(
-                RecognizerResult(
-                    entity_type="NATIONAL_ID",
-                    start=start,
-                    end=end,
-                    score=0.95,
                 )
             )
         return results
@@ -562,7 +521,7 @@ class CreditCardNumberRecognizer(BaseCustomRecognizer):
     """Presidio recognizer for credit card numbers.
 
     Detects numbers matching major card network formats (Visa, Mastercard,
-    American Express, Discover, JCB, UnionPay, etc.) without requiring Luhn
+    Amex, Discover, JCB, UnionPay, etc.) without requiring Luhn
     checksum validation. In a privacy-first pipeline, over-detection is
     preferred over missed PII — even a mistyped card number is sensitive.
     """
@@ -576,7 +535,7 @@ class CreditCardNumberRecognizer(BaseCustomRecognizer):
         #   4xxx          — Visa
         #   5[1-5]xx      — Mastercard
         #   2[2-7]xx      — Mastercard (2-series)
-        #   3[47]xx       — American Express
+        #   3[47]xx       — Amex
         #   3[0689]xx     — Diners Club / Carte Blanche
         #   6xxx          — Discover / UnionPay / misc
         #   35xx          — JCB
@@ -812,8 +771,10 @@ class SSNRecognizer(BaseCustomRecognizer):
         )
         # XXX-XX-XXXX or XXXXXXXXX with context
         self._pattern = re.compile(r"\b\d{3}[\s\-]?\d{2}[\s\-]?\d{4}\b")
+        # FUTURE: move context keywords to DB so regulation packs can
+        # register locale-specific preamble vocabulary without code edits.
         self._context = re.compile(
-            r"(?:SSN|social\s*security|sosyal\s*güvenlik|sgk)",
+            r"(?:SSN|social\s*security)",
             re.IGNORECASE,
         )
 
@@ -838,7 +799,7 @@ class SSNRecognizer(BaseCustomRecognizer):
 
 
 class CPFRecognizer(BaseCustomRecognizer):
-    """Detects Brazilian CPF numbers with algorithmic validation."""
+    """Detects CPF numbers with algorithmic checksum validation."""
 
     def __init__(self) -> None:
         super().__init__(
@@ -880,6 +841,9 @@ class PassportNumberRecognizer(BaseCustomRecognizer):
         self._pattern = re.compile(
             r"\b[A-Z]{0,2}\d{6,9}\b"
         )
+        # FUTURE: move context keywords to DB so each regulation pack can
+        # register its own locale-specific preamble vocabulary. The list
+        # below is a multilingual fallback kept equal across locales.
         self._context = re.compile(
             r"(?:passport|pasaport|reisepass|passeport|passaporto|paspoort"
             r"|паспорт|جواز\s*سفر|护照|パスポート|पासपोर्ट)",
@@ -913,6 +877,8 @@ class DriversLicenseRecognizer(BaseCustomRecognizer):
             supported_language="en",
         )
         self._pattern = re.compile(r"\b[A-Z0-9]{5,15}\b")
+        # FUTURE: move context keywords to DB so each regulation pack can
+        # register its own locale-specific preamble vocabulary.
         self._context = re.compile(
             r"(?:driver'?s?\s*licen[sc]e|driving\s*licen[sc]e|DL\s*#?|ehliyet"
             r"|permis\s*de\s*conduire|führerschein|rijbewijs|patente\s*di\s*guida"
@@ -947,6 +913,8 @@ class TaxIDRecognizer(BaseCustomRecognizer):
             supported_language="en",
         )
         self._pattern = re.compile(r"\b\d{2}[\-]?\d{7,10}\b")
+        # FUTURE: move context keywords to DB so each regulation pack can
+        # register its own locale-specific preamble vocabulary.
         self._context = re.compile(
             r"(?:tax\s*id|TIN|EIN|vergi\s*(?:no|numarası|kimlik)"
             r"|steuer[\-\s]?(?:nummer|id)|NIF|codice\s*fiscale"
@@ -981,11 +949,14 @@ class LicensePlateRecognizer(BaseCustomRecognizer):
             supported_entities=["LICENSE_PLATE"],
             supported_language="en",
         )
-        # Covers: 34 ABC 123, ABC-1234, AB12CDE, etc.
+        # Two structural plate families: "<digits><letters><digits>" and
+        # "<letters><digits><optional letters>". Not tied to any locale.
         self._pattern = re.compile(
-            r"\b\d{2}\s*[A-Z]{1,3}\s*\d{2,4}\b"            # TR-style: 34 ABC 123
-            r"|\b[A-Z]{1,3}[\s\-]?\d{1,4}[\s\-]?[A-Z]{0,3}\b"  # EU/US-style
+            r"\b\d{2}\s*[A-Z]{1,3}\s*\d{2,4}\b"
+            r"|\b[A-Z]{1,3}[\s\-]?\d{1,4}[\s\-]?[A-Z]{0,3}\b"
         )
+        # FUTURE: move context keywords to DB so each regulation pack can
+        # register its own locale-specific preamble vocabulary.
         self._context = re.compile(
             r"(?:licen[sc]e\s*plate|plate\s*(?:no|number)|plaka|vehicle\s*reg"
             r"|kennzeichen|immatriculation|targa|matrícula|kenteken"
@@ -1106,10 +1077,15 @@ class PIISanitizer:
         return expanded
 
     def _register_custom_recognizers(self) -> None:
-        """Register project-specific Presidio recognizers on the analyzer registry."""
+        """Register project-specific Presidio recognizers on the analyzer registry.
+
+        These are regulation-agnostic, format-driven detectors. Country- or
+        language-specific detectors (e.g. checksum-validated national IDs)
+        belong to the regulation packs under ``recognizers/<reg_id>/`` and
+        are added to the registry via ``_apply_policy``.
+        """
         registry = self._analyzer.registry
         registry.add_recognizer(ExtendedPhoneRecognizer())
-        registry.add_recognizer(ValidatedNationalIDRecognizer())
         registry.add_recognizer(ValidatedIBANRecognizer())
         registry.add_recognizer(HeuristicPersonNameRecognizer())
         registry.add_recognizer(StructuralAddressRecognizer())

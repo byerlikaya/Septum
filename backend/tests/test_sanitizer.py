@@ -6,12 +6,58 @@ import pytest
 
 from backend.app.models.settings import AppSettings
 from backend.app.services.anonymization_map import AnonymizationMap
+from backend.app.services.policy_composer import ComposedPolicy
+from backend.app.services.recognizers.kvkk.recognizers import (
+    get_recognizers as kvkk_get_recognizers,
+)
 from backend.app.services.sanitizer import (
     DetectedSpan,
     PIISanitizer,
     _PRESIDIO_ENTITY_ALIASES,
     _PRESIDIO_REVERSE_ALIASES,
 )
+
+
+def _kvkk_policy() -> ComposedPolicy:
+    """Return an in-memory policy loaded with the KVKK recognizer pack.
+
+    Baseline recognizers are regulation-agnostic; country-specific
+    checksum validation (e.g. for 11-digit national IDs) lives inside
+    regulation packs. Tests that exercise TCKN detection therefore need
+    to activate the KVKK pack explicitly via this helper.
+
+    The entity type list mirrors the superset of types exercised by
+    this test file so that ``PIISanitizer`` does not filter detections
+    when a policy is attached.
+    """
+    return ComposedPolicy(
+        entity_types=[
+            "NATIONAL_ID",
+            "EMAIL_ADDRESS",
+            "PHONE_NUMBER",
+            "IBAN",
+            "CREDIT_CARD_NUMBER",
+            "PERSON_NAME",
+            "LOCATION",
+            "ORGANIZATION_NAME",
+            "DATE_OF_BIRTH",
+            "MAC_ADDRESS",
+            "URL",
+            "COORDINATES",
+            "COOKIE_ID",
+            "DEVICE_ID",
+            "SOCIAL_SECURITY_NUMBER",
+            "CPF",
+            "PASSPORT_NUMBER",
+            "DRIVERS_LICENSE",
+            "TAX_ID",
+            "LICENSE_PLATE",
+            "ADDRESS",
+        ],
+        recognizers=list(kvkk_get_recognizers()),
+        regulation_ids=["kvkk"],
+        non_pii_rules=[],
+    )
 
 
 @pytest.fixture
@@ -50,8 +96,14 @@ def app_settings() -> AppSettings:
 
 @pytest.fixture
 def sanitizer(app_settings: AppSettings) -> PIISanitizer:
-    """Return a PIISanitizer configured for tests."""
-    return PIISanitizer(settings=app_settings)
+    """Return a PIISanitizer with the KVKK pack pre-loaded.
+
+    Most of this file exercises TR-language fixtures and expects the
+    KVKK recognizer pack (checksum-validated national IDs, Turkish
+    phone formats, etc.) to be active. Keeping the fixture opinionated
+    avoids each test having to re-declare the same policy.
+    """
+    return PIISanitizer(settings=app_settings, policy=_kvkk_policy())
 
 
 def test_turkish_phone_number_is_sanitized(sanitizer: PIISanitizer) -> None:
@@ -216,6 +268,41 @@ def test_expand_with_aliases_adds_presidio_types(sanitizer: PIISanitizer) -> Non
 def test_expand_with_aliases_returns_none_for_none(sanitizer: PIISanitizer) -> None:
     """_expand_with_aliases should return None when input is None."""
     assert sanitizer._expand_with_aliases(None) is None
+
+
+def test_valid_tckn_with_prefix_narrows_span_to_digits(
+    sanitizer: PIISanitizer,
+) -> None:
+    """``Kimlik No: 10000000078`` must be detected with the keyword excluded."""
+    valid_tckn = "10000000078"
+    text = f"Kimlik No: {valid_tckn} başvuru formunda yer alıyor."
+    anon_map = AnonymizationMap(document_id=9, language="tr")
+
+    result = sanitizer.sanitize(text=text, language="tr", anon_map=anon_map)
+
+    assert "[NATIONAL_ID_1]" in result.sanitized_text
+    assert valid_tckn not in result.sanitized_text
+    # The "Kimlik No:" prefix must survive — only the digits are the entity.
+    assert "Kimlik No:" in result.sanitized_text
+
+
+def test_invalid_tckn_with_prefix_is_not_detected_as_national_id(
+    sanitizer: PIISanitizer,
+) -> None:
+    """An 11-digit number whose TCKN checksum fails must not be masked as NATIONAL_ID.
+
+    The generic phone-number recognizer may still pick the string up (any
+    11-digit sequence can structurally look like a phone), which is out of
+    scope for this test — we only assert that the algorithmically invalid
+    number never receives a NATIONAL_ID placeholder.
+    """
+    invalid_tckn = "61504839271"
+    text = f"Test verisi No: {invalid_tckn} sahte bir belgede geçmektedir."
+    anon_map = AnonymizationMap(document_id=10, language="tr")
+
+    result = sanitizer.sanitize(text=text, language="tr", anon_map=anon_map)
+
+    assert "[NATIONAL_ID_" not in result.sanitized_text
 
 
 def test_coverage_validation_logs_uncovered_types(

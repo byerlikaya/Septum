@@ -75,7 +75,7 @@ class NERModelRegistry:
             "nl": "Babelscape/wikineural-multilingual-ner",
             "pl": "Babelscape/wikineural-multilingual-ner",
             "ru": "Babelscape/wikineural-multilingual-ner",
-            # Japanese: Davlan multilingual covers Japanese via WikiANN
+            # ja is covered by the Davlan multilingual WikiANN model
             "ja": "Davlan/xlm-roberta-base-wikiann-ner",
             # Fallback: Babelscape for best multilingual coverage
             "fallback": "Babelscape/wikineural-multilingual-ner",
