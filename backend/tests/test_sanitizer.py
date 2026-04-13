@@ -573,3 +573,72 @@ def test_tax_id_broadened_patterns(sanitizer: PIISanitizer) -> None:
         )
 
 
+# ── Phase 2b: GDPR and LGPD country-specific national IDs ──
+
+
+def test_gdpr_pack_country_specific_national_ids(
+    app_settings: AppSettings,
+) -> None:
+    """GDPR pack detectors must handle DE/ES/FR national-ID families.
+
+    The fixture activates only the GDPR pack (no KVKK, no baseline
+    NATIONAL_ID recognizer) so we verify the pack carries the
+    detection responsibility end-to-end.
+    """
+    from backend.app.services.recognizers.gdpr.recognizers import (
+        get_recognizers as gdpr_get_recognizers,
+    )
+
+    policy = ComposedPolicy(
+        entity_types=[
+            "NATIONAL_ID", "TAX_ID", "SOCIAL_SECURITY_NUMBER",
+            "EMAIL_ADDRESS", "PHONE_NUMBER", "IP_ADDRESS",
+        ],
+        recognizers=list(gdpr_get_recognizers()),
+        regulation_ids=["gdpr"],
+        non_pii_rules=[],
+    )
+    sanitizer = PIISanitizer(settings=app_settings, policy=policy)
+
+    cases = [
+        ("Personalausweis-Nr.: T22000129", "NATIONAL_ID", "T22000129", "de"),
+        ("Steuer-ID: 77 523 164 890", "TAX_ID", "77 523 164 890", "de"),
+        ("Rentenversicherungs-Nr.: 50 220791 M 007", "NATIONAL_ID", "50 220791 M 007", "de"),
+        ("DNI: 50.432.187-K", "NATIONAL_ID", "50.432.187-K", "es"),
+        ("DNI: 28741095Z", "NATIONAL_ID", "28741095Z", "es"),
+        ("NIE: X1234567L", "NATIONAL_ID", "X1234567L", "es"),
+        ("N° Seguridad Social: 28 07 41095 33", "SOCIAL_SECURITY_NUMBER", "28 07 41095 33", "es"),
+        ("NIR: 2 87 02 75 056 127 42", "SOCIAL_SECURITY_NUMBER", "2 87 02 75 056 127 42", "fr"),
+        ("N° SIREN: 834 291 076", "TAX_ID", "834 291 076", "fr"),
+    ]
+    for text, _entity_type, value, lang in cases:
+        anon_map = AnonymizationMap(document_id=204, language=lang)
+        result = sanitizer.sanitize(text=text, language=lang, anon_map=anon_map)
+        assert value not in result.sanitized_text, (
+            f"{lang}: expected {value!r} masked, got {result.sanitized_text!r}"
+        )
+
+
+def test_lgpd_pack_civil_identity_document(
+    app_settings: AppSettings,
+) -> None:
+    """LGPD pack detects RG (Registro Geral) via context preamble."""
+    from backend.app.services.recognizers.lgpd.recognizers import (
+        get_recognizers as lgpd_get_recognizers,
+    )
+
+    policy = ComposedPolicy(
+        entity_types=["NATIONAL_ID", "TAX_ID", "EMAIL_ADDRESS"],
+        recognizers=list(lgpd_get_recognizers()),
+        regulation_ids=["lgpd"],
+        non_pii_rules=[],
+    )
+    sanitizer = PIISanitizer(settings=app_settings, policy=policy)
+
+    text = "RG: 45.238.917-4 SSP/SP"
+    anon_map = AnonymizationMap(document_id=205, language="pt")
+    result = sanitizer.sanitize(text=text, language="pt", anon_map=anon_map)
+    assert "45.238.917-4" not in result.sanitized_text
+    assert "[NATIONAL_ID_1]" in result.sanitized_text
+
+
