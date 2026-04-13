@@ -127,6 +127,33 @@ LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerç
 - **Çoklu Sağlayıcı** — Anthropic, OpenAI, OpenRouter ve yerel Ollama ile çalışır. Arayüzden değiştirin.
 - **JWT Kimlik Doğrulama ve RBAC** — Admin'e özel kullanıcı yönetim ekranı: hesap oluşturma, rol atama (admin/editor/viewer), şifre sıfırlama ve kullanıcı pasifleştirme; kullanıcının kendi şifresini değiştirmesi; ilk kullanıcı kurulum sihirbazında otomatik admin yapılır.
 
+<details>
+<summary><b>17 hazır regülasyon paketinin tamamı</b> — yargı alanları, bölgeye özel kimlik tipleri</summary>
+
+| Bölge | Kod | Regülasyon |
+|:---|:---|:---|
+| 🇪🇺 AB / AEA | `gdpr` | General Data Protection Regulation |
+| 🇺🇸 ABD (Sağlık) | `hipaa` | Health Insurance Portability and Accountability Act |
+| 🇹🇷 Türkiye | `kvkk` | 6698 sayılı Kişisel Verilerin Korunması Kanunu |
+| 🇧🇷 Brezilya | `lgpd` | Lei Geral de Proteção de Dados |
+| 🇺🇸 ABD (Kaliforniya) | `ccpa` | California Consumer Privacy Act |
+| 🇺🇸 ABD (Kaliforniya) | `cpra` | California Privacy Rights Act |
+| 🇬🇧 Birleşik Krallık | `uk_gdpr` | UK GDPR |
+| 🇨🇦 Kanada | `pipeda` | Personal Information Protection and Electronic Documents Act |
+| 🇹🇭 Tayland | `pdpa_th` | Personal Data Protection Act |
+| 🇸🇬 Singapur | `pdpa_sg` | Personal Data Protection Act |
+| 🇯🇵 Japonya | `appi` | Act on the Protection of Personal Information |
+| 🇨🇳 Çin | `pipl` | Personal Information Protection Law |
+| 🇿🇦 Güney Afrika | `popia` | Protection of Personal Information Act |
+| 🇮🇳 Hindistan | `dpdp` | Digital Personal Data Protection Act |
+| 🇸🇦 Suudi Arabistan | `pdpl_sa` | Personal Data Protection Law |
+| 🇳🇿 Yeni Zelanda | `nzpa` | Privacy Act 2020 |
+| 🇦🇺 Avustralya | `australia_pa` | Privacy Act 1988 |
+
+Her satır [`backend/app/services/recognizers/`](backend/app/services/recognizers/) altında yüklenebilir bir pakettir. Birden fazlası aynı anda aktif olabilir — sanitizer hepsinin birleşimini uygular ve en kısıtlayıcı kural kazanır. Her varlık tipinin hukuki kaynağı [`backend/docs/REGULATION_ENTITY_SOURCES.md`](backend/docs/REGULATION_ENTITY_SOURCES.md) dosyasındadır.
+
+</details>
+
 ---
 
 ## Neden Septum?

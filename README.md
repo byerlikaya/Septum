@@ -127,6 +127,33 @@ The LLM answers using placeholders. Septum restores real values locally before s
 - **Multi-Provider** — Works with Anthropic, OpenAI, OpenRouter, and local Ollama. Switch from the UI.
 - **JWT Auth & RBAC** — Admin-only user management UI to create accounts, assign roles (admin/editor/viewer), reset passwords, and deactivate users; self-service password change; first user auto-promoted to admin via the setup wizard.
 
+<details>
+<summary><b>All 17 built-in regulation packs</b> — jurisdictions, region-specific identifiers</summary>
+
+| Region | Code | Regulation |
+|:---|:---|:---|
+| 🇪🇺 EU / EEA | `gdpr` | General Data Protection Regulation |
+| 🇺🇸 USA (Healthcare) | `hipaa` | Health Insurance Portability and Accountability Act |
+| 🇹🇷 Turkey | `kvkk` | Personal Data Protection Law (6698) |
+| 🇧🇷 Brazil | `lgpd` | Lei Geral de Proteção de Dados |
+| 🇺🇸 USA (California) | `ccpa` | California Consumer Privacy Act |
+| 🇺🇸 USA (California) | `cpra` | California Privacy Rights Act |
+| 🇬🇧 United Kingdom | `uk_gdpr` | UK GDPR |
+| 🇨🇦 Canada | `pipeda` | Personal Information Protection and Electronic Documents Act |
+| 🇹🇭 Thailand | `pdpa_th` | Personal Data Protection Act |
+| 🇸🇬 Singapore | `pdpa_sg` | Personal Data Protection Act |
+| 🇯🇵 Japan | `appi` | Act on the Protection of Personal Information |
+| 🇨🇳 China | `pipl` | Personal Information Protection Law |
+| 🇿🇦 South Africa | `popia` | Protection of Personal Information Act |
+| 🇮🇳 India | `dpdp` | Digital Personal Data Protection Act |
+| 🇸🇦 Saudi Arabia | `pdpl_sa` | Personal Data Protection Law |
+| 🇳🇿 New Zealand | `nzpa` | Privacy Act 2020 |
+| 🇦🇺 Australia | `australia_pa` | Privacy Act 1988 |
+
+Every row is a loadable pack under [`backend/app/services/recognizers/`](backend/app/services/recognizers/). Multiple can be active simultaneously — the sanitizer applies the union and the most restrictive rule wins. Legal sources for each entity type live in [`backend/docs/REGULATION_ENTITY_SOURCES.md`](backend/docs/REGULATION_ENTITY_SOURCES.md).
+
+</details>
+
 ---
 
 ## Why Septum?
