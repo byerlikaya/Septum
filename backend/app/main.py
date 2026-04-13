@@ -49,6 +49,7 @@ from .routers import regulations as regulations_router
 from .routers import settings as settings_router
 from .routers import setup as setup_router
 from .routers import text_normalization as text_normalization_router
+from .routers import users as users_router
 from .services.error_logger import log_backend_error, log_backend_message
 from .utils.device import get_device
 
@@ -181,6 +182,7 @@ _all_routers = [
     error_logs_router.router,
     regulations_router.router,
     text_normalization_router.router,
+    users_router.router,
 ]
 
 for _r in _all_routers:

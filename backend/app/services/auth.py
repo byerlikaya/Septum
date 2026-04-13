@@ -10,6 +10,19 @@ import jwt
 from ..bootstrap import get_config
 
 JWT_ALGORITHM = "HS256"
+PASSWORD_MIN_LENGTH = 8
+
+
+class WeakPasswordError(ValueError):
+    """Raised when a password does not satisfy the strength policy."""
+
+
+def validate_password_strength(password: str) -> None:
+    """Raise :class:`WeakPasswordError` if *password* is too short."""
+    if len(password) < PASSWORD_MIN_LENGTH:
+        raise WeakPasswordError(
+            f"Password must be at least {PASSWORD_MIN_LENGTH} characters long"
+        )
 
 
 def _jwt_secret() -> str:

@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import AsyncIterator
 
 import pytest
 
@@ -47,3 +48,39 @@ def dispose_async_engine() -> None:
     yield
     if engine_is_ready():
         asyncio.run(get_engine().dispose())
+
+
+@pytest.fixture
+async def router_client(tmp_path: Path) -> AsyncIterator["AsyncClient"]:  # noqa: F821
+    """FastAPI test client backed by an isolated per-test SQLite database.
+
+    Router tests that need to exercise real DB behaviour (users, auth, etc.)
+    use this fixture to get a fresh engine + session override, with the real
+    application engine left untouched.
+    """
+    from httpx import ASGITransport, AsyncClient
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from app.database import get_db
+    from app.main import app
+    from app.models import Base
+
+    db_path = tmp_path / "router_test.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+    async def _override_get_db():
+        async with session_maker() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override_get_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as http_client:
+            yield http_client
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        await engine.dispose()
