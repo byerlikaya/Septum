@@ -65,7 +65,6 @@ from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
 from ..models.spreadsheet_schema import SpreadsheetSchema
 from ..models.user import User
-from ..utils.auth_dependency import get_current_user, require_role
 from ..services.anonymization_map import AnonymizationMap
 from ..services.approval_gate import ApprovalChunk, ApprovalGate, get_approval_gate
 from ..services.audit_logger import log_deanonymization, log_pii_detected
@@ -82,6 +81,7 @@ from ..services.llm_router import LLMRouter, LLMRouterError, _chunk_text
 from ..services.prompts import PromptCatalog
 from ..services.sanitizer_factory import create_sanitizer
 from ..services.text_normalizer import TextNormalizer
+from ..utils.auth_dependency import get_current_user, require_role
 from ..utils.db_helpers import detect_language, load_settings
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])

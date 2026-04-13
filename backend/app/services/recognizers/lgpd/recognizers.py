@@ -15,7 +15,6 @@ from presidio_analyzer import EntityRecognizer
 
 from ..base_recognizer import RegexPatternConfig, ValidatedPatternRecognizer
 
-
 # FUTURE: move to DB. Single hard-coded context preamble for the
 # Brazilian civil-identity document (Registro Geral).
 _CIVIL_IDENTITY_CONTEXT = (

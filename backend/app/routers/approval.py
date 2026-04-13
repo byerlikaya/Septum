@@ -19,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.user import User
-from ..utils.auth_dependency import get_current_user
 from ..services.approval_gate import (
     ApprovalChunk,
     ApprovalDecision,
@@ -27,6 +26,7 @@ from ..services.approval_gate import (
     ApprovalSessionNotFoundError,
     get_approval_gate,
 )
+from ..utils.auth_dependency import get_current_user
 
 router = APIRouter(prefix="/api/approval", tags=["approval"])
 
