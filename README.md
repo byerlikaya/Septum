@@ -125,7 +125,7 @@ The LLM answers using placeholders. Septum restores real values locally before s
 - **Structured Data Extraction** — Automatically detects tables and key-value pairs from PDFs.
 - **Audit Trail** — Append-only compliance log with entity detection metrics. No raw PII in audit events.
 - **Multi-Provider** — Works with Anthropic, OpenAI, OpenRouter, and local Ollama. Switch from the UI.
-- **JWT Auth & RBAC** — User roles (admin/editor/viewer) with document and session scoping.
+- **JWT Auth & RBAC** — Admin-only user management UI to create accounts, assign roles (admin/editor/viewer), reset passwords, and deactivate users; self-service password change; first user auto-promoted to admin via the setup wizard.
 
 ---
 

@@ -2,59 +2,101 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { LogOut, FileCode, BookOpen } from "lucide-react";
+import { LogOut, FileCode, BookOpen, KeyRound } from "lucide-react";
 import { authMe, getAuthToken, clearAuthToken } from "@/lib/api";
+import { ROLE_LABEL_KEYS, type AuthUser, type UserRole } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { Sidebar } from "./Sidebar";
+import { ChangePasswordModal } from "@/components/common/ChangePasswordModal";
 
 interface AppShellProps {
   children: React.ReactNode;
 }
 
-const AUTH_PAGES = ["/login", "/register"];
+const AUTH_PAGES = ["/login"];
+
+const ALL_ROLES: readonly UserRole[] = ["admin", "editor", "viewer"];
+const ADMIN_EDITOR: readonly UserRole[] = ["admin", "editor"];
+const ADMIN_ONLY: readonly UserRole[] = ["admin"];
+
+const PAGE_ROLES: { readonly prefix: string; readonly allowed: readonly UserRole[] }[] = [
+  { prefix: "/chat", allowed: ALL_ROLES },
+  { prefix: "/documents", allowed: ADMIN_EDITOR },
+  { prefix: "/settings/users", allowed: ADMIN_ONLY },
+  { prefix: "/settings/regulations", allowed: ADMIN_ONLY },
+  { prefix: "/settings/audit", allowed: ADMIN_ONLY },
+  { prefix: "/settings/error-logs", allowed: ADMIN_ONLY },
+  { prefix: "/settings", allowed: ADMIN_ONLY },
+];
+
+function allowedRolesForPath(pathname: string): readonly UserRole[] {
+  const match = PAGE_ROLES.find(
+    (entry) => pathname === entry.prefix || pathname.startsWith(`${entry.prefix}/`)
+  );
+  return match ? match.allowed : ALL_ROLES;
+}
+
+type AuthState = "loading" | AuthUser | null;
 
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const t = useI18n();
-  const [status, setStatus] = useState<"loading" | "authenticated" | "unauthenticated">("loading");
+  const [authState, setAuthState] = useState<AuthState>("loading");
+  const [changePasswordOpen, setChangePasswordOpen] = useState<boolean>(false);
 
   const isAuthPage = AUTH_PAGES.some((p) => pathname.startsWith(p));
 
   useEffect(() => {
     if (isAuthPage) {
-      setStatus("unauthenticated");
+      setAuthState(null);
       return;
     }
 
     const token = getAuthToken();
     if (!token) {
-      setStatus("unauthenticated");
+      setAuthState(null);
       return;
     }
 
     let cancelled = false;
     authMe()
-      .then(() => { if (!cancelled) setStatus("authenticated"); })
+      .then((user) => { if (!cancelled) setAuthState(user); })
       .catch(() => {
-        if (!cancelled) { clearAuthToken(); setStatus("unauthenticated"); }
+        if (!cancelled) {
+          clearAuthToken();
+          setAuthState(null);
+        }
       });
     return () => { cancelled = true; };
   }, [isAuthPage]);
 
   useEffect(() => {
-    if (status === "unauthenticated" && !isAuthPage) {
+    if (authState === null && !isAuthPage) {
       router.replace("/login");
     }
-  }, [status, isAuthPage, router]);
+  }, [authState, isAuthPage, router]);
 
-  if (status === "loading") return null;
+  useEffect(() => {
+    if (authState === "loading" || authState === null || isAuthPage) return;
+    const allowed = allowedRolesForPath(pathname);
+    if (!allowed.includes(authState.role)) {
+      router.replace("/chat");
+    }
+  }, [authState, pathname, isAuthPage, router]);
+
+  if (authState === "loading") return null;
   if (isAuthPage) return <>{children}</>;
-  if (status === "unauthenticated") return null;
+  if (authState === null) return null;
+
+  const currentUser = authState;
+  if (!allowedRolesForPath(pathname).includes(currentUser.role)) {
+    return null;
+  }
 
   return (
     <div className="flex h-full min-w-0 flex-col md:flex-row">
-      <Sidebar />
+      <Sidebar currentUser={currentUser} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-950">
         {/* Top bar */}
         <div className="flex shrink-0 items-center justify-end gap-3 border-b border-slate-800/50 px-4 py-2 sm:px-6 lg:px-8">
@@ -67,6 +109,17 @@ export function AppShell({ children }: AppShellProps) {
             <span>API Docs</span>
           </a>
           <div className="hidden h-3 w-px bg-slate-700 sm:block" />
+          <span className="hidden text-xs text-slate-400 sm:inline">
+            {currentUser.email} · {t(ROLE_LABEL_KEYS[currentUser.role])}
+          </span>
+          <button
+            type="button"
+            onClick={() => setChangePasswordOpen(true)}
+            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            <KeyRound className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">{t("sidebar.changePassword")}</span>
+          </button>
           <button
             type="button"
             onClick={() => { clearAuthToken(); window.location.href = "/login"; }}
@@ -83,6 +136,13 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         </main>
       </div>
+
+      {changePasswordOpen && (
+        <ChangePasswordModal
+          open
+          onClose={() => setChangePasswordOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { type AxiosError } from "axios";
 import type {
   ApprovalChunkPayload,
   ApprovalData,
@@ -8,9 +8,11 @@ import type {
   AuthUser,
   AuditEvent,
   AuditListResponse,
+  ChangePasswordPayload,
   ChatSessionDetail,
   ChatSessionSummary,
   ComplianceReport,
+  CreateUserPayload,
   Document,
   DocumentListResponse,
   EntityDetectionListResponse,
@@ -21,6 +23,8 @@ import type {
   SpreadsheetColumn,
   SpreadsheetSchema,
   TestConnectionResponse,
+  UpdateUserPayload,
+  UserListItem,
 } from "./types";
 
 // Always use relative URLs. Next.js rewrites proxy /api/* to the backend.
@@ -28,7 +32,14 @@ import type {
 // (all calls happen in useEffect / event handlers, which are client-only).
 export const baseURL = "";
 
+export const PASSWORD_MIN_LENGTH = 8;
+
 export const api = axios.create({ baseURL: "" });
+
+export function extractErrorDetail(err: unknown): string | null {
+  const axiosError = err as AxiosError<{ detail?: string }>;
+  return axiosError.response?.data?.detail ?? null;
+}
 
 const AUTH_TOKEN_KEY = "septum_auth_token";
 
@@ -58,7 +69,7 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401 && typeof window !== "undefined") {
       clearAuthToken();
-      if (!window.location.pathname.startsWith("/login") && !window.location.pathname.startsWith("/register")) {
+      if (!window.location.pathname.startsWith("/login")) {
         window.location.href = "/login";
       }
     }
@@ -455,17 +466,6 @@ export async function addChatMessage(
 
 // --- Auth ---
 
-export async function authRegister(
-  email: string,
-  password: string
-): Promise<AuthTokenResponse> {
-  const { data } = await api.post<AuthTokenResponse>("/api/auth/register", {
-    email,
-    password,
-  });
-  return data;
-}
-
 export async function authLogin(
   email: string,
   password: string
@@ -480,5 +480,56 @@ export async function authLogin(
 export async function authMe(): Promise<AuthUser> {
   const { data } = await api.get<AuthUser>("/api/auth/me");
   return data;
+}
+
+export async function authChangePassword(
+  payload: ChangePasswordPayload
+): Promise<AuthTokenResponse> {
+  const { data } = await api.post<AuthTokenResponse>(
+    "/api/auth/change-password",
+    payload
+  );
+  return data;
+}
+
+
+// --- User management (admin) ---
+
+export async function listUsers(): Promise<UserListItem[]> {
+  const { data } = await api.get<UserListItem[]>("/api/users");
+  return data;
+}
+
+export async function createUser(
+  payload: CreateUserPayload
+): Promise<UserListItem> {
+  const { data } = await api.post<UserListItem>("/api/users", payload);
+  return data;
+}
+
+export async function updateUser(
+  userId: number,
+  payload: UpdateUserPayload
+): Promise<UserListItem> {
+  const { data } = await api.patch<UserListItem>(
+    `/api/users/${userId}`,
+    payload
+  );
+  return data;
+}
+
+export async function resetUserPassword(
+  userId: number,
+  newPassword: string
+): Promise<UserListItem> {
+  const { data } = await api.post<UserListItem>(
+    `/api/users/${userId}/reset-password`,
+    { new_password: newPassword }
+  );
+  return data;
+}
+
+export async function deleteUser(userId: number): Promise<void> {
+  await api.delete(`/api/users/${userId}`);
 }
 

@@ -8,20 +8,27 @@ import { ArrowUpCircle } from "lucide-react";
 import api, { fetchErrorLogs } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { useLanguage } from "@/lib/language";
+import { ROLE_LABEL_KEYS, type AuthUser, type UserRole } from "@/lib/types";
 
 type NavItemDef = {
   href: string;
   label: string;
   exact?: boolean;
+  allowedRoles: readonly UserRole[];
 };
 
+const ALL_ROLES: readonly UserRole[] = ["admin", "editor", "viewer"];
+const ADMIN_EDITOR: readonly UserRole[] = ["admin", "editor"];
+const ADMIN_ONLY: readonly UserRole[] = ["admin"];
+
 const navItems: NavItemDef[] = [
-  { href: "/chat", label: "Chat", exact: true },
-  { href: "/documents", label: "Documents" },
-  { href: "/settings", label: "Settings", exact: true },
-  { href: "/settings/regulations", label: "Regulations" },
-  { href: "/settings/audit", label: "Audit Trail", exact: true },
-  { href: "/settings/error-logs", label: "Error Logs", exact: true }
+  { href: "/chat", label: "Chat", exact: true, allowedRoles: ALL_ROLES },
+  { href: "/documents", label: "Documents", allowedRoles: ADMIN_EDITOR },
+  { href: "/settings", label: "Settings", exact: true, allowedRoles: ADMIN_ONLY },
+  { href: "/settings/regulations", label: "Regulations", allowedRoles: ADMIN_ONLY },
+  { href: "/settings/users", label: "Users", allowedRoles: ADMIN_ONLY },
+  { href: "/settings/audit", label: "Audit Trail", exact: true, allowedRoles: ADMIN_ONLY },
+  { href: "/settings/error-logs", label: "Error Logs", exact: true, allowedRoles: ADMIN_ONLY }
 ];
 
 const ERROR_LOGS_HREF = "/settings/error-logs";
@@ -101,11 +108,19 @@ function LanguageSelector() {
   );
 }
 
-export function Sidebar() {
+interface SidebarProps {
+  currentUser: AuthUser | null;
+}
+
+export function Sidebar({ currentUser }: SidebarProps) {
   const pathname = usePathname();
   const t = useI18n();
   const [isNavOpen, setIsNavOpen] = useState<boolean>(false);
   const [errorLogCount, setErrorLogCount] = useState<number>(0);
+
+  const visibleNavItems = navItems.filter((item) =>
+    currentUser ? item.allowedRoles.includes(currentUser.role) : false
+  );
 
   const refreshErrorLogCount = () => {
     fetchErrorLogs({ page: 1, page_size: 1 })
@@ -195,7 +210,7 @@ export function Sidebar() {
           }`}
         >
           <div className="mt-1 flex flex-col gap-1">
-            {navItems.map(item => (
+            {visibleNavItems.map(item => (
               <NavLink
                 key={item.href}
                 item={item}
@@ -237,7 +252,7 @@ export function Sidebar() {
             </div>
           </div>
         <nav className="flex-1 space-y-1 px-2 py-4">
-          {navItems.map(item => (
+          {visibleNavItems.map(item => (
             <NavLink
               key={item.href}
               item={item}
@@ -246,6 +261,12 @@ export function Sidebar() {
             />
           ))}
         </nav>
+        {currentUser && (
+          <div className="border-t border-slate-800 px-4 py-2 text-[11px] text-slate-500">
+            <div className="truncate text-slate-300">{currentUser.email}</div>
+            <div>{t(ROLE_LABEL_KEYS[currentUser.role])}</div>
+          </div>
+        )}
         <div className="border-t border-slate-800 px-4 py-3 text-xs text-slate-500 space-y-2">
           {updateInfo && (
             <div className="rounded-md border border-sky-800 bg-sky-950/50 p-2 space-y-1">

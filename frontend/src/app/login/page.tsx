@@ -78,13 +78,6 @@ export default function LoginPage() {
             {t("auth.login.button")}
           </button>
         </form>
-
-        <p className="mt-6 text-center text-xs text-slate-400">
-          {t("auth.login.noAccount")}{" "}
-          <a href="/register" className="text-sky-400 hover:text-sky-300">
-            {t("auth.login.register")}
-          </a>
-        </p>
       </div>
     </div>
   );
