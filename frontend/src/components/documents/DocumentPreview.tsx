@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
-import api, { baseURL, getAuthToken, getEntityDetections } from "@/lib/api";
+import api, { getEntityDetections } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { getDocumentDisplayName } from "@/lib/utils";
 import { CopyButton } from "@/components/common/CopyButton";
@@ -50,6 +50,8 @@ export function DocumentPreview({
   const [schemaDirty, setSchemaDirty] = useState(false);
 
   const [pdfPage, setPdfPage] = useState<number | null>(null);
+  const [rawObjectUrl, setRawObjectUrl] = useState<string | null>(null);
+  const [rawLoadError, setRawLoadError] = useState<string | null>(null);
   const textScrollRef = useRef<HTMLDivElement>(null);
   const entityListScrollRef = useRef<HTMLDivElement>(null);
 
@@ -211,6 +213,40 @@ export function DocumentPreview({
     };
   }, [open, document?.id, document?.file_format, document?.chunk_count]);
 
+  useEffect(() => {
+    if (!open || !document) {
+      setRawObjectUrl(null);
+      setRawLoadError(null);
+      return;
+    }
+
+    let cancelled = false;
+    let createdUrl: string | null = null;
+
+    (async () => {
+      try {
+        const response = await api.get<Blob>(
+          `/api/documents/${document.id}/raw`,
+          { responseType: "blob" }
+        );
+        if (cancelled) return;
+        createdUrl = URL.createObjectURL(response.data);
+        setRawObjectUrl(createdUrl);
+        setRawLoadError(null);
+      } catch {
+        if (!cancelled) {
+          setRawObjectUrl(null);
+          setRawLoadError(t("errors.preview.document"));
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [open, document?.id, t]);
+
   if (!open || !document) {
     return null;
   }
@@ -226,7 +262,6 @@ export function DocumentPreview({
       : document.transcription_text ?? "";
 
   const fmt = document.file_format.toLowerCase();
-  const rawUrl = `${baseURL}/api/documents/${document.id}/raw`;
   const docTitle = getDocumentDisplayName(document);
   const hasSideBySide =
     !isTabularDocument && (fmt === "pdf" || fmt === "image" || fmt === "audio");
@@ -277,18 +312,32 @@ export function DocumentPreview({
   const loadingText = t("preview.document.loading");
   const emptyText = t("preview.document.empty");
 
-  const pdfSrc = pdfPage != null
-    ? `${rawUrl}#toolbar=1&page=${pdfPage}`
-    : `${rawUrl}#toolbar=1`;
+  const pdfSrc = rawObjectUrl
+    ? pdfPage != null
+      ? `${rawObjectUrl}#toolbar=1&page=${pdfPage}`
+      : `${rawObjectUrl}#toolbar=1`
+    : null;
 
   const renderOriginalDocument = () => {
+    if (rawLoadError) {
+      return (
+        <div className="rounded-md border border-red-500/40 bg-red-950/40 p-3 text-xs text-red-200">
+          {rawLoadError}
+        </div>
+      );
+    }
+    if (!rawObjectUrl) {
+      return (
+        <div className="text-xs text-slate-400">{loadingText}</div>
+      );
+    }
     if (fmt === "audio") {
       return (
         <div className="flex flex-col gap-2">
           <div className="text-xs font-medium text-slate-300">
             {t("documents.preview.audioPlayer")}
           </div>
-          <audio controls src={rawUrl} className="w-full">
+          <audio controls src={rawObjectUrl} className="w-full">
             {t("documents.preview.audioUnsupported")}
           </audio>
         </div>
@@ -301,14 +350,14 @@ export function DocumentPreview({
             {t("documents.preview.originalDocument")}
           </div>
           <img
-            src={rawUrl}
+            src={rawObjectUrl}
             alt={docTitle}
             className="w-full rounded-md border border-slate-800 object-contain"
           />
         </div>
       );
     }
-    if (fmt === "pdf") {
+    if (fmt === "pdf" && pdfSrc) {
       return (
         <div className="flex h-full flex-col gap-2">
           <div className="text-xs font-medium text-slate-300">
@@ -329,7 +378,7 @@ export function DocumentPreview({
             {t("documents.preview.originalDocument")}
           </div>
           <a
-            href={rawUrl}
+            href={rawObjectUrl}
             download={document.original_filename}
             className="inline-flex items-center gap-2 rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700 transition-colors w-fit"
           >
