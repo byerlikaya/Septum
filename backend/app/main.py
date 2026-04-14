@@ -24,7 +24,8 @@ from typing import Any  # noqa: E402
 
 from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from fastapi.responses import JSONResponse  # noqa: E402
+from fastapi.openapi.docs import get_redoc_html  # noqa: E402
+from fastapi.responses import HTMLResponse, JSONResponse  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 from starlette import status as http_status  # noqa: E402
 
@@ -149,7 +150,20 @@ app = FastAPI(
     ),
     version=_app_version(),
     lifespan=lifespan,
+    # FastAPI's default /redoc embeds `redoc@next`, which is the unstable
+    # v3 alpha dist-tag and currently renders as a blank page. We serve
+    # our own /redoc pinned to v2 (the stable line) instead.
+    redoc_url=None,
 )
+
+
+@app.get("/redoc", include_in_schema=False, response_class=HTMLResponse)
+async def redoc_html() -> HTMLResponse:
+    return get_redoc_html(
+        openapi_url=app.openapi_url or "/openapi.json",
+        title=f"{app.title} - ReDoc",
+        redoc_js_url="https://cdn.jsdelivr.net/npm/redoc@2/bundles/redoc.standalone.js",
+    )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
