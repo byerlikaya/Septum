@@ -13,6 +13,7 @@ import { PrivacyTab } from "@/components/settings/PrivacyTab";
 import { RagTab } from "@/components/settings/RagTab";
 import { IngestionTab } from "@/components/settings/IngestionTab";
 import { InfrastructureTab } from "@/components/settings/InfrastructureTab";
+import { NerModelsTab } from "@/components/settings/NerModelsTab";
 
 type SettingsResponse = AppSettingsResponse;
 
@@ -21,6 +22,7 @@ type SettingsTab =
   | "privacy"
   | "rag"
   | "ingestion"
+  | "ner-models"
   | "infrastructure";
 
 export default function SettingsPage() {
@@ -193,6 +195,14 @@ export default function SettingsPage() {
             isSaving={isSaving}
           />
         );
+      case "ner-models":
+        return (
+          <NerModelsTab
+            settings={settings}
+            onChange={updateField}
+            isSaving={isSaving}
+          />
+        );
       case "infrastructure":
         return <InfrastructureTab />;
       default:
@@ -236,6 +246,12 @@ export default function SettingsPage() {
             description={t("settings.tabs.ingestion.description")}
             active={activeTab === "ingestion"}
             onClick={() => setActiveTab("ingestion")}
+          />
+          <SettingsTabButton
+            label={t("settings.tabs.ner.label")}
+            description={t("settings.tabs.ner.description")}
+            active={activeTab === "ner-models"}
+            onClick={() => setActiveTab("ner-models")}
           />
           <SettingsTabButton
             label={t("settings.tabs.infrastructure.label")}
