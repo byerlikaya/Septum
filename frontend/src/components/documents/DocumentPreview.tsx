@@ -64,6 +64,24 @@ export function DocumentPreview({
     );
   }, [detections, activeFilter]);
 
+  // Chip bar counts must mirror the "Detected entities" panel: one entry per
+  // entity_detections row. anonSummary groups by distinct anon_map *values*
+  // (one entry per unique original text), which is a coarser count and so
+  // disagreed with the detection list on every document that contained a
+  // repeated PII token (e.g. a NATIONAL_ID appearing in header + body +
+  // footer). Fall back to anonSummary only when there are no detection rows
+  // at all — i.e. legacy documents ingested before entity_detections existed.
+  const detectionSummary = useMemo(() => {
+    const entities: Record<string, number> = {};
+    for (const d of detections) {
+      entities[d.entity_type] = (entities[d.entity_type] ?? 0) + 1;
+    }
+    return { entities, total: detections.length };
+  }, [detections]);
+
+  const chipSummary =
+    detections.length > 0 ? detectionSummary : anonSummary;
+
   const activeDetectionId = filteredDetections[occurrenceIndex]?.id ?? null;
 
   const scrollToDetection = useCallback((detectionId: number) => {
@@ -534,12 +552,12 @@ export function DocumentPreview({
             </div>
           )}
           {/* Sticky entity filter bar */}
-          {!isLoading && !error && anonSummary && anonSummary.total > 0 && (
+          {!isLoading && !error && chipSummary && chipSummary.total > 0 && (
             <div className="sticky top-0 z-10 -mx-4 mb-4 border-b border-slate-700 bg-slate-950 px-4 pb-3 pt-1">
               <div className="mb-2 text-xs font-medium text-slate-300">
                 {detections.length > 0
                   ? t("documents.preview.entityHighlights")
-                  : t("documents.preview.anonSummary")} ({anonSummary.total})
+                  : t("documents.preview.anonSummary")} ({chipSummary.total})
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
                 {detections.length > 0 && (
@@ -555,7 +573,7 @@ export function DocumentPreview({
                     {t("documents.preview.allTypes")}
                   </button>
                 )}
-                {Object.entries(anonSummary.entities).map(([type, count]) => (
+                {Object.entries(chipSummary.entities).map(([type, count]) => (
                   <button
                     type="button"
                     key={type}
