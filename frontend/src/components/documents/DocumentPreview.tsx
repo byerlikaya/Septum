@@ -8,6 +8,7 @@ import { useI18n } from "@/lib/i18n";
 import { getDocumentDisplayName } from "@/lib/utils";
 import { CopyButton } from "@/components/common/CopyButton";
 import {
+  getEntityBadgeClasses,
   getEntityFilledClasses,
   getEntityOutlineClasses,
 } from "@/lib/entityColors";
@@ -573,26 +574,33 @@ export function DocumentPreview({
                     {t("documents.preview.allTypes")}
                   </button>
                 )}
-                {Object.entries(chipSummary.entities).map(([type, count]) => (
-                  <button
-                    type="button"
-                    key={type}
-                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                      detections.length > 0 && activeFilter === type
-                        ? "bg-sky-900/60 border-sky-500/60 text-sky-200"
-                        : detections.length > 0
-                          ? "bg-slate-800/40 border-slate-700/40 text-slate-400 hover:text-slate-200"
-                          : "bg-sky-900/40 border-sky-700/40 text-sky-300 cursor-default"
-                    }`}
-                    onClick={() => {
-                      if (detections.length > 0) {
-                        setActiveFilter(prev => prev === type ? null : type);
-                      }
-                    }}
-                  >
-                    {type} <span className="opacity-70">{count}</span>
-                  </button>
-                ))}
+                {Object.entries(chipSummary.entities).map(([type, count]) => {
+                  const isActive =
+                    detections.length > 0 && activeFilter === type;
+                  const colorClasses = isActive
+                    ? getEntityFilledClasses(type)
+                    : getEntityBadgeClasses(type);
+                  const interactionClasses =
+                    detections.length > 0
+                      ? "cursor-pointer hover:brightness-125"
+                      : "cursor-default";
+                  return (
+                    <button
+                      type="button"
+                      key={type}
+                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-all ${colorClasses} ${interactionClasses}`}
+                      onClick={() => {
+                        if (detections.length > 0) {
+                          setActiveFilter((prev) =>
+                            prev === type ? null : type
+                          );
+                        }
+                      }}
+                    >
+                      {type} <span className="opacity-70">{count}</span>
+                    </button>
+                  );
+                })}
 
                 {/* Occurrence navigation */}
                 {filteredDetections.length > 0 && (
