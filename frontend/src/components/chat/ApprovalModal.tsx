@@ -83,7 +83,15 @@ export function ApprovalModal({
   }, []);
 
   useEffect(() => {
-    if (!open || !sessionId) return;
+    // Run state sync whenever the modal becomes open, regardless of
+    // sessionId. The read-only review modal (for inspecting a past
+    // approved/rejected turn) passes sessionId={null} by design — gating
+    // this effect on sessionId left currentAssembledPrompt stuck at its
+    // first-mount value ("") so the "Bulut LLM'e gönderilecek tam prompt"
+    // panel showed the empty-state hint for every past turn. The live
+    // preview refresh (refreshAssembledPrompt) is still gated on sessionId
+    // separately, so read-only mode never calls the preview endpoint.
+    if (!open) return;
     const initialTexts = chunks.map((c) => c.text);
     setEditedTexts(initialTexts);
     latestEditedTextsRef.current = initialTexts;
