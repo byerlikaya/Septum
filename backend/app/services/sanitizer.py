@@ -68,7 +68,6 @@ from ..models.settings import AppSettings
 from ..utils.text_utils import (
     normalize_for_comparison,
     normalize_unicode,
-    starts_with_uppercase,
 )
 from .national_ids import IBANValidator
 from .non_pii_filter import NonPiiFilter, SpanView
@@ -1486,9 +1485,16 @@ class PIISanitizer:
                     continue
 
             if r.entity_type == "LOCATION":
-                span_text = text[r.start : r.end].strip()
-                if span_text and not starts_with_uppercase(span_text):
-                    continue
+                # Mirror _map_ner_label: Presidio's built-in SpacyRecognizer
+                # maps spaCy GPE to LOCATION, and with en_core_web_sm
+                # running over non-English text it produces stochastic
+                # mis-fires on any Title Case OOV token — "Doğum",
+                # "Uyruk", "TARAFLAR", "T.C." in Turkish and equivalents
+                # in every other language. Address PII is captured by the
+                # deterministic StructuralAddressRecognizer and per-regulation
+                # POSTAL_ADDRESS / STREET_ADDRESS recognizers, so there is no
+                # legitimate LOCATION source left on the Presidio side either.
+                continue
 
             filtered.append(r)
         return filtered
