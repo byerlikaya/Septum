@@ -1880,9 +1880,14 @@ class PIISanitizer:
         """Convert HuggingFace NER pipeline outputs to DetectedSpan.
 
         Applies a uniform confidence threshold of 0.85 for all languages
-        to limit false positives. Spans are snapped to word boundaries to
-        prevent mid-word replacements caused by subword tokenisation.
+        to limit false positives. Spans are snapped to word boundaries
+        to prevent mid-word replacements caused by subword tokenisation.
         Spans shorter than 3 characters are discarded as unreliable.
+
+        LOCATION entities are intentionally not produced here — see
+        ``_map_ner_label`` for the rationale (stochastic NER mis-fires on
+        every language, address PII is handled by the deterministic
+        structural recognizers instead).
         """
         threshold = 0.85
         min_span_len = 3
@@ -1907,9 +1912,6 @@ class PIISanitizer:
             if len(span_text) < min_span_len:
                 continue
 
-            if entity_type == "LOCATION" and span_text and not starts_with_uppercase(span_text):
-                continue
-
             if entity_type == "ORGANIZATION_NAME":
                 words = span_text.split()
                 if len(words) < 2 and score < 0.95:
@@ -1929,21 +1931,31 @@ class PIISanitizer:
     def _map_ner_label(label: str) -> Optional[str]:
         """Map model-specific NER labels to global entity types.
 
-        PERSON_NAME, EMAIL_ADDRESS and LOCATION are mapped from NER output.
-        LOCATION spans are kept so that address-related entity types
-        (POSTAL_ADDRESS, STREET_ADDRESS, CITY, LOCATION) declared by active
-        regulations can be matched.  The policy entity-type filter applied
-        after NER (see ``sanitize``) ensures these spans are only used when
-        the active regulation actually requires address detection.
-        ORG is still suppressed as it generates excessive false positives.
+        Only PERSON_NAME and EMAIL_ADDRESS are mapped from NER output.
+        LOC is *not* mapped to LOCATION: multilingual NER models
+        (XLM-RoBERTa variants) are stochastic and produce locale-specific
+        false positives on every language Septum supports — form-field
+        labels, contract headers, common nouns. Chasing those per-language
+        via stopword lists or gazetteers does not scale across the 50+
+        languages the middleware must handle.
+
+        Address PII is instead captured by deterministic, language-agnostic
+        structural recognizers: ``StructuralAddressRecognizer`` (labeled
+        fields + abbreviation + numeric density) and per-regulation
+        POSTAL_ADDRESS / STREET_ADDRESS recognizers in
+        ``services/recognizers/{regulation_id}/``. Standalone mentions of
+        cities or countries in free text are not treated as PII on their
+        own because, under GDPR Art. 4(1) and equivalent, a place name
+        alone does not identify a natural person — the identification
+        comes from the PERSON_NAME anchor, which NER continues to detect.
+
+        ORG is also suppressed as it generates excessive false positives.
         """
         upper = label.upper()
         if "PER" in upper or upper.startswith("B-PER") or upper.startswith("I-PER"):
             return "PERSON_NAME"
         if "EMAIL" in upper:
             return "EMAIL_ADDRESS"
-        if "LOC" in upper or upper.startswith("B-LOC") or upper.startswith("I-LOC"):
-            return "LOCATION"
         if "ORG" in upper or upper.startswith("B-ORG") or upper.startswith("I-ORG"):
             return "ORGANIZATION_NAME"
         return None

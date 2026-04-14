@@ -333,29 +333,40 @@ def test_coverage_validation_logs_uncovered_types(
     assert not any("PERSON_NAME" in msg for msg in caplog.messages)
 
 
-def test_ner_location_rejects_lowercase_common_words(sanitizer: PIISanitizer) -> None:
-    """NER LOCATION results for lowercase words must be rejected as false positives."""
-    # Simulate NER output: common Turkish words tagged as LOC with high confidence
-    fake_ner_results = [
-        {"entity_group": "LOC", "start": 0, "end": 5, "score": 0.95},   # "kabul"
-        {"entity_group": "LOC", "start": 6, "end": 10, "score": 0.92},  # "gibi"
-        {"entity_group": "LOC", "start": 11, "end": 16, "score": 0.90}, # "sözlü"
-    ]
-    text = "kabul gibi sözlü"
-    spans = sanitizer._from_ner_results(fake_ner_results, text, "tr")
-    assert len(spans) == 0, f"Expected 0 spans, got {len(spans)}: {[(text[s.start:s.end], s.entity_type) for s in spans]}"
+def test_ner_loc_output_is_dropped_entirely(sanitizer: PIISanitizer) -> None:
+    """NER LOC output must never become a LOCATION span, in any language.
 
-
-def test_ner_location_keeps_capitalized_place_names(sanitizer: PIISanitizer) -> None:
-    """NER LOCATION results for capitalized place names must be kept."""
+    Stochastic multilingual NER models mis-tag common nouns and form-field
+    labels as LOC in every language Septum supports, and chasing those
+    per-language via stopword lists does not scale. Address PII is
+    captured by the deterministic ``StructuralAddressRecognizer`` and by
+    per-regulation POSTAL_ADDRESS / STREET_ADDRESS recognizers instead,
+    so ``_map_ner_label`` returns ``None`` for LOC. The common-noun case,
+    the real-city case, and the ALL-CAPS header case all collapse to the
+    same assertion — zero LOCATION spans coming out of NER.
+    """
     fake_ner_results = [
-        {"entity_group": "LOC", "start": 0, "end": 8, "score": 0.95},   # "İstanbul"
-        {"entity_group": "LOC", "start": 9, "end": 16, "score": 0.92},  # "Kadıköy"
+        # Common-noun false positives (lowercase, title-case, ALL CAPS)
+        {"entity_group": "LOC", "start": 0, "end": 5, "score": 0.95},    # "kabul"
+        {"entity_group": "LOC", "start": 6, "end": 11, "score": 0.95},   # "Doğum"
+        {"entity_group": "LOC", "start": 12, "end": 20, "score": 0.95},  # "TARAFLAR"
+        # Real cities (now also dropped at the NER layer — structural
+        # address recognizers capture them when they appear inside an
+        # actual address block).
+        {"entity_group": "LOC", "start": 21, "end": 29, "score": 0.98},  # "İstanbul"
+        {"entity_group": "LOC", "start": 30, "end": 36, "score": 0.98},  # "Berlin"
     ]
-    text = "İstanbul Kadıköy"
+    text = "kabul Doğum TARAFLAR İstanbul Berlin"
     spans = sanitizer._from_ner_results(fake_ner_results, text, "tr")
-    assert len(spans) == 2
-    assert all(s.entity_type == "LOCATION" for s in spans)
+    assert spans == []
+
+    # Sanity check: other NER labels still go through.
+    person_results = [
+        {"entity_group": "PER", "start": 0, "end": 5, "score": 0.95},
+    ]
+    person_spans = sanitizer._from_ner_results(person_results, "Ahmet", "tr")
+    assert len(person_spans) == 1
+    assert person_spans[0].entity_type == "PERSON_NAME"
 
 
 # ── New recognizer tests ──
