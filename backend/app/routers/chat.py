@@ -867,12 +867,33 @@ async def chat_ask(
                     )
 
                     async with _phase_timer(session_id, "approval_wait"):
-                        decision = await gate.wait_for_approval(
-                            session_id,
-                            timeout=getattr(
-                                settings, "approval_timeout_seconds", 300
-                            ),
+                        decision_task = asyncio.create_task(
+                            gate.wait_for_approval(
+                                session_id,
+                                timeout=getattr(
+                                    settings, "approval_timeout_seconds", 300
+                                ),
+                            )
                         )
+                        # Emit an SSE comment line every 15s while waiting so
+                        # the TCP socket stays active. Without this, a slow
+                        # user decision lets Next.js' proxy (or any other
+                        # intermediate hop) drop the idle connection, and the
+                        # answer_chunk events that follow never reach the
+                        # browser — the UI stays stuck on "Thinking…".
+                        try:
+                            while True:
+                                done, _ = await asyncio.wait(
+                                    {decision_task}, timeout=15.0
+                                )
+                                if decision_task in done:
+                                    decision = decision_task.result()
+                                    break
+                                yield b": keepalive\n\n"
+                        except BaseException:
+                            if not decision_task.done():
+                                decision_task.cancel()
+                            raise
 
                     if not decision.approved:
                         yield _encode_sse(
