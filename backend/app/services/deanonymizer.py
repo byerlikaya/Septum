@@ -1,28 +1,29 @@
 from __future__ import annotations
 
 """
-Local de-anonymization strategies for Septum.
+Backward-compatibility shim over :mod:`septum_core.unmasker`.
 
-This module is responsible for turning LLM responses that still contain
-placeholders (for example ``[PERSON_NAME_1]``) back into human-readable
-answers using only local data. It never sends the anonymization map or any
-other sensitive metadata to remote cloud services.
+The backend-side :class:`Deanonymizer` keeps the original dispatch on
+``AppSettings.deanon_strategy``:
 
-Two strategies are supported via ``AppSettings.deanon_strategy``:
+* ``simple`` delegates to :class:`septum_core.unmasker.Unmasker` and
+  does direct string replacement with no network calls.
+* ``ollama`` sends the masked LLM response plus a ``placeholder →
+  value`` map to the local Ollama endpoint; this path stays in the
+  backend because septum-core cannot import ``httpx`` or any other
+  network client.
 
-* ``simple`` – direct string replacement of placeholders using the in-memory
-  :class:`AnonymizationMap`.
-* ``ollama`` – sends the masked LLM response and a placeholder→value map to
-  local Ollama; the model returns the final text with placeholders replaced.
-  All processing is local (OLLAMA_BASE_URL).
+All processing is local (OLLAMA_BASE_URL) in either strategy. The
+anonymization map is never forwarded to a cloud provider.
 """
 
 import asyncio
 import json
-import re
+
+from septum_core.anonymization_map import AnonymizationMap
+from septum_core.unmasker import Unmasker
 
 from ..models.settings import AppSettings
-from .anonymization_map import AnonymizationMap
 from .ollama_client import call_ollama_async, use_ollama_enabled
 from .prompts import PromptCatalog
 
@@ -32,6 +33,7 @@ class Deanonymizer:
 
     def __init__(self, settings: AppSettings) -> None:
         self._settings = settings
+        self._unmasker = Unmasker()
 
     async def deanonymize(self, text: str, anon_map: AnonymizationMap) -> str:
         """Return a de-anonymized version of ``text`` using the configured strategy.
@@ -44,36 +46,11 @@ class Deanonymizer:
 
         strategy = (self._settings.deanon_strategy or "simple").strip().lower()
         if strategy == "simple":
-            return self._simple(text, anon_map)
+            return self._unmasker.unmask(text, anon_map)
         if strategy == "ollama" and use_ollama_enabled():
             return await self._ollama(text, anon_map)
 
-        return self._simple(text, anon_map)
-
-    _PLACEHOLDER_SHORT_ALIASES = (
-        (re.compile(r"^\[PERSON_NAME_(\d+)\]$"), "PERSON"),
-        (re.compile(r"^\[ORGANIZATION_NAME_(\d+)\]$"), "ORGANIZATION"),
-    )
-
-    def _simple(self, text: str, anon_map: AnonymizationMap) -> str:
-        """Simple placeholder replacement using the anonymization map."""
-        if not anon_map.entity_map:
-            return text
-
-        result = text
-        for original, placeholder in anon_map.entity_map.items():
-            if not placeholder:
-                continue
-            if placeholder in result:
-                result = result.replace(placeholder, original)
-            for pattern, short_prefix in self._PLACEHOLDER_SHORT_ALIASES:
-                match = pattern.match(placeholder)
-                if match:
-                    short_form = f"[{short_prefix}_{match.group(1)}]"
-                    if short_form in result:
-                        result = result.replace(short_form, original)
-                    break
-        return result
+        return self._unmasker.unmask(text, anon_map)
 
     async def _ollama(self, text: str, anon_map: AnonymizationMap) -> str:
         """De-anonymize using local Ollama: send placeholder→value map and masked text.
@@ -86,7 +63,7 @@ class Deanonymizer:
             if placeholder and original:
                 placeholder_to_original[placeholder] = original
         if not placeholder_to_original:
-            return self._simple(text, anon_map)
+            return self._unmasker.unmask(text, anon_map)
 
         entity_map_json = json.dumps(placeholder_to_original, ensure_ascii=False)
         prompt = PromptCatalog.deanonymizer_ollama(entity_map_json, text)
@@ -97,7 +74,7 @@ class Deanonymizer:
         )
         if result and result.strip():
             return result.strip()
-        return self._simple(text, anon_map)
+        return self._unmasker.unmask(text, anon_map)
 
 
 class DeAnonymizer:
@@ -133,3 +110,4 @@ class DeAnonymizer:
         return asyncio.run(self._inner.deanonymize(text, anon_map=amap))
 
 
+__all__ = ["Deanonymizer", "DeAnonymizer"]
