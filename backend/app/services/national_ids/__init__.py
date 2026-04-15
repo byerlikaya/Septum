@@ -1,13 +1,21 @@
+"""Backward-compatibility shim.
+
+The implementation of the national ID validators now lives in
+:mod:`septum_core.national_ids`. This module re-exports the public API so
+existing ``from app.services.national_ids`` imports continue to work.
+"""
+
 from __future__ import annotations
 
-"""Country-specific national ID validators."""
-
-from .aadhaar import AadhaarValidator
-from .cpf import CPFValidator
-from .iban import IBANValidator
-from .ssn import SSNValidator
-from .tckn import TCKNValidator
-from .validator_base import BaseIDValidator, ValidationResult
+from septum_core.national_ids import (  # noqa: F401
+    AadhaarValidator,
+    BaseIDValidator,
+    CPFValidator,
+    IBANValidator,
+    SSNValidator,
+    TCKNValidator,
+    ValidationResult,
+)
 
 __all__ = [
     "BaseIDValidator",
@@ -18,6 +26,3 @@ __all__ = [
     "AadhaarValidator",
     "IBANValidator",
 ]
-
-
-
