@@ -15,14 +15,15 @@ from typing import TYPE_CHECKING
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from ..services.api_key_service import PREFIX as _API_KEY_PREFIX
+
 if TYPE_CHECKING:
     from starlette.requests import Request
 
     from ..bootstrap import BootstrapConfig
 
-# sk-septum- is 10 chars; prefix is the next 8
-_API_KEY_PREFIX_OFFSET = 10
-_API_KEY_PREFIX_END = 18
+_API_KEY_PREFIX_OFFSET = len(_API_KEY_PREFIX)
+_API_KEY_PREFIX_END = _API_KEY_PREFIX_OFFSET + 8
 
 
 def get_rate_limit_key(request: Request) -> str:

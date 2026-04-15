@@ -31,13 +31,22 @@ async def get_current_user(
 ) -> User:
     """Return the authenticated ``User``, or raise 401.
 
-    Fast path: if ``AuthMiddleware`` already resolved the user, return
-    it directly without re-decoding the token.
+    Fast path: if ``AuthMiddleware`` already resolved the identity,
+    load the ``User`` by the stashed ``auth_user_id`` on the route's
+    own DB session (avoiding detached-object issues from a separate
+    middleware session).
     """
-    # Fast path — middleware already resolved the user.
-    middleware_user = getattr(request.state, "user", None)
-    if middleware_user is not None:
-        return middleware_user
+    # Fast path — middleware already identified the user.
+    auth_user_id = getattr(request.state, "auth_user_id", None)
+    if auth_user_id is not None:
+        result = await db.execute(select(User).where(User.id == auth_user_id))
+        user = result.scalar_one_or_none()
+        if user is not None and user.is_active:
+            return user
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+        )
 
     # Fallback — direct JWT decode (tests, middleware-less setups).
     if token is None:
@@ -76,10 +85,12 @@ async def get_optional_user(
     Used for endpoints that work both authenticated and anonymously
     (backward compatibility during migration).
     """
-    # Fast path — middleware already resolved the user.
-    middleware_user = getattr(request.state, "user", None)
-    if middleware_user is not None:
-        return middleware_user
+    # Fast path — middleware already identified the user.
+    auth_user_id = getattr(request.state, "auth_user_id", None)
+    if auth_user_id is not None:
+        result = await db.execute(select(User).where(User.id == auth_user_id))
+        user = result.scalar_one_or_none()
+        return user if user is not None and user.is_active else None
 
     if token is None:
         return None

@@ -20,11 +20,6 @@ router = APIRouter(prefix="/api/api-keys", tags=["api-keys"])
 _limiter = get_limiter()
 
 
-# ---------------------------------------------------------------------------
-# Request / response schemas
-# ---------------------------------------------------------------------------
-
-
 class CreateApiKeyRequest(BaseModel):
     """Payload for creating a new API key."""
 
@@ -48,11 +43,6 @@ class ApiKeyCreatedResponse(ApiKeyResponse):
     """Returned once at creation — includes the raw key."""
 
     raw_key: str
-
-
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
 
 
 @router.post(

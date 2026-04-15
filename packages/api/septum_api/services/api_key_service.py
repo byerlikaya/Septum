@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import secrets
 from datetime import datetime, timezone
 from typing import Sequence
@@ -12,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.api_key import ApiKey
 from ..models.user import User
+from ..utils.crypto import hash_text
 
 PREFIX = "sk-septum-"
 _RAW_KEY_BYTES = 32
@@ -20,11 +20,6 @@ _RAW_KEY_BYTES = 32
 def _generate_raw_key() -> str:
     """Return a fresh ``sk-septum-<64 hex chars>`` key."""
     return PREFIX + secrets.token_hex(_RAW_KEY_BYTES)
-
-
-def _hash_key(raw_key: str) -> str:
-    """SHA-256 hash of the full raw key."""
-    return hashlib.sha256(raw_key.encode()).hexdigest()
 
 
 def _extract_prefix(raw_key: str) -> str:
@@ -48,7 +43,7 @@ async def generate_api_key(
         user_id=user_id,
         name=name,
         prefix=_extract_prefix(raw_key),
-        hashed_key=_hash_key(raw_key),
+        hashed_key=hash_text(raw_key),
         expires_at=expires_at,
     )
     db.add(api_key)
@@ -73,7 +68,7 @@ async def validate_api_key(db: AsyncSession, raw_key: str) -> User | None:
     )
     candidates = result.scalars().all()
 
-    hashed = _hash_key(raw_key)
+    hashed = hash_text(raw_key)
     now = datetime.now(timezone.utc)
 
     for candidate in candidates:
