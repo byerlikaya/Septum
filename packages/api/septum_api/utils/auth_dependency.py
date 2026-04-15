@@ -1,9 +1,17 @@
-"""FastAPI dependency for extracting the current authenticated user from JWT."""
+"""FastAPI dependency for extracting the current authenticated user.
+
+When ``AuthMiddleware`` is active it pre-resolves JWT / API key
+credentials and attaches the ``User`` to ``request.state.user``.
+The dependencies here check that attribute first (fast path) and
+fall back to direct JWT decode for environments without the
+middleware (e.g. unit tests using ``TestClient`` without the full
+middleware stack).
+"""
 
 from __future__ import annotations
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,13 +25,21 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=Fals
 
 
 async def get_current_user(
+    request: Request,
     token: str | None = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Decode the Bearer token and return the corresponding ``User``.
+    """Return the authenticated ``User``, or raise 401.
 
-    Raises 401 if the token is missing, expired, or invalid.
+    Fast path: if ``AuthMiddleware`` already resolved the user, return
+    it directly without re-decoding the token.
     """
+    # Fast path — middleware already resolved the user.
+    middleware_user = getattr(request.state, "user", None)
+    if middleware_user is not None:
+        return middleware_user
+
+    # Fallback — direct JWT decode (tests, middleware-less setups).
     if token is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -51,6 +67,7 @@ async def get_current_user(
 
 
 async def get_optional_user(
+    request: Request,
     token: str | None = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User | None:
@@ -59,10 +76,15 @@ async def get_optional_user(
     Used for endpoints that work both authenticated and anonymously
     (backward compatibility during migration).
     """
+    # Fast path — middleware already resolved the user.
+    middleware_user = getattr(request.state, "user", None)
+    if middleware_user is not None:
+        return middleware_user
+
     if token is None:
         return None
     try:
-        return await get_current_user(token, db)
+        return await get_current_user(request, token, db)
     except HTTPException:
         return None
 
@@ -112,6 +134,7 @@ async def _is_bootstrap_mode(db: AsyncSession) -> bool:
 
 
 async def require_admin_or_bootstrap(
+    request: Request,
     token: str | None = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User | None:
@@ -135,7 +158,7 @@ async def require_admin_or_bootstrap(
     if await _is_bootstrap_mode(db):
         return None
 
-    user = await get_current_user(token, db)
+    user = await get_current_user(request, token, db)
     if user.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -145,6 +168,7 @@ async def require_admin_or_bootstrap(
 
 
 async def require_user_or_bootstrap(
+    request: Request,
     token: str | None = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User | None:
@@ -159,4 +183,4 @@ async def require_user_or_bootstrap(
     """
     if await _is_bootstrap_mode(db):
         return None
-    return await get_current_user(token, db)
+    return await get_current_user(request, token, db)
