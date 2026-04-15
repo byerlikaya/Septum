@@ -4,6 +4,7 @@ All notable changes to this project are documented here in a high‑level, date�
 
 ### 2026-04-15
 
+- **Capture stack traces for 5xx HTTPExceptions in the Error Logs UI**: `http_exception_handler` was routing every HTTPException through `log_backend_message`, which writes `stack_trace=None` and `exception_type=None`, so clicking "Detay" on a 500 landed on a view with no stack frames and no pointer to where the exception was raised. 5xx HTTPExceptions now go through `log_backend_error`, which walks `exc.__traceback__` via `traceback.format_exception` and persists the full stack. 4xx responses still use `log_backend_message` at WARNING level because the stack is noise there rather than signal.
 - **Serve the NER default-model map from the backend instead of hardcoding it twice**: The NER Models settings tab held its own hardcoded copy of the per-language HuggingFace model map, and it drifted out of sync the moment the backend upgraded its own `DEFAULT_MODEL_MAP` (the 2026-03-12 XLM-RoBERTa refresh) — the tab advertised six wrong model IDs, including one that was literally an English model listed under French. New `GET /api/settings/ner-defaults` exposes `NERModelRegistry.DEFAULT_MODEL_MAP` as the single source of truth; the frontend `NerModelsTab` fetches it on mount with a loading and error state, the duplicated `NER_MODEL_DEFAULTS` constant is deleted.
 
 ### 2026-04-14

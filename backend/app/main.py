@@ -211,24 +211,43 @@ async def http_exception_handler(
     """Return standard JSON for HTTPException so routes keep correct status codes.
 
     Also persists an error_log entry for any 4xx/5xx so the Error Logs UI
-    surfaces these failures. Without this, ``raise HTTPException(400, …)``
-    from a route handler returned the correct HTTP response but the user
-    saw an empty Error Logs page (only the global 500-fallback handler
-    used to write to ``errorlog``). 404s are excluded because they are
-    noisy under healthchecks/probes; everything else 4xx+ is logged.
+    surfaces these failures. 404s are excluded because they are noisy
+    under healthchecks/probes; everything else 4xx+ is logged.
+
+    5xx errors are routed through ``log_backend_error`` so the full
+    ``traceback.format_exception`` stack is captured — otherwise the
+    Error Logs "Detay" view lands on an entry with no stack trace, no
+    exception type, and no pointer to the source file that raised, which
+    makes repeat 500s impossible to diagnose in production. 4xx entries
+    still use ``log_backend_message`` (WARNING level, no stack) because
+    they are typically handled validation failures where the stack is
+    noise rather than signal.
     """
     if exc.status_code >= 400 and exc.status_code != http_status.HTTP_404_NOT_FOUND:
         try:
             if engine_is_ready():
                 sm = get_session_maker()
                 async with sm() as db:
-                    await log_backend_message(
-                        db=db,
-                        request=request,
-                        message=str(exc.detail) if exc.detail else exc.__class__.__name__,
-                        level="ERROR" if exc.status_code >= 500 else "WARNING",
-                        status_code=exc.status_code,
-                    )
+                    if exc.status_code >= 500:
+                        await log_backend_error(
+                            db=db,
+                            request=request,
+                            exc=exc,
+                            level="ERROR",
+                            status_code=exc.status_code,
+                        )
+                    else:
+                        await log_backend_message(
+                            db=db,
+                            request=request,
+                            message=(
+                                str(exc.detail)
+                                if exc.detail
+                                else exc.__class__.__name__
+                            ),
+                            level="WARNING",
+                            status_code=exc.status_code,
+                        )
         except Exception:  # noqa: BLE001
             # Logging must never break the response.
             pass
