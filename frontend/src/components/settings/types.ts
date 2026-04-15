@@ -21,17 +21,3 @@ export type SettingsTabProps = {
   isSaving: (key: keyof SettingsUpdatePayload) => boolean;
 };
 
-export const NER_MODEL_DEFAULTS: Record<string, string> = {
-  en: "dslim/bert-base-NER",
-  tr: "savasy/bert-base-turkish-ner-cased",
-  de: "dbmdz/bert-large-cased-finetuned-conll03-german",
-  fr: "Jean-Baptiste/roberta-large-ner-english",
-  es: "mrm8488/bert-spanish-cased-finetuned-ner",
-  nl: "wietsedv/bert-base-dutch-cased-finetuned-ner",
-  zh: "uer/roberta-base-finetuned-cluener2020-chinese",
-  ar: "hatmimoha/arabic-ner-bert",
-  ru: "DeepPavlov/rubert-base-cased-ner",
-  pt: "malduwais/biobert-base-cased-v1.2-finetuned-ner",
-  ja: "cl-tohoku/bert-base-japanese",
-  fallback: "Babelscape/wikineural-multilingual-ner"
-};

@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here in a high‑level, date‑based format.
 
+### 2026-04-15
+
+- **Serve the NER default-model map from the backend instead of hardcoding it twice**: The NER Models settings tab held its own hardcoded copy of the per-language HuggingFace model map, and it drifted out of sync the moment the backend upgraded its own `DEFAULT_MODEL_MAP` (the 2026-03-12 XLM-RoBERTa refresh) — the tab advertised six wrong model IDs, including one that was literally an English model listed under French. New `GET /api/settings/ner-defaults` exposes `NERModelRegistry.DEFAULT_MODEL_MAP` as the single source of truth; the frontend `NerModelsTab` fetches it on mount with a loading and error state, the duplicated `NER_MODEL_DEFAULTS` constant is deleted.
+
 ### 2026-04-14
 
 - **Restore the NER Models settings tab**: The per-language HuggingFace model-ID override tab was hidden in Phase 1 productization while the backend `ner_model_overrides` field and the `NerModelsTab.tsx` component stayed live but orphaned. Re-linked the component from `settings/page.tsx` — import, tab entry, and switch case — so operators can swap a noisy NER model for a specific language without a code release. All strings and the backend wiring were already in place.

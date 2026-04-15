@@ -172,13 +172,16 @@ export const enMessages = {
   "settings.tabs.ner.label": "NER Models",
   "settings.tabs.ner.description": "Language model map",
   "settings.ner.sectionDescription":
-    "View the default mapping from language codes to HuggingFace NER models. Persistence of overrides will be added in a later step.",
+    "Per-language HuggingFace NER model map. Leave a row on its default or type your own model ID to override it for that locale.",
   "settings.ner.table.language": "Language",
   "settings.ner.table.model": "Model",
   "settings.ner.table.actions": "Actions",
   "settings.ner.overrideLabel": "Override model for {lang}",
   "settings.ner.restoreDefault": "Restore default",
   "settings.ner.saveOverrides": "Save overrides",
+  "settings.ner.defaultsLoadError":
+    "Could not load the default NER model map from the backend.",
+  "settings.ner.defaultsEmpty": "No default NER models are registered.",
   "settings.common.saving": "Saving…",
   "settings.common.saved": "Saved",
 

@@ -1,10 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import api from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { DataTable } from "@/components/common/DataTable";
 import type { SettingsTabProps } from "./types";
-import { NER_MODEL_DEFAULTS } from "./types";
+
+// Backend is the single source of truth for the per-language NER default
+// model map (served by ``GET /api/settings/ner-defaults``). The tab used
+// to hold its own hardcoded copy that drifted out of sync the moment the
+// backend upgraded the default models (2026-03-12 XLM-RoBERTa refresh);
+// fetching keeps the UI honest.
+interface NerDefaultsResponse {
+  defaults: Record<string, string>;
+}
 
 export function NerModelsTab({
   settings,
@@ -12,26 +21,49 @@ export function NerModelsTab({
   isSaving
 }: SettingsTabProps) {
   const t = useI18n();
-  const entries = Object.entries(NER_MODEL_DEFAULTS);
+  const [defaults, setDefaults] = useState<Record<string, string>>({});
+  const [defaultsLoading, setDefaultsLoading] = useState(true);
+  const [defaultsError, setDefaultsError] = useState<string | null>(null);
   const [localOverrides, setLocalOverrides] = useState<Record<string, string>>(
     () => settings.ner_model_overrides ?? {}
   );
   const [savingNer, setSavingNer] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setDefaultsLoading(true);
+        setDefaultsError(null);
+        const response = await api.get<NerDefaultsResponse>(
+          "/api/settings/ner-defaults"
+        );
+        if (!cancelled) setDefaults(response.data.defaults ?? {});
+      } catch {
+        if (!cancelled) setDefaultsError(t("settings.ner.defaultsLoadError"));
+      } finally {
+        if (!cancelled) setDefaultsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [t]);
+
+  useEffect(() => {
     setLocalOverrides(settings.ner_model_overrides ?? {});
   }, [settings.ner_model_overrides]);
 
   const getEffectiveModel = (lang: string): string =>
-    (localOverrides[lang] ?? NER_MODEL_DEFAULTS[lang] ?? "").trim() ||
-    NER_MODEL_DEFAULTS[lang] ||
+    (localOverrides[lang] ?? defaults[lang] ?? "").trim() ||
+    defaults[lang] ||
     "";
 
   const handleOverrideChange = (lang: string, value: string): void => {
     const trimmed = value.trim();
-    setLocalOverrides(prev => {
+    setLocalOverrides((prev) => {
       const next = { ...prev };
-      if (trimmed && trimmed !== NER_MODEL_DEFAULTS[lang]) {
+      if (trimmed && trimmed !== defaults[lang]) {
         next[lang] = trimmed;
       } else {
         delete next[lang];
@@ -67,6 +99,8 @@ export function NerModelsTab({
 
   void isSaving;
 
+  const entries = Object.entries(defaults);
+
   return (
     <div className="space-y-4">
       <div>
@@ -78,6 +112,12 @@ export function NerModelsTab({
         </p>
       </div>
 
+      {defaultsError != null && (
+        <div className="rounded-md border border-rose-700 bg-rose-950/60 px-3 py-2 text-xs text-rose-200">
+          {defaultsError}
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-lg border border-border bg-slate-950/40">
         <DataTable
           headers={[
@@ -86,7 +126,26 @@ export function NerModelsTab({
             t("settings.ner.table.actions")
           ]}
         >
-            {entries.map(([lang, defaultModel]) => (
+          {defaultsLoading ? (
+            <tr>
+              <td
+                colSpan={3}
+                className="px-3 py-3 text-center text-[11px] text-slate-400"
+              >
+                {t("settings.common.loading")}
+              </td>
+            </tr>
+          ) : entries.length === 0 ? (
+            <tr>
+              <td
+                colSpan={3}
+                className="px-3 py-3 text-center text-[11px] text-slate-400"
+              >
+                {t("settings.ner.defaultsEmpty")}
+              </td>
+            </tr>
+          ) : (
+            entries.map(([lang, defaultModel]) => (
               <tr
                 key={lang}
                 className="border-b border-border/40 last:border-b-0 odd:bg-slate-900/40"
@@ -99,7 +158,7 @@ export function NerModelsTab({
                     type="text"
                     className="w-full min-w-[200px] rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-[11px] text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none"
                     value={getEffectiveModel(lang)}
-                    onChange={e => handleOverrideChange(lang, e.target.value)}
+                    onChange={(e) => handleOverrideChange(lang, e.target.value)}
                     placeholder={defaultModel}
                     aria-label={t("settings.ner.overrideLabel").replace("{lang}", lang)}
                   />
@@ -116,7 +175,8 @@ export function NerModelsTab({
                   )}
                 </td>
               </tr>
-            ))}
+            ))
+          )}
         </DataTable>
       </div>
       {hasChanges && (

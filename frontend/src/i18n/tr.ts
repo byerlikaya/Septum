@@ -172,13 +172,16 @@ export const trMessages: Record<string, string> = {
   "settings.tabs.ner.label": "NER Modelleri",
   "settings.tabs.ner.description": "Dil → model eşlemesi",
   "settings.ner.sectionDescription":
-    "Dil kodlarından HuggingFace NER modellerine varsayılan eşlemeyi görüntüleyin. Gelecekte üstüne yazma (override) kalıcı hale getirilecektir.",
+    "Dil başına HuggingFace NER model eşlemesi. Bir satırı varsayılanda bırakabilir ya da kendi model ID'nizi yazarak o yerel için üstüne yazabilirsiniz.",
   "settings.ner.table.language": "Dil",
   "settings.ner.table.model": "Model",
   "settings.ner.table.actions": "İşlemler",
   "settings.ner.overrideLabel": "{lang} için modeli değiştir",
   "settings.ner.restoreDefault": "Varsayılana döndür",
   "settings.ner.saveOverrides": "Değişiklikleri kaydet",
+  "settings.ner.defaultsLoadError":
+    "Varsayılan NER model eşlemesi arka uçtan yüklenemedi.",
+  "settings.ner.defaultsEmpty": "Kayıtlı varsayılan NER modeli bulunmuyor.",
   "settings.common.saving": "Kaydediliyor…",
   "settings.common.saved": "Kaydedildi",
 

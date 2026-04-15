@@ -146,6 +146,20 @@ class TestBootstrapModeAccess:
         assert resp.status_code != 401
         assert resp.status_code != 403
 
+    async def test_ner_defaults_open_during_bootstrap(
+        self, router_client: AsyncClient
+    ) -> None:
+        resp = await router_client.get("/api/settings/ner-defaults")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "defaults" in body
+        # Must surface the backend's real default map, not the stale
+        # frontend copy — the Turkish default now points at the XLM-R
+        # fine-tune and every entry must be a non-empty HuggingFace ID.
+        assert body["defaults"].get("tr") == "akdeniz27/xlm-roberta-base-turkish-ner"
+        assert "fallback" in body["defaults"]
+        assert all(v for v in body["defaults"].values())
+
     async def test_regulations_activate_open_during_bootstrap(
         self, router_client: AsyncClient
     ) -> None:

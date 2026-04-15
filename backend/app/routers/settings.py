@@ -484,6 +484,35 @@ async def list_ollama_models_endpoint(
     return OllamaModelsResponse(models=result)
 
 
+class NerDefaultsResponse(BaseModel):
+    """ISO 639-1 → HuggingFace model ID mapping for the NER Models tab."""
+
+    defaults: dict[str, str]
+
+
+@router.get(
+    "/ner-defaults",
+    response_model=NerDefaultsResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_ner_defaults(
+    _user: User | None = Depends(require_admin_or_bootstrap),
+) -> NerDefaultsResponse:
+    """Return the backend's authoritative NER default-model map.
+
+    The frontend NER Models settings tab used to hardcode its own copy of
+    this dict; that copy drifted out of sync with the backend the first
+    time the default models were upgraded (2026-03-12 XLM-RoBERTa
+    upgrade), so the tab advertised stale model IDs. Sourcing the map from
+    the live ``NERModelRegistry.DEFAULT_MODEL_MAP`` here eliminates the
+    duplication — backend is the single source of truth.
+    """
+    from ..services.ner_model_registry import NERModelRegistry
+
+    registry = NERModelRegistry()
+    return NerDefaultsResponse(defaults=dict(registry.DEFAULT_MODEL_MAP))
+
+
 class OllamaPullRequest(BaseModel):
     """Request body for pulling an Ollama model."""
 
