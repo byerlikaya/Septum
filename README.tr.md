@@ -126,6 +126,7 @@ LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerç
 - **Denetim Kaydı** — Salt-ekleme uyumluluk günlüğü ve varlık tespit metrikleri. Denetim olaylarında ham PII bulunmaz.
 - **Çoklu Sağlayıcı** — Anthropic, OpenAI, OpenRouter ve yerel Ollama ile çalışır. Arayüzden değiştirin.
 - **JWT Kimlik Doğrulama ve RBAC** — Admin'e özel kullanıcı yönetim ekranı: hesap oluşturma, rol atama (admin/editor/viewer), şifre sıfırlama ve kullanıcı pasifleştirme; kullanıcının kendi şifresini değiştirmesi; ilk kullanıcı kurulum sihirbazında otomatik admin yapılır.
+- **MCP Sunucusu (protokol seviyesinde, tüm MCP istemcileriyle)** — Aynı yerel maskeleme hattını **herhangi bir** MCP uyumlu istemciye açan bağımsız bir Model Context Protocol sunucusu (`septum-mcp`) ile birlikte gelir — Claude Code, Claude Desktop, Cursor, Zed, Cline, Continue, Windsurf ve açık [MCP spesifikasyonu](https://modelcontextprotocol.io) üzerine inşa edilmiş diğer her şey. Altı araç — `mask_text`, `unmask_response`, `detect_pii`, `scan_file`, `list_regulations`, `get_session_map` — hepsi yerelde çalışır; ham PII makinenizden hiç çıkmaz.
 
 <details>
 <summary><b>17 hazır regülasyon paketinin tamamı</b> — yargı alanları, bölgeye özel kimlik tipleri</summary>
@@ -153,6 +154,53 @@ LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerç
 Her satır [`backend/app/services/recognizers/`](backend/app/services/recognizers/) altında yüklenebilir bir pakettir. Birden fazlası aynı anda aktif olabilir — sanitizer hepsinin birleşimini uygular ve en kısıtlayıcı kural kazanır. Her varlık tipinin hukuki kaynağı [`backend/docs/REGULATION_ENTITY_SOURCES.md`](backend/docs/REGULATION_ENTITY_SOURCES.md) dosyasındadır.
 
 </details>
+
+---
+
+## MCP Entegrasyonu (herhangi bir MCP uyumlu istemci)
+
+Septum, aynı yerel PII maskeleme hattını herhangi bir MCP uyumlu
+istemciye bağlayan bağımsız bir **Model Context Protocol** sunucusu,
+[`septum-mcp`](packages/mcp/), ile birlikte gelir. MCP açık ve
+sağlayıcıdan bağımsız bir [spesifikasyondur](https://modelcontextprotocol.io) —
+sunucu stdio üzerinden çalışır, `septum-core`'u process içinde yükler
+ve ağa hiçbir zaman erişmez; bu yüzden protokolü konuşan her istemci
+kutudan çıktığı gibi çalışır (Claude Code, Claude Desktop, Cursor,
+Zed, Cline, Continue, Windsurf, LangChain / LlamaIndex MCP
+adaptörleri, Python/TypeScript/Rust/Go/C#/Java SDK'leri ile yazılmış
+özel istemciler, …).
+
+**Sunulan araçlar:**
+
+| Araç | Amaç |
+|:---|:---|
+| `mask_text` | Bir metindeki PII'yi maskeler ve bir session id döndürür. |
+| `unmask_response` | LLM yanıtındaki orijinal değerleri session id ile geri yazar. |
+| `detect_pii` | Salt-okunur tarama — session tutmadan varlıkları listeler. |
+| `scan_file` | Yerel dosyayı (`.txt`, `.md`, `.csv`, `.json`, `.pdf`, `.docx`) okuyup tarar. |
+| `list_regulations` | 17 hazır regülasyon paketini ve varlık tiplerini listeler. |
+| `get_session_map` | `{orijinal → placeholder}` eşlemesini yalnızca yerel hata ayıklama için döndürür. |
+
+**Örnek istemci yapılandırması** (Claude Code / Claude Desktop; diğer
+istemciler eşdeğer bir `mcpServers` bloğu kullanır):
+
+```json
+{
+  "mcpServers": {
+    "septum": {
+      "command": "septum-mcp",
+      "env": {
+        "SEPTUM_REGULATIONS": "gdpr,kvkk",
+        "SEPTUM_LANGUAGE": "tr"
+      }
+    }
+  }
+}
+```
+
+Üç kurulum yöntemi (pip, uvx, depo-yerel), tüm ortam değişkenleri
+ve uçtan uca kullanım örnekleri için
+[`packages/mcp/README.md`](packages/mcp/README.md) dosyasına bakın.
 
 ---
 

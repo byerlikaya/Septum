@@ -126,6 +126,7 @@ The LLM answers using placeholders. Septum restores real values locally before s
 - **Audit Trail** — Append-only compliance log with entity detection metrics. No raw PII in audit events.
 - **Multi-Provider** — Works with Anthropic, OpenAI, OpenRouter, and local Ollama. Switch from the UI.
 - **JWT Auth & RBAC** — Admin-only user management UI to create accounts, assign roles (admin/editor/viewer), reset passwords, and deactivate users; self-service password change; first user auto-promoted to admin via the setup wizard.
+- **MCP Server (protocol-level, works with any MCP client)** — Ships a standalone Model Context Protocol server (`septum-mcp`) that exposes the same local masking pipeline to **any** MCP-aware client — Claude Code, Claude Desktop, Cursor, Zed, Cline, Continue, Windsurf, and anything else built on the open [MCP specification](https://modelcontextprotocol.io). Six tools — `mask_text`, `unmask_response`, `detect_pii`, `scan_file`, `list_regulations`, `get_session_map` — all run locally; raw PII never leaves your machine.
 
 <details>
 <summary><b>All 17 built-in regulation packs</b> — jurisdictions, region-specific identifiers</summary>
@@ -153,6 +154,52 @@ The LLM answers using placeholders. Septum restores real values locally before s
 Every row is a loadable pack under [`backend/app/services/recognizers/`](backend/app/services/recognizers/). Multiple can be active simultaneously — the sanitizer applies the union and the most restrictive rule wins. Legal sources for each entity type live in [`backend/docs/REGULATION_ENTITY_SOURCES.md`](backend/docs/REGULATION_ENTITY_SOURCES.md).
 
 </details>
+
+---
+
+## MCP Integration (any MCP-compatible client)
+
+Septum ships a standalone **Model Context Protocol** server,
+[`septum-mcp`](packages/mcp/), that plugs the same local PII masking
+pipeline into any MCP-aware client. MCP is an open, vendor-neutral
+[specification](https://modelcontextprotocol.io) — the server speaks
+stdio transport, loads `septum-core` in-process, and never reaches
+the network, so any client that talks the protocol works out of the
+box (Claude Code, Claude Desktop, Cursor, Zed, Cline, Continue,
+Windsurf, LangChain / LlamaIndex MCP adapters, custom clients built
+with the Python/TypeScript/Rust/Go/C#/Java SDKs, …).
+
+**Tools exposed:**
+
+| Tool | Purpose |
+|:---|:---|
+| `mask_text` | Mask PII in a snippet and return a session id. |
+| `unmask_response` | Restore originals inside an LLM reply using the session id. |
+| `detect_pii` | Read-only scan — returns entities without retaining a session. |
+| `scan_file` | Read a local file (`.txt`, `.md`, `.csv`, `.json`, `.pdf`, `.docx`) and scan it. |
+| `list_regulations` | List the 17 built-in regulation packs with their declared entity types. |
+| `get_session_map` | Return `{original → placeholder}` for local debugging only. |
+
+**Example client configuration** (Claude Code / Claude Desktop; other
+clients use an equivalent `mcpServers` block):
+
+```json
+{
+  "mcpServers": {
+    "septum": {
+      "command": "septum-mcp",
+      "env": {
+        "SEPTUM_REGULATIONS": "gdpr,kvkk",
+        "SEPTUM_LANGUAGE": "en"
+      }
+    }
+  }
+}
+```
+
+See [`packages/mcp/README.md`](packages/mcp/README.md) for all three
+installation methods (pip, uvx, repo-local), the complete environment
+variable reference, and end-to-end usage examples.
 
 ---
 
