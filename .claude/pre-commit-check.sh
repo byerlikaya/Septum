@@ -59,13 +59,32 @@ if [[ "$README_TR" -gt 0 && "$README_EN" -eq 0 ]]; then
   ERRORS+=("[README-SYNC] README.tr.md is staged but README.md is not — both must be updated together")
 fi
 
-# 6. Regulation entity sources — if database.py entity types changed, docs must update too
-DB_CHANGED=$(echo "$STAGED" | grep -c 'database\.py$' || true)
-if [[ "$DB_CHANGED" -gt 0 ]]; then
-  DB_DIFF=$(cd "$PROJECT_ROOT" && git diff --cached backend/app/database.py 2>/dev/null | grep -c 'entity_types' || true)
+# 6. Regulation entity sources — if a RegulationRuleset entity_types
+# declaration changes, the legal-basis doc must update in the same
+# commit. The awk state machine below tracks being inside a multi-line
+# ``entity_types=[\n    "...", ... \n]`` block and only counts ``+``/``-``
+# lines that add or remove a quoted uppercase PII type inside such a
+# block. Inline placeholders like NonPiiRule's ``entity_types=[]`` and
+# unrelated uppercase string literals (env var names in ``os.getenv``
+# calls, SQL keywords, etc.) stay untouched. ``git diff -U999`` expands
+# the hunk to the full file so the block opening line is always
+# visible, otherwise the state machine would miss mid-block edits.
+# Both the legacy ``backend/app`` path and the new
+# ``packages/api/septum_api`` location are covered so file moves
+# between the two do not slip the check.
+SEED_CHANGED=$(echo "$STAGED" | grep -cE '(seeds/regulations|database)\.py$' || true)
+if [[ "$SEED_CHANGED" -gt 0 ]]; then
+  SEED_DIFF=$(cd "$PROJECT_ROOT" && git diff --cached -U999 \
+      -- '*seeds/regulations.py' '*database.py' 2>/dev/null \
+    | awk '
+        /^[ +-][[:space:]]*entity_types[[:space:]]*=[[:space:]]*\[[[:space:]]*$/ { in_block=1; next }
+        in_block && /^[ +-][[:space:]]*\][[:space:]]*,?[[:space:]]*$/ { in_block=0; next }
+        in_block && /^[+-][[:space:]]*"[A-Z][A-Z_]+"/ { count++ }
+        END { print count+0 }
+      ')
   SOURCES_CHANGED=$(echo "$STAGED" | grep -c 'REGULATION_ENTITY_SOURCES' || true)
-  if [[ "$DB_DIFF" -gt 0 && "$SOURCES_CHANGED" -eq 0 ]]; then
-    ERRORS+=("[REGULATION] database.py entity_types changed but REGULATION_ENTITY_SOURCES.md not updated")
+  if [[ "$SEED_DIFF" -gt 0 && "$SOURCES_CHANGED" -eq 0 ]]; then
+    ERRORS+=("[REGULATION] RegulationRuleset entity_types changed but REGULATION_ENTITY_SOURCES.md not updated")
   fi
 fi
 
