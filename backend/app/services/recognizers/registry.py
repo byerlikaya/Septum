@@ -1,32 +1,24 @@
 from __future__ import annotations
 
 """
-Recognizer registry for Septum.
+Backend-side recognizer registry.
 
-This module provides `RecognizerRegistry`, which is responsible for composing
-Presidio recognizers from:
-- Built-in regulation packs (for example GDPR, HIPAA, KVKK).
-- User-defined `CustomRecognizer` records stored in the database.
-
-The resulting recognizers are meant to be plugged into Presidio's
-`AnalyzerEngine` as part of the sanitization pipeline.
+Wraps :class:`septum_core.recognizers.registry.RecognizerRegistry` and
+injects :class:`LLMContextRecognizer` for custom rules whose
+``detection_method`` is ``llm_prompt``. The LLM recognizer itself is
+kept on the backend side because it depends on the local Ollama HTTP
+client, which is not available inside the air-gapped core package.
 """
 
-import importlib
 import logging
-import re
 from dataclasses import dataclass
-from typing import List, Sequence
+from typing import List, Optional
 
-from presidio_analyzer import (
-    EntityRecognizer,
-    Pattern,
-    PatternRecognizer,
-    RecognizerResult,
-)
+from presidio_analyzer import EntityRecognizer, RecognizerResult
 
-from ...models.regulation import CustomRecognizer as CustomRecognizerModel
-from ...models.regulation import RegulationRuleset
+from septum_core.recognizers.registry import RecognizerRegistry as _CoreRecognizerRegistry
+from septum_core.regulations.models import CustomRecognizerLike
+
 from ..ollama_client import call_ollama_sync, extract_json_array, use_ollama_enabled
 from ..prompts import PromptCatalog
 
@@ -110,153 +102,30 @@ class LLMContextRecognizer(EntityRecognizer):
         return results
 
 
-class RecognizerRegistry:
-    """
-    Build Presidio recognizers for the active regulations and custom rules.
+def _build_llm_recognizer_from_custom(
+    custom: CustomRecognizerLike,
+) -> Optional[EntityRecognizer]:
+    """Host factory supplied to :class:`_CoreRecognizerRegistry` for llm_prompt rules."""
+    if not custom.llm_prompt:
+        return None
+    config = LLMContextConfig(
+        name=custom.name,
+        entity_type=custom.entity_type,
+        llm_prompt=custom.llm_prompt or "",
+        context_words=list(custom.context_words or []),
+    )
+    return LLMContextRecognizer(config)
 
-    The registry is deliberately stateless; callers pass in the active
-    `RegulationRuleset` and `CustomRecognizer` objects, and the registry
-    returns a flat list of `EntityRecognizer` instances.
-    """
 
-    def build(
-        self,
-        active_regs: Sequence[RegulationRuleset],
-        custom_recognizers: Sequence[CustomRecognizerModel],
-    ) -> List[EntityRecognizer]:
-        """Return all recognizers for the given regulations and custom rules."""
-        recognizers: List[EntityRecognizer] = []
-        recognizers.extend(self._load_builtin_packs(active_regs))
-        recognizers.extend(self._from_custom_recognizers(custom_recognizers))
-        return recognizers
+class RecognizerRegistry(_CoreRecognizerRegistry):
+    """Backend registry that pre-wires the Ollama-backed LLM factory."""
 
-    def _load_builtin_packs(
-        self,
-        active_regs: Sequence[RegulationRuleset],
-    ) -> List[EntityRecognizer]:
-        """Load recognizers from built-in packs; package path is derived from __name__."""
-        recognizers: List[EntityRecognizer] = []
-        base_pkg = __name__.rsplit(".", 1)[0]
-        for reg in active_regs:
-            module_path = f"{base_pkg}.{reg.id}.recognizers"
-            try:
-                module = importlib.import_module(module_path)
-            except ModuleNotFoundError:
-                logger.debug(
-                    "No recognizer pack found for regulation '%s' (module %s).",
-                    reg.id,
-                    module_path,
-                )
-                continue
+    def __init__(self) -> None:
+        super().__init__(llm_recognizer_factory=_build_llm_recognizer_from_custom)
 
-            get_recognizers = getattr(module, "get_recognizers", None)
-            if get_recognizers is None:
-                logger.warning(
-                    "Recognizer pack %s for regulation '%s' "
-                    "does not define get_recognizers().",
-                    module_path,
-                    reg.id,
-                )
-                continue
 
-            try:
-                pack_recognizers = list(get_recognizers())
-            except Exception:  # pragma: no cover - defensive logging
-                logger.exception(
-                    "Error while loading recognizers from pack %s.", module_path
-                )
-                continue
-
-            recognizers.extend(pack_recognizers)
-
-        return recognizers
-
-    def _from_custom_recognizers(
-        self,
-        custom_recognizers: Sequence[CustomRecognizerModel],
-    ) -> List[EntityRecognizer]:
-        """Build Presidio recognizers from custom recognizer models."""
-        recognizers: List[EntityRecognizer] = []
-        for custom in custom_recognizers:
-            if not custom.is_active:
-                continue
-
-            method = custom.detection_method.lower()
-            if method == "regex" and custom.pattern:
-                recognizer = self._build_regex_recognizer(custom)
-                if recognizer is not None:
-                    recognizers.append(recognizer)
-            elif method == "keyword_list" and custom.keywords:
-                recognizers.append(self._build_keyword_recognizer(custom))
-            elif method == "llm_prompt" and custom.llm_prompt:
-                recognizers.append(self._build_llm_recognizer(custom))
-            else:
-                logger.warning(
-                    "Skipping custom recognizer %s (%s) due to incomplete configuration.",
-                    custom.id,
-                    custom.name,
-                )
-        return recognizers
-
-    @staticmethod
-    def _build_regex_recognizer(
-        custom: CustomRecognizerModel,
-    ) -> PatternRecognizer | None:
-        """Build a PatternRecognizer from a regex-based custom recognizer."""
-        try:
-            compiled = re.compile(custom.pattern or "")
-        except re.error:
-            logger.warning(
-                "Invalid regex pattern for custom recognizer %s (%s); skipping.",
-                custom.id,
-                custom.name,
-            )
-            return None
-
-        pattern = Pattern(
-            name=custom.name,
-            regex=compiled.pattern,
-            score=0.6,
-        )
-        return PatternRecognizer(
-            supported_entity=custom.entity_type,
-            patterns=[pattern],
-            name=custom.name,
-            supported_language="en",
-        )
-
-    @staticmethod
-    def _build_keyword_recognizer(
-        custom: CustomRecognizerModel,
-    ) -> PatternRecognizer:
-        """Build a PatternRecognizer from a keyword-list custom recognizer."""
-        keywords: List[str] = list(custom.keywords or [])
-        escaped = [re.escape(k) for k in keywords if k]
-        if not escaped:
-            raise ValueError("Keyword recognizer requires at least one keyword.")
-
-        pattern = Pattern(
-            name=f"{custom.name}_keywords",
-            regex=rf"\\b(?:{'|'.join(escaped)})\\b",
-            score=0.7,
-        )
-        return PatternRecognizer(
-            supported_entity=custom.entity_type,
-            patterns=[pattern],
-            name=custom.name,
-            supported_language="en",
-        )
-
-    @staticmethod
-    def _build_llm_recognizer(
-        custom: CustomRecognizerModel,
-    ) -> LLMContextRecognizer:
-        """Build an LLMContextRecognizer from an llm_prompt custom recognizer."""
-        config = LLMContextConfig(
-            name=custom.name,
-            entity_type=custom.entity_type,
-            llm_prompt=custom.llm_prompt or "",
-            context_words=list(custom.context_words or []),
-        )
-        return LLMContextRecognizer(config)
-
+__all__ = [
+    "LLMContextConfig",
+    "LLMContextRecognizer",
+    "RecognizerRegistry",
+]

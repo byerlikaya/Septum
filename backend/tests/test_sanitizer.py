@@ -7,7 +7,7 @@ import pytest
 from backend.app.models.settings import AppSettings
 from backend.app.services.anonymization_map import AnonymizationMap
 from backend.app.services.policy_composer import ComposedPolicy
-from backend.app.services.recognizers.kvkk.recognizers import (
+from septum_core.recognizers.kvkk.recognizers import (
     get_recognizers as kvkk_get_recognizers,
 )
 from backend.app.services.sanitizer import (
@@ -603,7 +603,7 @@ def test_gdpr_pack_country_specific_national_ids(
     NATIONAL_ID recognizer) so we verify the pack carries the
     detection responsibility end-to-end.
     """
-    from backend.app.services.recognizers.gdpr.recognizers import (
+    from septum_core.recognizers.gdpr.recognizers import (
         get_recognizers as gdpr_get_recognizers,
     )
 
@@ -675,7 +675,7 @@ def test_national_id_wins_over_phone_on_equal_span(
     the more specific identifier type via the entity-type priority
     tiebreaker introduced alongside this test.
     """
-    from backend.app.services.recognizers.appi.recognizers import (
+    from septum_core.recognizers.appi.recognizers import (
         get_recognizers as appi_get_recognizers,
     )
 
@@ -704,7 +704,7 @@ def test_lgpd_pack_civil_identity_document(
     app_settings: AppSettings,
 ) -> None:
     """LGPD pack detects RG (Registro Geral) via context preamble."""
-    from backend.app.services.recognizers.lgpd.recognizers import (
+    from septum_core.recognizers.lgpd.recognizers import (
         get_recognizers as lgpd_get_recognizers,
     )
 

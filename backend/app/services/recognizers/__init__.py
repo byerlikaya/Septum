@@ -3,12 +3,9 @@ from __future__ import annotations
 """
 Recognizer registry and regulation-specific packs for Septum.
 
-This package provides:
-- `registry.RecognizerRegistry`: builds the Presidio recognizer set for the
-  active regulations and custom rules.
-- Regulation packs under `<regulation_id>.recognizers` (for example
-  `gdpr.recognizers`) which expose a `get_recognizers()` function returning
-  a list of `EntityRecognizer` instances.
+This package is now a thin backward-compatibility shim over
+:mod:`septum_core.recognizers`. Regulation packs live under
+``septum_core.recognizers.<regulation_id>``; the backend-side
+``RecognizerRegistry`` re-exported from :mod:`.registry` adds the
+LLM-backed custom recognizer factory that depends on local Ollama.
 """
-
-

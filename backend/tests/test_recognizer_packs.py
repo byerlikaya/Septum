@@ -104,7 +104,7 @@ def _all_pack_ids() -> list[str]:
 
 
 def _load_get_recognizers(reg_id: str) -> Optional[Callable[[], list[EntityRecognizer]]]:
-    module_path = f"backend.app.services.recognizers.{reg_id}.recognizers"
+    module_path = f"septum_core.recognizers.{reg_id}.recognizers"
     try:
         module = importlib.import_module(module_path)
     except ModuleNotFoundError:

@@ -1,46 +1,25 @@
 from __future__ import annotations
 
+"""Backward-compatibility shim over :mod:`septum_core.regulations.composer`.
+
+Keeps the original async ``PolicyComposer.compose(db)`` method on the
+backend side — it loads active rulesets from the SQLAlchemy session
+and then delegates the pure composition to septum-core.
 """
-Policy composer for Septum's sanitization pipeline.
 
-This module defines `ComposedPolicy`, a lightweight data structure describing
-the active entity types and Presidio recognizers, and `PolicyComposer`, which
-assembles this structure from regulation rulesets and custom recognizers.
-"""
-
-from dataclasses import dataclass
-from typing import List, Sequence
-
-from presidio_analyzer import EntityRecognizer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from septum_core.regulations.composer import ComposedPolicy
+from septum_core.regulations.composer import PolicyComposer as _CorePolicyComposer
+
 from ..models.regulation import CustomRecognizer, NonPiiRule, RegulationRuleset
-from .recognizers.registry import RecognizerRegistry
+
+__all__ = ["ComposedPolicy", "PolicyComposer"]
 
 
-@dataclass
-class ComposedPolicy:
-    """Represents the effective privacy policy for a sanitization run."""
-
-    entity_types: List[str]
-    recognizers: List[EntityRecognizer]
-    regulation_ids: List[str]
-    non_pii_rules: List[NonPiiRule]
-
-
-class PolicyComposer:
-    """
-    Compose the active policy from regulations and custom recognizers.
-
-    The composer is intentionally decoupled from the database layer so that
-    it can be exercised easily in unit tests. Framework code is expected to
-    fetch active `RegulationRuleset` and `CustomRecognizer` objects (for
-    example via SQLAlchemy) and then pass them into `compose_from_data`.
-    """
-
-    def __init__(self, recognizer_registry: RecognizerRegistry | None = None) -> None:
-        self._recognizer_registry = recognizer_registry or RecognizerRegistry()
+class PolicyComposer(_CorePolicyComposer):
+    """Backend-side composer that can load active rulesets from a DB session."""
 
     async def compose(self, db: AsyncSession) -> ComposedPolicy:
         """
@@ -63,39 +42,3 @@ class PolicyComposer:
         active_non_pii = list(non_pii_result.scalars().all())
 
         return self.compose_from_data(active_regs, active_custom, active_non_pii)
-
-    def compose_from_data(
-        self,
-        active_regs: Sequence[RegulationRuleset],
-        active_custom: Sequence[CustomRecognizer],
-        active_non_pii: Sequence[NonPiiRule],
-    ) -> ComposedPolicy:
-        """
-        Build a `ComposedPolicy` from in-memory models.
-
-        - Entity types are the union of all types declared by active
-          regulations plus the entity types of active custom recognizers.
-        - Recognizers are provided by `RecognizerRegistry`, which loads both
-          regulation packs and custom recognizers.
-        """
-        entity_types_set: set[str] = set()
-        regulation_ids: List[str] = []
-
-        for reg in active_regs:
-            regulation_ids.append(reg.id)
-            for et in reg.entity_types or []:
-                entity_types_set.add(et)
-
-        for custom in active_custom:
-            if custom.is_active:
-                entity_types_set.add(custom.entity_type)
-
-        recognizers = self._recognizer_registry.build(active_regs, active_custom)
-
-        return ComposedPolicy(
-            entity_types=sorted(entity_types_set),
-            recognizers=recognizers,
-            regulation_ids=regulation_ids,
-            non_pii_rules=list(active_non_pii),
-        )
-

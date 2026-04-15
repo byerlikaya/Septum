@@ -13,6 +13,7 @@ that have already been extracted from the monolithic backend.
 from __future__ import annotations
 
 from .anonymization_map import AnonymizationMap
+from .config import SeptumCoreConfig
 from .national_ids import (
     AadhaarValidator,
     BaseIDValidator,
@@ -22,6 +23,15 @@ from .national_ids import (
     TCKNValidator,
     ValidationResult,
 )
+from .ports import NullSemanticDetectionPort, SemanticDetectionPort
+from .recognizers import RecognizerRegistry
+from .regulations import (
+    CustomRecognizerLike,
+    NonPiiRuleLike,
+    RegulationRulesetLike,
+)
+from .regulations.composer import ComposedPolicy, PolicyComposer
+from .spans import DetectedSpan, ResolvedSpan, SanitizeResult
 
 __all__ = [
     "AnonymizationMap",
@@ -32,6 +42,18 @@ __all__ = [
     "CPFValidator",
     "AadhaarValidator",
     "IBANValidator",
+    "SeptumCoreConfig",
+    "SemanticDetectionPort",
+    "NullSemanticDetectionPort",
+    "RecognizerRegistry",
+    "ComposedPolicy",
+    "PolicyComposer",
+    "RegulationRulesetLike",
+    "CustomRecognizerLike",
+    "NonPiiRuleLike",
+    "DetectedSpan",
+    "ResolvedSpan",
+    "SanitizeResult",
 ]
 
 __version__ = "0.1.0"
