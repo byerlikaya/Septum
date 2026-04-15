@@ -11,24 +11,9 @@ call sites working while the routers and services still live inside
 from __future__ import annotations
 
 from septum_api.database import *  # noqa: F401,F403
-from septum_api.database import (  # noqa: F401 — explicit names for tooling
-    _builtin_regulations,
-    _csv_env_to_list,
-    _engine,
-    _engine_kwargs,
-    _env_bool,
-    _env_int,
-    _seed_defaults,
-    _session_maker,
-    _sqlite_ensure_columns,
-    _sqlite_wal_connect,
-    build_database_url,
-    build_default_app_settings,
-    engine_is_ready,
-    get_db,
-    get_engine,
-    get_session_maker,
-    init_db,
-    initialize_engine,
-    is_sqlite,
-)
+
+# ``_engine`` and ``_session_maker`` are deliberately NOT re-exported.
+# They are module-level mutable state inside ``septum_api.database`` and
+# binding them here would create a stale copy — reads and writes on the
+# shim would desync from the real engine. Code that needs to patch the
+# engine in tests must target ``septum_api.database`` directly.

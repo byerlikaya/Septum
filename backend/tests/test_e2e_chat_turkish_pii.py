@@ -68,12 +68,14 @@ def e2e_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         class_=AsyncSession,
     )
 
+    # Patch the real module where the engine lives. ``app.database`` is a
+    # Phase 3a re-export shim and does not own the ``_engine`` binding.
     monkeypatch.setattr(
-        "app.database._engine",
+        "septum_api.database._engine",
         test_engine,
     )
     monkeypatch.setattr(
-        "app.database._session_maker",
+        "septum_api.database._session_maker",
         test_session_maker,
     )
     monkeypatch.setattr(
