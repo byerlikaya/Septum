@@ -28,14 +28,33 @@ async def get_or_404(
 
 
 async def load_settings(db: AsyncSession) -> AppSettings:
-    """Load the singleton AppSettings row or raise HTTP 500."""
+    """Load the singleton AppSettings row, lazy-seeding it if missing.
+
+    A missing ``AppSettings`` row used to raise HTTP 500 ("Application
+    settings have not been initialized"), which piled up in the Error
+    Logs UI as a storm of identical 500s whenever the Settings page was
+    polled during a transient bootstrap window. Every wizard endpoint
+    (``GET``/``PATCH /api/settings``, ``/test-llm``, ``/test-local-models``)
+    also goes through this helper, so raising here would leave the
+    wizard unable to make progress — it needs a row to update.
+
+    The helper is now idempotent: if the row is missing, build the
+    default one via :func:`database.build_default_app_settings` — the
+    same factory ``_seed_defaults`` calls at startup — commit it, and
+    return it. Fresh databases where the lifespan skipped ``init_db``
+    (for example because ``bootstrap.needs_setup()`` returned ``True``
+    at startup) self-heal on the first read instead of 500-spamming
+    every request until the wizard finishes.
+    """
     result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
     settings = result.scalar_one_or_none()
     if settings is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Application settings have not been initialized.",
-        )
+        from ..database import build_default_app_settings
+
+        settings = build_default_app_settings()
+        db.add(settings)
+        await db.commit()
+        await db.refresh(settings)
     return settings
 
 

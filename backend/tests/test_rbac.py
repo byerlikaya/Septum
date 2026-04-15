@@ -133,6 +133,33 @@ class TestBootstrapModeAccess:
         assert resp.status_code != 401
         assert resp.status_code != 403
 
+    async def test_settings_get_lazy_seeds_on_fresh_db(
+        self, router_client: AsyncClient
+    ) -> None:
+        """A fresh DB used to 500 on GET /api/settings until the wizard ran
+        ``_seed_defaults``, spamming the Error Logs UI. ``load_settings``
+        now lazy-seeds the row via ``build_default_app_settings``, so the
+        first authenticated read on a fresh DB returns 200 with the
+        default row and every subsequent read sees the same row unchanged.
+
+        Reproduces the real user path: ``/api/auth/register`` creates
+        the admin user against a freshly-migrated DB (users table exists,
+        AppSettings does not), then the Settings page hits GET
+        /api/settings and expects a row to already be there.
+        """
+        token = await _bootstrap_admin(router_client)
+
+        first = await router_client.get("/api/settings", headers=_auth(token))
+        assert first.status_code == 200, first.text
+        body = first.json()
+        assert body["llm_provider"]
+        assert body["chunk_size"] > 0
+        assert body["setup_completed"] is False
+
+        second = await router_client.get("/api/settings", headers=_auth(token))
+        assert second.status_code == 200
+        assert second.json() == body
+
     async def test_ollama_models_open_during_bootstrap(
         self, router_client: AsyncClient
     ) -> None:
