@@ -3,13 +3,10 @@
 Phase 3a of the modular refactor moved the infrastructure utility
 modules (``crypto``, ``logging_config``, ``metrics``, ``device``,
 ``db_helpers``, ``text_utils``) into ``packages/api/septum_api/utils/``.
-This module re-exports every migrated submodule under the legacy
+Phase 3b followed by moving ``auth_dependency`` after its
+``services.auth`` dependency also migrated. This module re-exports
+every ``septum_api.utils`` submodule under the legacy
 ``backend.app.utils.*`` namespace.
-
-``backend.app.utils.auth_dependency`` stays in this package for now
-because it still imports from ``backend.app.services.auth`` which has
-not migrated yet. Python's import system resolves it against the real
-file on disk after this shim runs, so mixed usage works transparently.
 """
 
 from __future__ import annotations
