@@ -1,0 +1,72 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "septum-api"
+version = "0.1.0"
+description = "Air-gapped FastAPI REST layer for Septum — bootstrap, database, models, and shared utilities."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Septum contributors" },
+]
+keywords = ["pii", "privacy", "api", "fastapi", "gdpr", "kvkk", "septum"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+# septum-api lives in the air-gapped zone. It may import septum-core for
+# PII masking but must never reach the public internet on its own —
+# outbound LLM traffic belongs in septum-gateway. Dependencies here cover
+# the infrastructure primitives that Phase 3a extracted from ``backend/``:
+# bootstrap config, SQLAlchemy models, FastAPI scaffolding, auth primitives,
+# and rate limiting. Heavy ingestion / ML libraries stay in ``backend/``
+# until Phase 3b.
+dependencies = [
+    "septum-core>=0.1.0",
+    "fastapi>=0.135.1",
+    "starlette>=0.49.0",
+    "uvicorn[standard]>=0.41.0",
+    "sqlalchemy>=2.0.48",
+    "aiosqlite>=0.22.1",
+    "asyncpg>=0.30.0",
+    "greenlet>=3.3.2",
+    "cryptography>=46.0.5",
+    "PyJWT>=2.9.0",
+    "bcrypt>=4.3.0",
+    "slowapi>=0.1.9",
+    "redis[hiredis]>=6.2.0",
+    "prometheus-client>=0.22.1",
+    "python-json-logger>=3.3.0",
+    "pydantic>=2.11.0",
+    "email-validator>=2.2.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=9.0",
+    "pytest-asyncio>=1.3",
+    "httpx>=0.28",
+]
+
+[project.urls]
+Homepage = "https://github.com/byerlikaya/Septum"
+Repository = "https://github.com/byerlikaya/Septum"
+Issues = "https://github.com/byerlikaya/Septum/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["septum_api"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
