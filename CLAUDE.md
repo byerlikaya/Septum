@@ -6,6 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Septum is a privacy-first AI middleware that lets organizations use their own documents with LLMs without exposing raw personal data to the cloud. Documents are locally anonymized (PII detected and masked), questions are answered against anonymized content, and answers are de-anonymized locally before display. No raw PII ever leaves the machine.
 
+## Working Rules (CRITICAL)
+
+- Before starting each new phase, run `/simplify` first, then `/compact` — clear context from the previous phase
+- Never commit on your own. `git add` and `git commit` only when the user explicitly says "commit et" or "commit it"
+- Before committing, show the commit message first, get approval, then execute
+- `git push` follows the same rule — only when the user asks
+
 ## Commands
 
 ### Development
@@ -38,6 +45,15 @@ docker compose up                                          # With PostgreSQL + R
 docker compose --profile ollama up                         # With local Ollama models
 ```
 
+### Modular Packages (from `packages/<module>/`)
+```bash
+pip install -e packages/core         # Install septum-core in editable mode
+pip install -e packages/mcp          # Install septum-mcp in editable mode
+pip install -e packages/queue        # Install septum-queue in editable mode
+pytest packages/core/tests/          # Run core tests
+pytest packages/mcp/tests/           # Run MCP tests
+```
+
 ## Architecture
 
 **Backend:** FastAPI + SQLAlchemy (async SQLite) + Presidio + spaCy/Transformers NER + FAISS + BM25
@@ -49,6 +65,62 @@ Upload → content-based type detection (python-magic) → format-specific inges
 
 ### Chat Flow
 User query → sanitize query → hybrid retrieval (FAISS + BM25) → optional approval gate → send masked context to cloud LLM → de-anonymize response locally → stream to user via SSE
+
+### Modular Architecture (refactor/modular-architecture branch)
+
+The monolithic structure is being split into 7 independent modules. See `PROJECT_SPEC.md` for full details.
+
+| Module | Location | Zone | Description |
+|---|---|---|---|
+| **septum-core** | `packages/core/` | Air-gapped | PII detection, masking, unmasking, regulation engine |
+| **septum-mcp** | `packages/mcp/` | Air-gapped | MCP server for Claude Code/Desktop integration |
+| **septum-api** | `packages/api/` | Air-gapped | FastAPI REST endpoints |
+| **septum-web** | `packages/web/` | Air-gapped | Next.js dashboard + approval UI |
+| **septum-queue** | `packages/queue/` | Bridge | Cross-zone message broker (masked data only) |
+| **septum-gateway** | `packages/gateway/` | Internet-facing | Cloud LLM forwarder |
+| **septum-audit** | `packages/audit/` | Internet-facing | Compliance logging + SIEM export |
+
+#### Module Import Rules (CRITICAL)
+
+```python
+# septum-core: NEVER import network libraries
+# ❌ import requests, import httpx, import urllib
+# ✅ only: presidio, transformers, regex, pydantic
+
+# septum-gateway: NEVER import septum-core (it must never see raw PII)
+# ❌ from septum_core import SeptumEngine
+# ✅ from septum_queue import QueueConsumer
+
+# septum-mcp: CAN use septum-core
+# ✅ from septum_core import SeptumEngine
+
+# septum-api: CAN use septum-core + septum-queue
+# ✅ from septum_core import SeptumEngine
+# ✅ from septum_queue import QueueProducer
+```
+
+#### Zone Rules
+
+- **Air-gapped zone** modules (core, mcp, api, web): zero internet access, all PII operations here
+- **Internet-facing zone** modules (gateway, audit): zero PII access, only sees masked placeholders
+- **Bridge** (queue): transports only masked data between zones, raw PII never crosses
+
+#### Dependency Graph
+
+```
+septum-core ← standalone, zero network deps
+    ↑
+septum-mcp ← depends on septum-core
+    ↑
+septum-api ← depends on septum-core, septum-queue (optional)
+    ↑
+septum-web ← depends on septum-api (HTTP only, runtime)
+
+septum-queue ← standalone, abstract interface
+
+septum-gateway ← depends on septum-queue (NEVER on septum-core)
+septum-audit ← depends on septum-queue (optional, event consumer)
+```
 
 ### Key Backend Services
 - `bootstrap.py` — Infrastructure config (`config.json`): encryption key, JWT secret, DB/Redis URLs. Auto-generates secrets on first run. Env vars override file values.
@@ -86,6 +158,7 @@ User query → sanitize query → hybrid retrieval (FAISS + BM25) → optional a
 6. **All user-facing strings use i18n** (`useI18n()` hook in frontend).
 7. **Async-first.** All DB, file I/O, and LLM calls are async.
 8. **No unnecessary comments.** Docstrings required, but redundant/obvious/decorative comments must be avoided.
+9. **Modular isolation.** Each package in `packages/` is independently installable. Internet-facing modules never import septum-core. All PII operations happen exclusively in septum-core.
 
 ## Zero-Tolerance Generic Architecture
 
@@ -120,12 +193,26 @@ When running tests after a change, target the relevant test file based on what w
 - `routers/approval.py` → `test_approval_router.py`
 - `prompts.py` → `test_chat_context_prompt.py`
 
+For modular packages, tests live inside each package:
+- `packages/core/septum_core/*.py` → `packages/core/tests/`
+- `packages/mcp/septum_mcp/*.py` → `packages/mcp/tests/`
+- `packages/queue/septum_queue/*.py` → `packages/queue/tests/`
+
 All LLM calls in tests must be mocked — never send real requests to cloud LLMs.
 
 ## Git & Commit Workflow
 
+- **Never commit or push unless the user explicitly asks.** Show the commit message first, wait for approval.
 - **Analyze and group changes** before committing — one logical change per commit.
 - **Commit messages in English**, imperative style ("Add feature", "Fix bug").
+- **Commit message format for modular refactoring:**
+  ```
+  <type>(<scope>): <description>
+
+  type: feat, fix, refactor, test, docs, chore
+  scope: core, mcp, api, web, queue, gateway, audit
+  ```
+  Examples: `refactor(core): extract detector from backend services`, `feat(mcp): add mask_text tool`
 - **Never push** unless explicitly asked.
 - **Scan for secrets** before committing — warn and block if credentials, API keys, or private keys are detected.
 - **Never commit** build artifacts, logs, `config.json`, or machine-generated files.
@@ -184,6 +271,12 @@ Invoke `/security-scan` for a comprehensive audit (`.claude/skills/security-scan
 **Local development:** Run `./dev.sh --setup` then `./dev.sh`. Bootstrap auto-generates `config.json` with encryption key and JWT secret. Set `SEPTUM_CONFIG_PATH` to override the default `/app/data/config.json` location. Environment variables (`DATABASE_URL`, `REDIS_URL`, `ENCRYPTION_KEY`, etc.) override `config.json` values.
 
 **docker-compose:** No `.env` needed. `docker compose up` starts PostgreSQL + Redis + Septum with sensible defaults. Database and Redis URLs are wired in `docker-compose.yml`.
+
+**Modular docker-compose variants (refactor/modular-architecture branch):**
+- `docker-compose.yml` — Full dev stack (all modules)
+- `docker-compose.airgap.yml` — Air-gapped zone only (core, api, web, mcp, queue producer)
+- `docker-compose.gateway.yml` — Internet-facing zone only (queue consumer, gateway, audit)
+- `docker-compose.standalone.yml` — All-in-one single server
 
 ## CI/CD
 
