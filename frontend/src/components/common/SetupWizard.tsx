@@ -171,9 +171,18 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
       const { data } = await api.post<{ ok: boolean; message?: string }>(endpoint, body);
       if (data.ok) {
         setProviderTestStatus("success"); setProviderTestMessage(data.message ?? t("setup.step.test.success"));
-        // Load regulations and advance
+        // Load regulations and advance. Default to *all* built-in
+        // regulations selected so the wizard is a zero-friction flow:
+        // users can deselect what they don't need via the toggle, but
+        // the safe default is maximum PII coverage.
         setRegulationsLoading(true);
-        try { const { data: regs } = await api.get<RegulationItem[]>("/api/regulations"); setRegulations(regs); setActiveRegulations(new Set(regs.filter(r => r.is_active).map(r => r.id))); } catch {}
+        try {
+          const { data: regs } = await api.get<RegulationItem[]>("/api/regulations");
+          setRegulations(regs);
+          setActiveRegulations(
+            new Set(regs.filter(r => r.is_builtin).map(r => r.id))
+          );
+        } catch {}
         setRegulationsLoading(false);
         setStep("regulations");
       } else {
@@ -345,20 +354,56 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
         </div>)}
 
         {/* Regulations */}
-        {step === "regulations" && (<div>
+        {step === "regulations" && (() => {
+          const builtinRegs = [...regulations]
+            .filter(r => r.is_builtin)
+            .sort(
+              (a, b) =>
+                (REGULATION_META[a.id]?.order ?? 99) -
+                (REGULATION_META[b.id]?.order ?? 99)
+            );
+          const allSelected =
+            builtinRegs.length > 0 &&
+            builtinRegs.every(r => activeRegulations.has(r.id));
+          const toggleAll = () => {
+            if (allSelected) {
+              setActiveRegulations(new Set());
+            } else {
+              setActiveRegulations(new Set(builtinRegs.map(r => r.id)));
+            }
+          };
+          return (<div>
           <StepHeader icon={Shield} title={t("setup.step.regulations")} desc={t("setup.step.regulations.description")} />
           {regulationsLoading ? (
             <div className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="h-4 w-4 animate-spin" />{t("settings.common.loading")}</div>
           ) : (
-            <div className="max-h-64 overflow-y-auto space-y-1.5 rounded-lg border border-slate-700 bg-slate-800/30 p-3">
-              {[...regulations].filter(r => r.is_builtin).sort((a, b) => (REGULATION_META[a.id]?.order ?? 99) - (REGULATION_META[b.id]?.order ?? 99)).map((reg) => (
-                <label key={reg.id} className="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-slate-800/50 cursor-pointer">
-                  <input type="checkbox" checked={activeRegulations.has(reg.id)} onChange={(e) => { const next = new Set(activeRegulations); if (e.target.checked) next.add(reg.id); else next.delete(reg.id); setActiveRegulations(next); }} className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-600 focus:ring-sky-500" />
-                  <span className="text-base leading-none">{REGULATION_META[reg.id]?.flag ?? "\u{1F310}"}</span>
-                  <div className="flex-1 min-w-0"><div className="text-xs font-medium text-slate-200 truncate">{t((`regulation.${reg.id}`) as never) || reg.display_name}</div></div>
-                </label>
-              ))}
-            </div>
+            <>
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[11px] text-slate-400">
+                  {t("setup.step.regulations.selectedCount")
+                    .replace("{selected}", String(activeRegulations.size))
+                    .replace("{total}", String(builtinRegs.length))}
+                </span>
+                <button
+                  type="button"
+                  onClick={toggleAll}
+                  className="text-[11px] font-medium text-sky-400 hover:text-sky-300"
+                >
+                  {allSelected
+                    ? t("setup.step.regulations.deselectAll")
+                    : t("setup.step.regulations.selectAll")}
+                </button>
+              </div>
+              <div className="max-h-64 overflow-y-auto space-y-1.5 rounded-lg border border-slate-700 bg-slate-800/30 p-3">
+                {builtinRegs.map((reg) => (
+                  <label key={reg.id} className="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-slate-800/50 cursor-pointer">
+                    <input type="checkbox" checked={activeRegulations.has(reg.id)} onChange={(e) => { const next = new Set(activeRegulations); if (e.target.checked) next.add(reg.id); else next.delete(reg.id); setActiveRegulations(next); }} className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-600 focus:ring-sky-500" />
+                    <span className="text-base leading-none">{REGULATION_META[reg.id]?.flag ?? "\u{1F310}"}</span>
+                    <div className="flex-1 min-w-0"><div className="text-xs font-medium text-slate-200 truncate">{t((`regulation.${reg.id}`) as never) || reg.display_name}</div></div>
+                  </label>
+                ))}
+              </div>
+            </>
           )}
           <p className="mt-2 text-[11px] text-slate-500">{t("setup.step.regulations.hint")}</p>
           <div className="mt-6 flex justify-between">
@@ -368,7 +413,8 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
               setStep("whisper");
             }} disabled={activeRegulations.size === 0} className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50 transition-colors">{t("setup.nav.next")}</button>
           </div>
-        </div>)}
+        </div>);
+        })()}
 
         {/* Whisper (with install & advance) */}
         {step === "whisper" && (<div>
