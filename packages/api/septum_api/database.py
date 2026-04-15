@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import (
 
 from .config import default_ollama_url
 from .models import Base
+from .models.api_key import ApiKey  # noqa: F401
 from .models.chat_session import ChatMessage, ChatSession  # noqa: F401
 from .models.document import Chunk, Document  # noqa: F401
 from .models.entity_detection import EntityDetection  # noqa: F401
