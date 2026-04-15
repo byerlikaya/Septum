@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,9 +16,11 @@ from ..services.auth import (
     validate_password_strength,
     verify_password,
 )
+from ..middleware.rate_limit import get_limiter
 from ..utils.auth_dependency import get_current_user
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+_limiter = get_limiter()
 
 
 def require_strong_password(password: str) -> None:
@@ -70,7 +72,9 @@ class UserResponse(BaseModel):
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@_limiter.limit("3/minute")
 async def register(
+    request: Request,
     payload: RegisterRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
@@ -98,7 +102,9 @@ async def register(
 
 
 @router.post("/login", response_model=TokenResponse)
+@_limiter.limit("5/minute")
 async def login(
+    request: Request,
     payload: LoginRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:

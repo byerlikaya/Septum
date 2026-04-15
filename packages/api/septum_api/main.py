@@ -118,21 +118,12 @@ async def lifespan(app: FastAPI):
     yield
 
 
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
-_boot_cfg = bootstrap.get_config()
-_limiter_storage = (
-    f"redis://{_boot_cfg.redis_url.split('://')[-1]}"
-    if _boot_cfg.redis_url else "memory://"
-)
+from .middleware.rate_limit import get_limiter
 
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=[_boot_cfg.rate_limit],
-    storage_uri=_limiter_storage,
-)
+limiter = get_limiter()
 
 def _app_version() -> str:
     """Return the app version from the repo-root ``VERSION`` file.

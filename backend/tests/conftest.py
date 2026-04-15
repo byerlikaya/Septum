@@ -76,11 +76,20 @@ async def router_client(tmp_path: Path) -> AsyncIterator["AsyncClient"]:  # noqa
             yield session
 
     app.dependency_overrides[get_db] = _override_get_db
+
+    # Disable per-route rate limiting during tests so that repeated
+    # calls to login/register across the suite don't trip the limits.
+    limiter = getattr(app.state, "limiter", None)
+    if limiter is not None:
+        limiter.enabled = False
+
     try:
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as http_client:
             yield http_client
     finally:
+        if limiter is not None:
+            limiter.enabled = True
         app.dependency_overrides.pop(get_db, None)
         await engine.dispose()

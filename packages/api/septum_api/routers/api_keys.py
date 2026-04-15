@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Sequence
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,9 +13,11 @@ from ..database import get_db
 from ..models.api_key import ApiKey
 from ..models.user import User
 from ..services.api_key_service import generate_api_key, list_user_keys, revoke_key
+from ..middleware.rate_limit import get_limiter
 from ..utils.auth_dependency import get_current_user, require_role
 
 router = APIRouter(prefix="/api/api-keys", tags=["api-keys"])
+_limiter = get_limiter()
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +61,9 @@ class ApiKeyCreatedResponse(ApiKeyResponse):
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_role("admin"))],
 )
+@_limiter.limit("10/minute")
 async def create_api_key_endpoint(
+    request: Request,
     payload: CreateApiKeyRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
