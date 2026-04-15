@@ -38,6 +38,7 @@ from .database import (  # noqa: E402
     initialize_engine,
 )
 from .models.settings import AppSettings
+from .routers import api_keys as api_keys_router
 from .routers import approval as approval_router
 from .routers import audit as audit_router
 from .routers import auth as auth_router
@@ -199,6 +200,7 @@ app.add_route("/metrics", metrics_endpoint, methods=["GET"])
 _all_routers = [
     setup_router.router,
     auth_router.router,
+    api_keys_router.router,
     approval_router.router,
     audit_router.router,
     documents_router.router,
