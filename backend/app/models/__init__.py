@@ -1,20 +1,34 @@
+"""Backward-compat shim — forwards to :mod:`septum_api.models`.
+
+Phase 3a of the modular refactor moved every ORM model (including the
+``Base`` declarative class) into ``packages/api/septum_api/models/``.
+This module keeps the classic ``from backend.app.models import Base``
+and ``from backend.app.models.settings import AppSettings`` imports
+working by auto-registering each ``septum_api.models`` submodule in
+``sys.modules`` under the ``backend.app.models`` namespace.
+
+When routers and services migrate to ``septum_api`` in Phase 3b this
+shim becomes dead weight and can be deleted.
+"""
+
 from __future__ import annotations
 
-"""SQLAlchemy ORM base for Septum models."""
+import pkgutil as _pkgutil
+import sys as _sys
 
-from sqlalchemy.orm import DeclarativeBase, declared_attr
+import septum_api.models as _target
 
+from septum_api.models import *  # noqa: F401,F403
+from septum_api.models import Base  # noqa: F401
 
-class Base(DeclarativeBase):
-    """Base class for all ORM models."""
+# Register every concrete submodule (``settings``, ``user``, …) under the
+# legacy ``backend.app.models`` path so that dotted imports like
+# ``from backend.app.models.settings import AppSettings`` resolve via
+# ``sys.modules`` without needing physical files on disk.
+for _info in _pkgutil.iter_modules(_target.__path__):
+    _name = _info.name
+    _module = __import__(f"septum_api.models.{_name}", fromlist=["*"])
+    _sys.modules[f"{__name__}.{_name}"] = _module
+    globals()[_name] = _module
 
-    @declared_attr.directive
-    def __tablename__(cls) -> str:  # type: ignore[misc]
-        """Generate __tablename__ automatically from the class name."""
-        return cls.__name__.lower()
-
-    def __repr__(self) -> str:
-        """Return a concise string representation for debugging."""
-        return f"<{self.__class__.__name__}>"
-
-
+del _info, _name, _module, _pkgutil, _sys, _target
