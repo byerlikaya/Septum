@@ -823,7 +823,6 @@ export const trMessages: Record<string, string> = {
   "setup.step.infra.success": "Altyapı hazır!",
   "setup.step.infra.failed": "Initialization başarısız. Konfigürasyonu kontrol edin.",
   "setup.nav.back": "Geri",
-  "setup.nav.next": "İleri",
-  "setup.nav.skip": "Kurulumu Atla"
+  "setup.nav.next": "İleri"
 };
 

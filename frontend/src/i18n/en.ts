@@ -808,7 +808,6 @@ export const enMessages = {
   "setup.step.infra.success": "Infrastructure ready!",
   "setup.step.infra.failed": "Setup failed. Please check your configuration.",
   "setup.nav.back": "Back",
-  "setup.nav.next": "Next",
-  "setup.nav.skip": "Skip Setup"
+  "setup.nav.next": "Next"
 } as const;
 

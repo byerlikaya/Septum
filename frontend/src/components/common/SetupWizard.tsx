@@ -237,12 +237,6 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
     }
   }, [regEmail, regPassword, regConfirm, t]);
 
-  const handleSkip = useCallback(async () => {
-    try { await initializeInfrastructure({ database_type: "sqlite" }); } catch {}
-    try { await api.patch("/api/settings", { setup_completed: true }); } catch {}
-    onComplete();
-  }, [onComplete]);
-
   // --- UI helpers ---
   const StatusBadge = ({ status, msg }: { status: TestStatus; msg: string }) => (<>
     {status === "success" && <div className="mt-3 flex items-center gap-2 rounded-md bg-emerald-950/50 px-3 py-2 text-xs text-emerald-300"><Check className="h-4 w-4 shrink-0" />{msg}</div>}
@@ -271,7 +265,6 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
             <p className="mb-6 text-sm text-slate-400">{t("setup.welcome.subtitle")}</p>
             <div className="mb-6 flex items-center gap-2"><Globe className="h-4 w-4 text-slate-400" /><div className="flex rounded-lg border border-slate-700 overflow-hidden">{LANGUAGES.map((l) => (<button key={l.value} type="button" onClick={() => setLanguage(l.value)} className={`px-4 py-1.5 text-sm font-medium transition-colors ${language === l.value ? "bg-sky-600 text-white" : "bg-slate-800 text-slate-400 hover:text-slate-200"}`}>{l.label}</button>))}</div></div>
             <button type="button" onClick={() => setStep("database")} className={actionBtnCls}>{t("setup.welcome.start")}</button>
-            <button type="button" onClick={handleSkip} className="mt-3 text-xs text-slate-500 hover:text-slate-300 transition-colors">{t("setup.nav.skip")}</button>
           </div>
         )}
 
