@@ -10,11 +10,3 @@ helper (and the environment parsing helpers that back it) into
 from __future__ import annotations
 
 from septum_api.config import *  # noqa: F401,F403
-from septum_api.config import (  # noqa: F401 — explicit names for tooling
-    _csv_env_to_list,
-    _env_bool,
-    _env_int,
-    _is_docker,
-    default_ollama_url,
-    get_settings,
-)

@@ -10,18 +10,8 @@ has not yet migrated to the new package path.
 from __future__ import annotations
 
 from septum_api.bootstrap import *  # noqa: F401,F403
-from septum_api.bootstrap import (  # noqa: F401 — explicit names for tooling
-    _ENV_OVERRIDES,
-    _apply_env_overrides,
-    _cached_config,
-    _config_path,
-    _generate_encryption_key,
-    _generate_jwt_secret,
-    _invalidate_cache,
-    _read_config_file,
-    _write_config_file,
-    BootstrapConfig,
-    get_config,
-    needs_setup,
-    save_config,
-)
+
+# ``_invalidate_cache`` is the only underscored helper with known
+# callers (``backend/tests/test_setup_router.py``) so it is re-exported
+# explicitly — ``import *`` skips names that start with an underscore.
+from septum_api.bootstrap import _invalidate_cache  # noqa: F401

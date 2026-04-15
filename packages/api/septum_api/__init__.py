@@ -1,12 +1,15 @@
 """Septum API package.
 
-Air-gapped FastAPI REST layer for Septum. Phase 3a of the modular
-refactor owns the infrastructure primitives — ``bootstrap``, ``config``,
-``database``, ``models``, ``seeds``, and most of ``utils`` — that were
-previously bundled inside ``backend/app/``. The FastAPI app instance,
-routers, services, and middleware still live in ``backend/app/`` and
-will migrate in Phase 3b; ``backend/app/`` ships shim modules that
-forward to this package so existing imports continue to resolve.
+Air-gapped FastAPI REST layer for Septum. The Phase 3a scaffold ships
+``bootstrap``, ``config``, ``database``, ``models``, ``seeds``, and most
+of ``utils`` as importable submodules — callers reach them via
+``from septum_api import bootstrap`` or ``from septum_api.database import
+get_db``. This ``__init__`` deliberately does not re-export any of
+their contents so importing the package stays cheap; the real FastAPI
+``app`` instance, routers, services, and middleware still live in
+``backend/app/`` and will migrate in Phase 3b. ``backend/app/`` ships
+shim modules that forward to this package so existing imports keep
+resolving without any call-site edits.
 """
 
 from __future__ import annotations

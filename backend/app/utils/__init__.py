@@ -21,6 +21,7 @@ import septum_api.utils as _target
 
 from septum_api.utils import *  # noqa: F401,F403
 
+_info = _name = _module = None  # sentinels so ``del`` below never NameErrors
 for _info in _pkgutil.iter_modules(_target.__path__):
     _name = _info.name
     _module = __import__(f"septum_api.utils.{_name}", fromlist=["*"])

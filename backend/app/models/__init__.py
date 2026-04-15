@@ -25,6 +25,7 @@ from septum_api.models import Base  # noqa: F401
 # legacy ``backend.app.models`` path so that dotted imports like
 # ``from backend.app.models.settings import AppSettings`` resolve via
 # ``sys.modules`` without needing physical files on disk.
+_info = _name = _module = None  # sentinels so ``del`` below never NameErrors
 for _info in _pkgutil.iter_modules(_target.__path__):
     _name = _info.name
     _module = __import__(f"septum_api.models.{_name}", fromlist=["*"])

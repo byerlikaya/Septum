@@ -27,32 +27,41 @@ classifiers = [
 
 # septum-api lives in the air-gapped zone. It may import septum-core for
 # PII masking but must never reach the public internet on its own —
-# outbound LLM traffic belongs in septum-gateway. Dependencies here cover
-# the infrastructure primitives that Phase 3a extracted from ``backend/``:
-# bootstrap config, SQLAlchemy models, FastAPI scaffolding, auth primitives,
-# and rate limiting. Heavy ingestion / ML libraries stay in ``backend/``
-# until Phase 3b.
+# outbound LLM traffic belongs in septum-gateway. The required set is
+# kept narrow: only libraries that Phase 3a modules actually import at
+# load time. JWT, bcrypt, slowapi, redis, email-validator, asyncpg, and
+# uvicorn are declared as optional extras so Phase 3c (auth middleware
+# + rate limiting) and Phase 3d (docker / Postgres) can pull them in
+# without bloating a fresh ``pip install septum-api``. Heavy ingestion
+# and ML libraries stay in ``backend/`` until Phase 3b.
 dependencies = [
     "septum-core>=0.1.0",
     "fastapi>=0.135.1",
     "starlette>=0.49.0",
-    "uvicorn[standard]>=0.41.0",
     "sqlalchemy>=2.0.48",
     "aiosqlite>=0.22.1",
-    "asyncpg>=0.30.0",
     "greenlet>=3.3.2",
     "cryptography>=46.0.5",
-    "PyJWT>=2.9.0",
-    "bcrypt>=4.3.0",
-    "slowapi>=0.1.9",
-    "redis[hiredis]>=6.2.0",
     "prometheus-client>=0.22.1",
     "python-json-logger>=3.3.0",
-    "pydantic>=2.11.0",
-    "email-validator>=2.2.0",
 ]
 
 [project.optional-dependencies]
+auth = [
+    "PyJWT>=2.9.0",
+    "bcrypt>=4.3.0",
+    "email-validator>=2.2.0",
+]
+rate-limit = [
+    "slowapi>=0.1.9",
+    "redis[hiredis]>=6.2.0",
+]
+postgres = [
+    "asyncpg>=0.30.0",
+]
+server = [
+    "uvicorn[standard]>=0.41.0",
+]
 test = [
     "pytest>=9.0",
     "pytest-asyncio>=1.3",
