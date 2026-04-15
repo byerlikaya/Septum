@@ -23,6 +23,7 @@ a host wants the optional Ollama / LLM-assisted layers.
 """
 
 import importlib
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
@@ -36,6 +37,8 @@ from .recognizers.registry import RecognizerRegistry
 from .regulations.composer import ComposedPolicy, PolicyComposer
 from .spans import ResolvedSpan
 from .unmasker import Unmasker
+
+DEFAULT_SESSION_TTL_SECONDS = 3600.0
 
 
 @dataclass
@@ -107,6 +110,11 @@ class SeptumEngine:
     in-memory ``session_id → AnonymizationMap`` registry so callers can
     round-trip a masked response through a remote model without ever
     exposing the original PII values off the host.
+
+    Sessions are evicted after ``session_ttl_seconds`` of inactivity so
+    long-running processes (MCP stdio servers, background workers) do
+    not accumulate unbounded anonymization maps. Pass ``0`` or a
+    negative value to disable TTL eviction entirely.
     """
 
     def __init__(
@@ -117,6 +125,7 @@ class SeptumEngine:
         ner_registry: Optional[NERModelRegistry] = None,
         semantic_port: Optional[SemanticDetectionPort] = None,
         policy: Optional[ComposedPolicy] = None,
+        session_ttl_seconds: float = DEFAULT_SESSION_TTL_SECONDS,
     ) -> None:
         self._config = config or SeptumCoreConfig()
         if policy is None:
@@ -129,6 +138,8 @@ class SeptumEngine:
         )
         self._unmasker = Unmasker()
         self._sessions: Dict[str, AnonymizationMap] = {}
+        self._session_expiry: Dict[str, float] = {}
+        self._session_ttl_seconds = session_ttl_seconds
 
     @staticmethod
     def _compose_policy(regulation_ids: List[str]) -> ComposedPolicy:
@@ -148,10 +159,12 @@ class SeptumEngine:
 
     def mask(self, text: str, language: str = "en") -> MaskResult:
         """Detect PII in ``text`` and return a placeholder-bearing copy."""
+        self._evict_expired_sessions()
         session_id = uuid.uuid4().hex
         anon_map = AnonymizationMap(document_id=0, language=language)
         result = self._detector.sanitize(text=text, language=language, anon_map=anon_map)
         self._sessions[session_id] = anon_map
+        self._touch_session(session_id)
         return MaskResult(
             masked_text=result.sanitized_text,
             session_id=session_id,
@@ -162,11 +175,56 @@ class SeptumEngine:
 
     def unmask(self, text: str, session_id: str) -> str:
         """Restore original values in ``text`` using the recorded session map."""
-        anon_map = self._sessions.get(session_id)
+        anon_map = self._get_live_session(session_id)
         if anon_map is None:
             return text
+        self._touch_session(session_id)
         return self._unmasker.unmask(text, anon_map)
+
+    def get_session_map(self, session_id: str) -> Optional[Dict[str, str]]:
+        """Return the ``{original: placeholder}`` map for ``session_id``.
+
+        Returns ``None`` when the session does not exist or has expired.
+        The returned dict is a shallow copy so callers cannot mutate the
+        engine's internal state. Intended for debugging tools (for
+        example the MCP ``get_session_map`` tool) — do not ship this
+        value off the host.
+        """
+        anon_map = self._get_live_session(session_id)
+        if anon_map is None:
+            return None
+        return dict(anon_map.entity_map)
 
     def release(self, session_id: str) -> None:
         """Drop a session's anonymization map from the in-memory registry."""
         self._sessions.pop(session_id, None)
+        self._session_expiry.pop(session_id, None)
+
+    def active_session_count(self) -> int:
+        """Return the number of non-expired sessions currently held."""
+        self._evict_expired_sessions()
+        return len(self._sessions)
+
+    def _touch_session(self, session_id: str) -> None:
+        if self._session_ttl_seconds <= 0:
+            return
+        self._session_expiry[session_id] = time.monotonic() + self._session_ttl_seconds
+
+    def _get_live_session(self, session_id: str) -> Optional[AnonymizationMap]:
+        anon_map = self._sessions.get(session_id)
+        if anon_map is None:
+            return None
+        if self._session_ttl_seconds > 0:
+            expiry = self._session_expiry.get(session_id, 0.0)
+            if expiry and time.monotonic() > expiry:
+                self.release(session_id)
+                return None
+        return anon_map
+
+    def _evict_expired_sessions(self) -> None:
+        if self._session_ttl_seconds <= 0 or not self._session_expiry:
+            return
+        now = time.monotonic()
+        expired = [sid for sid, exp in self._session_expiry.items() if now > exp]
+        for sid in expired:
+            self.release(sid)

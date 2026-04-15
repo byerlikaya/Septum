@@ -88,3 +88,57 @@ def test_multiple_sessions_are_independent(engine: SeptumEngine) -> None:
 
     assert restored_first == "Reply to first@example.com."
     assert restored_second == "Reply to second@example.com."
+
+
+def test_get_session_map_returns_entity_mapping(engine: SeptumEngine) -> None:
+    result = engine.mask("Email jane@example.com now.", language="en")
+    mapping = engine.get_session_map(result.session_id)
+
+    assert mapping == {"jane@example.com": "[EMAIL_ADDRESS_1]"}
+
+
+def test_get_session_map_returns_none_for_unknown_session(engine: SeptumEngine) -> None:
+    assert engine.get_session_map("nonexistent") is None
+
+
+def test_get_session_map_returns_a_copy(engine: SeptumEngine) -> None:
+    result = engine.mask("Email jane@example.com now.", language="en")
+    mapping = engine.get_session_map(result.session_id)
+    assert mapping is not None
+
+    mapping["evil"] = "[EVIL]"
+    fresh = engine.get_session_map(result.session_id)
+    assert fresh == {"jane@example.com": "[EMAIL_ADDRESS_1]"}
+
+
+def test_ttl_eviction_drops_expired_session() -> None:
+    config = SeptumCoreConfig(use_presidio_layer=True, use_ner_layer=False)
+    engine = SeptumEngine(
+        regulations=["gdpr"],
+        config=config,
+        semantic_port=NullSemanticDetectionPort(),
+        session_ttl_seconds=0.01,
+    )
+    result = engine.mask("Email jane@example.com now.", language="en")
+    assert engine.active_session_count() == 1
+
+    import time as _time
+
+    _time.sleep(0.05)
+    assert engine.get_session_map(result.session_id) is None
+    assert engine.active_session_count() == 0
+    assert engine.unmask("[EMAIL_ADDRESS_1]", result.session_id) == "[EMAIL_ADDRESS_1]"
+
+
+def test_ttl_disabled_keeps_sessions_indefinitely() -> None:
+    config = SeptumCoreConfig(use_presidio_layer=True, use_ner_layer=False)
+    engine = SeptumEngine(
+        regulations=["gdpr"],
+        config=config,
+        semantic_port=NullSemanticDetectionPort(),
+        session_ttl_seconds=0,
+    )
+    result = engine.mask("Email jane@example.com now.", language="en")
+    assert engine.get_session_map(result.session_id) == {
+        "jane@example.com": "[EMAIL_ADDRESS_1]"
+    }

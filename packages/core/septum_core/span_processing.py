@@ -11,7 +11,6 @@ from typing import List, Set
 
 from .spans import DetectedSpan
 
-
 # Entity-type priority used as a tiebreaker inside ``_dedup_simple``.
 # Higher number wins when two spans cover exactly the same offsets.
 # The intent is to stop loose numeric recognizers (PHONE_NUMBER) from
