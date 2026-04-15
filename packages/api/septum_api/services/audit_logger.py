@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.audit_event import AuditEvent
+from ..models.audit_event import AuditEvent
 
 logger = logging.getLogger(__name__)
 
