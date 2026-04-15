@@ -47,6 +47,7 @@ _warnings.filterwarnings(
     "ignore",
     message=r"__package__ != __spec__\.parent",
     category=DeprecationWarning,
+    module=r"septum_api\.services\..*",
 )
 
 _SHIM_PREFIX = __name__ + "."

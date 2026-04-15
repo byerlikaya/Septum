@@ -33,12 +33,9 @@ router = APIRouter(prefix="/api/setup", tags=["setup"])
 
 
 def _read_version() -> str:
-    """Read the application version from the VERSION file."""
-    from pathlib import Path
-    version_file = Path(__file__).resolve().parents[3] / "VERSION"
-    if version_file.exists():
-        return version_file.read_text().strip()
-    return "dev"
+    """Read the application version from the repo-root ``VERSION`` file."""
+    from ..main import _app_version
+    return _app_version()
 
 
 # ---------------------------------------------------------------------------

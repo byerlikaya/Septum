@@ -136,19 +136,19 @@ limiter = Limiter(
 def _app_version() -> str:
     """Return the app version from the repo-root ``VERSION`` file.
 
-    The file used to be resolved via ``parents[2]`` which worked when
-    this module lived at ``backend/app/main.py``. After the Phase 3b
-    move the module sits one level deeper (``packages/api/septum_api/``)
-    and the offset would drift. Walk up from the current file instead
-    so the lookup is robust to any future relocations.
+    Walks up from ``__file__`` instead of using a fixed ``parents[N]``
+    offset so the lookup is robust to future relocations.
     """
     from pathlib import Path
     for parent in Path(__file__).resolve().parents:
-        vf = parent / "VERSION"
-        if vf.exists():
-            return vf.read_text().strip()
+        try:
+            return (parent / "VERSION").read_text().strip()
+        except (FileNotFoundError, OSError):
+            continue
     return "dev"
 
+
+_APP_VERSION: str = _app_version()
 
 app = FastAPI(
     title="Septum API",
@@ -159,7 +159,7 @@ app = FastAPI(
         "documents (upload & ingestion), chat (RAG conversations), "
         "regulations (PII detection rules), audit (compliance trail)."
     ),
-    version=_app_version(),
+    version=_APP_VERSION,
     lifespan=lifespan,
     # FastAPI's default /redoc embeds `redoc@next`, which is the unstable
     # v3 alpha dist-tag and currently renders as a blank page. We serve
@@ -302,7 +302,7 @@ async def health() -> dict[str, Any]:
 
     result: dict[str, Any] = {
         "status": "ok",
-        "version": _app_version(),
+        "version": _APP_VERSION,
         "device": get_device(),
         "setup_required": bootstrap.needs_setup(),
     }
