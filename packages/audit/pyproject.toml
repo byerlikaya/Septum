@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "septum-audit"
+version = "0.1.0"
+description = "Internet-facing compliance audit trail for Septum. Persists already-masked event records and exports them to JSON / CSV / Splunk HEC. Never imports septum-core."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Septum contributors" },
+]
+keywords = ["audit", "compliance", "siem", "splunk", "septum", "privacy"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+    "Topic :: System :: Logging",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+# CRITICAL: septum-audit MUST NOT import septum-core. Audit lives in the
+# internet-facing zone and may only ever observe payloads the air-gapped
+# producer has already sanitized. Keeping the dependency wall here is
+# what makes the invariant enforceable in code review.
+dependencies = []
+
+[project.optional-dependencies]
+queue = [
+    "septum-queue>=0.1.0",
+]
+server = [
+    "fastapi>=0.135.1",
+    "uvicorn>=0.35.0",
+]
+test = [
+    "pytest>=9.0",
+    "pytest-asyncio>=1.3",
+    "septum-queue>=0.1.0",
+    "fastapi>=0.135.1",
+    "httpx>=0.27.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/byerlikaya/Septum"
+Repository = "https://github.com/byerlikaya/Septum"
+Issues = "https://github.com/byerlikaya/Septum/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["septum_audit"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
