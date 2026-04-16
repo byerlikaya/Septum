@@ -215,11 +215,25 @@ from .utils.metrics import PrometheusMiddleware, metrics_endpoint
 app.add_middleware(AuthMiddleware)
 app.add_middleware(PrometheusMiddleware)
 
+def _resolve_cors_origins(value: str) -> list[str]:
+    """Parse ``frontend_origin`` config into a CORS allow-list.
+
+    A literal ``"*"`` (or an empty value) maps to the permissive
+    wildcard. Everything else is treated as a comma-separated origin
+    list with whitespace stripped, so split deployments can declare
+    ``FRONTEND_ORIGIN=https://app.example.com,https://admin.example.com``
+    and lock CORS down to those two origins.
+    """
+    if not value or value.strip() == "*":
+        return ["*"]
+    return [origin.strip() for origin in value.split(",") if origin.strip()]
+
+
 # CORS must be the outermost middleware (added last = wraps everything)
 # so that preflight OPTIONS responses always carry the correct headers.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_resolve_cors_origins(bootstrap.get_config().frontend_origin),
     allow_methods=["*"],
     allow_headers=["*"],
 )

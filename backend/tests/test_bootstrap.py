@@ -87,7 +87,7 @@ class TestGetConfig:
         assert config.jwt_expiration_minutes == 1440
         assert config.log_level == "DEBUG"
         assert config.rate_limit == "60/minute"
-        assert config.frontend_origin == "http://localhost:3000"
+        assert config.frontend_origin == "*"
         assert config.database_configured is False
 
 

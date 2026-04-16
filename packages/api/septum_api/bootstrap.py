@@ -49,7 +49,7 @@ class BootstrapConfig:
     jwt_expiration_minutes: int = 1440
     log_level: str = "DEBUG"
     rate_limit: str = "60/minute"
-    frontend_origin: str = "http://localhost:3000"
+    frontend_origin: str = "*"
     database_configured: bool = False
 
 
