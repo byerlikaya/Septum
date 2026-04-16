@@ -21,19 +21,6 @@ packages/web/.next/
 packages/web/coverage/
 packages/web/.env.local
 
-# Backend artifacts + runtime state that never belongs in the image
-backend/__pycache__/
-backend/.venv/
-backend/venv/
-backend/data/
-backend/uploads/
-backend/anon_maps/
-backend/vector_indexes/
-backend/bm25_indexes/
-backend/models/
-backend/*.db
-backend/*.log
-
 # Top-level runtime state (from local dev runs)
 /data/
 /uploads/
@@ -49,10 +36,11 @@ backend/*.log
 # Screenshots / assets that docs pull from, never the image
 screenshots/
 
-# Build inputs — read by BuildKit via -f, never COPY'd from any image
+# Compose + .dockerignore never get COPY'd into any image. The docker/
+# directory IS part of the build context because api / standalone
+# Dockerfiles COPY docker/scripts/install-torch.sh; keeping docker/
+# in the context costs a few KB (Dockerfiles + scripts, no binaries).
 docker-compose*.yml
-docker/
-Dockerfile
 .dockerignore
 
 # Test + CI scripts

@@ -19,38 +19,37 @@ on:
         required: true
         type: string
 
+# Queue subsequent release runs instead of interleaving. Two tags pushed
+# seconds apart would otherwise race to push :latest / :<major> etc. and
+# the rolling tags could end up pointing at whichever build finished
+# last, not the newer version.
+concurrency:
+  group: docker-publish
+  cancel-in-progress: false
+
 jobs:
   resolve-version:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
-      major: ${{ steps.v.outputs.major }}
-      minor: ${{ steps.v.outputs.minor }}
       is_prerelease: ${{ steps.v.outputs.is_prerelease }}
     steps:
-      - name: Compute version + rolling tags
+      - name: Compute version + prerelease flag
         id: v
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION="${{ inputs.version }}"
           else
-            # Strip refs/tags/v prefix from github.ref (e.g. refs/tags/v0.2.0-rc.1 → 0.2.0-rc.1)
             VERSION="${GITHUB_REF#refs/tags/v}"
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-          # Parse semver; pre-release part (after -) disables rolling tags + latest
-          CORE="${VERSION%%-*}"
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CORE"
-          echo "major=${MAJOR}" >> "$GITHUB_OUTPUT"
-          echo "minor=${MAJOR}.${MINOR}" >> "$GITHUB_OUTPUT"
-          if [ "$VERSION" != "$CORE" ]; then
+          # Pre-release part (after -) disables rolling tags + latest.
+          if [ "${VERSION}" != "${VERSION%%-*}" ]; then
             echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
           else
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           fi
-
-          echo "Publishing v${VERSION} (prerelease=$([ "$VERSION" != "$CORE" ] && echo true || echo false))"
+          echo "Publishing v${VERSION}"
 
   # One matrix job covers every (image × variant) combination. Only the
   # two torch-dependent images (septum, septum-api) ship a GPU variant;
@@ -59,6 +58,9 @@ jobs:
   # subprocess where GPU makes little practical difference (mcp).
   # GPU variants build linux/amd64 only — NVIDIA CUDA wheels are not
   # published for arm64, and Apple Silicon hosts do not run CUDA.
+  #
+  # When adding torch to another image, append a matching gpu row here
+  # and update the description cluster below.
   publish:
     needs: resolve-version
     runs-on: ubuntu-latest
@@ -134,40 +136,28 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Compute image tags
-        id: tags
-        run: |
-          IMAGE="byerlikaya/${{ matrix.image }}"
-          VERSION="${{ needs.resolve-version.outputs.version }}"
-          VARIANT="${{ matrix.variant }}"
-          IS_PRE="${{ needs.resolve-version.outputs.is_prerelease }}"
-
-          if [ "$VARIANT" = "gpu" ]; then
-            # GPU variant: suffix every tag with -gpu; 'gpu' floats to the
-            # latest stable GPU release, 'latest' stays CPU.
-            PRIMARY="${IMAGE}:${VERSION}-gpu"
-            ROLLING="${IMAGE}:${{ needs.resolve-version.outputs.minor }}-gpu
-          ${IMAGE}:${{ needs.resolve-version.outputs.major }}-gpu
-          ${IMAGE}:gpu"
-          else
-            PRIMARY="${IMAGE}:${VERSION}"
-            ROLLING="${IMAGE}:${{ needs.resolve-version.outputs.minor }}
-          ${IMAGE}:${{ needs.resolve-version.outputs.major }}
-          ${IMAGE}:latest"
-          fi
-
-          if [ "$IS_PRE" = "false" ]; then
-            TAGS="${PRIMARY}
-          ${ROLLING}"
-          else
-            TAGS="${PRIMARY}"
-          fi
-
-          {
-            echo "tags<<EOF"
-            echo "${TAGS}"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+      - name: Docker metadata (tags + OCI labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: byerlikaya/${{ matrix.image }}
+          # CPU variants get full semver + latest; GPU variants get the
+          # same rolling tree suffixed with -gpu and 'gpu' as the
+          # floating alias (instead of 'latest'). Pre-releases skip
+          # 'latest' / 'gpu' automatically via enable conditions.
+          flavor: |
+            latest=false
+            suffix=${{ matrix.variant == 'gpu' && '-gpu' || '' }},onlatest=true
+          tags: |
+            type=raw,value=${{ needs.resolve-version.outputs.version }}
+            type=raw,value=${{ needs.resolve-version.outputs.version }},enable=${{ needs.resolve-version.outputs.is_prerelease == 'false' }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.resolve-version.outputs.version }},enable=${{ needs.resolve-version.outputs.is_prerelease == 'false' }}
+            type=semver,pattern={{major}},value=v${{ needs.resolve-version.outputs.version }},enable=${{ needs.resolve-version.outputs.is_prerelease == 'false' }}
+            type=raw,value=${{ matrix.variant == 'gpu' && 'gpu' || 'latest' }},enable=${{ needs.resolve-version.outputs.is_prerelease == 'false' }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.licenses=MIT
 
       - name: Build and push ${{ matrix.image }} (${{ matrix.variant }})
         uses: docker/build-push-action@v6
@@ -180,21 +170,14 @@ jobs:
           build-args: |
             VERSION=${{ needs.resolve-version.outputs.version }}
             TORCH_VARIANT=${{ matrix.variant }}
-          labels: |
-            org.opencontainers.image.version=${{ needs.resolve-version.outputs.version }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.source=https://github.com/byerlikaya/Septum
-            org.opencontainers.image.url=https://hub.docker.com/r/byerlikaya/${{ matrix.image }}
-            org.opencontainers.image.title=${{ matrix.title }}
-            org.opencontainers.image.description=${{ matrix.description }}
-            org.opencontainers.image.licenses=MIT
-          tags: ${{ steps.tags.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.variant }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.variant }}
 
       - name: Update Docker Hub description
-        # Only the CPU (primary) variant owns the Docker Hub README; GPU
-        # variants re-use the same page under the '-gpu' tag namespace.
+        # GPU tags re-use the same Docker Hub README under the -gpu
+        # tag namespace; only the CPU variant owns the page.
         if: matrix.variant == 'cpu'
         uses: peter-evans/dockerhub-description@v4
         with:
@@ -214,8 +197,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # full history so CHANGELOG context works
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

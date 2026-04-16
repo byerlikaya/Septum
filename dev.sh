@@ -29,8 +29,8 @@ fi
 echo "Project root: $PROJECT_ROOT"
 
 export SEPTUM_CONFIG_PATH="${SEPTUM_CONFIG_PATH:-$PROJECT_ROOT/config.json}"
-# Version comes from the git tag in release builds; dev runs stamp a
-# placeholder so the dashboard always renders a value in the footer.
+# Placeholder for the dashboard footer; release images inject the real
+# version via the Docker publish workflow's build-args.
 export NEXT_PUBLIC_APP_VERSION="${NEXT_PUBLIC_APP_VERSION:-0.0.0-dev}"
 
 find_available_port() {

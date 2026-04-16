@@ -127,13 +127,7 @@ from .middleware.rate_limit import get_limiter
 limiter = get_limiter()
 
 def _app_version() -> str:
-    """Return the app version from the nearest ``VERSION`` file on the parent chain.
-
-    Docker images (api + standalone) stamp a ``VERSION`` file at
-    ``/app/VERSION`` from the git-tag build-arg during publish. Dev
-    runs have no file and fall back to ``0.0.0-dev`` — the same
-    placeholder the frontend uses, so the dashboard and /health agree.
-    """
+    """Return the app version from the nearest VERSION file; ``0.0.0-dev`` if absent (matches the frontend placeholder)."""
     from pathlib import Path
     for parent in Path(__file__).resolve().parents:
         try:

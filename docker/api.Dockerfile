@@ -32,17 +32,10 @@ WORKDIR /app
 RUN python -m venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
+COPY docker/scripts/install-torch.sh /tmp/install-torch.sh
 COPY packages/api/requirements.txt /tmp/requirements.txt
-# Install torch first from the matching index; the torch==2.10.0 pin in
-# requirements.txt matches both wheels so the follow-up pip install -r
-# is a no-op for torch (PEP 440 ignores the +cpu local version suffix).
-RUN if [ "$TORCH_VARIANT" = "gpu" ]; then \
-      pip install --no-warn-script-location torch==2.10.0; \
-    else \
-      pip install --no-warn-script-location \
-        torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu; \
-    fi
-RUN pip install --no-warn-script-location -r /tmp/requirements.txt
+RUN sh /tmp/install-torch.sh "$TORCH_VARIANT" \
+    && pip install --no-warn-script-location -r /tmp/requirements.txt
 
 # Install septum-core + septum-queue + septum-api under /app so the
 # builder + runtime stages agree on the editable-install source path.
