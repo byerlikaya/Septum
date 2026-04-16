@@ -1,23 +1,8 @@
-"""Consumer loop that pairs request envelopes with response envelopes.
+"""Consumer loop pairing request envelopes with response envelopes.
 
-The consumer reads from the request topic, dispatches each envelope to
-the matching forwarder, and publishes a :class:`ResponseEnvelope` —
-``text`` on success, ``error`` on any forwarder failure — keyed by the
-same correlation id so the api producer can pair them up.
-
-``run_forever`` blocks indefinitely. ``run_once`` processes at most one
-message and returns whether work happened; tests and the FastAPI
-``/process-once`` endpoint use the latter to drive the loop
-deterministically without fighting a background task.
-
-Optional audit hook: when the consumer is constructed with an
-``audit_queue``, every handled message also produces a small audit
-envelope (provider / model / correlation_id / status / latency_ms /
-error / message_count) on the configured topic. The envelope contains
-**no** prompt content, response text, api keys, or base URLs — only
-metadata an internet-facing observer is allowed to see — so the gateway
-can stream telemetry into ``septum-audit`` without breaking the
-no-PII-leaves-the-zone invariant.
+Optional ``audit_queue`` hook emits a PII-free telemetry envelope
+(provider / model / correlation_id / status / latency_ms / message_count)
+per handled request — no prompt content, response text, or api keys.
 """
 
 from __future__ import annotations
@@ -25,7 +10,6 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING, Optional
 
 from septum_queue import (
     Message,
@@ -35,9 +19,6 @@ from septum_queue import (
 )
 
 from .forwarder import ForwarderRegistry, GatewayError
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +32,7 @@ class GatewayConsumer:
         request_queue: QueueBackend,
         response_queue: QueueBackend,
         registry: ForwarderRegistry,
-        audit_queue: Optional[QueueBackend] = None,
+        audit_queue: QueueBackend | None = None,
     ) -> None:
         self._request_queue = request_queue
         self._response_queue = response_queue
@@ -78,8 +59,8 @@ class GatewayConsumer:
         try:
             envelope = RequestEnvelope.from_dict(message.payload)
         except Exception as exc:  # noqa: BLE001
-            # Malformed payload — ack so it does not loop, and do not
-            # attempt a response (we have no correlation id).
+            # No correlation id → ack-and-drop; a missing reply surfaces
+            # via the producer-side timeout.
             logger.error("gateway dropping malformed request: %s", exc)
             await self._request_queue.ack(message.id)
             return
@@ -91,9 +72,6 @@ class GatewayConsumer:
         try:
             await self._response_queue.publish(response.to_dict())
         finally:
-            # ACK even if the response publish failed — the request
-            # itself completed; dropping the reply is surfaced via
-            # the producer-side timeout instead of a redelivery storm.
             await self._request_queue.ack(message.id)
 
         await self._emit_audit(envelope, response, latency_ms)
@@ -141,13 +119,7 @@ class GatewayConsumer:
         response: ResponseEnvelope,
         latency_ms: float,
     ) -> None:
-        """Publish a PII-free audit envelope when an audit queue is wired in.
-
-        Failures here are swallowed (logged but not raised) so the
-        primary request/response path is not blocked by an audit-side
-        outage. Operator visibility comes from the warning log, not from
-        a propagated exception.
-        """
+        """Publish a PII-free audit envelope; swallow failures so the main path is never blocked."""
         if self._audit_queue is None:
             return
         status = "ok" if response.error is None else "error"

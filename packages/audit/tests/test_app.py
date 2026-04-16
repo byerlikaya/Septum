@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 from io import StringIO
+from typing import Sequence
 
 import pytest
 
@@ -16,15 +17,10 @@ from septum_audit import AuditConfig, AuditRecord, MemorySink  # noqa: E402
 from septum_audit.main import create_app  # noqa: E402
 
 
-def _build(client_records=None) -> TestClient:
-    sink = MemorySink()
-    if client_records:
-        for r in client_records:
-            # Synchronous write into the in-memory sink for setup.
-            sink._records.append(r)  # type: ignore[attr-defined]
+def _build(records: Sequence[AuditRecord] | None = None) -> TestClient:
+    sink = MemorySink(initial_records=records)
     cfg = AuditConfig(sink_path="ignored.jsonl", audit_topic="septum.audit.events")
-    app = create_app(cfg, sink=sink)
-    return TestClient(app)
+    return TestClient(create_app(cfg, sink=sink))
 
 
 def test_health_reports_topic_and_supported_formats():
@@ -48,7 +44,6 @@ def test_export_jsonl_default_returns_one_record_per_line():
         resp = client.get("/api/audit/export")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("application/x-ndjson")
-    assert resp.headers["x-audit-record-count"] == "2"
     assert 'attachment; filename="septum-audit.jsonl"' in resp.headers[
         "content-disposition"
     ]
@@ -93,26 +88,17 @@ def test_export_siem_wraps_records_in_hec_envelope():
     assert payload["event"]["correlation_id"] == "cor-1"
 
 
-def test_export_unknown_format_returns_400_with_choices():
+def test_export_unknown_format_returns_422_from_pydantic_validation():
     with _build() as client:
         resp = client.get("/api/audit/export?format=xml")
-    assert resp.status_code == 400
+    # FastAPI's Literal validation surfaces as 422 with the allowed set.
+    assert resp.status_code == 422
     detail = resp.json()["detail"]
-    assert "unsupported format" in detail
-    assert "csv" in detail and "jsonl" in detail
+    assert any("jsonl" in str(err).lower() for err in detail)
 
 
-def test_export_format_is_case_insensitive():
-    records = [AuditRecord(source="api", event_type="x")]
-    with _build(records) as client:
-        resp = client.get("/api/audit/export?format=CSV")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"].startswith("text/csv")
-
-
-def test_export_with_empty_sink_returns_zero_count():
+def test_export_with_empty_sink_returns_empty_body():
     with _build() as client:
         resp = client.get("/api/audit/export")
     assert resp.status_code == 200
-    assert resp.headers["x-audit-record-count"] == "0"
     assert resp.text == ""

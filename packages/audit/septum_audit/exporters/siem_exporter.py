@@ -1,26 +1,19 @@
-"""Splunk HTTP Event Collector (HEC) exporter.
+"""Splunk HTTP Event Collector (HEC) line-delimited exporter.
 
-Splunk's HEC accepts newline-delimited JSON envelopes with a small
-required wrapper (``time``, ``host``, ``source``, ``sourcetype``,
-``event``). Most enterprise SIEM pipelines (Splunk Cloud, Cribl, the
-Splunk-compatible mode in Elastic / Loki) consume the same shape, so
-emitting HEC also covers ``ingest_pipeline``-style workflows in those
-tools without a separate exporter per vendor.
-
+Covers Cribl / Elastic / Loki Splunk-compatible ingest modes too.
 Reference: https://docs.splunk.com/Documentation/Splunk/latest/Data/FormateventsforHTTPEventCollector
 """
 
 from __future__ import annotations
 
 import json
-from typing import IO, Iterable
+from typing import Iterable, Iterator
 
 from ..events import AuditRecord
+from .base import BaseExporter
 
 
-class SplunkHecExporter:
-    """Stream :class:`AuditRecord` instances as Splunk HEC envelopes."""
-
+class SplunkHecExporter(BaseExporter):
     content_type: str = "application/json"
     file_extension: str = "hec.jsonl"
 
@@ -35,8 +28,7 @@ class SplunkHecExporter:
         self._sourcetype = sourcetype
         self._index = index
 
-    def write(self, records: Iterable[AuditRecord], out: IO[str]) -> int:
-        count = 0
+    def iter_chunks(self, records: Iterable[AuditRecord]) -> Iterator[str]:
         for record in records:
             envelope: dict[str, object] = {
                 "time": record.timestamp,
@@ -52,14 +44,4 @@ class SplunkHecExporter:
             }
             if self._index is not None:
                 envelope["index"] = self._index
-            out.write(json.dumps(envelope, separators=(",", ":")))
-            out.write("\n")
-            count += 1
-        return count
-
-    def to_string(self, records: Iterable[AuditRecord]) -> str:
-        from io import StringIO
-
-        buffer = StringIO()
-        self.write(records, buffer)
-        return buffer.getvalue()
+            yield json.dumps(envelope, separators=(",", ":")) + "\n"

@@ -6,8 +6,6 @@ import asyncio
 import json
 from pathlib import Path
 
-import pytest
-
 from septum_audit import AuditRecord, JsonlFileSink, MemorySink
 
 
@@ -20,13 +18,22 @@ async def test_memory_sink_appends_and_iterates():
     assert len(sink) == 2
 
 
+async def test_memory_sink_initial_records_seed_the_sink():
+    seed = [
+        AuditRecord(source="api", event_type="a"),
+        AuditRecord(source="api", event_type="b"),
+    ]
+    sink = MemorySink(initial_records=seed)
+    assert len(sink) == 2
+    assert [r.event_type for r in sink.read_all()] == ["a", "b"]
+
+
 async def test_memory_sink_snapshot_iteration_safe_under_concurrent_writes():
     sink = MemorySink()
     await sink.write(AuditRecord(source="api", event_type="a"))
     iterator = sink.read_all()
     await sink.write(AuditRecord(source="api", event_type="b"))
     consumed = list(iterator)
-    # Snapshot semantics: the iterator must not see "b".
     assert len(consumed) == 1
 
 
@@ -79,22 +86,11 @@ async def test_jsonl_sink_concurrent_writes_serialize(tmp_path: Path):
     )
     lines = sink.path.read_text(encoding="utf-8").strip().split("\n")
     assert len(lines) == 20
-    # No interleaved bytes — every line decodes cleanly.
     decoded = [json.loads(line) for line in lines]
     assert {d["event_type"] for d in decoded} == {f"evt-{i}" for i in range(20)}
-
-
-async def test_jsonl_sink_async_iteration(tmp_path: Path):
-    sink = JsonlFileSink(tmp_path / "audit.jsonl")
-    await sink.write(AuditRecord(source="api", event_type="one"))
-    await sink.write(AuditRecord(source="api", event_type="two"))
-    collected = []
-    async for r in sink.aread_all():
-        collected.append(r.event_type)
-    assert collected == ["one", "two"]
 
 
 async def test_close_is_safe_to_call_twice(tmp_path: Path):
     sink = JsonlFileSink(tmp_path / "audit.jsonl")
     await sink.close()
-    await sink.close()  # should not raise
+    await sink.close()

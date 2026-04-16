@@ -1,35 +1,30 @@
-"""CSV exporter that flattens the ``attributes`` map into ``key=value`` cells.
-
-Spreadsheet pipelines and ad-hoc compliance reports want a flat shape;
-nested JSON does not survive a round trip through Excel. The exporter
-emits a fixed header (``id, timestamp, source, event_type,
-correlation_id, attributes``) and serializes ``attributes`` as a
-JSON-encoded cell so the structure is preserved without exploding the
-column count per record.
-"""
+"""RFC 4180 CSV exporter. ``attributes`` is JSON-encoded into one cell."""
 
 from __future__ import annotations
 
 import csv
 import json
-from typing import IO, Iterable
+from io import StringIO
+from typing import Iterable, Iterator
 
 from ..events import AuditRecord
+from .base import BaseExporter
 
 _HEADER = ["id", "timestamp", "source", "event_type", "correlation_id", "attributes"]
 
 
-class CsvExporter:
-    """Stream :class:`AuditRecord` instances as RFC 4180 CSV."""
-
+class CsvExporter(BaseExporter):
     content_type: str = "text/csv"
     file_extension: str = "csv"
 
-    def write(self, records: Iterable[AuditRecord], out: IO[str]) -> int:
-        writer = csv.writer(out)
-        writer.writerow(_HEADER)
-        count = 0
+    def iter_chunks(self, records: Iterable[AuditRecord]) -> Iterator[str]:
+        buffer = StringIO()
+        writer = csv.writer(buffer)
+        first = True
         for record in records:
+            if first:
+                writer.writerow(_HEADER)
+                first = False
             writer.writerow(
                 [
                     record.id,
@@ -40,12 +35,6 @@ class CsvExporter:
                     json.dumps(record.attributes, separators=(",", ":")),
                 ]
             )
-            count += 1
-        return count
-
-    def to_string(self, records: Iterable[AuditRecord]) -> str:
-        from io import StringIO
-
-        buffer = StringIO()
-        self.write(records, buffer)
-        return buffer.getvalue()
+            yield buffer.getvalue()
+            buffer.seek(0)
+            buffer.truncate()

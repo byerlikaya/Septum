@@ -1,16 +1,9 @@
-"""The single audit envelope shape the entire package operates on.
+"""The single audit envelope shape the package operates on.
 
-Every event written to a sink, exported to a file, or read off the queue
-becomes an :class:`AuditRecord`. Keeping the shape narrow (one ID, one
-timestamp, one source string, one event_type, an opaque attributes map)
-keeps the exporters dumb — they iterate records and serialize the same
-fields regardless of which producer emitted them.
-
-PII discipline: the ``attributes`` map is *not* free-form for downstream
-producers. Gateways and api producers must scrub it before publishing.
-This package never inspects attributes for raw values; it cannot — by
-contract every value it sees has already passed through the air-gapped
-masking layer.
+PII discipline: ``attributes`` is JSON-serializable and must never
+contain raw PII. Producers scrub before publishing — this package
+cannot inspect for raw values; by contract every value it sees has
+already passed through the air-gapped masking layer.
 """
 
 from __future__ import annotations
@@ -23,25 +16,16 @@ from typing import Any, Mapping
 
 
 def _new_id() -> str:
-    """Short opaque id used to dedupe across exporter retries."""
     return uuid.uuid4().hex
 
 
 def _now() -> float:
-    """Wall-clock unix timestamp (records cross host boundaries)."""
     return time.time()
 
 
 @dataclass(frozen=True)
 class AuditRecord:
-    """Immutable audit envelope.
-
-    ``source`` names the emitting service (``"septum-gateway"``,
-    ``"septum-api"``, etc.). ``event_type`` is a free-form short string
-    the operator filters on (``"llm.request.completed"``,
-    ``"pii.detected"``). ``attributes`` is JSON-serializable and must
-    never contain raw PII — producers scrub before publishing.
-    """
+    """Immutable audit envelope."""
 
     id: str = field(default_factory=_new_id)
     timestamp: float = field(default_factory=_now)

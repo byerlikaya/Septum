@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import AsyncIterator
 
 import pytest
 
@@ -63,17 +62,8 @@ async def test_consumer_returns_false_when_queue_is_empty(tmp_path: Path):
     assert processed is False
 
 
-async def test_consumer_drops_malformed_payload_without_crashing(tmp_path: Path):
+async def test_consumer_nacks_when_sink_write_fails(tmp_path: Path):
     queue = FileQueueBackend(tmp_path / "queue", topic="audit")
-    sink = MemorySink()
-    consumer = AuditConsumer(queue=queue, sink=sink)
-
-    # Publish a payload that survives JSON encoding but trips
-    # AuditRecord.from_dict — currently from_dict is permissive enough
-    # that the only realistic failure is a non-mapping payload, which
-    # our queue contract forbids. Simulate the failure by feeding the
-    # consumer a sink that raises on write — the message must be
-    # nacked + re-queued, not lost.
 
     class BoomSink(MemorySink):
         async def write(self, record):  # type: ignore[override]
@@ -81,11 +71,8 @@ async def test_consumer_drops_malformed_payload_without_crashing(tmp_path: Path)
 
     consumer = AuditConsumer(queue=queue, sink=BoomSink())
     await _publish(queue, AuditRecord(source="api", event_type="x"))
-    processed = await consumer.run_once(block_ms=200)
-    assert processed is True
+    assert await consumer.run_once(block_ms=200) is True
 
-    # Re-queued — a second consumer (or the same one with a working
-    # sink) should still find it.
+    # Re-queued — a healthy sink still sees it.
     healthy = AuditConsumer(queue=queue, sink=MemorySink())
-    processed_again = await healthy.run_once(block_ms=200)
-    assert processed_again is True
+    assert await healthy.run_once(block_ms=200) is True

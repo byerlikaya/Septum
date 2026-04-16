@@ -1,16 +1,8 @@
 """Septum compliance audit trail: append-only records + exporters.
 
-``septum-audit`` runs in the internet-facing zone alongside
-``septum-gateway``. It persists already-masked event records (no raw PII)
-and ships them to downstream compliance pipelines (JSON, CSV, Splunk
-HEC). The package itself has zero runtime dependencies; the queue
-consumer and FastAPI export endpoint live behind the ``[queue]`` and
-``[server]`` extras so a minimal install pulls nothing extra.
-
-Like the gateway, ``septum-audit`` MUST NOT import ``septum-core``. The
-dependency wall is what keeps raw PII out of the audit zone — every
-record this package writes is an opaque dict the producer already
-scrubbed.
+Runs in the internet-facing zone alongside ``septum-gateway`` and MUST
+NOT import ``septum-core``. Every record this package sees has already
+been scrubbed of raw PII by the air-gapped producer.
 """
 
 from __future__ import annotations
