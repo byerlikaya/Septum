@@ -196,6 +196,10 @@ async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:
             "app_settings",
             "ALTER TABLE app_settings ADD COLUMN approval_timeout_seconds INTEGER NOT NULL DEFAULT 300",
         ),
+        (
+            "app_settings",
+            "ALTER TABLE app_settings ADD COLUMN use_gateway BOOLEAN NOT NULL DEFAULT 0",
+        ),
     ]
 
     async with eng.begin() as conn:
@@ -278,6 +282,7 @@ def build_default_app_settings() -> AppSettings:
         ),
         default_active_regulations=default_active_regulations,
         setup_completed=False,
+        use_gateway=_env_bool("USE_GATEWAY_DEFAULT", False),
     )
 
 

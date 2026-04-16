@@ -40,6 +40,25 @@ from .llm_errors import LLMRouterError  # noqa: F401 — re-exported
 from .llm_providers.factory import build_provider
 from .llm_providers.health import is_available, record_failure, record_success
 
+# Phase 5 — optional gateway delegation. The client is instantiated
+# lazily via ``_resolve_gateway_client`` so tests and air-gapped
+# deployments that never set ``use_gateway=True`` never import
+# ``septum_queue`` and never allocate the queue backends.
+_gateway_client_factory: Callable[[AppSettings], "object | None"] | None = None
+
+
+def set_gateway_client_factory(
+    factory: Callable[[AppSettings], "object | None"] | None,
+) -> None:
+    """Install a factory that returns a ``GatewayClient`` given app settings.
+
+    Deployment code wires this at startup when ``use_gateway=True`` is
+    expected; tests inject a fake client. ``None`` disables the gateway
+    path entirely, which is the current default.
+    """
+    global _gateway_client_factory
+    _gateway_client_factory = factory
+
 logger = logging.getLogger(__name__)
 
 
@@ -110,8 +129,7 @@ class LLMRouter:
             text = await self._fallback_via_ollama(messages, temperature, max_tokens)
         else:
             try:
-                provider = build_provider(self._settings)
-                text = await provider.complete(
+                text = await self._dispatch_cloud_call(
                     messages=messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
@@ -137,6 +155,48 @@ class LLMRouter:
 
         for chunk in _chunk_text(text):
             yield chunk
+
+    async def _dispatch_cloud_call(
+        self,
+        messages: Sequence[ChatMessage],
+        temperature: float,
+        max_tokens: int | None,
+    ) -> str:
+        """Route the cloud call through the gateway when opted in, else direct.
+
+        Keeps the circuit-breaker and Ollama-fallback code path
+        identical for both branches — from the outer layer's point of
+        view a gateway error and a direct-call error look the same.
+        """
+        if bool(getattr(self._settings, "use_gateway", False)):
+            client = self._resolve_gateway_client()
+            if client is not None:
+                return await client.complete(
+                    settings=self._settings,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            logger.warning(
+                "use_gateway=True but no gateway client factory is installed; "
+                "falling back to direct cloud call"
+            )
+        provider = build_provider(self._settings)
+        return await provider.complete(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+    def _resolve_gateway_client(self) -> object | None:
+        """Invoke the registered factory lazily, or return ``None``."""
+        if _gateway_client_factory is None:
+            return None
+        try:
+            return _gateway_client_factory(self._settings)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("gateway client factory raised: %s", exc)
+            return None
 
     async def _fallback_via_ollama(
         self,
