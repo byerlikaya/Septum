@@ -100,10 +100,9 @@ services:
         # Empty string = same-origin proxy via Next.js rewrites. Override
         # with https://api.example.com for a split deployment.
         NEXT_PUBLIC_API_BASE_URL: ""
+        BACKEND_INTERNAL_URL: http://api:8000
     image: septum/web:latest
     container_name: septum-web
-    environment:
-      BACKEND_INTERNAL_URL: http://api:8000
     ports:
       - "3000:3000"
     depends_on:

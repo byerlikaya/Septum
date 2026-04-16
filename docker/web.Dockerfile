@@ -6,9 +6,15 @@
 # If unset the frontend falls back to same-origin relative URLs, suitable
 # for the single-container / reverse-proxy topology.
 #
+# BACKEND_INTERNAL_URL is the server-side proxy target used by Next.js
+# rewrites for /api/* / /health / /docs / etc. Next.js bakes the rewrite
+# destination into its routes manifest at build time, so this must be
+# passed as a build-arg (setting it at runtime has no effect).
+#
 # Build:
 #   docker build \
 #     --build-arg NEXT_PUBLIC_API_BASE_URL=https://api.example.com \
+#     --build-arg BACKEND_INTERNAL_URL=http://api:8000 \
 #     -f docker/web.Dockerfile -t septum/web .
 #
 # Run:
@@ -19,6 +25,9 @@
 FROM node:20-alpine AS builder
 
 ARG NEXT_PUBLIC_API_BASE_URL=""
+# Matches the runtime fallback in next.config.mjs for local dev without a
+# compose network; docker-compose.yml overrides it with http://api:8000.
+ARG BACKEND_INTERNAL_URL=http://127.0.0.1:8000
 # Version is injected by the Docker Hub publish workflow from the git
 # tag; defaults to 0.0.0-dev for local builds that skip --build-arg.
 ARG VERSION=0.0.0-dev
@@ -29,9 +38,10 @@ RUN npm ci || npm install
 
 COPY packages/web/ .
 RUN mkdir -p public \
-    && printf "NEXT_PUBLIC_APP_VERSION=%s\nNEXT_PUBLIC_API_BASE_URL=%s\n" \
+    && printf "NEXT_PUBLIC_APP_VERSION=%s\nNEXT_PUBLIC_API_BASE_URL=%s\nBACKEND_INTERNAL_URL=%s\n" \
         "${VERSION}" \
         "${NEXT_PUBLIC_API_BASE_URL}" \
+        "${BACKEND_INTERNAL_URL}" \
         > .env.local \
     && npm run build
 

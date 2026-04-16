@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here in a high‑level, date‑based format.
 
+### 2026-04-17
+
+- **Fix web proxy target so the dashboard reaches `septum-api` under docker-compose**: `next.config.mjs`'in `rewrites()` destination string'i Next.js tarafından build-time'da `routes-manifest.json`'a gömülüyor — runtime'da `BACKEND_INTERNAL_URL` set etmek hiç etki etmiyordu, dashboard her çağrıyı kendi container'ının `127.0.0.1:8000`'ine proxyliyor ve `POST /api/setup/initialize` 500 dönüyordu. `BACKEND_INTERNAL_URL` artık `docker/web.Dockerfile`'da bir build-arg (default `http://127.0.0.1:8000` — standalone topolojisini kırmaz); `docker-compose.yml` ve `docker-compose.airgap.yml` build args'ında `http://api:8000` geçiyorlar ve artık pointless olan runtime env var'ı düştü.
+
 ### 2026-04-16
 
 - **CPU / GPU image variants for torch-dependent images**: Split `byerlikaya/septum` and `byerlikaya/septum-api` into CPU (default, multi-arch, ~250 MB torch wheel) and GPU (linux/amd64 only, full CUDA runtime) variants via a `TORCH_VARIANT` build-arg. CPU keeps `:latest` + rolling tags; GPU floats on `:gpu` with `-gpu`-suffixed rolling aliases. Other images (`web`, `gateway`, `audit`, `mcp`) stay CPU-only — `docker/mcp.Dockerfile` now explicitly calls `install-torch.sh cpu` before the editable install of `packages/core[transformers]`, so the mcp image no longer accidentally drags in ~5 GB of CUDA shared libs through the default PyPI torch wheel (GPU offers no benefit for the stdio-attached short-call pattern; users needing GPU-accelerated NER run `septum-api` instead). Local `./dev.sh` is unaffected — it picks up whatever torch variant PyPI serves for the host (CUDA on NVIDIA Linux, MPS on Apple Silicon, CPU elsewhere).
