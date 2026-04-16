@@ -79,3 +79,17 @@ packages = ["septum_api"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+filterwarnings = [
+    "ignore:.*Using CPU.*:UserWarning",
+    "ignore:.*Downloading.*model.*:UserWarning",
+    "ignore:.*Recognizer not added to registry.*:UserWarning",
+    "ignore:.*doesn't have the corresponding recognizer.*:UserWarning",
+    "ignore:builtin type SwigPyPacked has no __module__:DeprecationWarning",
+    "ignore:builtin type SwigPyObject has no __module__:DeprecationWarning",
+    "ignore:builtin type swigvarlink has no __module__:DeprecationWarning",
+    "ignore:datetime.datetime.utcnow.* is deprecated:DeprecationWarning",
+    "ignore:torch.ao.quantization is deprecated:DeprecationWarning",
+    "ignore:.*pin_memory.*argument is set as true but no accelerator:UserWarning",
+    "ignore:.*has conflict with protected namespace.*model_.*:UserWarning",
+    "ignore:__package__ != __spec__\\.parent.*:DeprecationWarning",
+]
