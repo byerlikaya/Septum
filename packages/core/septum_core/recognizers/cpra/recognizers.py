@@ -5,7 +5,7 @@ from __future__ import annotations
 CPRA extends CCPA; most identifiers (SSN, credit card, phone, email,
 address) are handled by the regulation-agnostic baseline. Entity-type
 coverage and legal basis are documented in
-``backend/docs/REGULATION_ENTITY_SOURCES.md``.
+``packages/api/docs/REGULATION_ENTITY_SOURCES.md``.
 """
 
 from typing import List

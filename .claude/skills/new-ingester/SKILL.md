@@ -12,7 +12,7 @@ When this skill is invoked, ask the user:
 
 Then generate the following files:
 
-## 1. `backend/app/services/ingestion/{format}_ingester.py`
+## 1. `packages/api/septum_api/services/ingestion/{format}_ingester.py`
 
 ```python
 """
@@ -68,7 +68,7 @@ class {Format}Ingester(BaseIngester):
         )
 ```
 
-## 2. Register in `backend/app/services/ingestion/router.py`
+## 2. Register in `packages/api/septum_api/services/ingestion/router.py`
 
 Add the new MIME type → ingester mapping:
 ```python

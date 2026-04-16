@@ -1,7 +1,7 @@
 ---
 paths:
-  - "frontend/package.json"
-  - "backend/requirements.txt"
+  - "packages/web/package.json"
+  - "packages/api/requirements.txt"
 ---
 
 # Dependency Freshness Policy

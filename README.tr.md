@@ -151,7 +151,7 @@ LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerç
 | 🇳🇿 Yeni Zelanda | `nzpa` | Privacy Act 2020 |
 | 🇦🇺 Avustralya | `australia_pa` | Privacy Act 1988 |
 
-Her satır [`backend/app/services/recognizers/`](backend/app/services/recognizers/) altında yüklenebilir bir pakettir. Birden fazlası aynı anda aktif olabilir — sanitizer hepsinin birleşimini uygular ve en kısıtlayıcı kural kazanır. Her varlık tipinin hukuki kaynağı [`backend/docs/REGULATION_ENTITY_SOURCES.md`](backend/docs/REGULATION_ENTITY_SOURCES.md) dosyasındadır.
+Her satır [`packages/core/septum_core/recognizers/`](packages/core/septum_core/recognizers/) altında yüklenebilir bir pakettir. Birden fazlası aynı anda aktif olabilir — sanitizer hepsinin birleşimini uygular ve en kısıtlayıcı kural kazanır. Her varlık tipinin hukuki kaynağı [`packages/api/docs/REGULATION_ENTITY_SOURCES.md`](packages/api/docs/REGULATION_ENTITY_SOURCES.md) dosyasındadır.
 
 </details>
 
@@ -522,11 +522,9 @@ Mimari detaylar için bkz. **[ARCHITECTURE.tr.md](ARCHITECTURE.tr.md)**.
 ### Paket Düzeni
 
 Septum, `packages/` altında bağımsız olarak kurulabilen paketlere
-bölünüyor. Monolitik `backend/app/` dizini, ayrım ilerlerken çalışan
-backend'i barındırmaya devam ediyor; `septum_api.*`'ye yönlendiren
-shim paketleri sağlar, böylece mevcut import'lar herhangi bir çağrı
-yeri değişikliği olmadan çalışmaya devam eder. Panel artık kalıcı
-yerinde — `packages/web/` altında.
+bölünmüştür. Eski `backend/` uyumluluk katmanı kaldırılmıştır; her
+backend import'u doğrudan `septum_api.*` üzerinden gider ve panel
+`packages/web/` altında yaşar.
 
 | Paket | Yol | Bölge | Açıklama | Durum |
 |:---|:---|:---|:---|:---:|

@@ -1,6 +1,6 @@
 ---
 paths:
-  - "backend/app/**/*.py"
+  - "packages/api/septum_api/**/*.py"
 ---
 
 # Zero-Tolerance Generic Architecture

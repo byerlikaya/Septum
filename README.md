@@ -151,7 +151,7 @@ The LLM answers using placeholders. Septum restores real values locally before s
 | 🇳🇿 New Zealand | `nzpa` | Privacy Act 2020 |
 | 🇦🇺 Australia | `australia_pa` | Privacy Act 1988 |
 
-Every row is a loadable pack under [`backend/app/services/recognizers/`](backend/app/services/recognizers/). Multiple can be active simultaneously — the sanitizer applies the union and the most restrictive rule wins. Legal sources for each entity type live in [`backend/docs/REGULATION_ENTITY_SOURCES.md`](backend/docs/REGULATION_ENTITY_SOURCES.md).
+Every row is a loadable pack under [`packages/core/septum_core/recognizers/`](packages/core/septum_core/recognizers/). Multiple can be active simultaneously — the sanitizer applies the union and the most restrictive rule wins. Legal sources for each entity type live in [`packages/api/docs/REGULATION_ENTITY_SOURCES.md`](packages/api/docs/REGULATION_ENTITY_SOURCES.md).
 
 </details>
 
@@ -519,11 +519,9 @@ For architecture details, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 ### Package Layout
 
 Septum is being split into independently installable packages under
-`packages/`. The monolithic `backend/app/` directory continues to host
-the running backend while the split progresses; it ships shim packages
-that forward to `septum_api.*`, so existing imports keep working
-without any call-site edits. The dashboard already lives in its
-permanent home at `packages/web/`.
+`packages/`. The legacy `backend/` compatibility layer has been
+removed; every backend import goes directly through `septum_api.*` and
+the dashboard lives at `packages/web/`.
 
 | Package | Path | Zone | Description | Status |
 |:---|:---|:---|:---|:---:|

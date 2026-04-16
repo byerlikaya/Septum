@@ -29,8 +29,8 @@ Track these items during the scan:
 
 1. **Detect ecosystems and frameworks**:
    - Look for manifest/build files:
-     - Backend (Python): `backend/requirements.txt`, `backend/pyproject.toml` (if present), `backend/app/main.py`
-     - Frontend (Node/TypeScript): `frontend/package.json`, `frontend/package-lock.json`, `frontend/pnpm-lock.yaml`, `frontend/yarn.lock`, `frontend/src/app/layout.tsx`
+     - Backend (Python): `packages/api/requirements.txt`, `backend/pyproject.toml` (if present), `packages/api/septum_api/main.py`
+     - Frontend (Node/TypeScript): `packages/web/package.json`, `frontend/package-lock.json`, `frontend/pnpm-lock.yaml`, `frontend/yarn.lock`, `frontend/src/app/layout.tsx`
      - Container/infra: `Dockerfile`, `backend/Dockerfile`, `frontend/Dockerfile`, `docker-compose.yml`, CI configs (if present).
    - Infer:
      - Backend: Python + FastAPI + Septum-specific privacy/PII stack.
@@ -103,9 +103,9 @@ Use OWASP Top 10 (latest version) as the mandatory baseline and extend beyond it
 
 2. Identify **entrypoints and sensitive modules** in Septum:
    - Backend:
-     - API routers in `backend/app/routers/` (`documents.py`, `chat.py`, `approval.py`, `settings.py`, `regulations.py`, etc.).
-     - Services under `backend/app/services/` (sanitizer, anonymization, crypto, ingestion, national_ids, policy_composer, vector_store, llm_router, deanonymizer).
-     - Utility modules in `backend/app/utils/` (especially `crypto.py`, `device.py`, `logger.py`, `text_utils.py`).
+     - API routers in `packages/api/septum_api/routers/` (`documents.py`, `chat.py`, `approval.py`, `settings.py`, `regulations.py`, etc.).
+     - Services under `packages/api/septum_api/services/` (sanitizer, anonymization, crypto, ingestion, national_ids, policy_composer, vector_store, llm_router, deanonymizer).
+     - Utility modules in `packages/api/septum_api/utils/` (especially `crypto.py`, `device.py`, `logger.py`, `text_utils.py`).
    - Frontend:
      - Next.js app routes under `frontend/src/app/`.
      - API client logic in `frontend/src/lib/api.ts`, `frontend/src/lib/uploadDocuments.ts`.
@@ -298,17 +298,17 @@ For each finding, use this structure:
 Examples:
 
 ```text
-[CRITICAL] Hardcoded encryption key — backend/app/utils/crypto.py:120
+[CRITICAL] Hardcoded encryption key — packages/api/septum_api/utils/crypto.py:120
   Issue: A symmetric encryption key is hardcoded in source code.
   Impact: If the repository is leaked, an attacker can decrypt all stored documents.
   Fix: Load the key from an environment variable, ensure .env is not committed, and rotate the key.
 
-[HIGH] Known vulnerability in fastapi@X.Y.Z — backend/requirements.txt
+[HIGH] Known vulnerability in fastapi@X.Y.Z — packages/api/requirements.txt
   Issue: pip-audit reports CVE-2025-12345 affecting this version of FastAPI.
   Impact: Remote attackers may bypass authentication on certain routes.
   Fix: Upgrade fastapi to the minimum fixed version suggested by pip-audit and run the test suite.
 
-[MEDIUM] CORS misconfiguration — backend/app/main.py:45
+[MEDIUM] CORS misconfiguration — packages/api/septum_api/main.py:45
   Issue: CORS middleware allows all origins with credentials enabled.
   Impact: Any website can make authenticated requests to this API from a victim's browser.
   Fix: Restrict `allow_origins` to an explicit list of trusted domains or disable credentials for wildcard origins.

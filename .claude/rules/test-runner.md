@@ -1,6 +1,6 @@
 ---
 paths:
-  - "backend/**/*.py"
+  - "packages/**/*.py"
 ---
 
 # Smart Test Runner

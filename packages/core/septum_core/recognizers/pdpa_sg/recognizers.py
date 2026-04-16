@@ -4,7 +4,7 @@ from __future__ import annotations
 
 Adds a format-only NRIC/FIN recognizer on top of the regulation-
 agnostic baseline. Entity-type coverage and legal basis are
-documented in ``backend/docs/REGULATION_ENTITY_SOURCES.md``.
+documented in ``packages/api/docs/REGULATION_ENTITY_SOURCES.md``.
 """
 
 from typing import List

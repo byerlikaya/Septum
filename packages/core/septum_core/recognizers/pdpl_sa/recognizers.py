@@ -5,7 +5,7 @@ from __future__ import annotations
 Adds a format-only 10-digit national ID recognizer (resident prefix
 ``1``, non-resident prefix ``2``) on top of the regulation-agnostic
 baseline. Entity-type coverage and legal basis are documented in
-``backend/docs/REGULATION_ENTITY_SOURCES.md``.
+``packages/api/docs/REGULATION_ENTITY_SOURCES.md``.
 """
 
 from typing import List

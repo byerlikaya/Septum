@@ -14,7 +14,7 @@ When invoked, ask the user:
 
 Then generate:
 
-## 1. `backend/app/services/national_ids/{country_code_lower}.py`
+## 1. `packages/api/septum_api/services/national_ids/{country_code_lower}.py`
 
 ```python
 """
@@ -58,7 +58,7 @@ class {CountryCode}{IDName}Validator(BaseIDValidator):
         raise NotImplementedError("Implement checksum algorithm")
 ```
 
-## 2. `backend/app/services/recognizers/{regulation}/recognizers.py` — add recognizer
+## 2. `packages/api/septum_api/services/recognizers/{regulation}/recognizers.py` — add recognizer
 
 ```python
 from presidio_analyzer import PatternRecognizer, Pattern

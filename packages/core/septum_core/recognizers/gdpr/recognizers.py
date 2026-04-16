@@ -7,7 +7,7 @@ for the main EU jurisdictions alongside the common email / IPv4 /
 phone patterns. Every detector uses a context-keyword preamble and
 ``narrow_to_group=1`` so only the identifier value itself lands in
 the reported span. Entity-type coverage and legal basis are
-documented in ``backend/docs/REGULATION_ENTITY_SOURCES.md``.
+documented in ``packages/api/docs/REGULATION_ENTITY_SOURCES.md``.
 """
 
 from typing import List

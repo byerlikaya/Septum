@@ -276,12 +276,10 @@ septum-queue ← septum-audit[queue] (olay tüketici)
 olan tek pakettir. `septum-queue` de gerekli bağımlılıkla gelmez
 (stdlib only); Redis backend `[redis]` ek bileşeni ile kullanılabilir.
 
-**`backend/`** ince bir geriye uyumluluk katmanı olarak kalır: her
-`backend/app/*.py` dosyası `septum_api.*`'dan re-export yapan bir
-shim'dir. Shim katmanı var; böylece eski import'lar
-(`from app.main import app`) test suite ve mevcut kurulumlarda
-çalışmaya devam eder. Kaldırma, test suite `from septum_api.* import ...`'a
-taşındıktan sonra özel bir temizlik geçişinde planlı.
+Eski `backend/` uyumluluk katmanı kaldırılmıştır. Her modül artık
+`packages/` altındadır, import'lar doğrudan `septum_api.*`'a gider ve
+kök `Dockerfile` + compose varyantları backend kod yolu için
+`packages/api/`'ye işaret eder.
 
 FastAPI tarafında Context7 en iyi pratikleri takip edilir:
 
@@ -528,7 +526,7 @@ docker compose --profile ollama up
 #### 2. Tek-adımlı kurulum
 
 ```bash
-./dev.sh --setup     # tüm modüler paketleri (editable) + backend/requirements.txt + npm'i kurar
+./dev.sh --setup     # tüm modüler paketleri (editable) + packages/api/requirements.txt + npm'i kurar
 ```
 
 `dev.sh --setup` her `packages/*` modülünü geliştirme ek-bileşenleri
@@ -536,7 +534,7 @@ ile editable modda yükler (`septum-core[transformers,test]`,
 `septum-queue[redis,test]`, `septum-api[auth,rate-limit,postgres,server,test]`,
 `septum-mcp[test]`, `septum-gateway[server,test]`,
 `septum-audit[queue,server,test]`), ardından ağır ML / OCR / Whisper /
-ingestion bağımlılıklarını `backend/requirements.txt`'ten çeker.
+ingestion bağımlılıklarını `packages/api/requirements.txt`'ten çeker.
 
 #### 3. Dev stack'i başlat
 
@@ -558,7 +556,7 @@ ayarlayın.
 
 Tüm yapılandırma ilk çalıştırmada kurulum sihirbazı tarafından yapılır.
 Şifreleme anahtarları ve altyapı ayarlarını içeren bir `config.json`
-dosyası otomatik oluşturulur (varsayılan konum: `backend/config.json`;
+dosyası otomatik oluşturulur (varsayılan konum: kök `config.json`;
 `SEPTUM_CONFIG_PATH` ile override edebilirsiniz). Manuel yapılandırma
 dosyasına gerek yoktur.
 
@@ -567,7 +565,7 @@ dosyasına gerek yoktur.
 #### 4. Yerel durumu sıfırla
 
 ```bash
-./dev.sh --reset     # DB, config.json, uploads, indexes, anon_maps'i siler (hem backend/ hem top-level)
+./dev.sh --reset     # DB, config.json, uploads, indexes, anon_maps'i siler (top-level runtime state)
 ```
 
 ---
@@ -579,14 +577,14 @@ Testler iki yerde yaşar:
 - **Modüler paket testleri** `packages/<ad>/tests/` altında — izole,
   hızlı ve kurulum-bağımsız (her `pytest packages/<ad>/tests/` reponun
   geri kalanı olmadan çalışır).
-- **Entegrasyon testleri** `backend/tests/` altında — `septum_api.*`'a
-  yönlendiren `backend/app/` shim'i üzerinden tam doküman + chat
-  pipeline'ını işletir. Shim katmanı kaldırıldığında bu testler
-  `packages/api/tests/`'e taşınacak.
+- **API entegrasyon testleri** `packages/api/tests/` altında — tam
+  doküman + chat pipeline'ını uçtan uca işletir. Bootstrap, database,
+  router'lar, servisler, utils ve auth middleware da burada kapsanır.
 
 ```bash
-# Her şey
-pytest packages/ backend/tests/ -q
+# Her şey (shell glob genişlemesi gerekir — 'pytest packages/' tek
+# başına paylaşılan 'tests' namespace'i üzerinden takılır)
+pytest packages/*/tests -q
 
 # Tek bir modüler paket
 pytest packages/core/tests/ -q
@@ -594,20 +592,18 @@ pytest packages/queue/tests/ -q
 pytest packages/gateway/tests/ -q
 pytest packages/audit/tests/ -q
 pytest packages/mcp/tests/ -q
-
-# Tam backend entegrasyon paketi
-pytest backend/tests/ -q
+pytest packages/api/tests/ -q
 ```
 
 Claude Code içindeki `/test` beceri, değişen kaynağa göre doğru test
 dosyasını seçer. Örnekler:
-- `sanitizer.py` → `backend/tests/test_sanitizer.py`
+- `packages/api/septum_api/services/sanitizer.py` → `packages/api/tests/test_sanitizer.py`
 - `packages/queue/septum_queue/file_backend.py` → `packages/queue/tests/test_file_backend.py`
 - `packages/audit/septum_audit/retention.py` → `packages/audit/tests/test_retention.py`
 
 **Sürekli entegrasyon:** `.github/workflows/tests.yml` paralel bir
 matriks çalıştırır — `backend-tests` (her paketi editable pip install
-eder + `backend/requirements.txt` + pytest `backend/tests/`),
+eder + `packages/api/requirements.txt` + pytest `packages/api/tests`),
 `modular-tests` (her paket kendi step'inde yüklenir ve test edilir),
 artı backend lint (Ruff + Bandit), backend security (`pip-audit`),
 frontend Jest, frontend typecheck (`tsc --noEmit`), frontend

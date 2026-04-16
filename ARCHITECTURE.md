@@ -278,12 +278,10 @@ septum-queue ← septum-audit[queue] (event consumer)
 inside the Septum graph. `septum-queue` ships with zero required deps
 too (stdlib only); the Redis backend lives behind the `[redis]` extra.
 
-**`backend/`** remains as a thin backward-compatibility layer: every
-`backend/app/*.py` file is a shim that re-exports from `septum_api.*`.
-The shim layer exists so legacy imports (`from app.main import app`) in
-the test suite and existing deployments keep working; removal is
-scheduled for a dedicated cleanup pass once the test suite migrates to
-`from septum_api.* import ...`.
+The legacy `backend/` compatibility layer has been removed. Every
+module lives under `packages/` now, imports go directly through
+`septum_api.*`, and the top-level `Dockerfile` + compose variants
+point at `packages/api/` for the backend code path.
 
 With FastAPI we follow Context7 best practices:
 
@@ -530,7 +528,7 @@ docker compose --profile ollama up
 #### 2. One-shot setup
 
 ```bash
-./dev.sh --setup     # installs all modular packages (editable) + backend/requirements.txt + npm
+./dev.sh --setup     # installs all modular packages (editable) + packages/api/requirements.txt + npm
 ```
 
 `dev.sh --setup` installs every `packages/*` module in editable mode
@@ -538,7 +536,7 @@ with its development extras (`septum-core[transformers,test]`,
 `septum-queue[redis,test]`, `septum-api[auth,rate-limit,postgres,server,test]`,
 `septum-mcp[test]`, `septum-gateway[server,test]`,
 `septum-audit[queue,server,test]`), then pulls the heavy ML / OCR /
-Whisper / ingestion deps from `backend/requirements.txt`.
+Whisper / ingestion deps from `packages/api/requirements.txt`.
 
 #### 3. Start the dev stack
 
@@ -560,7 +558,7 @@ public URL.
 
 All configuration is handled by the setup wizard on first run. A
 `config.json` file is auto-generated (default location:
-`backend/config.json`; override with `SEPTUM_CONFIG_PATH`) with
+top-level `config.json`; override with `SEPTUM_CONFIG_PATH`) with
 encryption keys and infrastructure settings. No manual configuration
 files needed.
 
@@ -569,7 +567,7 @@ files needed.
 #### 4. Reset local state
 
 ```bash
-./dev.sh --reset     # wipes DB, config.json, uploads, indexes, anon_maps (both backend/ and top-level)
+./dev.sh --reset     # wipes DB, config.json, uploads, indexes, anon_maps (top-level runtime state)
 ```
 
 ---
@@ -581,14 +579,14 @@ Tests live in two places:
 - **Modular package tests** under `packages/<name>/tests/` — isolated,
   fast, and install-independent (each `pytest packages/<name>/tests/`
   works without the rest of the repo).
-- **Integration tests** under `backend/tests/` — exercise the full
-  document + chat pipeline through the `backend/app/` shim that
-  forwards to `septum_api.*`. These tests will migrate to
-  `packages/api/tests/` once the shim layer is removed.
+- **API integration tests** under `packages/api/tests/` — exercise the
+  full document + chat pipeline end-to-end. These tests also cover
+  bootstrap, database, routers, services, utils, and auth middleware.
 
 ```bash
-# Everything
-pytest packages/ backend/tests/ -q
+# Everything (shell glob expansion required — pytest packages/ alone
+# trips on the shared 'tests' namespace across packages)
+pytest packages/*/tests -q
 
 # Single modular package
 pytest packages/core/tests/ -q
@@ -596,20 +594,18 @@ pytest packages/queue/tests/ -q
 pytest packages/gateway/tests/ -q
 pytest packages/audit/tests/ -q
 pytest packages/mcp/tests/ -q
-
-# Full backend integration suite
-pytest backend/tests/ -q
+pytest packages/api/tests/ -q
 ```
 
 The `/test` skill inside Claude Code picks the right test file based on
 the changed source. Examples:
-- `sanitizer.py` → `backend/tests/test_sanitizer.py`
+- `packages/api/septum_api/services/sanitizer.py` → `packages/api/tests/test_sanitizer.py`
 - `packages/queue/septum_queue/file_backend.py` → `packages/queue/tests/test_file_backend.py`
 - `packages/audit/septum_audit/retention.py` → `packages/audit/tests/test_retention.py`
 
 **Continuous integration:** `.github/workflows/tests.yml` runs a
 parallel matrix — `backend-tests` (pip install every package editable +
-`backend/requirements.txt` + pytest `backend/tests/`), `modular-tests`
+`packages/api/requirements.txt` + pytest `packages/api/tests`), `modular-tests`
 (each package installed and tested in its own step), plus backend lint
 (Ruff + Bandit), backend security (`pip-audit`), frontend Jest, frontend
 typecheck (`tsc --noEmit`), frontend `npm audit`.

@@ -15,7 +15,7 @@ When invoked, ask the user:
 
 Then generate:
 
-## 1. `backend/app/services/recognizers/{regulation_id}/recognizers.py`
+## 1. `packages/api/septum_api/services/recognizers/{regulation_id}/recognizers.py`
 
 ```python
 """
@@ -49,7 +49,7 @@ def get_recognizers() -> List[EntityRecognizer]:
     return recognizers
 ```
 
-## 2. `backend/app/services/recognizers/{regulation_id}/__init__.py`
+## 2. `packages/api/septum_api/services/recognizers/{regulation_id}/__init__.py`
 
 ```python
 # {REGULATION_DISPLAY_NAME} recognizer pack

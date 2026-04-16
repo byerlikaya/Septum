@@ -4,7 +4,7 @@ from __future__ import annotations
 
 Adds format-only Tax File Number and Medicare card recognizers on top
 of the regulation-agnostic baseline. Entity-type coverage and legal
-basis are documented in ``backend/docs/REGULATION_ENTITY_SOURCES.md``.
+basis are documented in ``packages/api/docs/REGULATION_ENTITY_SOURCES.md``.
 """
 
 from typing import List

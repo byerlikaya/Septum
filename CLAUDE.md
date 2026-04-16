@@ -21,12 +21,12 @@ Septum is a privacy-first AI middleware that lets organizations use their own do
 ./dev.sh                  # Start dev servers (port 3000)
 ```
 
-### Backend (from `backend/`)
+### Backend (from `packages/api/`)
 ```bash
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000   # API server
-pytest                                          # All tests
+python -m uvicorn septum_api.main:app --reload --host 0.0.0.0 --port 8000   # API server
+pytest tests/                                   # All tests
 pytest tests/test_crypto.py -v --tb=short       # Single test file
-pytest tests/ --cov=app --cov-report=term-missing  # Tests with coverage
+pytest tests/ --cov=septum_api --cov-report=term-missing  # Tests with coverage
 ```
 
 ### Frontend (from `packages/web/`)
@@ -195,12 +195,14 @@ These patterns are **forbidden** in production code (tests and `national_ids/` a
 
 ## Smart Test Runner
 
-When running tests after a change, target the relevant test file based on what was modified:
+When running tests after a change, target the relevant test file based on what was modified. Tests live under `packages/<name>/tests/`.
+
+septum-api (`packages/api/tests/`):
 - `sanitizer.py` → `test_sanitizer.py`
 - `anonymization_map.py` → `test_anonymization_map.py`
 - `national_ids/` → `test_national_ids.py`
 - `ingestion/` → `test_ingesters.py`
-- `policy_composer.py` → `test_policy_composer.py`
+- `policy_composer.py` → `test_policy_composer_api.py`
 - `crypto.py` → `test_crypto.py`
 - `llm_router.py` → `test_llm_router.py`
 - `deanonymizer.py` → `test_deanonymizer.py`
@@ -212,10 +214,12 @@ When running tests after a change, target the relevant test file based on what w
 - `routers/approval.py` → `test_approval_router.py`
 - `prompts.py` → `test_chat_context_prompt.py`
 
-For modular packages, tests live inside each package:
+Other packages:
 - `packages/core/septum_core/*.py` → `packages/core/tests/`
 - `packages/mcp/septum_mcp/*.py` → `packages/mcp/tests/`
 - `packages/queue/septum_queue/*.py` → `packages/queue/tests/`
+- `packages/gateway/septum_gateway/*.py` → `packages/gateway/tests/`
+- `packages/audit/septum_audit/*.py` → `packages/audit/tests/`
 
 All LLM calls in tests must be mocked — never send real requests to cloud LLMs.
 
@@ -246,11 +250,11 @@ All LLM calls in tests must be mocked — never send real requests to cloud LLMs
 
 - `README.md` (English) and `README.tr.md` (Turkish) must always have identical sections, in the same order.
 - Any change to one must be mirrored to the other in the same changeset.
-- Verify version numbers against `packages/web/package.json` and `backend/requirements.txt`.
+- Verify version numbers against `packages/web/package.json` and `packages/api/requirements.txt`.
 
 ## Regulation Entity Sources
 
-- `backend/docs/REGULATION_ENTITY_SOURCES.md` documents the legal basis for each regulation's entity types.
+- `packages/api/docs/REGULATION_ENTITY_SOURCES.md` documents the legal basis for each regulation's entity types.
 - When changing entity types for a built-in regulation (in `database.py` seed or recognizer packs), update this doc in the same commit with the legal basis (article/section/recital).
 
 ## Dependency Freshness
