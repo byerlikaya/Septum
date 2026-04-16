@@ -28,12 +28,12 @@ classifiers = [
 # septum-api lives in the air-gapped zone. It may import septum-core for
 # PII masking but must never reach the public internet on its own —
 # outbound LLM traffic belongs in septum-gateway. The required set is
-# kept narrow: only libraries that Phase 3a modules actually import at
-# load time. JWT, bcrypt, slowapi, redis, email-validator, asyncpg, and
-# uvicorn are declared as optional extras so Phase 3c (auth middleware
-# + rate limiting) and Phase 3d (docker / Postgres) can pull them in
-# without bloating a fresh ``pip install septum-api``. Heavy ingestion
-# and ML libraries stay in ``backend/`` until Phase 3b.
+# kept narrow: JWT, bcrypt, slowapi, redis, email-validator, asyncpg,
+# and uvicorn are declared as optional extras so a fresh
+# ``pip install septum-api`` stays lean. Heavy ingestion / ML libraries
+# (torch, Presidio, PaddleOCR, Whisper, …) are listed in
+# ``requirements.txt`` and installed separately by the dev / Docker
+# flows — they are not baked into ``pip install septum-api[...]``.
 dependencies = [
     "septum-core>=0.1.0",
     "fastapi>=0.135.1",

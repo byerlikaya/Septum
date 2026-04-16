@@ -1,9 +1,4 @@
-"""Backward-compatibility shim.
-
-The implementation of these helpers now lives in :mod:`septum_core.text_utils`.
-This module re-exports the public API so existing ``from app.utils.text_utils``
-imports continue to work.
-"""
+"""Re-export of :mod:`septum_core.text_utils` helpers for api-side imports."""
 
 from __future__ import annotations
 

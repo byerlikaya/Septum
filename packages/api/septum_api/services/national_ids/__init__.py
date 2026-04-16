@@ -1,9 +1,4 @@
-"""Backward-compatibility shim.
-
-The implementation of the national ID validators now lives in
-:mod:`septum_core.national_ids`. This module re-exports the public API so
-existing ``from app.services.national_ids`` imports continue to work.
-"""
+"""Re-export of :mod:`septum_core.national_ids` validators for api-side imports."""
 
 from __future__ import annotations
 

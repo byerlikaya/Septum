@@ -77,9 +77,9 @@ fi
 # calls, SQL keywords, etc.) stay untouched. ``git diff -U999`` expands
 # the hunk to the full file so the block opening line is always
 # visible, otherwise the state machine would miss mid-block edits.
-# Both the legacy ``backend/app`` path and the new
-# ``packages/api/septum_api`` location are covered so file moves
-# between the two do not slip the check.
+# ``git diff -U999`` expands the hunk to the full file so the block
+# opening line is always visible; otherwise the state machine would
+# miss mid-block edits.
 SEED_CHANGED=$(echo "$STAGED" | grep -cE '(seeds/regulations|database)\.py$' || true)
 if [[ "$SEED_CHANGED" -gt 0 ]]; then
   SEED_DIFF=$(cd "$PROJECT_ROOT" && git diff --cached -U999 \

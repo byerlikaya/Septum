@@ -29,9 +29,9 @@ Track these items during the scan:
 
 1. **Detect ecosystems and frameworks**:
    - Look for manifest/build files:
-     - Backend (Python): `packages/api/requirements.txt`, `backend/pyproject.toml` (if present), `packages/api/septum_api/main.py`
+     - Backend (Python): `packages/api/requirements.txt`, `packages/api/pyproject.toml` (if present), `packages/api/septum_api/main.py`
      - Frontend (Node/TypeScript): `packages/web/package.json`, `frontend/package-lock.json`, `frontend/pnpm-lock.yaml`, `frontend/yarn.lock`, `frontend/src/app/layout.tsx`
-     - Container/infra: `Dockerfile`, `backend/Dockerfile`, `frontend/Dockerfile`, `docker-compose.yml`, CI configs (if present).
+     - Container/infra: `Dockerfile`, `docker/api.Dockerfile`, `docker/web.Dockerfile`, `docker-compose.yml`, CI configs (if present).
    - Infer:
      - Backend: Python + FastAPI + Septum-specific privacy/PII stack.
      - Frontend: Next.js + React + TypeScript + Tailwind + shadcn/ui.
@@ -71,7 +71,7 @@ For **each** detected ecosystem:
      - Ask explicit permission before installing.
 
 3. **Run audit commands in the correct working directory**:
-   - Backend: run from `backend/`.
+   - Backend: run from `packages/api/`.
    - Frontend: run from `frontend/`.
    - Use JSON or machine-readable output where available (e.g., `--json` flags).
 

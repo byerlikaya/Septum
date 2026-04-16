@@ -88,7 +88,7 @@ _validator = {CountryCode}{IDName}Validator()
 from .{country_code_lower} import {CountryCode}{IDName}Validator
 ```
 
-## 4. `backend/tests/test_national_ids.py` — add test cases
+## 4. `packages/api/tests/test_national_ids.py` — add test cases
 
 ```python
 class Test{CountryCode}{IDName}Validator:

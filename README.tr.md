@@ -151,7 +151,7 @@ LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerç
 | 🇳🇿 Yeni Zelanda | `nzpa` | Privacy Act 2020 |
 | 🇦🇺 Avustralya | `australia_pa` | Privacy Act 1988 |
 
-Her satır [`packages/core/septum_core/recognizers/`](packages/core/septum_core/recognizers/) altında yüklenebilir bir pakettir. Birden fazlası aynı anda aktif olabilir — sanitizer hepsinin birleşimini uygular ve en kısıtlayıcı kural kazanır. Her varlık tipinin hukuki kaynağı [`packages/api/docs/REGULATION_ENTITY_SOURCES.md`](packages/api/docs/REGULATION_ENTITY_SOURCES.md) dosyasındadır.
+Her satır [`packages/core/septum_core/recognizers/`](packages/core/septum_core/recognizers/) altında yüklenebilir bir pakettir. Birden fazlası aynı anda aktif olabilir — sanitizer hepsinin birleşimini uygular ve en kısıtlayıcı kural kazanır. Her varlık tipinin hukuki kaynağı [`packages/core/docs/REGULATION_ENTITY_SOURCES.md`](packages/core/docs/REGULATION_ENTITY_SOURCES.md) dosyasındadır.
 
 </details>
 

@@ -254,7 +254,7 @@ All LLM calls in tests must be mocked — never send real requests to cloud LLMs
 
 ## Regulation Entity Sources
 
-- `packages/api/docs/REGULATION_ENTITY_SOURCES.md` documents the legal basis for each regulation's entity types.
+- `packages/core/docs/REGULATION_ENTITY_SOURCES.md` documents the legal basis for each regulation's entity types.
 - When changing entity types for a built-in regulation (in `database.py` seed or recognizer packs), update this doc in the same commit with the legal basis (article/section/recital).
 
 ## Dependency Freshness

@@ -20,5 +20,5 @@
 - Verify version numbers against `packages/web/package.json` and `packages/api/requirements.txt`.
 
 ## Regulation Entity Sources
-- `packages/api/docs/REGULATION_ENTITY_SOURCES.md` documents the legal basis for each regulation's entity types.
+- `packages/core/docs/REGULATION_ENTITY_SOURCES.md` documents the legal basis for each regulation's entity types.
 - When changing entity types for a built-in regulation, update this doc in the same commit.

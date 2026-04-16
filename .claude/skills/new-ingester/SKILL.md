@@ -75,7 +75,7 @@ Add the new MIME type → ingester mapping:
 "{mime_type}": {Format}Ingester,
 ```
 
-## 3. `backend/tests/test_ingesters.py` — add test case
+## 3. `packages/api/tests/test_ingesters.py` — add test case
 
 ```python
 def test_{format}_ingester_basic():
@@ -91,7 +91,7 @@ def test_{format}_ingester_basic():
 
 ## 4. Add fixture file
 
-Place a small sample file at: `backend/tests/fixtures/sample.{format}`
+Place a small sample file at: `packages/api/tests/fixtures/sample.{format}`
 
 ## 5. Update supported types table in README
 

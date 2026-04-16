@@ -5,7 +5,7 @@ from __future__ import annotations
 Adds a format-only Social Insurance Number (SIN) recognizer plus an
 email detector on top of the regulation-agnostic baseline. Entity-
 type coverage and legal basis are documented in
-``packages/api/docs/REGULATION_ENTITY_SOURCES.md``.
+``packages/core/docs/REGULATION_ENTITY_SOURCES.md``.
 """
 
 from typing import List

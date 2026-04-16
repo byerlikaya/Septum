@@ -38,16 +38,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Install backend dependencies (modular packages + requirements.txt)
+      - name: Install backend dependencies (api + its deps + requirements.txt)
         run: |
           python -m pip install --upgrade pip
-          # Install the modular packages with editable mode.
+          # packages/api/tests only exercises api + its dependency closure
+          # (core, queue). mcp / gateway / audit are covered by modular-tests.
           python -m pip install -e "packages/core[transformers,test]"
           python -m pip install -e "packages/queue[redis,test]"
           python -m pip install -e "packages/api[auth,rate-limit,postgres,server,test]"
-          python -m pip install -e "packages/mcp[test]"
-          python -m pip install -e "packages/gateway[server,test]"
-          python -m pip install -e "packages/audit[queue,server,test]"
           # Heavy ML / OCR / Whisper / ingestion deps (single source of
           # truth for the services/ layer).
           python -m pip install -r packages/api/requirements.txt

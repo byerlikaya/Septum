@@ -76,7 +76,7 @@ Add to the `BUILTIN_REGULATIONS` list:
 },
 ```
 
-## 4. `backend/tests/test_policy_composer.py` — add test
+## 4. `packages/api/tests/test_policy_composer_api.py` — add test
 
 ```python
 def test_{regulation_id}_regulation_activates_correct_entities(db_session):
@@ -96,7 +96,7 @@ def test_{regulation_id}_regulation_activates_correct_entities(db_session):
     # Add assertions for all expected entity types
 ```
 
-## 5. `backend/tests/test_sanitizer.py` — add integration test
+## 5. `packages/api/tests/test_sanitizer.py` — add integration test
 
 ```python
 def test_sanitizer_with_{regulation_id}(db_session):

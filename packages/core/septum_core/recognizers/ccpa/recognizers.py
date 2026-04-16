@@ -6,7 +6,7 @@ Most CCPA-relevant identifiers (SSN, credit card, phone, email,
 address) are handled by the regulation-agnostic baseline. This pack
 adds state-issued driver's license format detection on top. Entity-
 type coverage and legal basis are documented in
-``packages/api/docs/REGULATION_ENTITY_SOURCES.md``.
+``packages/core/docs/REGULATION_ENTITY_SOURCES.md``.
 """
 
 from typing import List

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Quick test for sanitizer Layer 3 (Ollama PII detection). Run from backend: python scripts/test_ollama_layer.py"""
+"""Quick test for sanitizer Layer 3 (Ollama PII detection). Run from packages/api: python scripts/test_ollama_layer.py"""
 from __future__ import annotations
 
 import os
 import sys
 from pathlib import Path
 
-# Ensure backend/app is importable when run as python scripts/test_ollama_layer.py
+# Ensure septum_api is importable when run as python scripts/test_ollama_layer.py
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # Enable Ollama and debug logs when not set

@@ -3,7 +3,7 @@ from __future__ import annotations
 """Recognizer pack for the DPDP regulation.
 
 Entity-type coverage and legal basis are documented in
-``packages/api/docs/REGULATION_ENTITY_SOURCES.md``.
+``packages/core/docs/REGULATION_ENTITY_SOURCES.md``.
 """
 
 from typing import List

@@ -1,10 +1,4 @@
-"""Backward-compatibility shim.
-
-The implementation of :class:`AnonymizationMap` and ``SANITIZER_STOPWORDS``
-now lives in :mod:`septum_core.anonymization_map`. This module re-exports the
-public symbols so existing ``from app.services.anonymization_map`` imports
-continue to work.
-"""
+"""Re-export of :class:`septum_core.anonymization_map.AnonymizationMap` for api-side imports."""
 
 from __future__ import annotations
 

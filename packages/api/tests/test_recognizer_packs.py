@@ -11,7 +11,7 @@ These tests assert two invariants that must hold for every pack:
    detections on a representative sample string.
 
 The goal is to guarantee that every regulation listed in
-``backend/app/seeds/regulations.py`` is load-ready, so a user can
+``septum_api.seeds.regulations`` is load-ready, so a user can
 activate any regulation without silently falling back to the
 baseline-only configuration.
 """

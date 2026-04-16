@@ -6,7 +6,7 @@ CPF detection lives in the regulation-agnostic baseline (algorithmic
 checksum), so this pack contributes format-driven extras: CNPJ,
 civil-identity document numbers, and the common email pattern.
 Entity-type coverage and legal basis are documented in
-``packages/api/docs/REGULATION_ENTITY_SOURCES.md``.
+``packages/core/docs/REGULATION_ENTITY_SOURCES.md``.
 """
 
 from typing import List

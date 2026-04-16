@@ -151,7 +151,7 @@ The LLM answers using placeholders. Septum restores real values locally before s
 | 🇳🇿 New Zealand | `nzpa` | Privacy Act 2020 |
 | 🇦🇺 Australia | `australia_pa` | Privacy Act 1988 |
 
-Every row is a loadable pack under [`packages/core/septum_core/recognizers/`](packages/core/septum_core/recognizers/). Multiple can be active simultaneously — the sanitizer applies the union and the most restrictive rule wins. Legal sources for each entity type live in [`packages/api/docs/REGULATION_ENTITY_SOURCES.md`](packages/api/docs/REGULATION_ENTITY_SOURCES.md).
+Every row is a loadable pack under [`packages/core/septum_core/recognizers/`](packages/core/septum_core/recognizers/). Multiple can be active simultaneously — the sanitizer applies the union and the most restrictive rule wins. Legal sources for each entity type live in [`packages/core/docs/REGULATION_ENTITY_SOURCES.md`](packages/core/docs/REGULATION_ENTITY_SOURCES.md).
 
 </details>
 

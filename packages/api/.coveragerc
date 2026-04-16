@@ -1,5 +1,5 @@
 [run]
-source = app
+source = septum_api
 omit =
     */__init__.py
 

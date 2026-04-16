@@ -19,11 +19,12 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-# Make `app.*` imports resolve when the script is launched from backend/
+# Make `septum_api.*` imports resolve when the script is launched from
+# packages/api/ (and keep cwd there so relative file paths resolve too).
 SCRIPT_DIR = Path(__file__).resolve().parent
-BACKEND_DIR = SCRIPT_DIR.parent
-os.chdir(BACKEND_DIR)
-sys.path.insert(0, str(BACKEND_DIR))
+PACKAGE_DIR = SCRIPT_DIR.parent
+os.chdir(PACKAGE_DIR)
+sys.path.insert(0, str(PACKAGE_DIR))
 
 from septum_api.models.settings import AppSettings  # noqa: E402
 from septum_api.seeds.regulations import builtin_regulations  # noqa: E402

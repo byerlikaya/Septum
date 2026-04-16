@@ -5,7 +5,7 @@ from __future__ import annotations
 Adds a format-only 13-digit South African national ID recognizer on
 top of the regulation-agnostic baseline. Entity-type coverage and
 legal basis are documented in
-``packages/api/docs/REGULATION_ENTITY_SOURCES.md``.
+``packages/core/docs/REGULATION_ENTITY_SOURCES.md``.
 """
 
 from typing import List
