@@ -364,20 +364,20 @@ Bridge: septum-queue (Redis Streams over VPN / private link)
 > 2. Asla kendi başına commit atma — kullanıcı "commit et" demeden `git add` / `git commit` / `git push` yapma
 > 3. Commit atacaksan önce mesajı göster, onay al, sonra çalıştır
 
-### Faz 1: septum-core extraction (3-4 gün)
+### Faz 1: septum-core extraction (3-4 gün) — ✓ TAMAMLANDI
 > `/simplify` ve `/compact` çalıştır, sonra başla.
 
 **Öncelik: EN YÜKSEK — diğer tüm modüller buna bağımlı**
 
-1. `packages/core/` klasörü oluştur
-2. Mevcut dosyaları taşı:
+1. ✓ `packages/core/` klasörü oluştur
+2. ✓ Mevcut dosyaları taşı:
    - `backend/app/services/sanitizer.py` → `septum_core/detector.py`
    - `backend/app/services/anonymization_map.py` → `septum_core/anonymization_map.py`
    - `backend/app/services/deanonymizer.py` → `septum_core/unmasker.py`
    - `backend/app/services/policy_composer.py` → `septum_core/regulations/`
-   - `backend/app/services/recognizers/` → `septum_core/recognizers/`
-   - `backend/app/services/national_ids/` → `septum_core/national_ids/`
-3. Yeni public API tasarla:
+   - `backend/app/services/recognizers/` → `septum_core/recognizers/` (17 regulation pack)
+   - `backend/app/services/national_ids/` → `septum_core/national_ids/` (tckn, ssn, iban, aadhaar, cpf)
+3. ✓ Yeni public API tasarla:
    ```python
    from septum_core import SeptumEngine
 
@@ -389,30 +389,30 @@ Bridge: septum-queue (Redis Streams over VPN / private link)
 
    restored = engine.unmask(llm_response_text, session_id="sess_abc123")
    ```
-4. `pyproject.toml` oluştur (zero network dependency)
-5. Mevcut testleri taşı ve çalıştır
-6. `backend/app/services/` → `septum-core` import'larına güncelle (backward compat shim)
+4. ✓ `pyproject.toml` oluştur (zero network dependency, `[transformers]` extra)
+5. ✓ Mevcut testleri taşı ve çalıştır (24/24 pass)
+6. ✓ `backend/app/services/` → `septum-core` import'larına güncelle (backward compat shim)
 
-### Faz 2: septum-mcp server (2-3 gün)
+### Faz 2: septum-mcp server (2-3 gün) — ✓ TAMAMLANDI
 > `/simplify` ve `/compact` çalıştır, sonra başla.
 
-1. `packages/mcp/` klasörü oluştur
-2. MCP SDK kullanarak server yaz (`mcp` Python package)
-3. Tool tanımlarını implemente et (Bölüm 4'teki 6 tool)
-4. stdio + SSE transport desteği
-5. Claude Code ile test et
-6. README yaz (kurulum, konfigürasyon, kullanım örnekleri)
+1. ✓ `packages/mcp/` klasörü oluştur
+2. ✓ MCP SDK kullanarak server yaz (`mcp` Python package)
+3. ✓ Tool tanımlarını implemente et (Bölüm 4'teki 6 tool: mask_text, unmask_response, detect_pii, scan_file, list_regulations, get_session_map)
+4. ✓ stdio transport desteği (SSE ileriye bırakıldı — Claude Code/Desktop stdio üzerinden çalışıyor)
+5. ✓ Claude Code ile test et (39/39 test dahil stdio smoke test)
+6. ✓ README yaz (kurulum, konfigürasyon, kullanım örnekleri)
 
-### Faz 3: septum-api refactor (2-3 gün)
+### Faz 3: septum-api refactor (2-3 gün) — ✓ TAMAMLANDI
 > `/simplify` ve `/compact` çalıştır, sonra başla.
 
-1. `packages/api/` klasörü oluştur
-2. Mevcut `backend/` yapısını taşı
-3. `septum-core` import'larına geçiş
-4. Auth middleware ekle (JWT + API key)
-5. Rate limiting
-6. OpenAPI schema güncelle
-7. Docker compose güncelle
+1. ✓ `packages/api/` klasörü oluştur
+2. ✓ Mevcut `backend/` yapısını taşı (Faz 3a–3b: bootstrap, config, database, models, seeds, utils, services, routers, main; backend/app/ shim'leri korundu)
+3. ✓ `septum-core` import'larına geçiş
+4. ✓ Auth middleware ekle (JWT + API key — `AuthMiddleware`, `packages/api/septum_api/middleware/auth.py`)
+5. ✓ Rate limiting (Faz 3c: `middleware/rate_limit.py` + per-route `@limiter.limit`)
+6. ✓ OpenAPI schema güncelle (X-API-Key security scheme eklendi)
+7. ⏭️ Docker compose güncelle — Faz 7'ye ertelendi (modüler compose varyantları orada planlanmış)
 
 ### Faz 4: septum-web separation (1-2 gün) — ✓ TAMAMLANDI
 > `/simplify` ve `/compact` çalıştır, sonra başla.
