@@ -56,17 +56,22 @@ out/
 .claude/settings.local.json
 .claude/launch.json
 
-# Project-specific
+# Project-specific runtime state — top-level and under backend/ (modular
+# deployments drop these at the repo root; the backend/ duplicates stay
+# for legacy dev.sh workflows until the shim layer is removed).
 bm25_indexes/
+documents/
+anon_maps/
+vector_indexes/
+uploads/
+data/
+models/
+/storage/
 backend/vector_indexes/
 backend/bm25_indexes/
 backend/documents/
-
-# Any other local data/uploads
 backend/uploads/
 backend/storage/
-
-# Encrypted per-document anonymization maps (local only, never in repo)
 backend/anon_maps/
 
 # Test fixtures (do not commit local sample files)
