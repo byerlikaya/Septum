@@ -28,6 +28,14 @@ WORKDIR /app
 RUN python -m venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
+# MCP runs as a stdio subprocess with short per-call latency where a CUDA
+# context start-up is pure overhead — pin torch to the CPU wheel so the
+# image does not drag in ~5 GB of CUDA shared libs no one will use.
+# Users who want GPU-accelerated NER should run septum-api (which ships
+# a dedicated -gpu variant) instead.
+COPY docker/scripts/install-torch.sh /tmp/install-torch.sh
+RUN sh /tmp/install-torch.sh cpu
+
 COPY packages/core/ /app/packages/core/
 COPY packages/mcp/ /app/packages/mcp/
 
