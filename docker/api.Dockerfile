@@ -62,9 +62,13 @@ RUN apt-get update \
     && groupadd --gid 1000 septum \
     && useradd --uid 1000 --gid septum --shell /bin/sh --create-home septum
 
+ARG VERSION=0.0.0-dev
+
 WORKDIR /app
 
-COPY --chown=septum:septum VERSION /app/VERSION
+# Stamp the version into the image (read at runtime by septum_api.main
+# for the /health response).
+RUN echo "${VERSION}" > /app/VERSION && chown septum:septum /app/VERSION
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/packages /app/packages
 # scripts/ + alembic.ini + alembic/ now live alongside the package they

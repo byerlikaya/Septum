@@ -52,14 +52,18 @@ RUN pip install --no-warn-script-location -e /app/packages/core \
 # ── Stage 2: build Next.js frontend ──
 FROM node:20-alpine AS frontend-builder
 
+# Version is injected by the Docker Hub publish workflow from the git
+# tag; defaults to 0.0.0-dev for local builds that skip --build-arg.
+ARG VERSION=0.0.0-dev
+
 WORKDIR /app
 COPY packages/web/package.json packages/web/package-lock.json* ./
 RUN npm ci || npm install
 
 COPY packages/web/ .
-COPY VERSION /tmp/VERSION
-RUN mkdir -p public
-RUN echo "NEXT_PUBLIC_APP_VERSION=$(cat /tmp/VERSION | tr -d '[:space:]')" >> .env.local && npm run build
+RUN mkdir -p public \
+    && echo "NEXT_PUBLIC_APP_VERSION=${VERSION}" >> .env.local \
+    && npm run build
 
 # ── Stage 3: combined runtime ──
 FROM python:3.12-slim AS runtime
@@ -85,10 +89,13 @@ RUN apt-get update \
     && groupadd --gid 1000 septum \
     && useradd --uid 1000 --gid septum --shell /bin/sh --create-home septum
 
+ARG VERSION=0.0.0-dev
+
 WORKDIR /app
 
-# Copy version file
-COPY --chown=septum:septum VERSION /app/VERSION
+# Stamp the version into the image (read at runtime by septum_api.main
+# for the /health response + by the frontend for display).
+RUN echo "${VERSION}" > /app/VERSION && chown septum:septum /app/VERSION
 
 # Copy backend venv + packages (editable install resolves through /app/packages)
 COPY --from=backend-builder /app/.venv /app/.venv

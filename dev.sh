@@ -29,7 +29,9 @@ fi
 echo "Project root: $PROJECT_ROOT"
 
 export SEPTUM_CONFIG_PATH="${SEPTUM_CONFIG_PATH:-$PROJECT_ROOT/config.json}"
-export NEXT_PUBLIC_APP_VERSION=$(cat "$PROJECT_ROOT/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "dev")
+# Version comes from the git tag in release builds; dev runs stamp a
+# placeholder so the dashboard always renders a value in the footer.
+export NEXT_PUBLIC_APP_VERSION="${NEXT_PUBLIC_APP_VERSION:-0.0.0-dev}"
 
 find_available_port() {
   local port=$1

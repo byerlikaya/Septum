@@ -19,16 +19,18 @@
 FROM node:20-alpine AS builder
 
 ARG NEXT_PUBLIC_API_BASE_URL=""
+# Version is injected by the Docker Hub publish workflow from the git
+# tag; defaults to 0.0.0-dev for local builds that skip --build-arg.
+ARG VERSION=0.0.0-dev
 
 WORKDIR /app
 COPY packages/web/package.json packages/web/package-lock.json* ./
 RUN npm ci || npm install
 
 COPY packages/web/ .
-COPY VERSION /tmp/VERSION
 RUN mkdir -p public \
     && printf "NEXT_PUBLIC_APP_VERSION=%s\nNEXT_PUBLIC_API_BASE_URL=%s\n" \
-        "$(cat /tmp/VERSION | tr -d '[:space:]')" \
+        "${VERSION}" \
         "${NEXT_PUBLIC_API_BASE_URL}" \
         > .env.local \
     && npm run build

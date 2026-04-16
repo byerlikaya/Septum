@@ -1,38 +1,66 @@
 name: Docker Hub Publish
 
-# Triggered when a [release] commit passes all CI tests.
-# Publishes the version in the VERSION file, then bumps patch for next.
+# Triggered by a semver git tag (e.g. ``git tag v0.2.0 && git push --tags``).
+# The tag is the single source of truth for the release version — there
+# is no VERSION file to keep in sync and no bot commit-and-bump dance.
+#
+# workflow_dispatch lets a maintainer re-run a release build from the
+# GitHub UI against an existing tag without pushing a new one.
 
 on:
   push:
-    branches: [main]
-
-env:
-  IMAGE: byerlikaya/septum
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'   # pre-releases (-rc.1, -beta.2, …)
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (without the v prefix, e.g. 0.2.0)'
+        required: true
+        type: string
 
 jobs:
-  publish:
-    if: contains(github.event.head_commit.message, '[release]')
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      major: ${{ steps.v.outputs.major }}
+      minor: ${{ steps.v.outputs.minor }}
+      is_prerelease: ${{ steps.v.outputs.is_prerelease }}
+    steps:
+      - name: Compute version + rolling tags
+        id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            # Strip refs/tags/v prefix from github.ref (e.g. refs/tags/v0.2.0-rc.1 → 0.2.0-rc.1)
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+          # Parse semver; pre-release part (after -) disables rolling tags + latest
+          CORE="${VERSION%%-*}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CORE"
+          echo "major=${MAJOR}" >> "$GITHUB_OUTPUT"
+          echo "minor=${MAJOR}.${MINOR}" >> "$GITHUB_OUTPUT"
+          if [ "$VERSION" != "$CORE" ]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "Publishing v${VERSION} (prerelease=$([ "$VERSION" != "$CORE" ] && echo true || echo false))"
+
+  publish-standalone:
+    needs: resolve-version
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.PAT_TOKEN }}
-
-      - name: Read version
-        id: version
-        run: |
-          CURRENT=$(cat VERSION | tr -d '[:space:]')
-          echo "current=${CURRENT}" >> "$GITHUB_OUTPUT"
-
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-          PATCH=$((PATCH + 1))
-          echo "next=${MAJOR}.${MINOR}.${PATCH}" >> "$GITHUB_OUTPUT"
-          echo "Publishing v${CURRENT}"
 
       - name: Set up QEMU (for multi-arch builds)
         uses: docker/setup-qemu-action@v3
@@ -46,7 +74,24 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Compute image tags
+        id: tags
+        run: |
+          VERSION="${{ needs.resolve-version.outputs.version }}"
+          TAGS="byerlikaya/septum:${VERSION}"
+          if [ "${{ needs.resolve-version.outputs.is_prerelease }}" = "false" ]; then
+            TAGS="${TAGS}
+          byerlikaya/septum:${{ needs.resolve-version.outputs.minor }}
+          byerlikaya/septum:${{ needs.resolve-version.outputs.major }}
+          byerlikaya/septum:latest"
+          fi
+          {
+            echo "tags<<EOF"
+            echo "${TAGS}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push standalone
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -54,26 +99,151 @@ jobs:
           platforms: linux/amd64,linux/arm64
           provenance: false
           push: true
-          tags: |
-            ${{ env.IMAGE }}:${{ steps.version.outputs.current }}
-            ${{ env.IMAGE }}:latest
-          cache-from: type=gha,scope=combined
-          cache-to: type=gha,mode=max,scope=combined
+          build-args: |
+            VERSION=${{ needs.resolve-version.outputs.version }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.resolve-version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/byerlikaya/Septum
+            org.opencontainers.image.url=https://hub.docker.com/r/byerlikaya/septum
+            org.opencontainers.image.title=Septum
+            org.opencontainers.image.description=Privacy-first AI middleware — anonymize documents, chat with LLMs, no raw PII leaves your machine.
+            org.opencontainers.image.licenses=MIT
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha,scope=standalone
+          cache-to: type=gha,mode=max,scope=standalone
 
       - name: Update Docker Hub description
         uses: peter-evans/dockerhub-description@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ env.IMAGE }}
+          repository: byerlikaya/septum
           short-description: "Privacy-first AI middleware — anonymize documents, chat with LLMs, no raw PII leaves your machine."
           readme-filepath: ./DOCKERHUB.md
 
-      - name: Bump version for next release
+  publish-modular:
+    needs: resolve-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: septum-api
+            dockerfile: docker/api.Dockerfile
+            title: Septum API
+            description: "Septum API — FastAPI REST layer (air-gapped zone). Runs backend endpoints only; pair with septum-web for the dashboard."
+          - image: septum-web
+            dockerfile: docker/web.Dockerfile
+            title: Septum Web
+            description: "Septum Web — Next.js 16 dashboard for Septum. Build-arg NEXT_PUBLIC_API_BASE_URL selects same-origin proxy or split deployment."
+          - image: septum-gateway
+            dockerfile: docker/gateway.Dockerfile
+            title: Septum Gateway
+            description: "Septum Gateway — cloud LLM forwarder (internet-facing zone). Consumes masked requests from septum-queue; never imports septum-core."
+          - image: septum-audit
+            dockerfile: docker/audit.Dockerfile
+            title: Septum Audit
+            description: "Septum Audit — compliance audit trail (internet-facing zone). JSONL sink + JSON / CSV / Splunk HEC exporters; never imports septum-core."
+          - image: septum-mcp
+            dockerfile: docker/mcp.Dockerfile
+            title: Septum MCP
+            description: "Septum MCP — stdio MCP server exposing PII masking tools to Claude Code / Desktop / Cursor. Includes septum-core."
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (for multi-arch builds)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: tags
         run: |
-          echo "${{ steps.version.outputs.next }}" > VERSION
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION
-          git commit -m "Bump version to ${{ steps.version.outputs.next }}"
-          git push
+          VERSION="${{ needs.resolve-version.outputs.version }}"
+          TAGS="byerlikaya/${{ matrix.image }}:${VERSION}"
+          if [ "${{ needs.resolve-version.outputs.is_prerelease }}" = "false" ]; then
+            TAGS="${TAGS}
+          byerlikaya/${{ matrix.image }}:${{ needs.resolve-version.outputs.minor }}
+          byerlikaya/${{ matrix.image }}:${{ needs.resolve-version.outputs.major }}
+          byerlikaya/${{ matrix.image }}:latest"
+          fi
+          {
+            echo "tags<<EOF"
+            echo "${TAGS}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push ${{ matrix.image }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          provenance: false
+          push: true
+          build-args: |
+            VERSION=${{ needs.resolve-version.outputs.version }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.resolve-version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/byerlikaya/Septum
+            org.opencontainers.image.url=https://hub.docker.com/r/byerlikaya/${{ matrix.image }}
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.licenses=MIT
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: byerlikaya/${{ matrix.image }}
+          short-description: ${{ matrix.description }}
+          readme-filepath: ./DOCKERHUB.md
+
+  github-release:
+    needs: [resolve-version, publish-standalone, publish-modular]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so CHANGELOG context works
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.resolve-version.outputs.version }}
+          name: v${{ needs.resolve-version.outputs.version }}
+          prerelease: ${{ needs.resolve-version.outputs.is_prerelease }}
+          generate_release_notes: true
+          body: |
+            Docker images:
+            - `byerlikaya/septum:${{ needs.resolve-version.outputs.version }}` (standalone — SQLite + ML stack, ~5.7 GB)
+            - `byerlikaya/septum-api:${{ needs.resolve-version.outputs.version }}`
+            - `byerlikaya/septum-web:${{ needs.resolve-version.outputs.version }}`
+            - `byerlikaya/septum-gateway:${{ needs.resolve-version.outputs.version }}` (internet-facing, ~250 MB)
+            - `byerlikaya/septum-audit:${{ needs.resolve-version.outputs.version }}` (internet-facing, ~250 MB)
+            - `byerlikaya/septum-mcp:${{ needs.resolve-version.outputs.version }}`
+
+            See [CHANGELOG.md](https://github.com/byerlikaya/Septum/blob/main/CHANGELOG.md) for detailed release notes.
