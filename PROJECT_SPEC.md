@@ -443,17 +443,20 @@ Bridge: septum-queue (Redis Streams over VPN / private link)
 6. ✓ FastAPI `/health` + `/api/audit/export?format=jsonl|csv|siem` — `Content-Type` + `Content-Disposition` + `X-Audit-Record-Count` header'ları; bilinmeyen format → 400 + seçenek listesi; case-insensitive eşleşme. `[server]` extra arkasında.
 7. ✓ Tüm faz: 45 yeni test (28 audit core + 4 audit consumer + 7 audit FastAPI + 6 gateway-side: 4 audit hook + 2 audit_topic config). 444/444 backend+modular test geçiyor.
 
-### Faz 7: Docker & Deploy (2-3 gün)
+### Faz 7: Docker & Deploy (2-3 gün) — ✓ TAMAMLANDI
 > `/simplify` ve `/compact` çalıştır, sonra başla.
 
-1. Her modül için ayrı Dockerfile
-2. 4 compose variant:
-   - `docker-compose.yml` (full dev stack)
-   - `docker-compose.airgap.yml`
-   - `docker-compose.gateway.yml`
-   - `docker-compose.standalone.yml`
-3. Health check endpoint'leri
-4. README güncelle (deployment guides)
+1. ✓ Her modül için ayrı Dockerfile — `docker/api.Dockerfile` (Python backend + ML stack), `docker/web.Dockerfile` (Next.js standalone build, build-arg `NEXT_PUBLIC_API_BASE_URL`), `docker/gateway.Dockerfile` + `docker/audit.Dockerfile` (lightweight ~100 MB, torch/Presidio içermez; **kod-review invariant ile `packages/core/` COPY etmez**), `docker/mcp.Dockerfile` (stdio, orchestrator subprocess için), `docker/standalone.Dockerfile` (legacy top-level Dockerfile'ın modüler-naming kopyası, hâlâ `byerlikaya/septum:latest` olarak yayınlanır). Yeni `.dockerignore` build context'i ~birkaç yüz MB azaltır.
+2. ✓ 4 compose variant:
+   - ✓ `docker-compose.yml` — full dev stack (api + web + gateway + audit + Postgres + Redis + opsiyonel Ollama)
+   - ✓ `docker-compose.airgap.yml` — air-gapped zone only (api + web + Postgres + Redis, `USE_GATEWAY_DEFAULT=true` + `SEPTUM_QUEUE_URL` ile gateway-mode)
+   - ✓ `docker-compose.gateway.yml` — internet-facing zone only (gateway-worker + gateway-health + audit-worker + audit-api + Redis, her image iki container: biri `python -m septum_*` worker, diğeri `uvicorn ... /health + /api/audit/export`)
+   - ✓ `docker-compose.standalone.yml` — tek container (SQLite, harici servis yok)
+   - Tümü `docker-compose config` ile syntax doğrulandı; `depends_on: condition: service_healthy` ile Redis/Postgres hazır olmadan consumer başlamaz.
+3. ✓ Health check endpoint'leri — `septum-api` `/health` (mevcut), `septum-gateway` `/health` (`[server]` extra, Faz 5), `septum-audit` `/health` + `/api/audit/export` (`[server]` extra, Faz 6). Her Dockerfile'da Docker `HEALTHCHECK` direktifi (curl/urllib tabanlı). MCP image'ında HEALTHCHECK yok — stdio-only, orchestrator subprocess exit kodunu kullanır.
+4. ✓ README güncelle — "Deployment Topologies" bölümü `README.md` / `README.tr.md`'de (4-row topoloji tablosu + two-host split açıklaması + per-module Dockerfile listesi); `CLAUDE.md` Docker bloğu modüler compose komutlarıyla genişletildi.
+5. ✓ Worker CLI entrypoints (Dockerfile'ların ön-gereksinimi) — `python -m septum_gateway` ve `python -m septum_audit` ile çalıştırılabilir; queue backend env'den seçilir (`SEPTUM_QUEUE_URL` → Redis, `SEPTUM_QUEUE_DIR` → file; neither = `SystemExit`). SIGINT/SIGTERM handler'ları ile graceful shutdown. 5 yeni test.
+6. ✓ Tam faz: 5 yeni test (3 gateway worker + 2 audit worker), 448/448 backend+modular test geçiyor, 4/4 compose YAML geçerli.
 
 **Toplam tahmini süre: 15-21 gün**
 
