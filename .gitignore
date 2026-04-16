@@ -36,7 +36,7 @@ coverage.xml
 backend/requirements.lock.txt
 backend/pip-audit-backend.json
 coverage/
-frontend/coverage/
+packages/web/coverage/
 
 # Node / Next.js / frontend
 node_modules/

@@ -35,10 +35,10 @@ RUN pip install --no-warn-script-location -r requirements.txt
 FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app
-COPY frontend/package.json frontend/package-lock.json* ./
+COPY packages/web/package.json packages/web/package-lock.json* ./
 RUN npm ci || npm install
 
-COPY frontend/ .
+COPY packages/web/ .
 COPY VERSION /tmp/VERSION
 RUN mkdir -p public
 RUN echo "NEXT_PUBLIC_APP_VERSION=$(cat /tmp/VERSION | tr -d '[:space:]')" >> .env.local && npm run build

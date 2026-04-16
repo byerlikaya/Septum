@@ -50,7 +50,7 @@ if [[ "$SETUP_MODE" == true ]]; then
 
   echo "[setup] Installing / upgrading frontend dependencies (npm install) ..."
   (
-    cd "$PROJECT_ROOT/frontend"
+    cd "$PROJECT_ROOT/packages/web"
     npm install
   )
 
@@ -71,7 +71,7 @@ export BACKEND_INTERNAL_URL="http://localhost:$BACKEND_PORT"
 
 BACKEND_PID=$!
 
-cd "$PROJECT_ROOT/frontend"
+cd "$PROJECT_ROOT/packages/web"
 
 echo "Septum starting on http://localhost:$FRONTEND_PORT ..."
 PORT=$FRONTEND_PORT npm run dev

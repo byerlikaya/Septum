@@ -152,11 +152,11 @@ jobs:
           node-version: "22"
 
       - name: Install frontend dependencies
-        working-directory: frontend
+        working-directory: packages/web
         run: npm ci
 
       - name: Run frontend tests
-        working-directory: frontend
+        working-directory: packages/web
         run: npm test -- --runInBand
 
   frontend-typecheck:
@@ -171,11 +171,11 @@ jobs:
           node-version: "22"
 
       - name: Install dependencies
-        working-directory: frontend
+        working-directory: packages/web
         run: npm ci
 
       - name: TypeScript type check
-        working-directory: frontend
+        working-directory: packages/web
         run: npx tsc --noEmit
 
   frontend-security:
@@ -190,9 +190,9 @@ jobs:
           node-version: "22"
 
       - name: Install dependencies
-        working-directory: frontend
+        working-directory: packages/web
         run: npm ci
 
       - name: npm audit
-        working-directory: frontend
+        working-directory: packages/web
         run: npm audit --audit-level=high || true
