@@ -28,16 +28,22 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Torch variant: 'cpu' (default, ~250 MB wheel, no CUDA) or 'gpu'
+# (full wheel + CUDA shared libs, ~6 GB image overhead). GPU variant
+# requires a host with NVIDIA runtime (linux/amd64 only).
+ARG TORCH_VARIANT=cpu
+
 WORKDIR /app
 RUN python -m venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
 COPY packages/api/requirements.txt /tmp/requirements.txt
-# Install CPU-only PyTorch first (saves ~6 GB by excluding CUDA/nvidia/triton).
-# pip will skip torch when processing requirements.txt because 2.10.0+cpu
-# satisfies the torch==2.10.0 pin (PEP 440 ignores local version tags).
-RUN pip install --no-warn-script-location \
-    torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+RUN if [ "$TORCH_VARIANT" = "gpu" ]; then \
+      pip install --no-warn-script-location torch==2.10.0; \
+    else \
+      pip install --no-warn-script-location \
+        torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu; \
+    fi
 RUN pip install --no-warn-script-location -r /tmp/requirements.txt
 
 # Install septum-core + septum-queue + septum-api under /app so the

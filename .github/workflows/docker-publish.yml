@@ -52,77 +52,14 @@ jobs:
 
           echo "Publishing v${VERSION} (prerelease=$([ "$VERSION" != "$CORE" ] && echo true || echo false))"
 
-  publish-standalone:
-    needs: resolve-version
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU (for multi-arch builds)
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Compute image tags
-        id: tags
-        run: |
-          VERSION="${{ needs.resolve-version.outputs.version }}"
-          TAGS="byerlikaya/septum:${VERSION}"
-          if [ "${{ needs.resolve-version.outputs.is_prerelease }}" = "false" ]; then
-            TAGS="${TAGS}
-          byerlikaya/septum:${{ needs.resolve-version.outputs.minor }}
-          byerlikaya/septum:${{ needs.resolve-version.outputs.major }}
-          byerlikaya/septum:latest"
-          fi
-          {
-            echo "tags<<EOF"
-            echo "${TAGS}"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Build and push standalone
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./docker/standalone.Dockerfile
-          platforms: linux/amd64,linux/arm64
-          provenance: false
-          push: true
-          build-args: |
-            VERSION=${{ needs.resolve-version.outputs.version }}
-          labels: |
-            org.opencontainers.image.version=${{ needs.resolve-version.outputs.version }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.source=https://github.com/byerlikaya/Septum
-            org.opencontainers.image.url=https://hub.docker.com/r/byerlikaya/septum
-            org.opencontainers.image.title=Septum
-            org.opencontainers.image.description=Privacy-first AI middleware — anonymize documents, chat with LLMs, no raw PII leaves your machine.
-            org.opencontainers.image.licenses=MIT
-          tags: ${{ steps.tags.outputs.tags }}
-          cache-from: type=gha,scope=standalone
-          cache-to: type=gha,mode=max,scope=standalone
-
-      - name: Update Docker Hub description
-        uses: peter-evans/dockerhub-description@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: byerlikaya/septum
-          short-description: "Privacy-first AI middleware — anonymize documents, chat with LLMs, no raw PII leaves your machine."
-          readme-filepath: ./DOCKERHUB.md
-
-  publish-modular:
+  # One matrix job covers every (image × variant) combination. Only the
+  # two torch-dependent images (septum, septum-api) ship a GPU variant;
+  # web / gateway / audit / mcp are CPU-only because they either do not
+  # import torch at all (web, gateway, audit) or run as a stdio
+  # subprocess where GPU makes little practical difference (mcp).
+  # GPU variants build linux/amd64 only — NVIDIA CUDA wheels are not
+  # published for arm64, and Apple Silicon hosts do not run CUDA.
+  publish:
     needs: resolve-version
     runs-on: ubuntu-latest
     permissions:
@@ -132,24 +69,52 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - image: septum
+            dockerfile: docker/standalone.Dockerfile
+            variant: cpu
+            platforms: linux/amd64,linux/arm64
+            title: Septum
+            description: "Privacy-first AI middleware — anonymize documents, chat with LLMs, no raw PII leaves your machine."
+          - image: septum
+            dockerfile: docker/standalone.Dockerfile
+            variant: gpu
+            platforms: linux/amd64
+            title: Septum (GPU)
+            description: "Septum with NVIDIA GPU-accelerated PyTorch. linux/amd64 only. Same image as byerlikaya/septum but with full torch + CUDA runtime for batch document processing, OCR, and Whisper transcription."
           - image: septum-api
             dockerfile: docker/api.Dockerfile
+            variant: cpu
+            platforms: linux/amd64,linux/arm64
             title: Septum API
             description: "Septum API — FastAPI REST layer (air-gapped zone). Runs backend endpoints only; pair with septum-web for the dashboard."
+          - image: septum-api
+            dockerfile: docker/api.Dockerfile
+            variant: gpu
+            platforms: linux/amd64
+            title: Septum API (GPU)
+            description: "Septum API with NVIDIA GPU-accelerated PyTorch. linux/amd64 only."
           - image: septum-web
             dockerfile: docker/web.Dockerfile
+            variant: cpu
+            platforms: linux/amd64,linux/arm64
             title: Septum Web
             description: "Septum Web — Next.js 16 dashboard for Septum. Build-arg NEXT_PUBLIC_API_BASE_URL selects same-origin proxy or split deployment."
           - image: septum-gateway
             dockerfile: docker/gateway.Dockerfile
+            variant: cpu
+            platforms: linux/amd64,linux/arm64
             title: Septum Gateway
             description: "Septum Gateway — cloud LLM forwarder (internet-facing zone). Consumes masked requests from septum-queue; never imports septum-core."
           - image: septum-audit
             dockerfile: docker/audit.Dockerfile
+            variant: cpu
+            platforms: linux/amd64,linux/arm64
             title: Septum Audit
             description: "Septum Audit — compliance audit trail (internet-facing zone). JSONL sink + JSON / CSV / Splunk HEC exporters; never imports septum-core."
           - image: septum-mcp
             dockerfile: docker/mcp.Dockerfile
+            variant: cpu
+            platforms: linux/amd64,linux/arm64
             title: Septum MCP
             description: "Septum MCP — stdio MCP server exposing PII masking tools to Claude Code / Desktop / Cursor. Includes septum-core."
 
@@ -172,30 +137,49 @@ jobs:
       - name: Compute image tags
         id: tags
         run: |
+          IMAGE="byerlikaya/${{ matrix.image }}"
           VERSION="${{ needs.resolve-version.outputs.version }}"
-          TAGS="byerlikaya/${{ matrix.image }}:${VERSION}"
-          if [ "${{ needs.resolve-version.outputs.is_prerelease }}" = "false" ]; then
-            TAGS="${TAGS}
-          byerlikaya/${{ matrix.image }}:${{ needs.resolve-version.outputs.minor }}
-          byerlikaya/${{ matrix.image }}:${{ needs.resolve-version.outputs.major }}
-          byerlikaya/${{ matrix.image }}:latest"
+          VARIANT="${{ matrix.variant }}"
+          IS_PRE="${{ needs.resolve-version.outputs.is_prerelease }}"
+
+          if [ "$VARIANT" = "gpu" ]; then
+            # GPU variant: suffix every tag with -gpu; 'gpu' floats to the
+            # latest stable GPU release, 'latest' stays CPU.
+            PRIMARY="${IMAGE}:${VERSION}-gpu"
+            ROLLING="${IMAGE}:${{ needs.resolve-version.outputs.minor }}-gpu
+          ${IMAGE}:${{ needs.resolve-version.outputs.major }}-gpu
+          ${IMAGE}:gpu"
+          else
+            PRIMARY="${IMAGE}:${VERSION}"
+            ROLLING="${IMAGE}:${{ needs.resolve-version.outputs.minor }}
+          ${IMAGE}:${{ needs.resolve-version.outputs.major }}
+          ${IMAGE}:latest"
           fi
+
+          if [ "$IS_PRE" = "false" ]; then
+            TAGS="${PRIMARY}
+          ${ROLLING}"
+          else
+            TAGS="${PRIMARY}"
+          fi
+
           {
             echo "tags<<EOF"
             echo "${TAGS}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Build and push ${{ matrix.image }}
+      - name: Build and push ${{ matrix.image }} (${{ matrix.variant }})
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platforms }}
           provenance: false
           push: true
           build-args: |
             VERSION=${{ needs.resolve-version.outputs.version }}
+            TORCH_VARIANT=${{ matrix.variant }}
           labels: |
             org.opencontainers.image.version=${{ needs.resolve-version.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -205,10 +189,13 @@ jobs:
             org.opencontainers.image.description=${{ matrix.description }}
             org.opencontainers.image.licenses=MIT
           tags: ${{ steps.tags.outputs.tags }}
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.variant }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.variant }}
 
       - name: Update Docker Hub description
+        # Only the CPU (primary) variant owns the Docker Hub README; GPU
+        # variants re-use the same page under the '-gpu' tag namespace.
+        if: matrix.variant == 'cpu'
         uses: peter-evans/dockerhub-description@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -218,7 +205,7 @@ jobs:
           readme-filepath: ./DOCKERHUB.md
 
   github-release:
-    needs: [resolve-version, publish-standalone, publish-modular]
+    needs: [resolve-version, publish]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -238,12 +225,16 @@ jobs:
           prerelease: ${{ needs.resolve-version.outputs.is_prerelease }}
           generate_release_notes: true
           body: |
-            Docker images:
+            Docker images (CPU, linux/amd64 + linux/arm64):
             - `byerlikaya/septum:${{ needs.resolve-version.outputs.version }}` (standalone — SQLite + ML stack, ~5.7 GB)
             - `byerlikaya/septum-api:${{ needs.resolve-version.outputs.version }}`
             - `byerlikaya/septum-web:${{ needs.resolve-version.outputs.version }}`
             - `byerlikaya/septum-gateway:${{ needs.resolve-version.outputs.version }}` (internet-facing, ~250 MB)
             - `byerlikaya/septum-audit:${{ needs.resolve-version.outputs.version }}` (internet-facing, ~250 MB)
             - `byerlikaya/septum-mcp:${{ needs.resolve-version.outputs.version }}`
+
+            Docker images (GPU — NVIDIA CUDA, linux/amd64 only):
+            - `byerlikaya/septum:${{ needs.resolve-version.outputs.version }}-gpu`
+            - `byerlikaya/septum-api:${{ needs.resolve-version.outputs.version }}-gpu`
 
             See [CHANGELOG.md](https://github.com/byerlikaya/Septum/blob/main/CHANGELOG.md) for detailed release notes.

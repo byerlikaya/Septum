@@ -22,16 +22,26 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Torch variant: 'cpu' (default, ~250 MB wheel, no CUDA) or 'gpu'
+# (full wheel from the default PyPI index, ~2.5 GB + CUDA shared libs,
+# ~6 GB total image overhead). CPU variant still runs on GPU-less
+# hosts; GPU variant only makes sense on hosts with NVIDIA runtime.
+ARG TORCH_VARIANT=cpu
+
 WORKDIR /app
 RUN python -m venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
 COPY packages/api/requirements.txt /tmp/requirements.txt
-# CPU-only torch first (saves ~6 GB by excluding CUDA/nvidia/triton).
-# pip will skip torch when processing requirements.txt because 2.10.0+cpu
-# satisfies the torch==2.10.0 pin (PEP 440 ignores local version tags).
-RUN pip install --no-warn-script-location \
-    torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+# Install torch first from the matching index; the torch==2.10.0 pin in
+# requirements.txt matches both wheels so the follow-up pip install -r
+# is a no-op for torch (PEP 440 ignores the +cpu local version suffix).
+RUN if [ "$TORCH_VARIANT" = "gpu" ]; then \
+      pip install --no-warn-script-location torch==2.10.0; \
+    else \
+      pip install --no-warn-script-location \
+        torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu; \
+    fi
 RUN pip install --no-warn-script-location -r /tmp/requirements.txt
 
 # Install septum-core + septum-queue + septum-api under /app so the
