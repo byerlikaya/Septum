@@ -204,6 +204,64 @@ ve uçtan uca kullanım örnekleri için
 
 ---
 
+## REST API ve Kimlik Doğrulama
+
+Septum backend'i `/docs` (Swagger) ve `/redoc` adreslerinde
+dokümante edilmiş bir FastAPI REST katmanı sunar. İki kimlik
+doğrulama yöntemi desteklenir:
+
+### JWT (tarayıcı oturumları, kısa ömürlü)
+
+Kurulum sihirbazı ilk admin hesabını oluşturur; sonraki girişler
+24 saat geçerli bir JWT döndürür.
+
+```bash
+curl -X POST http://localhost:3000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email": "admin@example.com", "password": "your-password"}'
+# → {"access_token": "...", "token_type": "bearer"}
+```
+
+### API Anahtarları (CI/CD, MCP entegrasyonları, uzun ömürlü)
+
+Adminler `POST /api/api-keys` ile programatik API anahtarları
+oluşturabilir. Ham anahtar oluşturma sırasında **bir kez** gösterilir;
+yalnızca 8 karakterlik öneki ve SHA-256 özeti saklanır.
+
+```bash
+# Anahtar oluştur (yanıt raw_key içerir — hemen kaydedin, daha sonra erişemezsiniz)
+curl -X POST http://localhost:3000/api/api-keys \
+  -H 'Authorization: Bearer <jwt>' \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "ci-pipeline", "expires_at": null}'
+
+# Sonraki tüm isteklerde kullan
+curl -H 'X-API-Key: sk-septum-<64 hex karakter>' http://localhost:3000/api/auth/me
+
+# Anahtarlarını listele (sadece önek + meta, ham anahtar bir daha dönmez)
+curl -H 'X-API-Key: sk-septum-…' http://localhost:3000/api/api-keys
+
+# İptal et
+curl -X DELETE -H 'X-API-Key: sk-septum-…' http://localhost:3000/api/api-keys/{id}
+```
+
+### Hız Limitleri
+
+| Uç nokta | Limit |
+|:---|:---|
+| `POST /api/auth/register` | 3 / dakika |
+| `POST /api/auth/login` | 5 / dakika |
+| `POST /api/api-keys` | 10 / dakika |
+| Diğer her şey | 60 / dakika (`RATE_LIMIT_DEFAULT` ile yapılandırılabilir) |
+
+API anahtarı istekleri **anahtar önekine** göre sınırlanır, IP'ye
+değil — paylaşılan NAT arkasındaki her servis kendi kotasını alır.
+Anonim ve JWT istekleri istemci IP'sine düşer. Limitler Redis
+yapılandırıldığında orada, aksi halde process içi bellekte saklanır
+(yalnızca tek-düğüm dev için uygundur).
+
+---
+
 ## Neden Septum?
 
 | Özellik | Septum | ChatGPT / Claude | Azure Presidio | LangChain Pipeline |
@@ -435,6 +493,30 @@ Mimari detaylar için bkz. **[ARCHITECTURE.tr.md](ARCHITECTURE.tr.md)**.
 ---
 
 ## Geliştiriciler İçin
+
+### Paket Düzeni
+
+Septum, `packages/` altında bağımsız olarak kurulabilen paketlere
+bölünüyor. Monolitik `backend/app/` ve `frontend/` dizinleri ayrım
+ilerlerken çalışan yığını barındırmaya devam ediyor; `backend/app/`,
+`septum_api.*`'ye yönlendiren shim paketleri sağlar, böylece mevcut
+import'lar herhangi bir çağrı yeri değişikliği olmadan çalışmaya
+devam eder.
+
+| Paket | Yol | Bölge | Açıklama | Durum |
+|:---|:---|:---|:---|:---:|
+| `septum-core` | `packages/core/` | Hava boşluklu | PII tespit, maskeleme, demaskeleme, regülasyon motoru. Sıfır ağ bağımlılığı. | Yayında |
+| `septum-mcp` | `packages/mcp/` | Hava boşluklu | Claude Code / Desktop / Cursor ve diğer MCP istemcileri için MCP sunucusu. | Yayında |
+| `septum-api` | `packages/api/` | Hava boşluklu | FastAPI REST uç noktaları, modeller, servisler, middleware, kimlik doğrulama. | Yayında |
+| `septum-queue` | `packages/queue/` | Köprü | Çapraz bölge mesaj komisyoncusu (yalnızca maskelenmiş veri). | Planlanıyor |
+| `septum-gateway` | `packages/gateway/` | İnternete açık | Bulut LLM yönlendiricisi. Asla ham PII görmez. | Planlanıyor |
+| `septum-audit` | `packages/audit/` | İnternete açık | Uyumluluk loglama + SIEM dışa aktarımı. | Planlanıyor |
+| `septum-web` | `packages/web/` | Hava boşluklu | Next.js panel (şu anda `frontend/` altında). | Planlanıyor |
+
+Hava boşluklu modüllerin sıfır internet erişimi vardır; köprü
+yalnızca maskelenmiş yer tutucuları taşır; internete açık modüller
+asla ham PII görmez. Tüm modül sözleşmeleri ve bölge semantiği için
+[`PROJECT_SPEC.md`](PROJECT_SPEC.md)'ye bakın.
 
 ### Hızlı API Örneği
 

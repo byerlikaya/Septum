@@ -203,6 +203,63 @@ variable reference, and end-to-end usage examples.
 
 ---
 
+## REST API & Authentication
+
+The Septum backend ships a FastAPI REST layer documented at `/docs`
+(Swagger) and `/redoc`. Two authentication methods are supported:
+
+### JWT (browser sessions, short-lived)
+
+The setup wizard creates the first admin account; subsequent logins
+return a JWT good for 24 hours.
+
+```bash
+curl -X POST http://localhost:3000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email": "admin@example.com", "password": "your-password"}'
+# → {"access_token": "...", "token_type": "bearer"}
+```
+
+### API Keys (CI/CD, MCP integrations, long-lived)
+
+Admins can issue programmatic API keys via `POST /api/api-keys`. The
+raw key is shown **once** at creation; only its 8-character prefix
+plus a SHA-256 hash are persisted.
+
+```bash
+# Create a key (response includes raw_key — store it now, you cannot retrieve it later)
+curl -X POST http://localhost:3000/api/api-keys \
+  -H 'Authorization: Bearer <jwt>' \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "ci-pipeline", "expires_at": null}'
+
+# Use it on any subsequent request
+curl -H 'X-API-Key: sk-septum-<64 hex chars>' http://localhost:3000/api/auth/me
+
+# List your keys (prefixes + metadata only — raw keys are never returned again)
+curl -H 'X-API-Key: sk-septum-…' http://localhost:3000/api/api-keys
+
+# Revoke
+curl -X DELETE -H 'X-API-Key: sk-septum-…' http://localhost:3000/api/api-keys/{id}
+```
+
+### Rate limits
+
+| Endpoint | Limit |
+|:---|:---|
+| `POST /api/auth/register` | 3 / minute |
+| `POST /api/auth/login` | 5 / minute |
+| `POST /api/api-keys` | 10 / minute |
+| Everything else | 60 / minute (configurable via `RATE_LIMIT_DEFAULT`) |
+
+API-key requests are rate-limited by **key prefix**, not IP, so
+services behind a shared NAT each get their own quota. Anonymous and
+JWT requests fall back to the remote IP. Limits are stored in Redis
+when configured; otherwise in-process memory (suitable for single-node
+dev only).
+
+---
+
 ## Why Septum?
 
 | Capability | Septum | Plain ChatGPT / Claude | Azure Presidio | LangChain Pipeline |
@@ -434,6 +491,29 @@ For architecture details, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 ---
 
 ## For Developers
+
+### Package Layout
+
+Septum is being split into independently installable packages under
+`packages/`. The monolithic `backend/app/` and `frontend/` directories
+continue to host the running stack while the split progresses;
+`backend/app/` ships shim packages that forward to `septum_api.*`, so
+existing imports keep working without any call-site edits.
+
+| Package | Path | Zone | Description | Status |
+|:---|:---|:---|:---|:---:|
+| `septum-core` | `packages/core/` | Air-gapped | PII detection, masking, unmasking, regulation engine. Zero network deps. | Released |
+| `septum-mcp` | `packages/mcp/` | Air-gapped | MCP server for Claude Code / Desktop / Cursor and other MCP clients. | Released |
+| `septum-api` | `packages/api/` | Air-gapped | FastAPI REST endpoints, models, services, middleware, auth. | Released |
+| `septum-queue` | `packages/queue/` | Bridge | Cross-zone message broker (masked data only). | Planned |
+| `septum-gateway` | `packages/gateway/` | Internet-facing | Cloud LLM forwarder. Never sees raw PII. | Planned |
+| `septum-audit` | `packages/audit/` | Internet-facing | Compliance logging + SIEM export. | Planned |
+| `septum-web` | `packages/web/` | Air-gapped | Next.js dashboard (currently lives in `frontend/`). | Planned |
+
+Air-gapped modules have zero internet access; the bridge transports
+only masked placeholders; internet-facing modules never see raw PII.
+See [`PROJECT_SPEC.md`](PROJECT_SPEC.md) for the full module
+contracts and zone semantics.
 
 ### Quick API Example
 
