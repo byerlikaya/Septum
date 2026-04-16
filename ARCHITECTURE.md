@@ -10,7 +10,9 @@
 - [High-Level Architecture](#high-level-architecture)
 - [PII Detection & Anonymisation Pipeline](#pii-detection--anonymisation-pipeline)
 - [Septum as an AI Privacy Gateway](#septum-as-an-ai-privacy-gateway)
-- [Backend (FastAPI) Structure](#backend-fastapi-structure)
+- [Modular Package Layout](#modular-package-layout)
+- [Deployment Topologies](#deployment-topologies)
+- [Package Internals](#package-internals)
 - [Frontend (Next.js App Router) Structure](#frontend-nextjs-app-router-structure)
 - [Technology Stack](#technology-stack)
 - [Setup](#setup)
@@ -25,8 +27,32 @@
 
 ## High-Level Architecture
 
-- **Backend**: Python + FastAPI — handles document processing, anonymisation, encryption and LLM integration. All PII handling happens on the server side you control.
-- **Frontend**: Next.js 16 + React 19 — provides chat, document management, settings and regulation views. Communicates with the backend over HTTP and SSE streams.
+Septum is split into **seven independently installable packages** under
+`packages/`, grouped into three zones:
+
+- **Air-gapped zone** (`septum-core`, `septum-mcp`, `septum-api`,
+  `septum-web`) — handles every PII operation. These packages have zero
+  outbound internet dependency; `septum-core` in particular forbids
+  `httpx` / `requests` / `urllib` imports so it can never accidentally
+  egress raw PII.
+- **Bridge** (`septum-queue`) — transports already-masked payloads
+  between zones over a file backend (air-gap default) or Redis Streams
+  (`[redis]` extra). Raw PII cannot cross the bridge by contract.
+- **Internet-facing zone** (`septum-gateway`, `septum-audit`) — forwards
+  masked LLM requests to Anthropic / OpenAI / OpenRouter and logs
+  PII-free compliance telemetry. By code-review invariant these packages
+  never import `septum-core`; the Dockerfile layout enforces this by
+  never COPY-ing `packages/core/` into the gateway or audit images.
+
+| Zone | Package | Role |
+|:---|:---|:---|
+| Air-gapped | `septum-core` | PII detection, masking, unmasking, regulation engine. Zero network deps. |
+| Air-gapped | `septum-mcp` | MCP server exposing core tools to Claude Code / Desktop / Cursor over stdio. |
+| Air-gapped | `septum-api` | FastAPI REST endpoints, document pipeline, auth, rate limiting. |
+| Air-gapped | `septum-web` | Next.js 16 dashboard (App Router + React 19). |
+| Bridge | `septum-queue` | Abstract `QueueBackend` Protocol + envelope dataclasses; file / Redis Streams concrete backends. |
+| Internet-facing | `septum-gateway` | Cloud LLM forwarder. Consumes masked requests off the queue and publishes masked answers back. |
+| Internet-facing | `septum-audit` | Append-only JSONL sink + JSON / CSV / Splunk HEC exporters. Optional queue consumer. |
 
 High-level flow:
 
@@ -171,35 +197,93 @@ In this mode, Septum behaves as a **drop-in privacy layer**:
 
 ---
 
-## Backend (FastAPI) Structure
+## Modular Package Layout
 
-Backend root: `backend/`
+Every module lives under `packages/<name>/` and ships with its own
+`pyproject.toml`, README, and test suite. Each can be installed and
+tested in isolation (`pip install -e "packages/<name>[<extras>]"`).
 
-- `app/main.py` — FastAPI application definition and router registration
-- `app/config.py` — configuration via Pydantic Settings
-- `app/database.py` — SQLite connection and `RegulationRuleset` seeding
-- `app/models/` — SQLAlchemy models:
-  - `document.py`, `chunk.py`, `settings.py`, `regulation.py`, `custom_recognizer.py`
-- `app/schemas/` — Pydantic schemas:
-  - `document.py`, `chat.py`, `settings.py`, `regulation.py`, `custom_recognizer.py`
-- `app/routers/` — FastAPI routers:
-  - `documents.py`, `chunks.py`, `chat.py`, `approval.py`, `settings.py`, `regulations.py`, `error_logs.py`, `text_normalization.py`
-- `app/services/`:
-  - `ingestion/` — format-specific ingesters (PDF, DOCX, XLSX, ODS, image/OCR, audio/Whisper)
-  - `recognizers/` — regulation packs (gdpr, hipaa, kvkk, lgpd, ccpa, …) and `registry.py`
-  - `national_ids/` — country-specific ID validators (TCKN, SSN, CPF, Aadhaar, IBAN, etc.)
-  - `policy_composer.py` — composes active regulations and custom rules into a single policy
-  - `ner_model_registry.py` — language → model mapping and lazy loading
-  - `sanitizer.py` — PII detection and placeholder pipeline
-  - `anonymization_map.py` — session-scoped anonymisation map + coreference handling
-  - `document_pipeline.py`, `vector_store.py`, `llm_router.py`, `deanonymizer.py`, `approval_gate.py`
-  - `prompts.py` — centralized LLM prompt catalog
-  - `error_logger.py`, `ollama_client.py`, `non_pii_filter.py`, `text_normalizer.py`
-- `app/utils/`:
-  - `device.py` — CPU/MPS/CUDA selection
-  - `crypto.py` — AES-256-GCM file encryption
-  - `text_utils.py` — Unicode NFC + locale-aware lowercasing
-- `tests/` — pytest scenarios (sanitizer, anonymization_map, national_ids, policy_composer, deanonymizer, llm_router, crypto, ingesters, etc.).
+```
+packages/
+├── core/                 # septum-core (air-gapped; zero network deps)
+│   ├── septum_core/
+│   │   ├── detector.py, masker.py, unmasker.py, engine.py
+│   │   ├── regulations/
+│   │   ├── recognizers/       # 17 regulation packs
+│   │   └── national_ids/      # TCKN, SSN, CPF, Aadhaar, IBAN, …
+│   ├── tests/
+│   └── pyproject.toml          # extras: [transformers], [test]
+│
+├── mcp/                  # septum-mcp (air-gapped; stdio MCP server)
+│   ├── septum_mcp/server.py, tools.py, config.py
+│   ├── tests/
+│   └── pyproject.toml          # extras: [test]
+│
+├── api/                  # septum-api (air-gapped; FastAPI)
+│   ├── septum_api/
+│   │   ├── main.py              # app factory + lifespan + middleware
+│   │   ├── bootstrap.py, config.py, database.py
+│   │   ├── models/              # SQLAlchemy ORM models
+│   │   ├── routers/             # APIRouter modules
+│   │   ├── services/            # document pipeline, sanitizer wrappers, …
+│   │   ├── middleware/          # auth + rate-limit
+│   │   ├── utils/               # crypto, device, text_utils, …
+│   │   └── seeds/               # built-in regulation seed data
+│   └── pyproject.toml          # extras: [auth], [rate-limit], [postgres], [server], [test]
+│
+├── web/                  # septum-web (air-gapped; Next.js 16 dashboard)
+│   ├── src/app/, src/components/, src/store/, src/i18n/
+│   └── package.json
+│
+├── queue/                # septum-queue (bridge)
+│   ├── septum_queue/
+│   │   ├── base.py               # QueueBackend Protocol + QueueSession
+│   │   ├── models.py             # RequestEnvelope / ResponseEnvelope
+│   │   ├── file_backend.py       # POSIX atomic-rename, air-gap default
+│   │   └── redis_backend.py      # Redis Streams consumer groups
+│   └── pyproject.toml          # extras: [redis], [test]
+│
+├── gateway/              # septum-gateway (internet-facing)
+│   ├── septum_gateway/
+│   │   ├── config.py             # GatewayConfig, env resolution
+│   │   ├── forwarder.py          # Anthropic / OpenAI / OpenRouter clients
+│   │   ├── response_handler.py   # GatewayConsumer + optional audit hook
+│   │   ├── worker.py             # python -m septum_gateway entry point
+│   │   └── main.py               # FastAPI /health (optional [server] extra)
+│   └── pyproject.toml          # extras: [server], [test]  — NEVER depends on septum-core
+│
+└── audit/                # septum-audit (internet-facing)
+    ├── septum_audit/
+    │   ├── events.py             # AuditRecord envelope
+    │   ├── sink.py               # JsonlFileSink + MemorySink
+    │   ├── exporters/            # JSON / CSV / Splunk HEC
+    │   ├── retention.py          # Age + count cap, atomic rewrite
+    │   ├── consumer.py           # AuditConsumer (queue → sink)
+    │   ├── worker.py             # python -m septum_audit entry point
+    │   └── main.py               # FastAPI /health + /api/audit/export
+    └── pyproject.toml          # extras: [queue], [server], [test]  — NEVER depends on septum-core
+```
+
+**Dependency graph** (`→` means "depends on"):
+
+```
+septum-core ← septum-mcp
+septum-core ← septum-api ← septum-web (HTTP, runtime only)
+septum-queue ← septum-api (producer, via septum_api.services.gateway_client)
+septum-queue ← septum-gateway (consumer + response producer)
+septum-queue ← septum-audit[queue] (event consumer)
+```
+
+`septum-core` is the only package with zero Python runtime dependencies
+inside the Septum graph. `septum-queue` ships with zero required deps
+too (stdlib only); the Redis backend lives behind the `[redis]` extra.
+
+**`backend/`** remains as a thin backward-compatibility layer: every
+`backend/app/*.py` file is a shim that re-exports from `septum_api.*`.
+The shim layer exists so legacy imports (`from app.main import app`) in
+the test suite and existing deployments keep working; removal is
+scheduled for a dedicated cleanup pass once the test suite migrates to
+`from septum_api.* import ...`.
 
 With FastAPI we follow Context7 best practices:
 
@@ -210,9 +294,153 @@ With FastAPI we follow Context7 best practices:
 
 ---
 
+## Deployment Topologies
+
+Four Docker Compose variants cover every deployment shape; all four are
+validated by `docker-compose config` and build cleanly on
+Docker 29+ (linux/amd64 + linux/arm64).
+
+| Topology | File | Contains | When to use |
+|:---|:---|:---|:---|
+| Standalone | `docker-compose.standalone.yml` | One container from `docker/standalone.Dockerfile`, SQLite | Simplest install; published as `byerlikaya/septum:latest`. |
+| Full dev stack | `docker-compose.yml` | api + web + gateway-worker + audit-worker + audit-api + Postgres + Redis + optional Ollama profile | Local development or single-host install with zone logic in place. |
+| Air-gapped zone | `docker-compose.airgap.yml` | api + web + Postgres + Redis (no gateway). `USE_GATEWAY_DEFAULT=true` routes cloud calls over Redis Streams. | Internal host in a two-host split. |
+| Internet-facing zone | `docker-compose.gateway.yml` | gateway-worker + gateway-health + audit-worker + audit-api + Redis. Uses YAML anchors (`x-gateway-base`, `x-audit-base`) to dedupe service definitions. | DMZ / cloud host in a two-host split. |
+
+For a true air-gapped deployment, run `airgap.yml` on the internal host
+and `gateway.yml` on the DMZ host and point both at the same Redis over
+a VPN / private link. The queue carries only masked text; raw PII never
+crosses the bridge.
+
+**Per-module Dockerfiles** live under `docker/` — `api.Dockerfile`,
+`web.Dockerfile`, `gateway.Dockerfile`, `audit.Dockerfile`,
+`mcp.Dockerfile`, `standalone.Dockerfile`. The gateway and audit images
+are lightweight (~250 MB each, no torch / Presidio / spaCy) and — by
+image-layer contract — never COPY `packages/core/` into their runtime
+stage. The api and standalone images ship the full ML stack (CPU-only
+torch, Presidio, spaCy, PaddleOCR, Whisper, FAISS, BM25) at ~9.8 GB and
+~5.7 GB respectively.
+
+Every HTTP service ships a Docker `HEALTHCHECK` using
+`python -c "import urllib.request; urllib.request.urlopen('http://.../health')"`
+(the `web` image uses `wget` since it runs on `node:20-alpine`). The
+MCP image has no HEALTHCHECK — stdio-only, liveness is the subprocess
+exit code.
+
+---
+
+## Package Internals
+
+### septum-core
+
+The PII engine: detection, masking, unmasking, regulation composition.
+Zero network dependencies by contract — no `httpx` / `requests` /
+`urllib` imports anywhere under `septum_core/`.
+
+- `detector.py` — `Detector` class wraps the multi-layer pipeline
+  (Presidio → Transformers NER → optional semantic validation via a
+  `SemanticDetectionPort` adapter).
+- `masker.py`, `unmasker.py` — placeholder creation and restoration.
+- `anonymization_map.py` — session-scoped `PII ↔ placeholder` map with
+  coreference resolution.
+- `engine.py` — `SeptumEngine` facade: `engine.mask(text)` /
+  `engine.unmask(text, session_id)`. Includes an in-memory session
+  registry with TTL eviction for long-running MCP subprocesses.
+- `regulations/` — `PolicyComposer` merges active regulation rulesets.
+- `recognizers/` — 17 regulation packs (GDPR, KVKK, HIPAA, CCPA, LGPD,
+  PIPEDA, PDPA_TH, PDPA_SG, APPI, PIPL, POPIA, DPDP, UK_GDPR, PDPL_SA,
+  NZPA, Australia_PA, CPRA) with `base_recognizer` + `RecognizerRegistry`.
+- `national_ids/` — country-specific ID validators with algorithmic
+  checksums (TCKN, SSN, CPF, Aadhaar, IBAN, …).
+
+### septum-mcp
+
+Stdio MCP server exposing six tools to Claude Code / Desktop / Cursor:
+`mask_text`, `unmask_response`, `detect_pii`, `scan_file`,
+`list_regulations`, `get_session_map`. Depends on `septum-core`;
+engine construction is deferred to the first tool call so idle cost is
+near zero.
+
+### septum-api
+
+The FastAPI REST layer under `packages/api/septum_api/`:
+
+- `main.py` — app factory + lifespan + middleware stack (CORS, auth,
+  rate limit, Prometheus).
+- `bootstrap.py`, `config.py`, `database.py` — infrastructure config
+  (`config.json`), lazy async engine, settings.
+- `models/` — SQLAlchemy ORM models (`AppSettings`, `Document`,
+  `Chunk`, `User`, `ApiKey`, `AuditEvent`, …).
+- `routers/` — 14 APIRouter modules (auth, api_keys, chat,
+  chat_sessions, chunks, documents, regulations, settings, setup,
+  users, approval, audit, error_logs, text_normalization).
+- `services/` — business logic: `document_pipeline`, `sanitizer`
+  (wrapper around core), `llm_router`, `vector_store`,
+  `bm25_retriever`, `deanonymizer`, `prompts`, `approval_gate`,
+  `gateway_client` (queue producer), `ingestion/` (format-specific
+  extractors), `llm_providers/`, `recognizers/` (adapter layer over
+  core), `national_ids/` (adapter layer over core).
+- `middleware/` — `auth.py` (JWT + API key), `rate_limit.py`.
+- `utils/` — `crypto.py` (AES-256-GCM), `auth_dependency.py`,
+  `device.py`, `logging_config.py`, `metrics.py`, `text_utils.py`.
+
+### septum-queue
+
+Abstract queue transport, zero runtime deps:
+
+- `base.py` — `QueueBackend` Protocol + `QueueSession` context manager
+  + `QueueError` / `QueueTimeoutError`.
+- `models.py` — `Message`, `RequestEnvelope`, `ResponseEnvelope`
+  dataclasses; `to_dict()` / `to_json()` / `from_dict()` on each.
+- `file_backend.py` — `FileQueueBackend`: atomic `os.replace` is the
+  entire synchronization primitive. Three directories per topic
+  (`incoming/`, `processing/`, `done/`); claiming a message is a rename
+  that only one consumer can win.
+- `redis_backend.py` — `RedisStreamsQueueBackend`: XADD / XREADGROUP /
+  XACK with consumer groups for at-least-once semantics.
+- `backend_from_env(topic)` — env-var dispatch (`SEPTUM_QUEUE_URL` →
+  Redis, `SEPTUM_QUEUE_DIR` → file). Missing both raises `SystemExit`
+  rather than silently defaulting.
+
+### septum-gateway
+
+Cloud LLM forwarder for the internet-facing zone:
+
+- `config.py` — `GatewayConfig.from_env()` reads `SEPTUM_GATEWAY_*` env
+  vars plus legacy `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` /
+  `OPENROUTER_API_KEY`.
+- `forwarder.py` — `BaseForwarder` + `AnthropicForwarder` +
+  `_OpenAICompatibleForwarder` (`OpenAIForwarder`,
+  `OpenRouterForwarder`) + `ForwarderRegistry.from_config()` +
+  `_post_with_retries` with exponential backoff.
+- `response_handler.py` — `GatewayConsumer.run_forever()` pairs request
+  envelopes with responses; optional `audit_queue` emits a PII-free
+  telemetry envelope per handled request (provider / model /
+  status / latency_ms / correlation_id — no prompts, no response text,
+  no api keys).
+- `worker.py` + `__main__.py` — `python -m septum_gateway` entry point.
+- `main.py` — FastAPI `/health` endpoint behind the `[server]` extra.
+
+### septum-audit
+
+Compliance audit trail:
+
+- `events.py` — `AuditRecord` envelope.
+- `sink.py` — `AuditSink` Protocol + `JsonlFileSink` (append-only,
+  logrotate-safe, POSIX atomic-append) + `MemorySink`.
+- `exporters/` — `JsonExporter`, `CsvExporter`, `SplunkHecExporter` all
+  sharing a `BaseExporter(iter_chunks)` streaming primitive.
+- `retention.py` — `RetentionPolicy(max_age_days, max_records)` +
+  atomic in-place JSONL rewrite via `.tmp` + `os.replace`.
+- `consumer.py` — `AuditConsumer(queue, sink)`.
+- `worker.py` + `__main__.py` — `python -m septum_audit` entry point.
+- `main.py` — FastAPI `/health` + streaming `/api/audit/export`.
+
+---
+
 ## Frontend (Next.js App Router) Structure
 
-Frontend root: `frontend/`
+Frontend root: `packages/web/`
 
 - `src/app/`
   - `layout.tsx` — root layout
@@ -265,7 +493,7 @@ On the Next.js side we follow Context7 best practices:
 - axios, react-dropzone, lucide-react
 
 **Infrastructure**
-- Docker Compose (PostgreSQL 16 + Redis 7 + backend + frontend)
+- Docker Compose (PostgreSQL 16 + Redis 7 + api + web + gateway + audit); 4 topology variants under `docker-compose*.yml`
 - Ollama (optional local LLM fallback)
 
 ---
@@ -295,34 +523,27 @@ docker compose --profile ollama up
 
 #### 1. Shared prerequisites
 
-- Python 3.10+
-- Node.js 18+ (for Next.js 16)
+- Python 3.11+ (tested up to 3.13)
+- Node.js 20+ (for Next.js 16)
 - ffmpeg (for Whisper)
 
-#### 2. Backend setup
+#### 2. One-shot setup
 
 ```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install --upgrade pip
-pip install -r requirements.txt
+./dev.sh --setup     # installs all modular packages (editable) + backend/requirements.txt + npm
 ```
 
-All configuration is handled by the setup wizard on first run. A `config.json` file is auto-generated in `backend/` with encryption keys and infrastructure settings. No manual configuration files needed.
+`dev.sh --setup` installs every `packages/*` module in editable mode
+with its development extras (`septum-core[transformers,test]`,
+`septum-queue[redis,test]`, `septum-api[auth,rate-limit,postgres,server,test]`,
+`septum-mcp[test]`, `septum-gateway[server,test]`,
+`septum-audit[queue,server,test]`), then pulls the heavy ML / OCR /
+Whisper / ingestion deps from `backend/requirements.txt`.
 
-Then start the backend:
+#### 3. Start the dev stack
 
 ```bash
-uvicorn app.main:app --reload
-```
-
-#### 3. Frontend setup
-
-```bash
-cd frontend
-npm install
-npm run dev
+./dev.sh             # starts api (septum_api.main:app on port 8000) + web (packages/web, port 3000)
 ```
 
 By default, everything is served on a single port:
@@ -331,34 +552,70 @@ By default, everything is served on a single port:
 
 Next.js rewrites proxy `/api/*`, `/docs`, `/health`, and `/metrics` to the internal backend (port 8000 inside the container). Port 8000 is not exposed externally.
 
-Ensure the backend base URL in `src/lib/api.ts` matches your environment.
+The API base URL in `packages/web/src/lib/api.ts` is driven by the
+build-time `NEXT_PUBLIC_API_BASE_URL` env var. Unset means same-origin
+proxy via Next.js rewrites (the default). For a split deployment
+(separate hosts for api and web) set this at build time to the api's
+public URL.
+
+All configuration is handled by the setup wizard on first run. A
+`config.json` file is auto-generated (default location:
+`backend/config.json`; override with `SEPTUM_CONFIG_PATH`) with
+encryption keys and infrastructure settings. No manual configuration
+files needed.
 
 **First launch:** The web UI runs a short setup wizard (LLM provider and connection test) until onboarding is marked complete in application settings. Chat conversations are persisted server-side (`/api/chat-sessions`) and can be switched from the chat sidebar.
+
+#### 4. Reset local state
+
+```bash
+./dev.sh --reset     # wipes DB, config.json, uploads, indexes, anon_maps (both backend/ and top-level)
+```
 
 ---
 
 ## Running Tests
 
-The project includes a custom `/test` rule inside Septum:
+Tests live in two places:
 
-- Based on the changed file, the corresponding pytest file is executed. Examples:
-  - `sanitizer.py` → `tests/test_sanitizer.py`
-  - `anonymization_map.py` → `tests/test_anonymization_map.py`
-  - `app/services/national_ids/*` → `tests/test_national_ids.py`
-  - `app/services/ingestion/*` → `tests/test_ingesters.py`
-  - etc.
-- If no match is found, the full test suite is executed.
-
-**Continuous integration:** GitHub Actions runs backend tests plus Ruff and Bandit, `pip-audit`, and frontend Jest, `tsc --noEmit`, and `npm audit` in parallel on every push and pull request.
-
-To run tests manually:
+- **Modular package tests** under `packages/<name>/tests/` — isolated,
+  fast, and install-independent (each `pytest packages/<name>/tests/`
+  works without the rest of the repo).
+- **Integration tests** under `backend/tests/` — exercise the full
+  document + chat pipeline through the `backend/app/` shim that
+  forwards to `septum_api.*`. These tests will migrate to
+  `packages/api/tests/` once the shim layer is removed.
 
 ```bash
-cd backend
-pytest tests/ -v
+# Everything
+pytest packages/ backend/tests/ -q
+
+# Single modular package
+pytest packages/core/tests/ -q
+pytest packages/queue/tests/ -q
+pytest packages/gateway/tests/ -q
+pytest packages/audit/tests/ -q
+pytest packages/mcp/tests/ -q
+
+# Full backend integration suite
+pytest backend/tests/ -q
 ```
 
-Any tests that would send real requests to a cloud LLM **must be mocked**; tests that hit real external LLM APIs are treated as bugs.
+The `/test` skill inside Claude Code picks the right test file based on
+the changed source. Examples:
+- `sanitizer.py` → `backend/tests/test_sanitizer.py`
+- `packages/queue/septum_queue/file_backend.py` → `packages/queue/tests/test_file_backend.py`
+- `packages/audit/septum_audit/retention.py` → `packages/audit/tests/test_retention.py`
+
+**Continuous integration:** `.github/workflows/tests.yml` runs a
+parallel matrix — `backend-tests` (pip install every package editable +
+`backend/requirements.txt` + pytest `backend/tests/`), `modular-tests`
+(each package installed and tested in its own step), plus backend lint
+(Ruff + Bandit), backend security (`pip-audit`), frontend Jest, frontend
+typecheck (`tsc --noEmit`), frontend `npm audit`.
+
+Any tests that would send real requests to a cloud LLM **must be
+mocked**; tests that hit real external LLM APIs are treated as bugs.
 
 ---
 
