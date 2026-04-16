@@ -1,6 +1,20 @@
-# Septum — combined image with PostgreSQL, Redis, optional Ollama
-# No .env file needed. Just run: docker compose up
-# For local LLMs: docker compose --profile ollama up
+# -----------------------------------------------------------------------------
+# Septum — full dev stack (all modules on one host)
+#
+# Wires every module together in a single compose file: air-gapped api +
+# web, internet-facing gateway + audit, plus Postgres + Redis + optional
+# Ollama. Use this for local development or a single-host install where
+# zone isolation is not a hard deployment requirement — for a true
+# two-host split use docker-compose.airgap.yml on one side and
+# docker-compose.gateway.yml on the other.
+#
+# Start:
+#   docker compose up                                   # without Ollama
+#   docker compose --profile ollama up                  # with local LLMs
+#
+# Standalone (no Postgres / Redis):
+#   docker compose -f docker-compose.standalone.yml up
+# -----------------------------------------------------------------------------
 
 services:
   postgres:
@@ -35,17 +49,20 @@ services:
       start_period: 5s
       retries: 3
 
-  septum:
+  api:
     build:
       context: .
-      dockerfile: Dockerfile
-    image: byerlikaya/septum:latest
-    container_name: septum
+      dockerfile: docker/api.Dockerfile
+    image: septum/api:latest
+    container_name: septum-api
     environment:
-      - DATABASE_URL=postgresql+asyncpg://septum:septum_secret@postgres:5432/septum
-      - REDIS_URL=redis://redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://septum:septum_secret@postgres:5432/septum
+      REDIS_URL: redis://redis:6379/0
+      USE_GATEWAY_DEFAULT: "true"
+      SEPTUM_QUEUE_URL: redis://redis:6379/0
+      FRONTEND_ORIGIN: http://localhost:3000
     ports:
-      - "3000:3000"
+      - "8000:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -54,6 +71,7 @@ services:
       - septum-anon-maps:/app/anon_maps
       - septum-vector-indexes:/app/vector_indexes
       - septum-bm25-indexes:/app/bm25_indexes
+      - septum-models:/app/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,10 +79,89 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 30s
       timeout: 5s
       start_period: 60s
+      retries: 3
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ""
+    image: septum/web:latest
+    container_name: septum-web
+    environment:
+      BACKEND_INTERNAL_URL: http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  gateway-worker:
+    build:
+      context: .
+      dockerfile: docker/gateway.Dockerfile
+    image: septum/gateway:latest
+    container_name: septum-gateway-worker
+    environment:
+      SEPTUM_QUEUE_URL: redis://redis:6379/0
+      SEPTUM_GATEWAY_REQUEST_TOPIC: septum.llm.requests
+      SEPTUM_GATEWAY_RESPONSE_TOPIC: septum.llm.responses
+      SEPTUM_GATEWAY_AUDIT_TOPIC: septum.audit.events
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    command: ["python", "-m", "septum_gateway"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  audit-worker:
+    build:
+      context: .
+      dockerfile: docker/audit.Dockerfile
+    image: septum/audit:latest
+    container_name: septum-audit-worker
+    environment:
+      SEPTUM_QUEUE_URL: redis://redis:6379/0
+      SEPTUM_AUDIT_TOPIC: septum.audit.events
+      SEPTUM_AUDIT_SINK_PATH: /var/log/septum/audit.jsonl
+    command: ["python", "-m", "septum_audit"]
+    volumes:
+      - septum-audit-log:/var/log/septum
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  audit-api:
+    build:
+      context: .
+      dockerfile: docker/audit.Dockerfile
+    image: septum/audit:latest
+    container_name: septum-audit-api
+    environment:
+      SEPTUM_AUDIT_SINK_PATH: /var/log/septum/audit.jsonl
+      SEPTUM_AUDIT_TOPIC: septum.audit.events
+    command:
+      ["python", "-m", "uvicorn", "septum_audit.main:create_app",
+       "--factory", "--host", "0.0.0.0", "--port", "8002"]
+    ports:
+      - "8002:8002"
+    volumes:
+      - septum-audit-log:/var/log/septum
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8002/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
       retries: 3
 
   ollama:
@@ -86,4 +183,6 @@ volumes:
   septum-anon-maps:
   septum-vector-indexes:
   septum-bm25-indexes:
+  septum-models:
+  septum-audit-log:
   ollama-data:

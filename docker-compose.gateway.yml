@@ -1,0 +1,130 @@
+# -----------------------------------------------------------------------------
+# Septum — internet-facing deployment (gateway + audit)
+#
+# Runs ONLY the internet-facing zone modules: gateway + audit + redis.
+# No api, no web, no septum-core. Consumes already-masked requests off
+# Redis Streams, forwards them to Anthropic / OpenAI / OpenRouter, and
+# publishes the masked answers back on the response stream. The audit
+# service reads per-request telemetry envelopes (PII-free) off a third
+# stream and ships them to the jsonl sink + /api/audit/export.
+#
+# Start:
+#   docker compose -f docker-compose.gateway.yml up -d
+#
+# Wire to the air-gapped zone by pointing SEPTUM_QUEUE_URL at the same
+# Redis the api publishes on. Over a VPN / private link in production.
+# -----------------------------------------------------------------------------
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: septum-gateway-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - septum-gateway-redis-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+
+  gateway-worker:
+    build:
+      context: .
+      dockerfile: docker/gateway.Dockerfile
+    image: septum/gateway:latest
+    container_name: septum-gateway-worker
+    environment:
+      SEPTUM_QUEUE_URL: redis://redis:6379/0
+      SEPTUM_GATEWAY_REQUEST_TOPIC: septum.llm.requests
+      SEPTUM_GATEWAY_RESPONSE_TOPIC: septum.llm.responses
+      SEPTUM_GATEWAY_AUDIT_TOPIC: septum.audit.events
+      # Provider keys live on the internet-facing zone. The air-gapped
+      # side may also thread a key through RequestEnvelope.api_key —
+      # envelope key always wins.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    command: ["python", "-m", "septum_gateway"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  gateway-health:
+    # Same image, second container: serves /health + /process-once over
+    # HTTP so an operator probe sees the gateway worker's topics.
+    build:
+      context: .
+      dockerfile: docker/gateway.Dockerfile
+    image: septum/gateway:latest
+    container_name: septum-gateway-health
+    environment:
+      SEPTUM_QUEUE_URL: redis://redis:6379/0
+      SEPTUM_GATEWAY_REQUEST_TOPIC: septum.llm.requests
+      SEPTUM_GATEWAY_RESPONSE_TOPIC: septum.llm.responses
+      SEPTUM_GATEWAY_AUDIT_TOPIC: septum.audit.events
+    command:
+      ["python", "-m", "uvicorn", "septum_gateway.main:create_app",
+       "--factory", "--host", "0.0.0.0", "--port", "8001"]
+    ports:
+      - "8001:8001"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8001/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  audit-worker:
+    build:
+      context: .
+      dockerfile: docker/audit.Dockerfile
+    image: septum/audit:latest
+    container_name: septum-audit-worker
+    environment:
+      SEPTUM_QUEUE_URL: redis://redis:6379/0
+      SEPTUM_AUDIT_TOPIC: septum.audit.events
+      SEPTUM_AUDIT_SINK_PATH: /var/log/septum/audit.jsonl
+    command: ["python", "-m", "septum_audit"]
+    volumes:
+      - septum-audit-log:/var/log/septum
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  audit-api:
+    build:
+      context: .
+      dockerfile: docker/audit.Dockerfile
+    image: septum/audit:latest
+    container_name: septum-audit-api
+    environment:
+      SEPTUM_AUDIT_SINK_PATH: /var/log/septum/audit.jsonl
+      SEPTUM_AUDIT_TOPIC: septum.audit.events
+    command:
+      ["python", "-m", "uvicorn", "septum_audit.main:create_app",
+       "--factory", "--host", "0.0.0.0", "--port", "8002"]
+    ports:
+      - "8002:8002"
+    volumes:
+      - septum-audit-log:/var/log/septum
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8002/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  septum-gateway-redis-data:
+  septum-audit-log:

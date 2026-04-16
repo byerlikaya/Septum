@@ -1,0 +1,47 @@
+# -----------------------------------------------------------------------------
+# Septum — standalone single-container deployment
+#
+# One image, one container. SQLite + direct in-process cloud LLM calls.
+# No PostgreSQL, no Redis, no queue, no gateway — the simplest possible
+# Septum install. This is the image published as byerlikaya/septum:latest.
+#
+# Start:
+#   docker compose -f docker-compose.standalone.yml up -d
+#
+# For a second tier of parallelism (Postgres + Redis + Ollama profile),
+# use docker-compose.yml (the full dev stack) instead.
+# -----------------------------------------------------------------------------
+
+services:
+  septum:
+    build:
+      context: .
+      dockerfile: docker/standalone.Dockerfile
+    image: septum/standalone:latest
+    container_name: septum
+    ports:
+      - "3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - septum-data:/app/data
+      - septum-uploads:/app/uploads
+      - septum-anon-maps:/app/anon_maps
+      - septum-vector-indexes:/app/vector_indexes
+      - septum-bm25-indexes:/app/bm25_indexes
+      - septum-models:/app/models
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+volumes:
+  septum-data:
+  septum-uploads:
+  septum-anon-maps:
+  septum-vector-indexes:
+  septum-bm25-indexes:
+  septum-models:
