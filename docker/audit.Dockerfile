@@ -24,15 +24,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-WORKDIR /build
-RUN python -m venv /build/.venv
-ENV PATH="/build/.venv/bin:$PATH"
+WORKDIR /app
+RUN python -m venv /app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
 
-COPY packages/queue/ /build/packages/queue/
-COPY packages/audit/ /build/packages/audit/
+COPY packages/queue/ /app/packages/queue/
+COPY packages/audit/ /app/packages/audit/
 
-RUN pip install --no-warn-script-location -e "/build/packages/queue[redis]" \
-    && pip install --no-warn-script-location -e "/build/packages/audit[queue,server]"
+# Editable install records the source path, so builder + runtime stages
+# must agree on the package location (both use /app/packages).
+RUN pip install --no-warn-script-location -e "/app/packages/queue[redis]" \
+    && pip install --no-warn-script-location -e "/app/packages/audit[queue,server]"
 
 # ── runtime ──
 FROM python:3.12-slim AS runtime
@@ -46,8 +48,8 @@ RUN groupadd --gid 1000 septum \
     && useradd --uid 1000 --gid septum --shell /bin/sh --create-home septum
 
 WORKDIR /app
-COPY --from=builder /build/.venv /app/.venv
-COPY --from=builder /build/packages /app/packages
+COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/packages /app/packages
 
 RUN mkdir -p /var/log/septum && chown -R septum:septum /var/log/septum
 

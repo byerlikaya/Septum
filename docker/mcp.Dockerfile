@@ -24,15 +24,17 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /build
-RUN python -m venv /build/.venv
-ENV PATH="/build/.venv/bin:$PATH"
+WORKDIR /app
+RUN python -m venv /app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
 
-COPY packages/core/ /build/packages/core/
-COPY packages/mcp/ /build/packages/mcp/
+COPY packages/core/ /app/packages/core/
+COPY packages/mcp/ /app/packages/mcp/
 
-RUN pip install --no-warn-script-location -e "/build/packages/core[transformers]" \
-    && pip install --no-warn-script-location -e /build/packages/mcp
+# Editable install records the source path, so builder + runtime stages
+# must agree on the package location (both use /app/packages).
+RUN pip install --no-warn-script-location -e "/app/packages/core[transformers]" \
+    && pip install --no-warn-script-location -e /app/packages/mcp
 
 # ── runtime ──
 FROM python:3.12-slim AS runtime
@@ -45,8 +47,8 @@ RUN groupadd --gid 1000 septum \
     && useradd --uid 1000 --gid septum --shell /bin/sh --create-home septum
 
 WORKDIR /app
-COPY --from=builder /build/.venv /app/.venv
-COPY --from=builder /build/packages /app/packages
+COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/packages /app/packages
 
 USER septum
 

@@ -42,15 +42,14 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/public ./public
 
-RUN addgroup --gid 1000 septum \
-    && adduser --uid 1000 --ingroup septum --disabled-password septum \
-    && chown -R septum:septum /app
-
-USER septum
+# node:20-alpine ships a uid=1000 'node' user by default — reuse it instead
+# of creating a second one (the python images create 'septum' because they
+# do NOT have a pre-existing non-root user).
+USER node
 
 EXPOSE 3000
 

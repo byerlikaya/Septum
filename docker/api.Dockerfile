@@ -22,25 +22,26 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /build
-RUN python -m venv /build/.venv
-ENV PATH="/build/.venv/bin:$PATH"
+WORKDIR /app
+RUN python -m venv /app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
 
-COPY backend/requirements.txt .
+COPY backend/requirements.txt /tmp/requirements.txt
 # CPU-only torch first (saves ~6 GB by excluding CUDA/nvidia/triton).
 # pip will skip torch when processing requirements.txt because 2.10.0+cpu
 # satisfies the torch==2.10.0 pin (PEP 440 ignores local version tags).
 RUN pip install --no-warn-script-location \
     torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-warn-script-location -r requirements.txt
+RUN pip install --no-warn-script-location -r /tmp/requirements.txt
 
-# Install septum-core + septum-queue so the api can use them directly.
-COPY packages/core/ /build/packages/core/
-COPY packages/queue/ /build/packages/queue/
-COPY packages/api/ /build/packages/api/
-RUN pip install --no-warn-script-location -e /build/packages/core \
-    && pip install --no-warn-script-location -e /build/packages/queue \
-    && pip install --no-warn-script-location -e /build/packages/api
+# Install septum-core + septum-queue + septum-api under /app so the
+# builder + runtime stages agree on the editable-install source path.
+COPY packages/core/ /app/packages/core/
+COPY packages/queue/ /app/packages/queue/
+COPY packages/api/ /app/packages/api/
+RUN pip install --no-warn-script-location -e /app/packages/core \
+    && pip install --no-warn-script-location -e /app/packages/queue \
+    && pip install --no-warn-script-location -e /app/packages/api
 
 # ── runtime ──
 FROM python:3.12-slim AS runtime
@@ -64,8 +65,8 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY --chown=septum:septum VERSION /app/VERSION
-COPY --from=builder /build/.venv /app/.venv
-COPY --from=builder /build/packages /app/packages
+COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/packages /app/packages
 COPY --chown=septum:septum backend/app/ /app/backend/app/
 COPY --chown=septum:septum backend/scripts/docker-entrypoint.sh /app/backend/scripts/docker-entrypoint.sh
 COPY --chown=septum:septum backend/alembic.ini /app/backend/alembic.ini
