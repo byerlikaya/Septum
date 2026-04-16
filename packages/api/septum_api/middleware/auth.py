@@ -28,7 +28,14 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
-from ..services.api_key_service import PREFIX as _API_KEY_PREFIX
+from ..services.api_key_service import (
+    HEADER_NAME as _API_KEY_HEADER,
+    PREFIX as _API_KEY_PREFIX,
+)
+
+# Starlette normalises header names to lowercase before storing them
+# in ``request.headers``, so the lookup key must be lowercase too.
+_API_KEY_HEADER_LOWER = _API_KEY_HEADER.lower()
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +67,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     async def _resolve_identity(self, request: Request) -> None:
         """Detect credential type and stash the user ID if valid."""
-        api_key_header = request.headers.get("x-api-key")
+        api_key_header = request.headers.get(_API_KEY_HEADER_LOWER)
         if api_key_header and api_key_header.startswith(_API_KEY_PREFIX):
             await self._resolve_api_key(request, api_key_header)
             return

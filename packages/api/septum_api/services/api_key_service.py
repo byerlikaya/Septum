@@ -14,7 +14,9 @@ from ..models.user import User
 from ..utils.crypto import hash_text
 
 PREFIX = "sk-septum-"
+HEADER_NAME = "X-API-Key"
 _RAW_KEY_BYTES = 32
+RAW_KEY_HEX_CHARS = _RAW_KEY_BYTES * 2
 
 
 def _generate_raw_key() -> str:

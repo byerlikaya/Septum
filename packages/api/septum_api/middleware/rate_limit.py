@@ -15,13 +15,17 @@ from typing import TYPE_CHECKING
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from ..services.api_key_service import PREFIX as _API_KEY_PREFIX
+from ..services.api_key_service import (
+    HEADER_NAME as _API_KEY_HEADER,
+    PREFIX as _API_KEY_PREFIX,
+)
 
 if TYPE_CHECKING:
     from starlette.requests import Request
 
     from ..bootstrap import BootstrapConfig
 
+_API_KEY_HEADER_LOWER = _API_KEY_HEADER.lower()
 _API_KEY_PREFIX_OFFSET = len(_API_KEY_PREFIX)
 _API_KEY_PREFIX_END = _API_KEY_PREFIX_OFFSET + 8
 
@@ -34,7 +38,7 @@ def get_rate_limit_key(request: Request) -> str:
     """
     auth_method = getattr(getattr(request, "state", None), "auth_method", None)
     if auth_method == "api_key":
-        api_key_header = request.headers.get("x-api-key", "")
+        api_key_header = request.headers.get(_API_KEY_HEADER_LOWER, "")
         prefix = (
             api_key_header[_API_KEY_PREFIX_OFFSET:_API_KEY_PREFIX_END]
             if len(api_key_header) >= _API_KEY_PREFIX_END

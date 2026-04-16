@@ -171,7 +171,7 @@ async def redoc_html() -> HTMLResponse:
 
 
 def _custom_openapi() -> dict[str, Any]:
-    """Inject the ``X-API-Key`` security scheme alongside OAuth2/JWT.
+    """Inject the API-key security scheme alongside OAuth2/JWT.
 
     FastAPI auto-generates the OAuth2 scheme from
     ``OAuth2PasswordBearer`` declared in ``utils/auth_dependency.py``,
@@ -180,6 +180,8 @@ def _custom_openapi() -> dict[str, Any]:
     override adds ``ApiKeyAuth`` to ``components.securitySchemes`` so
     the Swagger / ReDoc "Authorize" dialog offers both flows.
     """
+    from .services.api_key_service import HEADER_NAME, PREFIX, RAW_KEY_HEX_CHARS
+
     if app.openapi_schema is not None:
         return app.openapi_schema
     schema = get_openapi(
@@ -193,10 +195,10 @@ def _custom_openapi() -> dict[str, Any]:
     schemes["ApiKeyAuth"] = {
         "type": "apiKey",
         "in": "header",
-        "name": "X-API-Key",
+        "name": HEADER_NAME,
         "description": (
             "Long-lived programmatic credential issued via "
-            "`POST /api/api-keys`. Format: `sk-septum-<64 hex chars>`."
+            f"`POST /api/api-keys`. Format: `{PREFIX}<{RAW_KEY_HEX_CHARS} hex chars>`."
         ),
     }
     app.openapi_schema = schema
