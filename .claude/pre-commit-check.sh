@@ -43,7 +43,9 @@ if ! grep -q "### $TODAY" "$PROJECT_ROOT/CHANGELOG.md" 2>/dev/null; then
 fi
 
 # 4. No secrets files staged (.env or config.json)
-STAGED_SECRETS=$(cd "$PROJECT_ROOT" && git diff --cached --name-only 2>/dev/null | grep -E '(^\.env|config\.json$)' || true)
+# Anchor config.json to a path boundary so unrelated suffixes like
+# tsconfig.json or jsconfig.json do not trip the secrets check.
+STAGED_SECRETS=$(cd "$PROJECT_ROOT" && git diff --cached --name-only 2>/dev/null | grep -E '(^\.env|(^|/)config\.json$)' || true)
 if [[ -n "$STAGED_SECRETS" ]]; then
   ERRORS+=("[SECURITY] Secrets file staged for commit: $STAGED_SECRETS")
 fi
