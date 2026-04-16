@@ -49,11 +49,16 @@ docker compose --profile ollama up                         # With local Ollama m
 
 ### Modular Packages (from `packages/<module>/`)
 ```bash
-pip install -e packages/core         # Install septum-core in editable mode
-pip install -e packages/mcp          # Install septum-mcp in editable mode
-pip install -e packages/queue        # Install septum-queue in editable mode
-pytest packages/core/tests/          # Run core tests
-pytest packages/mcp/tests/           # Run MCP tests
+pip install -e packages/core              # Install septum-core in editable mode
+pip install -e packages/mcp               # Install septum-mcp in editable mode
+pip install -e packages/queue             # Install septum-queue (file backend, stdlib only)
+pip install -e "packages/queue[redis]"    # septum-queue with Redis Streams backend
+pip install -e packages/gateway           # Install septum-gateway (consumer + forwarders)
+pip install -e "packages/gateway[server]" # Adds FastAPI /health endpoint
+pytest packages/core/tests/               # Run core tests
+pytest packages/mcp/tests/                # Run MCP tests
+pytest packages/queue/tests/              # Run queue tests (uses fakeredis when [redis] is installed)
+pytest packages/gateway/tests/            # Run gateway tests (uses respx for httpx mocking)
 ```
 
 ## Architecture

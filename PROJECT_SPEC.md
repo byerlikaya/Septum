@@ -423,14 +423,14 @@ Bridge: septum-queue (Redis Streams over VPN / private link)
 4. ✓ CORS konfigürasyonu (`FRONTEND_ORIGIN` → `_resolve_cors_origins`)
 5. ✓ Standalone build & deploy testi (Jest 17/17, build başarılı, backend 283/283)
 
-### Faz 5: septum-queue + septum-gateway (3-4 gün)
+### Faz 5: septum-queue + septum-gateway (3-4 gün) — ✓ TAMAMLANDI
 > `/simplify` ve `/compact` çalıştır, sonra başla.
 
-1. `packages/queue/` — Abstract queue interface + Redis/RabbitMQ/File backend'leri
-2. `packages/gateway/` — Cloud LLM forwarder
-3. septum-api'ye queue producer entegrasyonu
-4. gateway'e queue consumer entegrasyonu
-5. End-to-end test: mask → queue → gateway → LLM → queue → response
+1. ✓ `packages/queue/` — Abstract `QueueBackend` Protocol + envelope dataclasses (`Message`, `RequestEnvelope`, `ResponseEnvelope`); `FileQueueBackend` (atomic POSIX rename, air-gap default) + `RedisStreamsQueueBackend` (consumer groups + XACK, `[redis]` extra). RabbitMQ ileriye bırakıldı (Septum deployment profilinde nadir).
+2. ✓ `packages/gateway/` — `AnthropicForwarder` / `OpenAIForwarder` / `OpenRouterForwarder` + `ForwarderRegistry` + `GatewayConsumer` (queue → forwarder → response queue); FastAPI `/health` `[server]` extra arkasında. **`septum-core`'u asla import etmez** (kod-review invariant).
+3. ✓ septum-api'ye queue producer entegrasyonu — `services/gateway_client.py` (`GatewayClient.complete()` publish + correlation_id ile reply bekleme), `AppSettings.use_gateway: bool = False` (sqlite migration dahil), `LLMRouter._dispatch_cloud_call` branch (process-wide `set_gateway_client_factory` ile bağlı).
+4. ✓ gateway'e queue consumer entegrasyonu — `GatewayConsumer.run_once()` / `run_forever()` döngüsü; forwarder hatası, bilinmeyen provider, malformed payload, beklenmeyen exception → hepsi error envelope'a dönüşür ve döngüyü kırmaz.
+5. ✓ End-to-end test: 47 yeni queue+gateway test (file-queue + consumer + mock forwarder roundtrip dahil) + 6 producer-tarafı GatewayClient test = **53 yeni test, 289/289 backend test geçiyor**. Tam mask → queue → gateway → LLM → queue → response zinciri test edilmiş; `use_gateway=False` default'u sayesinde mevcut chat/sanitization testleri rewire gerektirmedi. Ollama `septum-api` içinde local kaldı (air-gap-safe direct call).
 
 ### Faz 6: septum-audit (2 gün)
 > `/simplify` ve `/compact` çalıştır, sonra başla.

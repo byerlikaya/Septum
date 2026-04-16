@@ -507,8 +507,8 @@ permanent home at `packages/web/`.
 | `septum-mcp` | `packages/mcp/` | Air-gapped | MCP server for Claude Code / Desktop / Cursor and other MCP clients. | Released |
 | `septum-api` | `packages/api/` | Air-gapped | FastAPI REST endpoints, models, services, middleware, auth. | Released |
 | `septum-web` | `packages/web/` | Air-gapped | Next.js 16 dashboard (App Router + React 19). Build-time `NEXT_PUBLIC_API_BASE_URL` selects same-origin proxy or split deployment. | Released |
-| `septum-queue` | `packages/queue/` | Bridge | Cross-zone message broker (masked data only). | Planned |
-| `septum-gateway` | `packages/gateway/` | Internet-facing | Cloud LLM forwarder. Never sees raw PII. | Planned |
+| `septum-queue` | `packages/queue/` | Bridge | Cross-zone message broker (masked data only). File backend (air-gap default) or Redis Streams (`[redis]` extra). | Released |
+| `septum-gateway` | `packages/gateway/` | Internet-facing | Cloud LLM forwarder for Anthropic / OpenAI / OpenRouter. Consumes from `septum-queue`, never imports `septum-core`. Optional FastAPI `/health` behind the `[server]` extra. | Released |
 | `septum-audit` | `packages/audit/` | Internet-facing | Compliance logging + SIEM export. | Planned |
 
 Air-gapped modules have zero internet access; the bridge transports
