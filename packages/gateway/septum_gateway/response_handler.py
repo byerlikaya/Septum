@@ -14,7 +14,6 @@ deterministically without fighting a background task.
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict
 
 from septum_queue import (
     Message,
@@ -70,7 +69,7 @@ class GatewayConsumer:
 
         response = await self._forward(envelope)
         try:
-            await self._response_queue.publish(asdict(response))
+            await self._response_queue.publish(response.to_dict())
         finally:
             # ACK even if the response publish failed — the request
             # itself completed; dropping the reply is surfaced via

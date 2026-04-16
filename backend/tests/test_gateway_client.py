@@ -69,9 +69,7 @@ async def _fake_gateway(request_queue: FileQueueBackend, response_queue: FileQue
     async for message in request_queue.consume(batch_size=1, block_ms=2000):
         request = RequestEnvelope.from_dict(message.payload)
         response = reply(request)
-        from dataclasses import asdict
-
-        await response_queue.publish(asdict(response))
+        await response_queue.publish(response.to_dict())
         await request_queue.ack(message.id)
         return
 
@@ -184,20 +182,12 @@ class TestGatewayClient:
 class TestLLMRouterGatewayBranch:
     """LLMRouter delegates to the gateway factory when use_gateway=True."""
 
-    async def test_use_gateway_false_keeps_direct_call_path(self, monkeypatch):
+    async def test_use_gateway_false_keeps_direct_call_path(self):
         """The default path must stay untouched so existing tests keep passing."""
         from septum_api.services import llm_router
 
-        # Sanity-check: no factory installed by default.
         assert llm_router._gateway_client_factory is None
-
-        # A future test that flips the flag to True should not affect
-        # existing callsites; verify the module-level state is clean.
-        try:
-            await llm_router.set_gateway_client_factory(None)  # idempotent
-        except TypeError:
-            # set_gateway_client_factory is sync — that's the expected shape.
-            llm_router.set_gateway_client_factory(None)
+        llm_router.set_gateway_client_factory(None)
         assert llm_router._gateway_client_factory is None
 
     async def test_factory_registration_round_trip(self):

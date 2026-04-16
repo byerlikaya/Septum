@@ -88,10 +88,8 @@ class AppSettings(Base):
         Boolean, default=False, nullable=False, server_default="0"
     )
 
-    # Phase 5 — opt-in delegation of cloud LLM calls to septum-gateway
-    # through septum-queue. Default False preserves the pre-Phase-5
-    # direct-call path; Phase 7 deploy flips this to True and removes
-    # the legacy llm_providers/ cloud code from septum-api entirely.
+    # Opt-in delegation of cloud LLM calls to septum-gateway via the
+    # queue bridge; default False keeps the in-process direct-call path.
     use_gateway: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, server_default="0"
     )

@@ -24,7 +24,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import asdict
 from typing import Sequence
 
 from septum_queue import (
@@ -41,6 +40,17 @@ logger = logging.getLogger(__name__)
 
 
 ChatMessage = dict[str, str]
+
+
+# Maps the AppSettings.llm_provider string to the field that holds the
+# matching cloud API key on the same row. Lookup misses (e.g. "ollama")
+# yield a ``None`` api_key, which is correct: Ollama runs local and
+# never crosses the queue.
+_PROVIDER_API_KEY_FIELD: dict[str, str] = {
+    "anthropic": "anthropic_api_key",
+    "openai": "openai_api_key",
+    "openrouter": "openrouter_api_key",
+}
 
 
 class GatewayClient:
@@ -85,7 +95,7 @@ class GatewayClient:
         envelope = self._build_envelope(
             settings, list(messages), temperature, max_tokens
         )
-        await self._request_queue.publish(asdict(envelope))
+        await self._request_queue.publish(envelope.to_dict())
 
         response = await self._await_response(envelope.correlation_id)
         if response.error is not None:
@@ -105,16 +115,8 @@ class GatewayClient:
     ) -> RequestEnvelope:
         """Shape a RequestEnvelope from the current AppSettings row."""
         provider = (settings.llm_provider or "").strip().lower()
-        api_key: str | None
-        if provider == "anthropic":
-            api_key = settings.anthropic_api_key
-        elif provider == "openai":
-            api_key = settings.openai_api_key
-        elif provider == "openrouter":
-            api_key = settings.openrouter_api_key
-        else:
-            api_key = None
-
+        key_field = _PROVIDER_API_KEY_FIELD.get(provider)
+        api_key = getattr(settings, key_field, None) if key_field else None
         return RequestEnvelope.new(
             provider=provider,
             model=settings.llm_model,
@@ -127,17 +129,16 @@ class GatewayClient:
     async def _await_response(self, correlation_id: str) -> ResponseEnvelope:
         """Consume the response topic until we see our correlation id.
 
-        Replies from other in-flight requests are silently re-queued
-        so a different concurrent caller can pick them up. This is
-        the cheapest correctness-preserving dispatch — a proper
-        fan-out router (one shared consumer, many waiters) is a
-        future optimization; at Septum's single-user scale the
-        occasional re-queue costs nothing.
+        Replies for other in-flight requests are silently re-queued so
+        another waiter's coroutine can pick them up. At Septum's
+        single-user scale the occasional re-queue costs nothing; a
+        local fan-out router is a future optimization.
         """
         deadline = time.monotonic() + self._timeout_seconds
         while True:
-            remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
-            delivered_for_us: ResponseEnvelope | None = None
+            remaining_ms = int((deadline - time.monotonic()) * 1000)
+            if remaining_ms <= 0:
+                break
             async for message in self._response_queue.consume(
                 batch_size=self._poll_batch_size,
                 block_ms=remaining_ms,
@@ -145,19 +146,11 @@ class GatewayClient:
                 envelope = ResponseEnvelope.from_dict(message.payload)
                 if envelope.correlation_id == correlation_id:
                     await self._response_queue.ack(message.id)
-                    delivered_for_us = envelope
-                    break
-                # Another caller's reply — return it to the queue so
-                # that caller's coroutine can pick it up on its next poll.
+                    return envelope
                 await self._response_queue.nack(message.id, requeue=True)
-                # Give the other waiter a chance before we loop again.
                 await asyncio.sleep(0.01)
 
-            if delivered_for_us is not None:
-                return delivered_for_us
-
-            if time.monotonic() >= deadline:
-                raise QueueTimeoutError(
-                    f"gateway did not reply within {self._timeout_seconds}s "
-                    f"(correlation_id={correlation_id})"
-                )
+        raise QueueTimeoutError(
+            f"gateway did not reply within {self._timeout_seconds}s "
+            f"(correlation_id={correlation_id})"
+        )

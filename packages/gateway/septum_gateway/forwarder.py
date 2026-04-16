@@ -19,10 +19,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, List, Mapping, Protocol
+from typing import TYPE_CHECKING, Any, List, Mapping, Protocol
 
 import httpx
 from septum_queue import RequestEnvelope
+
+if TYPE_CHECKING:
+    from .config import GatewayConfig
 
 logger = logging.getLogger(__name__)
 
@@ -65,10 +68,15 @@ async def _post_with_retries(
             return response
         except httpx.HTTPStatusError as exc:
             last_error = exc
+            try:
+                body_len = len(exc.response.text)
+            except Exception:  # noqa: BLE001
+                body_len = -1
             logger.error(
-                "gateway upstream returned error status: url=%s status=%s",
+                "gateway upstream returned error status: url=%s status=%s body_len=%s",
                 url,
                 exc.response.status_code,
+                body_len,
             )
             if attempt >= max_attempts:
                 break
@@ -80,6 +88,11 @@ async def _post_with_retries(
                 break
             await asyncio.sleep(base_backoff * (2 ** (attempt - 1)))
 
+    if isinstance(last_error, httpx.HTTPStatusError):
+        raise GatewayError(
+            f"upstream provider request failed after {max_attempts} attempts "
+            f"(status={last_error.response.status_code})"
+        ) from last_error
     raise GatewayError(
         f"upstream provider request failed after {max_attempts} attempts"
     ) from last_error
@@ -252,7 +265,7 @@ class ForwarderRegistry:
             self._forwarders["openrouter"] = openrouter
 
     @classmethod
-    def from_config(cls, config) -> "ForwarderRegistry":
+    def from_config(cls, config: "GatewayConfig") -> "ForwarderRegistry":
         """Build the default registry using a :class:`GatewayConfig`."""
         return cls(
             anthropic=AnthropicForwarder(

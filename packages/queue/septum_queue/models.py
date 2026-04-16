@@ -28,7 +28,7 @@ def _new_correlation_id() -> str:
 
 
 def _now() -> float:
-    """Monotonic-ish wall-clock timestamp for envelope timing."""
+    """Wall-clock timestamp; envelopes need this to survive cross-host transport."""
     return time.time()
 
 
@@ -91,8 +91,11 @@ class RequestEnvelope:
             base_url=base_url,
         )
 
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
     def to_json(self) -> str:
-        return json.dumps(asdict(self), separators=(",", ":"))
+        return json.dumps(self.to_dict(), separators=(",", ":"))
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "RequestEnvelope":
@@ -129,8 +132,11 @@ class ResponseEnvelope:
     model: str | None = None
     created_at: float = field(default_factory=_now)
 
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
     def to_json(self) -> str:
-        return json.dumps(asdict(self), separators=(",", ":"))
+        return json.dumps(self.to_dict(), separators=(",", ":"))
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ResponseEnvelope":

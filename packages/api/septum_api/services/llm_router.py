@@ -31,6 +31,7 @@ from typing import (
     Iterable,
     List,
     Mapping,
+    Protocol,
     Sequence,
 )
 
@@ -40,26 +41,33 @@ from .llm_errors import LLMRouterError  # noqa: F401 — re-exported
 from .llm_providers.factory import build_provider
 from .llm_providers.health import is_available, record_failure, record_success
 
-# Phase 5 — optional gateway delegation. The client is instantiated
-# lazily via ``_resolve_gateway_client`` so tests and air-gapped
-# deployments that never set ``use_gateway=True`` never import
-# ``septum_queue`` and never allocate the queue backends.
-_gateway_client_factory: Callable[[AppSettings], "object | None"] | None = None
+logger = logging.getLogger(__name__)
+
+
+class GatewayClientProtocol(Protocol):
+    """Producer-side surface the router calls when ``use_gateway`` is on."""
+
+    async def complete(
+        self,
+        *,
+        settings: AppSettings,
+        messages: Sequence["ChatMessage"],
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+    ) -> str: ...
+
+
+# Lazy factory so air-gapped deployments that never set ``use_gateway=True``
+# never import ``septum_queue`` and never allocate the queue backends.
+_gateway_client_factory: Callable[[AppSettings], GatewayClientProtocol | None] | None = None
 
 
 def set_gateway_client_factory(
-    factory: Callable[[AppSettings], "object | None"] | None,
+    factory: Callable[[AppSettings], GatewayClientProtocol | None] | None,
 ) -> None:
-    """Install a factory that returns a ``GatewayClient`` given app settings.
-
-    Deployment code wires this at startup when ``use_gateway=True`` is
-    expected; tests inject a fake client. ``None`` disables the gateway
-    path entirely, which is the current default.
-    """
+    """Install (or clear) the factory that builds a gateway client per request."""
     global _gateway_client_factory
     _gateway_client_factory = factory
-
-logger = logging.getLogger(__name__)
 
 
 ChatMessage = Dict[str, str]
@@ -168,7 +176,7 @@ class LLMRouter:
         identical for both branches — from the outer layer's point of
         view a gateway error and a direct-call error look the same.
         """
-        if bool(getattr(self._settings, "use_gateway", False)):
+        if self._settings.use_gateway:
             client = self._resolve_gateway_client()
             if client is not None:
                 return await client.complete(
@@ -188,15 +196,11 @@ class LLMRouter:
             max_tokens=max_tokens,
         )
 
-    def _resolve_gateway_client(self) -> object | None:
-        """Invoke the registered factory lazily, or return ``None``."""
+    def _resolve_gateway_client(self) -> GatewayClientProtocol | None:
+        """Invoke the registered factory; let factory failures propagate."""
         if _gateway_client_factory is None:
             return None
-        try:
-            return _gateway_client_factory(self._settings)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("gateway client factory raised: %s", exc)
-            return None
+        return _gateway_client_factory(self._settings)
 
     async def _fallback_via_ollama(
         self,

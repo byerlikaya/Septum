@@ -5,7 +5,11 @@ directories:
 
     {root}/{topic}/incoming/    — newly published, not yet delivered
     {root}/{topic}/processing/  — delivered to a consumer, awaiting ack
-    {root}/{topic}/done/        — acked; kept for audit / inspection
+    {root}/{topic}/done/        — acked; kept for audit / inspection.
+                                  This backend never trims ``done/`` —
+                                  operators must rotate it via cron
+                                  (e.g. ``find done/ -mtime +7 -delete``)
+                                  to bound disk usage.
 
 Atomic rename (``os.replace``) is the entire synchronization primitive.
 It is POSIX-atomic inside a single filesystem, so moving a file from
