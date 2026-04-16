@@ -1,14 +1,4 @@
-"""Long-running worker that drives an :class:`AuditConsumer`.
-
-Entry point for ``python -m septum_audit``. Constructs a queue backend
-from the environment (Redis Streams or filesystem), opens the
-configured sink, and blocks in ``run_forever`` until signalled.
-
-Queue backend selection mirrors :mod:`septum_gateway.worker`:
-
-* ``SEPTUM_QUEUE_URL=redis://host:6379/0`` → Redis Streams
-* ``SEPTUM_QUEUE_DIR=/srv/septum/queue`` → filesystem
-"""
+"""Entry point for ``python -m septum_audit``: drives an :class:`AuditConsumer`."""
 
 from __future__ import annotations
 
@@ -17,37 +7,18 @@ import logging
 import os
 import signal
 import sys
-from typing import TYPE_CHECKING
+
+from septum_queue import backend_from_env
 
 from .config import AuditConfig
 from .consumer import AuditConsumer
 from .sink import JsonlFileSink
 
-if TYPE_CHECKING:
-    from septum_queue import QueueBackend
-
 logger = logging.getLogger(__name__)
 
 
-def _build_queue(topic: str) -> "QueueBackend":
-    redis_url = os.getenv("SEPTUM_QUEUE_URL")
-    queue_dir = os.getenv("SEPTUM_QUEUE_DIR")
-    if redis_url:
-        from septum_queue import RedisStreamsQueueBackend
-
-        return RedisStreamsQueueBackend.from_url(redis_url, topic=topic)
-    if queue_dir:
-        from septum_queue import FileQueueBackend
-
-        return FileQueueBackend(queue_dir, topic=topic)
-    raise SystemExit(
-        "septum-audit worker: set SEPTUM_QUEUE_URL (redis://…) "
-        "or SEPTUM_QUEUE_DIR (filesystem path) before starting."
-    )
-
-
 async def _run(config: AuditConfig) -> None:
-    queue = _build_queue(config.audit_topic)
+    queue = backend_from_env(config.audit_topic)
     sink = JsonlFileSink(config.sink_path)
     consumer = AuditConsumer(queue=queue, sink=sink)
 
@@ -57,6 +28,7 @@ async def _run(config: AuditConfig) -> None:
         try:
             loop.add_signal_handler(sig, stop_event.set)
         except NotImplementedError:
+            # Windows proactor loops: KeyboardInterrupt is the fallback signal.
             pass
 
     logger.info(
@@ -80,7 +52,7 @@ async def _run(config: AuditConfig) -> None:
         await sink.close()
 
 
-def main(argv: list[str] | None = None) -> int:
+def main() -> int:
     logging.basicConfig(
         level=os.getenv("SEPTUM_LOG_LEVEL", "INFO"),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",

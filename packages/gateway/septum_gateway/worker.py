@@ -1,19 +1,4 @@
-"""Long-running worker that wires queue backends into a :class:`GatewayConsumer`.
-
-Entry point for ``python -m septum_gateway``. Reads queue connection
-details from the environment, constructs the queue backends + forwarder
-registry, and blocks in ``run_forever`` until signalled.
-
-Queue backend selection:
-
-* ``SEPTUM_QUEUE_URL=redis://host:6379/0`` → :class:`RedisStreamsQueueBackend`
-* ``SEPTUM_QUEUE_DIR=/srv/septum/queue`` → :class:`FileQueueBackend`
-
-If both are set, the Redis URL wins. If neither is set, the worker
-exits with a clear error rather than silently defaulting — an
-air-gapped deployment without a declared queue is almost always a
-misconfiguration.
-"""
+"""Entry point for ``python -m septum_gateway``: long-running consumer loop."""
 
 from __future__ import annotations
 
@@ -22,41 +7,21 @@ import logging
 import os
 import signal
 import sys
-from typing import TYPE_CHECKING
+
+from septum_queue import QueueBackend, backend_from_env
 
 from .config import GatewayConfig
 from .forwarder import ForwarderRegistry
 from .response_handler import GatewayConsumer
 
-if TYPE_CHECKING:
-    from septum_queue import QueueBackend
-
 logger = logging.getLogger(__name__)
 
 
-def _build_queue(topic: str) -> "QueueBackend":
-    """Pick a queue backend from the environment, erroring if none is declared."""
-    redis_url = os.getenv("SEPTUM_QUEUE_URL")
-    queue_dir = os.getenv("SEPTUM_QUEUE_DIR")
-    if redis_url:
-        from septum_queue import RedisStreamsQueueBackend
-
-        return RedisStreamsQueueBackend.from_url(redis_url, topic=topic)
-    if queue_dir:
-        from septum_queue import FileQueueBackend
-
-        return FileQueueBackend(queue_dir, topic=topic)
-    raise SystemExit(
-        "septum-gateway worker: set SEPTUM_QUEUE_URL (redis://…) "
-        "or SEPTUM_QUEUE_DIR (filesystem path) before starting."
-    )
-
-
 async def _run(config: GatewayConfig) -> None:
-    request_queue = _build_queue(config.request_topic)
-    response_queue = _build_queue(config.response_topic)
+    request_queue = backend_from_env(config.request_topic)
+    response_queue = backend_from_env(config.response_topic)
     audit_queue = (
-        _build_queue(config.audit_topic) if config.audit_topic else None
+        backend_from_env(config.audit_topic) if config.audit_topic else None
     )
     registry = ForwarderRegistry.from_config(config)
     consumer = GatewayConsumer(
@@ -72,7 +37,7 @@ async def _run(config: GatewayConfig) -> None:
         try:
             loop.add_signal_handler(sig, stop_event.set)
         except NotImplementedError:
-            # Windows / sandboxed contexts: rely on KeyboardInterrupt.
+            # Windows proactor loops: KeyboardInterrupt is the fallback signal.
             pass
 
     logger.info(
@@ -99,7 +64,7 @@ async def _run(config: GatewayConfig) -> None:
                 logger.warning("queue close failed", exc_info=True)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main() -> int:
     logging.basicConfig(
         level=os.getenv("SEPTUM_LOG_LEVEL", "INFO"),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",

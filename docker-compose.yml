@@ -158,7 +158,7 @@ services:
       - septum-audit-log:/var/log/septum
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8002/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health')"]
       interval: 30s
       timeout: 5s
       start_period: 10s

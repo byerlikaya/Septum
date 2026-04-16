@@ -1,7 +1,3 @@
-# Keep the Docker build context lean: per-module images only need the
-# package they are building, never the entire repo. These exclusions
-# shave several hundred MB off the context on a fresh checkout.
-
 # VCS / dev junk
 .git/
 .gitignore
@@ -53,7 +49,7 @@ backend/*.log
 # Screenshots / assets that docs pull from, never the image
 screenshots/
 
-# Docker itself
+# Build inputs — read by BuildKit via -f, never COPY'd from any image
 docker-compose*.yml
 docker/
 Dockerfile

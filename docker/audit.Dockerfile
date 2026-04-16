@@ -42,10 +42,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH" \
     SEPTUM_AUDIT_SINK_PATH=/var/log/septum/audit.jsonl
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd --gid 1000 septum \
+RUN groupadd --gid 1000 septum \
     && useradd --uid 1000 --gid septum --shell /bin/sh --create-home septum
 
 WORKDIR /app
@@ -61,6 +58,6 @@ USER septum
 EXPOSE 8002
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8002/health >/dev/null || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health')" || exit 1
 
 CMD ["python", "-m", "septum_audit"]

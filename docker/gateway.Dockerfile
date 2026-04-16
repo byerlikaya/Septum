@@ -43,10 +43,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH"
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd --gid 1000 septum \
+RUN groupadd --gid 1000 septum \
     && useradd --uid 1000 --gid septum --shell /bin/sh --create-home septum
 
 WORKDIR /app
@@ -57,11 +54,7 @@ USER septum
 
 EXPOSE 8001
 
-# /health served by the FastAPI app (run it as a sidecar alongside the
-# worker — compose variants wire both services pointing at the same image).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8001/health >/dev/null || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')" || exit 1
 
-# Default: run the worker. Override CMD with uvicorn to serve /health
-# instead, or run two containers from the same image.
 CMD ["python", "-m", "septum_gateway"]
