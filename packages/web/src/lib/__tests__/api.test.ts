@@ -1,49 +1,29 @@
-import { baseURL } from "../api";
+import { baseURL, resolveBaseURL } from "../api";
 
-describe("api baseURL", () => {
-  // jest.setup.ts does not set NEXT_PUBLIC_API_BASE_URL, so the default
-  // resolution path ("" → same-origin proxy through Next.js rewrites)
-  // is exercised here. The override path is covered in the isolated
-  // describe block below using jest.isolateModules.
-
+describe("baseURL (module-load resolution)", () => {
+  // jest.setup.ts does not set NEXT_PUBLIC_API_BASE_URL, so the module
+  // load resolves to "" and requests fall through Next.js rewrites.
   it("defaults to empty string for same-origin proxy", () => {
-    expect(typeof baseURL).toBe("string");
     expect(baseURL).toBe("");
   });
 });
 
-describe("api baseURL with NEXT_PUBLIC_API_BASE_URL override", () => {
-  const ORIGINAL_ENV = process.env.NEXT_PUBLIC_API_BASE_URL;
-
-  afterEach(() => {
-    if (ORIGINAL_ENV === undefined) {
-      delete process.env.NEXT_PUBLIC_API_BASE_URL;
-    } else {
-      process.env.NEXT_PUBLIC_API_BASE_URL = ORIGINAL_ENV;
-    }
+describe("resolveBaseURL", () => {
+  it("returns empty string when env value is undefined", () => {
+    expect(resolveBaseURL(undefined)).toBe("");
   });
 
-  function loadBaseURL(envValue: string): string {
-    process.env.NEXT_PUBLIC_API_BASE_URL = envValue;
-    let resolved = "";
-    jest.isolateModules(() => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      resolved = require("../api").baseURL;
-    });
-    return resolved;
-  }
-
   it("uses the env value when set", () => {
-    expect(loadBaseURL("https://api.septum.example")).toBe(
+    expect(resolveBaseURL("https://api.septum.example")).toBe(
       "https://api.septum.example",
     );
   });
 
   it("strips trailing slashes so callers can concat /api/... cleanly", () => {
-    expect(loadBaseURL("https://api.septum.example/")).toBe(
+    expect(resolveBaseURL("https://api.septum.example/")).toBe(
       "https://api.septum.example",
     );
-    expect(loadBaseURL("https://api.septum.example///")).toBe(
+    expect(resolveBaseURL("https://api.septum.example///")).toBe(
       "https://api.septum.example",
     );
   });

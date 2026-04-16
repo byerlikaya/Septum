@@ -27,22 +27,17 @@ import type {
   UserListItem,
 } from "./types";
 
-// API base URL resolution.
-//
-// Default: empty string — requests use relative paths and Next.js
-// rewrites in ``next.config.mjs`` proxy ``/api/*`` to the backend on
-// the same origin. This is the dev / single-container Docker layout.
-//
-// Override: set ``NEXT_PUBLIC_API_BASE_URL`` at build time to point
-// the dashboard at a backend on a different origin (split deployment
-// where ``packages/web`` and ``packages/api`` are hosted separately).
-// Trailing slashes are stripped so callers can always concatenate
-// ``${baseURL}/api/...`` without producing double slashes.
-//
-// Server-side rendering never calls API endpoints through this
-// instance (all calls happen in useEffect / event handlers, which
-// are client-only), so resolving the env var at module load is safe.
-export const baseURL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/+$/, "");
+// Default ``""`` makes requests relative so Next.js rewrites in
+// ``next.config.mjs`` proxy ``/api/*`` to the backend on the same
+// origin (single-container layout). Setting ``NEXT_PUBLIC_API_BASE_URL``
+// at build time points the dashboard at a backend on a different
+// origin (split deployment); trailing slashes are stripped so callers
+// can keep concatenating ``${baseURL}/api/...`` cleanly.
+export function resolveBaseURL(value: string | undefined): string {
+  return (value ?? "").replace(/\/+$/, "");
+}
+
+export const baseURL = resolveBaseURL(process.env.NEXT_PUBLIC_API_BASE_URL);
 
 export const PASSWORD_MIN_LENGTH = 8;
 
