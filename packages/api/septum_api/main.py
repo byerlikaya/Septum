@@ -25,6 +25,7 @@ from typing import Any  # noqa: E402
 from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.openapi.docs import get_redoc_html  # noqa: E402
+from fastapi.openapi.utils import get_openapi  # noqa: E402
 from fastapi.responses import HTMLResponse, JSONResponse  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 from starlette import status as http_status  # noqa: E402
@@ -167,6 +168,42 @@ async def redoc_html() -> HTMLResponse:
         title=f"{app.title} - ReDoc",
         redoc_js_url="https://cdn.jsdelivr.net/npm/redoc@2/bundles/redoc.standalone.js",
     )
+
+
+def _custom_openapi() -> dict[str, Any]:
+    """Inject the ``X-API-Key`` security scheme alongside OAuth2/JWT.
+
+    FastAPI auto-generates the OAuth2 scheme from
+    ``OAuth2PasswordBearer`` declared in ``utils/auth_dependency.py``,
+    but the API key path lives entirely in ``AuthMiddleware`` and
+    therefore stays invisible to the OpenAPI schema by default. This
+    override adds ``ApiKeyAuth`` to ``components.securitySchemes`` so
+    the Swagger / ReDoc "Authorize" dialog offers both flows.
+    """
+    if app.openapi_schema is not None:
+        return app.openapi_schema
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    components = schema.setdefault("components", {})
+    schemes = components.setdefault("securitySchemes", {})
+    schemes["ApiKeyAuth"] = {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": (
+            "Long-lived programmatic credential issued via "
+            "`POST /api/api-keys`. Format: `sk-septum-<64 hex chars>`."
+        ),
+    }
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = _custom_openapi  # type: ignore[method-assign]
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
