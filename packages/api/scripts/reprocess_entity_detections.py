@@ -25,13 +25,13 @@ BACKEND_DIR = SCRIPT_DIR.parent
 os.chdir(BACKEND_DIR)
 sys.path.insert(0, str(BACKEND_DIR))
 
-from app.models.settings import AppSettings  # noqa: E402
-from app.seeds.regulations import builtin_regulations  # noqa: E402
-from app.services.anonymization_map import AnonymizationMap  # noqa: E402
-from app.services.document_anon_store import _ANON_MAP_DIR, _serialize  # noqa: E402
-from app.services.policy_composer import PolicyComposer  # noqa: E402
-from app.services.sanitizer import PIISanitizer  # noqa: E402
-from app.utils.crypto import encrypt  # noqa: E402
+from septum_api.models.settings import AppSettings  # noqa: E402
+from septum_api.seeds.regulations import builtin_regulations  # noqa: E402
+from septum_api.services.anonymization_map import AnonymizationMap  # noqa: E402
+from septum_api.services.document_anon_store import _ANON_MAP_DIR, _serialize  # noqa: E402
+from septum_api.services.policy_composer import PolicyComposer  # noqa: E402
+from septum_api.services.sanitizer import PIISanitizer  # noqa: E402
+from septum_api.utils.crypto import encrypt  # noqa: E402
 
 
 DB_PATH = BACKEND_DIR / "septum.db"

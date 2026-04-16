@@ -9,11 +9,11 @@ set -euo pipefail
 log() { echo "[entrypoint] $*"; }
 
 # --- Ensure bootstrap config.json (auto-generates keys if needed) ---
-python -c "from app.bootstrap import get_config; get_config()"
+python -c "from septum_api.bootstrap import get_config; get_config()"
 
 # --- Run database migrations (PostgreSQL only; SQLite uses create_all) ---
 python -c "
-from app.bootstrap import get_config, needs_setup
+from septum_api.bootstrap import get_config, needs_setup
 config = get_config()
 if config.database_url and not needs_setup():
     import subprocess, os
@@ -31,4 +31,4 @@ else:
 
 # --- Start application ---
 log "Starting Septum backend..."
-exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+exec python -m uvicorn septum_api.main:app --host 0.0.0.0 --port 8000

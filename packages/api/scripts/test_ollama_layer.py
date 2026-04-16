@@ -18,9 +18,9 @@ if os.getenv("LOG_LEVEL") is None:
 import logging
 logging.basicConfig(level=logging.DEBUG)
 
-from app.config import get_settings
-from app.services.anonymization_map import AnonymizationMap
-from app.services.sanitizer import PIISanitizer
+from septum_api.config import get_settings
+from septum_api.services.anonymization_map import AnonymizationMap
+from septum_api.services.sanitizer import PIISanitizer
 
 
 def main() -> None:

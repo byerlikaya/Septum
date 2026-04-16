@@ -14,12 +14,12 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 # Import all models so Base.metadata is fully populated.
-from app.models import Base
-from app.models.document import Document, Chunk  # noqa: F401
-from app.models.settings import AppSettings  # noqa: F401
-from app.models.regulation import RegulationRuleset, CustomRecognizer, NonPiiRule  # noqa: F401
-from app.models.error_log import ErrorLog  # noqa: F401
-from app.models.audit_event import AuditEvent  # noqa: F401
+from septum_api.models import Base
+from septum_api.models.document import Document, Chunk  # noqa: F401
+from septum_api.models.settings import AppSettings  # noqa: F401
+from septum_api.models.regulation import RegulationRuleset, CustomRecognizer, NonPiiRule  # noqa: F401
+from septum_api.models.error_log import ErrorLog  # noqa: F401
+from septum_api.models.audit_event import AuditEvent  # noqa: F401
 
 config = context.config
 
@@ -31,7 +31,7 @@ target_metadata = Base.metadata
 
 def _get_url() -> str:
     """Resolve the database URL from bootstrap config (with env override)."""
-    from app.database import build_database_url
+    from septum_api.database import build_database_url
     return build_database_url()
 
 
