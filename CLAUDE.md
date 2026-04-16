@@ -42,9 +42,17 @@ Set `NEXT_PUBLIC_API_BASE_URL` at build time to point the dashboard at a backend
 
 ### Docker
 ```bash
+# Published standalone image (SQLite, no external services)
 docker run --name septum --add-host=host.docker.internal:host-gateway -p 3000:3000 -v septum-data:/app/data -v septum-uploads:/app/uploads -v septum-anon-maps:/app/anon_maps -v septum-vector-indexes:/app/vector_indexes -v septum-bm25-indexes:/app/bm25_indexes -v septum-models:/app/models byerlikaya/septum
-docker compose up                                          # With PostgreSQL + Redis
-docker compose --profile ollama up                         # With local Ollama models
+
+# Full dev stack (all modules + Postgres + Redis)
+docker compose up
+docker compose --profile ollama up                         # with local Ollama models
+
+# Modular topologies (build from docker/ Dockerfiles)
+docker compose -f docker-compose.standalone.yml up         # Single container, SQLite
+docker compose -f docker-compose.airgap.yml up             # Air-gapped zone (api + web + postgres + redis)
+docker compose -f docker-compose.gateway.yml up            # Internet-facing zone (gateway + audit + redis)
 ```
 
 ### Modular Packages (from `packages/<module>/`)
@@ -283,11 +291,13 @@ Invoke `/security-scan` for a comprehensive audit (`.claude/skills/security-scan
 
 **docker-compose:** No `.env` needed. `docker compose up` starts PostgreSQL + Redis + Septum with sensible defaults. Database and Redis URLs are wired in `docker-compose.yml`.
 
-**Modular docker-compose variants (refactor/modular-architecture branch):**
-- `docker-compose.yml` — Full dev stack (all modules)
-- `docker-compose.airgap.yml` — Air-gapped zone only (core, api, web, mcp, queue producer)
-- `docker-compose.gateway.yml` — Internet-facing zone only (queue consumer, gateway, audit)
-- `docker-compose.standalone.yml` — All-in-one single server
+**Modular docker-compose variants:**
+- `docker-compose.yml` — Full dev stack (api + web + gateway + audit + Postgres + Redis + optional Ollama)
+- `docker-compose.airgap.yml` — Air-gapped zone only (api + web + Postgres + Redis, `USE_GATEWAY_DEFAULT=true`)
+- `docker-compose.gateway.yml` — Internet-facing zone only (gateway-worker + gateway-health + audit-worker + audit-api + Redis)
+- `docker-compose.standalone.yml` — Single container from `docker/standalone.Dockerfile` (SQLite, simplest install)
+
+**Per-module Dockerfiles:** `docker/api.Dockerfile`, `docker/web.Dockerfile`, `docker/gateway.Dockerfile`, `docker/audit.Dockerfile`, `docker/mcp.Dockerfile`, `docker/standalone.Dockerfile`. Gateway + audit images are lightweight (~100 MB, no torch/Presidio) and — by code-review invariant — never contain `septum-core`.
 
 ## CI/CD
 

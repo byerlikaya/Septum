@@ -462,6 +462,31 @@ docker compose up
 
 PostgreSQL, Redis ve Septum'u tek komutla başlatır. Yerel Ollama için `--profile ollama` ekleyin. Kurulum sihirbazı ilk ziyarette LLM provider'ı yapılandırır.
 
+### Dağıtım Topolojileri
+
+Septum, her dağıtım şekli için ayrı bir compose dosyası sunar. Güvenlik
+duruşunuza uygun olanı seçin:
+
+| Topoloji | Compose dosyası | Host | Bölge ayrımı | Ne zaman kullanılır |
+|:---|:---|:---:|:---:|:---|
+| **Standalone** | `docker-compose.standalone.yml` | 1 | ✗ | En basit kurulum. SQLite, harici servis yok, tek container. |
+| **Full dev stack** | `docker-compose.yml` | 1 | mantıksal | Yerel geliştirme veya her modülün tek host'ta kurulumu (api + web + gateway + audit + Postgres + Redis). |
+| **Hava boşluklu bölge** | `docker-compose.airgap.yml` | 1 | ✓ | İki-host ayrık kurulumun PII tarafı: api + web + Postgres + Redis. Gateway ayrı host'ta çalışır. |
+| **İnternete açık bölge** | `docker-compose.gateway.yml` | 1 | ✓ | Bulut tarafı: gateway + audit + Redis. Ortak Redis Streams'ten maskelenmiş istekleri tüketir. |
+
+Gerçek bir hava boşluklu dağıtım için `airgap.yml`'ı iç host'ta,
+`gateway.yml`'ı DMZ / bulut host'ta çalıştırın ve VPN / özel link
+üzerinden her ikisini de aynı Redis'e bağlayın. Kuyruktan yalnızca
+maskelenmiş metin geçer — ham PII hava boşluklu bölgeyi asla terk etmez.
+
+Her modül ayrıca `docker/` altında özel bir Dockerfile ile gelir —
+`api.Dockerfile`, `web.Dockerfile`, `gateway.Dockerfile`,
+`audit.Dockerfile`, `mcp.Dockerfile`, `standalone.Dockerfile` —
+böylece özel orkestratörler (Kubernetes, Nomad, ECS) yalnızca ihtiyaç
+duydukları image'ları seçebilir. Gateway ve audit image'ları bilinçli
+olarak hafiftir (~100 MB, torch/Presidio içermez); kod-review
+invariant'ı olarak asla `septum-core` içermezler.
+
 ### Yerel Geliştirme
 
 ```bash

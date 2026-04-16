@@ -460,6 +460,30 @@ docker compose up
 
 Starts PostgreSQL, Redis, and Septum in a single command. Add `--profile ollama` for a local Ollama instance. The setup wizard configures the LLM provider on first visit.
 
+### Deployment Topologies
+
+Septum ships four compose files, one per deployment shape. Pick the one
+that matches your security posture:
+
+| Topology | Compose file | Hosts | Zone split | When to use |
+|:---|:---|:---:|:---:|:---|
+| **Standalone** | `docker-compose.standalone.yml` | 1 | ✗ | Simplest install. SQLite, no external services, one container. |
+| **Full dev stack** | `docker-compose.yml` | 1 | logical | Local development or single-host install of every module (api + web + gateway + audit + Postgres + Redis). |
+| **Air-gapped zone** | `docker-compose.airgap.yml` | 1 | ✓ | The PII-handling half of a two-host split: api + web + Postgres + Redis. Gateway runs on a separate host. |
+| **Internet-facing zone** | `docker-compose.gateway.yml` | 1 | ✓ | The cloud-facing half: gateway + audit + Redis. Consumes masked requests off the shared Redis Streams. |
+
+For a true air-gapped deployment, run `airgap.yml` on the internal host
+and `gateway.yml` on the DMZ / cloud host, and point both at the same
+Redis over a VPN / private link. Only masked text crosses the queue —
+raw PII never leaves the air-gapped zone.
+
+Every module also ships a dedicated Dockerfile under `docker/` — `api.Dockerfile`,
+`web.Dockerfile`, `gateway.Dockerfile`, `audit.Dockerfile`, `mcp.Dockerfile`,
+`standalone.Dockerfile` — so custom orchestrators (Kubernetes, Nomad,
+ECS) can pick just the images they need. Gateway and audit images are
+deliberately lightweight (~100 MB each, no torch/Presidio); by code
+review invariant they never contain `septum-core`.
+
 ### Local Development
 
 ```bash
