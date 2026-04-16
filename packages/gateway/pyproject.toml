@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "septum-gateway"
+version = "0.1.0"
+description = "Internet-facing LLM forwarder for Septum. Consumes masked requests from septum-queue and dispatches them to Anthropic / OpenAI / OpenRouter. Never imports septum-core."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Septum contributors" },
+]
+keywords = ["llm", "gateway", "anthropic", "openai", "openrouter", "septum", "privacy"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+# CRITICAL: septum-gateway MUST NOT import septum-core. It runs in the
+# internet-facing zone where raw PII must never land — the gateway only
+# ever sees payloads the air-gapped producer has already sanitized, and
+# the dependency wall between the two packages is what keeps that
+# invariant enforceable in code review.
+dependencies = [
+    "septum-queue>=0.1.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.10",
+]
+
+[project.optional-dependencies]
+server = [
+    "fastapi>=0.135.1",
+    "uvicorn>=0.35.0",
+]
+test = [
+    "pytest>=9.0",
+    "pytest-asyncio>=1.3",
+    "respx>=0.22.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/byerlikaya/Septum"
+Repository = "https://github.com/byerlikaya/Septum"
+Issues = "https://github.com/byerlikaya/Septum/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["septum_gateway"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
