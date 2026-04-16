@@ -57,6 +57,7 @@ def create_app(config: GatewayConfig | None = None) -> Any:
             "service": "septum-gateway",
             "request_topic": cfg.request_topic,
             "response_topic": cfg.response_topic,
+            "audit_topic": cfg.audit_topic,
         }
 
     return app

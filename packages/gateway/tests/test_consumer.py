@@ -184,3 +184,4 @@ class TestCreateApp:
         assert body["service"] == "septum-gateway"
         assert body["request_topic"] == "custom.req"
         assert body["response_topic"] == "custom.resp"
+        assert body["audit_topic"] is None

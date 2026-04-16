@@ -12,8 +12,19 @@ class TestGatewayConfig:
         config = GatewayConfig()
         assert config.request_topic == "septum.llm.requests"
         assert config.response_topic == "septum.llm.responses"
+        assert config.audit_topic is None
         assert config.request_timeout_seconds == 30.0
         assert config.max_attempts == 3
+
+    def test_from_env_reads_audit_topic(self, monkeypatch):
+        monkeypatch.setenv("SEPTUM_GATEWAY_AUDIT_TOPIC", "septum.audit.events")
+        config = GatewayConfig.from_env()
+        assert config.audit_topic == "septum.audit.events"
+
+    def test_from_env_treats_empty_audit_topic_as_unset(self, monkeypatch):
+        monkeypatch.setenv("SEPTUM_GATEWAY_AUDIT_TOPIC", "")
+        config = GatewayConfig.from_env()
+        assert config.audit_topic is None
 
     def test_from_env_reads_septum_prefixed_variables(self, monkeypatch):
         monkeypatch.setenv("SEPTUM_GATEWAY_ANTHROPIC_API_KEY", "sk-anth")
