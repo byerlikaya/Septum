@@ -34,16 +34,27 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt', 'packages/*/pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Install backend dependencies
+      - name: Install backend dependencies (modular packages + requirements.txt)
         working-directory: backend
         run: |
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
+          # Install the modular packages first so backend/app/ shims can
+          # resolve 'from septum_api.* import *'. Editable install picks
+          # up any on-repo changes without re-running pip.
+          python -m pip install -e "../packages/core[transformers,test]"
+          python -m pip install -e "../packages/queue[redis,test]"
+          python -m pip install -e "../packages/api[auth,rate-limit,postgres,server,test]"
+          python -m pip install -e "../packages/mcp[test]"
+          python -m pip install -e "../packages/gateway[server,test]"
+          python -m pip install -e "../packages/audit[queue,server,test]"
+          # Heavy ML / OCR / Whisper / ingestion deps still live here
+          # until the services/ layer migrates (P2.1 — shim removal).
           python -m pip install -r requirements.txt
 
       - name: Run backend tests
@@ -73,26 +84,49 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-modular-${{ hashFiles('packages/core/pyproject.toml', 'packages/mcp/pyproject.toml') }}
+          key: ${{ runner.os }}-pip-modular-${{ hashFiles('packages/*/pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-pip-modular-
 
-      - name: Install septum-core (+ transformers extra for detector tests)
+      - name: Install septum-queue (+ redis + test extras)
+        # Queue stays stdlib-only at runtime; [redis] pulls the Redis
+        # Streams backend and fakeredis for the round-trip tests.
         run: |
           python -m pip install --upgrade pip
-          pip install -e "packages/core[transformers,test]"
+          pip install -e "packages/queue[redis,test]"
+          pip install fakeredis
+
+      - name: Install septum-core (+ transformers + test extras)
+        run: pip install -e "packages/core[transformers,test]"
 
       - name: Install septum-mcp (+ test extra)
         run: pip install -e "packages/mcp[test]"
 
+      - name: Install septum-gateway (+ server + test extras)
+        # Server extra pulls fastapi+uvicorn so the /health smoke test
+        # can import create_app; respx handles httpx mocking.
+        run: pip install -e "packages/gateway[server,test]"
+
+      - name: Install septum-audit (+ queue + server + test extras)
+        run: pip install -e "packages/audit[queue,server,test]"
+
       - name: Download spaCy English model
         run: python -m spacy download en_core_web_sm
+
+      - name: Run septum-queue tests
+        run: pytest packages/queue/tests/ -q
 
       - name: Run septum-core tests
         run: pytest packages/core/tests/ -q
 
       - name: Run septum-mcp tests
         run: pytest packages/mcp/tests/ -q
+
+      - name: Run septum-gateway tests
+        run: pytest packages/gateway/tests/ -q
+
+      - name: Run septum-audit tests
+        run: pytest packages/audit/tests/ -q
 
   backend-lint:
     runs-on: ubuntu-latest
