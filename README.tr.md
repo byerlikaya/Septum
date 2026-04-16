@@ -511,7 +511,7 @@ yerinde — `packages/web/` altında.
 | `septum-web` | `packages/web/` | Hava boşluklu | Next.js 16 panel (App Router + React 19). Build-time `NEXT_PUBLIC_API_BASE_URL` aynı-origin proxy ile ayrık dağıtım arasında seçim yapar. | Yayında |
 | `septum-queue` | `packages/queue/` | Köprü | Çapraz bölge mesaj komisyoncusu (yalnızca maskelenmiş veri). Dosya backend'i (hava boşluğu varsayılanı) veya Redis Streams (`[redis]` ek bileşeni). | Yayında |
 | `septum-gateway` | `packages/gateway/` | İnternete açık | Anthropic / OpenAI / OpenRouter için bulut LLM yönlendiricisi. `septum-queue`'dan tüketir, `septum-core`'u asla import etmez. İsteğe bağlı FastAPI `/health` `[server]` ek bileşeninin arkasında. | Yayında |
-| `septum-audit` | `packages/audit/` | İnternete açık | Uyumluluk loglama + SIEM dışa aktarımı. | Planlanıyor |
+| `septum-audit` | `packages/audit/` | İnternete açık | Uyumluluk loglama + SIEM dışa aktarımı. JSON / CSV / Splunk HEC dışa aktarıcıları, yaş + adet retention, isteğe bağlı kuyruk tüketicisi (`[queue]` ek bileşeni) ve FastAPI `/health` + `/api/audit/export` (`[server]` ek bileşeni). `septum-core`'u asla import etmez. | Yayında |
 
 Hava boşluklu modüllerin sıfır internet erişimi vardır; köprü
 yalnızca maskelenmiş yer tutucuları taşır; internete açık modüller

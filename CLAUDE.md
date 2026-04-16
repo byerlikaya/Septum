@@ -55,10 +55,14 @@ pip install -e packages/queue             # Install septum-queue (file backend, 
 pip install -e "packages/queue[redis]"    # septum-queue with Redis Streams backend
 pip install -e packages/gateway           # Install septum-gateway (consumer + forwarders)
 pip install -e "packages/gateway[server]" # Adds FastAPI /health endpoint
+pip install -e packages/audit             # Install septum-audit (records, sinks, exporters, retention)
+pip install -e "packages/audit[queue]"    # Adds AuditConsumer (depends on septum-queue)
+pip install -e "packages/audit[server]"   # Adds FastAPI /health + /api/audit/export
 pytest packages/core/tests/               # Run core tests
 pytest packages/mcp/tests/                # Run MCP tests
 pytest packages/queue/tests/              # Run queue tests (uses fakeredis when [redis] is installed)
 pytest packages/gateway/tests/            # Run gateway tests (uses respx for httpx mocking)
+pytest packages/audit/tests/              # Run audit tests (sinks, exporters, retention, consumer, FastAPI)
 ```
 
 ## Architecture

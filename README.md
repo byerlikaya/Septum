@@ -509,7 +509,7 @@ permanent home at `packages/web/`.
 | `septum-web` | `packages/web/` | Air-gapped | Next.js 16 dashboard (App Router + React 19). Build-time `NEXT_PUBLIC_API_BASE_URL` selects same-origin proxy or split deployment. | Released |
 | `septum-queue` | `packages/queue/` | Bridge | Cross-zone message broker (masked data only). File backend (air-gap default) or Redis Streams (`[redis]` extra). | Released |
 | `septum-gateway` | `packages/gateway/` | Internet-facing | Cloud LLM forwarder for Anthropic / OpenAI / OpenRouter. Consumes from `septum-queue`, never imports `septum-core`. Optional FastAPI `/health` behind the `[server]` extra. | Released |
-| `septum-audit` | `packages/audit/` | Internet-facing | Compliance logging + SIEM export. | Planned |
+| `septum-audit` | `packages/audit/` | Internet-facing | Compliance logging + SIEM export. JSON / CSV / Splunk HEC exporters, age + count retention, optional queue consumer (`[queue]` extra) and FastAPI `/health` + `/api/audit/export` (`[server]` extra). Never imports `septum-core`. | Released |
 
 Air-gapped modules have zero internet access; the bridge transports
 only masked placeholders; internet-facing modules never see raw PII.

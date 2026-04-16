@@ -432,14 +432,16 @@ Bridge: septum-queue (Redis Streams over VPN / private link)
 4. ✓ gateway'e queue consumer entegrasyonu — `GatewayConsumer.run_once()` / `run_forever()` döngüsü; forwarder hatası, bilinmeyen provider, malformed payload, beklenmeyen exception → hepsi error envelope'a dönüşür ve döngüyü kırmaz.
 5. ✓ End-to-end test: 47 yeni queue+gateway test (file-queue + consumer + mock forwarder roundtrip dahil) + 6 producer-tarafı GatewayClient test = **53 yeni test, 289/289 backend test geçiyor**. Tam mask → queue → gateway → LLM → queue → response zinciri test edilmiş; `use_gateway=False` default'u sayesinde mevcut chat/sanitization testleri rewire gerektirmedi. Ollama `septum-api` içinde local kaldı (air-gap-safe direct call).
 
-### Faz 6: septum-audit (2 gün)
+### Faz 6: septum-audit (2 gün) — ✓ TAMAMLANDI
 > `/simplify` ve `/compact` çalıştır, sonra başla.
 
-1. `packages/audit/` klasörü oluştur
-2. Structured logging (JSON)
-3. Exporters: JSON, CSV, SIEM (Splunk HEC format)
-4. Retention policy (auto-purge by age)
-5. gateway event hook'ları
+1. ✓ `packages/audit/` — Yeni standalone paket; **`septum-core`'u asla import etmez** (kod-review invariant). Stdlib-only base; `[queue]` (septum-queue tüketici), `[server]` (FastAPI), `[test]` extra'ları ayrı.
+2. ✓ Structured logging (JSON) — `AuditRecord` envelope (id, timestamp, source, event_type, correlation_id, attributes); `AuditSink` Protocol; `JsonlFileSink` (append-only newline-delimited JSON, POSIX-safe `O_APPEND` + `asyncio.Lock`, logrotate uyumlu) + `MemorySink` (test/ephemeral).
+3. ✓ Exporters: JSON / CSV / SIEM — `JsonExporter` (jsonl, `application/x-ndjson`), `CsvExporter` (RFC 4180, `attributes` JSON-flatten), `SplunkHecExporter` (HEC envelope `time/host/source/sourcetype/event` + opsiyonel `index`). PEP 562 `__getattr__` ile lazy-import.
+4. ✓ Retention policy — `RetentionPolicy(max_age_days, max_records)` + `apply_retention_to_jsonl(path, policy, *, now=None)`; `.tmp` + `os.replace` ile atomik in-place rewrite (crash mid-pass orijinali bozmaz). `AuditConfig.from_env()` `SEPTUM_AUDIT_*` env desteği (boş string = unset).
+5. ✓ gateway event hook'ları — `GatewayConsumer.audit_queue: QueueBackend | None` (opt-in); her işlenen mesajdan sonra PII-free envelope emit (`provider/model/status/latency_ms/message_count` + opsiyonel `max_tokens`/`error`). Audit-side hata sessizce log'lanır (warning), birincil request/response yolunu bloklamaz. `GatewayConfig.audit_topic` + `SEPTUM_GATEWAY_AUDIT_TOPIC` env. **PII discipline:** envelope'da prompt içeriği, response text, api_key, base_url **yok**. `GatewayConsumer.audit_queue=None` zero-overhead default.
+6. ✓ FastAPI `/health` + `/api/audit/export?format=jsonl|csv|siem` — `Content-Type` + `Content-Disposition` + `X-Audit-Record-Count` header'ları; bilinmeyen format → 400 + seçenek listesi; case-insensitive eşleşme. `[server]` extra arkasında.
+7. ✓ Tüm faz: 45 yeni test (28 audit core + 4 audit consumer + 7 audit FastAPI + 6 gateway-side: 4 audit hook + 2 audit_topic config). 444/444 backend+modular test geçiyor.
 
 ### Faz 7: Docker & Deploy (2-3 gün)
 > `/simplify` ve `/compact` çalıştır, sonra başla.
