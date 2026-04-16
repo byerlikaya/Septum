@@ -495,23 +495,27 @@ For architecture details, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 ### Package Layout
 
 Septum is being split into independently installable packages under
-`packages/`. The monolithic `backend/app/` and `frontend/` directories
-continue to host the running stack while the split progresses;
-`backend/app/` ships shim packages that forward to `septum_api.*`, so
-existing imports keep working without any call-site edits.
+`packages/`. The monolithic `backend/app/` directory continues to host
+the running backend while the split progresses; it ships shim packages
+that forward to `septum_api.*`, so existing imports keep working
+without any call-site edits. The dashboard already lives in its
+permanent home at `packages/web/`.
 
 | Package | Path | Zone | Description | Status |
 |:---|:---|:---|:---|:---:|
 | `septum-core` | `packages/core/` | Air-gapped | PII detection, masking, unmasking, regulation engine. Zero network deps. | Released |
 | `septum-mcp` | `packages/mcp/` | Air-gapped | MCP server for Claude Code / Desktop / Cursor and other MCP clients. | Released |
 | `septum-api` | `packages/api/` | Air-gapped | FastAPI REST endpoints, models, services, middleware, auth. | Released |
+| `septum-web` | `packages/web/` | Air-gapped | Next.js 16 dashboard (App Router + React 19). Build-time `NEXT_PUBLIC_API_BASE_URL` selects same-origin proxy or split deployment. | Released |
 | `septum-queue` | `packages/queue/` | Bridge | Cross-zone message broker (masked data only). | Planned |
 | `septum-gateway` | `packages/gateway/` | Internet-facing | Cloud LLM forwarder. Never sees raw PII. | Planned |
 | `septum-audit` | `packages/audit/` | Internet-facing | Compliance logging + SIEM export. | Planned |
-| `septum-web` | `packages/web/` | Air-gapped | Next.js dashboard (currently lives in `frontend/`). | Planned |
 
 Air-gapped modules have zero internet access; the bridge transports
 only masked placeholders; internet-facing modules never see raw PII.
+The backend's CORS allow-list is driven by the `FRONTEND_ORIGIN` env
+var (comma-separated for multiple origins; default `*`) so split
+deployments can lock the dashboard origin down without code edits.
 See [`PROJECT_SPEC.md`](PROJECT_SPEC.md) for the full module
 contracts and zone semantics.
 

@@ -497,25 +497,29 @@ Mimari detaylar için bkz. **[ARCHITECTURE.tr.md](ARCHITECTURE.tr.md)**.
 ### Paket Düzeni
 
 Septum, `packages/` altında bağımsız olarak kurulabilen paketlere
-bölünüyor. Monolitik `backend/app/` ve `frontend/` dizinleri ayrım
-ilerlerken çalışan yığını barındırmaya devam ediyor; `backend/app/`,
-`septum_api.*`'ye yönlendiren shim paketleri sağlar, böylece mevcut
-import'lar herhangi bir çağrı yeri değişikliği olmadan çalışmaya
-devam eder.
+bölünüyor. Monolitik `backend/app/` dizini, ayrım ilerlerken çalışan
+backend'i barındırmaya devam ediyor; `septum_api.*`'ye yönlendiren
+shim paketleri sağlar, böylece mevcut import'lar herhangi bir çağrı
+yeri değişikliği olmadan çalışmaya devam eder. Panel artık kalıcı
+yerinde — `packages/web/` altında.
 
 | Paket | Yol | Bölge | Açıklama | Durum |
 |:---|:---|:---|:---|:---:|
 | `septum-core` | `packages/core/` | Hava boşluklu | PII tespit, maskeleme, demaskeleme, regülasyon motoru. Sıfır ağ bağımlılığı. | Yayında |
 | `septum-mcp` | `packages/mcp/` | Hava boşluklu | Claude Code / Desktop / Cursor ve diğer MCP istemcileri için MCP sunucusu. | Yayında |
 | `septum-api` | `packages/api/` | Hava boşluklu | FastAPI REST uç noktaları, modeller, servisler, middleware, kimlik doğrulama. | Yayında |
+| `septum-web` | `packages/web/` | Hava boşluklu | Next.js 16 panel (App Router + React 19). Build-time `NEXT_PUBLIC_API_BASE_URL` aynı-origin proxy ile ayrık dağıtım arasında seçim yapar. | Yayında |
 | `septum-queue` | `packages/queue/` | Köprü | Çapraz bölge mesaj komisyoncusu (yalnızca maskelenmiş veri). | Planlanıyor |
 | `septum-gateway` | `packages/gateway/` | İnternete açık | Bulut LLM yönlendiricisi. Asla ham PII görmez. | Planlanıyor |
 | `septum-audit` | `packages/audit/` | İnternete açık | Uyumluluk loglama + SIEM dışa aktarımı. | Planlanıyor |
-| `septum-web` | `packages/web/` | Hava boşluklu | Next.js panel (şu anda `frontend/` altında). | Planlanıyor |
 
 Hava boşluklu modüllerin sıfır internet erişimi vardır; köprü
 yalnızca maskelenmiş yer tutucuları taşır; internete açık modüller
-asla ham PII görmez. Tüm modül sözleşmeleri ve bölge semantiği için
+asla ham PII görmez. Backend'in CORS izin listesi `FRONTEND_ORIGIN`
+ortam değişkeni tarafından sürülür (birden fazla origin için
+virgüllü liste; varsayılan `*`), böylece ayrık dağıtımlar kod
+değişikliği olmadan panel origin'ini kilitleyebilir. Tüm modül
+sözleşmeleri ve bölge semantiği için
 [`PROJECT_SPEC.md`](PROJECT_SPEC.md)'ye bakın.
 
 ### Hızlı API Örneği

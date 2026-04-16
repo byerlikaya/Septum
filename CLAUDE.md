@@ -29,7 +29,7 @@ pytest tests/test_crypto.py -v --tb=short       # Single test file
 pytest tests/ --cov=app --cov-report=term-missing  # Tests with coverage
 ```
 
-### Frontend (from `frontend/`)
+### Frontend (from `packages/web/`)
 ```bash
 npm run dev       # Dev server (webpack, 4GB heap)
 npm run build     # Production build
@@ -37,6 +37,8 @@ npm run lint      # ESLint
 npm test          # Jest tests
 npm test -- --runInBand   # Sequential tests (CI mode)
 ```
+
+Set `NEXT_PUBLIC_API_BASE_URL` at build time to point the dashboard at a backend on a different origin (split deployment). Unset → relative URLs proxied via Next.js rewrites (single-container default).
 
 ### Docker
 ```bash
@@ -140,10 +142,10 @@ septum-audit ← depends on septum-queue (optional, event consumer)
 - `services/ingestion/` — Format-specific document extractors (PDF, DOCX, XLSX, images/OCR, audio/Whisper, etc.)
 - `utils/crypto.py` — AES-256-GCM encryption for files at rest
 
-### Key Frontend Structure
+### Key Frontend Structure (in `packages/web/`)
 - `src/app/**/page.tsx` — Route pages (chat, documents, chunks, settings); composition only
 - `src/components/` — Stateless UI organized by feature (chat, documents, chunks, settings, layout)
-- `src/lib/api.ts` — Centralized typed Axios client; no direct fetch/axios in components
+- `src/lib/api.ts` — Centralized typed Axios client; no direct fetch/axios in components. `baseURL` resolves from `NEXT_PUBLIC_API_BASE_URL` at build time, defaults to `""` (same-origin proxy via Next.js rewrites)
 - `src/lib/types.ts` — Shared TypeScript interfaces
 - `src/store/` — Shared state hooks (chat, documents, settings, regulations)
 - `src/i18n/` — Translations (English default + Turkish + extensible)
@@ -227,7 +229,7 @@ All LLM calls in tests must be mocked — never send real requests to cloud LLMs
 
 - `README.md` (English) and `README.tr.md` (Turkish) must always have identical sections, in the same order.
 - Any change to one must be mirrored to the other in the same changeset.
-- Verify version numbers against `frontend/package.json` and `backend/requirements.txt`.
+- Verify version numbers against `packages/web/package.json` and `backend/requirements.txt`.
 
 ## Regulation Entity Sources
 

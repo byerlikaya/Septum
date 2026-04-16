@@ -414,14 +414,14 @@ Bridge: septum-queue (Redis Streams over VPN / private link)
 6. OpenAPI schema güncelle
 7. Docker compose güncelle
 
-### Faz 4: septum-web separation (1-2 gün)
+### Faz 4: septum-web separation (1-2 gün) — ✓ TAMAMLANDI
 > `/simplify` ve `/compact` çalıştır, sonra başla.
 
-1. `packages/web/` klasörü oluştur
-2. Mevcut `frontend/` taşı
-3. API base URL'i environment variable'dan oku
-4. CORS konfigürasyonu
-5. Standalone build & deploy testi
+1. ✓ `packages/web/` klasörü oluştur
+2. ✓ Mevcut `frontend/` taşı (`git mv` ile, history korundu)
+3. ✓ API base URL'i environment variable'dan oku (`NEXT_PUBLIC_API_BASE_URL`)
+4. ✓ CORS konfigürasyonu (`FRONTEND_ORIGIN` → `_resolve_cors_origins`)
+5. ✓ Standalone build & deploy testi (Jest 17/17, build başarılı, backend 283/283)
 
 ### Faz 5: septum-queue + septum-gateway (3-4 gün)
 > `/simplify` ve `/compact` çalıştır, sonra başla.
