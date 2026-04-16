@@ -34,34 +34,26 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt', 'packages/*/pyproject.toml') }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('packages/api/requirements.txt', 'packages/*/pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
       - name: Install backend dependencies (modular packages + requirements.txt)
-        working-directory: backend
         run: |
-          python -m venv .venv
-          source .venv/bin/activate
           python -m pip install --upgrade pip
-          # Install the modular packages first so backend/app/ shims can
-          # resolve 'from septum_api.* import *'. Editable install picks
-          # up any on-repo changes without re-running pip.
-          python -m pip install -e "../packages/core[transformers,test]"
-          python -m pip install -e "../packages/queue[redis,test]"
-          python -m pip install -e "../packages/api[auth,rate-limit,postgres,server,test]"
-          python -m pip install -e "../packages/mcp[test]"
-          python -m pip install -e "../packages/gateway[server,test]"
-          python -m pip install -e "../packages/audit[queue,server,test]"
-          # Heavy ML / OCR / Whisper / ingestion deps still live here
-          # until the services/ layer migrates (P2.1 — shim removal).
-          python -m pip install -r requirements.txt
+          # Install the modular packages with editable mode.
+          python -m pip install -e "packages/core[transformers,test]"
+          python -m pip install -e "packages/queue[redis,test]"
+          python -m pip install -e "packages/api[auth,rate-limit,postgres,server,test]"
+          python -m pip install -e "packages/mcp[test]"
+          python -m pip install -e "packages/gateway[server,test]"
+          python -m pip install -e "packages/audit[queue,server,test]"
+          # Heavy ML / OCR / Whisper / ingestion deps (single source of
+          # truth for the services/ layer).
+          python -m pip install -r packages/api/requirements.txt
 
       - name: Run backend tests
-        working-directory: backend
-        run: |
-          source .venv/bin/activate
-          pytest
+        run: pytest packages/api/tests -q
 
   modular-tests:
     runs-on: ubuntu-latest
@@ -143,12 +135,10 @@ jobs:
         run: pip install ruff bandit
 
       - name: Ruff lint
-        working-directory: backend
-        run: ruff check app/ --select E,W,F,I --ignore E501,E402,E741
+        run: ruff check packages/api/septum_api packages/core/septum_core packages/queue/septum_queue packages/gateway/septum_gateway packages/audit/septum_audit packages/mcp/septum_mcp --select E,W,F,I --ignore E501,E402,E741
 
       - name: Bandit security scan
-        working-directory: backend
-        run: bandit -r app/ -s B101,B603,B607 -q || true
+        run: bandit -r packages/api/septum_api packages/core/septum_core packages/queue/septum_queue packages/gateway/septum_gateway packages/audit/septum_audit packages/mcp/septum_mcp -s B101,B603,B607 -q || true
 
   backend-security:
     runs-on: ubuntu-latest
@@ -165,8 +155,7 @@ jobs:
         run: pip install pip-audit
 
       - name: Audit Python dependencies
-        working-directory: backend
-        run: pip-audit -r requirements.txt --ignore-vuln PYSEC-2024-* || true
+        run: pip-audit -r packages/api/requirements.txt --ignore-vuln PYSEC-2024-* || true
 
   frontend-tests:
     runs-on: ubuntu-latest

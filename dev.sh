@@ -15,14 +15,6 @@ done
 
 if [[ "$RESET_MODE" == true ]]; then
   echo "[reset] Wiping all local data (database, uploads, indexes, config) ..."
-  # Legacy backend/ locations (still written by the shim-backed backend/app)
-  rm -f  "$PROJECT_ROOT/backend/config.json"
-  rm -f  "$PROJECT_ROOT/backend/septum.db"
-  rm -rf "$PROJECT_ROOT/backend/uploads"
-  rm -rf "$PROJECT_ROOT/backend/anon_maps"
-  rm -rf "$PROJECT_ROOT/backend/vector_indexes"
-  rm -rf "$PROJECT_ROOT/backend/bm25_indexes"
-  # Top-level locations (modular deployments drop state here)
   rm -f  "$PROJECT_ROOT/config.json"
   rm -f  "$PROJECT_ROOT/septum.db"
   rm -rf "$PROJECT_ROOT/uploads"
@@ -36,10 +28,7 @@ fi
 
 echo "Project root: $PROJECT_ROOT"
 
-# Default config path preserves the historical backend/config.json location
-# so an existing dev install keeps its saved infrastructure settings; override
-# with SEPTUM_CONFIG_PATH=$PROJECT_ROOT/config.json to adopt the modular layout.
-export SEPTUM_CONFIG_PATH="${SEPTUM_CONFIG_PATH:-$PROJECT_ROOT/backend/config.json}"
+export SEPTUM_CONFIG_PATH="${SEPTUM_CONFIG_PATH:-$PROJECT_ROOT/config.json}"
 export NEXT_PUBLIC_APP_VERSION=$(cat "$PROJECT_ROOT/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "dev")
 
 find_available_port() {
@@ -68,13 +57,12 @@ if [[ "$SETUP_MODE" == true ]]; then
     python -m pip install --upgrade -e "packages/audit[queue,server,test]"
   )
 
-  echo "[setup] Installing / upgrading heavy ML / ingestion dependencies (backend/requirements.txt) ..."
-  # Until the shim layer is removed (P2.1), backend/requirements.txt is
-  # still the single source of truth for ML / OCR / Whisper / ingestion
-  # deps that the services/ modules import. Package pyprojects declare
-  # only the narrow FastAPI/SQLAlchemy surface.
+  echo "[setup] Installing / upgrading heavy ML / ingestion dependencies (packages/api/requirements.txt) ..."
+  # packages/api/requirements.txt is still the single source of truth for
+  # ML / OCR / Whisper / ingestion deps that the services/ modules import.
+  # Package pyprojects declare only the narrow FastAPI/SQLAlchemy surface.
   (
-    cd "$PROJECT_ROOT/backend"
+    cd "$PROJECT_ROOT/packages/api"
     python -m pip install --upgrade -r requirements.txt
   )
 

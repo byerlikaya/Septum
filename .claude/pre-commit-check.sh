@@ -11,7 +11,10 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ERRORS=()
 
 # 1. Zero-tolerance: country/language names in production code
-VIOLATIONS=$(grep -rn '\bturkish\b\|\btürk\b\|\benglish\b\|\bingiliz\b' "$PROJECT_ROOT/backend/app/" \
+VIOLATIONS=$(grep -rn '\bturkish\b\|\btürk\b\|\benglish\b\|\bingiliz\b' \
+  "$PROJECT_ROOT/packages/core/septum_core/" \
+  "$PROJECT_ROOT/packages/api/septum_api/" \
+  "$PROJECT_ROOT/packages/mcp/septum_mcp/" \
   --include='*.py' \
   2>/dev/null \
   | grep -v '/tests/' \
@@ -26,7 +29,10 @@ if [[ -n "$VIOLATIONS" ]]; then
 fi
 
 # 2. Language-specific if-branches
-LANG_BRANCHES=$(grep -rn 'if.*language.*==' "$PROJECT_ROOT/backend/app/" \
+LANG_BRANCHES=$(grep -rn 'if.*language.*==' \
+  "$PROJECT_ROOT/packages/core/septum_core/" \
+  "$PROJECT_ROOT/packages/api/septum_api/" \
+  "$PROJECT_ROOT/packages/mcp/septum_mcp/" \
   --include='*.py' \
   | grep -v '/tests/' \
   | grep -v '__pycache__' \
@@ -93,22 +99,25 @@ fi
 # 7. Dependency resolution check — when requirements.txt is staged
 REQ_STAGED=$(echo "$STAGED" | grep -c 'requirements\.txt$' || true)
 if [[ "$REQ_STAGED" -gt 0 ]]; then
-  VENV_PYTHON="$PROJECT_ROOT/backend/.venv/bin/python"
+  # Prefer a system python with pip; the optional local venv under
+  # packages/api/.venv is consulted if present.
+  VENV_PYTHON="$PROJECT_ROOT/packages/api/.venv/bin/python"
+  [[ -x "$VENV_PYTHON" ]] || VENV_PYTHON="$(command -v python3 || true)"
   if [[ -x "$VENV_PYTHON" ]]; then
-    DEP_CHECK=$("$VENV_PYTHON" -m pip install --dry-run -r "$PROJECT_ROOT/backend/requirements.txt" 2>&1 || true)
+    DEP_CHECK=$("$VENV_PYTHON" -m pip install --dry-run -r "$PROJECT_ROOT/packages/api/requirements.txt" 2>&1 || true)
     if echo "$DEP_CHECK" | grep -qi 'conflicting dependencies\|ResolutionImpossible'; then
-      ERRORS+=("[DEPENDENCY] pip dependency conflict detected — run: pip install --dry-run -r backend/requirements.txt")
+      ERRORS+=("[DEPENDENCY] pip dependency conflict detected — run: pip install --dry-run -r packages/api/requirements.txt")
     fi
   fi
 fi
 
-# 8. npm dependency check — when package.json is staged
-PKG_STAGED=$(echo "$STAGED" | grep -c 'frontend/package\.json$' || true)
+# 8. npm dependency check — when packages/web/package.json is staged
+PKG_STAGED=$(echo "$STAGED" | grep -c 'packages/web/package\.json$' || true)
 if [[ "$PKG_STAGED" -gt 0 ]]; then
   if command -v npm &>/dev/null; then
-    NPM_CHECK=$(cd "$PROJECT_ROOT/frontend" && npm install --dry-run 2>&1 || true)
+    NPM_CHECK=$(cd "$PROJECT_ROOT/packages/web" && npm install --dry-run 2>&1 || true)
     if echo "$NPM_CHECK" | grep -qi 'ERESOLVE\|Could not resolve dependency'; then
-      ERRORS+=("[DEPENDENCY] npm dependency conflict detected — run: cd frontend && npm install --dry-run")
+      ERRORS+=("[DEPENDENCY] npm dependency conflict detected — run: cd packages/web && npm install --dry-run")
     fi
   fi
 fi

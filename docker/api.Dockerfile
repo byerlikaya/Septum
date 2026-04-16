@@ -26,7 +26,7 @@ WORKDIR /app
 RUN python -m venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
-COPY backend/requirements.txt /tmp/requirements.txt
+COPY packages/api/requirements.txt /tmp/requirements.txt
 # CPU-only torch first (saves ~6 GB by excluding CUDA/nvidia/triton).
 # pip will skip torch when processing requirements.txt because 2.10.0+cpu
 # satisfies the torch==2.10.0 pin (PEP 440 ignores local version tags).
@@ -67,10 +67,9 @@ WORKDIR /app
 COPY --chown=septum:septum VERSION /app/VERSION
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/packages /app/packages
-COPY --chown=septum:septum backend/app/ /app/backend/app/
-COPY --chown=septum:septum backend/scripts/docker-entrypoint.sh /app/backend/scripts/docker-entrypoint.sh
-COPY --chown=septum:septum backend/alembic.ini /app/backend/alembic.ini
-COPY --chown=septum:septum backend/alembic/ /app/backend/alembic/
+# scripts/ + alembic.ini + alembic/ now live alongside the package they
+# operate on (packages/api/), already brought in via COPY packages/api/.
+# The entrypoint + 'alembic upgrade head' both run from /app/packages/api.
 
 RUN mkdir -p /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models \
     && chown -R septum:septum /app /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models
@@ -78,7 +77,7 @@ RUN mkdir -p /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25
 VOLUME ["/app/data", "/app/uploads", "/app/anon_maps", "/app/vector_indexes", "/app/bm25_indexes", "/app/models"]
 
 USER septum
-WORKDIR /app/backend
+WORKDIR /app/packages/api
 
 EXPOSE 8000
 

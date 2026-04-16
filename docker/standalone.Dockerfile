@@ -28,17 +28,26 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /build
-RUN python -m venv /build/.venv
-ENV PATH="/build/.venv/bin:$PATH"
+WORKDIR /app
+RUN python -m venv /app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
 
-COPY backend/requirements.txt .
+COPY packages/api/requirements.txt /tmp/requirements.txt
 # Install CPU-only PyTorch first (saves ~6 GB by excluding CUDA/nvidia/triton).
 # pip will skip torch when processing requirements.txt because 2.10.0+cpu
 # satisfies the torch==2.10.0 pin (PEP 440 ignores local version tags).
 RUN pip install --no-warn-script-location \
     torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-warn-script-location -r requirements.txt
+RUN pip install --no-warn-script-location -r /tmp/requirements.txt
+
+# Install septum-core + septum-queue + septum-api under /app so the
+# builder + runtime stages agree on the editable-install source path.
+COPY packages/core/ /app/packages/core/
+COPY packages/queue/ /app/packages/queue/
+COPY packages/api/ /app/packages/api/
+RUN pip install --no-warn-script-location -e /app/packages/core \
+    && pip install --no-warn-script-location -e /app/packages/queue \
+    && pip install --no-warn-script-location -e /app/packages/api
 
 # ── Stage 2: build Next.js frontend ──
 FROM node:20-alpine AS frontend-builder
@@ -57,7 +66,7 @@ FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/app/backend/.venv/bin:$PATH" \
+    PATH="/app/.venv/bin:$PATH" \
     NODE_ENV=production \
     DOCKER=true \
     DB_PATH=/app/data/septum.db \
@@ -81,12 +90,9 @@ WORKDIR /app
 # Copy version file
 COPY --chown=septum:septum VERSION /app/VERSION
 
-# Copy backend
-COPY --from=backend-builder /build/.venv /app/backend/.venv
-COPY --chown=septum:septum backend/app/ /app/backend/app/
-COPY --chown=septum:septum backend/scripts/docker-entrypoint.sh /app/backend/scripts/docker-entrypoint.sh
-COPY --chown=septum:septum backend/alembic.ini /app/backend/alembic.ini
-COPY --chown=septum:septum backend/alembic/ /app/backend/alembic/
+# Copy backend venv + packages (editable install resolves through /app/packages)
+COPY --from=backend-builder /app/.venv /app/.venv
+COPY --from=backend-builder /app/packages /app/packages
 
 # Copy frontend (standalone build)
 COPY --from=frontend-builder --chown=septum:septum /app/.next/standalone /app/frontend/
@@ -95,7 +101,7 @@ COPY --from=frontend-builder --chown=septum:septum /app/public /app/frontend/pub
 
 # Writable dirs — declared as VOLUME so data persists across container recreations
 RUN mkdir -p /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models \
-    && chown -R septum:septum /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models
+    && chown -R septum:septum /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models /app/packages
 
 VOLUME ["/app/data", "/app/uploads", "/app/anon_maps", "/app/vector_indexes", "/app/bm25_indexes", "/app/models"]
 
@@ -113,8 +119,8 @@ ln -sfn /app/models/huggingface /home/septum/.cache/huggingface
 ln -sfn /app/models/paddlex /home/septum/.paddlex
 
 # Start backend
-cd /app/backend
-export PATH="/app/backend/.venv/bin:$PATH"
+cd /app/packages/api
+export PATH="/app/.venv/bin:$PATH"
 bash ./scripts/docker-entrypoint.sh &
 BACKEND_PID=$!
 
