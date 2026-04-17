@@ -22,10 +22,10 @@ services:
     container_name: septum-postgres
     environment:
       POSTGRES_USER: septum
-      POSTGRES_PASSWORD: septum_secret
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-septum_secret}
       POSTGRES_DB: septum
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - septum-pgdata:/var/lib/postgresql/data
     restart: unless-stopped
@@ -61,7 +61,7 @@ services:
     image: septum/api:latest
     container_name: septum-api
     environment:
-      DATABASE_URL: postgresql+asyncpg://septum:septum_secret@postgres:5432/septum
+      DATABASE_URL: postgresql+asyncpg://septum:${POSTGRES_PASSWORD:-septum_secret}@postgres:5432/septum
       REDIS_URL: redis://redis:6379/0
       # Opt into gateway mode so cloud LLM calls flow over Redis Streams
       # to the internet-facing zone instead of happening in-process.

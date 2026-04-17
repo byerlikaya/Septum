@@ -16,7 +16,7 @@ Design notes
 """
 
 import os
-import pickle
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Sequence, Tuple
@@ -153,7 +153,7 @@ class BM25Retriever:
 
     def _save_index(self, document_id: int, index_data: dict) -> None:
         """Serialize, encrypt, and write a BM25 index to disk."""
-        raw_bytes = pickle.dumps(index_data)
+        raw_bytes = json.dumps(index_data).encode("utf-8")
         associated_data = str(document_id).encode("utf-8")
         encrypted = encrypt(raw_bytes, associated_data=associated_data)
 
@@ -179,4 +179,4 @@ class BM25Retriever:
                 pass
             return None
 
-        return pickle.loads(raw_bytes)
+        return json.loads(raw_bytes)

@@ -130,8 +130,13 @@ async def setup_status() -> SetupStatusResponse:
 # POST /api/setup/test-database
 # ---------------------------------------------------------------------------
 
+def _require_setup_phase() -> None:
+    if not bootstrap.needs_setup():
+        raise HTTPException(403, "Setup already completed.")
+
+
 @router.post("/test-database", response_model=TestConnectionResponse)
-async def test_database(body: TestDatabaseRequest) -> TestConnectionResponse:
+async def test_database(body: TestDatabaseRequest, _: None = Depends(_require_setup_phase)) -> TestConnectionResponse:
     """Test connectivity to a PostgreSQL database."""
     url = body.database_url.strip()
     if not url:
@@ -162,7 +167,7 @@ def _get_redis_module():
 
 
 @router.post("/test-redis", response_model=TestConnectionResponse)
-async def test_redis(body: TestRedisRequest) -> TestConnectionResponse:
+async def test_redis(body: TestRedisRequest, _: None = Depends(_require_setup_phase)) -> TestConnectionResponse:
     """Test connectivity to a Redis instance."""
     url = body.redis_url.strip()
     if not url:
@@ -312,7 +317,7 @@ class WhisperStatusResponse(BaseModel):
 
 
 @router.get("/whisper-status", response_model=WhisperStatusResponse)
-async def whisper_status(model: str = "base") -> WhisperStatusResponse:
+async def whisper_status(model: str = "base", _: None = Depends(_require_setup_phase)) -> WhisperStatusResponse:
     """Check if a Whisper model is already downloaded."""
     try:
         import whisper  # type: ignore[import]
@@ -342,7 +347,7 @@ class InstallWhisperRequest(BaseModel):
 
 
 @router.post("/install-whisper")
-async def install_whisper(body: InstallWhisperRequest):
+async def install_whisper(body: InstallWhisperRequest, _: None = Depends(_require_setup_phase)):
     """Download a Whisper model with SSE progress streaming."""
     import asyncio
     import json as _json
@@ -462,7 +467,7 @@ class UpdateCheckResponse(BaseModel):
 
 
 @router.get("/check-update", response_model=UpdateCheckResponse)
-async def check_update() -> UpdateCheckResponse:
+async def check_update(_: None = Depends(_require_setup_phase)) -> UpdateCheckResponse:
     """Check Docker Hub for a newer version of the Septum image."""
     current = _read_version()
 

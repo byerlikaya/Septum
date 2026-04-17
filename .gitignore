@@ -1,6 +1,10 @@
 # Internal planning docs (private, never published)
 .planning/
 
+# Private keys and certificates
+*.pem
+*.key
+
 # macOS
 .DS_Store
 

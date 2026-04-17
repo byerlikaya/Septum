@@ -47,7 +47,7 @@ class BootstrapConfig:
     encryption_key: str = ""
     jwt_secret_key: str = ""
     jwt_expiration_minutes: int = 1440
-    log_level: str = "DEBUG"
+    log_level: str = "INFO"
     rate_limit: str = "60/minute"
     frontend_origin: str = "*"
     database_configured: bool = False
@@ -104,6 +104,7 @@ def _write_config_file(path: Path, data: dict[str, Any]) -> None:
             json.dump(data, fh, indent=2, ensure_ascii=False)
             fh.write("\n")
         os.replace(tmp, str(path))
+        os.chmod(str(path), 0o600)
     except BaseException:
         try:
             os.unlink(tmp)

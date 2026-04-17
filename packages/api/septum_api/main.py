@@ -206,8 +206,10 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 from .middleware.auth import AuthMiddleware
+from .middleware.security_headers import SecurityHeadersMiddleware
 from .utils.metrics import PrometheusMiddleware, metrics_endpoint
 
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(PrometheusMiddleware)
 
