@@ -95,12 +95,31 @@ The LLM answers using placeholders. Septum restores real values locally before s
 
 ## How It Works
 
+```mermaid
+sequenceDiagram
+    participant U as 👤 User
+    participant S as 🛡️ Septum
+    participant L as ☁️ Cloud LLM
+
+    U->>S: Prepare a report for Ahmet Yilmaz
+    Note over S: PII Detection<br/>PERSON_NAME: Ahmet Yilmaz
+    S->>S: Masking
+    Note over S: Prepare a report for [PERSON_1]
+    S->>L: Send masked request
+    L->>S: Return masked response
+    Note over S: Local de-anonymisation
+    S->>U: Report for Ahmet Yilmaz
+
+    Note over U,L: 🔒 Raw PII never left the machine!
+```
+
 1. **Upload your documents**
    Use the Documents page or the chat sidebar to add PDFs, Office files, images or audio files. Septum automatically detects file type, language and personal data, masks all PII, and prepares anonymised content for search.
 
 2. **Ask questions in chat**
+   Select specific documents to query, or leave the selection empty and let Septum decide automatically. When no documents are selected, Septum uses a local Ollama model to classify your query intent (SEARCH vs CHAT) and either searches the most relevant documents via Auto-RAG or responds as a normal chatbot.
    *"What are the termination conditions in this contract?"*
-   *"Write a welcome email for new customer Ahmet Yılmaz (ahmet.yilmaz@corp.de, member ID 12345678901)."*
+   *"Write a welcome email for new customer Ahmet Yilmaz (ahmet.yilmaz@corp.de, member ID 12345678901)."*
    *"Summarise the last 6 months of case files."*
 
 3. **Septum anonymises your question too**
@@ -112,11 +131,127 @@ The LLM answers using placeholders. Septum restores real values locally before s
 5. **Get answers with real values**
    Septum locally restores placeholders to original values, giving you a natural, human-readable answer.
 
+### Chat Flow
+
+```mermaid
+flowchart TD
+    START([💬 User Message]) --> PII_MSG[🔍 PII Detection in Message]
+
+    PII_MSG --> MASK_MSG[🎭 Mask Message]
+
+    MASK_MSG --> RAG[📚 Document Search]
+
+    subgraph RAG_DETAIL["Hybrid RAG"]
+        FAISS_S[FAISS Semantic]
+        BM25_S[BM25 Keyword]
+    end
+
+    RAG --> RAG_DETAIL
+    RAG_DETAIL --> CHUNKS[📄 Relevant Chunks]
+
+    CHUNKS --> COMBINE[🔗 Combine<br/>Masked Question + Chunks]
+
+    COMBINE --> APPROVE{🚪 Approval<br/>Required?}
+
+    APPROVE -->|Yes| SHOW[📋 Approval Screen<br/>User reviews what will be sent]
+    SHOW --> USER_OK{✅ Approved?}
+    USER_OK -->|No| REJECT[❌ Rejected]
+    USER_OK -->|Yes| SEND
+    APPROVE -->|No| SEND[📨 Send to LLM]
+
+    SEND --> LLM[☁️ Cloud LLM<br/>Sees only masked data]
+
+    LLM --> RESP[📥 Masked Response]
+    RESP --> UNMASK[🔓 Local De-anonymisation]
+
+    UNMASK --> AUDIT[📝 Audit Log]
+    AUDIT --> END([✅ Answer with Real Values])
+
+    style START fill:#2196f3,color:#fff,stroke:#1565c0,stroke-width:3px
+    style PII_MSG fill:#ff9800,color:#fff,stroke:#e65100,stroke-width:2px
+    style MASK_MSG fill:#9c27b0,color:#fff,stroke:#6a1b9a,stroke-width:2px
+    style APPROVE fill:#ff9800,color:#fff,stroke:#e65100,stroke-width:3px
+    style LLM fill:#00bcd4,color:#fff,stroke:#006064,stroke-width:2px
+    style UNMASK fill:#4caf50,color:#fff,stroke:#2e7d32,stroke-width:3px
+    style END fill:#4caf50,color:#fff,stroke:#2e7d32,stroke-width:3px
+    style REJECT fill:#f44336,color:#fff,stroke:#c62828,stroke-width:2px
+```
+
+<details>
+<summary><b>Document Processing Pipeline</b> — what happens when you upload a file</summary>
+<br/>
+
+```mermaid
+flowchart TD
+    START([📁 Document Upload]) --> TYPE{File Type?}
+
+    TYPE -->|PDF| PDF[PDF Ingester]
+    TYPE -->|Office| OFFICE[DOCX/XLSX Ingester]
+    TYPE -->|Image| OCR[PaddleOCR]
+    TYPE -->|Audio| AUDIO[Whisper]
+
+    PDF --> LANG[🌍 Language Detection<br/>20+ languages]
+    OFFICE --> LANG
+    OCR --> LANG
+    AUDIO --> LANG
+
+    LANG --> PII[🔍 3-Layer PII Detection]
+
+    subgraph LAYERS["Detection Layers"]
+        L1[Presidio<br/>Patterns + Validators]
+        L2[NER<br/>XLM-RoBERTa]
+        L3[Ollama<br/>Semantic]
+    end
+
+    PII --> LAYERS
+    LAYERS --> MASK[🎭 Masking + Anonymisation Map]
+
+    MASK --> PARALLEL[⚡ Parallel Processing]
+
+    PARALLEL --> CHUNK[📦 Semantic Chunking]
+    PARALLEL --> ENC[🔐 Encrypted Storage<br/>AES-256-GCM]
+
+    CHUNK --> EMB[🧬 Embedding]
+
+    EMB --> FAISS[(FAISS Vector Index)]
+    EMB --> BM25[(BM25 Keyword Index)]
+
+    FAISS --> READY([✅ Search Ready])
+    BM25 --> READY
+    ENC --> READY
+
+    style START fill:#4CAF50,color:#fff,stroke:#2e7d32,stroke-width:3px
+    style PII fill:#2196F3,color:#fff,stroke:#1565c0,stroke-width:2px
+    style LAYERS fill:#FF9800,color:#fff,stroke:#e65100,stroke-width:2px
+    style MASK fill:#9C27B0,color:#fff,stroke:#6a1b9a,stroke-width:2px
+    style READY fill:#4CAF50,color:#fff,stroke:#2e7d32,stroke-width:3px
+```
+
+</details>
+
 ---
 
 ## Key Features
 
 - **Local PII Protection** — Detects and masks personal data before anything is sent to the cloud — both inside uploaded documents **and** inside the chat messages you type. Documents stored encrypted (AES-256-GCM). The **Approval Gate** lets you verify the masked output before each LLM call — nothing is sent without your review.
+
+```mermaid
+flowchart LR
+    INPUT([📝 Document or Message]) --> L1[🔴 Layer 1: Presidio<br/>Regex + Validators]
+    L1 --> L2[🟠 Layer 2: NER<br/>XLM-RoBERTa]
+    L2 --> L3[🟡 Layer 3: Ollama<br/>Semantic Detection]
+    L3 --> MERGE[🔗 Merge + Coreference]
+    MERGE --> OUTPUT([✅ Masked Text])
+
+    style L1 fill:#ff5722,color:#fff,stroke:#bf360c,stroke-width:2px
+    style L2 fill:#ff9800,color:#fff,stroke:#e65100,stroke-width:2px
+    style L3 fill:#ffc107,color:#000,stroke:#f57f17,stroke-width:2px
+    style MERGE fill:#4caf50,color:#fff,stroke:#2e7d32,stroke-width:2px
+    style INPUT fill:#2196f3,color:#fff,stroke:#1565c0,stroke-width:2px
+    style OUTPUT fill:#4caf50,color:#fff,stroke:#2e7d32,stroke-width:2px
+```
+
+- **Auto-RAG Routing** — When no documents are selected, Septum uses a local Ollama model to classify query intent (SEARCH vs CHAT). If the query is document-related, Septum automatically searches all indexed documents and retrieves the most relevant chunks. If it is a general question, Septum routes it as a normal chatbot conversation — no manual document selection required.
 - **Multi-Regulation Support** — 17 built-in packs (GDPR, KVKK, CCPA, HIPAA, LGPD, PIPEDA, PDPA, APPI, PIPL, POPIA, DPDP, UK GDPR, and more). Each regulation ships its own recognizer pack with region-specific national ID detectors (TCKN checksum, Aadhaar Verhoeff, NRIC/FIN, Resident ID, NINO, CNPJ, My Number, and more). Multiple active simultaneously; most restrictive wins.
 - **Approval Gate** — Review exactly what will be sent to the LLM before it leaves your environment.
 - **Custom Rules** — Define your own patterns: regex, keyword lists, or LLM-prompt based detection.
@@ -126,7 +261,7 @@ The LLM answers using placeholders. Septum restores real values locally before s
 - **Audit Trail** — Append-only compliance log with entity detection metrics. No raw PII in audit events.
 - **Multi-Provider** — Works with Anthropic, OpenAI, OpenRouter, and local Ollama. Switch from the UI.
 - **JWT Auth & RBAC** — Admin-only user management UI to create accounts, assign roles (admin/editor/viewer), reset passwords, and deactivate users; self-service password change; first user auto-promoted to admin via the setup wizard.
-- **MCP Server (protocol-level, works with any MCP client)** — Ships a standalone Model Context Protocol server (`septum-mcp`) that exposes the same local masking pipeline to **any** MCP-aware client — Claude Code, Claude Desktop, Cursor, Zed, Cline, Continue, Windsurf, and anything else built on the open [MCP specification](https://modelcontextprotocol.io). Six tools — `mask_text`, `unmask_response`, `detect_pii`, `scan_file`, `list_regulations`, `get_session_map` — all run locally; raw PII never leaves your machine.
+- **MCP Server (protocol-level, works with any MCP client)** — Ships a standalone Model Context Protocol server (`septum-mcp`) that exposes the same local masking pipeline to **any** MCP-aware client — Claude Desktop, ChatGPT Desktop, and any other tool built on the open [MCP specification](https://modelcontextprotocol.io). Six tools — `mask_text`, `unmask_response`, `detect_pii`, `scan_file`, `list_regulations`, `get_session_map` — all run locally; raw PII never leaves your machine.
 
 <details>
 <summary><b>All 17 built-in regulation packs</b> — jurisdictions, region-specific identifiers</summary>
@@ -165,9 +300,8 @@ pipeline into any MCP-aware client. MCP is an open, vendor-neutral
 [specification](https://modelcontextprotocol.io) — the server speaks
 stdio transport, loads `septum-core` in-process, and never reaches
 the network, so any client that talks the protocol works out of the
-box (Claude Code, Claude Desktop, Cursor, Zed, Cline, Continue,
-Windsurf, LangChain / LlamaIndex MCP adapters, custom clients built
-with the Python/TypeScript/Rust/Go/C#/Java SDKs, …).
+box (Claude Desktop, ChatGPT Desktop, Cursor, Windsurf, and any
+other tool built with the Python/TypeScript/Rust/Go/C#/Java SDKs).
 
 **Tools exposed:**
 
@@ -180,8 +314,8 @@ with the Python/TypeScript/Rust/Go/C#/Java SDKs, …).
 | `list_regulations` | List the 17 built-in regulation packs with their declared entity types. |
 | `get_session_map` | Return `{original → placeholder}` for local debugging only. |
 
-**Example client configuration** (Claude Code / Claude Desktop; other
-clients use an equivalent `mcpServers` block):
+**Example client configuration** (Claude Desktop / ChatGPT Desktop;
+other clients use an equivalent `mcpServers` block):
 
 ```json
 {
@@ -516,9 +650,70 @@ For architecture details, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ## For Developers
 
+### Architecture Overview
+
+Septum is composed of 7 independent modules split across three security zones. Air-gapped modules handle raw PII with zero internet access. The bridge transports only masked placeholders. Internet-facing modules never see raw PII.
+
+```mermaid
+graph TB
+    subgraph AIRGAP["Air-gapped zone"]
+        direction TB
+        CORE["septum-core\nPII detection + masking"]
+        MCP["septum-mcp\nMCP server for Claude tools"]
+        API["septum-api\nFastAPI REST endpoints"]
+        WEB["septum-web\nDashboard + approval UI"]
+
+        CORE --> MCP
+        CORE --> API
+        API --> WEB
+    end
+
+    subgraph INTERNET["Internet-facing zone"]
+        direction TB
+        GW["septum-gateway\nCloud LLM forwarder"]
+        AUDIT["septum-audit\nCompliance logging"]
+        CLOUD["Cloud LLMs\nAnthropic / OpenAI / OpenRouter"]
+
+        GW --> CLOUD
+        GW --> AUDIT
+    end
+
+    subgraph CLIENTS["MCP clients"]
+        CD["Claude Desktop"]
+        CHATGPT["ChatGPT Desktop"]
+        OTHER["Any MCP Client"]
+    end
+
+    QUEUE["septum-queue\nMasked data only"]
+
+    API -- "masked text" --> QUEUE
+    QUEUE -- "masked text" --> GW
+    GW -- "LLM response" --> QUEUE
+    QUEUE -- "LLM response" --> API
+
+    CD --> MCP
+    CHATGPT --> MCP
+    OTHER --> MCP
+
+    style AIRGAP fill:none,stroke:#4CAF50,stroke-width:2,stroke-dasharray: 5 5
+    style INTERNET fill:none,stroke:#2196F3,stroke-width:2,stroke-dasharray: 5 5
+    style CLIENTS fill:none,stroke:#FF9800,stroke-width:2,stroke-dasharray: 5 5
+    style QUEUE fill:#E65100,color:#fff,stroke:#FF9800,stroke-width:2
+    style CORE fill:#2E7D32,color:#fff,stroke:#4CAF50
+    style MCP fill:#6A1B9A,color:#fff,stroke:#9C27B0
+    style API fill:#1565C0,color:#fff,stroke:#2196F3
+    style WEB fill:#2E7D32,color:#fff,stroke:#4CAF50
+    style GW fill:#01579B,color:#fff,stroke:#2196F3
+    style AUDIT fill:#01579B,color:#fff,stroke:#2196F3
+    style CLOUD fill:#37474F,color:#fff,stroke:#607D8B
+    style CD fill:#BF360C,color:#fff,stroke:#FF5722
+    style CHATGPT fill:#BF360C,color:#fff,stroke:#FF5722
+    style OTHER fill:#BF360C,color:#fff,stroke:#FF5722
+```
+
 ### Package Layout
 
-Septum is being split into independently installable packages under
+Septum is split into independently installable packages under
 `packages/`. The legacy `backend/` compatibility layer has been
 removed; every backend import goes directly through `septum_api.*` and
 the dashboard lives at `packages/web/`.
@@ -526,7 +721,7 @@ the dashboard lives at `packages/web/`.
 | Package | Path | Zone | Description | Status |
 |:---|:---|:---|:---|:---:|
 | `septum-core` | `packages/core/` | Air-gapped | PII detection, masking, unmasking, regulation engine. Zero network deps. | Released |
-| `septum-mcp` | `packages/mcp/` | Air-gapped | MCP server for Claude Code / Desktop / Cursor and other MCP clients. | Released |
+| `septum-mcp` | `packages/mcp/` | Air-gapped | MCP server for Claude Desktop, ChatGPT Desktop, and any MCP client. | Released |
 | `septum-api` | `packages/api/` | Air-gapped | FastAPI REST endpoints, models, services, middleware, auth. | Released |
 | `septum-web` | `packages/web/` | Air-gapped | Next.js 16 dashboard (App Router + React 19). Build-time `NEXT_PUBLIC_API_BASE_URL` selects same-origin proxy or split deployment. | Released |
 | `septum-queue` | `packages/queue/` | Bridge | Cross-zone message broker (masked data only). File backend (air-gap default) or Redis Streams (`[redis]` extra). | Released |
@@ -538,7 +733,7 @@ only masked placeholders; internet-facing modules never see raw PII.
 The backend's CORS allow-list is driven by the `FRONTEND_ORIGIN` env
 var (comma-separated for multiple origins; default `*`) so split
 deployments can lock the dashboard origin down without code edits.
-See [`PROJECT_SPEC.md`](PROJECT_SPEC.md) for the full module
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full module
 contracts and zone semantics.
 
 ### Quick API Example

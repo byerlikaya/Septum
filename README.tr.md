@@ -95,10 +95,29 @@ LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerç
 
 ## Nasıl Çalışır?
 
+```mermaid
+sequenceDiagram
+    participant U as 👤 User
+    participant S as 🛡️ Septum
+    participant L as ☁️ Cloud LLM
+
+    U->>S: Prepare a report for Ahmet Yilmaz
+    Note over S: PII Detection<br/>PERSON_NAME: Ahmet Yilmaz
+    S->>S: Masking
+    Note over S: Prepare a report for [PERSON_1]
+    S->>L: Send masked request
+    L->>S: Return masked response
+    Note over S: Local de-anonymisation
+    S->>U: Report for Ahmet Yilmaz
+
+    Note over U,L: 🔒 Raw PII never left the machine!
+```
+
 1. **Dokümanlarınızı yükleyin**
    Dokümanlar sayfasından veya sohbet kenar çubuğundan PDF, Office, görsel veya ses dosyalarını ekleyin. Septum dosya tipini, dili ve kişisel verileri otomatik tespit eder; tüm PII'yi maskeler ve arama için hazırlar.
 
 2. **Sohbette sorular sorun**
+   Belirli dokümanları seçerek sorgulayın veya seçimi boş bırakıp Septum'un otomatik karar vermesine izin verin. Doküman seçilmediğinde, Septum yerel Ollama modeli ile sorgunuzun amacını sınıflandırır (SEARCH / CHAT) ve en ilgili dokümanları Otomatik RAG ile arar veya normal bir sohbet botu gibi yanıt verir.
    *"Bu sözleşmedeki fesih koşulları neler?"*
    *"Yeni müşterimiz Ahmet Yılmaz (ahmet.yilmaz@corp.de, üyelik no 12345678901) için karşılama maili yaz."*
    *"Son 6 aydaki vaka dosyalarını özetle."*
@@ -112,11 +131,127 @@ LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerç
 5. **Gerçek değerlerle cevap alın**
    Septum placeholder'ları yerelde orijinal değerlere geri çevirir ve size doğal, okunabilir bir cevap sunar.
 
+### Chat Flow
+
+```mermaid
+flowchart TD
+    START([💬 User Message]) --> PII_MSG[🔍 PII Detection in Message]
+
+    PII_MSG --> MASK_MSG[🎭 Mask Message]
+
+    MASK_MSG --> RAG[📚 Document Search]
+
+    subgraph RAG_DETAIL["Hybrid RAG"]
+        FAISS_S[FAISS Semantic]
+        BM25_S[BM25 Keyword]
+    end
+
+    RAG --> RAG_DETAIL
+    RAG_DETAIL --> CHUNKS[📄 Relevant Chunks]
+
+    CHUNKS --> COMBINE[🔗 Combine<br/>Masked Question + Chunks]
+
+    COMBINE --> APPROVE{🚪 Approval<br/>Required?}
+
+    APPROVE -->|Yes| SHOW[📋 Approval Screen<br/>User reviews what will be sent]
+    SHOW --> USER_OK{✅ Approved?}
+    USER_OK -->|No| REJECT[❌ Rejected]
+    USER_OK -->|Yes| SEND
+    APPROVE -->|No| SEND[📨 Send to LLM]
+
+    SEND --> LLM[☁️ Cloud LLM<br/>Sees only masked data]
+
+    LLM --> RESP[📥 Masked Response]
+    RESP --> UNMASK[🔓 Local De-anonymisation]
+
+    UNMASK --> AUDIT[📝 Audit Log]
+    AUDIT --> END([✅ Answer with Real Values])
+
+    style START fill:#2196f3,color:#fff,stroke:#1565c0,stroke-width:3px
+    style PII_MSG fill:#ff9800,color:#fff,stroke:#e65100,stroke-width:2px
+    style MASK_MSG fill:#9c27b0,color:#fff,stroke:#6a1b9a,stroke-width:2px
+    style APPROVE fill:#ff9800,color:#fff,stroke:#e65100,stroke-width:3px
+    style LLM fill:#00bcd4,color:#fff,stroke:#006064,stroke-width:2px
+    style UNMASK fill:#4caf50,color:#fff,stroke:#2e7d32,stroke-width:3px
+    style END fill:#4caf50,color:#fff,stroke:#2e7d32,stroke-width:3px
+    style REJECT fill:#f44336,color:#fff,stroke:#c62828,stroke-width:2px
+```
+
+<details>
+<summary><b>Document Processing Pipeline</b> — bir dosya yüklediğinizde ne olur</summary>
+<br/>
+
+```mermaid
+flowchart TD
+    START([📁 Document Upload]) --> TYPE{File Type?}
+
+    TYPE -->|PDF| PDF[PDF Ingester]
+    TYPE -->|Office| OFFICE[DOCX/XLSX Ingester]
+    TYPE -->|Image| OCR[PaddleOCR]
+    TYPE -->|Audio| AUDIO[Whisper]
+
+    PDF --> LANG[🌍 Language Detection<br/>20+ languages]
+    OFFICE --> LANG
+    OCR --> LANG
+    AUDIO --> LANG
+
+    LANG --> PII[🔍 3-Layer PII Detection]
+
+    subgraph LAYERS["Detection Layers"]
+        L1[Presidio<br/>Patterns + Validators]
+        L2[NER<br/>XLM-RoBERTa]
+        L3[Ollama<br/>Semantic]
+    end
+
+    PII --> LAYERS
+    LAYERS --> MASK[🎭 Masking + Anonymisation Map]
+
+    MASK --> PARALLEL[⚡ Parallel Processing]
+
+    PARALLEL --> CHUNK[📦 Semantic Chunking]
+    PARALLEL --> ENC[🔐 Encrypted Storage<br/>AES-256-GCM]
+
+    CHUNK --> EMB[🧬 Embedding]
+
+    EMB --> FAISS[(FAISS Vector Index)]
+    EMB --> BM25[(BM25 Keyword Index)]
+
+    FAISS --> READY([✅ Search Ready])
+    BM25 --> READY
+    ENC --> READY
+
+    style START fill:#4CAF50,color:#fff,stroke:#2e7d32,stroke-width:3px
+    style PII fill:#2196F3,color:#fff,stroke:#1565c0,stroke-width:2px
+    style LAYERS fill:#FF9800,color:#fff,stroke:#e65100,stroke-width:2px
+    style MASK fill:#9C27B0,color:#fff,stroke:#6a1b9a,stroke-width:2px
+    style READY fill:#4CAF50,color:#fff,stroke:#2e7d32,stroke-width:3px
+```
+
+</details>
+
 ---
 
 ## Temel Özellikler
 
 - **Yerel PII Koruması** — Kişisel verileri buluta göndermeden önce tespit edip maskeler — hem yüklediğiniz dokümanların içinde **hem de** yazdığınız sohbet mesajlarınızda. Dosyalar şifreli saklanır (AES-256-GCM). **Onay Mekanizması** her LLM çağrısından önce maskelenmiş çıktıyı incelemenizi sağlar — onayınız olmadan hiçbir şey gönderilmez.
+
+```mermaid
+flowchart LR
+    INPUT([📝 Document or Message]) --> L1[🔴 Layer 1: Presidio<br/>Regex + Validators]
+    L1 --> L2[🟠 Layer 2: NER<br/>XLM-RoBERTa]
+    L2 --> L3[🟡 Layer 3: Ollama<br/>Semantic Detection]
+    L3 --> MERGE[🔗 Merge + Coreference]
+    MERGE --> OUTPUT([✅ Masked Text])
+
+    style L1 fill:#ff5722,color:#fff,stroke:#bf360c,stroke-width:2px
+    style L2 fill:#ff9800,color:#fff,stroke:#e65100,stroke-width:2px
+    style L3 fill:#ffc107,color:#000,stroke:#f57f17,stroke-width:2px
+    style MERGE fill:#4caf50,color:#fff,stroke:#2e7d32,stroke-width:2px
+    style INPUT fill:#2196f3,color:#fff,stroke:#1565c0,stroke-width:2px
+    style OUTPUT fill:#4caf50,color:#fff,stroke:#2e7d32,stroke-width:2px
+```
+
+- **Otomatik RAG Yönlendirme** — Doküman seçilmediğinde, Septum yerel Ollama modelini kullanarak sorgunun amacını sınıflandırır (SEARCH / CHAT). Soru dokümanlara yönelikse, Septum tüm indekslenmiş dokümanları otomatik arar ve en ilgili parçaları getirir. Genel bir soru ise normal bir sohbet botu gibi yanıt verir — manuel doküman seçimi gerekmez.
 - **Çoklu Regülasyon Desteği** — 17 hazır paket (GDPR, KVKK, CCPA, HIPAA, LGPD, PIPEDA, PDPA, APPI, PIPL, POPIA, DPDP, UK GDPR ve daha fazlası). Her regülasyon, kendi bölgesine özgü kimlik numarası algılayıcılarıyla (TCKN checksum, Aadhaar Verhoeff, NRIC/FIN, Resident ID, NINO, CNPJ, My Number ve daha fazlası) birlikte kendi recognizer paketiyle geliyor. Aynı anda birden fazla aktif; en kısıtlayıcı kazanır.
 - **Onay Mekanizması** — LLM'e gönderilmeden önce neyin paylaşılacağını görün ve onaylayın.
 - **Özel Kurallar** — Kendi kalıplarınızı tanımlayın: regex, anahtar kelime listeleri veya LLM-tabanlı tespit.
@@ -126,7 +261,7 @@ LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerç
 - **Denetim Kaydı** — Salt-ekleme uyumluluk günlüğü ve varlık tespit metrikleri. Denetim olaylarında ham PII bulunmaz.
 - **Çoklu Sağlayıcı** — Anthropic, OpenAI, OpenRouter ve yerel Ollama ile çalışır. Arayüzden değiştirin.
 - **JWT Kimlik Doğrulama ve RBAC** — Admin'e özel kullanıcı yönetim ekranı: hesap oluşturma, rol atama (admin/editor/viewer), şifre sıfırlama ve kullanıcı pasifleştirme; kullanıcının kendi şifresini değiştirmesi; ilk kullanıcı kurulum sihirbazında otomatik admin yapılır.
-- **MCP Sunucusu (protokol seviyesinde, tüm MCP istemcileriyle)** — Aynı yerel maskeleme hattını **herhangi bir** MCP uyumlu istemciye açan bağımsız bir Model Context Protocol sunucusu (`septum-mcp`) ile birlikte gelir — Claude Code, Claude Desktop, Cursor, Zed, Cline, Continue, Windsurf ve açık [MCP spesifikasyonu](https://modelcontextprotocol.io) üzerine inşa edilmiş diğer her şey. Altı araç — `mask_text`, `unmask_response`, `detect_pii`, `scan_file`, `list_regulations`, `get_session_map` — hepsi yerelde çalışır; ham PII makinenizden hiç çıkmaz.
+- **MCP Sunucusu (protokol seviyesinde, tüm MCP istemcileriyle)** — Aynı yerel maskeleme hattını **herhangi bir** MCP uyumlu istemciye açan bağımsız bir Model Context Protocol sunucusu (`septum-mcp`) ile birlikte gelir — Claude Desktop, ChatGPT Desktop ve açık [MCP spesifikasyonu](https://modelcontextprotocol.io) üzerine inşa edilmiş diğer her araç. Altı araç — `mask_text`, `unmask_response`, `detect_pii`, `scan_file`, `list_regulations`, `get_session_map` — hepsi yerelde çalışır; ham PII makinenizden hiç çıkmaz.
 
 <details>
 <summary><b>17 hazır regülasyon paketinin tamamı</b> — yargı alanları, bölgeye özel kimlik tipleri</summary>
@@ -165,10 +300,9 @@ istemciye bağlayan bağımsız bir **Model Context Protocol** sunucusu,
 sağlayıcıdan bağımsız bir [spesifikasyondur](https://modelcontextprotocol.io) —
 sunucu stdio üzerinden çalışır, `septum-core`'u process içinde yükler
 ve ağa hiçbir zaman erişmez; bu yüzden protokolü konuşan her istemci
-kutudan çıktığı gibi çalışır (Claude Code, Claude Desktop, Cursor,
-Zed, Cline, Continue, Windsurf, LangChain / LlamaIndex MCP
-adaptörleri, Python/TypeScript/Rust/Go/C#/Java SDK'leri ile yazılmış
-özel istemciler, …).
+kutudan çıktığı gibi çalışır (Claude Desktop, ChatGPT Desktop, Cursor,
+Windsurf ve Python/TypeScript/Rust/Go/C#/Java SDK'leriyle yazılmış
+diğer araçlar).
 
 **Sunulan araçlar:**
 
@@ -181,8 +315,8 @@ adaptörleri, Python/TypeScript/Rust/Go/C#/Java SDK'leri ile yazılmış
 | `list_regulations` | 17 hazır regülasyon paketini ve varlık tiplerini listeler. |
 | `get_session_map` | `{orijinal → placeholder}` eşlemesini yalnızca yerel hata ayıklama için döndürür. |
 
-**Örnek istemci yapılandırması** (Claude Code / Claude Desktop; diğer
-istemciler eşdeğer bir `mcpServers` bloğu kullanır):
+**Örnek istemci yapılandırması** (Claude Desktop / ChatGPT Desktop;
+diğer istemciler eşdeğer bir `mcpServers` bloğu kullanır):
 
 ```json
 {
@@ -519,6 +653,67 @@ Mimari detaylar için bkz. **[ARCHITECTURE.tr.md](ARCHITECTURE.tr.md)**.
 
 ## Geliştiriciler İçin
 
+### Mimari Genel Bakış
+
+Septum, üç güvenlik bölgesine dağıtılmış 7 bağımsız modülden oluşur. Hava boşluklu modüller ham PII'yi sıfır internet erişimiyle işler. Köprü yalnızca maskelenmiş yer tutucuları taşır. İnternete açık modüller ham PII'yi asla görmez.
+
+```mermaid
+graph TB
+    subgraph AIRGAP["Air-gapped zone"]
+        direction TB
+        CORE["septum-core\nPII detection + masking"]
+        MCP["septum-mcp\nMCP server for Claude tools"]
+        API["septum-api\nFastAPI REST endpoints"]
+        WEB["septum-web\nDashboard + approval UI"]
+
+        CORE --> MCP
+        CORE --> API
+        API --> WEB
+    end
+
+    subgraph INTERNET["Internet-facing zone"]
+        direction TB
+        GW["septum-gateway\nCloud LLM forwarder"]
+        AUDIT["septum-audit\nCompliance logging"]
+        CLOUD["Cloud LLMs\nAnthropic / OpenAI / OpenRouter"]
+
+        GW --> CLOUD
+        GW --> AUDIT
+    end
+
+    subgraph CLIENTS["MCP clients"]
+        CD["Claude Desktop"]
+        CHATGPT["ChatGPT Desktop"]
+        OTHER["Any MCP Client"]
+    end
+
+    QUEUE["septum-queue\nMasked data only"]
+
+    API -- "masked text" --> QUEUE
+    QUEUE -- "masked text" --> GW
+    GW -- "LLM response" --> QUEUE
+    QUEUE -- "LLM response" --> API
+
+    CD --> MCP
+    CHATGPT --> MCP
+    OTHER --> MCP
+
+    style AIRGAP fill:none,stroke:#4CAF50,stroke-width:2,stroke-dasharray: 5 5
+    style INTERNET fill:none,stroke:#2196F3,stroke-width:2,stroke-dasharray: 5 5
+    style CLIENTS fill:none,stroke:#FF9800,stroke-width:2,stroke-dasharray: 5 5
+    style QUEUE fill:#E65100,color:#fff,stroke:#FF9800,stroke-width:2
+    style CORE fill:#2E7D32,color:#fff,stroke:#4CAF50
+    style MCP fill:#6A1B9A,color:#fff,stroke:#9C27B0
+    style API fill:#1565C0,color:#fff,stroke:#2196F3
+    style WEB fill:#2E7D32,color:#fff,stroke:#4CAF50
+    style GW fill:#01579B,color:#fff,stroke:#2196F3
+    style AUDIT fill:#01579B,color:#fff,stroke:#2196F3
+    style CLOUD fill:#37474F,color:#fff,stroke:#607D8B
+    style CD fill:#BF360C,color:#fff,stroke:#FF5722
+    style CHATGPT fill:#BF360C,color:#fff,stroke:#FF5722
+    style OTHER fill:#BF360C,color:#fff,stroke:#FF5722
+```
+
 ### Paket Düzeni
 
 Septum, `packages/` altında bağımsız olarak kurulabilen paketlere
@@ -529,7 +724,7 @@ backend import'u doğrudan `septum_api.*` üzerinden gider ve panel
 | Paket | Yol | Bölge | Açıklama | Durum |
 |:---|:---|:---|:---|:---:|
 | `septum-core` | `packages/core/` | Hava boşluklu | PII tespit, maskeleme, demaskeleme, regülasyon motoru. Sıfır ağ bağımlılığı. | Yayında |
-| `septum-mcp` | `packages/mcp/` | Hava boşluklu | Claude Code / Desktop / Cursor ve diğer MCP istemcileri için MCP sunucusu. | Yayında |
+| `septum-mcp` | `packages/mcp/` | Hava boşluklu | Claude Desktop, ChatGPT Desktop ve diğer MCP istemcileri için MCP sunucusu. | Yayında |
 | `septum-api` | `packages/api/` | Hava boşluklu | FastAPI REST uç noktaları, modeller, servisler, middleware, kimlik doğrulama. | Yayında |
 | `septum-web` | `packages/web/` | Hava boşluklu | Next.js 16 panel (App Router + React 19). Build-time `NEXT_PUBLIC_API_BASE_URL` aynı-origin proxy ile ayrık dağıtım arasında seçim yapar. | Yayında |
 | `septum-queue` | `packages/queue/` | Köprü | Çapraz bölge mesaj komisyoncusu (yalnızca maskelenmiş veri). Dosya backend'i (hava boşluğu varsayılanı) veya Redis Streams (`[redis]` ek bileşeni). | Yayında |
@@ -543,7 +738,7 @@ ortam değişkeni tarafından sürülür (birden fazla origin için
 virgüllü liste; varsayılan `*`), böylece ayrık dağıtımlar kod
 değişikliği olmadan panel origin'ini kilitleyebilir. Tüm modül
 sözleşmeleri ve bölge semantiği için
-[`PROJECT_SPEC.md`](PROJECT_SPEC.md)'ye bakın.
+[ARCHITECTURE.tr.md](ARCHITECTURE.tr.md)'ye bakın.
 
 ### Hızlı API Örneği
 
