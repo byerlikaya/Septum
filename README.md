@@ -651,26 +651,42 @@ For architecture details, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 Septum is composed of 7 independent modules split across three security zones. Air-gapped modules handle raw PII with zero internet access. The bridge transports only masked placeholders. Internet-facing modules never see raw PII.
 
 ```mermaid
-graph LR
-    subgraph AIRGAP["Air-gapped zone"]
-        CORE["septum-core"] --> API["septum-api"]
-        CORE --> MCP["septum-mcp"]
-        API --> WEB["septum-web"]
+graph TD
+    subgraph CLIENTS["MCP Clients"]
+        CD["Claude Desktop"]
+        CHATGPT["ChatGPT Desktop"]
+        OTHER["Any MCP Client"]
     end
-    subgraph INTERNET["Internet-facing zone"]
-        GW["septum-gateway"] --> CLOUD["Cloud LLMs"]
-        GW --> AUDIT["septum-audit"]
-    end
-    subgraph CLIENTS["MCP clients"]
-        CD["Claude Desktop"] & CHATGPT["ChatGPT Desktop"] & OTHER["Any MCP Client"]
-    end
-    API -- "masked text" --> QUEUE["septum-queue"] -- "masked text" --> GW
-    GW -. "response" .-> QUEUE -. "response" .-> API
-    CLIENTS --> MCP
 
-    style AIRGAP fill:none,stroke:#4CAF50,stroke-width:2,stroke-dasharray: 5 5
-    style INTERNET fill:none,stroke:#2196F3,stroke-width:2,stroke-dasharray: 5 5
-    style CLIENTS fill:none,stroke:#FF9800,stroke-width:2,stroke-dasharray: 5 5
+    subgraph AIRGAP["🔒 Air-Gapped Zone — raw PII stays here"]
+        WEB["septum-web\nDashboard"]
+        API["septum-api\nREST API"]
+        CORE["septum-core\nPII Engine"]
+        MCP["septum-mcp\nMCP Server"]
+    end
+
+    subgraph INTERNET["☁️ Internet Zone — only masked data"]
+        GW["septum-gateway\nLLM Forwarder"]
+        AUDIT["septum-audit\nCompliance Log"]
+    end
+
+    CLOUD["Cloud LLMs\nAnthropic · OpenAI · OpenRouter"]
+
+    CD --> MCP
+    CHATGPT --> MCP
+    OTHER --> MCP
+    MCP --> CORE
+    WEB --> API
+    API --> CORE
+    API -- "masked text" --> QUEUE["septum-queue\n📦 Bridge"]
+    QUEUE -- "masked text" --> GW
+    GW --> CLOUD
+    GW --> AUDIT
+    CLOUD -. "response" .-> GW -. "response" .-> QUEUE -. "response" .-> API
+
+    style AIRGAP fill:none,stroke:#4CAF50,stroke-width:2,stroke-dasharray:5 5
+    style INTERNET fill:none,stroke:#2196F3,stroke-width:2,stroke-dasharray:5 5
+    style CLIENTS fill:none,stroke:#FF9800,stroke-width:2,stroke-dasharray:5 5
     style QUEUE fill:#E65100,color:#fff,stroke:#FF9800,stroke-width:2
     style CORE fill:#2E7D32,color:#fff,stroke:#4CAF50
     style MCP fill:#6A1B9A,color:#fff,stroke:#9C27B0
