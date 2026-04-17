@@ -85,7 +85,7 @@ class TestGetConfig:
         assert config.db_path == "./septum.db"
         assert config.redis_url == ""
         assert config.jwt_expiration_minutes == 1440
-        assert config.log_level == "DEBUG"
+        assert config.log_level == "INFO"
         assert config.rate_limit == "60/minute"
         assert config.frontend_origin == "*"
         assert config.database_configured is False

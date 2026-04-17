@@ -21,6 +21,19 @@ export function RagTab({
     await onChange(key, value);
   };
 
+  const handleFloatBlur = async (
+    key: keyof SettingsUpdatePayload,
+    rawValue: string,
+    fallback: number
+  ): Promise<void> => {
+    const value = parseFloat(rawValue);
+    if (Number.isNaN(value) || value < 0 || value > 1) {
+      await onChange(key, fallback);
+      return;
+    }
+    await onChange(key, Math.round(value * 100) / 100);
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -61,6 +74,20 @@ export function RagTab({
             handleNumberBlur("top_k_retrieval", raw, settings.top_k_retrieval)
           }
           saving={isSaving("top_k_retrieval")}
+        />
+
+        <NumberField
+          label={t("settings.rag.relevanceThreshold.label")}
+          description={t("settings.rag.relevanceThreshold.description")}
+          value={settings.rag_relevance_threshold}
+          onBlur={async (raw) =>
+            handleFloatBlur(
+              "rag_relevance_threshold",
+              raw,
+              settings.rag_relevance_threshold
+            )
+          }
+          saving={isSaving("rag_relevance_threshold")}
         />
       </div>
 

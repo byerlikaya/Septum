@@ -200,6 +200,10 @@ async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:
             "app_settings",
             "ALTER TABLE app_settings ADD COLUMN use_gateway BOOLEAN NOT NULL DEFAULT 0",
         ),
+        (
+            "app_settings",
+            "ALTER TABLE app_settings ADD COLUMN rag_relevance_threshold REAL NOT NULL DEFAULT 0.35",
+        ),
     ]
 
     async with eng.begin() as conn:
@@ -264,6 +268,9 @@ def build_default_app_settings() -> AppSettings:
         audio_chunk_size=_env_int("AUDIO_CHUNK_SIZE_DEFAULT", 60),
         spreadsheet_chunk_size=_env_int(
             "SPREADSHEET_CHUNK_SIZE_DEFAULT", 200
+        ),
+        rag_relevance_threshold=float(
+            os.getenv("RAG_RELEVANCE_THRESHOLD_DEFAULT", "0.35")
         ),
         whisper_model=os.getenv("WHISPER_MODEL", "base"),
         default_audio_language=os.getenv("DEFAULT_AUDIO_LANGUAGE") or None,

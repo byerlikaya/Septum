@@ -132,6 +132,8 @@ export interface DebugData {
   final_answer: string;
 }
 
+export type RagMode = "manual" | "auto" | "none";
+
 export interface ChatMessage {
   id: string;
   role: ChatMessageRole;
@@ -140,6 +142,8 @@ export interface ChatMessage {
   usedOllamaFallback?: boolean;
   approvalData?: ApprovalData;
   debugData?: DebugData;
+  ragMode?: RagMode;
+  matchedDocNames?: string[];
 }
 
 export type OutputMode = "chat" | "json";
@@ -164,6 +168,9 @@ export interface SSEMetaEvent {
   require_approval: boolean;
   retrieved_chunk_count: number;
   active_regulations: string[];
+  rag_mode?: RagMode;
+  matched_document_ids?: number[];
+  matched_document_names?: string[];
 }
 
 export interface SSEApprovalRequiredEvent {
@@ -264,6 +271,7 @@ export interface AppSettingsResponse {
   pdf_chunk_size: number;
   audio_chunk_size: number;
   spreadsheet_chunk_size: number;
+  rag_relevance_threshold: number;
   whisper_model: string;
   default_audio_language?: string | null;
   image_ocr_languages: string[];

@@ -261,6 +261,9 @@ export const enMessages = {
   "settings.rag.topK.label": "Top‑K retrieval",
   "settings.rag.topK.description":
     "Default number of chunks retrieved per query.",
+  "settings.rag.relevanceThreshold.label": "Relevance threshold",
+  "settings.rag.relevanceThreshold.description":
+    "Minimum score (0–1) for a retrieved chunk to be included in the prompt. Lower values include more chunks; higher values are more selective.",
   "settings.rag.formatSpecific.title": "Format-specific chunk sizes",
   "settings.rag.pdfChunkSize.label": "PDF chunk size",
   "settings.rag.pdfChunkSize.description":
@@ -403,8 +406,8 @@ export const enMessages = {
   "chat.output.tab.chat": "Chat",
   "chat.output.tab.json": "JSON",
   "chat.emptyState":
-    "Select a document and type a message to start. Responses stream word by word.",
-  "chat.input.placeholder": "Ask about your document…",
+    "Type a message to start. Select documents for targeted search, or let Septum find relevant content automatically.",
+  "chat.input.placeholder": "Ask a question…",
   "chat.button.stop": "Stop",
   "chat.button.send": "Send",
   "chat.button.upload": "Attach document",
@@ -438,9 +441,12 @@ export const enMessages = {
   "chat.debug.finalAnswer": "Locally processed and displayed answer",
 
   "chat.documentSelector.hint":
-    "Select at least one document to query. Only ready documents are listed.",
+    "Select documents for targeted search, or leave empty to auto-search all.",
   "chat.documentSelector.empty":
     "No documents ready for chat. Upload and process documents first.",
+
+  "chat.ragMode.auto": "Auto-searched",
+  "chat.ragMode.none": "Direct answer (no documents used)",
 
   "chat.json.title": "JSON output",
   "chat.json.invalid": "Invalid JSON",

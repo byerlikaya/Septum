@@ -263,6 +263,9 @@ export const trMessages: Record<string, string> = {
   "settings.rag.topK.label": "Top‑K getirme",
   "settings.rag.topK.description":
     "Sorgu başına getirilen varsayılan parça sayısı.",
+  "settings.rag.relevanceThreshold.label": "Alaka eşiği",
+  "settings.rag.relevanceThreshold.description":
+    "Bir parçanın prompt'a dahil edilmesi için gereken minimum skor (0–1). Düşük değerler daha fazla parça dahil eder; yüksek değerler daha seçicidir.",
   "settings.rag.formatSpecific.title": "Formata özel parça boyutları",
   "settings.rag.pdfChunkSize.label": "PDF parça boyutu",
   "settings.rag.pdfChunkSize.description":
@@ -420,8 +423,8 @@ export const trMessages: Record<string, string> = {
   "chat.output.tab.chat": "Sohbet",
   "chat.output.tab.json": "JSON",
   "chat.emptyState":
-    "Başlamak için bir doküman seçip bir mesaj yazın. Yanıtlar kelime kelime akar.",
-  "chat.input.placeholder": "Dokümanınız hakkında soru sorun…",
+    "Başlamak için bir mesaj yazın. Hedefli arama için doküman seçin veya Septum'un ilgili içeriği otomatik bulmasına izin verin.",
+  "chat.input.placeholder": "Bir soru sorun…",
   "chat.button.stop": "Durdur",
   "chat.button.send": "Gönder",
   "chat.button.upload": "Doküman ekle",
@@ -455,9 +458,12 @@ export const trMessages: Record<string, string> = {
   "chat.debug.finalAnswer": "Yerelde işlenmiş ve gösterilen yanıt",
 
   "chat.documentSelector.hint":
-    "Sorgulamak için en az bir doküman seçin. Yalnızca hazır dokümanlar listelenir.",
+    "Hedefli arama için doküman seçin veya tümünde otomatik arama için boş bırakın.",
   "chat.documentSelector.empty":
     "Sohbet için hazır doküman yok. Önce doküman yükleyip işlemeniz gerekir.",
+
+  "chat.ragMode.auto": "Otomatik arama",
+  "chat.ragMode.none": "Doğrudan yanıt (doküman kullanılmadı)",
 
   "chat.json.title": "JSON çıktısı",
   "chat.json.invalid": "Geçersiz JSON",

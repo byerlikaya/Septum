@@ -44,6 +44,8 @@ export function ChatWindow({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [reviewApprovalData, setReviewApprovalData] = useState<ApprovalData | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const textInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleResponseComplete = useCallback(
     (deanonApplied: boolean) => {
@@ -122,6 +124,22 @@ export function ChatWindow({
     }
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (streaming) {
+      const id = requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+      });
+      return () => cancelAnimationFrame(id);
+    }
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, streaming]);
+
+  useEffect(() => {
+    if (!streaming) {
+      textInputRef.current?.focus();
+    }
+  }, [streaming]);
+
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text || streaming) return;
@@ -176,35 +194,38 @@ export function ChatWindow({
               {t("chat.emptyState")}
             </p>
           ) : (
-            messages.map((msg) => {
-              return (
-                <MessageBubble
-                  key={msg.id}
-                  message={msg}
-                  isThinking={
-                    streaming &&
-                    msg.role === "assistant" &&
-                    msg.id === pendingAssistantIdRef.current &&
-                    msg.content.length === 0
-                  }
-                  onDebugClick={() => {
-                    if (msg.debugData) {
-                      setDebugData({
-                        masked_prompt: msg.debugData.masked_prompt,
-                        masked_answer: msg.debugData.masked_answer,
-                        final_answer: msg.debugData.final_answer,
-                      });
-                      setDebugOpen(true);
-                    } else if (msg.sessionId) {
-                      void handleOpenDebug(msg.sessionId);
+            <>
+              {messages.map((msg) => {
+                return (
+                  <MessageBubble
+                    key={msg.id}
+                    message={msg}
+                    isThinking={
+                      streaming &&
+                      msg.role === "assistant" &&
+                      msg.id === pendingAssistantIdRef.current &&
+                      msg.content.length === 0
                     }
-                  }}
-                  onApprovalClick={msg.approvalData ? () => {
-                    setReviewApprovalData(msg.approvalData!);
-                  } : undefined}
-                />
-              );
-            })
+                    onDebugClick={() => {
+                      if (msg.debugData) {
+                        setDebugData({
+                          masked_prompt: msg.debugData.masked_prompt,
+                          masked_answer: msg.debugData.masked_answer,
+                          final_answer: msg.debugData.final_answer,
+                        });
+                        setDebugOpen(true);
+                      } else if (msg.sessionId) {
+                        void handleOpenDebug(msg.sessionId);
+                      }
+                    }}
+                    onApprovalClick={msg.approvalData ? () => {
+                      setReviewApprovalData(msg.approvalData!);
+                    } : undefined}
+                  />
+                );
+              })}
+              <div ref={messagesEndRef} />
+            </>
           )}
         </div>
       ) : (
@@ -235,6 +256,7 @@ export function ChatWindow({
             }}
           />
           <input
+            ref={textInputRef}
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}

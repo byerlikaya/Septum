@@ -178,4 +178,11 @@ class BM25Retriever:
                 pass
             return None
 
-        return json.loads(raw_bytes)
+        try:
+            return json.loads(raw_bytes)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            return None
