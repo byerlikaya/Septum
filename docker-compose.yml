@@ -42,11 +42,12 @@ services:
   redis:
     image: redis:7-alpine
     container_name: septum-redis
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-septum_redis}"]
     volumes:
       - septum-redis-data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-septum_redis}", "ping"]
       interval: 10s
       timeout: 5s
       start_period: 5s
@@ -60,9 +61,9 @@ services:
     container_name: septum-api
     environment:
       DATABASE_URL: postgresql+asyncpg://septum:${POSTGRES_PASSWORD:-septum_secret}@postgres:5432/septum
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://:${REDIS_PASSWORD:-septum_redis}@redis:6379/0
       USE_GATEWAY_DEFAULT: "true"
-      SEPTUM_QUEUE_URL: redis://redis:6379/0
+      SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:-septum_redis}@redis:6379/0
       FRONTEND_ORIGIN: http://localhost:3000
       OLLAMA_BASE_URL: http://ollama:11434
     ports:
@@ -120,7 +121,7 @@ services:
     image: septum/gateway:latest
     container_name: septum-gateway-worker
     environment:
-      SEPTUM_QUEUE_URL: redis://redis:6379/0
+      SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:-septum_redis}@redis:6379/0
       SEPTUM_GATEWAY_REQUEST_TOPIC: septum.llm.requests
       SEPTUM_GATEWAY_RESPONSE_TOPIC: septum.llm.responses
       SEPTUM_GATEWAY_AUDIT_TOPIC: septum.audit.events
@@ -140,7 +141,7 @@ services:
     image: septum/audit:latest
     container_name: septum-audit-worker
     environment:
-      SEPTUM_QUEUE_URL: redis://redis:6379/0
+      SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:-septum_redis}@redis:6379/0
       SEPTUM_AUDIT_TOPIC: septum.audit.events
       SEPTUM_AUDIT_SINK_PATH: /var/log/septum/audit.jsonl
     command: ["python", "-m", "septum_audit"]

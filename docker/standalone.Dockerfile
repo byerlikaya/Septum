@@ -68,6 +68,8 @@ RUN mkdir -p public \
     && npm run build
 
 # ── Stage 3: combined runtime ──
+FROM node:20-alpine AS node-donor
+
 FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -81,12 +83,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     VECTOR_INDEX_DIR=/app/vector_indexes \
     BM25_INDEX_DIR=/app/bm25_indexes
 
-# Install runtime dependencies + Node.js
+COPY --from=node-donor /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-donor /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/bin/node /usr/local/bin/nodejs \
+    && ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
+
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        libmagic1 ffmpeg curl \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get install -y --no-install-recommends libmagic1 ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1000 septum \
     && useradd --uid 1000 --gid septum --shell /bin/sh --create-home septum
