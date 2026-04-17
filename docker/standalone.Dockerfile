@@ -68,7 +68,7 @@ RUN mkdir -p public \
     && npm run build
 
 # ── Stage 3: combined runtime ──
-FROM node:20-alpine AS node-donor
+FROM node:20-slim AS node-donor
 
 FROM python:3.12-slim AS runtime
 

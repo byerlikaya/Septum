@@ -99,12 +99,12 @@ def _write_config_file(path: Path, data: dict[str, Any]) -> None:
     """Atomically write *data* as JSON to *path* (write-to-tmp then rename)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    os.fchmod(fd, 0o600)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2, ensure_ascii=False)
             fh.write("\n")
         os.replace(tmp, str(path))
-        os.chmod(str(path), 0o600)
     except BaseException:
         try:
             os.unlink(tmp)

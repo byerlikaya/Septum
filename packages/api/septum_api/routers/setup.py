@@ -467,7 +467,7 @@ class UpdateCheckResponse(BaseModel):
 
 
 @router.get("/check-update", response_model=UpdateCheckResponse)
-async def check_update(_: None = Depends(_require_setup_phase)) -> UpdateCheckResponse:
+async def check_update() -> UpdateCheckResponse:
     """Check Docker Hub for a newer version of the Septum image."""
     current = _read_version()
 

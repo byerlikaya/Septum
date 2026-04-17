@@ -52,7 +52,7 @@ services:
       - septum-gateway-redis-data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-septum_redis}", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$${REDIS_PASSWORD:-septum_redis} redis-cli ping"]
       interval: 10s
       timeout: 5s
       start_period: 5s

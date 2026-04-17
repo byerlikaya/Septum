@@ -84,10 +84,9 @@ class BM25Retriever:
             return
 
         tokenized_corpus = [_tokenize(text) for text in texts]
-        bm25 = BM25Okapi(tokenized_corpus)
 
         index_data = {
-            "bm25": bm25,
+            "corpus": tokenized_corpus,
             "chunk_ids": list(chunk_ids),
         }
 
@@ -123,7 +122,7 @@ class BM25Retriever:
         if index_data is None:
             return []
 
-        bm25 = index_data["bm25"]
+        bm25 = BM25Okapi(index_data["corpus"])
         chunk_ids = index_data["chunk_ids"]
 
         tokenized_query = _tokenize(query)
