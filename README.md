@@ -651,45 +651,22 @@ For architecture details, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 Septum is composed of 7 independent modules split across three security zones. Air-gapped modules handle raw PII with zero internet access. The bridge transports only masked placeholders. Internet-facing modules never see raw PII.
 
 ```mermaid
-graph TB
+graph LR
     subgraph AIRGAP["Air-gapped zone"]
-        direction TB
-        CORE["septum-core\nPII detection + masking"]
-        MCP["septum-mcp\nMCP server for Claude tools"]
-        API["septum-api\nFastAPI REST endpoints"]
-        WEB["septum-web\nDashboard + approval UI"]
-
-        CORE --> MCP
-        CORE --> API
-        API --> WEB
+        CORE["septum-core"] --> API["septum-api"]
+        CORE --> MCP["septum-mcp"]
+        API --> WEB["septum-web"]
     end
-
     subgraph INTERNET["Internet-facing zone"]
-        direction TB
-        GW["septum-gateway\nCloud LLM forwarder"]
-        AUDIT["septum-audit\nCompliance logging"]
-        CLOUD["Cloud LLMs\nAnthropic / OpenAI / OpenRouter"]
-
-        GW --> CLOUD
-        GW --> AUDIT
+        GW["septum-gateway"] --> CLOUD["Cloud LLMs"]
+        GW --> AUDIT["septum-audit"]
     end
-
     subgraph CLIENTS["MCP clients"]
-        CD["Claude Desktop"]
-        CHATGPT["ChatGPT Desktop"]
-        OTHER["Any MCP Client"]
+        CD["Claude Desktop"] & CHATGPT["ChatGPT Desktop"] & OTHER["Any MCP Client"]
     end
-
-    QUEUE["septum-queue\nMasked data only"]
-
-    API -- "masked text" --> QUEUE
-    QUEUE -- "masked text" --> GW
-    GW -- "LLM response" --> QUEUE
-    QUEUE -- "LLM response" --> API
-
-    CD --> MCP
-    CHATGPT --> MCP
-    OTHER --> MCP
+    API -- "masked text" --> QUEUE["septum-queue"] -- "masked text" --> GW
+    GW -. "response" .-> QUEUE -. "response" .-> API
+    CLIENTS --> MCP
 
     style AIRGAP fill:none,stroke:#4CAF50,stroke-width:2,stroke-dasharray: 5 5
     style INTERNET fill:none,stroke:#2196F3,stroke-width:2,stroke-dasharray: 5 5
