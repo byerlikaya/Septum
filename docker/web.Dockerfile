@@ -25,8 +25,6 @@
 FROM node:20-alpine AS builder
 
 ARG NEXT_PUBLIC_API_BASE_URL=""
-# Matches the runtime fallback in next.config.mjs for local dev without a
-# compose network; docker-compose.yml overrides it with http://api:8000.
 ARG BACKEND_INTERNAL_URL=http://127.0.0.1:8000
 # Version is injected by the Docker Hub publish workflow from the git
 # tag; defaults to 0.0.0-dev for local builds that skip --build-arg.

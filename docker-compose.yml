@@ -82,7 +82,7 @@ services:
       redis:
         condition: service_healthy
       ollama:
-        condition: service_healthy
+        condition: service_started
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
@@ -106,6 +106,12 @@ services:
       api:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO/dev/null http://127.0.0.1:3000 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
 
   gateway-worker:
     build:
@@ -178,9 +184,6 @@ services:
       - ollama-data:/root/.ollama
     restart: unless-stopped
     healthcheck:
-      # Ollama exposes a plain /api/tags JSON endpoint even with no models
-      # pulled, so hitting it gives us a cheap liveness probe; curl isn't
-      # in the image so we reach for the bundled ollama binary instead.
       test: ["CMD", "ollama", "list"]
       interval: 30s
       timeout: 5s

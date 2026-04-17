@@ -40,12 +40,11 @@ Frontend and backend share the same origin. Next.js rewrites in `next.config.mjs
 
 ```bash
 # No build-time URL needed — requests stay relative.
-npm run build
-BACKEND_INTERNAL_URL=http://127.0.0.1:8000 npm run start
+npm run build && npm run start
 ```
 
 - `NEXT_PUBLIC_API_BASE_URL` — **unset**. `baseURL` resolves to `""` at module load, so Axios and `fetch()` call relative paths.
-- `BACKEND_INTERNAL_URL` — read at request time by the Next.js rewrite layer. Points at the backend on the same host (loopback or `host.docker.internal` in the combined Docker image).
+- `BACKEND_INTERNAL_URL` — baked at build time into the Next.js routes manifest. For local dev (`npm run dev`) it is read from the environment at startup; for Docker builds it must be passed as a build-arg (see `docker/web.Dockerfile`). Default: `http://127.0.0.1:8000`.
 
 ### 2. Split deployment
 

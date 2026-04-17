@@ -1,14 +1,4 @@
-# -----------------------------------------------------------------------------
-# Opt-out override for ``docker-compose.yml``: skips the local Ollama
-# container and removes the api's healthcheck-gated dependency on it.
-#
-# Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up
-#
-# Pair this with a cloud provider (OpenAI / Anthropic / OpenRouter) in the
-# setup wizard — without Ollama there is no local fallback.
-# -----------------------------------------------------------------------------
-
+# Skip Ollama — use a cloud provider instead (no local LLM fallback).
 services:
   ollama: !reset null
 
