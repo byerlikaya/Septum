@@ -652,17 +652,17 @@ Septum is composed of 7 independent modules split across three security zones. A
 
 ```mermaid
 graph TD
-    subgraph CLIENTS["MCP Clients"]
+    subgraph CLIENTS["🖥️ MCP Clients"]
         CD["Claude Desktop"]
         CHATGPT["ChatGPT Desktop"]
         OTHER["Any MCP Client"]
+        CD ~~~ CHATGPT ~~~ OTHER
     end
 
     subgraph AIRGAP["🔒 Air-Gapped Zone — raw PII stays here"]
-        WEB["septum-web\nDashboard"]
-        API["septum-api\nREST API"]
-        CORE["septum-core\nPII Engine"]
-        MCP["septum-mcp\nMCP Server"]
+        WEB["septum-web\nDashboard"] --> API["septum-api\nREST API"]
+        API --> CORE["septum-core\nPII Engine"]
+        MCP["septum-mcp\nMCP Server"] --> CORE
     end
 
     subgraph INTERNET["☁️ Internet Zone — only masked data"]
@@ -675,9 +675,6 @@ graph TD
     CD --> MCP
     CHATGPT --> MCP
     OTHER --> MCP
-    MCP --> CORE
-    WEB --> API
-    API --> CORE
     API -- "masked text" --> QUEUE["septum-queue\n📦 Bridge"]
     QUEUE -- "masked text" --> GW
     GW --> CLOUD
