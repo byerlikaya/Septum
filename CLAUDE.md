@@ -264,13 +264,6 @@ All LLM calls in tests must be mocked — never send real requests to cloud LLMs
 - When editing `package.json` or `requirements.txt`, proactively update any outdated deps.
 - Changes must result in 0 errors, 0 warnings after build/test.
 
-## Adding New Components
-
-Skill templates in `.claude/skills/` (also mirrored in `.cursor/rules/` for Cursor IDE):
-- **`/new-regulation`** — recognizer pack + seed data + tests
-- **`/new-recognizer`** — national ID validator + Presidio recognizer + tests
-- **`/new-ingester`** — format extractor + MIME registration + tests
-
 ## Security Scan
 
 Invoke `/security-scan` for a comprehensive audit (`.claude/skills/security-scan/SKILL.md`):
