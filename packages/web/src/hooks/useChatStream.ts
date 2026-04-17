@@ -120,17 +120,25 @@ export function useChatStream({
 
       const onEvent = (event: SSEChatEvent) => {
         switch (event.type) {
-          case "meta":
+          case "meta": {
             activeRegs = event.active_regulations ?? [];
             currentSessionIdRef.current = event.session_id;
             setMessages((prev) => {
               const targetId = pendingAssistantIdRef.current;
               if (!targetId) return prev;
               return prev.map((m) =>
-                m.id === targetId ? { ...m, sessionId: event.session_id } : m
+                m.id === targetId
+                  ? {
+                      ...m,
+                      sessionId: event.session_id,
+                      ragMode: event.rag_mode,
+                      matchedDocNames: event.matched_document_names,
+                    }
+                  : m
               );
             });
             break;
+          }
           case "approval_required":
             onApprovalRequired(
               event.session_id,
