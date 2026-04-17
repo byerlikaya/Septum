@@ -285,7 +285,11 @@ class PromptCatalog:
     ) -> str:
         """Prompt for the main chat LLM call."""
         language_instruction = ""
-        if language and language != "en":
+        if language == "auto":
+            language_instruction = (
+                "IMPORTANT: Respond in the same language as the user's message.\n\n"
+            )
+        elif language and language != "en":
             language_instruction = (
                 f"IMPORTANT: The user's query is in {language.upper()} language. "
                 f"You MUST respond in the same language ({language.upper()}).\n\n"
@@ -345,5 +349,31 @@ class PromptCatalog:
             "User question:\n"
             f"{sanitized_query}"
             f"{output_instruction}"
+        )
+
+    @staticmethod
+    def pure_chat_prompt(sanitized_query: str) -> str:
+        """Prompt for pure conversational chat when no document context is involved."""
+        return (
+            "You are a helpful, friendly assistant. Respond naturally and conversationally. "
+            "Always respond in the same language as the user's message.\n\n"
+            f"{sanitized_query}"
+        )
+
+    @staticmethod
+    def intent_classification(query: str, document_names: list[str]) -> str:
+        """Prompt for local Ollama intent classification (SEARCH vs CHAT)."""
+        names_str = ", ".join(document_names[:20]) or "various files"
+        return (
+            "Classify the user's intent. Reply with exactly one word: SEARCH or CHAT.\n\n"
+            "SEARCH — ANY part of the message asks about, references, or requests information "
+            "from the uploaded documents or files. This includes mixed messages that contain "
+            "both casual talk and a document question.\n"
+            "CHAT — the ENTIRE message is casual conversation, greeting, or a general question "
+            "completely unrelated to any uploaded document.\n\n"
+            "When in doubt, prefer SEARCH.\n\n"
+            f"Uploaded documents: {names_str}\n"
+            f"User message: {query}\n"
+            "Intent:"
         )
 

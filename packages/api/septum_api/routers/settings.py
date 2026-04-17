@@ -87,6 +87,7 @@ class SettingsResponse(BaseModel):
     pdf_chunk_size: int
     audio_chunk_size: int
     spreadsheet_chunk_size: int
+    rag_relevance_threshold: float
 
     whisper_model: str
     default_audio_language: Optional[str] = None
@@ -133,6 +134,7 @@ class SettingsUpdatePayload(BaseModel):
     pdf_chunk_size: Optional[int] = None
     audio_chunk_size: Optional[int] = None
     spreadsheet_chunk_size: Optional[int] = None
+    rag_relevance_threshold: Optional[float] = None
 
     whisper_model: Optional[str] = None
     default_audio_language: Optional[str] = None

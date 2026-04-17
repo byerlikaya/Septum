@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import JSON, Boolean, Integer, String
+from sqlalchemy import JSON, Boolean, Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from . import Base
@@ -49,6 +49,10 @@ class AppSettings(Base):
     pdf_chunk_size: Mapped[int] = mapped_column(Integer, nullable=False)
     audio_chunk_size: Mapped[int] = mapped_column(Integer, nullable=False)
     spreadsheet_chunk_size: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    rag_relevance_threshold: Mapped[float] = mapped_column(
+        Float, nullable=False, server_default="0.35"
+    )
 
     whisper_model: Mapped[str] = mapped_column(String, nullable=False)
     default_audio_language: Mapped[Optional[str]] = mapped_column(

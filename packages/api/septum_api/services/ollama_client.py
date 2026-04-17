@@ -72,6 +72,7 @@ async def call_ollama_async(
     base_url: str | None = None,
     model: str | None = None,
     timeout: float = 30.0,
+    options: dict[str, Any] | None = None,
 ) -> str:
     """Asynchronously call Ollama /api/generate and return the response text."""
     url = f"{(base_url or _default_base_url())}/api/generate"
@@ -80,6 +81,8 @@ async def call_ollama_async(
         "prompt": prompt,
         "stream": False,
     }
+    if options:
+        payload["options"] = options
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(url, json=payload)

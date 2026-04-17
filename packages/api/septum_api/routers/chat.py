@@ -55,7 +55,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from langdetect import DetectorFactory
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -174,20 +174,7 @@ def _mask_with_anon_map(text: str, anon_map: AnonymizationMap) -> str:
 THEME_SNIPPET_LEN = 400
 MIN_CHUNKS_FOR_LAST = 6
 TOP_K_RETRIEVAL_MAX_CAP = 25
-# Absolute relevance floor for the hybrid-retrieval score filter. Scores
-# from :func:`VectorStore.hybrid_search` are max-normalized to ``[0, 1]``
-# against the best match for the current query, and any candidate below
-# this ratio is dropped before being shown in the approval modal or sent
-# to the LLM. The main job of this filter is to cut noise at the tail of
-# the retrieval (chunks that only match in one source at a low rank), not
-# to do adaptive "elbow" detection — an earlier version of this code
-# attempted that and systematically dropped the substantively-relevant
-# chunks on small documents because BM25+FAISS score cliffs often
-# correspond to document structure (headers/footers scoring higher than
-# body content), not user-perceived relevance. The user's configured
-# ``top_k_retrieval`` is still the primary control for how many chunks
-# end up in the modal; lower it to make the modal tighter.
-RELEVANCE_SCORE_THRESHOLD = 0.4
+_DEFAULT_RELEVANCE_THRESHOLD = 0.35
 
 
 def _effective_top_k(base_top_k: int, chunk_count: int) -> int:
@@ -223,12 +210,43 @@ def _get_bm25_retriever() -> "BM25Retriever":
     return _bm25_retriever_singleton
 
 
+async def _classify_query_intent(
+    query: str,
+    document_names: list[str],
+    ollama_base_url: str,
+    ollama_model: str,
+) -> str | None:
+    """Classify whether a query requires document search or is casual chat.
+
+    Uses the local Ollama model for privacy-preserving intent detection.
+    Returns ``"search"``, ``"chat"``, or ``None`` if classification is
+    unavailable (Ollama down / not configured).
+    """
+    if not ollama_base_url or not ollama_model:
+        return None
+
+    from ..services.ollama_client import call_ollama_async
+
+    prompt = PromptCatalog.intent_classification(query, document_names)
+    response = await call_ollama_async(
+        prompt=prompt,
+        base_url=ollama_base_url,
+        model=ollama_model,
+        timeout=5.0,
+        options={"num_predict": 5, "temperature": 0.0},
+    )
+    if not response:
+        return None
+    return "chat" if "CHAT" in response.strip().upper() else "search"
+
+
 async def _retrieve_chunks(
     db: AsyncSession,
     document_id: int,
     query: str,
     top_k: int,
     chunk_count: Optional[int] = None,
+    relevance_threshold: float = _DEFAULT_RELEVANCE_THRESHOLD,
 ) -> List[Chunk]:
     """Retrieve relevance-filtered chunks using hybrid search (BM25 + FAISS).
 
@@ -290,7 +308,7 @@ async def _retrieve_chunks(
         filtered = [
             (cid, score)
             for cid, score in normalized
-            if score >= RELEVANCE_SCORE_THRESHOLD
+            if score >= relevance_threshold
         ]
         if not filtered:
             # Defensive: keep at least the top result so the caller never
@@ -323,6 +341,79 @@ async def _retrieve_chunks(
         chunks = list(db_result.scalars().all())
 
     return chunks
+
+
+async def _retrieve_chunks_all_documents(
+    db: AsyncSession,
+    query: str,
+    top_k: int,
+    documents: list[Document],
+    relevance_threshold: float = _DEFAULT_RELEVANCE_THRESHOLD,
+) -> tuple[List[Chunk], List[int]]:
+    """Search ALL completed documents for the user and return relevant chunks.
+
+    Returns ``(chunks, matched_document_ids)``.  If no chunk from any
+    document survives the *relevance_threshold*, returns ``([], [])``.
+    """
+    if not documents:
+        return [], []
+
+    vector_store = _get_vector_store()
+    all_docs = documents
+
+    per_doc_k = max(5, min(50 // max(len(all_docs), 1), top_k))
+
+    async def _search_one(doc: Document) -> list[tuple[int, float, int]]:
+        # Use FAISS cosine similarity (not hybrid RRF) for auto-RAG.
+        # Cosine similarity is absolute [0, 1] and comparable across
+        # documents — a greeting like "Merhaba" scores <0.2 against
+        # contract text, while a real question scores >0.35. RRF scores
+        # are rank-based and always make the top result look relevant
+        # after max-normalization, defeating the threshold filter.
+        results = await asyncio.to_thread(
+            vector_store.search, doc.id, query, top_k=per_doc_k
+        )
+        if not results:
+            return []
+        return [(cid, score, doc.id) for cid, score in results]
+
+    per_doc_results = await asyncio.gather(
+        *(_search_one(doc) for doc in all_docs)
+    )
+
+    all_scored: list[tuple[int, float, int]] = []
+    for res in per_doc_results:
+        all_scored.extend(res)
+
+    if not all_scored:
+        return [], []
+
+    all_scored.sort(key=lambda x: x[1], reverse=True)
+
+    filtered = [
+        (cid, score, did)
+        for cid, score, did in all_scored
+        if score >= relevance_threshold
+    ]
+    if not filtered:
+        return [], []
+
+    cap = min(top_k * 3, 50)
+    filtered = filtered[:cap]
+
+    chunk_ids = [cid for cid, _, _ in filtered]
+    matched_doc_ids = sorted({did for _, _, did in filtered})
+
+    stmt = select(Chunk).where(Chunk.id.in_(chunk_ids))
+    db_result = await db.execute(stmt)
+    base_chunks = list(db_result.scalars().all())
+
+    order_index = {cid: idx for idx, (cid, _, _) in enumerate(filtered)}
+    chunks = sorted(
+        base_chunks, key=lambda c: order_index.get(c.id, len(filtered))
+    )
+
+    return chunks, matched_doc_ids
 
 
 def _build_approval_chunks(chunks: List[Chunk], texts: List[str]) -> List[ApprovalChunk]:
@@ -459,6 +550,7 @@ async def _run_llm_and_deanonymize(
     query_placeholders: Optional[List[str]] = None,
     http_request: Optional[Request] = None,
     used_ollama_fallback_ref: Optional[List[bool]] = None,
+    rag_mode: str = "manual",
 ) -> str:
     """Call the LLM and apply local de-anonymization."""
     llm = LLMRouter(settings)
@@ -472,16 +564,19 @@ async def _run_llm_and_deanonymize(
             except Exception:  # noqa: BLE001
                 pass
 
-    user_prompt = await _assemble_user_prompt(
-        db=db,
-        sanitized_query=sanitized_query,
-        context_chunks=context_chunks,
-        regulation_names=regulation_names,
-        language=language,
-        output_mode=output_mode,
-        document_id=document_id,
-        query_has_placeholder=query_has_placeholder,
-    )
+    if rag_mode == "none":
+        user_prompt = PromptCatalog.pure_chat_prompt(sanitized_query)
+    else:
+        user_prompt = await _assemble_user_prompt(
+            db=db,
+            sanitized_query=sanitized_query,
+            context_chunks=context_chunks,
+            regulation_names=regulation_names,
+            language=language,
+            output_mode=output_mode,
+            document_id=document_id,
+            query_has_placeholder=query_has_placeholder,
+        )
 
     # Keep the placeholder-aware list available for downstream answer
     # post-processing (which needs to know which placeholders were actually
@@ -569,14 +664,8 @@ async def chat_ask(
             detail="Either 'message' or 'query' must be provided.",
         )
 
-    # Determine whether this request is document-backed (RAG) or pure free-text.
     document_ids_list: List[int] = []
     if request.document_ids:
-        if len(request.document_ids) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="At least one document_id must be provided.",
-            )
         document_ids_list = list(request.document_ids)
     elif request.document_id is not None:
         document_ids_list = [request.document_id]
@@ -655,37 +744,28 @@ async def chat_ask(
                         message_text, language, settings, anon_map, db
                     )
                 )
+            relevance_threshold = settings.rag_relevance_threshold
+            rag_mode: str = "manual" if document_ids_list else "auto"
+            matched_document_ids: List[int] = []
+            matched_document_names: List[str] = []
             chunks: List[Chunk] = []
-            if not request.pre_approved_chunks and documents_by_id:
+
+            if not request.pre_approved_chunks and rag_mode == "manual" and documents_by_id:
                 async with _phase_timer(session_id, "retrieve_chunks"):
                     base_top_k = request.top_k or settings.top_k_retrieval
                     total_chunk_count = sum(
                         d.chunk_count for d in documents_by_id.values()
                     )
                     top_k = _effective_top_k(base_top_k, total_chunk_count)
-                    # Always run hybrid retrieval. Septum's approval modal
-                    # shows whatever ends up in ``chunks``, so bypassing
-                    # retrieval for small documents would surface every
-                    # chunk for approval and defeat the curation step the
-                    # user is asked to perform. If you want a larger slice
-                    # of the document in the LLM prompt, raise
-                    # ``top_k_retrieval`` in Settings.
                     if len(documents_by_id) == 1:
                         doc = next(iter(documents_by_id.values()))
-                        # Honour the user's top_k_retrieval verbatim in
-                        # single-doc mode. The ``_effective_top_k`` bonus
-                        # was designed to give multi-doc queries enough
-                        # chunks *per document*; in single-doc mode it
-                        # over-fetches and blunts the relevance filter.
-                        # The approval modal now shows only the chunks
-                        # that actually survive the filter, so respecting
-                        # the user's setting keeps the result compact.
                         chunks = await _retrieve_chunks(
                             db=db,
                             document_id=doc.id,
                             query=sanitized_query,
                             top_k=base_top_k,
                             chunk_count=doc.chunk_count,
+                            relevance_threshold=relevance_threshold,
                         )
                     else:
                         MIN_PER_DOC = 10
@@ -702,8 +782,69 @@ async def chat_ask(
                                 query=sanitized_query,
                                 top_k=per_doc_k,
                                 chunk_count=doc.chunk_count,
+                                relevance_threshold=relevance_threshold,
                             )
                             chunks.extend(chunks_doc)
+
+            elif not request.pre_approved_chunks and rag_mode == "auto":
+                async with _phase_timer(session_id, "auto_rag_classify"):
+                    all_user_docs_result = await db.execute(
+                        select(Document).where(
+                            or_(
+                                Document.user_id == _user.id,
+                                Document.user_id.is_(None),
+                            ),
+                            Document.ingestion_status == "completed",
+                            Document.chunk_count > 0,
+                        )
+                    )
+                    all_user_docs = list(
+                        all_user_docs_result.scalars().all()
+                    )
+
+                    if not all_user_docs:
+                        rag_mode = "none"
+                    else:
+                        doc_names = [
+                            d.original_filename or f"document_{d.id}"
+                            for d in all_user_docs
+                        ]
+                        intent = await _classify_query_intent(
+                            query=sanitized_query,
+                            document_names=doc_names,
+                            ollama_base_url=settings.ollama_base_url,
+                            ollama_model=settings.ollama_chat_model,
+                        )
+                        if intent == "chat":
+                            rag_mode = "none"
+
+                if rag_mode == "auto":
+                    async with _phase_timer(session_id, "retrieve_chunks_auto"):
+                        base_top_k = request.top_k or settings.top_k_retrieval
+                        chunks, matched_document_ids = await _retrieve_chunks_all_documents(
+                            db=db,
+                            query=sanitized_query,
+                            top_k=base_top_k,
+                            documents=all_user_docs,
+                            relevance_threshold=relevance_threshold,
+                        )
+                        if chunks:
+                            docs_by_id = {
+                                d.id: d for d in all_user_docs
+                            }
+                            for did in matched_document_ids:
+                                doc_obj = docs_by_id.get(did)
+                                if doc_obj:
+                                    documents_by_id[did] = doc_obj
+                                    matched_document_names.append(
+                                        doc_obj.original_filename
+                                        or str(did)
+                                    )
+                            document = next(
+                                iter(documents_by_id.values()), None
+                            )
+                        else:
+                            rag_mode = "none"
 
             if entity_count > 0:
                 await log_pii_detected(
@@ -728,12 +869,16 @@ async def chat_ask(
                     ),
                 )
 
+            if rag_mode == "none":
+                language = "auto"
+
             gate: ApprovalGate = get_approval_gate()
-            require_approval = (
-                request.require_approval
-                if request.require_approval is not None
-                else settings.require_approval
-            )
+            if rag_mode == "none":
+                require_approval = False
+            elif request.require_approval is not None:
+                require_approval = request.require_approval
+            else:
+                require_approval = settings.require_approval
 
             effective_settings = settings
             if request.deanon_enabled is not None:
@@ -751,6 +896,9 @@ async def chat_ask(
                     "require_approval": require_approval,
                     "retrieved_chunk_count": len(chunks),
                     "active_regulations": regulation_names,
+                    "rag_mode": rag_mode,
+                    "matched_document_ids": matched_document_ids,
+                    "matched_document_names": matched_document_names,
                 }
             )
 
@@ -777,6 +925,32 @@ async def chat_ask(
             else:
                 sanitized_chunk_texts: List[str] = []
                 if documents_by_id and chunks:
+                    anon_maps: dict[int, AnonymizationMap] = {}
+                    if document is not None and document.id in documents_by_id:
+                        anon_maps[document.id] = anon_map
+                    remaining = [
+                        did for did in documents_by_id if did not in anon_maps
+                    ]
+                    if remaining:
+                        loaded = await asyncio.gather(
+                            *(get_document_map(did) for did in remaining)
+                        )
+                        for did, m in zip(remaining, loaded):
+                            anon_maps[did] = m or AnonymizationMap(
+                                document_id=did, language=language
+                            )
+
+                    if len(anon_maps) > 1:
+                        merged_entity_map: dict[str, str] = {}
+                        for m in anon_maps.values():
+                            merged_entity_map.update(m.entity_map)
+                        anon_map = AnonymizationMap(
+                            document_id=0, language=language
+                        )
+                        anon_map.entity_map = merged_entity_map
+                    elif anon_maps:
+                        anon_map = next(iter(anon_maps.values()))
+
                     prev_doc_id: Optional[int] = None
                     for c in chunks:
                         header = ""
@@ -796,7 +970,8 @@ async def chat_ask(
                             )
                             prev_doc_id = c.document_id
                         chunk_text = c.sanitized_text or ""
-                        masked_chunk = _mask_with_anon_map(chunk_text, anon_map)
+                        chunk_map = anon_maps.get(c.document_id, anon_map)
+                        masked_chunk = _mask_with_anon_map(chunk_text, chunk_map)
                         sanitized_chunk_texts.append(
                             header + masked_chunk
                         )
@@ -935,6 +1110,7 @@ async def chat_ask(
                     ),
                     http_request=http_request,
                     used_ollama_fallback_ref=used_ollama_fallback,
+                    rag_mode=rag_mode,
                 )
 
             if effective_settings.deanon_enabled and anon_map.entity_map:
