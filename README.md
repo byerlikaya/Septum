@@ -458,7 +458,7 @@ The `docker pull` step is required — `docker run` alone reuses the cached imag
 docker compose up
 ```
 
-Starts PostgreSQL, Redis, and Septum in a single command. Add `--profile ollama` for a local Ollama instance. The setup wizard configures the LLM provider on first visit.
+Starts PostgreSQL, Redis, Ollama, and Septum in a single command. Pull a model before the first chat with `docker compose exec ollama ollama pull llama3.2:3b`. Skip Ollama with `docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up` if you only want a cloud provider. The setup wizard configures the LLM provider on first visit.
 
 ### Deployment Topologies
 

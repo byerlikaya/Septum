@@ -45,9 +45,10 @@ Set `NEXT_PUBLIC_API_BASE_URL` at build time to point the dashboard at a backend
 # Published standalone image (SQLite, no external services)
 docker run --name septum --add-host=host.docker.internal:host-gateway -p 3000:3000 -v septum-data:/app/data -v septum-uploads:/app/uploads -v septum-anon-maps:/app/anon_maps -v septum-vector-indexes:/app/vector_indexes -v septum-bm25-indexes:/app/bm25_indexes -v septum-models:/app/models byerlikaya/septum
 
-# Full dev stack (all modules + Postgres + Redis)
+# Full dev stack (all modules + Postgres + Redis + Ollama)
 docker compose up
-docker compose --profile ollama up                         # with local Ollama models
+docker compose exec ollama ollama pull llama3.2:3b         # first-time: pull a model
+docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up   # skip Ollama (cloud provider only)
 
 # Modular topologies (build from docker/ Dockerfiles)
 docker compose -f docker-compose.standalone.yml up         # Single container, SQLite

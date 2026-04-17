@@ -2,17 +2,20 @@
 # Septum — full dev stack (all modules on one host)
 #
 # Wires every module together in a single compose file: air-gapped api +
-# web, internet-facing gateway + audit, plus Postgres + Redis + optional
-# Ollama. Use this for local development or a single-host install where
-# zone isolation is not a hard deployment requirement — for a true
-# two-host split use docker-compose.airgap.yml on one side and
+# web, internet-facing gateway + audit, plus Postgres + Redis + Ollama.
+# Use this for local development or a single-host install where zone
+# isolation is not a hard deployment requirement — for a true two-host
+# split use docker-compose.airgap.yml on one side and
 # docker-compose.gateway.yml on the other.
 #
 # Start:
-#   docker compose up                                   # without Ollama
-#   docker compose --profile ollama up                  # with local LLMs
+#   docker compose up                                                # full stack incl. Ollama
+#   docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up   # without Ollama
 #
-# Standalone (no Postgres / Redis):
+# First-time Ollama setup (pull a model before the first chat):
+#   docker compose exec ollama ollama pull llama3.2:3b
+#
+# Standalone (no Postgres / Redis / Ollama):
 #   docker compose -f docker-compose.standalone.yml up
 # -----------------------------------------------------------------------------
 
@@ -61,6 +64,7 @@ services:
       USE_GATEWAY_DEFAULT: "true"
       SEPTUM_QUEUE_URL: redis://redis:6379/0
       FRONTEND_ORIGIN: http://localhost:3000
+      OLLAMA_BASE_URL: http://ollama:11434
     ports:
       - "8000:8000"
     extra_hosts:
@@ -76,6 +80,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -171,8 +177,15 @@ services:
     volumes:
       - ollama-data:/root/.ollama
     restart: unless-stopped
-    profiles:
-      - ollama
+    healthcheck:
+      # Ollama exposes a plain /api/tags JSON endpoint even with no models
+      # pulled, so hitting it gives us a cheap liveness probe; curl isn't
+      # in the image so we reach for the bundled ollama binary instead.
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
 
 volumes:
   septum-pgdata:

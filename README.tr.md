@@ -460,7 +460,7 @@ docker run --name septum \
 docker compose up
 ```
 
-PostgreSQL, Redis ve Septum'u tek komutla başlatır. Yerel Ollama için `--profile ollama` ekleyin. Kurulum sihirbazı ilk ziyarette LLM provider'ı yapılandırır.
+PostgreSQL, Redis, Ollama ve Septum'u tek komutla başlatır. İlk sohbetten önce model çekin: `docker compose exec ollama ollama pull llama3.2:3b`. Sadece cloud provider kullanacaksanız Ollama'yı atlayın: `docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up`. Kurulum sihirbazı ilk ziyarette LLM provider'ı yapılandırır.
 
 ### Dağıtım Topolojileri
 
