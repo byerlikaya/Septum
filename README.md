@@ -100,16 +100,12 @@ sequenceDiagram
     participant U as 👤 User
     participant S as 🛡️ Septum
     participant L as ☁️ Cloud LLM
-
     U->>S: Prepare a report for Ahmet Yilmaz
-    Note over S: PII Detection<br/>PERSON_NAME: Ahmet Yilmaz
-    S->>S: Masking
-    Note over S: Prepare a report for [PERSON_1]
-    S->>L: Send masked request
-    L->>S: Return masked response
+    Note over S: Detect & mask → [PERSON_1]
+    S->>L: Masked request
+    L->>S: Masked response
     Note over S: Local de-anonymisation
     S->>U: Report for Ahmet Yilmaz
-
     Note over U,L: 🔒 Raw PII never left the machine!
 ```
 
