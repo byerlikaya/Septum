@@ -11,13 +11,17 @@ source of truth — MCP and standalone engine callers load the same
 import os
 from typing import List, NamedTuple
 
-from septum_core.recognizers import BUILTIN_REGULATION_IDS, entity_types_for
+from septum_core.recognizers import (
+    BUILTIN_REGULATION_IDS,
+    RegulationId,
+    entity_types_for,
+)
 
 from ..models.regulation import RegulationRuleset
 
 
 class _RegulationMeta(NamedTuple):
-    id: str
+    id: RegulationId
     display_name: str
     region: str
     description: str
@@ -36,119 +40,119 @@ def _entity_types(reg_id: str) -> List[str]:
 
 _REGULATION_META: list[_RegulationMeta] = [
     _RegulationMeta(
-        "gdpr",
+        RegulationId.GDPR,
         "General Data Protection Regulation",
         "EU / EEA",
         "Regulation (EU) 2016/679. Personal data: Art. 4(1). Special categories: Art. 9(1). Online identifiers: Rec. 30.",
         "https://eur-lex.europa.eu/eli/reg/2016/679/oj",
     ),
     _RegulationMeta(
-        "hipaa",
+        RegulationId.HIPAA,
         "Health Insurance Portability and Accountability Act",
         "USA (Healthcare)",
         "US regulation governing protected health information (PHI).",
         "https://www.hhs.gov/hipaa/index.html",
     ),
     _RegulationMeta(
-        "kvkk",
+        RegulationId.KVKK,
         "Personal Data Protection Law (Turkey)",
         "Turkey",
         "6698 sayılı KVKK. Madde 3(d): kişisel veri tanımı. Madde 6: özel nitelikli kişisel veriler (ırk, etnik köken, siyasi düşünce, din, sağlık, cinsel hayat, biyometrik, genetik vb.). Kurum rehberi: ad, soyad, ana/baba adı, adres, doğum tarihi, telefon, plaka, SGK, pasaport.",
         "https://www.kvkk.gov.tr/",
     ),
     _RegulationMeta(
-        "lgpd",
+        RegulationId.LGPD,
         "Lei Geral de Proteção de Dados",
         "Brazil",
         "Brazilian General Data Protection Law (LGPD).",
         "https://www.gov.br/escola-national-de-administracao-publica/lgpd",
     ),
     _RegulationMeta(
-        "ccpa",
+        RegulationId.CCPA,
         "California Consumer Privacy Act",
         "USA (California)",
         "Cal. Civ. Code § 1798.140. Identifiers, customer records, protected classifications, biometric, geolocation, sensitive PI.",
         "https://oag.ca.gov/privacy/ccpa",
     ),
     _RegulationMeta(
-        "cpra",
+        RegulationId.CPRA,
         "California Privacy Rights Act",
         "USA (California)",
         "CPRA amends CCPA; Cal. Civ. Code § 1798.140. Same categories plus sensitive personal information (precise geolocation, genetic, health).",
         "https://oag.ca.gov/privacy/cpra",
     ),
     _RegulationMeta(
-        "uk_gdpr",
+        RegulationId.UK_GDPR,
         "UK GDPR",
         "United Kingdom",
         "UK GDPR (retained EU law) and DPA 2018. Same personal data definition as EU GDPR Art. 4(1); special categories Art. 9(1); ICO guidance on identifiers.",
         "https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/",
     ),
     _RegulationMeta(
-        "pipeda",
+        RegulationId.PIPEDA,
         "Personal Information Protection and Electronic Documents Act",
         "Canada",
         "PIPEDA s. 2(1): information about an identifiable individual. OPC guidance: financial, biometric, health, identifiers, opinions.",
         "https://laws-lois.justice.gc.ca/eng/acts/P-8.6/",
     ),
     _RegulationMeta(
-        "pdpa_th",
+        RegulationId.PDPA_TH,
         "Personal Data Protection Act",
         "Thailand",
         "Thailand PDPA (B.E. 2562). Section 6 personal data; Section 26 sensitive data.",
         "https://www.pdpathailand.com/",
     ),
     _RegulationMeta(
-        "pdpa_sg",
+        RegulationId.PDPA_SG,
         "Personal Data Protection Act",
         "Singapore",
         "Singapore PDPA.",
         "https://www.pdpc.gov.sg/",
     ),
     _RegulationMeta(
-        "appi",
+        RegulationId.APPI,
         "Act on the Protection of Personal Information",
         "Japan",
         "Japan APPI. Art. 2(1) personal information; Art. 2(3) special care-required.",
         "https://www.ppc.go.jp/en/",
     ),
     _RegulationMeta(
-        "pipl",
+        RegulationId.PIPL,
         "Personal Information Protection Law",
         "China",
         "China PIPL. Art. 4 personal information; Art. 28 sensitive personal information.",
         "https://www.cac.gov.cn/",
     ),
     _RegulationMeta(
-        "popia",
+        RegulationId.POPIA,
         "Protection of Personal Information Act",
         "South Africa",
         "South Africa POPIA (Act 4 of 2013). Section 1 definitions; Section 26 special personal information.",
         "https://popia.co.za/",
     ),
     _RegulationMeta(
-        "dpdp",
+        RegulationId.DPDP,
         "Digital Personal Data Protection Act",
         "India",
         "India DPDP Act 2023.",
         "https://www.meity.gov.in/data-protection-framework",
     ),
     _RegulationMeta(
-        "pdpl_sa",
+        RegulationId.PDPL_SA,
         "Personal Data Protection Law",
         "Saudi Arabia",
         "Saudi Arabia PDPL (Royal Decree M/19). Art. 1 definitions; Art. 14 sensitive data.",
         "https://sdaia.gov.sa/",
     ),
     _RegulationMeta(
-        "nzpa",
+        RegulationId.NZPA,
         "Privacy Act 2020",
         "New Zealand",
         "New Zealand Privacy Act 2020. Section 7 definition; OPC sensitive data guidance.",
         "https://www.privacy.org.nz/",
     ),
     _RegulationMeta(
-        "australia_pa",
+        RegulationId.AUSTRALIA_PA,
         "Privacy Act 1988",
         "Australia",
         "Australia Privacy Act 1988 (amended). Section 6(1) personal/sensitive information.",

@@ -4,39 +4,50 @@ Loads :class:`RecognizerRegistry` and the shared ``base_recognizer``
 utilities. Regulation packs live under ``septum_core.recognizers.<id>``
 and each exposes a ``get_recognizers()`` entry point.
 
-``BUILTIN_REGULATION_IDS`` and ``entity_types_for()`` are the canonical
-source of truth shared by ``septum-core``, ``septum-mcp`` and the
-``septum-api`` seed/defaults. Every downstream consumer imports from
-here so the 17-pack list cannot drift.
+:class:`RegulationId` (the StrEnum) and :data:`BUILTIN_REGULATION_IDS`
+are the canonical source of truth for the 17 built-in packs, shared
+by ``septum-core``, ``septum-mcp`` and the ``septum-api`` seed. Every
+downstream consumer imports from here so the list cannot drift.
+
+Because :class:`RegulationId` is a :class:`~enum.StrEnum`, its members
+compare equal to plain strings (``RegulationId.GDPR == "gdpr"``), so
+env-var-driven config, DB columns and REST payloads continue to flow
+as strings without any adapter layer.
 """
 
 from __future__ import annotations
 
 import importlib
+from enum import StrEnum
 from typing import List
 
 from .base_recognizer import RegexPatternConfig, ValidatedPatternRecognizer
 from .registry import RecognizerRegistry
 
-BUILTIN_REGULATION_IDS: tuple[str, ...] = (
-    "gdpr",
-    "kvkk",
-    "ccpa",
-    "cpra",
-    "hipaa",
-    "lgpd",
-    "pipeda",
-    "pdpa_th",
-    "pdpa_sg",
-    "appi",
-    "pipl",
-    "popia",
-    "dpdp",
-    "uk_gdpr",
-    "pdpl_sa",
-    "nzpa",
-    "australia_pa",
-)
+
+class RegulationId(StrEnum):
+    """IDs of the 17 built-in regulation packs shipped with septum-core."""
+
+    GDPR = "gdpr"
+    KVKK = "kvkk"
+    CCPA = "ccpa"
+    CPRA = "cpra"
+    HIPAA = "hipaa"
+    LGPD = "lgpd"
+    PIPEDA = "pipeda"
+    PDPA_TH = "pdpa_th"
+    PDPA_SG = "pdpa_sg"
+    APPI = "appi"
+    PIPL = "pipl"
+    POPIA = "popia"
+    DPDP = "dpdp"
+    UK_GDPR = "uk_gdpr"
+    PDPL_SA = "pdpl_sa"
+    NZPA = "nzpa"
+    AUSTRALIA_PA = "australia_pa"
+
+
+BUILTIN_REGULATION_IDS: tuple[RegulationId, ...] = tuple(RegulationId)
 
 
 def entity_types_for(reg_id: str) -> List[str]:
@@ -83,6 +94,7 @@ def entity_types_for(reg_id: str) -> List[str]:
 
 __all__ = [
     "BUILTIN_REGULATION_IDS",
+    "RegulationId",
     "entity_types_for",
     "RecognizerRegistry",
     "RegexPatternConfig",

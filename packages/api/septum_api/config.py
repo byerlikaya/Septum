@@ -64,10 +64,15 @@ def get_settings() -> AppSettings:
     require a database connection, making it suitable for quick CLI scripts
     and ad-hoc tests.
     """
-    default_active_regs_env = os.getenv("DEFAULT_ACTIVE_REGULATIONS", "gdpr").strip()
+    from septum_core.recognizers import BUILTIN_REGULATION_IDS
+
+    all_builtin_ids = ",".join(BUILTIN_REGULATION_IDS)
+    default_active_regs_env = os.getenv(
+        "DEFAULT_ACTIVE_REGULATIONS", all_builtin_ids
+    ).strip()
     default_active_regulations: List[str] = [
         r.strip().lower() for r in default_active_regs_env.split(",") if r.strip()
-    ] or ["gdpr"]
+    ] or list(BUILTIN_REGULATION_IDS)
 
     return AppSettings(
         id=1,
