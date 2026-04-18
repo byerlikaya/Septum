@@ -13,7 +13,9 @@ Environment variables:
 
 - ``SEPTUM_REGULATIONS`` — comma-separated regulation pack ids, e.g.
   ``"gdpr,kvkk,hipaa"``. Unknown ids are silently ignored by the core
-  composer. Defaults to ``"gdpr"``.
+  composer. Defaults to **all 17 built-in packs** so users don't have
+  to know which regulations apply to their data — the most-restrictive
+  rule wins when multiple packs claim the same entity type.
 - ``SEPTUM_LANGUAGE`` — default ISO 639-1 language hint passed to the
   detector when callers don't specify one. Defaults to ``"en"``.
 - ``SEPTUM_USE_NER`` — ``"true"`` / ``"false"``. When false, the
@@ -30,7 +32,25 @@ import os
 from dataclasses import dataclass, field
 from typing import List
 
-DEFAULT_REGULATIONS = ("gdpr",)
+DEFAULT_REGULATIONS = (
+    "gdpr",
+    "kvkk",
+    "ccpa",
+    "cpra",
+    "hipaa",
+    "lgpd",
+    "pipeda",
+    "pdpa_th",
+    "pdpa_sg",
+    "appi",
+    "pipl",
+    "popia",
+    "dpdp",
+    "uk_gdpr",
+    "pdpl_sa",
+    "nzpa",
+    "australia_pa",
+)
 DEFAULT_LANGUAGE = "en"
 DEFAULT_SESSION_TTL_SECONDS = 3600.0
 
