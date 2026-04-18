@@ -109,10 +109,6 @@ export interface Chunk {
   section_title: string | null;
 }
 
-export interface ChunkListResponse {
-  items: Chunk[];
-}
-
 // --- Chat & approval ---
 
 export type ChatMessageRole = "user" | "assistant";

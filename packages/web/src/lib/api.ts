@@ -127,34 +127,6 @@ export async function initializeInfrastructure(body: {
   return data;
 }
 
-export async function getSpreadsheetSchema(
-  documentId: number
-): Promise<SpreadsheetSchema> {
-  const { data } = await api.get<SpreadsheetSchema>(
-    `/api/documents/${documentId}/schema`
-  );
-  return data;
-}
-
-export async function updateSpreadsheetSchema(
-  documentId: number,
-  columns: SpreadsheetColumn[]
-): Promise<SpreadsheetSchema> {
-  const payload = {
-    columns: columns.map(column => ({
-      index: column.index,
-      technical_label: column.technical_label,
-      semantic_label: column.semantic_label,
-      is_numeric: column.is_numeric
-    }))
-  };
-  const { data } = await api.put<SpreadsheetSchema>(
-    `/api/documents/${documentId}/schema`,
-    payload
-  );
-  return data;
-}
-
 export async function getRegulations(): Promise<RegulationRuleset[]> {
   const { data } = await api.get<RegulationRuleset[]>("/api/regulations");
   return data;
@@ -394,25 +366,6 @@ export async function fetchAuditEvents(params?: {
   return data;
 }
 
-export async function getDocumentComplianceReport(
-  documentId: number
-): Promise<ComplianceReport> {
-  const { data } = await api.get<ComplianceReport>(
-    `/api/audit/${documentId}/report`
-  );
-  return data;
-}
-
-export async function getSessionAudit(
-  sessionId: string
-): Promise<AuditEvent[]> {
-  const { data } = await api.get<AuditEvent[]>(
-    `/api/audit/session/${sessionId}`
-  );
-  return data;
-}
-
-
 // --- Chat Sessions ---
 
 export async function listChatSessions(): Promise<ChatSessionSummary[]> {
@@ -447,13 +400,6 @@ export async function deleteChatSession(sessionId: number): Promise<void> {
 
 export async function convertRejectedToApproved(sessionId: number): Promise<void> {
   await api.post(`/api/chat-sessions/${sessionId}/convert-rejected`);
-}
-
-export async function deleteChatMessage(
-  sessionId: number,
-  messageId: number
-): Promise<void> {
-  await api.delete(`/api/chat-sessions/${sessionId}/messages/${messageId}`);
 }
 
 export async function addChatMessage(
