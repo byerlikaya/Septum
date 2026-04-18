@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here in a high‑level, date‑based format.
 
+### 2026-04-19
+
+- **Fix standalone/MCP dropping NER entity types (PERSON_NAME, LOCATION, ORGANIZATION_NAME)**: Each of the 17 regulation packs now declares its `ENTITY_TYPES` as a module-level constant in `packages/core/septum_core/recognizers/<id>/__init__.py`; `_entity_types_for_regulation` prefers this over walking Presidio recognizers' `supported_entities`, which never included NER-only types. API seed (`seeds/regulations.py`) imports from core — single source of truth. Also flips `DEFAULT_REGULATIONS` (MCP) and `DEFAULT_ACTIVE_REGULATIONS` (API env fallback) from just `"gdpr"` to all 17 built-in packs so users don't need to pre-map their data to jurisdictions to get region-specific detection (TCKN, Aadhaar, NRIC, etc.) out of the box.
+
 ### 2026-04-17
 
 - **Fix web proxy target under docker-compose**: Next.js bakes `rewrites()` destinations at build time, so the runtime `BACKEND_INTERNAL_URL` env var had no effect — the dashboard proxied every `/api` call to its own `127.0.0.1:8000` instead of the api container. Converted to a build-arg in `docker/web.Dockerfile`; both compose files now pass `http://api:8000` at build.
