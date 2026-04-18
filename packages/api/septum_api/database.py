@@ -14,6 +14,7 @@ from typing import Any, AsyncGenerator, List
 
 from fastapi import HTTPException
 from sqlalchemy import select, text
+from septum_core.recognizers import parse_active_regulations_env
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -223,17 +224,9 @@ def build_default_app_settings() -> AppSettings:
     ``utils.db_helpers.load_settings`` so fresh databases and partial
     bootstraps produce the same default configuration.
     """
-    from septum_core.recognizers import BUILTIN_REGULATION_IDS
-
-    all_builtin_regulations = ",".join(BUILTIN_REGULATION_IDS)
-    default_active_regs_env = os.getenv(
-        "DEFAULT_ACTIVE_REGULATIONS", all_builtin_regulations
-    ).strip()
-    default_active_regulations: List[str] = [
-        r.strip().lower()
-        for r in default_active_regs_env.split(",")
-        if r.strip()
-    ] or list(BUILTIN_REGULATION_IDS)
+    default_active_regulations: List[str] = parse_active_regulations_env(
+        os.getenv("DEFAULT_ACTIVE_REGULATIONS")
+    )
 
     return AppSettings(
         id=1,

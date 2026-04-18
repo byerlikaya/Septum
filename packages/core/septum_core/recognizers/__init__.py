@@ -26,7 +26,7 @@ from .registry import RecognizerRegistry
 
 
 class RegulationId(StrEnum):
-    """IDs of the 17 built-in regulation packs shipped with septum-core."""
+    """Canonical IDs of the built-in regulation packs shipped with septum-core."""
 
     GDPR = "gdpr"
     KVKK = "kvkk"
@@ -48,6 +48,22 @@ class RegulationId(StrEnum):
 
 
 BUILTIN_REGULATION_IDS: tuple[RegulationId, ...] = tuple(RegulationId)
+
+
+def parse_active_regulations_env(env_value: str | None) -> list[str]:
+    """Parse the ``DEFAULT_ACTIVE_REGULATIONS``-style CSV env value.
+
+    Empty / missing / whitespace-only inputs fall back to all built-in
+    packs. Entries are lower-cased and stripped; empty splits are dropped.
+    Unknown ids are *not* filtered here — downstream callers (e.g. the
+    policy composer) already degrade gracefully on unknown ids and the
+    validation surface we care about for user typos is the REST layer,
+    not the operator-controlled env var.
+    """
+    if not env_value or not env_value.strip():
+        return list(BUILTIN_REGULATION_IDS)
+    parsed = [r.strip().lower() for r in env_value.split(",") if r.strip()]
+    return parsed or list(BUILTIN_REGULATION_IDS)
 
 
 def entity_types_for(reg_id: str) -> List[str]:
@@ -96,6 +112,7 @@ __all__ = [
     "BUILTIN_REGULATION_IDS",
     "RegulationId",
     "entity_types_for",
+    "parse_active_regulations_env",
     "RecognizerRegistry",
     "RegexPatternConfig",
     "ValidatedPatternRecognizer",

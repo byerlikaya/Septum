@@ -13,6 +13,8 @@ import os
 from pathlib import Path
 from typing import List
 
+from septum_core.recognizers import parse_active_regulations_env
+
 from .models.settings import AppSettings
 
 
@@ -64,15 +66,9 @@ def get_settings() -> AppSettings:
     require a database connection, making it suitable for quick CLI scripts
     and ad-hoc tests.
     """
-    from septum_core.recognizers import BUILTIN_REGULATION_IDS
-
-    all_builtin_ids = ",".join(BUILTIN_REGULATION_IDS)
-    default_active_regs_env = os.getenv(
-        "DEFAULT_ACTIVE_REGULATIONS", all_builtin_ids
-    ).strip()
-    default_active_regulations: List[str] = [
-        r.strip().lower() for r in default_active_regs_env.split(",") if r.strip()
-    ] or list(BUILTIN_REGULATION_IDS)
+    default_active_regulations: List[str] = parse_active_regulations_env(
+        os.getenv("DEFAULT_ACTIVE_REGULATIONS")
+    )
 
     return AppSettings(
         id=1,

@@ -15,6 +15,7 @@ from septum_core.recognizers import (
     BUILTIN_REGULATION_IDS,
     RegulationId,
     entity_types_for,
+    parse_active_regulations_env,
 )
 
 from ..models.regulation import RegulationRuleset
@@ -162,21 +163,18 @@ _REGULATION_META: list[_RegulationMeta] = [
 
 
 _META_IDS = frozenset(meta.id for meta in _REGULATION_META)
-assert _META_IDS == set(BUILTIN_REGULATION_IDS), (
-    "Regulation metadata drift: "
-    f"meta={_META_IDS ^ set(BUILTIN_REGULATION_IDS)}"
-)
+if _META_IDS != frozenset(BUILTIN_REGULATION_IDS):
+    raise RuntimeError(
+        "Regulation metadata drift: "
+        f"meta={_META_IDS ^ frozenset(BUILTIN_REGULATION_IDS)}"
+    )
 
 
 def builtin_regulations() -> list[RegulationRuleset]:
     """Return the built-in regulation rulesets to seed into the database."""
-    all_builtin_ids = ",".join(BUILTIN_REGULATION_IDS)
-    default_active_regs_env = os.getenv(
-        "DEFAULT_ACTIVE_REGULATIONS", all_builtin_ids
-    ).strip()
-    default_active_regulations: List[str] = [
-        r.strip().lower() for r in default_active_regs_env.split(",") if r.strip()
-    ] or list(BUILTIN_REGULATION_IDS)
+    default_active_regulations = parse_active_regulations_env(
+        os.getenv("DEFAULT_ACTIVE_REGULATIONS")
+    )
 
     def is_active(reg_id: str) -> bool:
         return reg_id.lower() in default_active_regulations

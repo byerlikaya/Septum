@@ -4,7 +4,7 @@ All notable changes to this project are documented here in a high‑level, date�
 
 ### 2026-04-19
 
-- **Fix MCP/standalone dropping NER entity types + canonical regulation registry in core**: MCP and standalone `SeptumEngine` were silently dropping `PERSON_NAME`/`LOCATION`/`ORGANIZATION_NAME` because the 17 packs' entity lists only existed in the API seed. Moved to core as per-pack `ENTITY_TYPES` constants plus `RegulationId` StrEnum and `BUILTIN_REGULATION_IDS`; MCP/API defaults now load all 17 packs, cross-pack duplicate recognizers are deduped on load (46 → 29 per mask call), and every downstream import goes through core.
+- **Fix MCP/standalone dropping NER entity types + canonical regulation registry in core**: MCP and standalone `SeptumEngine` were silently dropping `PERSON_NAME`/`LOCATION`/`ORGANIZATION_NAME` because the 17 packs' entity lists only existed in the API seed. Moved to core as per-pack `ENTITY_TYPES` constants plus `RegulationId` StrEnum and `BUILTIN_REGULATION_IDS`; MCP/API defaults now load all 17 packs, cross-pack duplicate recognizers are deduped on load (46 → 29 per mask call), and every downstream import goes through core — including a shared `parse_active_regulations_env` helper that replaces three duplicated env-parsing blocks. `PATCH /api/settings` now rejects typo'd regulation ids (previously stored silently and later filtered to an empty policy).
 
 ### 2026-04-17
 

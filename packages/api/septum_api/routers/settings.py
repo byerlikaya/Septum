@@ -37,6 +37,40 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 _ALLOWED_OLLAMA_HOSTS = {"localhost", "127.0.0.1", "host.docker.internal", "ollama"}
 
 
+async def _validate_regulation_ids(
+    db: AsyncSession,
+    ids: Optional[list[str]],
+) -> None:
+    """Raise 422 if ``ids`` contains any id that is neither a built-in pack
+    nor an existing custom ``RegulationRuleset`` row.
+
+    This catches client-side typos (``"gdrp"`` instead of ``"gdpr"``) that
+    would otherwise be stored silently and later composed into an empty
+    policy — the user thinks a regulation is active when it is not.
+    """
+    from septum_core.recognizers import BUILTIN_REGULATION_IDS
+    from sqlalchemy import select
+
+    from ..models.regulation import RegulationRuleset
+
+    if not ids:
+        return
+    candidate = [rid.lower() for rid in ids if rid]
+    known: set[str] = {str(x) for x in BUILTIN_REGULATION_IDS}
+    unknown = [rid for rid in candidate if rid not in known]
+    if unknown:
+        rows = await db.execute(
+            select(RegulationRuleset.id).where(RegulationRuleset.id.in_(unknown))
+        )
+        known.update(row[0] for row in rows.all())
+    still_unknown = sorted(set(candidate) - known)
+    if still_unknown:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown regulation id(s): {still_unknown}",
+        )
+
+
 def _validate_ollama_url(url: str) -> str:
     """Validate that an Ollama URL points to an allowed host.
 
@@ -229,6 +263,10 @@ async def update_settings_endpoint(
     settings = await load_settings(db)
 
     update_data = payload.model_dump(exclude_unset=True)
+
+    if "default_active_regulations" in update_data:
+        await _validate_regulation_ids(db, update_data["default_active_regulations"])
+
     for field_name, value in update_data.items():
         setattr(settings, field_name, value)
 
