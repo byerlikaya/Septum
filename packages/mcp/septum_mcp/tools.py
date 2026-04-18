@@ -26,35 +26,15 @@ the MCP layer convert a failing call into an ``isError`` tool result
 without re-parsing exception traces.
 """
 
-import importlib
 import logging
 from typing import Any, Dict, Iterable, List, Optional
 
 from septum_core import SeptumEngine
+from septum_core.recognizers import BUILTIN_REGULATION_IDS, entity_types_for
 
 from .file_readers import SUPPORTED_EXTENSIONS, read_file
 
 logger = logging.getLogger(__name__)
-
-BUILTIN_REGULATION_IDS: tuple[str, ...] = (
-    "gdpr",
-    "kvkk",
-    "ccpa",
-    "cpra",
-    "hipaa",
-    "pipeda",
-    "lgpd",
-    "pdpa_th",
-    "pdpa_sg",
-    "appi",
-    "pipl",
-    "popia",
-    "dpdp",
-    "uk_gdpr",
-    "pdpl_sa",
-    "nzpa",
-    "australia_pa",
-)
 
 
 def _ok(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -275,7 +255,7 @@ def list_regulations(active_regulations: Iterable[str] | None = None) -> Dict[st
     packs: List[Dict[str, Any]] = []
 
     for reg_id in BUILTIN_REGULATION_IDS:
-        entity_types = _entity_types_for_pack(reg_id)
+        entity_types = entity_types_for(reg_id)
         packs.append(
             {
                 "id": reg_id,
@@ -320,38 +300,6 @@ def get_session_map(engine: SeptumEngine, *, session_id: Any) -> Dict[str, Any]:
             "entry_count": len(mapping),
         }
     )
-
-
-def _entity_types_for_pack(reg_id: str) -> List[str]:
-    """Return declared entity types for a built-in regulation pack.
-
-    Uses :mod:`importlib` to import the pack's ``recognizers`` module
-    and walks each recognizer's ``supported_entities`` attribute. If
-    the pack is missing or fails to load (for example because a
-    transitive dependency is absent), an empty list is returned
-    rather than raising — ``list_regulations`` degrades gracefully.
-    """
-    module_path = f"septum_core.recognizers.{reg_id}.recognizers"
-    try:
-        module = importlib.import_module(module_path)
-    except ModuleNotFoundError:
-        return []
-    get_recognizers = getattr(module, "get_recognizers", None)
-    if get_recognizers is None:
-        return []
-    try:
-        recognizers = list(get_recognizers())
-    except Exception:
-        return []
-
-    seen: set[str] = set()
-    ordered: List[str] = []
-    for recognizer in recognizers:
-        for entity_type in getattr(recognizer, "supported_entities", ()):  # type: ignore[arg-type]
-            if entity_type not in seen:
-                seen.add(entity_type)
-                ordered.append(entity_type)
-    return ordered
 
 
 SUPPORTED_FILE_EXTENSIONS: tuple[str, ...] = SUPPORTED_EXTENSIONS

@@ -34,6 +34,32 @@ logger = logging.getLogger(__name__)
 LLMRecognizerFactory = Callable[[CustomRecognizerLike], Optional[EntityRecognizer]]
 
 
+def _recognizer_dedup_key(recognizer: EntityRecognizer):
+    """Return a hashable content key, or ``None`` if the recognizer is not
+    safely deduplicable (e.g. carries opaque callables / state).
+
+    Two recognizers sharing this key produce identical detections for the
+    same input — keeping only the first one is a pure runtime win.
+    """
+    try:
+        entities = tuple(sorted(recognizer.supported_entities))
+        patterns = getattr(recognizer, "patterns", None) or ()
+        pattern_key = tuple(
+            sorted((p.regex, p.score) for p in patterns)
+        )
+        deny_list = tuple(sorted(getattr(recognizer, "deny_list", None) or ()))
+        context = tuple(sorted(getattr(recognizer, "context", None) or ()))
+    except Exception:  # pragma: no cover - defensive
+        return None
+    return (
+        type(recognizer).__name__,
+        entities,
+        pattern_key,
+        deny_list,
+        context,
+    )
+
+
 class RecognizerRegistry:
     """
     Build Presidio recognizers for the active regulations and custom rules.
@@ -70,8 +96,18 @@ class RecognizerRegistry:
         self,
         active_regs: Sequence[RegulationRulesetLike],
     ) -> List[EntityRecognizer]:
-        """Load recognizers from built-in packs; package path is derived from __name__."""
+        """Load recognizers from built-in packs with cross-pack deduplication.
+
+        Many regulations ship structurally identical recognizers for common
+        entity types (every pack declares an EMAIL_ADDRESS regex; several
+        declare the same phone / IP validators). Without dedup, Presidio
+        evaluates N near-identical regexes on every call — pure runtime
+        waste. We collapse duplicates by a stable content key (class name,
+        entity types, pattern regex+score set, deny list, context words).
+        First occurrence wins; subsequent duplicates are dropped.
+        """
         recognizers: List[EntityRecognizer] = []
+        seen_keys: set = set()
         base_pkg = __name__.rsplit(".", 1)[0]
         for reg in active_regs:
             module_path = f"{base_pkg}.{reg.id}.recognizers"
@@ -103,7 +139,12 @@ class RecognizerRegistry:
                 )
                 continue
 
-            recognizers.extend(pack_recognizers)
+            for recognizer in pack_recognizers:
+                key = _recognizer_dedup_key(recognizer)
+                if key is None or key not in seen_keys:
+                    if key is not None:
+                        seen_keys.add(key)
+                    recognizers.append(recognizer)
 
         return recognizers
 

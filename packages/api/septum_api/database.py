@@ -223,10 +223,9 @@ def build_default_app_settings() -> AppSettings:
     ``utils.db_helpers.load_settings`` so fresh databases and partial
     bootstraps produce the same default configuration.
     """
-    all_builtin_regulations = (
-        "gdpr,kvkk,ccpa,cpra,hipaa,lgpd,pipeda,pdpa_th,pdpa_sg,appi,"
-        "pipl,popia,dpdp,uk_gdpr,pdpl_sa,nzpa,australia_pa"
-    )
+    from septum_core.recognizers import BUILTIN_REGULATION_IDS
+
+    all_builtin_regulations = ",".join(BUILTIN_REGULATION_IDS)
     default_active_regs_env = os.getenv(
         "DEFAULT_ACTIVE_REGULATIONS", all_builtin_regulations
     ).strip()
@@ -234,7 +233,7 @@ def build_default_app_settings() -> AppSettings:
         r.strip().lower()
         for r in default_active_regs_env.split(",")
         if r.strip()
-    ] or all_builtin_regulations.split(",")
+    ] or list(BUILTIN_REGULATION_IDS)
 
     return AppSettings(
         id=1,

@@ -32,25 +32,8 @@ import os
 from dataclasses import dataclass, field
 from typing import List
 
-DEFAULT_REGULATIONS = (
-    "gdpr",
-    "kvkk",
-    "ccpa",
-    "cpra",
-    "hipaa",
-    "lgpd",
-    "pipeda",
-    "pdpa_th",
-    "pdpa_sg",
-    "appi",
-    "pipl",
-    "popia",
-    "dpdp",
-    "uk_gdpr",
-    "pdpl_sa",
-    "nzpa",
-    "australia_pa",
-)
+from septum_core.recognizers import BUILTIN_REGULATION_IDS as DEFAULT_REGULATIONS
+
 DEFAULT_LANGUAGE = "en"
 DEFAULT_SESSION_TTL_SECONDS = 3600.0
 
