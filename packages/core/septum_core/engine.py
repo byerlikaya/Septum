@@ -76,12 +76,24 @@ class MaskResult:
 def _entity_types_for_regulation(reg_id: str) -> List[str]:
     """Return the union of entity types declared by a regulation pack.
 
-    Imports the pack's ``recognizers`` module and walks each
-    recognizer's ``supported_entities`` attribute. Unknown regulation
-    ids return an empty list; the policy composer will still produce
-    a valid :class:`ComposedPolicy` without that pack's recognizers.
+    Prefers the pack's ``ENTITY_TYPES`` constant (authoritative list —
+    includes NER/semantic types like ``PERSON_NAME`` that no Presidio
+    recognizer declares). Falls back to walking each recognizer's
+    ``supported_entities`` for backward compatibility. Unknown
+    regulation ids return an empty list; the policy composer will still
+    produce a valid :class:`ComposedPolicy` without that pack's
+    recognizers.
     """
-    module_path = f"septum_core.recognizers.{reg_id}.recognizers"
+    pkg_path = f"septum_core.recognizers.{reg_id}"
+    try:
+        pkg = importlib.import_module(pkg_path)
+    except ModuleNotFoundError:
+        return []
+    declared = getattr(pkg, "ENTITY_TYPES", None)
+    if declared is not None:
+        return list(declared)
+
+    module_path = f"{pkg_path}.recognizers"
     try:
         module = importlib.import_module(module_path)
     except ModuleNotFoundError:
