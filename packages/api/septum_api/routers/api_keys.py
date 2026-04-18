@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models.api_key import ApiKey
 from ..models.user import User
 from ..services.api_key_service import generate_api_key, list_user_keys, revoke_key
 from ..middleware.rate_limit import get_limiter

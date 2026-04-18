@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from septum_api.database import get_session_maker, init_db
+from septum_api.database import init_db
 from septum_api.main import app
 from septum_api.models.user import User
 from septum_api.routers import documents as documents_router
@@ -201,7 +201,6 @@ def test_e2e_turkish_pii_upload_ask_approve_deanonymized(
     else:
         pytest.fail("Document ingestion did not complete within 30s")
 
-    from septum_api.routers import chat as chat_router
     from septum_api.services.document_anon_store import get_document_map
 
     stored_map = asyncio.run(get_document_map(document_id))

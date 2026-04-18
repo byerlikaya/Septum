@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import time
-from unittest.mock import patch
 
 from septum_api.services.llm_providers.health import (
-    BreakerState,
     COOLDOWN_SECONDS,
     FAILURE_THRESHOLD,
     _registry,

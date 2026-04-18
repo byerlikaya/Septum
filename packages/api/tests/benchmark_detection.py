@@ -343,7 +343,6 @@ def _generate_cookie_ids(n: int) -> list[str]:
     while len(results) < n:
         if len(results) % 2 == 0:
             ts1 = _RNG.randint(1600000000, 1700000000)
-            ts2 = _RNG.randint(1600000000, 1700000000)
             results.append(f"GA1.2.{_RNG.randint(100000000, 9999999999)}.{ts1}")
         else:
             parts = [

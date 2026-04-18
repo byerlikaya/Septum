@@ -40,8 +40,6 @@ build/
 coverage.xml
 
 # Generated / environment-specific (do not commit)
-backend/requirements.lock.txt
-backend/pip-audit-backend.json
 coverage/
 packages/web/coverage/
 
@@ -63,9 +61,7 @@ out/
 .claude/settings.local.json
 .claude/launch.json
 
-# Project-specific runtime state — top-level and under backend/ (modular
-# deployments drop these at the repo root; the backend/ duplicates stay
-# for legacy dev.sh workflows until the shim layer is removed).
+# Project-specific runtime state
 bm25_indexes/
 documents/
 anon_maps/
@@ -74,13 +70,7 @@ uploads/
 data/
 models/
 /storage/
-backend/vector_indexes/
-backend/bm25_indexes/
-backend/documents/
-backend/uploads/
-backend/storage/
-backend/anon_maps/
 
 # Test fixtures (do not commit local sample files)
-backend/tests/fixtures/
+packages/api/tests/fixtures/
 

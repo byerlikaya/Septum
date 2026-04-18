@@ -25,7 +25,6 @@ envelope shape.
 
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import TYPE_CHECKING, AsyncIterator, Mapping
 

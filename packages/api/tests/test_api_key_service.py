@@ -5,11 +5,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from septum_api.models import Base
-from septum_api.models.api_key import ApiKey
 from septum_api.models.user import User
 from septum_api.services.api_key_service import (
     PREFIX,

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 """Tests for vector store RRF merge and retrieval-related helpers."""
 
-import pytest
 
 from septum_api.routers.chat import _effective_top_k
 from septum_api.services.vector_store import merge_rrf_result_lists

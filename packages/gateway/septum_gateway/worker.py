@@ -8,7 +8,7 @@ import os
 import signal
 import sys
 
-from septum_queue import QueueBackend, backend_from_env
+from septum_queue import backend_from_env
 
 from .config import GatewayConfig
 from .forwarder import ForwarderRegistry

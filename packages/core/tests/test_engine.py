@@ -10,7 +10,7 @@ the tests don't try to download a transformer model.
 
 import pytest
 
-from septum_core import AnonymizationMap, SeptumCoreConfig, SeptumEngine
+from septum_core import SeptumCoreConfig, SeptumEngine
 from septum_core.ports import NullSemanticDetectionPort
 
 

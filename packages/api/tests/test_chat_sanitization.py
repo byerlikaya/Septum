@@ -2,9 +2,7 @@ from __future__ import annotations
 
 """Tests for chat query sanitization and regulation-aware behaviour."""
 
-from typing import Any
 
-import pytest
 
 from septum_api.models.settings import AppSettings
 from septum_api.services.anonymization_map import AnonymizationMap

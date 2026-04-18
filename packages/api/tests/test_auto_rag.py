@@ -2,7 +2,6 @@ from __future__ import annotations
 
 """Tests for auto-RAG routing: cross-document retrieval and mode selection."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
