@@ -317,7 +317,7 @@ class WhisperStatusResponse(BaseModel):
 
 
 @router.get("/whisper-status", response_model=WhisperStatusResponse)
-async def whisper_status(model: str = "base", _: None = Depends(_require_setup_phase)) -> WhisperStatusResponse:
+async def whisper_status(model: str = "base") -> WhisperStatusResponse:
     """Check if a Whisper model is already downloaded."""
     try:
         import whisper  # type: ignore[import]
@@ -347,7 +347,7 @@ class InstallWhisperRequest(BaseModel):
 
 
 @router.post("/install-whisper")
-async def install_whisper(body: InstallWhisperRequest, _: None = Depends(_require_setup_phase)):
+async def install_whisper(body: InstallWhisperRequest):
     """Download a Whisper model with SSE progress streaming."""
     import asyncio
     import json as _json
