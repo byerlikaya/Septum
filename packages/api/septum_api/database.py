@@ -56,7 +56,17 @@ def _sqlite_wal_connect(dbapi_conn: Any, _record: Any) -> None:
 
 
 def _engine_kwargs(url: str) -> dict[str, Any]:
-    """Return dialect-specific engine keyword arguments."""
+    """Return dialect-specific engine keyword arguments.
+
+    SQLite gets a deliberately oversized pool (20 + 30) because each
+    connection is just a cheap file handle and WAL already serialises
+    the real contention point (single-writer lock). Under parallel
+    uploads the ingestion background tasks pin one bg_db session per
+    task for the full OCR/Whisper pipeline (potentially minutes), while
+    the UI simultaneously polls /documents/progress, /auth/me, /settings
+    and /regulations from a fresh dashboard — the default 5+10 pool
+    saturated and raised QueuePool timeouts.
+    """
     if "postgresql" in url:
         return {
             "echo": False,
@@ -65,7 +75,12 @@ def _engine_kwargs(url: str) -> dict[str, Any]:
             "max_overflow": 20,
             "pool_pre_ping": True,
         }
-    return {"echo": False, "future": True}
+    return {
+        "echo": False,
+        "future": True,
+        "pool_size": 20,
+        "max_overflow": 30,
+    }
 
 
 def build_database_url(database_url: str = "", db_path: str = "") -> str:
