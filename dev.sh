@@ -15,14 +15,37 @@ done
 
 if [[ "$RESET_MODE" == true ]]; then
   echo "[reset] Wiping all local data (database, uploads, indexes, config) ..."
+  # Kill any still-running dev servers BEFORE deleting DB files — otherwise
+  # aiosqlite worker threads keep the SQLite handle open and the new uvicorn
+  # fails with "disk I/O error" on the first PRAGMA. Also kill Next.js so
+  # the cache wipe below doesn't fight with a running build watcher.
+  pkill -f "uvicorn septum_api.main:app" >/dev/null 2>&1 || true
+  pkill -f "next dev" >/dev/null 2>&1 || true
+  sleep 1
   rm -f  "$PROJECT_ROOT/config.json"
-  rm -f  "$PROJECT_ROOT/septum.db"
+  # Also strip SQLite sidecar files (WAL + shared-memory) so a stale
+  # transaction log doesn't survive the reset.
+  rm -f  "$PROJECT_ROOT/septum.db" "$PROJECT_ROOT/septum.db-wal" "$PROJECT_ROOT/septum.db-shm"
+  # Legacy copy that predates the Phase 8 working-dir change — older
+  # dev.sh revisions started uvicorn from packages/api, which created
+  # septum.db there. New dev.sh starts from PROJECT_ROOT, but the old
+  # file can still linger and confuse the next run.
+  rm -f  "$PROJECT_ROOT/packages/api/septum.db" \
+         "$PROJECT_ROOT/packages/api/septum.db-wal" \
+         "$PROJECT_ROOT/packages/api/septum.db-shm"
   rm -rf "$PROJECT_ROOT/uploads"
   rm -rf "$PROJECT_ROOT/anon_maps"
   rm -rf "$PROJECT_ROOT/vector_indexes"
   rm -rf "$PROJECT_ROOT/bm25_indexes"
   rm -rf "$PROJECT_ROOT/documents"
   rm -rf "$PROJECT_ROOT/data"
+  # Webpack/SWC caches reference file paths by id — when a source file is
+  # deleted (e.g. the orphan-sweep above) the dev server keeps trying to
+  # serve the old chunk and the browser hits ChunkLoadError on every
+  # reload. Nuke the cache so the next boot rebuilds cleanly.
+  rm -rf "$PROJECT_ROOT/packages/web/.next"
+  rm -rf "$PROJECT_ROOT/packages/web/.turbo"
+  rm -rf "$PROJECT_ROOT/packages/web/node_modules/.cache"
   echo "[reset] Done — next start will launch the setup wizard."
 fi
 
