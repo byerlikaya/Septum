@@ -193,7 +193,7 @@ flowchart TD
 Üç yol oluşur:
 
 1. **Manuel RAG** — kullanıcı açıkça doküman seçer. Sınıflandırıcı
-   atlanır; seçim retrieval'ı sürdürür.
+   atlanır; retrieval seçilen dokümanlarda çalışır.
 2. **Otomatik RAG** — seçim yok, sınıflandırıcı SEARCH diyor ve relevans
    skoru eşiğin üzerinde. Kullanıcının tüm dokümanlarından parçalar
    getirilir.
@@ -385,8 +385,8 @@ panelde her eşleşme skoru ve placeholder'ıyla listelenir.
       <img src="../screenshots/16-settings-rag.png" alt="RAG ayarları" />
     </td>
     <td align="center">
-      <b>Doküman İngest</b><br />
-      <img src="../screenshots/17-settings-ingestion.png" alt="İngest ayarları" />
+      <b>Doküman Ingest</b><br />
+      <img src="../screenshots/17-settings-ingestion.png" alt="Ingest ayarları" />
     </td>
   </tr>
   <tr>
