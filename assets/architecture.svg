@@ -24,17 +24,26 @@
 
   <!-- ═══════ Layer 2: All arrows (drawn OVER zones, UNDER boxes) ═══════ -->
 
-  <!-- Clients bus → septum-mcp -->
+  <!-- Clients bus → septum-mcp (request) -->
   <path d="M 200 120 L 200 165" stroke="#444" stroke-width="2" fill="none"/>
   <path d="M 450 120 L 450 165" stroke="#444" stroke-width="2" fill="none"/>
   <path d="M 700 120 L 700 165" stroke="#444" stroke-width="2" fill="none"/>
   <path d="M 200 165 L 700 165" stroke="#444" stroke-width="2" fill="none"/>
   <path d="M 700 165 L 700 260" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
 
-  <!-- Intra air-gap -->
+  <!-- septum-mcp → clients (response, single dashed arrow up to zone boundary) -->
+  <path d="M 730 260 L 730 155" stroke="#9aa0a6" stroke-width="1.5" stroke-dasharray="5 4" fill="none" marker-end="url(#arrd)"/>
+  <text x="742" y="200" font-size="11" fill="#777" font-style="italic" paint-order="stroke" stroke="#FAFAFA" stroke-width="4">response (stdio)</text>
+
+  <!-- Intra air-gap requests (solid) -->
   <path d="M 200 320 L 200 380" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
   <path d="M 700 320 L 700 380" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
   <path d="M 290 410 L 610 410" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- Intra air-gap responses (dashed, parallel offset) -->
+  <path d="M 220 380 L 220 320" stroke="#9aa0a6" stroke-width="1.5" stroke-dasharray="5 4" fill="none" marker-end="url(#arrd)"/>
+  <path d="M 720 380 L 720 320" stroke="#9aa0a6" stroke-width="1.5" stroke-dasharray="5 4" fill="none" marker-end="url(#arrd)"/>
+  <path d="M 610 420 L 290 420" stroke="#9aa0a6" stroke-width="1.5" stroke-dasharray="5 4" fill="none" marker-end="url(#arrd)"/>
 
   <!-- api → queue -->
   <path d="M 200 440 C 200 500, 280 520, 360 545" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
