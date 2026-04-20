@@ -169,15 +169,6 @@ All features work identically. The difference is acceleration: local install pic
 
 ---
 
-## Roadmap
-
-- **v1.0.0 — modular architecture** — 7 independent packages across three security zones (air-gapped / bridge / internet-facing). Currently on the `refactor/modular-architecture` branch; merging into `main` is the v1.0.0 release event.
-- **More regulation packs** beyond the built-in 17 — community contributions welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
-- **Ollama model comparison** — published benchmark of `llama3.2:3b` vs `aya-expanse:8b` vs `qwen2.5:14b` for semantic PII detection.
-Track progress in [GitHub Issues](https://github.com/byerlikaya/Septum/issues).
-
----
-
 ## Support the Project
 
 Septum is open source (MIT) and maintained in the open. If it saves you from a privacy incident, helps your team ship faster, or just makes your LLM workflow safer:
