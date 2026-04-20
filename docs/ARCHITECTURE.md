@@ -672,14 +672,16 @@ mocked**; tests that hit real external LLM APIs are treated as bugs.
 
 Septum maintains an **append-only audit trail** for GDPR, KVKK, and other regulation compliance:
 
-- **Events tracked:** PII detection (per entity type and count), de-anonymisation, document upload/delete, regulation changes.
+- **Events tracked:** PII detection (per entity type and count), placeholder geri yazma (de-anonymisation), document upload/delete, regulation changes.
 - **No raw PII stored:** Audit events record entity type names and counts only — never original values.
+- **Entity provenance link:** each `EntityDetection` row carries an `audit_event_id` FK back to the `AuditEvent` that produced it, so the dashboard can jump from a log entry to the exact entities it covered.
 - **REST API:**
-  - `GET /api/audit` — paginated, filterable by event type, document, session, and date range.
+  - `GET /api/audit` — paginated, filterable by event type, document, session, date range, and **entity type** (matches events whose linked detections include the given type via an `EXISTS` correlated subquery on `entity_detections.audit_event_id`).
+  - `GET /api/audit/{event_id}/entity-detections` — returns the `EntityDetection` rows linked to a specific event (empty for pre-linking events).
   - `GET /api/audit/{document_id}/report` — compliance report for a specific document.
   - `GET /api/audit/session/{session_id}` — full audit trail for a chat session.
   - `GET /api/audit/metrics` — aggregate PII detection quality metrics (entity type distribution, coverage ratios, per-document averages).
-- **Frontend:** Audit log viewer in Settings → Audit Trail with event type badges, entity breakdowns, and pagination.
+- **Frontend:** Audit log viewer in Settings → Audit Trail with event type badges, entity type filter dropdown, entity breakdowns, pagination, and a **"Focus on these entities"** button on each `pii_detected` card that opens the document preview highlighting only that event's detections.
 
 ---
 
@@ -705,7 +707,7 @@ Septum exposes a RESTful API. Key endpoint groups:
 | **Chunks** | `GET /api/chunks`, `GET /api/chunks/{id}` | Search and inspect document chunks |
 | **Settings** | `GET /api/settings`, `PUT /api/settings` | Application configuration |
 | **Regulations** | `GET /api/regulations`, `PUT /api/regulations/{id}` | Manage regulation rulesets and custom recognisers |
-| **Audit** | `GET /api/audit`, `GET /api/audit/{id}/report`, `GET /api/audit/metrics` | Compliance audit trail and detection metrics |
+| **Audit** | `GET /api/audit`, `GET /api/audit/{event_id}/entity-detections`, `GET /api/audit/{document_id}/report`, `GET /api/audit/session/{session_id}`, `GET /api/audit/metrics` | Compliance audit trail, per-event entity provenance, and detection metrics |
 | **Health** | `GET /health`, `GET /metrics` | System health and Prometheus metrics |
 
 Full OpenAPI schema is available at `http://localhost:3000/docs` when the application is running.

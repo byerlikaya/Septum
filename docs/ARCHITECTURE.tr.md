@@ -674,12 +674,14 @@ Septum, GDPR, KVKK ve diğer regülasyon uyumluluğu için **salt-ekleme denetim
 
 - **İzlenen olaylar:** PII tespiti (varlık tipi ve sayısı bazında), placeholder geri yazma, doküman yükleme/silme, regülasyon değişiklikleri.
 - **Ham PII saklanmaz:** Denetim olayları yalnızca varlık tipi adlarını ve sayılarını kaydeder — asla orijinal değerleri içermez.
+- **Entity köken bağlantısı:** her `EntityDetection` satırı, onu üreten `AuditEvent`'a `audit_event_id` FK'ıyla bağlıdır; böylece dashboard bir audit log girdisinden tam o olayın kapsadığı entity'lere sıçrayabilir.
 - **REST API:**
-  - `GET /api/audit` — sayfalı, olay tipi, doküman, oturum ve tarih aralığına göre filtrelenebilir.
+  - `GET /api/audit` — sayfalı, olay tipi, doküman, oturum, tarih aralığı ve **entity tipi** bazında filtrelenebilir (entity tipi filtresi, `entity_detections.audit_event_id` üzerinde `EXISTS` correlated subquery ile çalışır).
+  - `GET /api/audit/{event_id}/entity-detections` — belirli bir olaya bağlı `EntityDetection` satırlarını döner (bağlanmamış eski olaylar için boş).
   - `GET /api/audit/{document_id}/report` — belirli bir doküman için uyumluluk raporu.
   - `GET /api/audit/session/{session_id}` — bir sohbet oturumunun tam denetim kaydı.
   - `GET /api/audit/metrics` — toplu PII tespit kalite metrikleri (varlık tipi dağılımı, kapsam oranları, doküman başı ortalamalar).
-- **Frontend:** Ayarlar → Denetim Kaydı bölümünde olay tipi rozetleri, varlık dağılımları ve sayfalama ile denetim günlüğü görüntüleyici.
+- **Frontend:** Ayarlar → Denetim Kaydı bölümünde olay tipi rozetleri, entity tipi filter dropdown'ı, varlık dağılımları, sayfalama ve her `pii_detected` kartı üzerinde, dokümanı sadece o olayın tespit ettiği entity'ler vurgulanmış olarak açan bir **"Bu varlıklara odaklan"** butonu.
 
 ---
 
@@ -705,7 +707,7 @@ Septum RESTful bir API sunar. Ana endpoint grupları:
 | **Parçalar** | `GET /api/chunks`, `GET /api/chunks/{id}` | Doküman parçalarını arama ve inceleme |
 | **Ayarlar** | `GET /api/settings`, `PUT /api/settings` | Uygulama yapılandırması |
 | **Regülasyonlar** | `GET /api/regulations`, `PUT /api/regulations/{id}` | Regülasyon kuralları ve özel tanıyıcı yönetimi |
-| **Denetim** | `GET /api/audit`, `GET /api/audit/{id}/report`, `GET /api/audit/metrics` | Uyumluluk denetim kaydı ve tespit metrikleri |
+| **Denetim** | `GET /api/audit`, `GET /api/audit/{event_id}/entity-detections`, `GET /api/audit/{document_id}/report`, `GET /api/audit/session/{session_id}`, `GET /api/audit/metrics` | Uyumluluk denetim kaydı, olay bazlı entity kökeni ve tespit metrikleri |
 | **Sağlık** | `GET /health`, `GET /metrics` | Sistem sağlığı ve Prometheus metrikleri |
 
 Tam OpenAPI şeması, uygulama çalışırken `http://localhost:3000/docs` adresinde mevcuttur.

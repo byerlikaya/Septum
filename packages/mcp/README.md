@@ -270,10 +270,18 @@ in the full Septum API/pipeline instead.
   Face cache. If you disable `SEPTUM_USE_NER`, no model downloads
   happen at all.
 - **Sessions are in-memory only.** Anonymization maps live inside
-  the stdio process and are dropped when the server exits or the
-  TTL elapses. Nothing is persisted to disk.
+  the server process and are dropped when the server exits or the
+  per-session TTL elapses. Nothing is persisted to disk.
 - **`get_session_map` returns raw PII.** It is meant for local
   debugging tools. Do not forward its output to a remote system.
+- **HTTP mode requires a bearer token** for any non-loopback bind.
+  `SEPTUM_MCP_HTTP_TOKEN` gates every request except `/health`; a
+  non-loopback host with no token logs a loud startup warning.
+  Always terminate TLS in front of the server (reverse proxy) so
+  the token is not sent in cleartext.
+- **HTTP mode is single-tenant today.** All connected clients share
+  one `SeptumEngine` and therefore one anonymization-session
+  registry. Run separate instances per tenant if isolation matters.
 
 ## Running the test suite
 
