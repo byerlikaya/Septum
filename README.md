@@ -181,7 +181,6 @@ All features work identically. The difference is acceleration: local install pic
 ## Roadmap
 
 - **v1.0.0 — modular architecture** — 7 independent packages across three security zones (air-gapped / bridge / internet-facing). Currently on the `refactor/modular-architecture` branch; merging into `main` is the v1.0.0 release event.
-- **Audit Trail v2** — entity location tracking with visual highlighting in the document preview and a magnifying-glass UX for individual audit events.
 - **More regulation packs** beyond the built-in 17 — community contributions welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
 - **Ollama model comparison** — published benchmark of `llama3.2:3b` vs `aya-expanse:8b` vs `qwen2.5:14b` for semantic PII detection.
 - **MCP over SSE transport** — current MCP server is stdio-only; SSE support opens browser + remote client scenarios.

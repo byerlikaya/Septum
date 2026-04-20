@@ -220,6 +220,10 @@ async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:
             "app_settings",
             "ALTER TABLE app_settings ADD COLUMN rag_relevance_threshold REAL NOT NULL DEFAULT 0.35",
         ),
+        (
+            "entity_detections",
+            "ALTER TABLE entity_detections ADD COLUMN audit_event_id INTEGER REFERENCES audit_events(id) ON DELETE SET NULL",
+        ),
     ]
 
     async with eng.begin() as conn:

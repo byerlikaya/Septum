@@ -16,8 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.audit_event import AuditEvent
+from ..models.entity_detection import EntityDetection
 from ..models.user import User
 from ..utils.auth_dependency import require_role
+from .documents import EntityDetectionResponse
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
@@ -61,6 +63,14 @@ class ComplianceReportResponse(BaseModel):
 async def list_audit_events(
     db: AsyncSession = Depends(get_db),
     event_type: Optional[str] = Query(None),
+    entity_type: Optional[str] = Query(
+        None,
+        description=(
+            "Filter events whose linked EntityDetection rows include this "
+            "entity type (e.g. PERSON_NAME, EMAIL_ADDRESS). Only returns "
+            "events whose detections carry an audit_event_id back-reference."
+        ),
+    ),
     document_id: Optional[int] = Query(None),
     session_id: Optional[str] = Query(None),
     date_from: Optional[datetime] = Query(None),
@@ -76,6 +86,17 @@ async def list_audit_events(
     if event_type:
         stmt = stmt.where(AuditEvent.event_type == event_type)
         count_stmt = count_stmt.where(AuditEvent.event_type == event_type)
+    if entity_type:
+        linked_event_ids = (
+            select(EntityDetection.audit_event_id)
+            .where(
+                EntityDetection.entity_type == entity_type,
+                EntityDetection.audit_event_id.is_not(None),
+            )
+            .distinct()
+        )
+        stmt = stmt.where(AuditEvent.id.in_(linked_event_ids))
+        count_stmt = count_stmt.where(AuditEvent.id.in_(linked_event_ids))
     if document_id is not None:
         stmt = stmt.where(AuditEvent.document_id == document_id)
         count_stmt = count_stmt.where(AuditEvent.document_id == document_id)
@@ -141,6 +162,30 @@ async def get_document_compliance_report(
         regulation_ids_used=sorted(regulation_ids),
         events=[_to_response(e) for e in events],
     )
+
+
+@router.get(
+    "/{event_id}/entity-detections",
+    response_model=List[EntityDetectionResponse],
+)
+async def get_event_entity_detections(
+    event_id: int,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin")),
+) -> List[EntityDetectionResponse]:
+    """Return entity detections linked to a specific audit event.
+
+    Empty list for older events whose EntityDetection rows do not carry
+    an ``audit_event_id`` back-reference yet.
+    """
+    stmt = (
+        select(EntityDetection)
+        .where(EntityDetection.audit_event_id == event_id)
+        .order_by(EntityDetection.chunk_id, EntityDetection.start_offset)
+    )
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+    return [EntityDetectionResponse.model_validate(r) for r in rows]
 
 
 @router.get("/session/{session_id}", response_model=List[AuditEventResponse])

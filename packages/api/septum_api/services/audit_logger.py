@@ -17,14 +17,22 @@ from ..models.audit_event import AuditEvent
 logger = logging.getLogger(__name__)
 
 
-async def _persist(db: AsyncSession, event: AuditEvent) -> None:
-    """Add and commit an audit event, logging errors without raising."""
+async def _persist(db: AsyncSession, event: AuditEvent) -> Optional[AuditEvent]:
+    """Add and commit an audit event, logging errors without raising.
+
+    Returns the committed event (with ``id`` populated) on success,
+    ``None`` on failure so callers can skip follow-up work like linking
+    EntityDetection rows to the event.
+    """
     try:
         db.add(event)
         await db.commit()
+        await db.refresh(event)
+        return event
     except Exception:
         logger.exception("Failed to persist audit event")
         await db.rollback()
+        return None
 
 
 async def log_pii_detected(
@@ -39,8 +47,14 @@ async def log_pii_detected(
     document_name: Optional[str] = None,
     masked_query: Optional[str] = None,
     placeholder_samples: Optional[List[str]] = None,
-) -> None:
-    """Record a PII detection event (document upload or chat query)."""
+) -> Optional[AuditEvent]:
+    """Record a PII detection event (document upload or chat query).
+
+    Returns the persisted :class:`AuditEvent` so callers can link the
+    associated :class:`EntityDetection` rows via ``audit_event_id`` —
+    this is the provenance trail the dashboard uses to jump from an
+    audit log entry to the exact highlighted entities.
+    """
     merged_extra: Dict[str, Any] = extra or {}
     if document_name:
         merged_extra["document_name"] = document_name
@@ -49,7 +63,7 @@ async def log_pii_detected(
     if placeholder_samples:
         merged_extra["placeholder_samples"] = placeholder_samples[:5]
 
-    await _persist(
+    return await _persist(
         db,
         AuditEvent(
             event_type="pii_detected",

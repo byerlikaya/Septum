@@ -104,9 +104,9 @@ class DocumentPipeline:
 
         chunks = await self._persist_chunks(db, document.id, stored_chunks)
 
+        detection_rows: list[EntityDetection] = []
         if per_chunk_spans:
             chunk_index_to_id = {c.index: c.id for c in chunks}
-            detection_rows = []
             for chunk_index, resolved_spans in per_chunk_spans.items():
                 chunk_id = chunk_index_to_id.get(chunk_index)
                 if chunk_id is None:
@@ -135,7 +135,7 @@ class DocumentPipeline:
 
         if total_entities > 0:
             placeholder_samples = list(anon_map.entity_map.values())[:5] if anon_map.entity_map else []
-            await log_pii_detected(
+            audit_event = await log_pii_detected(
                 db,
                 document_id=document.id,
                 regulation_ids=list(document.active_regulation_ids or []),
@@ -145,6 +145,13 @@ class DocumentPipeline:
                 document_name=document.original_filename,
                 placeholder_samples=placeholder_samples,
             )
+            # Stamp each detection with the audit event that produced it,
+            # so the dashboard can jump from an audit log entry straight to
+            # the specific entities it covers.
+            if audit_event is not None and detection_rows:
+                for row in detection_rows:
+                    row.audit_event_id = audit_event.id
+                await db.commit()
 
         if chunks and raw_texts_for_index:
             _emit(92)
