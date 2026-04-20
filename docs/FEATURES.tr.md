@@ -18,10 +18,11 @@
 
 ## Tespit Hattı
 
-Septum, üç katmanlı bir tespit hattını tamamen yerelde çalıştırır. Her
-katman eklemelidir; katmanlar bir coreference çözümleyicisinden geçerek
-birleştirilir, böylece aynı kişi farklı biçimlerde geçse de tek bir
-`[PERSON_1]` placeholder olarak görünür.
+Septum, üç katmanlı tespit hattını tamamen yerelde çalıştırır. Her
+katman bir öncekinin üzerine ekler; ardından tüm bulgular bir
+coreference çözümleyicisinden geçirilir. Böylece aynı kişi metinde
+farklı biçimlerde geçse bile tek bir `[PERSON_1]` placeholder olarak
+görünür.
 
 ```mermaid
 flowchart LR
@@ -41,14 +42,15 @@ flowchart LR
 
 | Katman | Teknoloji | Tespit edilen varlık tipleri |
 |:---:|:---|:---|
-| 1 | **Presidio** — algoritmik doğrulayıcılarla regex örüntüleri (Luhn, IBAN MOD-97, TCKN, CPF, SSN). Çok dilli anahtar kelimelere sahip bağlam duyarlı tanıyıcılar. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE |
+| 1 | **Presidio** — algoritmik doğrulayıcılarla desteklenen regex örüntüleri (Luhn, IBAN MOD-97, TCKN, CPF, SSN). Çok dilli anahtar kelimeler üzerinden çalışan bağlam duyarlı tanıyıcılar. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE |
 | 2 | **NER** — dile göre model seçimi yapan HuggingFace XLM-RoBERTa (20+ dil). Tamamı BÜYÜK HARF olan girdi, çıkarım öncesi otomatik olarak başlık harflerine normalize edilir. | PERSON_NAME, LOCATION, ORGANIZATION_NAME |
-| 3 | **Ollama** — bağlam doğrulama, takma ad tespiti ve semantik varlıklar için yerel LLM. | PERSON_NAME takma adları/mahlasları; DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE |
+| 3 | **Ollama** — bağlam doğrulama, takma ad tespiti ve semantik varlıklar için yerel LLM. | PERSON_NAME takma adları; DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE |
 
-**Coreference çözümleme.** Üç katman span'ları ürettikten sonra sanitizer
-aynı kişiye işaret eden geçişleri tek placeholder altında toplar: aynı
-dokümandaki `"John"`, `"J. Doe"` ve `"Mr. Doe"` hepsi `[PERSON_1]`'e düşer.
-Bu çözümleme cümleler arasında ve aynı dokümanın parçaları arasında çalışır.
+**Coreference çözümleme.** Üç katman span'ları ürettikten sonra
+sanitizer aynı kişiye yapılan tüm atıfları tek bir placeholder altında
+birleştirir. Aynı dokümandaki `"John"`, `"J. Doe"` ve `"Mr. Doe"`
+ifadelerinin hepsi `[PERSON_1]` olarak görünür. Bu çözümleme cümleler
+arasında ve aynı dokümanın farklı parçaları arasında da çalışır.
 
 **3. katman isteğe bağlıdır.** Ayarlarda `use_ollama_semantic_layer=false`
 yaparak atlayabilirsiniz. 1. ve 2. katmanlar yapısal kimlikleri ve
@@ -60,11 +62,12 @@ bağlıdır — aşağıdaki benchmark `aya-expanse:8b` ile yapılmıştır.
 
 ## Benchmark Sonuçları
 
-17 hazır regülasyonun tamamı aktif. **23 varlık tipi üzerinde
-algoritmik olarak üretilmiş 3.268 PII değeri** (geçerli Luhn, IBAN
-MOD-97, TCKN checksum'ları). Presidio tipi başına 150 örnek, 160 kişi
-adı (karışık + BÜYÜK HARF, EN/TR), 100 konum (EN/TR), 30 kurum adı
-(EN/TR), artı takma ad tespiti. Tam tekrarlanabilirlik için sabit seed.
+Benchmark, 17 hazır regülasyonun tamamı aktifken çalıştırıldı. Veri
+kümesi **23 varlık tipi üzerinden algoritmik olarak üretilmiş 3.268 PII
+değerinden** oluşur (geçerli Luhn, IBAN MOD-97, TCKN checksum'ları).
+Presidio tipi başına 150 örnek, 160 kişi adı (karışık + BÜYÜK HARF,
+EN/TR), 100 konum (EN/TR), 30 kurum adı (EN/TR) ve takma ad tespiti
+dahil. Seed sabit tutuldu — sonuçlar bire bir tekrarlanabilir.
 
 <p align="center">
   <img src="../screenshots/benchmark-f1-by-type.png" alt="Varlık tipine göre F1 skoru" width="900" />
@@ -81,12 +84,12 @@ adı (karışık + BÜYÜK HARF, EN/TR), 100 konum (EN/TR), 30 kurum adı
 | **Ollama (L3)** — aya-expanse:8b | 788 | 3 | %99,7 | %91,6 | %95,5 |
 | **Birleşik** | **3.268** | **23** | **%99,3** | **%93,3** | **%96,2** |
 
-> NER (L2), otomatik başlık-harfi normalize ederek tıbbi/hukuki
-> dokümanlarda sık görülen BÜYÜK HARF isimleri yakalar ve kurum adlarını
-> tanır. Ollama (L3) adayları doğrular ve takma adları yakalar. Benchmark,
-> boşluklu IBAN'lar ve noktalı telefon numaraları gibi adversarial edge
-> case'leri de içeriyor; bu durum Presidio recall'unu gerçek dünya
-> seviyesine çeker. Tekrarlanabilir:
+> NER (L2), başlık harfine otomatik normalize ederek tıbbi ve hukuki
+> dokümanlarda sık görülen BÜYÜK HARF isimleri yakalar; kurum adlarını da
+> tanır. Ollama (L3) adayları doğrular ve takma adları yakalar. Benchmark
+> veri kümesi boşluklu IBAN, noktalı telefon gibi adversarial edge case'leri
+> de içerir; bu durum Presidio'nun recall'unu gerçek dünya seviyesine çeker.
+> Testi kendiniz de çalıştırabilirsiniz:
 > `pytest tests/benchmark_detection.py -v -s`
 
 ### Kapsam ve sınırlar
@@ -110,8 +113,9 @@ nerede güçlü olduğu, nerede olmadığı konusunda açıktır:
   dürüstçe raporlanıyor.
 
 **Onay Mekanizması güvenlik ağıdır.** LLM'e gönderilmeden önce tam olarak
-ne gideceğini görür ve reddedebilirsiniz. Otomatik tespit riski azaltır;
-insan incelemesi tamamen ortadan kaldırır.
+ne gideceğini görür, gerektiğinde reddedersiniz. Otomatik tespit riski
+azaltır; son kararı veren insan incelemesi riski tamamen ortadan
+kaldırır.
 
 Benchmark modelleri: NER,
 `akdeniz27/xlm-roberta-base-turkish-ner` (TR) ve
@@ -170,8 +174,8 @@ geçerlidir.
 
 ## Otomatik RAG Yönlendirme
 
-Chat sidebar'ında doküman seçilmediğinde, Septum otomatik olarak doküman
-araması yapacağına mı yoksa düz sohbet botu gibi mi yanıt vereceğine
+Sohbet kenar çubuğunda doküman seçilmediğinde Septum, doküman araması
+mı yapacağına yoksa doğrudan sohbet yoluyla mı yanıt vereceğine kendisi
 karar verir.
 
 ```mermaid
@@ -214,7 +218,7 @@ rozet göstermek için bunu kullanır. Eşik değeri RAG ayarlar sekmesinde
 | Buluta gitmeden önce PII maskeleme | **Evet** | Hayır | Sadece tespit | Kendin yap |
 | Çoklu regülasyon (17 paket) | **Evet** | Hayır | Hayır | Kendin yap |
 | LLM öncesi onay kapısı | **Evet** | Hayır | Hayır | Kendin yap |
-| De-maskeleme (gerçek değerler) | **Evet** | Yok | Hayır | Kendin yap |
+| Placeholder geri yazma (gerçek değerler) | **Evet** | Yok | Hayır | Kendin yap |
 | Hibrit retrieval ile doküman RAG | **Evet** | Hayır | Hayır | Kısmen |
 | Otomatik RAG niyet yönlendirme | **Evet** | Hayır | Hayır | Kendin yap |
 | Özel tespit kuralları | **Evet** | Hayır | Sınırlı | Kendin yap |
@@ -225,7 +229,7 @@ rozet göstermek için bunu kullanır. Eşik değeri RAG ayarlar sekmesinde
 
 Diğer araçlar bulmacanın parçalarını sunar — şurada tespit, burada bir
 vektör deposu. Septum uçtan uca komple hat: tespit → anonimleştirme →
-eşleme → retrieval → onay → LLM çağrısı → de-maskeleme → denetim. Kutudan
+eşleme → retrieval → onay → LLM çağrısı → placeholder geri yazma → denetim. Kutudan
 çıktığı gibi, arayüzüyle, herhangi bir regülasyon için.
 
 ---
@@ -282,8 +286,8 @@ FastAPI REST katmanı sunar. İki kimlik doğrulama yöntemi desteklenir.
 
 ### JWT (tarayıcı oturumu, kısa ömürlü)
 
-Kurulum sihirbazı ilk admin hesabını oluşturur; sonraki login'ler 24
-saatlik JWT döner.
+Kurulum sihirbazı ilk admin hesabını oluşturur; sonraki login'lerde 24
+saat geçerli bir JWT döndürülür.
 
 ```bash
 curl -X POST http://localhost:3000/api/auth/login \
@@ -324,11 +328,12 @@ curl -X DELETE -H 'X-API-Key: sk-septum-…' http://localhost:3000/api/api-keys/
 | `POST /api/api-keys` | dakikada 10 |
 | Diğer hepsi | dakikada 60 (`RATE_LIMIT_DEFAULT` ile yapılandırılır) |
 
-API anahtarıyla gelen istekler IP'ye değil **anahtar önekine** göre rate
-limit'e tabidir, böylece paylaşılan NAT arkasındaki her servis kendi
-kotasını alır. Anonim ve JWT istekler IP'ye düşer. Limitler Redis
-yapılandırıldığında orada, aksi takdirde süreç içi bellekte tutulur
-(tek düğüm geliştirme için uygundur).
+API anahtarıyla gelen isteklere IP yerine **anahtar öneki** bazında rate
+limit uygulanır — böylece paylaşılan NAT arkasındaki her servis kendi
+kotasına sahip olur. Anonim ve JWT isteklerde ise IP bazlı limit
+geçerlidir. Redis yapılandırıldığında limit sayaçları Redis'te tutulur;
+aksi halde süreç içi bellekte saklanır (tek node'luk geliştirme için
+uygundur).
 
 ### Hızlı API örneği
 
@@ -345,7 +350,7 @@ curl -N -X POST http://localhost:3000/api/chat/ask \
   -d '{"message": "Fesih şartları nedir?", "document_id": 1}'
 ```
 
-Chat endpoint'i Server-Sent Events döndürür:
+Sohbet endpoint'i Server-Sent Events döndürür:
 `meta` → `approval_required` → `answer_chunk` → `end`.
 
 Tam API referansı, hat detayları ve deployment topolojileri için
