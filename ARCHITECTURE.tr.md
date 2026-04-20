@@ -223,11 +223,11 @@ packages/
 │   │   ├── recognizers/       # 17 regülasyon paketi
 │   │   └── national_ids/      # TCKN, SSN, CPF, Aadhaar, IBAN, …
 │   ├── tests/
-│   └── pyproject.toml          # ek bileşenler: [transformers], [test]
+│   └── pyproject.toml          # extra'lar: [transformers], [test]
 │
 ├── mcp/                  # septum-mcp (air-gapped; stdio MCP sunucu)
 │   ├── septum_mcp/server.py, tools.py, config.py
-│   └── pyproject.toml          # ek bileşenler: [test]
+│   └── pyproject.toml          # extra'lar: [test]
 │
 ├── api/                  # septum-api (air-gapped; FastAPI)
 │   ├── septum_api/
@@ -238,7 +238,7 @@ packages/
 │   │   ├── services/            # document pipeline, sanitizer wrapper, …
 │   │   ├── middleware/          # auth + rate-limit
 │   │   └── utils/               # crypto, device, text_utils, …
-│   └── pyproject.toml          # ek bileşenler: [auth], [rate-limit], [postgres], [server], [test]
+│   └── pyproject.toml          # extra'lar: [auth], [rate-limit], [postgres], [server], [test]
 │
 ├── web/                  # septum-web (air-gapped; Next.js 16 panel)
 │   ├── src/app/, src/components/, src/store/, src/i18n/
@@ -250,7 +250,7 @@ packages/
 │   │   ├── models.py             # RequestEnvelope / ResponseEnvelope
 │   │   ├── file_backend.py       # POSIX atomik rename, air-gapped varsayılanı
 │   │   └── redis_backend.py      # Redis Streams consumer groups
-│   └── pyproject.toml          # ek bileşenler: [redis], [test]
+│   └── pyproject.toml          # extra'lar: [redis], [test]
 │
 ├── gateway/              # septum-gateway (internet-facing)
 │   ├── septum_gateway/
@@ -258,7 +258,7 @@ packages/
 │   │   ├── forwarder.py          # Anthropic / OpenAI / OpenRouter istemcileri
 │   │   ├── response_handler.py   # GatewayConsumer + isteğe bağlı audit hook
 │   │   ├── worker.py             # python -m septum_gateway giriş noktası
-│   │   └── main.py               # FastAPI /health (isteğe bağlı [server] ek bileşeni)
+│   │   └── main.py               # FastAPI /health (isteğe bağlı [server] extra'sı)
 │   └── pyproject.toml          # ASLA septum-core'a bağımlı değildir
 │
 └── audit/                # septum-audit (internet-facing)
@@ -283,9 +283,9 @@ septum-queue ← septum-gateway (consumer + response producer)
 septum-queue ← septum-audit[queue] (olay tüketici)
 ```
 
-`septum-core` Septum graf'ı içindeki sıfır Python runtime bağımlılığı
-olan tek pakettir. `septum-queue` de gerekli bağımlılıkla gelmez
-(stdlib only); Redis backend `[redis]` ek bileşeni ile kullanılabilir.
+`septum-core` bu grafta Python runtime bağımlılığı taşımayan tek
+pakettir. `septum-queue` de taşımaz (stdlib only); Redis backend
+`[redis]` extra'sı ile aktif olur.
 
 Eski `backend/` uyumluluk katmanı kaldırılmıştır. Her modül artık
 `packages/` altındadır, import'lar doğrudan `septum_api.*`'a gider ve
@@ -312,7 +312,7 @@ temiz build eder (linux/amd64 + linux/arm64).
 | Standalone | `docker-compose.standalone.yml` | `docker/standalone.Dockerfile`'dan tek container, SQLite | En basit kurulum; `byerlikaya/septum:latest` olarak yayınlanır. |
 | Full dev stack | `docker-compose.yml` | api + web + gateway-worker + audit-worker + audit-api + Postgres + Redis + isteğe bağlı Ollama profili | Yerel geliştirme veya bölge mantığı ile tek-host kurulum. |
 | Air-gapped bölge | `docker-compose.airgap.yml` | api + web + Postgres + Redis (gateway yok). `USE_GATEWAY_DEFAULT=true` bulut çağrılarını Redis Streams üzerinden yönlendirir. | İki-host ayrık kurulumunun iç host'u. |
-| Internet-facing bölge | `docker-compose.gateway.yml` | gateway-worker + gateway-health + audit-worker + audit-api + Redis. YAML anchor'lar (`x-gateway-base`, `x-audit-base`) ile servis tanımları tekrarı kaldırılmıştır. | İki-host ayrık kurulumunun DMZ / bulut host'u. |
+| Internet-facing bölge | `docker-compose.gateway.yml` | gateway-worker + gateway-health + audit-worker + audit-api + Redis. YAML anchor'ları (`x-gateway-base`, `x-audit-base`) ile servis tanımları tek yerde tutulur. | İki-host ayrık kurulumunun DMZ / bulut host'u. |
 
 Gerçek bir air-gapped kurulum için `airgap.yml`'ı iç host'ta ve
 `gateway.yml`'ı DMZ host'ta çalıştırın ve VPN / özel link üzerinden
@@ -342,7 +342,7 @@ kodudur.
 ### septum-core
 
 PII motoru: tespit, maskeleme, demaskeleme, regülasyon kompozisyonu.
-Sözleşme gereği sıfır ağ bağımlılığı — `septum_core/` altında hiçbir
+Kod seviyesinde ağ bağımlılığı yok — `septum_core/` altında hiçbir
 yerde `httpx` / `requests` / `urllib` import edilmez.
 
 - `detector.py` — `Detector` sınıfı çok katmanlı pipeline'ı sarar
@@ -371,11 +371,11 @@ yerde `httpx` / `requests` / `urllib` import edilmez.
 
 ### septum-mcp
 
-Claude Code / Desktop / Cursor'a altı araç sunan stdio MCP sunucu:
+Claude Code / Desktop / Cursor'a altı araç sunan stdio MCP sunucusu:
 `mask_text`, `unmask_response`, `detect_pii`, `scan_file`,
 `list_regulations`, `get_session_map`. `septum-core`'a bağımlıdır;
-motor inşası ilk araç çağrısına ertelenir — boşta duran maliyet sıfıra
-yakın.
+engine ilk araç çağrısında kurulur — boşta dururken neredeyse hiç
+maliyet üretmez.
 
 ### septum-api
 
@@ -401,7 +401,7 @@ yakın.
 
 ### septum-queue
 
-Soyut kuyruk transport, sıfır runtime bağımlılığı:
+Soyut kuyruk transport, runtime bağımlılığı yok:
 
 - `base.py` — `QueueBackend` Protocol + `QueueSession` context
   manager + `QueueError` / `QueueTimeoutError`.
@@ -434,7 +434,7 @@ Internet-facing bölge için bulut LLM yönlendiricisi:
   model / status / latency_ms / correlation_id — prompt yok, cevap
   metni yok, api key yok).
 - `worker.py` + `__main__.py` — `python -m septum_gateway` giriş noktası.
-- `main.py` — `[server]` ek bileşeninin arkasında FastAPI `/health`.
+- `main.py` — `[server]` extra'sının arkasında FastAPI `/health`.
 
 ### septum-audit
 
