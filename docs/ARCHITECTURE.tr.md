@@ -1,7 +1,7 @@
 # Septum — Mimari ve Teknik Referans
 
 > Bu doküman Septum'un iç mimarisini, pipeline detaylarını, kod yapısını ve dağıtım seçeneklerini kapsar.
-> Genel bakış ve hızlı başlangıç için [README.tr.md](README.tr.md) dosyasına bakın.
+> Genel bakış ve hızlı başlangıç için [README.tr.md](../README.tr.md) dosyasına bakın.
 
 ---
 

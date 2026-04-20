@@ -19,7 +19,7 @@ names written in uppercase (common in medical reports, official forms).
 All 17 built-in regulations are activated during benchmarking.
 
 Side effects (combined_summary test only):
-  - Screenshots regenerated: screenshots/benchmark-*.png
+  - Screenshots regenerated: assets/benchmark-*.png
   - README.md and README.tr.md benchmark tables updated in-place
 
 Run everything:           pytest tests/benchmark_detection.py -v -s
@@ -1909,7 +1909,7 @@ def _generate_charts(data: dict) -> None:
         logger.warning("matplotlib not available — skipping chart generation")
         return
 
-    out_dir = _PROJECT_ROOT / "screenshots"
+    out_dir = _PROJECT_ROOT / "assets"
     out_dir.mkdir(exist_ok=True)
 
     # --- Chart 1: F1 by entity type ---

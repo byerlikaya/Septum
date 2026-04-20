@@ -1,7 +1,7 @@
 # Septum — Özellik ve Tespit Referansı
 
 > [README.md](../README.tr.md) dışında kalan her şey için ayrıntılı referans.
-> Modül seviyesindeki mimari için [ARCHITECTURE.tr.md](../ARCHITECTURE.tr.md)'ye bakın.
+> Modül seviyesindeki mimari için [ARCHITECTURE.tr.md](ARCHITECTURE.tr.md)'ye bakın.
 
 ## İçindekiler
 
@@ -70,11 +70,11 @@ EN/TR), 100 konum (EN/TR), 30 kurum adı (EN/TR) ve takma ad tespiti
 dahil. Seed sabit tutuldu — sonuçlar bire bir tekrarlanabilir.
 
 <p align="center">
-  <img src="../screenshots/benchmark-f1-by-type.png" alt="Varlık tipine göre F1 skoru" width="900" />
+  <img src="../assets/benchmark-f1-by-type.png" alt="Varlık tipine göre F1 skoru" width="900" />
 </p>
 
 <p align="center">
-  <img src="../screenshots/benchmark-layer-comparison.png" alt="Hat katmanına göre tespit doğruluğu" width="700" />
+  <img src="../assets/benchmark-layer-comparison.png" alt="Hat katmanına göre tespit doğruluğu" width="700" />
 </p>
 
 | Katman | Varlık | Tip | Precision | Recall | F1 |
@@ -354,7 +354,7 @@ Sohbet endpoint'i Server-Sent Events döndürür:
 `meta` → `approval_required` → `answer_chunk` → `end`.
 
 Tam API referansı, hat detayları ve deployment topolojileri için
-[ARCHITECTURE.tr.md](../ARCHITECTURE.tr.md) dosyasına bakın.
+[ARCHITECTURE.tr.md](ARCHITECTURE.tr.md) dosyasına bakın.
 
 ---
 
@@ -363,7 +363,7 @@ Tam API referansı, hat detayları ve deployment topolojileri için
 ### Doküman önizleme — varlıklar satır içinde renklendirilir
 
 <p align="center">
-  <img src="../screenshots/document-preview.gif" alt="Doküman listesi ve önizleme, tespit edilen PII satır içinde renklendirilmiş" width="900" />
+  <img src="../assets/document-preview.gif" alt="Doküman listesi ve önizleme, tespit edilen PII satır içinde renklendirilmiş" width="900" />
 </p>
 
 Tespit edilen her varlık — isim, adres, doğum tarihi, telefon, tıbbi
@@ -377,27 +377,27 @@ panelde her eşleşme skoru ve placeholder'ıyla listelenir.
   <tr>
     <td width="50%" align="center">
       <b>LLM Sağlayıcı</b><br />
-      <img src="../screenshots/14-settings-llm-provider.png" alt="LLM sağlayıcı ayarları" />
+      <img src="../assets/14-settings-llm-provider.png" alt="LLM sağlayıcı ayarları" />
     </td>
     <td width="50%" align="center">
       <b>Gizlilik ve Sanitizasyon</b> — 3 katmanlı hat<br />
-      <img src="../screenshots/15-settings-privacy-sanitization.png" alt="Gizlilik sanitizasyon ayarları" />
+      <img src="../assets/15-settings-privacy-sanitization.png" alt="Gizlilik sanitizasyon ayarları" />
     </td>
   </tr>
   <tr>
     <td align="center">
       <b>RAG ve Hibrit Retrieval</b><br />
-      <img src="../screenshots/16-settings-rag.png" alt="RAG ayarları" />
+      <img src="../assets/16-settings-rag.png" alt="RAG ayarları" />
     </td>
     <td align="center">
       <b>Doküman Ingest</b><br />
-      <img src="../screenshots/17-settings-ingestion.png" alt="Ingest ayarları" />
+      <img src="../assets/17-settings-ingestion.png" alt="Ingest ayarları" />
     </td>
   </tr>
   <tr>
     <td colspan="2" align="center">
       <b>Altyapı</b> — veritabanı, cache, LLM gateway<br />
-      <img src="../screenshots/18-settings-infrastructure.png" alt="Altyapı ayarları" width="720" />
+      <img src="../assets/18-settings-infrastructure.png" alt="Altyapı ayarları" width="720" />
     </td>
   </tr>
 </table>
@@ -405,7 +405,7 @@ panelde her eşleşme skoru ve placeholder'ıyla listelenir.
 ### Özel regülasyon kuralları
 
 <p align="center">
-  <img src="../screenshots/19-regulations-custom-rules.png" alt="Özel regülasyon kuralları — regex, anahtar kelime, LLM prompt" width="900" />
+  <img src="../assets/19-regulations-custom-rules.png" alt="Özel regülasyon kuralları — regex, anahtar kelime, LLM prompt" width="900" />
 </p>
 
 17 hazır paketin yanında kendi tanıyıcılarınızı tanımlayın. Üç yöntem:
@@ -416,7 +416,7 @@ kazanır.
 ### Denetim kaydı
 
 <p align="center">
-  <img src="../screenshots/23-audit-trail.png" alt="Denetim kaydı" width="900" />
+  <img src="../assets/23-audit-trail.png" alt="Denetim kaydı" width="900" />
 </p>
 
 Salt-ekleme uyumluluk günlüğü ve varlık tespit metrikleri. Denetim

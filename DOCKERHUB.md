@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/byerlikaya/Septum/main/septum_logo.png" alt="Septum logo" width="180" />
+  <img src="https://raw.githubusercontent.com/byerlikaya/Septum/main/assets/septum_logo.png" alt="Septum logo" width="180" />
 </p>
 
 <h3 align="center">Your data never leaves. Your AI still works.</h3>
 
 <p align="center">
   <a href="https://github.com/byerlikaya/Septum"><img src="https://img.shields.io/badge/GitHub-Source-181717?logo=github" alt="GitHub" /></a>
-  <a href="https://github.com/byerlikaya/Septum/blob/main/ARCHITECTURE.md"><img src="https://img.shields.io/badge/docs-Architecture-blue" alt="Architecture" /></a>
+  <a href="https://github.com/byerlikaya/Septum/blob/main/docs/ARCHITECTURE.md"><img src="https://img.shields.io/badge/docs-Architecture-blue" alt="Architecture" /></a>
   <a href="https://github.com/byerlikaya/Septum/blob/main/CHANGELOG.md"><img src="https://img.shields.io/badge/docs-Changelog-blue" alt="Changelog" /></a>
   <a href="https://github.com/byerlikaya/Septum/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-view-green" alt="License" /></a>
 </p>
@@ -98,7 +98,7 @@ All API endpoints (`/api/*`, `/docs`, `/health`) are served through port 3000. N
 ## Links
 
 - **Source Code:** [github.com/byerlikaya/Septum](https://github.com/byerlikaya/Septum)
-- **Architecture:** [ARCHITECTURE.md](https://github.com/byerlikaya/Septum/blob/main/ARCHITECTURE.md)
+- **Architecture:** [ARCHITECTURE.md](https://github.com/byerlikaya/Septum/blob/main/docs/ARCHITECTURE.md)
 - **Changelog:** [CHANGELOG.md](https://github.com/byerlikaya/Septum/blob/main/CHANGELOG.md)
 - **Issues:** [GitHub Issues](https://github.com/byerlikaya/Septum/issues)
 - **License:** [LICENSE](https://github.com/byerlikaya/Septum/blob/main/LICENSE)

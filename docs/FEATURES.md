@@ -1,7 +1,7 @@
 # Septum — Features & Detection Reference
 
 > In-depth reference for everything that did not fit in [README.md](../README.md).
-> For module-level architecture see [ARCHITECTURE.md](../ARCHITECTURE.md).
+> For module-level architecture see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Table of Contents
 
@@ -67,11 +67,11 @@ EN/TR), 100 locations (EN/TR), 30 organisation names (EN/TR), plus alias
 detection. Fixed seed for full reproducibility.
 
 <p align="center">
-  <img src="../screenshots/benchmark-f1-by-type.png" alt="F1 Score by Entity Type" width="900" />
+  <img src="../assets/benchmark-f1-by-type.png" alt="F1 Score by Entity Type" width="900" />
 </p>
 
 <p align="center">
-  <img src="../screenshots/benchmark-layer-comparison.png" alt="Detection Accuracy by Pipeline Layer" width="700" />
+  <img src="../assets/benchmark-layer-comparison.png" alt="Detection Accuracy by Pipeline Layer" width="700" />
 </p>
 
 | Layer | Entities | Types | Precision | Recall | F1 |
@@ -341,7 +341,7 @@ The chat endpoint returns Server-Sent Events:
 `meta` → `approval_required` → `answer_chunk` → `end`.
 
 For the complete API reference, pipeline details, and deployment
-topologies, see [ARCHITECTURE.md](../ARCHITECTURE.md).
+topologies, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
@@ -350,7 +350,7 @@ topologies, see [ARCHITECTURE.md](../ARCHITECTURE.md).
 ### Document preview with entity highlights
 
 <p align="center">
-  <img src="../screenshots/document-preview.gif" alt="Documents list and preview with detected PII entities highlighted inline" width="900" />
+  <img src="../assets/document-preview.gif" alt="Documents list and preview with detected PII entities highlighted inline" width="900" />
 </p>
 
 Every detected entity — names, addresses, dates of birth, phone numbers,
@@ -365,27 +365,27 @@ placeholder.
   <tr>
     <td width="50%" align="center">
       <b>LLM Provider</b><br />
-      <img src="../screenshots/14-settings-llm-provider.png" alt="LLM provider settings" />
+      <img src="../assets/14-settings-llm-provider.png" alt="LLM provider settings" />
     </td>
     <td width="50%" align="center">
       <b>Privacy & Sanitization</b> — 3-layer pipeline<br />
-      <img src="../screenshots/15-settings-privacy-sanitization.png" alt="Privacy sanitization settings" />
+      <img src="../assets/15-settings-privacy-sanitization.png" alt="Privacy sanitization settings" />
     </td>
   </tr>
   <tr>
     <td align="center">
       <b>RAG & Hybrid Retrieval</b><br />
-      <img src="../screenshots/16-settings-rag.png" alt="RAG settings" />
+      <img src="../assets/16-settings-rag.png" alt="RAG settings" />
     </td>
     <td align="center">
       <b>Document Ingestion</b><br />
-      <img src="../screenshots/17-settings-ingestion.png" alt="Ingestion settings" />
+      <img src="../assets/17-settings-ingestion.png" alt="Ingestion settings" />
     </td>
   </tr>
   <tr>
     <td colspan="2" align="center">
       <b>Infrastructure</b> — database, cache, LLM gateway<br />
-      <img src="../screenshots/18-settings-infrastructure.png" alt="Infrastructure settings" width="720" />
+      <img src="../assets/18-settings-infrastructure.png" alt="Infrastructure settings" width="720" />
     </td>
   </tr>
 </table>
@@ -393,7 +393,7 @@ placeholder.
 ### Custom regulation rules
 
 <p align="center">
-  <img src="../screenshots/19-regulations-custom-rules.png" alt="Custom regulation rules — regex, keyword list, LLM prompt" width="900" />
+  <img src="../assets/19-regulations-custom-rules.png" alt="Custom regulation rules — regex, keyword list, LLM prompt" width="900" />
 </p>
 
 Define your own detectors alongside the 17 built-in packs. Three
@@ -403,7 +403,7 @@ Policy composition rules still apply — the most restrictive rule wins.
 ### Audit trail
 
 <p align="center">
-  <img src="../screenshots/23-audit-trail.png" alt="Audit trail" width="900" />
+  <img src="../assets/23-audit-trail.png" alt="Audit trail" width="900" />
 </p>
 
 Append-only compliance log with entity detection metrics. No raw PII in

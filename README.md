@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="septum_logo.png" alt="Septum logo" width="220" />
+  <img src="assets/septum_logo.png" alt="Septum logo" width="220" />
 </p>
 
 <h3 align="center">Your data never leaves. Your AI still works.</h3>
@@ -34,7 +34,7 @@
   &middot;
   <a href="docs/FEATURES.md"><strong>Features</strong></a>
   &middot;
-  <a href="ARCHITECTURE.md"><strong>Architecture</strong></a>
+  <a href="docs/ARCHITECTURE.md"><strong>Architecture</strong></a>
   &middot;
   <a href="CHANGELOG.md"><strong>Changelog</strong></a>
 </p>
@@ -94,7 +94,7 @@ sequenceDiagram
 Septum is composed of 7 independent modules split across three security zones. Air-gapped modules handle raw PII with zero internet access. The bridge transports only masked placeholders. Internet-facing modules never see raw PII.
 
 <p align="center">
-  <img src="screenshots/architecture.svg" alt="Septum architecture — 7 modules across 3 security zones (air-gapped, bridge, internet-facing)" width="800" />
+  <img src="assets/architecture.svg" alt="Septum architecture — 7 modules across 3 security zones (air-gapped, bridge, internet-facing)" width="800" />
 </p>
 
 | Package | Zone | Purpose |
@@ -107,7 +107,7 @@ Septum is composed of 7 independent modules split across three security zones. A
 | [`septum-gateway`](packages/gateway/) | Internet-facing | Cloud LLM forwarder — never imports `septum-core` |
 | [`septum-audit`](packages/audit/) | Internet-facing | Compliance log + SIEM export — never imports `septum-core` |
 
-Module contracts and zone semantics live in [ARCHITECTURE.md](ARCHITECTURE.md).
+Module contracts and zone semantics live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
@@ -134,7 +134,7 @@ See [docs/FEATURES.md](docs/FEATURES.md) for the full detection benchmark, regul
 ### Setup Wizard
 
 <p align="center">
-  <img src="screenshots/setup-wizard.gif" alt="Setup wizard walkthrough — database, cache, LLM provider, regulations, audio model, admin account" width="900" />
+  <img src="assets/setup-wizard.gif" alt="Setup wizard walkthrough — database, cache, LLM provider, regulations, audio model, admin account" width="900" />
 </p>
 
 Pick your database (SQLite or PostgreSQL), cache (in-memory or Redis), LLM provider (Anthropic, OpenAI, OpenRouter, or local Ollama), privacy regulations, and audio transcription model — all from the wizard.
@@ -142,7 +142,7 @@ Pick your database (SQLite or PostgreSQL), cache (in-memory or Redis), LLM provi
 ### Approval Gate — See exactly what leaves your machine
 
 <p align="center">
-  <img src="screenshots/chat-flow.gif" alt="Chat approval flow — masked prompt, retrieved chunks, assembled cloud prompt, and the deanonymised answer" width="900" />
+  <img src="assets/chat-flow.gif" alt="Chat approval flow — masked prompt, retrieved chunks, assembled cloud prompt, and the deanonymised answer" width="900" />
 </p>
 
 Before every LLM call, Septum shows three side-by-side panes: the **masked prompt** you typed, the **retrieved document chunks** (editable), and the **full assembled prompt** that will actually be sent to the cloud. Approve it and the answer comes back with real values restored — locally, never in the cloud.
@@ -175,7 +175,7 @@ Open **http://localhost:3000** — the setup wizard walks you through database, 
 
 **Docker Compose.** `docker compose up` starts PostgreSQL, Redis, Ollama, and Septum together. Pull a model before the first chat: `docker compose exec ollama ollama pull llama3.2:3b`. Skip Ollama with `docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up` for cloud-only setups.
 
-**Deployment topologies** — four compose variants ship for different deployment shapes: standalone (single container, SQLite), full dev stack (all modules on one host), air-gapped zone only, and internet-facing zone only. See [ARCHITECTURE.md § Deployment Topologies](ARCHITECTURE.md#deployment-topologies) for the full matrix and a two-host air-gap walkthrough.
+**Deployment topologies** — four compose variants ship for different deployment shapes: standalone (single container, SQLite), full dev stack (all modules on one host), air-gapped zone only, and internet-facing zone only. See [docs/ARCHITECTURE.md § Deployment Topologies](docs/ARCHITECTURE.md#deployment-topologies) for the full matrix and a two-host air-gap walkthrough.
 
 ### Local development
 
@@ -195,7 +195,7 @@ All features work identically. The difference is acceleration: local install pic
 ## Learn More
 
 - **[docs/FEATURES.md](docs/FEATURES.md)** — detection benchmark, regulation packs, MCP deep-dive, REST API + auth, why-Septum comparison
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — module contracts, zone semantics, deployment topologies, API reference
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — module contracts, zone semantics, deployment topologies, API reference
 - **[CHANGELOG.md](CHANGELOG.md)** — date-based release history
 
 ---

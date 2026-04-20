@@ -1,7 +1,7 @@
 # Septum — Architecture & Technical Reference
 
 > This document covers Septum's internal architecture, pipeline details, code structure, and deployment options.
-> For a high-level overview and quick start, see [README.md](README.md).
+> For a high-level overview and quick start, see [README.md](../README.md).
 
 ---
 
