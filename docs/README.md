@@ -37,3 +37,21 @@ Deep-dive reference material. For a project overview, start with the [main READM
 ## Turkish
 
 Every page has a Turkish twin suffixed with `.tr.md` — e.g. [Features (Özellikler)](FEATURES.tr.md).
+
+---
+
+<p align="center">
+  <a href="../README.md"><strong>🏠 Home</strong></a>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.md"><strong>✨ Features</strong></a>
+  &nbsp;·&nbsp;
+  <a href="ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
+  &nbsp;·&nbsp;
+  <a href="DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
+  &nbsp;·&nbsp;
+  <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
+</p>

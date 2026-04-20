@@ -347,3 +347,21 @@ All notable changes to this project are documented here in a high‑level, date�
 - **Privacy and recognition engine**: Added national ID validators and tests, a multilayer sanitizer, anonymization map with coreference handling, and a regulation‑aware recognizer registry and policy composer.
 - **Vector store and retrieval**: Introduced an encrypted FAISS vector store per document and ignored local index artifacts from version control.
 - **Backend services and frontend shell**: Added LLM router, deanonymizer, approval gate, chat pipeline wiring, settings sync, settings UI, regulations UI, documents UI, and the initial Next.js frontend shell with layout and API client.
+
+---
+
+<p align="center">
+  <a href="README.md"><strong>🏠 Home</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
+  &nbsp;·&nbsp;
+  <a href="CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
+  &nbsp;·&nbsp;
+  <strong>📝 Changelog</strong>
+</p>

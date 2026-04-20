@@ -40,14 +40,18 @@ How Septum turns an uploaded file into searchable, anonymised content. Every ste
    - **Encrypted storage** — the original file is sealed with AES-256-GCM on disk. It is never decrypted outside the air-gapped zone.
 7. **Ready for search** — when all three tracks (FAISS, BM25, encrypted blob) complete, the document is flagged `ingestion_status="completed"` and becomes queryable from chat.
 
-## Why this shape?
-
-- **Type detection first** so we never run a Whisper pipeline on a PDF, or OCR on a Word document.
-- **Language before NER** because the NER model choice and the validator rules both depend on the detected language.
-- **PII detection runs on the extracted text**, and *chunking / embedding / BM25* all consume the **masked** output. Every downstream artefact is placeholder-only, so a leaked index file reveals no PII.
-- **Chunking and encrypted storage are independent** — running them in parallel halves the wall-time on large ingestions without any correctness trade-off.
-
-## See also
-
-- ✨ [Features](FEATURES.md) — full detection benchmark, regulation packs, and MCP deep-dive
-- 🏗️ [Architecture](ARCHITECTURE.md) — module layout, zone semantics, deployment topologies
+<p align="center">
+  <a href="../README.md"><strong>🏠 Home</strong></a>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.md"><strong>✨ Features</strong></a>
+  &nbsp;·&nbsp;
+  <a href="ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
+  &nbsp;·&nbsp;
+  <strong>📊 Document Ingestion</strong>
+  &nbsp;·&nbsp;
+  <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
+</p>

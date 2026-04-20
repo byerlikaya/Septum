@@ -26,15 +26,17 @@
 </p>
 
 <p align="center">
-  <a href="#how-it-works"><strong>🎬 How It Works</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <a href="#quick-start"><strong>⚡ Quick Start</strong></a>
+  <strong>🏠 Home</strong>
   &nbsp;·&nbsp;
   <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
+  &nbsp;·&nbsp;
+  <a href="CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
   &nbsp;·&nbsp;
   <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
@@ -158,17 +160,6 @@ All features work identically. The difference is acceleration: local install pic
 
 ---
 
-## Learn More
-
-- ✨ **[Features](docs/FEATURES.md)** — detection benchmark, regulation packs, MCP deep-dive, REST API + auth, why-Septum comparison
-- 📸 **[Screenshots](docs/SCREENSHOTS.md)** — visual tour of every screen
-- 🏗️ **[Architecture](docs/ARCHITECTURE.md)** — module contracts, zone semantics, deployment topologies, API reference
-- 📊 **[Document Ingestion](docs/DOCUMENT_INGESTION.md)** — upload → detection → masking → indexing, step-by-step
-- 🤝 **[Contributing](CONTRIBUTING.md)** — how to report bugs, run tests, and open a pull request
-- 📝 **[Changelog](CHANGELOG.md)** — date-based release history
-
----
-
 ## Support the Project
 
 Septum is open source (MIT) and maintained in the open. If it saves you from a privacy incident, helps your team ship faster, or just makes your LLM workflow safer:
@@ -183,3 +174,21 @@ Septum is open source (MIT) and maintained in the open. If it saves you from a p
 ## License
 
 See [LICENSE](LICENSE) for details.
+
+---
+
+<p align="center">
+  <strong>🏠 Home</strong>
+  &nbsp;·&nbsp;
+  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
+  &nbsp;·&nbsp;
+  <a href="CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
+  &nbsp;·&nbsp;
+  <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
+</p>

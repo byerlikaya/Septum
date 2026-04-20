@@ -37,3 +37,21 @@ Derinlemesine referans materyali. Proje genel bakışı için [ana README](../RE
 ## İngilizce
 
 Her sayfanın İngilizce ikizi `.tr` son eki olmadan mevcut — örn. [Features](FEATURES.md).
+
+---
+
+<p align="center">
+  <a href="../README.tr.md"><strong>🏠 Ana Sayfa</strong></a>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  &nbsp;·&nbsp;
+  <a href="ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
+  &nbsp;·&nbsp;
+  <a href="DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
+  &nbsp;·&nbsp;
+  <a href="SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CONTRIBUTING.tr.md"><strong>🤝 Katkı</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
+</p>

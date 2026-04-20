@@ -124,3 +124,21 @@ Salt-ekleme uyumluluk günlüğü ve varlık tespit metrikleri. Denetim
 olaylarında ham PII yoktur — yalnızca varlık tipi, adet, regülasyon id
 ve zaman damgası tutulur. `/api/audit/export` üzerinden JSON / CSV /
 Splunk HEC export alabilirsiniz.
+
+---
+
+<p align="center">
+  <a href="../README.tr.md"><strong>🏠 Ana Sayfa</strong></a>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  &nbsp;·&nbsp;
+  <a href="ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
+  &nbsp;·&nbsp;
+  <a href="DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
+  &nbsp;·&nbsp;
+  <strong>📸 Ekran Görüntüleri</strong>
+  &nbsp;·&nbsp;
+  <a href="../CONTRIBUTING.tr.md"><strong>🤝 Katkı</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
+</p>

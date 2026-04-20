@@ -133,3 +133,21 @@ and we'll coordinate a fix + advisory.
 Contributions are licensed under the MIT License, the same as the
 project. By submitting a pull request you agree that your
 contribution can be distributed under those terms.
+
+---
+
+<p align="center">
+  <a href="README.md"><strong>🏠 Home</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
+  &nbsp;·&nbsp;
+  <strong>🤝 Contributing</strong>
+  &nbsp;·&nbsp;
+  <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
+</p>

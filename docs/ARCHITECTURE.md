@@ -740,3 +740,21 @@ Full OpenAPI schema is available at `http://localhost:3000/docs` when the applic
 - Update NER model mappings from the Settings → NER Models screen.
 - Pronoun coreference resolution via local LLM (Ollama) detects implied subject references.
 - PII detection quality metrics for data-driven assessment of detection coverage.
+
+---
+
+<p align="center">
+  <a href="../README.md"><strong>🏠 Home</strong></a>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.md"><strong>✨ Features</strong></a>
+  &nbsp;·&nbsp;
+  <strong>🏗️ Architecture</strong>
+  &nbsp;·&nbsp;
+  <a href="DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
+  &nbsp;·&nbsp;
+  <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
+</p>
