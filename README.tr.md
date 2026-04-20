@@ -65,19 +65,9 @@ LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerç
 
 ## Nasıl Çalışır?
 
-```mermaid
-sequenceDiagram
-    participant U as 👤 Kullanıcı
-    participant S as 🛡️ Septum
-    participant L as ☁️ Bulut LLM
-    U->>S: Anne adı Ayşe, baba adı Ali olan <br/> Ahmet Yılmaz'ın doğum yeri neresidir?
-    Note over S: PII tespit + maskeleme<br/>3 × PERSON_NAME
-    S->>L: Anne adı [PERSON_1], baba adı [PERSON_2] olan <br/> [PERSON_3]'ın doğum yeri neresidir?
-    L->>S: [PERSON_3] İstanbul doğumludur.
-    Note over S: Placeholder'lar yerelde geri yazılır
-    S->>U: Ahmet Yılmaz İstanbul doğumludur.
-    Note over U,L: 🔒 Ham PII hiç makineden çıkmadı
-```
+<p align="center">
+  <a href="#nasıl-çalışır"><img src="assets/how-it-works.tr.svg" alt="Septum sohbet akışı — kullanıcıdan ham soru, yerelde PII maskeleme, buluta maskeli soru, maskeli cevap, yerelde placeholder geri yazma, gerçek cevap kullanıcıya" width="820" /></a>
+</p>
 
 1. **Dokümanlarınızı yükleyin** — Septum dosya tipini ve dili otomatik algılar, tüm kişisel verileri maskeler ve içeriği anonimleştirilmiş haliyle aramaya hazırlar.
 2. **Sohbette soru sorun** — dilerseniz belirli dokümanları seçin, dilerseniz boş bırakıp kararı Septum'a bırakın. Seçim yoksa yerel Ollama sınıflandırıcısı soruyu ya Otomatik RAG'a (tüm indekslenmiş dokümanları arayıp ilgili parçaları çıkarır) ya da doğrudan sohbet yoluna yönlendirir.
@@ -92,7 +82,7 @@ sequenceDiagram
 Septum, üç güvenlik bölgesine ayrılmış 7 bağımsız modülden oluşur. Air-gapped modüller ham PII'yi işler ve internete çıkmaz. Köprü yalnızca maskeli placeholder taşır. Internet-facing modüller ham PII'yi asla görmez.
 
 <p align="center">
-  <img src="assets/architecture.tr.svg" alt="Septum mimarisi — 3 güvenlik bölgesine dağıtılmış 7 modül (air-gapped, köprü, internet-facing)" width="800" />
+  <a href="#mimari"><img src="assets/architecture.tr.svg" alt="Septum mimarisi — 3 güvenlik bölgesine dağıtılmış 7 modül (air-gapped, köprü, internet-facing)" width="800" /></a>
 </p>
 
 | Paket | Bölge | Görevi |

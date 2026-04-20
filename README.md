@@ -65,19 +65,9 @@ The LLM answers using placeholders. Septum restores real values locally before s
 
 ## How It Works?
 
-```mermaid
-sequenceDiagram
-    participant U as 👤 User
-    participant S as 🛡️ Septum
-    participant L as ☁️ Cloud LLM
-    U->>S: Where was Ahmet Yılmaz <br> (mother Ayşe, father Ali) born?
-    Note over S: Detect & mask PII<br/>3 × PERSON_NAME
-    S->>L: Where was [PERSON_3] <br> (mother [PERSON_1], father [PERSON_2]) born?
-    L->>S: [PERSON_3] was born in Istanbul.
-    Note over S: Placeholders restored locally
-    S->>U: Ahmet Yılmaz was born in Istanbul.
-    Note over U,L: 🔒 Raw PII never left the machine
-```
+<p align="center">
+  <a href="#how-it-works"><img src="assets/how-it-works.svg" alt="Septum chat flow — raw question from user, local PII masking, masked question to cloud LLM, masked response, local placeholder restore, real answer to user" width="820" /></a>
+</p>
 
 1. **Upload your documents** — PDFs, Office files, images, audio. Septum detects file type, language, and personal data; masks all PII; prepares anonymised content for search.
 2. **Ask questions in chat** — select specific documents, or leave the selection empty and let Septum decide. With no selection, a local Ollama classifier routes the question to either Auto-RAG (search all indexed documents) or a plain chatbot reply.
@@ -92,7 +82,7 @@ sequenceDiagram
 Septum is composed of 7 independent modules split across three security zones. Air-gapped modules handle raw PII with zero internet access. The bridge transports only masked placeholders. Internet-facing modules never see raw PII.
 
 <p align="center">
-  <img src="assets/architecture.svg" alt="Septum architecture — 7 modules across 3 security zones (air-gapped, bridge, internet-facing)" width="800" />
+  <a href="#architecture"><img src="assets/architecture.svg" alt="Septum architecture — 7 modules across 3 security zones (air-gapped, bridge, internet-facing)" width="800" /></a>
 </p>
 
 | Package | Zone | Purpose |

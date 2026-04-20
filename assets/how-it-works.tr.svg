@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#444"/>
+    </marker>
+    <filter id="sh" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <rect width="960" height="600" fill="#FAFAFA"/>
+
+  <!-- Lifelines -->
+  <line x1="130" y1="85" x2="130" y2="460" stroke="#bbb" stroke-dasharray="4 4" stroke-width="1.5"/>
+  <line x1="480" y1="85" x2="480" y2="460" stroke="#bbb" stroke-dasharray="4 4" stroke-width="1.5"/>
+  <line x1="830" y1="85" x2="830" y2="460" stroke="#bbb" stroke-dasharray="4 4" stroke-width="1.5"/>
+
+  <!-- Lane headers -->
+  <rect x="70" y="30" width="120" height="50" rx="10" fill="#FFF3E0" stroke="#FB8C00" stroke-width="2" filter="url(#sh)"/>
+  <text x="130" y="60" text-anchor="middle" font-size="14" font-weight="600" fill="#E65100">👤 Kullanıcı</text>
+
+  <rect x="420" y="30" width="120" height="50" rx="10" fill="#E8F5E9" stroke="#43A047" stroke-width="2" filter="url(#sh)"/>
+  <text x="480" y="60" text-anchor="middle" font-size="14" font-weight="600" fill="#2E7D32">🛡️ Septum</text>
+
+  <rect x="770" y="30" width="120" height="50" rx="10" fill="#E3F2FD" stroke="#1E88E5" stroke-width="2" filter="url(#sh)"/>
+  <text x="830" y="60" text-anchor="middle" font-size="14" font-weight="600" fill="#1565C0">☁️ Bulut LLM</text>
+
+  <!-- 1. Kullanıcı → Septum (ham soru) -->
+  <text x="305" y="115" text-anchor="middle" font-size="11" fill="#333" paint-order="stroke" stroke="#FAFAFA" stroke-width="4">Anne adı Ayşe, baba adı Ali olan</text>
+  <text x="305" y="130" text-anchor="middle" font-size="11" fill="#333" paint-order="stroke" stroke="#FAFAFA" stroke-width="4">Ahmet Yılmaz'ın doğum yeri neresidir?</text>
+  <path d="M 130 150 L 480 150" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- 2. Septum self-note: tespit + maskeleme -->
+  <rect x="380" y="172" width="200" height="46" rx="6" fill="#FFFDE7" stroke="#F9A825" stroke-width="1.5"/>
+  <text x="480" y="190" text-anchor="middle" font-size="11" font-weight="600" fill="#6D4C00">PII tespit + maskeleme</text>
+  <text x="480" y="207" text-anchor="middle" font-size="10" fill="#6D4C00">3 × PERSON_NAME</text>
+
+  <!-- 3. Septum → Bulut LLM (maskeli soru) -->
+  <text x="655" y="240" text-anchor="middle" font-size="11" fill="#333" paint-order="stroke" stroke="#FAFAFA" stroke-width="4">Anne adı [PERSON_1], baba adı [PERSON_2] olan</text>
+  <text x="655" y="255" text-anchor="middle" font-size="11" fill="#333" paint-order="stroke" stroke="#FAFAFA" stroke-width="4">[PERSON_3]'ın doğum yeri neresidir?</text>
+  <path d="M 480 275 L 830 275" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- 4. Bulut LLM → Septum (maskeli cevap, dashed) -->
+  <text x="655" y="300" text-anchor="middle" font-size="11" fill="#333" paint-order="stroke" stroke="#FAFAFA" stroke-width="4">[PERSON_3] İstanbul doğumludur.</text>
+  <path d="M 830 315 L 480 315" stroke="#444" stroke-width="2" stroke-dasharray="6 4" fill="none" marker-end="url(#arr)"/>
+
+  <!-- 5. Septum self-note: placeholder'ları geri yaz -->
+  <rect x="380" y="337" width="200" height="46" rx="6" fill="#FFFDE7" stroke="#F9A825" stroke-width="1.5"/>
+  <text x="480" y="355" text-anchor="middle" font-size="11" font-weight="600" fill="#6D4C00">Placeholder'lar geri yazılır</text>
+  <text x="480" y="372" text-anchor="middle" font-size="10" fill="#6D4C00">yerelde — gerçek değerlerle</text>
+
+  <!-- 6. Septum → Kullanıcı (nihai cevap) -->
+  <text x="305" y="405" text-anchor="middle" font-size="11" fill="#333" paint-order="stroke" stroke="#FAFAFA" stroke-width="4">Ahmet Yılmaz İstanbul doğumludur.</text>
+  <path d="M 480 420 L 130 420" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- Alt banner -->
+  <rect x="70" y="490" width="820" height="55" rx="12" fill="#F1F8E9" stroke="#689F38" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="480" y="524" text-anchor="middle" font-size="14" font-weight="600" fill="#33691E">🔒 Ham PII hiç makineden çıkmadı</text>
+</svg>
