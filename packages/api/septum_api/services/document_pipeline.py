@@ -4,6 +4,7 @@ import asyncio
 import logging
 from typing import Callable, Dict, List, Sequence
 
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.document import Chunk as DocumentChunk
@@ -145,12 +146,12 @@ class DocumentPipeline:
                 document_name=document.original_filename,
                 placeholder_samples=placeholder_samples,
             )
-            # Stamp each detection with the audit event that produced it,
-            # so the dashboard can jump from an audit log entry straight to
-            # the specific entities it covers.
             if audit_event is not None and detection_rows:
-                for row in detection_rows:
-                    row.audit_event_id = audit_event.id
+                await db.execute(
+                    update(EntityDetection)
+                    .where(EntityDetection.id.in_([r.id for r in detection_rows]))
+                    .values(audit_event_id=audit_event.id)
+                )
                 await db.commit()
 
         if chunks and raw_texts_for_index:

@@ -370,10 +370,10 @@ export async function fetchAuditEvents(params?: {
 export async function getAuditEventEntityDetections(
   eventId: number
 ): Promise<EntityDetectionListResponse> {
-  const { data } = await api.get<EntityDetectionListResponse["items"]>(
+  const { data } = await api.get<EntityDetectionListResponse>(
     `/api/audit/${eventId}/entity-detections`
   );
-  return { items: data, total: data.length };
+  return data;
 }
 
 // --- Chat Sessions ---

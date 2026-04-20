@@ -54,7 +54,10 @@ import os
 from dataclasses import dataclass, field
 from typing import List
 
-from septum_core.recognizers import BUILTIN_REGULATION_IDS as DEFAULT_REGULATIONS
+from septum_core.recognizers import (
+    BUILTIN_REGULATION_IDS as DEFAULT_REGULATIONS,
+    parse_active_regulations_env,
+)
 
 DEFAULT_LANGUAGE = "en"
 DEFAULT_SESSION_TTL_SECONDS = 3600.0
@@ -79,13 +82,6 @@ def _parse_float(value: str | None, default: float) -> float:
         return float(value)
     except ValueError:
         return default
-
-
-def _parse_regulation_list(value: str | None) -> List[str]:
-    if not value:
-        return list(DEFAULT_REGULATIONS)
-    items = [item.strip().lower() for item in value.split(",")]
-    return [item for item in items if item]
 
 
 def _parse_transport(value: str | None) -> str:
@@ -142,7 +138,7 @@ class MCPConfig:
         """Build an :class:`MCPConfig` from ``env`` (defaults to ``os.environ``)."""
         source = env if env is not None else os.environ
         return cls(
-            regulations=_parse_regulation_list(source.get("SEPTUM_REGULATIONS")),
+            regulations=parse_active_regulations_env(source.get("SEPTUM_REGULATIONS")),
             language=(source.get("SEPTUM_LANGUAGE") or DEFAULT_LANGUAGE).strip(),
             use_ner_layer=_parse_bool(source.get("SEPTUM_USE_NER"), True),
             use_presidio_layer=_parse_bool(source.get("SEPTUM_USE_PRESIDIO"), True),

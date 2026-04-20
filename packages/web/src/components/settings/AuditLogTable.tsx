@@ -275,6 +275,10 @@ export function AuditLogTable({ pageSize = 50, onViewDocument }: AuditLogTablePr
   );
 
   useEffect(() => {
+    // Reset the visible page BEFORE the async load so the pagination
+    // buttons don't disable/enable based on a stale page from the
+    // previous filter while the new fetch is in flight.
+    setPage(1);
     void loadPage(1, eventTypeFilter, entityTypeFilter);
   }, [loadPage, eventTypeFilter, entityTypeFilter]);
 

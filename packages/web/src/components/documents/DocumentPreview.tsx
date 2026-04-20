@@ -186,14 +186,6 @@ export function DocumentPreview({
         } catch {
           // anon summary is optional
         }
-        try {
-          const detRes = auditEventId != null
-            ? await getAuditEventEntityDetections(auditEventId)
-            : await getEntityDetections(document.id);
-          if (!isCancelled) setDetections(detRes.items);
-        } catch {
-          // entity detections are optional — document may predate this feature
-        }
       } catch {
         if (!isCancelled) {
           setError(t("errors.preview.document"));
@@ -244,7 +236,28 @@ export function DocumentPreview({
     return () => {
       isCancelled = true;
     };
-  }, [open, document?.id, document?.file_format, document?.chunk_count, auditEventId]);
+  }, [open, document?.id, document?.file_format, document?.chunk_count]);
+
+  // Detections fetch is split out so reopening the modal on the same
+  // document with a different audit event focus does not re-fetch
+  // chunks / anon-summary / spreadsheet schema.
+  useEffect(() => {
+    if (!open || !document) return;
+    let isCancelled = false;
+    (async () => {
+      try {
+        const detRes = auditEventId != null
+          ? await getAuditEventEntityDetections(auditEventId)
+          : await getEntityDetections(document.id);
+        if (!isCancelled) setDetections(detRes.items);
+      } catch {
+        // entity detections are optional — document may predate this feature
+      }
+    })();
+    return () => {
+      isCancelled = true;
+    };
+  }, [open, document?.id, auditEventId]);
 
   useEffect(() => {
     if (!open || !document) {

@@ -14,12 +14,14 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import exists
+
 from ..database import get_db
 from ..models.audit_event import AuditEvent
 from ..models.entity_detection import EntityDetection
 from ..models.user import User
 from ..utils.auth_dependency import require_role
-from .documents import EntityDetectionResponse
+from .documents import EntityDetectionListResponse, EntityDetectionResponse
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
@@ -87,16 +89,12 @@ async def list_audit_events(
         stmt = stmt.where(AuditEvent.event_type == event_type)
         count_stmt = count_stmt.where(AuditEvent.event_type == event_type)
     if entity_type:
-        linked_event_ids = (
-            select(EntityDetection.audit_event_id)
-            .where(
-                EntityDetection.entity_type == entity_type,
-                EntityDetection.audit_event_id.is_not(None),
-            )
-            .distinct()
+        linked_exists = exists().where(
+            EntityDetection.audit_event_id == AuditEvent.id,
+            EntityDetection.entity_type == entity_type,
         )
-        stmt = stmt.where(AuditEvent.id.in_(linked_event_ids))
-        count_stmt = count_stmt.where(AuditEvent.id.in_(linked_event_ids))
+        stmt = stmt.where(linked_exists)
+        count_stmt = count_stmt.where(linked_exists)
     if document_id is not None:
         stmt = stmt.where(AuditEvent.document_id == document_id)
         count_stmt = count_stmt.where(AuditEvent.document_id == document_id)
@@ -166,17 +164,17 @@ async def get_document_compliance_report(
 
 @router.get(
     "/{event_id}/entity-detections",
-    response_model=List[EntityDetectionResponse],
+    response_model=EntityDetectionListResponse,
 )
 async def get_event_entity_detections(
     event_id: int,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(require_role("admin")),
-) -> List[EntityDetectionResponse]:
+) -> EntityDetectionListResponse:
     """Return entity detections linked to a specific audit event.
 
-    Empty list for older events whose EntityDetection rows do not carry
-    an ``audit_event_id`` back-reference yet.
+    Empty ``items`` list for older events whose EntityDetection rows do
+    not carry an ``audit_event_id`` back-reference yet.
     """
     stmt = (
         select(EntityDetection)
@@ -185,7 +183,8 @@ async def get_event_entity_detections(
     )
     result = await db.execute(stmt)
     rows = result.scalars().all()
-    return [EntityDetectionResponse.model_validate(r) for r in rows]
+    items = [EntityDetectionResponse.model_validate(r) for r in rows]
+    return EntityDetectionListResponse(items=items, total=len(items))
 
 
 @router.get("/session/{session_id}", response_model=List[AuditEventResponse])
