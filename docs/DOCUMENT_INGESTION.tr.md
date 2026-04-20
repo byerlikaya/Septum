@@ -31,5 +31,5 @@ Septum'un yüklenen bir dosyayı aranabilir, anonimleştirilmiş içeriğe nası
 
 ## Ayrıca bakın
 
-- [FEATURES.tr.md](FEATURES.tr.md) — tespit benchmark'ı, regülasyon paketleri ve MCP derinlemesine
-- [ARCHITECTURE.tr.md](ARCHITECTURE.tr.md) — modül mimarisi, bölge semantiği, dağıtım topolojileri
+- ✨ [Özellikler](FEATURES.tr.md) — tespit benchmark'ı, regülasyon paketleri ve MCP derinlemesine
+- 🏗️ [Mimari](ARCHITECTURE.tr.md) — modül mimarisi, bölge semantiği, dağıtım topolojileri

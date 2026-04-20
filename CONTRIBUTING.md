@@ -1,6 +1,6 @@
 # Contributing to Septum
 
-> Bu belgenin Türkçesi: [CONTRIBUTING.tr.md](CONTRIBUTING.tr.md)
+> 🇹🇷 Bu belgenin [Türkçesi](CONTRIBUTING.tr.md).
 
 Thanks for taking the time to contribute! Septum is privacy-first AI
 middleware — we want every contribution to keep that bar.

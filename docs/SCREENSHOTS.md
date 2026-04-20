@@ -4,8 +4,8 @@ A visual tour of every Septum screen — the setup wizard, chat approval
 flow, document preview with entity highlights, settings tabs, custom
 regulation rules, and the audit trail.
 
-For high-level explanations see [README.md](../README.md); for deep
-feature and API references see [FEATURES.md](FEATURES.md).
+For high-level explanations see the [main README](../README.md); for deep
+feature and API references see the [Features](FEATURES.md) doc.
 
 ---
 

@@ -1,6 +1,6 @@
 # Septum'a Katkıda Bulunma
 
-> English version: [CONTRIBUTING.md](CONTRIBUTING.md)
+> 🇬🇧 [English version](CONTRIBUTING.md).
 
 Katkıda bulunmak için ayırdığınız zaman için teşekkürler. Septum
 gizlilik öncelikli bir AI ara katmanı — her katkının bu çıtayı koruması

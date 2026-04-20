@@ -1,7 +1,7 @@
 # Septum — Özellik ve Tespit Referansı
 
-> [README.md](../README.tr.md) dışında kalan her şey için ayrıntılı referans.
-> Modül seviyesindeki mimari için [ARCHITECTURE.tr.md](ARCHITECTURE.tr.md)'ye bakın.
+> [Ana README](../README.tr.md) dışında kalan her şey için ayrıntılı referans.
+> Modül seviyesindeki mimari için [Mimari](ARCHITECTURE.tr.md) dokümanına bakın.
 
 ## İçindekiler
 
@@ -13,7 +13,7 @@
 - [MCP Entegrasyonu](#mcp-entegrasyonu)
 - [REST API ve Kimlik Doğrulama](#rest-api-ve-kimlik-doğrulama)
 
-Tam görsel tur için [SCREENSHOTS.tr.md](SCREENSHOTS.tr.md) dosyasına bakın.
+Tam görsel tur için [Ekran Görüntüleri](SCREENSHOTS.tr.md) sayfasına bakın.
 
 ---
 
@@ -386,5 +386,5 @@ Sohbet endpoint'i Server-Sent Events döndürür:
 `meta` → `approval_required` → `answer_chunk` → `end`.
 
 Tam API referansı, hat detayları ve deployment topolojileri için
-[ARCHITECTURE.tr.md](ARCHITECTURE.tr.md) dosyasına bakın.
+[Mimari](ARCHITECTURE.tr.md) dokümanına bakın.
 

@@ -31,5 +31,5 @@ How Septum turns an uploaded file into searchable, anonymised content. Every ste
 
 ## See also
 
-- [FEATURES.md](FEATURES.md) — full detection benchmark, regulation packs, and MCP deep-dive
-- [ARCHITECTURE.md](ARCHITECTURE.md) — module layout, zone semantics, deployment topologies
+- ✨ [Features](FEATURES.md) — full detection benchmark, regulation packs, and MCP deep-dive
+- 🏗️ [Architecture](ARCHITECTURE.md) — module layout, zone semantics, deployment topologies

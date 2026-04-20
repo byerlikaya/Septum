@@ -98,7 +98,7 @@ All API endpoints (`/api/*`, `/docs`, `/health`) are served through port 3000. N
 ## Links
 
 - **Source Code:** [github.com/byerlikaya/Septum](https://github.com/byerlikaya/Septum)
-- **Architecture:** [ARCHITECTURE.md](https://github.com/byerlikaya/Septum/blob/main/docs/ARCHITECTURE.md)
-- **Changelog:** [CHANGELOG.md](https://github.com/byerlikaya/Septum/blob/main/CHANGELOG.md)
+- **Architecture:** [View on GitHub](https://github.com/byerlikaya/Septum/blob/main/docs/ARCHITECTURE.md)
+- **Changelog:** [View on GitHub](https://github.com/byerlikaya/Septum/blob/main/CHANGELOG.md)
 - **Issues:** [GitHub Issues](https://github.com/byerlikaya/Septum/issues)
 - **License:** [LICENSE](https://github.com/byerlikaya/Septum/blob/main/LICENSE)

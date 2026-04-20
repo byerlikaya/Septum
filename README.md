@@ -69,7 +69,7 @@ The LLM answers using placeholders. Septum restores real values locally before s
   <a href="#how-it-works"><img src="assets/how-it-works.svg" alt="Septum chat flow — raw question from user, local PII masking, masked question to cloud LLM, masked response, local placeholder restore, real answer to user" width="820" /></a>
 </p>
 
-1. **Upload your documents** — PDFs, Office files, images, audio. Septum detects file type, language, and personal data; masks all PII; prepares anonymised content for search.
+1. **Upload your documents** — PDFs, Office files, images, audio. Septum detects file type, language, and personal data; masks all PII; prepares anonymised content for search. *([📊 Pipeline diagram](docs/DOCUMENT_INGESTION.md))*
 2. **Ask questions in chat** — select specific documents, or leave the selection empty and let Septum decide. With no selection, a local Ollama classifier routes the question to either Auto-RAG (search all indexed documents) or a plain chatbot reply.
 3. **Your question is masked too** — the same three-layer pipeline runs on the message you typed, not just the documents. Names, phones, emails, IDs in your prompt all turn into placeholders before retrieval.
 4. **Approve before sending** — see the masked question, the retrieved chunks, and the assembled cloud prompt side by side. Approve or reject.
@@ -95,7 +95,7 @@ Septum is composed of 7 independent modules split across three security zones. A
 | [`septum-gateway`](packages/gateway/) | Internet-facing | Cloud LLM forwarder — never imports `septum-core` |
 | [`septum-audit`](packages/audit/) | Internet-facing | Compliance log + SIEM export — never imports `septum-core` |
 
-Module contracts and zone semantics live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Module contracts and zone semantics live in the [Architecture](docs/ARCHITECTURE.md) doc.
 
 ---
 
@@ -113,7 +113,7 @@ Module contracts and zone semantics live in [docs/ARCHITECTURE.md](docs/ARCHITEC
 - **MCP Server** — standalone `septum-mcp` exposes the same local masking pipeline to any MCP-aware client over stdio (Claude Desktop, Cursor, Windsurf) or streamable-http / sse (remote, browser, containerised clients) with bearer-token auth.
 - **Audit Trail** — append-only compliance log with entity detection metrics. No raw PII in audit events.
 
-See [docs/FEATURES.md](docs/FEATURES.md) for the full detection benchmark, regulation pack table, MCP integration walkthrough, REST API + authentication reference, and the "why Septum" comparison. For every Septum screen — setup wizard, approval gate, document preview, settings tabs, custom regulation rules, audit trail — see [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md).
+See the [Features](docs/FEATURES.md) doc for the full detection benchmark, regulation pack table, MCP integration walkthrough, REST API + authentication reference, and the "why Septum" comparison. For every Septum screen — setup wizard, approval gate, document preview, settings tabs, custom regulation rules, audit trail — see the [Screenshots](docs/SCREENSHOTS.md) tour.
 
 ---
 
@@ -141,7 +141,7 @@ Open **http://localhost:3000** — the setup wizard walks you through database, 
 
 **Docker Compose.** `docker compose up` starts PostgreSQL, Redis, Ollama, and Septum together. Pull a model before the first chat: `docker compose exec ollama ollama pull llama3.2:3b`. Skip Ollama with `docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up` for cloud-only setups.
 
-**Deployment topologies** — four compose variants ship for different deployment shapes: standalone (single container, SQLite), full dev stack (all modules on one host), air-gapped zone only, and internet-facing zone only. See [docs/ARCHITECTURE.md § Deployment Topologies](docs/ARCHITECTURE.md#deployment-topologies) for the full matrix and a two-host air-gap walkthrough.
+**Deployment topologies** — four compose variants ship for different deployment shapes: standalone (single container, SQLite), full dev stack (all modules on one host), air-gapped zone only, and internet-facing zone only. See the [Deployment Topologies](docs/ARCHITECTURE.md#deployment-topologies) section of the Architecture doc for the full matrix and a two-host air-gap walkthrough.
 
 ### Local development
 
@@ -160,12 +160,12 @@ All features work identically. The difference is acceleration: local install pic
 
 ## Learn More
 
-- **[docs/FEATURES.md](docs/FEATURES.md)** — detection benchmark, regulation packs, MCP deep-dive, REST API + auth, why-Septum comparison
-- **[docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)** — visual tour of every screen
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — module contracts, zone semantics, deployment topologies, API reference
-- **[docs/DOCUMENT_INGESTION.md](docs/DOCUMENT_INGESTION.md)** — document ingestion pipeline, step-by-step
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** — how to report bugs, run tests, and open a pull request
-- **[CHANGELOG.md](CHANGELOG.md)** — date-based release history
+- ✨ **[Features](docs/FEATURES.md)** — detection benchmark, regulation packs, MCP deep-dive, REST API + auth, why-Septum comparison
+- 📸 **[Screenshots](docs/SCREENSHOTS.md)** — visual tour of every screen
+- 🏗️ **[Architecture](docs/ARCHITECTURE.md)** — module contracts, zone semantics, deployment topologies, API reference
+- 📊 **[Document Ingestion](docs/DOCUMENT_INGESTION.md)** — upload → detection → masking → indexing, step-by-step
+- 🤝 **[Contributing](CONTRIBUTING.md)** — how to report bugs, run tests, and open a pull request
+- 📝 **[Changelog](CHANGELOG.md)** — date-based release history
 
 ---
 

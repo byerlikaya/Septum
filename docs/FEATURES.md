@@ -1,7 +1,7 @@
 # Septum — Features & Detection Reference
 
-> In-depth reference for everything that did not fit in [README.md](../README.md).
-> For module-level architecture see [ARCHITECTURE.md](ARCHITECTURE.md).
+> In-depth reference for everything that did not fit in the [main README](../README.md).
+> For module-level architecture see the [Architecture](ARCHITECTURE.md) doc.
 
 ## Table of Contents
 
@@ -13,7 +13,7 @@
 - [MCP Integration](#mcp-integration)
 - [REST API & Authentication](#rest-api--authentication)
 
-For the full visual tour, see [SCREENSHOTS.md](SCREENSHOTS.md).
+For the full visual tour, see the [Screenshots](SCREENSHOTS.md) gallery.
 
 ---
 
@@ -372,5 +372,5 @@ The chat endpoint returns Server-Sent Events:
 `meta` → `approval_required` → `answer_chunk` → `end`.
 
 For the complete API reference, pipeline details, and deployment
-topologies, see [ARCHITECTURE.md](ARCHITECTURE.md).
+topologies, see the [Architecture](ARCHITECTURE.md) doc.
 

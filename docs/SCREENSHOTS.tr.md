@@ -4,9 +4,9 @@ Septum'un her ekranının görsel turu — kurulum sihirbazı, sohbet onay
 akışı, varlık renklendirmeli doküman önizlemesi, ayarlar sekmeleri,
 özel regülasyon kuralları ve denetim kaydı.
 
-Yüksek seviyeli açıklamalar için [README.tr.md](../README.tr.md);
-ayrıntılı özellik ve API referansı için [FEATURES.tr.md](FEATURES.tr.md)
-dosyalarına bakın.
+Yüksek seviyeli açıklamalar için [ana README](../README.tr.md);
+ayrıntılı özellik ve API referansı için [Özellikler](FEATURES.tr.md)
+dokümanına bakın.
 
 ---
 
