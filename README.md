@@ -43,14 +43,11 @@
 
 ## What is Septum?
 
-Septum is a **privacy-first AI middleware** that sits between you and cloud LLMs. It lets you query sensitive company data — and chat freely — with ChatGPT, Claude, or any LLM, while **automatically detecting and masking personal data before anything leaves your machine**.
+Septum is a **privacy-first AI middleware** that sits between you and cloud LLMs. You can ask questions with sensitive company data — and chat freely — with ChatGPT, Claude, Gemini, or any other LLM; Septum detects and masks personal information locally **before it reaches the cloud**.
 
-1. You upload documents (PDF, Word, Excel, images, audio) **and** type questions in chat.
-2. Septum **detects and masks** personal data locally — in both your documents *and* your chat messages.
-3. Only anonymised text is sent to the LLM.
-4. The answer comes back with real names and values restored — **locally**.
 
-> **In one sentence:** Septum is a safety layer for teams who want LLM power without leaking personal data — whether it is in a document or in something you just typed.
+
+> **In one sentence:** Septum is a safety layer for teams who want LLM power without leaking personal data — whether it is in a document or in something you typed.
 
 **Before and after — what the LLM actually sees:**
 
@@ -68,28 +65,19 @@ The LLM answers using placeholders. Septum restores real values locally before s
 
 ---
 
-## Who is this for?
-
-- **Developers** building AI-powered apps that handle real customer data
-- **Teams** subject to GDPR, KVKK, HIPAA, or other privacy regulations
-- **Companies** running LLMs against internal documents (contracts, HR files, health records)
-- **Self-hosting advocates** who want full control — no data leaves your infrastructure
-
----
-
-## How It Works
+## How It Works?
 
 ```mermaid
 sequenceDiagram
     participant U as 👤 User
     participant S as 🛡️ Septum
     participant L as ☁️ Cloud LLM
-    U->>S: Prepare a report for Ahmet Yılmaz
-    Note over S: Detect & mask → [PERSON_1]
-    S->>L: Masked request
-    L->>S: Masked response
-    Note over S: Local de-anonymisation
-    S->>U: Report for Ahmet Yılmaz
+    U->>S: Where was Ahmet Yılmaz <br> (mother Ayşe, father Ali) born?
+    Note over S: Detect & mask PII<br/>3 × PERSON_NAME
+    S->>L: Where was [PERSON_3] <br> (mother [PERSON_1], father [PERSON_2]) born?
+    L->>S: [PERSON_3] was born in Istanbul.
+    Note over S: Placeholders restored locally
+    S->>U: Ahmet Yılmaz was born in Istanbul.
     Note over U,L: 🔒 Raw PII never left the machine
 ```
 
@@ -105,48 +93,9 @@ sequenceDiagram
 
 Septum is composed of 7 independent modules split across three security zones. Air-gapped modules handle raw PII with zero internet access. The bridge transports only masked placeholders. Internet-facing modules never see raw PII.
 
-```mermaid
-graph TD
-    subgraph CLIENTS["🖥️ MCP Clients"]
-        CD["Claude Desktop"]
-        CHATGPT["ChatGPT Desktop"]
-        OTHER["Any MCP Client"]
-    end
-
-    subgraph AIRGAP["🔒 Air-Gapped Zone — raw PII stays here"]
-        WEB["septum-web<br/>Dashboard"] --> API["septum-api<br/>REST API"]
-        API --> CORE["septum-core<br/>PII Engine"]
-        MCP["septum-mcp<br/>MCP Server"] --> CORE
-    end
-
-    subgraph INTERNET["☁️ Internet Zone — only masked data"]
-        GW["septum-gateway<br/>LLM Forwarder"]
-        AUDIT["septum-audit<br/>Compliance Log"]
-    end
-
-    CLOUD["Cloud LLMs<br/>Anthropic · OpenAI · OpenRouter"]
-
-    CD --> MCP
-    CHATGPT --> MCP
-    OTHER --> MCP
-    API -- "masked text" --> QUEUE["septum-queue<br/>📦 Bridge"]
-    QUEUE -- "masked text" --> GW
-    GW --> CLOUD
-    GW --> AUDIT
-    CLOUD -. "response" .-> GW -. "response" .-> QUEUE -. "response" .-> API
-
-    style AIRGAP fill:none,stroke:#4CAF50,stroke-width:2,stroke-dasharray:5 5
-    style INTERNET fill:none,stroke:#2196F3,stroke-width:2,stroke-dasharray:5 5
-    style CLIENTS fill:none,stroke:#FF9800,stroke-width:2,stroke-dasharray:5 5
-    style QUEUE fill:#E65100,color:#fff
-    style CORE fill:#2E7D32,color:#fff
-    style MCP fill:#6A1B9A,color:#fff
-    style API fill:#1565C0,color:#fff
-    style WEB fill:#2E7D32,color:#fff
-    style GW fill:#01579B,color:#fff
-    style AUDIT fill:#01579B,color:#fff
-    style CLOUD fill:#37474F,color:#fff
-```
+<p align="center">
+  <img src="screenshots/architecture.svg" alt="Septum architecture — 7 modules across 3 security zones (air-gapped, bridge, internet-facing)" width="800" />
+</p>
 
 | Package | Zone | Purpose |
 |:---|:---|:---|
@@ -154,7 +103,7 @@ graph TD
 | [`septum-mcp`](packages/mcp/) | Air-gapped | MCP server for Claude Desktop, ChatGPT, Cursor |
 | [`septum-api`](packages/api/) | Air-gapped | FastAPI REST layer + models, services, auth |
 | [`septum-web`](packages/web/) | Air-gapped | Next.js 16 dashboard |
-| [`septum-queue`](packages/queue/) | Bridge | Cross-zone broker (file / Redis Streams) |
+| [`septum-queue`](packages/queue/) | Gateway | Cross-zone broker (file / Redis Streams) |
 | [`septum-gateway`](packages/gateway/) | Internet-facing | Cloud LLM forwarder — never imports `septum-core` |
 | [`septum-audit`](packages/audit/) | Internet-facing | Compliance log + SIEM export — never imports `septum-core` |
 
@@ -182,15 +131,15 @@ See [docs/FEATURES.md](docs/FEATURES.md) for the full detection benchmark, regul
 
 ## See It in Action
 
-### Setup wizard — from `docker run` to a working stack in under 2 minutes
+### Setup Wizard
 
 <p align="center">
   <img src="screenshots/setup-wizard.gif" alt="Setup wizard walkthrough — database, cache, LLM provider, regulations, audio model, admin account" width="900" />
 </p>
 
-Pick your database (SQLite or PostgreSQL), cache (in-memory or Redis), LLM provider (Anthropic, OpenAI, OpenRouter, or local Ollama), privacy regulations, and audio transcription model — all from a guided wizard. No `.env` files, no manual configuration.
+Pick your database (SQLite or PostgreSQL), cache (in-memory or Redis), LLM provider (Anthropic, OpenAI, OpenRouter, or local Ollama), privacy regulations, and audio transcription model — all from the wizard.
 
-### The approval gate — see exactly what leaves your machine
+### Approval Gate — See exactly what leaves your machine
 
 <p align="center">
   <img src="screenshots/chat-flow.gif" alt="Chat approval flow — masked prompt, retrieved chunks, assembled cloud prompt, and the deanonymised answer" width="900" />
@@ -220,7 +169,7 @@ docker run --name septum \
   byerlikaya/septum
 ```
 
-Open **http://localhost:3000** — the setup wizard walks you through database, cache, LLM provider, regulations, and the first admin account. No `.env` files; data persists in named volumes.
+Open **http://localhost:3000** — the setup wizard walks you through database, cache, LLM provider, regulations, and the first admin account.
 
 **Updating.** Stop and remove the container, run `docker pull byerlikaya/septum`, then re-run the same `docker run` command. Your data is preserved in the volumes.
 
@@ -237,7 +186,7 @@ Open **http://localhost:3000** — the setup wizard walks you through database, 
 
 The setup wizard opens on first visit.
 
-### Docker vs local
+### Docker vs Local
 
 All features work identically. The difference is acceleration: local install picks up whatever torch variant PyPI serves for your host (CUDA on NVIDIA Linux, MPS on Apple Silicon), while the published Docker image is CPU-only (a separate `byerlikaya/septum:gpu` variant ships with full CUDA runtime for NVIDIA Linux hosts). CPU inference handles typical workloads; GPU matters only for batch OCR or audio transcription at scale.
 
@@ -259,13 +208,6 @@ Septum is open source (MIT) and maintained in the open. If it saves you from a p
 - **Open issues and discussions** for bugs or features you need — every report shapes the roadmap.
 - **Tell your team** — privacy-first AI tooling is still rare, and word of mouth matters more than any ad.
 
-### Star History
-
-<p align="center">
-  <a href="https://star-history.com/#byerlikaya/Septum&Date">
-    <img src="https://api.star-history.com/svg?repos=byerlikaya/Septum&type=Date" alt="Star History Chart" width="720" />
-  </a>
-</p>
 
 ---
 
