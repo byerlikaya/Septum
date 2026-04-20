@@ -173,7 +173,20 @@ All features work identically. The difference is acceleration: local install pic
 - **[docs/FEATURES.md](docs/FEATURES.md)** — detection benchmark, regulation packs, MCP deep-dive, REST API + auth, why-Septum comparison
 - **[docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)** — visual tour of every screen
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — module contracts, zone semantics, deployment topologies, API reference
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — how to report bugs, run tests, and open a pull request
 - **[CHANGELOG.md](CHANGELOG.md)** — date-based release history
+
+---
+
+## Roadmap
+
+- **v1.0.0 — modular architecture** — 7 independent packages across three security zones (air-gapped / bridge / internet-facing). Currently on the `refactor/modular-architecture` branch; merging into `main` is the v1.0.0 release event.
+- **Audit Trail v2** — entity location tracking with visual highlighting in the document preview and a magnifying-glass UX for individual audit events.
+- **More regulation packs** beyond the built-in 17 — community contributions welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Ollama model comparison** — published benchmark of `llama3.2:3b` vs `aya-expanse:8b` vs `qwen2.5:14b` for semantic PII detection.
+- **MCP over SSE transport** — current MCP server is stdio-only; SSE support opens browser + remote client scenarios.
+
+Track progress in [GitHub Issues](https://github.com/byerlikaya/Septum/issues).
 
 ---
 
@@ -182,7 +195,7 @@ All features work identically. The difference is acceleration: local install pic
 Septum is open source (MIT) and maintained in the open. If it saves you from a privacy incident, helps your team ship faster, or just makes your LLM workflow safer:
 
 - ⭐ **Star the repo on [GitHub](https://github.com/byerlikaya/Septum)** — the biggest signal that this project is worth continued investment.
-- **Open issues and discussions** for bugs or features you need — every report shapes the roadmap.
+- **Open an issue** for bugs or features you need — every report shapes the roadmap.
 - **Tell your team** — privacy-first AI tooling is still rare, and word of mouth matters more than any ad.
 
 
