@@ -176,6 +176,36 @@ services:
       start_period: 10s
       retries: 3
 
+  # septum-mcp is opt-in because most MCP clients (Claude Desktop, Cursor,
+  # Windsurf) spawn the server themselves as a stdio subprocess and have
+  # no need for a long-running container. Enable with:
+  #   docker compose --profile mcp up
+  # to expose the MCP tools over streamable-http on :8765 for remote /
+  # browser / shared-team clients. SEPTUM_MCP_HTTP_TOKEN gates all non-
+  # /health traffic; set it to something random (e.g. `openssl rand -hex 32`).
+  mcp:
+    build:
+      context: .
+      dockerfile: docker/mcp.Dockerfile
+    image: septum/mcp:latest
+    container_name: septum-mcp
+    environment:
+      SEPTUM_MCP_TRANSPORT: streamable-http
+      SEPTUM_MCP_HTTP_HOST: 0.0.0.0
+      SEPTUM_MCP_HTTP_PORT: "8765"
+      SEPTUM_MCP_HTTP_TOKEN: ${SEPTUM_MCP_HTTP_TOKEN:-}
+      SEPTUM_REGULATIONS: ${SEPTUM_REGULATIONS:-}
+    ports:
+      - "8765:8765"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    profiles: ["mcp"]
+
   ollama:
     image: ollama/ollama:latest
     container_name: septum-ollama

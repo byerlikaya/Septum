@@ -5,12 +5,16 @@ Model Context Protocol (MCP) server that exposes
 masking pipeline to **any MCP-compatible client**. MCP is an open,
 vendor-neutral protocol (see the
 [specification](https://modelcontextprotocol.io)) — the server is
-written against the official Python SDK, speaks the standard stdio
-transport, and makes no assumptions about which client connects to
-it. Known working clients include Claude Code, Claude Desktop,
-Cursor, Zed, Cline, Continue, Windsurf, the LangChain /
-LlamaIndex MCP adapters, and any custom client built with the
-Python / TypeScript / Rust / Go / C# / Java SDKs.
+written against the official Python SDK and supports all three
+standard transports:
+
+- **stdio** (default) — for local clients that spawn the server as a
+  subprocess: Claude Code, Claude Desktop, Cursor, Windsurf, Zed,
+  Cline, Continue, and the LangChain / LlamaIndex MCP adapters.
+- **streamable-http** — modern HTTP transport for remote, containerised,
+  or browser-based clients. Secured by a static bearer token.
+- **sse** — legacy HTTP + Server-Sent Events transport, kept for
+  clients that have not migrated to streamable-http yet.
 
 All detection runs **locally** via `septum-core`. Raw PII never
 leaves the machine. The server is transport-only: it wraps the
@@ -103,15 +107,102 @@ entries are all you need from this document.
 }
 ```
 
+## Remote HTTP deployment
+
+Use HTTP transport when the MCP client cannot spawn a subprocess:
+web-based agents, browser extensions, a shared team server, or a
+container-orchestrator deployment. The server exposes the same six
+tools; only the transport changes.
+
+### Running the server
+
+```bash
+# Generate a token once (store it in a secret manager):
+openssl rand -hex 32
+
+# Run the server, authenticated
+SEPTUM_MCP_HTTP_TOKEN=<random-token> septum-mcp \
+  --transport streamable-http \
+  --host 0.0.0.0 \
+  --port 8765
+```
+
+CLI flags (`--transport`, `--host`, `--port`, `--token`,
+`--mount-path`) override the corresponding `SEPTUM_MCP_*` env vars.
+
+Without a token the server refuses to enforce auth — that is
+explicit (logged on startup) and only intended for localhost.
+
+### Client configuration (streamable-http)
+
+```jsonc
+{
+  "mcpServers": {
+    "septum": {
+      "url": "https://mcp.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-token>"
+      }
+    }
+  }
+}
+```
+
+The URL path defaults to `/mcp` for streamable-http and `/sse` for
+sse — override with `--mount-path` or `SEPTUM_MCP_HTTP_MOUNT_PATH`.
+
+### Docker
+
+```bash
+docker run -p 8765:8765 \
+  -e SEPTUM_MCP_HTTP_TOKEN=<random-token> \
+  -e SEPTUM_MCP_HTTP_HOST=0.0.0.0 \
+  septum/mcp:latest
+```
+
+Or with docker-compose, pick up the `mcp` profile in `docker-compose.yml`:
+
+```bash
+SEPTUM_MCP_HTTP_TOKEN=<random-token> \
+  docker compose --profile mcp up mcp
+```
+
+### Deployment notes
+
+- **Always run behind TLS in production.** The bearer token is
+  transmitted as-is in the `Authorization` header; a reverse proxy
+  (Caddy, nginx, Traefik) with an automatic Let's Encrypt cert is
+  the usual path.
+- **`/health`** answers `200 OK` unconditionally (bypasses auth) so
+  reverse-proxy probes and Docker `HEALTHCHECK` directives work
+  without a token.
+- **Single-tenant only today.** All HTTP clients share one
+  `SeptumEngine` and therefore one anonymization-session registry.
+  Multi-tenant isolation (per-client scoped sessions) is on the
+  roadmap — for now, run separate instances per tenant if that
+  matters.
+
 ## Environment variables
+
+**Core / shared across all transports:**
 
 | Variable | Default | Description |
 |---|---|---|
-| `SEPTUM_REGULATIONS` | `gdpr` | Comma-separated regulation pack ids (e.g. `gdpr,kvkk,hipaa`). |
+| `SEPTUM_REGULATIONS` | all 17 packs | Comma-separated regulation pack ids (e.g. `gdpr,kvkk,hipaa`). |
 | `SEPTUM_LANGUAGE` | `en` | Default ISO 639-1 language hint when a tool call omits one. |
 | `SEPTUM_USE_NER` | `true` | Enable the transformer NER layer. Set to `false` to avoid downloading models. |
 | `SEPTUM_USE_PRESIDIO` | `true` | Enable the Presidio recognizer layer. |
 | `SEPTUM_SESSION_TTL` | `3600` | Seconds before an idle anonymization session is evicted. `0` disables eviction. |
+
+**HTTP transport only (ignored in stdio mode):**
+
+| Variable | Default | Description |
+|---|---|---|
+| `SEPTUM_MCP_TRANSPORT` | `stdio` | Transport to bind: `stdio`, `streamable-http`, or `sse`. |
+| `SEPTUM_MCP_HTTP_HOST` | `127.0.0.1` | Bind address. Set to `0.0.0.0` only behind TLS + auth. |
+| `SEPTUM_MCP_HTTP_PORT` | `8765` | TCP port. |
+| `SEPTUM_MCP_HTTP_TOKEN` | unset | Bearer token for `Authorization: Bearer <token>`. When unset, HTTP runs without auth (localhost only). |
+| `SEPTUM_MCP_HTTP_MOUNT_PATH` | SDK default | URL path prefix (`/mcp` for streamable-http, `/sse` for sse). |
 
 Supported regulation pack ids: `gdpr`, `kvkk`, `ccpa`, `cpra`,
 `hipaa`, `pipeda`, `lgpd`, `pdpa_th`, `pdpa_sg`, `appi`, `pipl`,

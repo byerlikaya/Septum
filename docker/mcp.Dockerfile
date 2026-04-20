@@ -1,17 +1,26 @@
 # -----------------------------------------------------------------------------
 # septum-mcp — Model Context Protocol server (air-gapped zone)
 #
-# Stdio-based MCP server for Claude Code / Desktop / Cursor. Built as a
-# Docker image for rare enterprise deployments where the MCP client runs
-# inside a container orchestrator; most users invoke it directly via
-# `uvx septum-mcp`.
+# Built as a Docker image for remote / container deployments. The image
+# defaults to streamable-http transport on port 8765 — that's the mode
+# that makes sense inside a container orchestrator (stdio clients spawn
+# the server as a subprocess on their own host, no container needed).
+#
+# Stdio mode is still available for enterprises that run the MCP client
+# inside a container:
+#
+#   docker run -i --rm -e SEPTUM_MCP_TRANSPORT=stdio septum/mcp
+#
+# Default (HTTP mode, with bearer token):
+#
+#   docker run -p 8765:8765 \
+#     -e SEPTUM_MCP_HTTP_TOKEN=<random-secret> \
+#     -e SEPTUM_MCP_HTTP_HOST=0.0.0.0 \
+#     septum/mcp
 #
 # The image includes septum-core so the MCP tools (mask_text,
-# unmask_response, detect_pii, scan_file, list_regulations) work without
-# a network round-trip.
-#
-# Run (stdio-attached from an orchestrator):
-#   docker run -i --rm septum/mcp
+# unmask_response, detect_pii, scan_file, list_regulations) work
+# without a network round-trip.
 # -----------------------------------------------------------------------------
 
 FROM python:3.12-slim AS builder
@@ -60,8 +69,17 @@ COPY --from=builder /app/packages /app/packages
 
 USER septum
 
-# No EXPOSE — MCP uses stdio. HEALTHCHECK would require an HTTP surface
-# the package does not provide; the orchestrator should treat the
-# subprocess exit code as the liveness signal instead.
+ENV SEPTUM_MCP_TRANSPORT=streamable-http \
+    SEPTUM_MCP_HTTP_HOST=0.0.0.0 \
+    SEPTUM_MCP_HTTP_PORT=8765
 
-CMD ["python", "-m", "septum_mcp"]
+EXPOSE 8765
+
+# /health is answered by septum_mcp.auth.BearerTokenMiddleware and
+# always bypasses bearer auth, so this probe works regardless of
+# whether SEPTUM_MCP_HTTP_TOKEN is set. curl is already installed in
+# the python:3.12-slim base.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health').read()" || exit 1
+
+CMD ["python", "-m", "septum_mcp.server"]

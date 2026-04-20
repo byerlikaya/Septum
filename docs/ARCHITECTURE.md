@@ -333,8 +333,10 @@ torch, Presidio, spaCy, PaddleOCR, Whisper, FAISS, BM25) at ~9.8 GB and
 Every HTTP service ships a Docker `HEALTHCHECK` using
 `python -c "import urllib.request; urllib.request.urlopen('http://.../health')"`
 (the `web` image uses `wget` since it runs on `node:20-alpine`). The
-MCP image has no HEALTHCHECK — stdio-only, liveness is the subprocess
-exit code.
+MCP image defaults to streamable-http on port 8765 and ships the same
+`/health` healthcheck; for stdio deployments the container is still
+launchable via `SEPTUM_MCP_TRANSPORT=stdio` and the orchestrator then
+treats the subprocess exit code as liveness.
 
 ---
 
@@ -373,11 +375,31 @@ Zero network dependencies by contract — no `httpx` / `requests` /
 
 ### septum-mcp
 
-Stdio MCP server exposing six tools to Claude Code / Desktop / Cursor:
-`mask_text`, `unmask_response`, `detect_pii`, `scan_file`,
-`list_regulations`, `get_session_map`. Depends on `septum-core`;
-engine construction is deferred to the first tool call so idle cost is
-near zero.
+MCP server exposing six tools (`mask_text`, `unmask_response`,
+`detect_pii`, `scan_file`, `list_regulations`, `get_session_map`)
+over any of the three standard MCP transports:
+
+- **stdio** (default) — for subprocess-launching clients (Claude Code,
+  Claude Desktop, Cursor, Windsurf, Zed).
+- **streamable-http** — modern HTTP transport for remote, containerised,
+  and browser clients. Gated by a static bearer token via the
+  ``septum_mcp.auth.BearerTokenMiddleware`` ASGI middleware (uses
+  ``hmac.compare_digest`` for constant-time comparison).
+- **sse** — legacy HTTP + Server-Sent Events, kept for clients that
+  haven't migrated to streamable-http yet.
+
+Transport is selected via ``--transport`` CLI flag or the
+``SEPTUM_MCP_TRANSPORT`` env var. HTTP mode also supports
+``--host``/``--port``/``--token``/``--mount-path`` flags and their
+``SEPTUM_MCP_HTTP_*`` env var equivalents. The ``/health`` endpoint
+answers 200 OK unconditionally and bypasses the bearer check so
+Docker ``HEALTHCHECK`` and reverse-proxy probes work without a token.
+
+Depends on `septum-core`; engine construction is deferred to the
+first tool call so idle cost is near zero. When HTTP mode is active
+``uvicorn`` is started as the ASGI server; stdio callers never touch
+the HTTP stack. Single-tenant today — all HTTP clients share one
+``SeptumEngine`` and therefore one anonymization-session registry.
 
 ### septum-api
 

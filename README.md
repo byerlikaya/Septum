@@ -120,7 +120,7 @@ Module contracts and zone semantics live in [docs/ARCHITECTURE.md](docs/ARCHITEC
 - **Hybrid Retrieval** — BM25 keyword matching + FAISS semantic search with Reciprocal Rank Fusion.
 - **Multi-Provider** — Anthropic, OpenAI, OpenRouter, or local Ollama. Switch from the UI.
 - **JWT Auth + RBAC + API Keys** — first user auto-promoted via setup wizard; admin UI manages roles (admin / editor / viewer). Programmatic API keys with SHA-256 hashed storage and per-prefix rate limits.
-- **MCP Server** — standalone `septum-mcp` exposes the same local masking pipeline to any MCP-aware client (Claude Desktop, ChatGPT Desktop, Cursor, Windsurf, and custom SDK clients).
+- **MCP Server** — standalone `septum-mcp` exposes the same local masking pipeline to any MCP-aware client over stdio (Claude Desktop, Cursor, Windsurf) or streamable-http / sse (remote, browser, containerised clients) with bearer-token auth.
 - **Audit Trail** — append-only compliance log with entity detection metrics. No raw PII in audit events.
 
 See [docs/FEATURES.md](docs/FEATURES.md) for the full detection benchmark, regulation pack table, MCP integration walkthrough, REST API + authentication reference, and the "why Septum" comparison. For every Septum screen — setup wizard, approval gate, document preview, settings tabs, custom regulation rules, audit trail — see [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md).
@@ -183,8 +183,6 @@ All features work identically. The difference is acceleration: local install pic
 - **v1.0.0 — modular architecture** — 7 independent packages across three security zones (air-gapped / bridge / internet-facing). Currently on the `refactor/modular-architecture` branch; merging into `main` is the v1.0.0 release event.
 - **More regulation packs** beyond the built-in 17 — community contributions welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
 - **Ollama model comparison** — published benchmark of `llama3.2:3b` vs `aya-expanse:8b` vs `qwen2.5:14b` for semantic PII detection.
-- **MCP over SSE transport** — current MCP server is stdio-only; SSE support opens browser + remote client scenarios.
-
 Track progress in [GitHub Issues](https://github.com/byerlikaya/Septum/issues).
 
 ---

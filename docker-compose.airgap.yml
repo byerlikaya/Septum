@@ -114,6 +114,35 @@ services:
       start_period: 15s
       retries: 3
 
+  # Remote MCP server (opt-in). Air-gapped deployments where a whole
+  # team wants to share one masking engine from browser / remote
+  # clients benefit most from this — stdio clients running on each
+  # laptop don't need it. Gate by setting SEPTUM_MCP_HTTP_TOKEN and
+  # enabling the profile:
+  #   docker compose -f docker-compose.airgap.yml --profile mcp up
+  mcp:
+    build:
+      context: .
+      dockerfile: docker/mcp.Dockerfile
+    image: septum/mcp:latest
+    container_name: septum-mcp
+    environment:
+      SEPTUM_MCP_TRANSPORT: streamable-http
+      SEPTUM_MCP_HTTP_HOST: 0.0.0.0
+      SEPTUM_MCP_HTTP_PORT: "8765"
+      SEPTUM_MCP_HTTP_TOKEN: ${SEPTUM_MCP_HTTP_TOKEN:-}
+      SEPTUM_REGULATIONS: ${SEPTUM_REGULATIONS:-}
+    ports:
+      - "8765:8765"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    profiles: ["mcp"]
+
 volumes:
   septum-pgdata:
   septum-redis-data:

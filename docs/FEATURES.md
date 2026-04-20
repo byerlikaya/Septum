@@ -229,11 +229,19 @@ de-anonymisation → audit. Out of the box, with a UI, for any regulation.
 Septum ships a standalone **Model Context Protocol** server,
 [`septum-mcp`](../packages/mcp/), that plugs the same local PII masking
 pipeline into any MCP-aware client. MCP is an open, vendor-neutral
-[specification](https://modelcontextprotocol.io) — the server speaks
-stdio transport, loads `septum-core` in-process, and never reaches the
-network. Any client that speaks the protocol works out of the box: Claude
-Desktop, ChatGPT Desktop, Cursor, Windsurf, and any other tool built with
-the Python / TypeScript / Rust / Go / C# / Java SDKs.
+[specification](https://modelcontextprotocol.io) — the server supports
+all three standard transports:
+
+- **stdio** (default) — for subprocess-launching clients: Claude
+  Desktop, Cursor, Windsurf, ChatGPT Desktop, Zed, and anything built
+  against the Python / TypeScript / Rust / Go / C# / Java SDKs.
+- **streamable-http** — modern HTTP transport for remote, browser, or
+  containerised clients. Bearer-token auth via
+  `Authorization: Bearer <SEPTUM_MCP_HTTP_TOKEN>`.
+- **sse** — legacy HTTP + Server-Sent Events transport, kept for
+  clients that haven't migrated to streamable-http yet.
+
+`septum-core` runs in-process; raw PII never reaches the network.
 
 **Tools exposed:**
 
@@ -246,8 +254,7 @@ the Python / TypeScript / Rust / Go / C# / Java SDKs.
 | `list_regulations` | List the 17 built-in regulation packs with their declared entity types. |
 | `get_session_map` | Return `{original → placeholder}` for local debugging only. |
 
-**Example client configuration** (Claude Desktop / ChatGPT Desktop; other
-clients use an equivalent `mcpServers` block):
+**Stdio client** (Claude Desktop, Cursor, Windsurf, Zed, ChatGPT Desktop):
 
 ```json
 {
@@ -263,9 +270,32 @@ clients use an equivalent `mcpServers` block):
 }
 ```
 
-See [`packages/mcp/README.md`](../packages/mcp/README.md) for all three
-installation methods (pip, uvx, repo-local), the complete environment
-variable reference, and end-to-end usage examples.
+**HTTP client** (remote agent, browser extension, shared team server):
+
+```json
+{
+  "mcpServers": {
+    "septum": {
+      "url": "https://mcp.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-token>"
+      }
+    }
+  }
+}
+```
+
+Run the HTTP server yourself:
+
+```bash
+SEPTUM_MCP_HTTP_TOKEN=$(openssl rand -hex 32) \
+  septum-mcp --transport streamable-http --host 0.0.0.0 --port 8765
+```
+
+See [`packages/mcp/README.md`](../packages/mcp/README.md) for the
+complete HTTP deployment guide (Docker, compose profiles, TLS
+reverse-proxy pattern), environment variable reference, and
+end-to-end tool examples.
 
 ---
 

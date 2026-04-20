@@ -332,8 +332,10 @@ Her HTTP servisi
 `python -c "import urllib.request; urllib.request.urlopen('http://.../health')"`
 tabanlı bir Docker `HEALTHCHECK` ile gelir (web image'ı
 `node:20-alpine` üzerinde çalıştığı için `wget` kullanır). MCP
-image'ında HEALTHCHECK yoktur — stdio-only; liveness alt-işlem exit
-kodudur.
+image'ı 8765 portunda streamable-http modunda varsayılan olarak gelir
+ve aynı `/health` healthcheck'iyle donatılmıştır; stdio deployment'ı
+için container `SEPTUM_MCP_TRANSPORT=stdio` ile başlatılabilir, o
+durumda orchestrator alt-işlem exit kodunu liveness olarak kullanır.
 
 ---
 
@@ -371,11 +373,33 @@ yerde `httpx` / `requests` / `urllib` import edilmez.
 
 ### septum-mcp
 
-Claude Code / Desktop / Cursor'a altı araç sunan stdio MCP sunucusu:
-`mask_text`, `unmask_response`, `detect_pii`, `scan_file`,
-`list_regulations`, `get_session_map`. `septum-core`'a bağımlıdır;
-engine ilk araç çağrısında kurulur — boşta dururken neredeyse hiç
-maliyet üretmez.
+Altı aracı (`mask_text`, `unmask_response`, `detect_pii`, `scan_file`,
+`list_regulations`, `get_session_map`) MCP'nin üç standart
+taşımasından biri üzerinden açan sunucu:
+
+- **stdio** (varsayılan) — alt-süreç başlatan istemciler için
+  (Claude Code, Claude Desktop, Cursor, Windsurf, Zed).
+- **streamable-http** — uzak, container içi ve tarayıcı istemciler
+  için modern HTTP taşıması. ``septum_mcp.auth.BearerTokenMiddleware``
+  ASGI middleware'i statik bearer token ile kapıyı tutar
+  (``hmac.compare_digest`` ile sabit-zaman karşılaştırma).
+- **sse** — streamable-http'ye geçmemiş eski istemciler için tutulan
+  legacy HTTP + Server-Sent Events taşıması.
+
+Taşıma ``--transport`` CLI bayrağı ya da ``SEPTUM_MCP_TRANSPORT``
+env değişkeni ile seçilir. HTTP modu ek olarak
+``--host``/``--port``/``--token``/``--mount-path`` bayraklarını ve
+``SEPTUM_MCP_HTTP_*`` env karşılıklarını destekler. ``/health``
+endpoint'i koşulsuz 200 OK döner ve bearer kontrolünü atlar, böylece
+Docker ``HEALTHCHECK`` ve reverse-proxy probe'ları token olmadan
+çalışır.
+
+`septum-core`'a bağımlıdır; engine ilk araç çağrısında kurulur —
+boşta dururken neredeyse hiç maliyet üretmez. HTTP modu etkinse
+``uvicorn`` ASGI sunucusu olarak başlatılır; stdio kullanıcıları
+HTTP stack'ine hiç dokunmaz. Şu an tek-tenant — tüm HTTP istemcileri
+aynı ``SeptumEngine``'i ve dolayısıyla aynı anonimleştirme-oturum
+kayıt defterini paylaşır.
 
 ### septum-api
 
