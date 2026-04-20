@@ -12,7 +12,8 @@
 - [Why Septum](#why-septum)
 - [MCP Integration](#mcp-integration)
 - [REST API & Authentication](#rest-api--authentication)
-- [UI Gallery](#ui-gallery)
+
+For the full visual tour, see [SCREENSHOTS.md](SCREENSHOTS.md).
 
 ---
 
@@ -343,70 +344,3 @@ The chat endpoint returns Server-Sent Events:
 For the complete API reference, pipeline details, and deployment
 topologies, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
----
-
-## UI Gallery
-
-### Document preview with entity highlights
-
-<p align="center">
-  <img src="../assets/document-preview.gif" alt="Documents list and preview with detected PII entities highlighted inline" width="900" />
-</p>
-
-Every detected entity — names, addresses, dates of birth, phone numbers,
-medical diagnoses, IDs — is highlighted inline on the original document
-with a colour coded by entity type. Click any entity to jump to its
-location; the side panel lists every match with its score and
-placeholder.
-
-### Settings — the 5-tab tour
-
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <b>LLM Provider</b><br />
-      <img src="../assets/14-settings-llm-provider.png" alt="LLM provider settings" />
-    </td>
-    <td width="50%" align="center">
-      <b>Privacy & Sanitization</b> — 3-layer pipeline<br />
-      <img src="../assets/15-settings-privacy-sanitization.png" alt="Privacy sanitization settings" />
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <b>RAG & Hybrid Retrieval</b><br />
-      <img src="../assets/16-settings-rag.png" alt="RAG settings" />
-    </td>
-    <td align="center">
-      <b>Document Ingestion</b><br />
-      <img src="../assets/17-settings-ingestion.png" alt="Ingestion settings" />
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center">
-      <b>Infrastructure</b> — database, cache, LLM gateway<br />
-      <img src="../assets/18-settings-infrastructure.png" alt="Infrastructure settings" width="720" />
-    </td>
-  </tr>
-</table>
-
-### Custom regulation rules
-
-<p align="center">
-  <img src="../assets/19-regulations-custom-rules.png" alt="Custom regulation rules — regex, keyword list, LLM prompt" width="900" />
-</p>
-
-Define your own detectors alongside the 17 built-in packs. Three
-methods: regex patterns, keyword lists, or LLM-prompt based detection.
-Policy composition rules still apply — the most restrictive rule wins.
-
-### Audit trail
-
-<p align="center">
-  <img src="../assets/23-audit-trail.png" alt="Audit trail" width="900" />
-</p>
-
-Append-only compliance log with entity detection metrics. No raw PII in
-audit events — only entity types, counts, regulation ids, and
-timestamps. JSON / CSV / Splunk HEC export available via
-`/api/audit/export`.

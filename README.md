@@ -28,7 +28,7 @@
 <p align="center">
   <a href="#how-it-works"><strong>How It Works</strong></a>
   &middot;
-  <a href="#see-it-in-action"><strong>Screenshots</strong></a>
+  <a href="docs/SCREENSHOTS.md"><strong>Screenshots</strong></a>
   &middot;
   <a href="#quick-start"><strong>Quick Start</strong></a>
   &middot;
@@ -52,13 +52,11 @@ Septum is a **privacy-first AI middleware** that sits between you and cloud LLMs
 **Before and after — what the LLM actually sees:**
 
 ```
-Document chunk: "Ahmet Yılmaz lives in Berlin, email ahmet.yilmaz@corp.de, ID 12345678901"
-Masked:         "[PERSON_1] lives in [LOCATION_1], email [EMAIL_1], ID [NATIONAL_ID_1]"
+Document chunk: "Ahmet Yılmaz was born in Istanbul in 1985. His mother is Ayşe and his father is Ali."
+Masked:         "[PERSON_1] was born in [LOCATION_1] in 1985. His mother is [PERSON_2] and his father is [PERSON_3]."
 
-User question:  "Write a welcome email using these details: customer name Ahmet Yılmaz,
-                 email ahmet.yilmaz@corp.de, member ID 12345678901."
-Masked:         "Write a welcome email using these details: customer name [PERSON_1],
-                 email [EMAIL_1], member ID [NATIONAL_ID_1]."
+User question:  "Where was Ahmet Yılmaz (mother Ayşe, father Ali) born?"
+Masked:         "Where was [PERSON_3] (mother [PERSON_1], father [PERSON_2]) born?"
 ```
 
 The LLM answers using placeholders. Septum restores real values locally before showing you the response.
@@ -125,29 +123,7 @@ Module contracts and zone semantics live in [docs/ARCHITECTURE.md](docs/ARCHITEC
 - **MCP Server** — standalone `septum-mcp` exposes the same local masking pipeline to any MCP-aware client (Claude Desktop, ChatGPT Desktop, Cursor, Windsurf, and custom SDK clients).
 - **Audit Trail** — append-only compliance log with entity detection metrics. No raw PII in audit events.
 
-See [docs/FEATURES.md](docs/FEATURES.md) for the full detection benchmark, regulation pack table, MCP integration walkthrough, REST API + authentication reference, and the "why Septum" comparison.
-
----
-
-## See It in Action
-
-### Setup Wizard
-
-<p align="center">
-  <img src="assets/setup-wizard.gif" alt="Setup wizard walkthrough — database, cache, LLM provider, regulations, audio model, admin account" width="900" />
-</p>
-
-Pick your database (SQLite or PostgreSQL), cache (in-memory or Redis), LLM provider (Anthropic, OpenAI, OpenRouter, or local Ollama), privacy regulations, and audio transcription model — all from the wizard.
-
-### Approval Gate — See exactly what leaves your machine
-
-<p align="center">
-  <img src="assets/chat-flow.gif" alt="Chat approval flow — masked prompt, retrieved chunks, assembled cloud prompt, and the deanonymised answer" width="900" />
-</p>
-
-Before every LLM call, Septum shows three side-by-side panes: the **masked prompt** you typed, the **retrieved document chunks** (editable), and the **full assembled prompt** that will actually be sent to the cloud. Approve it and the answer comes back with real values restored — locally, never in the cloud.
-
-For the document preview with inline entity highlights, the settings tour, custom regulation rules, and the audit trail, see the [UI Gallery](docs/FEATURES.md#ui-gallery) in `docs/FEATURES.md`.
+See [docs/FEATURES.md](docs/FEATURES.md) for the full detection benchmark, regulation pack table, MCP integration walkthrough, REST API + authentication reference, and the "why Septum" comparison. For every Septum screen — setup wizard, approval gate, document preview, settings tabs, custom regulation rules, audit trail — see [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md).
 
 ---
 
@@ -195,6 +171,7 @@ All features work identically. The difference is acceleration: local install pic
 ## Learn More
 
 - **[docs/FEATURES.md](docs/FEATURES.md)** — detection benchmark, regulation packs, MCP deep-dive, REST API + auth, why-Septum comparison
+- **[docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)** — visual tour of every screen
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — module contracts, zone semantics, deployment topologies, API reference
 - **[CHANGELOG.md](CHANGELOG.md)** — date-based release history
 
