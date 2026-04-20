@@ -11,16 +11,21 @@ export default function AuditPage() {
   const t = useI18n();
   const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewEventId, setPreviewEventId] = useState<number | null>(null);
 
-  const handleViewDocument = useCallback(async (documentId: number) => {
-    try {
-      const { data } = await api.get<Document>(`/api/documents/${documentId}`);
-      setPreviewDoc(data);
-      setPreviewOpen(true);
-    } catch {
-      // document may have been deleted
-    }
-  }, []);
+  const handleViewDocument = useCallback(
+    async (documentId: number, auditEventId?: number) => {
+      try {
+        const { data } = await api.get<Document>(`/api/documents/${documentId}`);
+        setPreviewDoc(data);
+        setPreviewEventId(auditEventId ?? null);
+        setPreviewOpen(true);
+      } catch {
+        // document may have been deleted
+      }
+    },
+    []
+  );
 
   return (
     <div className="flex min-h-full md:h-full flex-col gap-4 overflow-visible md:overflow-hidden">
@@ -39,6 +44,7 @@ export default function AuditPage() {
         document={previewDoc}
         open={previewOpen}
         onOpenChange={setPreviewOpen}
+        auditEventId={previewEventId}
       />
     </div>
   );

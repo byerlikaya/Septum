@@ -18,7 +18,7 @@ import { useI18n } from "@/lib/i18n";
 
 type AuditLogTableProps = {
   pageSize?: number;
-  onViewDocument?: (documentId: number) => void;
+  onViewDocument?: (documentId: number, auditEventId?: number) => void;
 };
 
 const EVENT_TYPES = [
@@ -27,6 +27,26 @@ const EVENT_TYPES = [
   "document_uploaded",
   "document_deleted",
   "regulation_changed",
+] as const;
+
+// Common entity types surfaced in the dropdown filter. Not exhaustive —
+// the backend accepts any type string, but exposing a free-text input
+// here would hurt discoverability. Users wanting a niche type can
+// filter by event_type and inspect the breakdown.
+const ENTITY_TYPES = [
+  "PERSON_NAME",
+  "EMAIL_ADDRESS",
+  "PHONE_NUMBER",
+  "NATIONAL_ID",
+  "LOCATION",
+  "ORGANIZATION_NAME",
+  "IBAN",
+  "CREDIT_CARD_NUMBER",
+  "DATE_OF_BIRTH",
+  "PASSPORT_NUMBER",
+  "MEDICAL_RECORD_NUMBER",
+  "URL",
+  "IP_ADDRESS",
 ] as const;
 
 function timeAgo(iso: string): string {
@@ -69,7 +89,7 @@ function accentBorder(type: string): string {
   }
 }
 
-function EventCard({ event, t, onViewDocument }: { event: AuditEvent; t: ReturnType<typeof useI18n>; onViewDocument?: (documentId: number) => void }) {
+function EventCard({ event, t, onViewDocument }: { event: AuditEvent; t: ReturnType<typeof useI18n>; onViewDocument?: (documentId: number, auditEventId?: number) => void }) {
   const [expanded, setExpanded] = useState(false);
   const extra = event.extra || {};
   const docName = extra.document_name as string | undefined;
@@ -177,15 +197,16 @@ function EventCard({ event, t, onViewDocument }: { event: AuditEvent; t: ReturnT
             </div>
           )}
 
-          {/* View entities in document */}
+          {/* Focus on this event's entities in the document preview */}
           {event.event_type === "pii_detected" && event.document_id && onViewDocument && (
             <button
               type="button"
               className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800/60 px-2.5 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors"
-              onClick={() => onViewDocument(event.document_id!)}
+              onClick={() => onViewDocument(event.document_id!, event.id)}
+              title={t("audit.card.focusEntitiesHint")}
             >
               <Search className="h-3 w-3" />
-              {t("audit.card.viewEntities")}
+              {t("audit.card.focusEntities")}
             </button>
           )}
 
@@ -228,15 +249,17 @@ export function AuditLogTable({ pageSize = 50, onViewDocument }: AuditLogTablePr
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [eventTypeFilter, setEventTypeFilter] = useState<string>("");
+  const [entityTypeFilter, setEntityTypeFilter] = useState<string>("");
 
   const loadPage = useCallback(
-    async (p: number, eventType: string) => {
+    async (p: number, eventType: string, entityType: string) => {
       setLoading(true);
       try {
         const res: AuditListResponse = await fetchAuditEvents({
           page: p,
           page_size: pageSize,
           event_type: eventType || undefined,
+          entity_type: entityType || undefined,
         });
         setItems(res.items);
         setTotal(res.total);
@@ -252,8 +275,8 @@ export function AuditLogTable({ pageSize = 50, onViewDocument }: AuditLogTablePr
   );
 
   useEffect(() => {
-    void loadPage(1, eventTypeFilter);
-  }, [loadPage, eventTypeFilter]);
+    void loadPage(1, eventTypeFilter, entityTypeFilter);
+  }, [loadPage, eventTypeFilter, entityTypeFilter]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -264,17 +287,30 @@ export function AuditLogTable({ pageSize = 50, onViewDocument }: AuditLogTablePr
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
-        <select
-          className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
-          value={eventTypeFilter}
-          onChange={(e) => setEventTypeFilter(e.target.value)}
-        >
-          <option value="">{t("audit.filter.allEvents")}</option>
-          {EVENT_TYPES.map((et) => {
-            const key = `audit.eventType.${et}` as Parameters<typeof t>[0];
-            return <option key={et} value={et}>{t(key)}</option>;
-          })}
-        </select>
+        <div className="flex items-center gap-2">
+          <select
+            className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
+            value={eventTypeFilter}
+            onChange={(e) => setEventTypeFilter(e.target.value)}
+          >
+            <option value="">{t("audit.filter.allEvents")}</option>
+            {EVENT_TYPES.map((et) => {
+              const key = `audit.eventType.${et}` as Parameters<typeof t>[0];
+              return <option key={et} value={et}>{t(key)}</option>;
+            })}
+          </select>
+          <select
+            className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
+            value={entityTypeFilter}
+            onChange={(e) => setEntityTypeFilter(e.target.value)}
+            title={t("audit.filter.entityTypeHint")}
+          >
+            <option value="">{t("audit.filter.allEntityTypes")}</option>
+            {ENTITY_TYPES.map((et) => (
+              <option key={et} value={et}>{et.replace(/_/g, " ")}</option>
+            ))}
+          </select>
+        </div>
         <span className="text-xs text-slate-500">
           {total} {t("audit.card.events")}
         </span>
@@ -297,14 +333,14 @@ export function AuditLogTable({ pageSize = 50, onViewDocument }: AuditLogTablePr
             <button
               className="rounded-md border border-slate-700 px-2.5 py-1 text-slate-300 hover:bg-slate-800 disabled:opacity-40 transition-colors"
               disabled={page <= 1}
-              onClick={() => void loadPage(page - 1, eventTypeFilter)}
+              onClick={() => void loadPage(page - 1, eventTypeFilter, entityTypeFilter)}
             >
               {t("audit.prevPage")}
             </button>
             <button
               className="rounded-md border border-slate-700 px-2.5 py-1 text-slate-300 hover:bg-slate-800 disabled:opacity-40 transition-colors"
               disabled={page >= totalPages}
-              onClick={() => void loadPage(page + 1, eventTypeFilter)}
+              onClick={() => void loadPage(page + 1, eventTypeFilter, entityTypeFilter)}
             >
               {t("audit.nextPage")}
             </button>

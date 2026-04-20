@@ -357,6 +357,7 @@ export async function getEntityDetections(
 
 export async function fetchAuditEvents(params?: {
   event_type?: string;
+  entity_type?: string;
   document_id?: number;
   session_id?: string;
   page?: number;
@@ -364,6 +365,15 @@ export async function fetchAuditEvents(params?: {
 }): Promise<AuditListResponse> {
   const { data } = await api.get<AuditListResponse>("/api/audit/", { params });
   return data;
+}
+
+export async function getAuditEventEntityDetections(
+  eventId: number
+): Promise<EntityDetectionListResponse> {
+  const { data } = await api.get<EntityDetectionListResponse["items"]>(
+    `/api/audit/${eventId}/entity-detections`
+  );
+  return { items: data, total: data.length };
 }
 
 // --- Chat Sessions ---

@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
-import api, { getEntityDetections } from "@/lib/api";
+import api, {
+  getAuditEventEntityDetections,
+  getEntityDetections,
+} from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { getDocumentDisplayName } from "@/lib/utils";
 import { CopyButton } from "@/components/common/CopyButton";
@@ -26,6 +29,14 @@ interface DocumentPreviewProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   highlightEntityType?: string | null;
+  /**
+   * When set, the preview fetches only the entity detections linked to
+   * this audit event (via ``GET /api/audit/{id}/entity-detections``) and
+   * renders a "N entities from this event" badge. Older events whose
+   * detections are not linked yet will yield an empty result and a hint
+   * to reprocess the document.
+   */
+  auditEventId?: number | null;
 }
 
 export function DocumentPreview({
@@ -33,6 +44,7 @@ export function DocumentPreview({
   open,
   onOpenChange,
   highlightEntityType = null,
+  auditEventId = null,
 }: DocumentPreviewProps): ReactElement | null {
   const t = useI18n();
   const [chunks, setChunks] = useState<Chunk[]>([]);
@@ -175,7 +187,9 @@ export function DocumentPreview({
           // anon summary is optional
         }
         try {
-          const detRes = await getEntityDetections(document.id);
+          const detRes = auditEventId != null
+            ? await getAuditEventEntityDetections(auditEventId)
+            : await getEntityDetections(document.id);
           if (!isCancelled) setDetections(detRes.items);
         } catch {
           // entity detections are optional — document may predate this feature
@@ -230,7 +244,7 @@ export function DocumentPreview({
     return () => {
       isCancelled = true;
     };
-  }, [open, document?.id, document?.file_format, document?.chunk_count]);
+  }, [open, document?.id, document?.file_format, document?.chunk_count, auditEventId]);
 
   useEffect(() => {
     if (!open || !document) {
@@ -531,6 +545,11 @@ export function DocumentPreview({
             </h2>
             <p className="text-xs text-slate-400">
               {docTitle}
+              {auditEventId != null && detections.length > 0 && (
+                <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-900/30 border border-amber-800/40 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+                  {t("documents.preview.fromAuditEvent", { count: detections.length })}
+                </span>
+              )}
             </p>
           </div>
           <button
@@ -632,7 +651,9 @@ export function DocumentPreview({
 
           {!isLoading && !error && detections.length === 0 && document.entity_count > 0 && (
             <div className="mb-4 rounded-md border border-amber-800/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
-              {t("documents.preview.reprocessHint")}
+              {auditEventId != null
+                ? t("documents.preview.unlinkedEventHint")
+                : t("documents.preview.reprocessHint")}
             </div>
           )}
 
