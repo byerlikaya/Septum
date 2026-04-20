@@ -103,7 +103,7 @@ sequenceDiagram
 
 ## Mimari
 
-Septum, üç güvenlik bölgesine ayrılmış 7 bağımsız modülden oluşur. Air-gapped modüller ham PII'yi işler, internete erişmez. Bridge yalnızca maskeli placeholder taşır. İnternet-yönlü modüller ham PII'yi asla görmez.
+Septum, üç güvenlik bölgesine ayrılmış 7 bağımsız modülden oluşur. Air-gapped modüller ham PII'yi işler, internete erişmez. Bridge yalnızca maskeli placeholder taşır. Internet-facing modüller ham PII'yi asla görmez.
 
 ```mermaid
 graph TD
@@ -119,7 +119,7 @@ graph TD
         MCP["septum-mcp<br/>MCP Sunucusu"] --> CORE
     end
 
-    subgraph INTERNET["☁️ İnternet Bölgesi — yalnızca maskeli veri"]
+    subgraph INTERNET["☁️ Internet-facing Bölge — yalnızca maskeli veri"]
         GW["septum-gateway<br/>LLM Yönlendirici"]
         AUDIT["septum-audit<br/>Denetim Kaydı"]
     end
@@ -155,8 +155,8 @@ graph TD
 | [`septum-api`](packages/api/) | Air-gapped | FastAPI REST katmanı + model, servis, auth |
 | [`septum-web`](packages/web/) | Air-gapped | Next.js 16 dashboard |
 | [`septum-queue`](packages/queue/) | Köprü | Bölgeler arası broker (dosya / Redis Streams) |
-| [`septum-gateway`](packages/gateway/) | İnternet-yönlü | Bulut LLM yönlendirici — `septum-core`'u asla içe aktarmaz |
-| [`septum-audit`](packages/audit/) | İnternet-yönlü | Uyumluluk kaydı + SIEM export — `septum-core`'u asla içe aktarmaz |
+| [`septum-gateway`](packages/gateway/) | Internet-facing | Bulut LLM yönlendirici — `septum-core`'u asla içe aktarmaz |
+| [`septum-audit`](packages/audit/) | Internet-facing | Uyumluluk kaydı + SIEM export — `septum-core`'u asla içe aktarmaz |
 
 Modül kontratları ve bölge kuralları [ARCHITECTURE.tr.md](ARCHITECTURE.tr.md) dosyasında.
 
@@ -226,7 +226,7 @@ docker run --name septum \
 
 **Docker Compose.** `docker compose up` PostgreSQL, Redis, Ollama ve Septum'u birlikte başlatır. İlk chat öncesi bir model çekin: `docker compose exec ollama ollama pull llama3.2:3b`. Yalnız bulut sağlayıcı kullanacaksanız Ollama'yı `docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up` ile devre dışı bırakabilirsiniz.
 
-**Deployment topolojileri** — farklı dağıtım şekilleri için dört compose varyantı gelir: standalone (tek container, SQLite), tam dev stack (tüm modüller tek host), sadece air-gapped bölge, sadece internet-yönlü bölge. Tam matris ve iki-host air-gap akışı için [ARCHITECTURE.tr.md § Deployment Topolojileri](ARCHITECTURE.tr.md#deployment-topolojileri)'ne bakın.
+**Deployment topolojileri** — farklı dağıtım şekilleri için dört compose varyantı gelir: standalone (tek container, SQLite), tam dev stack (tüm modüller tek host), sadece air-gapped bölge, sadece internet-facing bölge. Tam matris ve iki-host air-gap akışı için [ARCHITECTURE.tr.md § Deployment Topolojileri](ARCHITECTURE.tr.md#deployment-topolojileri)'ne bakın.
 
 ### Yerel geliştirme
 

@@ -97,6 +97,7 @@ At a high level:
      - The union of all entity types that must be protected.
      - A list of recognisers (built-in + custom) that should run for the current configuration.
    - Custom recognisers (regex, keyword list, LLM-prompt based) are also injected into this policy.
+   - The 17 built-in pack ids are exposed as a `RegulationId` StrEnum and a `BUILTIN_REGULATION_IDS` frozenset in `septum_core`; downstream packages (`septum-api`, `septum-mcp`) share this canonical registry and a `parse_active_regulations_env` helper for env-driven configuration. The standalone `SeptumEngine` defaults to loading **all 17 packs** (previously the API-side seed was the only source of the full list), and cross-pack duplicate recognisers are deduped at policy build time (~46 → 29 recognisers per mask call).
 
 2. **Layer 1 — Presidio recognisers**
    - Septum uses **Microsoft Presidio** as the first line of detection, with recogniser packs organised by regulation.
@@ -194,6 +195,16 @@ In this mode, Septum behaves as a **drop-in privacy layer**:
 - Existing tools keep their own UI and logic.
 - You centralise PII handling, regulation rules and auditability in one place.
 - You can switch or mix LLM providers behind Septum without changing how your app handles personal data.
+
+### Auto-RAG routing
+
+When `document_ids` is omitted from the chat request (or empty), Septum decides automatically whether to search documents or answer as a plain chatbot. A local Ollama intent classifier inspects the query and emits `SEARCH` or `CHAT`. Three paths result:
+
+1. **Manual RAG** — caller supplies `document_ids`. Classifier skipped; retrieval runs against the selected documents as before.
+2. **Auto-RAG** — no selection, classifier says `SEARCH`, and the top-k cross-document hybrid search (`_retrieve_chunks_all_documents`) returns chunks whose relevance score is above `rag_relevance_threshold` (default 0.35, configurable from the RAG settings tab). Retrieved chunks go through the approval gate exactly like manual RAG.
+3. **Pure LLM** — no selection, classifier says `CHAT`, or no chunks clear the relevance threshold. The LLM answers with no document context attached.
+
+The SSE meta event carries `rag_mode: "manual" | "auto" | "none"` and `matched_document_ids` so the dashboard can display a per-message badge indicating which path was taken. Cross-document retrieval respects user ownership — Auto-RAG only searches documents the caller owns.
 
 ---
 
@@ -344,10 +355,19 @@ Zero network dependencies by contract — no `httpx` / `requests` /
 - `engine.py` — `SeptumEngine` facade: `engine.mask(text)` /
   `engine.unmask(text, session_id)`. Includes an in-memory session
   registry with TTL eviction for long-running MCP subprocesses.
-- `regulations/` — `PolicyComposer` merges active regulation rulesets.
+- `regulations/` — `PolicyComposer` merges active regulation rulesets;
+  cross-pack duplicate recognisers are deduped at build time
+  (~46 → 29 recognisers per mask call).
 - `recognizers/` — 17 regulation packs (GDPR, KVKK, HIPAA, CCPA, LGPD,
   PIPEDA, PDPA_TH, PDPA_SG, APPI, PIPL, POPIA, DPDP, UK_GDPR, PDPL_SA,
   NZPA, Australia_PA, CPRA) with `base_recognizer` + `RecognizerRegistry`.
+  Each pack declares its own `ENTITY_TYPES` constant so the standalone
+  engine sees the same entity list the API seed uses.
+  `recognizers/__init__.py` exports the canonical `RegulationId`
+  StrEnum + `BUILTIN_REGULATION_IDS` tuple + a
+  `parse_active_regulations_env(value)` helper that replaces three
+  duplicated env-parsing blocks across the api / mcp / standalone
+  entry points.
 - `national_ids/` — country-specific ID validators with algorithmic
   checksums (TCKN, SSN, CPF, Aadhaar, IBAN, …).
 
