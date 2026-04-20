@@ -6,37 +6,37 @@
 
 <p align="center">
   <a href="https://github.com/byerlikaya/Septum/actions/workflows/tests.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/byerlikaya/Septum/tests.yml?branch=main&label=tests" alt="CI Tests" />
+    <img src="https://img.shields.io/github/actions/workflow/status/byerlikaya/Septum/tests.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=tests&color=43A047" alt="CI Tests" />
   </a>
   <a href="https://hub.docker.com/r/byerlikaya/septum">
-    <img src="https://img.shields.io/docker/v/byerlikaya/septum?label=docker%20image&color=blue&sort=semver" alt="Docker Image Version" />
+    <img src="https://img.shields.io/docker/v/byerlikaya/septum?style=for-the-badge&logo=docker&logoColor=white&label=docker&color=1E88E5&sort=semver" alt="Docker Image Version" />
   </a>
   <a href="https://hub.docker.com/r/byerlikaya/septum">
-    <img src="https://img.shields.io/docker/pulls/byerlikaya/septum?label=docker%20pulls" alt="Docker Pulls" />
+    <img src="https://img.shields.io/docker/pulls/byerlikaya/septum?style=for-the-badge&logo=docker&logoColor=white&label=pulls&color=1565C0" alt="Docker Pulls" />
   </a>
   <a href="https://github.com/byerlikaya/Septum/stargazers">
-    <img src="https://img.shields.io/github/stars/byerlikaya/Septum?color=yellow&label=stars" alt="GitHub Stars" />
+    <img src="https://img.shields.io/github/stars/byerlikaya/Septum?style=for-the-badge&logo=github&logoColor=white&label=stars&color=F59E0B" alt="GitHub Stars" />
   </a>
   <a href="LICENSE">
-    <img src="https://img.shields.io/github/license/byerlikaya/Septum?color=blue" alt="License: MIT" />
+    <img src="https://img.shields.io/github/license/byerlikaya/Septum?style=for-the-badge&logo=opensourceinitiative&logoColor=white&label=license&color=607D8B" alt="License: MIT" />
   </a>
   <a href="README.tr.md">
-    <img src="https://img.shields.io/badge/lang-TR-red" alt="Turkish README" />
+    <img src="https://img.shields.io/badge/lang-Türkçe-E53935?style=for-the-badge" alt="Turkish README" />
   </a>
 </p>
 
 <p align="center">
-  <a href="#how-it-works"><strong>How It Works</strong></a>
-  &middot;
-  <a href="docs/SCREENSHOTS.md"><strong>Screenshots</strong></a>
-  &middot;
-  <a href="#quick-start"><strong>Quick Start</strong></a>
-  &middot;
-  <a href="docs/FEATURES.md"><strong>Features</strong></a>
-  &middot;
-  <a href="docs/ARCHITECTURE.md"><strong>Architecture</strong></a>
-  &middot;
-  <a href="CHANGELOG.md"><strong>Changelog</strong></a>
+  <a href="#how-it-works"><strong>🎬 How It Works</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
+  &nbsp;·&nbsp;
+  <a href="#quick-start"><strong>⚡ Quick Start</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
+  &nbsp;·&nbsp;
+  <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
 ---

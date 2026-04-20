@@ -6,37 +6,37 @@
 
 <p align="center">
   <a href="https://github.com/byerlikaya/Septum/actions/workflows/tests.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/byerlikaya/Septum/tests.yml?branch=main&label=tests" alt="CI Testler" />
+    <img src="https://img.shields.io/github/actions/workflow/status/byerlikaya/Septum/tests.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=tests&color=43A047" alt="CI Testler" />
   </a>
   <a href="https://hub.docker.com/r/byerlikaya/septum">
-    <img src="https://img.shields.io/docker/v/byerlikaya/septum?label=docker%20image&color=blue&sort=semver" alt="Docker Image Sürümü" />
+    <img src="https://img.shields.io/docker/v/byerlikaya/septum?style=for-the-badge&logo=docker&logoColor=white&label=docker&color=1E88E5&sort=semver" alt="Docker Image Sürümü" />
   </a>
   <a href="https://hub.docker.com/r/byerlikaya/septum">
-    <img src="https://img.shields.io/docker/pulls/byerlikaya/septum?label=docker%20pulls" alt="Docker Pulls" />
+    <img src="https://img.shields.io/docker/pulls/byerlikaya/septum?style=for-the-badge&logo=docker&logoColor=white&label=pulls&color=1565C0" alt="Docker Pulls" />
   </a>
   <a href="https://github.com/byerlikaya/Septum/stargazers">
-    <img src="https://img.shields.io/github/stars/byerlikaya/Septum?color=yellow&label=stars" alt="GitHub Yıldızları" />
+    <img src="https://img.shields.io/github/stars/byerlikaya/Septum?style=for-the-badge&logo=github&logoColor=white&label=stars&color=F59E0B" alt="GitHub Yıldızları" />
   </a>
   <a href="LICENSE">
-    <img src="https://img.shields.io/github/license/byerlikaya/Septum?color=blue" alt="Lisans: MIT" />
+    <img src="https://img.shields.io/github/license/byerlikaya/Septum?style=for-the-badge&logo=opensourceinitiative&logoColor=white&label=license&color=607D8B" alt="Lisans: MIT" />
   </a>
   <a href="README.md">
-    <img src="https://img.shields.io/badge/lang-EN-blue" alt="English README" />
+    <img src="https://img.shields.io/badge/lang-English-1E88E5?style=for-the-badge" alt="English README" />
   </a>
 </p>
 
 <p align="center">
-  <a href="#nasıl-çalışır"><strong>Nasıl Çalışır</strong></a>
-  &middot;
-  <a href="docs/SCREENSHOTS.tr.md"><strong>Ekran Görüntüleri</strong></a>
-  &middot;
-  <a href="#hızlı-başlangıç"><strong>Hızlı Başlangıç</strong></a>
-  &middot;
-  <a href="docs/FEATURES.tr.md"><strong>Özellikler</strong></a>
-  &middot;
-  <a href="docs/ARCHITECTURE.tr.md"><strong>Mimari</strong></a>
-  &middot;
-  <a href="CHANGELOG.md"><strong>Değişiklik Günlüğü</strong></a>
+  <a href="#nasıl-çalışır"><strong>🎬 Nasıl Çalışır</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
+  &nbsp;·&nbsp;
+  <a href="#hızlı-başlangıç"><strong>⚡ Hızlı Başlangıç</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
+  &nbsp;·&nbsp;
+  <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
 ---
