@@ -163,6 +163,7 @@ All features work identically. The difference is acceleration: local install pic
 - **[docs/FEATURES.md](docs/FEATURES.md)** — detection benchmark, regulation packs, MCP deep-dive, REST API + auth, why-Septum comparison
 - **[docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)** — visual tour of every screen
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — module contracts, zone semantics, deployment topologies, API reference
+- **[docs/DOCUMENT_INGESTION.md](docs/DOCUMENT_INGESTION.md)** — document ingestion pipeline, step-by-step
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — how to report bugs, run tests, and open a pull request
 - **[CHANGELOG.md](CHANGELOG.md)** — date-based release history
 

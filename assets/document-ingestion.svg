@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 1120" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#444"/>
+    </marker>
+    <filter id="sh" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <rect width="960" height="1120" fill="#FAFAFA"/>
+
+  <!-- ═══════ Arrows (drawn first, under boxes) ═══════ -->
+
+  <!-- 1. Upload → File Type -->
+  <path d="M 480 82 L 480 113" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- 2. File Type → 4 ingesters (bus at y=185) -->
+  <path d="M 480 168 L 480 185" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 150 185 L 810 185" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 150 185 L 150 210" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 370 185 L 370 210" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 590 185 L 590 210" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 810 185 L 810 210" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- 3. Ingesters → Language Detection (merge bus at y=280) -->
+  <path d="M 150 250 L 150 280" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 370 250 L 370 280" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 590 250 L 590 280" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 810 250 L 810 280" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 150 280 L 810 280" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 480 280 L 480 300" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- 4. Language Detection → PII Detection -->
+  <path d="M 480 340 L 480 390" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- 5. PII Detection → 3 detection layers -->
+  <path d="M 480 430 L 480 480" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 200 480 L 760 480" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 200 480 L 200 515" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 480 480 L 480 515" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 760 480 L 760 515" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- 6. Detection layers → Mask -->
+  <path d="M 200 555 L 200 600" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 480 555 L 480 600" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 760 555 L 760 600" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 200 600 L 760 600" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 480 600 L 480 620" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- 7. Mask → Parallel Processing -->
+  <path d="M 480 660 L 480 710" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- 8. Parallel → Chunking + Encrypted Storage -->
+  <path d="M 480 750 L 480 775" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 280 775 L 680 775" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 280 775 L 280 800" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 680 775 L 680 800" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- 9. Chunking → Embedding -->
+  <path d="M 280 840 L 280 880" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- 10. Embedding → FAISS + BM25 -->
+  <path d="M 280 920 L 280 945" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 180 945 L 380 945" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 180 945 L 180 965" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 380 945 L 380 965" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- 11. FAISS + BM25 + Encrypted → Ready (merge at y=1030) -->
+  <path d="M 180 1005 L 180 1030" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 380 1005 L 380 1030" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 680 840 L 680 1030" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 180 1030 L 680 1030" stroke="#444" stroke-width="2" fill="none"/>
+  <path d="M 480 1030 L 480 1055" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- ═══════ Detection Layers subgraph container ═══════ -->
+  <rect x="100" y="490" width="760" height="85" rx="12" fill="none" stroke="#F9A825" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="115" y="505" font-size="11" font-weight="600" fill="#6D4C00" paint-order="stroke" stroke="#FAFAFA" stroke-width="4">Detection Layers</text>
+
+  <!-- ═══════ Nodes ═══════ -->
+
+  <!-- 1. Upload -->
+  <rect x="400" y="40" width="160" height="42" rx="10" fill="#E8F5E9" stroke="#43A047" stroke-width="2" filter="url(#sh)"/>
+  <text x="480" y="67" text-anchor="middle" font-size="13" font-weight="600" fill="#2E7D32">📁 Document Upload</text>
+
+  <!-- 2. File Type (diamond) -->
+  <polygon points="400,140 480,113 560,140 480,168" fill="#FFF3E0" stroke="#FB8C00" stroke-width="2" filter="url(#sh)"/>
+  <text x="480" y="145" text-anchor="middle" font-size="12" font-weight="600" fill="#E65100">File Type?</text>
+
+  <!-- 3. Ingesters (row) -->
+  <rect x="90" y="210" width="120" height="40" rx="8" fill="#E3F2FD" stroke="#1E88E5" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="150" y="235" text-anchor="middle" font-size="12" font-weight="600" fill="#1565C0">📄 PDF</text>
+
+  <rect x="310" y="210" width="120" height="40" rx="8" fill="#E3F2FD" stroke="#1E88E5" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="370" y="235" text-anchor="middle" font-size="12" font-weight="600" fill="#1565C0">📃 DOCX / XLSX</text>
+
+  <rect x="530" y="210" width="120" height="40" rx="8" fill="#E3F2FD" stroke="#1E88E5" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="590" y="235" text-anchor="middle" font-size="12" font-weight="600" fill="#1565C0">🖼️ PaddleOCR</text>
+
+  <rect x="750" y="210" width="120" height="40" rx="8" fill="#E3F2FD" stroke="#1E88E5" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="810" y="235" text-anchor="middle" font-size="12" font-weight="600" fill="#1565C0">🎙️ Whisper</text>
+
+  <!-- 4. Language Detection -->
+  <rect x="370" y="300" width="220" height="40" rx="8" fill="#E3F2FD" stroke="#1E88E5" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="480" y="325" text-anchor="middle" font-size="12" font-weight="600" fill="#1565C0">🌍 Language Detection (20+)</text>
+
+  <!-- 5. PII Detection -->
+  <rect x="340" y="390" width="280" height="44" rx="10" fill="#BBDEFB" stroke="#1565C0" stroke-width="2" filter="url(#sh)"/>
+  <text x="480" y="417" text-anchor="middle" font-size="13" font-weight="700" fill="#0D47A1">🔍 3-Layer PII Detection</text>
+
+  <!-- 6. Detection layer chips -->
+  <rect x="140" y="515" width="120" height="40" rx="8" fill="#FFFDE7" stroke="#F9A825" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="200" y="533" text-anchor="middle" font-size="11" font-weight="600" fill="#6D4C00">Presidio</text>
+  <text x="200" y="547" text-anchor="middle" font-size="10" fill="#6D4C00">pattern + validator</text>
+
+  <rect x="420" y="515" width="120" height="40" rx="8" fill="#FFFDE7" stroke="#F9A825" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="480" y="533" text-anchor="middle" font-size="11" font-weight="600" fill="#6D4C00">NER</text>
+  <text x="480" y="547" text-anchor="middle" font-size="10" fill="#6D4C00">XLM-RoBERTa</text>
+
+  <rect x="700" y="515" width="120" height="40" rx="8" fill="#FFFDE7" stroke="#F9A825" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="760" y="533" text-anchor="middle" font-size="11" font-weight="600" fill="#6D4C00">Ollama</text>
+  <text x="760" y="547" text-anchor="middle" font-size="10" fill="#6D4C00">semantic (optional)</text>
+
+  <!-- 7. Mask -->
+  <rect x="370" y="620" width="220" height="42" rx="10" fill="#F3E5F5" stroke="#8E24AA" stroke-width="2" filter="url(#sh)"/>
+  <text x="480" y="647" text-anchor="middle" font-size="13" font-weight="600" fill="#4A148C">🎭 Mask + Anon Map</text>
+
+  <!-- 8. Parallel Processing -->
+  <rect x="370" y="710" width="220" height="40" rx="8" fill="#FFF3E0" stroke="#FB8C00" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="480" y="735" text-anchor="middle" font-size="12" font-weight="600" fill="#E65100">⚡ Parallel Processing</text>
+
+  <!-- 9. Chunking -->
+  <rect x="210" y="800" width="140" height="40" rx="8" fill="#E3F2FD" stroke="#1E88E5" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="280" y="825" text-anchor="middle" font-size="12" font-weight="600" fill="#1565C0">📦 Chunking</text>
+
+  <!-- 10. Encrypted Storage -->
+  <rect x="590" y="800" width="180" height="40" rx="8" fill="#FFEBEE" stroke="#E53935" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="680" y="820" text-anchor="middle" font-size="12" font-weight="600" fill="#B71C1C">🔐 Encrypted Storage</text>
+  <text x="680" y="833" text-anchor="middle" font-size="10" fill="#B71C1C">AES-256-GCM</text>
+
+  <!-- 11. Embedding -->
+  <rect x="210" y="880" width="140" height="40" rx="8" fill="#E3F2FD" stroke="#1E88E5" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="280" y="905" text-anchor="middle" font-size="12" font-weight="600" fill="#1565C0">🧬 Embedding</text>
+
+  <!-- 12. FAISS + BM25 -->
+  <rect x="120" y="965" width="120" height="40" rx="8" fill="#E8F5E9" stroke="#43A047" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="180" y="983" text-anchor="middle" font-size="11" font-weight="600" fill="#2E7D32">FAISS</text>
+  <text x="180" y="997" text-anchor="middle" font-size="10" fill="#2E7D32">vector index</text>
+
+  <rect x="320" y="965" width="120" height="40" rx="8" fill="#E8F5E9" stroke="#43A047" stroke-width="1.5" filter="url(#sh)"/>
+  <text x="380" y="983" text-anchor="middle" font-size="11" font-weight="600" fill="#2E7D32">BM25</text>
+  <text x="380" y="997" text-anchor="middle" font-size="10" fill="#2E7D32">keyword index</text>
+
+  <!-- 13. Ready -->
+  <rect x="370" y="1055" width="220" height="46" rx="10" fill="#C8E6C9" stroke="#2E7D32" stroke-width="2" filter="url(#sh)"/>
+  <text x="480" y="1084" text-anchor="middle" font-size="13" font-weight="700" fill="#1B5E20">✅ Ready for Search</text>
+</svg>
