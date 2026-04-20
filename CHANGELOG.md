@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here in a high‑level, date‑based format.
 
+### 2026-04-20
+
+- **Split READMEs into a slim overview + `docs/FEATURES.md` deep-dive**: Both READMEs were 768 / 772 lines of dense prose — too long to scan and mostly duplicated what belonged in feature reference docs. Trimmed to ~275 lines each: hook, five-step flow, the single 7-module architecture mermaid, a compact feature list, two money-shot screenshots (setup wizard + approval gate), and a Docker quick start. The 17-regulation table, detection benchmark, Auto-RAG walkthrough, Why-Septum comparison, MCP integration, REST API + auth reference, and the full UI gallery (document preview GIF + 5 settings PNGs + audit trail) moved to new `docs/FEATURES.md` + `docs/FEATURES.tr.md`. The Turkish versions were rewritten as native Turkish (not a word-for-word translation): sentence order, idiom, and mermaid diagram labels — "Kullanıcı sorusu", "Maskeli istek", "Maskeleme + Map", "Köprü" — all now read naturally instead of betraying an English source. Net: 1540 lines of README became 1380 lines across two files per locale, with mermaid diagram count going from 5 to 8 and with the navigation structure matching exactly across EN/TR.
+
 ### 2026-04-19
 
 - **Fix MCP/standalone dropping NER entity types + canonical regulation registry in core**: MCP and standalone `SeptumEngine` were silently dropping `PERSON_NAME`/`LOCATION`/`ORGANIZATION_NAME` because the 17 packs' entity lists only existed in the API seed. Moved to core as per-pack `ENTITY_TYPES` constants plus `RegulationId` StrEnum and `BUILTIN_REGULATION_IDS`; MCP/API defaults now load all 17 packs, cross-pack duplicate recognizers are deduped on load (46 → 29 per mask call), and every downstream import goes through core — including a shared `parse_active_regulations_env` helper that replaces three duplicated env-parsing blocks. `PATCH /api/settings` now rejects typo'd regulation ids (previously stored silently and later filtered to an empty policy).

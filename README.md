@@ -26,21 +26,17 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/byerlikaya/Septum/stargazers"><b>⭐ Star the repo if Septum helps you keep PII out of the cloud — it's the single biggest signal that this project is worth building.</b></a>
-</p>
-
-<p align="center">
-  <a href="#who-is-this-for"><strong>Who Is This For?</strong></a>
+  <a href="#how-it-works"><strong>How It Works</strong></a>
   &middot;
   <a href="#see-it-in-action"><strong>Screenshots</strong></a>
   &middot;
   <a href="#quick-start"><strong>Quick Start</strong></a>
   &middot;
+  <a href="docs/FEATURES.md"><strong>Features</strong></a>
+  &middot;
   <a href="ARCHITECTURE.md"><strong>Architecture</strong></a>
   &middot;
   <a href="CHANGELOG.md"><strong>Changelog</strong></a>
-  &middot;
-  <a href="LICENSE"><strong>License</strong></a>
 </p>
 
 ---
@@ -49,16 +45,14 @@
 
 Septum is a **privacy-first AI middleware** that sits between you and cloud LLMs. It lets you query sensitive company data — and chat freely — with ChatGPT, Claude, or any LLM, while **automatically detecting and masking personal data before anything leaves your machine**.
 
-1. You upload documents (PDF, Word, Excel, images, audio, etc.) **and** type questions in chat.
-2. Septum **detects and masks** all personal data locally — in both your documents *and* your chat messages.
-3. Only anonymised text is sent to the LLM (the question, the retrieved context, everything).
+1. You upload documents (PDF, Word, Excel, images, audio) **and** type questions in chat.
+2. Septum **detects and masks** personal data locally — in both your documents *and* your chat messages.
+3. Only anonymised text is sent to the LLM.
 4. The answer comes back with real names and values restored — **locally**.
 
-> **In one sentence:** Septum is a safety layer for teams who want LLM power without leaking personal data — whether it's in a document or in something you just typed.
+> **In one sentence:** Septum is a safety layer for teams who want LLM power without leaking personal data — whether it is in a document or in something you just typed.
 
 **Before and after — what the LLM actually sees:**
-
-Both your documents and your chat messages go through the same masking pipeline.
 
 ```
 Document chunk: "Ahmet Yılmaz lives in Berlin, email ahmet.yilmaz@corp.de, ID 12345678901"
@@ -74,22 +68,12 @@ The LLM answers using placeholders. Septum restores real values locally before s
 
 ---
 
-## Who Is This For?
+## Who is this for?
 
 - **Developers** building AI-powered apps that handle real customer data
 - **Teams** subject to GDPR, KVKK, HIPAA, or other privacy regulations
 - **Companies** running LLMs against internal documents (contracts, HR files, health records)
 - **Self-hosting advocates** who want full control — no data leaves your infrastructure
-
----
-
-## What Problems Does It Solve?
-
-**Safe enterprise document Q&A** — Query contracts, customer files, health records, or HR documents with an LLM. The LLM only sees placeholders like `[PERSON_1]` and `[EMAIL_2]`, never real identities.
-
-**Regulation compliance** — Helps reduce GDPR, KVKK, HIPAA, CCPA, and other regulation risks by anonymising data **before** anything touches the cloud. 17 built-in regulation packs, with the most restrictive rule always winning.
-
-**Internal knowledge assistant** — Indexes your documents into a vector store (RAG) so you can build powerful search and Q&A over company knowledge.
 
 ---
 
@@ -100,365 +84,99 @@ sequenceDiagram
     participant U as 👤 User
     participant S as 🛡️ Septum
     participant L as ☁️ Cloud LLM
-    U->>S: Prepare a report for Ahmet Yilmaz
+    U->>S: Prepare a report for Ahmet Yılmaz
     Note over S: Detect & mask → [PERSON_1]
     S->>L: Masked request
     L->>S: Masked response
     Note over S: Local de-anonymisation
-    S->>U: Report for Ahmet Yilmaz
-    Note over U,L: 🔒 Raw PII never left the machine!
+    S->>U: Report for Ahmet Yılmaz
+    Note over U,L: 🔒 Raw PII never left the machine
 ```
 
-1. **Upload your documents**
-   Use the Documents page or the chat sidebar to add PDFs, Office files, images or audio files. Septum automatically detects file type, language and personal data, masks all PII, and prepares anonymised content for search.
+1. **Upload your documents** — PDFs, Office files, images, audio. Septum detects file type, language, and personal data; masks all PII; prepares anonymised content for search.
+2. **Ask questions in chat** — select specific documents, or leave the selection empty and let Septum decide. With no selection, a local Ollama classifier routes the question to either Auto-RAG (search all indexed documents) or a plain chatbot reply.
+3. **Your question is masked too** — the same three-layer pipeline runs on the message you typed, not just the documents. Names, phones, emails, IDs in your prompt all turn into placeholders before retrieval.
+4. **Approve before sending** — see the masked question, the retrieved chunks, and the assembled cloud prompt side by side. Approve or reject.
+5. **Answer with real values** — placeholders are restored locally so you see a natural, human-readable answer.
 
-2. **Ask questions in chat**
-   Select specific documents to query, or leave the selection empty and let Septum decide automatically. When no documents are selected, Septum uses a local Ollama model to classify your query intent (SEARCH vs CHAT) and either searches the most relevant documents via Auto-RAG or responds as a normal chatbot.
-   *"What are the termination conditions in this contract?"*
-   *"Write a welcome email for new customer Ahmet Yilmaz (ahmet.yilmaz@corp.de, member ID 12345678901)."*
-   *"Summarise the last 6 months of case files."*
+---
 
-3. **Septum anonymises your question too**
-   Your chat message is run through the **same** PII detection pipeline as your documents. Names, phone numbers, emails, IDs and any other personal data you typed are replaced with placeholders before retrieval and before the LLM call. PII never leaves the machine — not from documents, not from what you type.
+## Architecture
 
-4. **Approve before sending**
-   See exactly what anonymised content (your masked question **and** the masked document chunks) will be sent to the LLM. Approve or reject.
-
-5. **Get answers with real values**
-   Septum locally restores placeholders to original values, giving you a natural, human-readable answer.
-
-### Chat Flow
+Septum is composed of 7 independent modules split across three security zones. Air-gapped modules handle raw PII with zero internet access. The bridge transports only masked placeholders. Internet-facing modules never see raw PII.
 
 ```mermaid
-flowchart TD
-    START([💬 User Message]) --> PII_MSG[🔍 PII Detection in Message]
-
-    PII_MSG --> MASK_MSG[🎭 Mask Message]
-
-    MASK_MSG --> RAG[📚 Document Search]
-
-    subgraph RAG_DETAIL["Hybrid RAG"]
-        FAISS_S[FAISS Semantic]
-        BM25_S[BM25 Keyword]
+graph TD
+    subgraph CLIENTS["🖥️ MCP Clients"]
+        CD["Claude Desktop"]
+        CHATGPT["ChatGPT Desktop"]
+        OTHER["Any MCP Client"]
     end
 
-    RAG --> RAG_DETAIL
-    RAG_DETAIL --> CHUNKS[📄 Relevant Chunks]
-
-    CHUNKS --> COMBINE[🔗 Combine<br/>Masked Question + Chunks]
-
-    COMBINE --> APPROVE{🚪 Approval<br/>Required?}
-
-    APPROVE -->|Yes| SHOW[📋 Approval Screen<br/>User reviews what will be sent]
-    SHOW --> USER_OK{✅ Approved?}
-    USER_OK -->|No| REJECT[❌ Rejected]
-    USER_OK -->|Yes| SEND
-    APPROVE -->|No| SEND[📨 Send to LLM]
-
-    SEND --> LLM[☁️ Cloud LLM<br/>Sees only masked data]
-
-    LLM --> RESP[📥 Masked Response]
-    RESP --> UNMASK[🔓 Local De-anonymisation]
-
-    UNMASK --> AUDIT[📝 Audit Log]
-    AUDIT --> END([✅ Answer with Real Values])
-
-    style START fill:#2196f3,color:#fff,stroke:#1565c0,stroke-width:3px
-    style PII_MSG fill:#ff9800,color:#fff,stroke:#e65100,stroke-width:2px
-    style MASK_MSG fill:#9c27b0,color:#fff,stroke:#6a1b9a,stroke-width:2px
-    style APPROVE fill:#ff9800,color:#fff,stroke:#e65100,stroke-width:3px
-    style LLM fill:#00bcd4,color:#fff,stroke:#006064,stroke-width:2px
-    style UNMASK fill:#4caf50,color:#fff,stroke:#2e7d32,stroke-width:3px
-    style END fill:#4caf50,color:#fff,stroke:#2e7d32,stroke-width:3px
-    style REJECT fill:#f44336,color:#fff,stroke:#c62828,stroke-width:2px
-```
-
-<details>
-<summary><b>Document Processing Pipeline</b> — what happens when you upload a file</summary>
-<br/>
-
-```mermaid
-flowchart TD
-    START([📁 Document Upload]) --> TYPE{File Type?}
-
-    TYPE -->|PDF| PDF[PDF Ingester]
-    TYPE -->|Office| OFFICE[DOCX/XLSX Ingester]
-    TYPE -->|Image| OCR[PaddleOCR]
-    TYPE -->|Audio| AUDIO[Whisper]
-
-    PDF --> LANG[🌍 Language Detection<br/>20+ languages]
-    OFFICE --> LANG
-    OCR --> LANG
-    AUDIO --> LANG
-
-    LANG --> PII[🔍 3-Layer PII Detection]
-
-    subgraph LAYERS["Detection Layers"]
-        L1[Presidio<br/>Patterns + Validators]
-        L2[NER<br/>XLM-RoBERTa]
-        L3[Ollama<br/>Semantic]
+    subgraph AIRGAP["🔒 Air-Gapped Zone — raw PII stays here"]
+        WEB["septum-web<br/>Dashboard"] --> API["septum-api<br/>REST API"]
+        API --> CORE["septum-core<br/>PII Engine"]
+        MCP["septum-mcp<br/>MCP Server"] --> CORE
     end
 
-    PII --> LAYERS
-    LAYERS --> MASK[🎭 Masking + Anonymisation Map]
+    subgraph INTERNET["☁️ Internet Zone — only masked data"]
+        GW["septum-gateway<br/>LLM Forwarder"]
+        AUDIT["septum-audit<br/>Compliance Log"]
+    end
 
-    MASK --> PARALLEL[⚡ Parallel Processing]
+    CLOUD["Cloud LLMs<br/>Anthropic · OpenAI · OpenRouter"]
 
-    PARALLEL --> CHUNK[📦 Semantic Chunking]
-    PARALLEL --> ENC[🔐 Encrypted Storage<br/>AES-256-GCM]
+    CD --> MCP
+    CHATGPT --> MCP
+    OTHER --> MCP
+    API -- "masked text" --> QUEUE["septum-queue<br/>📦 Bridge"]
+    QUEUE -- "masked text" --> GW
+    GW --> CLOUD
+    GW --> AUDIT
+    CLOUD -. "response" .-> GW -. "response" .-> QUEUE -. "response" .-> API
 
-    CHUNK --> EMB[🧬 Embedding]
-
-    EMB --> FAISS[(FAISS Vector Index)]
-    EMB --> BM25[(BM25 Keyword Index)]
-
-    FAISS --> READY([✅ Search Ready])
-    BM25 --> READY
-    ENC --> READY
-
-    style START fill:#4CAF50,color:#fff,stroke:#2e7d32,stroke-width:3px
-    style PII fill:#2196F3,color:#fff,stroke:#1565c0,stroke-width:2px
-    style LAYERS fill:#FF9800,color:#fff,stroke:#e65100,stroke-width:2px
-    style MASK fill:#9C27B0,color:#fff,stroke:#6a1b9a,stroke-width:2px
-    style READY fill:#4CAF50,color:#fff,stroke:#2e7d32,stroke-width:3px
+    style AIRGAP fill:none,stroke:#4CAF50,stroke-width:2,stroke-dasharray:5 5
+    style INTERNET fill:none,stroke:#2196F3,stroke-width:2,stroke-dasharray:5 5
+    style CLIENTS fill:none,stroke:#FF9800,stroke-width:2,stroke-dasharray:5 5
+    style QUEUE fill:#E65100,color:#fff
+    style CORE fill:#2E7D32,color:#fff
+    style MCP fill:#6A1B9A,color:#fff
+    style API fill:#1565C0,color:#fff
+    style WEB fill:#2E7D32,color:#fff
+    style GW fill:#01579B,color:#fff
+    style AUDIT fill:#01579B,color:#fff
+    style CLOUD fill:#37474F,color:#fff
 ```
 
-</details>
+| Package | Zone | Purpose |
+|:---|:---|:---|
+| [`septum-core`](packages/core/) | Air-gapped | PII detection, masking, unmasking, regulation engine |
+| [`septum-mcp`](packages/mcp/) | Air-gapped | MCP server for Claude Desktop, ChatGPT, Cursor |
+| [`septum-api`](packages/api/) | Air-gapped | FastAPI REST layer + models, services, auth |
+| [`septum-web`](packages/web/) | Air-gapped | Next.js 16 dashboard |
+| [`septum-queue`](packages/queue/) | Bridge | Cross-zone broker (file / Redis Streams) |
+| [`septum-gateway`](packages/gateway/) | Internet-facing | Cloud LLM forwarder — never imports `septum-core` |
+| [`septum-audit`](packages/audit/) | Internet-facing | Compliance log + SIEM export — never imports `septum-core` |
+
+Module contracts and zone semantics live in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
 ## Key Features
 
-- **Local PII Protection** — Detects and masks personal data before anything is sent to the cloud — both inside uploaded documents **and** inside the chat messages you type. Documents stored encrypted (AES-256-GCM). The **Approval Gate** lets you verify the masked output before each LLM call — nothing is sent without your review.
-
-```mermaid
-flowchart LR
-    INPUT([📝 Document or Message]) --> L1[🔴 Layer 1: Presidio<br/>Regex + Validators]
-    L1 --> L2[🟠 Layer 2: NER<br/>XLM-RoBERTa]
-    L2 --> L3[🟡 Layer 3: Ollama<br/>Semantic Detection]
-    L3 --> MERGE[🔗 Merge + Coreference]
-    MERGE --> OUTPUT([✅ Masked Text])
-
-    style L1 fill:#ff5722,color:#fff,stroke:#bf360c,stroke-width:2px
-    style L2 fill:#ff9800,color:#fff,stroke:#e65100,stroke-width:2px
-    style L3 fill:#ffc107,color:#000,stroke:#f57f17,stroke-width:2px
-    style MERGE fill:#4caf50,color:#fff,stroke:#2e7d32,stroke-width:2px
-    style INPUT fill:#2196f3,color:#fff,stroke:#1565c0,stroke-width:2px
-    style OUTPUT fill:#4caf50,color:#fff,stroke:#2e7d32,stroke-width:2px
-```
-
-- **Auto-RAG Routing** — When no documents are selected, Septum uses a local Ollama model to classify query intent (SEARCH vs CHAT). If the query is document-related, Septum automatically searches all indexed documents and retrieves the most relevant chunks. If it is a general question, Septum routes it as a normal chatbot conversation — no manual document selection required.
-- **Multi-Regulation Support** — 17 built-in packs (GDPR, KVKK, CCPA, HIPAA, LGPD, PIPEDA, PDPA, APPI, PIPL, POPIA, DPDP, UK GDPR, and more). Each regulation ships its own recognizer pack with region-specific national ID detectors (TCKN checksum, Aadhaar Verhoeff, NRIC/FIN, Resident ID, NINO, CNPJ, My Number, and more). Multiple active simultaneously; most restrictive wins.
-- **Approval Gate** — Review exactly what will be sent to the LLM before it leaves your environment.
-- **Custom Rules** — Define your own patterns: regex, keyword lists, or LLM-prompt based detection.
-- **Rich Format Support** — PDFs, Office files, spreadsheets, images (OCR), audio (Whisper transcription), emails.
+- **Local PII Protection** — three-layer detection (Presidio + NER + optional Ollama) on both uploaded documents **and** typed chat messages. Documents stored encrypted (AES-256-GCM).
+- **Approval Gate** — review the masked prompt, retrieved chunks, and assembled cloud request before any LLM call. Nothing is sent without your review.
+- **17 Regulation Packs** — GDPR, KVKK, CCPA, HIPAA, LGPD, PIPEDA, PDPA, APPI, PIPL, POPIA, DPDP, UK GDPR, and more. Multiple active simultaneously; most restrictive wins. Region-specific national ID validators (TCKN checksum, Aadhaar Verhoeff, NRIC/FIN, CPF, NINO, CNPJ, My Number, and more).
+- **Auto-RAG Routing** — when no documents are selected, a local Ollama classifier routes between Auto-RAG (search all indexed documents) and a plain chatbot reply. No manual selection required.
+- **Custom Rules** — define your own detectors: regex, keyword lists, or LLM-prompt based.
+- **Rich Format Support** — PDFs, Office files, spreadsheets, images (OCR), audio (Whisper), emails.
 - **Hybrid Retrieval** — BM25 keyword matching + FAISS semantic search with Reciprocal Rank Fusion.
-- **Structured Data Extraction** — Automatically detects tables and key-value pairs from PDFs.
-- **Audit Trail** — Append-only compliance log with entity detection metrics. No raw PII in audit events.
-- **Multi-Provider** — Works with Anthropic, OpenAI, OpenRouter, and local Ollama. Switch from the UI.
-- **JWT Auth & RBAC** — Admin-only user management UI to create accounts, assign roles (admin/editor/viewer), reset passwords, and deactivate users; self-service password change; first user auto-promoted to admin via the setup wizard.
-- **MCP Server (protocol-level, works with any MCP client)** — Ships a standalone Model Context Protocol server (`septum-mcp`) that exposes the same local masking pipeline to **any** MCP-aware client — Claude Desktop, ChatGPT Desktop, and any other tool built on the open [MCP specification](https://modelcontextprotocol.io). Six tools — `mask_text`, `unmask_response`, `detect_pii`, `scan_file`, `list_regulations`, `get_session_map` — all run locally; raw PII never leaves your machine.
+- **Multi-Provider** — Anthropic, OpenAI, OpenRouter, or local Ollama. Switch from the UI.
+- **JWT Auth + RBAC + API Keys** — first user auto-promoted via setup wizard; admin UI manages roles (admin / editor / viewer). Programmatic API keys with SHA-256 hashed storage and per-prefix rate limits.
+- **MCP Server** — standalone `septum-mcp` exposes the same local masking pipeline to any MCP-aware client (Claude Desktop, ChatGPT Desktop, Cursor, Windsurf, and custom SDK clients).
+- **Audit Trail** — append-only compliance log with entity detection metrics. No raw PII in audit events.
 
-<details>
-<summary><b>All 17 built-in regulation packs</b> — jurisdictions, region-specific identifiers</summary>
-
-| Region | Code | Regulation |
-|:---|:---|:---|
-| 🇪🇺 EU / EEA | `gdpr` | General Data Protection Regulation |
-| 🇺🇸 USA (Healthcare) | `hipaa` | Health Insurance Portability and Accountability Act |
-| 🇹🇷 Turkey | `kvkk` | Personal Data Protection Law (6698) |
-| 🇧🇷 Brazil | `lgpd` | Lei Geral de Proteção de Dados |
-| 🇺🇸 USA (California) | `ccpa` | California Consumer Privacy Act |
-| 🇺🇸 USA (California) | `cpra` | California Privacy Rights Act |
-| 🇬🇧 United Kingdom | `uk_gdpr` | UK GDPR |
-| 🇨🇦 Canada | `pipeda` | Personal Information Protection and Electronic Documents Act |
-| 🇹🇭 Thailand | `pdpa_th` | Personal Data Protection Act |
-| 🇸🇬 Singapore | `pdpa_sg` | Personal Data Protection Act |
-| 🇯🇵 Japan | `appi` | Act on the Protection of Personal Information |
-| 🇨🇳 China | `pipl` | Personal Information Protection Law |
-| 🇿🇦 South Africa | `popia` | Protection of Personal Information Act |
-| 🇮🇳 India | `dpdp` | Digital Personal Data Protection Act |
-| 🇸🇦 Saudi Arabia | `pdpl_sa` | Personal Data Protection Law |
-| 🇳🇿 New Zealand | `nzpa` | Privacy Act 2020 |
-| 🇦🇺 Australia | `australia_pa` | Privacy Act 1988 |
-
-Every row is a loadable pack under [`packages/core/septum_core/recognizers/`](packages/core/septum_core/recognizers/). Multiple can be active simultaneously — the sanitizer applies the union and the most restrictive rule wins. Legal sources for each entity type live in [`packages/core/docs/REGULATION_ENTITY_SOURCES.md`](packages/core/docs/REGULATION_ENTITY_SOURCES.md).
-
-</details>
-
----
-
-## MCP Integration (any MCP-compatible client)
-
-Septum ships a standalone **Model Context Protocol** server,
-[`septum-mcp`](packages/mcp/), that plugs the same local PII masking
-pipeline into any MCP-aware client. MCP is an open, vendor-neutral
-[specification](https://modelcontextprotocol.io) — the server speaks
-stdio transport, loads `septum-core` in-process, and never reaches
-the network, so any client that talks the protocol works out of the
-box (Claude Desktop, ChatGPT Desktop, Cursor, Windsurf, and any
-other tool built with the Python/TypeScript/Rust/Go/C#/Java SDKs).
-
-**Tools exposed:**
-
-| Tool | Purpose |
-|:---|:---|
-| `mask_text` | Mask PII in a snippet and return a session id. |
-| `unmask_response` | Restore originals inside an LLM reply using the session id. |
-| `detect_pii` | Read-only scan — returns entities without retaining a session. |
-| `scan_file` | Read a local file (`.txt`, `.md`, `.csv`, `.json`, `.pdf`, `.docx`) and scan it. |
-| `list_regulations` | List the 17 built-in regulation packs with their declared entity types. |
-| `get_session_map` | Return `{original → placeholder}` for local debugging only. |
-
-**Example client configuration** (Claude Desktop / ChatGPT Desktop;
-other clients use an equivalent `mcpServers` block):
-
-```json
-{
-  "mcpServers": {
-    "septum": {
-      "command": "septum-mcp",
-      "env": {
-        "SEPTUM_REGULATIONS": "gdpr,kvkk",
-        "SEPTUM_LANGUAGE": "en"
-      }
-    }
-  }
-}
-```
-
-See [`packages/mcp/README.md`](packages/mcp/README.md) for all three
-installation methods (pip, uvx, repo-local), the complete environment
-variable reference, and end-to-end usage examples.
-
----
-
-## REST API & Authentication
-
-The Septum backend ships a FastAPI REST layer documented at `/docs`
-(Swagger) and `/redoc`. Two authentication methods are supported:
-
-### JWT (browser sessions, short-lived)
-
-The setup wizard creates the first admin account; subsequent logins
-return a JWT good for 24 hours.
-
-```bash
-curl -X POST http://localhost:3000/api/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email": "admin@example.com", "password": "your-password"}'
-# → {"access_token": "...", "token_type": "bearer"}
-```
-
-### API Keys (CI/CD, MCP integrations, long-lived)
-
-Admins can issue programmatic API keys via `POST /api/api-keys`. The
-raw key is shown **once** at creation; only its 8-character prefix
-plus a SHA-256 hash are persisted.
-
-```bash
-# Create a key (response includes raw_key — store it now, you cannot retrieve it later)
-curl -X POST http://localhost:3000/api/api-keys \
-  -H 'Authorization: Bearer <jwt>' \
-  -H 'Content-Type: application/json' \
-  -d '{"name": "ci-pipeline", "expires_at": null}'
-
-# Use it on any subsequent request
-curl -H 'X-API-Key: sk-septum-<64 hex chars>' http://localhost:3000/api/auth/me
-
-# List your keys (prefixes + metadata only — raw keys are never returned again)
-curl -H 'X-API-Key: sk-septum-…' http://localhost:3000/api/api-keys
-
-# Revoke
-curl -X DELETE -H 'X-API-Key: sk-septum-…' http://localhost:3000/api/api-keys/{id}
-```
-
-### Rate limits
-
-| Endpoint | Limit |
-|:---|:---|
-| `POST /api/auth/register` | 3 / minute |
-| `POST /api/auth/login` | 5 / minute |
-| `POST /api/api-keys` | 10 / minute |
-| Everything else | 60 / minute (configurable via `RATE_LIMIT_DEFAULT`) |
-
-API-key requests are rate-limited by **key prefix**, not IP, so
-services behind a shared NAT each get their own quota. Anonymous and
-JWT requests fall back to the remote IP. Limits are stored in Redis
-when configured; otherwise in-process memory (suitable for single-node
-dev only).
-
----
-
-## Why Septum?
-
-| Capability | Septum | Plain ChatGPT / Claude | Azure Presidio | LangChain Pipeline |
-|:---|:---:|:---:|:---:|:---:|
-| **PII masked before cloud** | **Yes** | No | Detection only | Build yourself |
-| **Multi-regulation (17 packs)** | **Yes** | No | No | Build yourself |
-| **Approval gate before LLM** | **Yes** | No | No | Build yourself |
-| **De-anonymisation (real values)** | **Yes** | N/A | No | Build yourself |
-| **Document RAG with hybrid retrieval** | **Yes** | No | No | Partial |
-| **Custom detection rules** | **Yes** | No | Limited | Build yourself |
-| **Ready-to-use web UI** | **Yes** | N/A | No | No |
-| **Audit trail & compliance** | **Yes** | No | No | Build yourself |
-| **Works with any LLM provider** | **Yes** | Single provider | Azure only | Configurable |
-| **Fully self-hosted** | **Yes** | No | Cloud service | Depends |
-
-**The key difference:** Other tools offer pieces of the puzzle — detection here, a vector store there. Septum is the **complete end-to-end pipeline**: detection → anonymisation → mapping → retrieval → approval → LLM call → de-anonymisation → audit. Out of the box, with a UI, for any regulation.
-
----
-
-## Detection & Privacy
-
-Septum uses a **multi-layer PII detection pipeline** to minimise both false negatives (missed PII) and false positives (over-masking). Each layer adds detection capability; all run **locally**.
-
-### What Each Layer Detects
-
-| Layer | Technology | Entity Types Detected |
-|:---:|:---|:---|
-| 1 | **Presidio** — regex patterns + algorithmic validators (Luhn, IBAN MOD-97, TCKN, CPF, SSN checksums). Context-aware recognizers with multilingual keywords. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE |
-| 2 | **NER** — HuggingFace XLM-RoBERTa with per-language model selection (20+ languages). ALL CAPS input auto-normalised to title case. | PERSON_NAME, LOCATION, ORGANIZATION_NAME |
-| 3 | **Ollama** — local LLM for context-aware validation, alias detection, and semantic entity detection | PERSON_NAME aliases/nicknames; DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE |
-
-Layers are additive: L1 catches structured identifiers and context-tagged values (dates of birth, passport numbers, device IDs, etc.), L2 adds names, locations, and organisations via transformer NER (including ALL CAPS text), and L3 uses a local LLM for semantic types (medical diagnoses, medications, religious/political/ethnic references) plus alias detection. Results are merged with coreference resolution so "John", "J. Doe", and "Mr. Doe" all map to the same `[PERSON_1]` placeholder.
-
-> **Benchmark models:** NER uses `akdeniz27/xlm-roberta-base-turkish-ner` (TR) and `Davlan/xlm-roberta-base-wikiann-ner` (all other languages). Ollama layer uses `aya-expanse:8b`. Results will vary with different Ollama models — larger models generally improve semantic detection accuracy.
-
-### Benchmark Results
-
-All 17 built-in regulations active. **3,268 algorithmically generated PII values** across 23 entity types (valid Luhn, IBAN MOD-97, TCKN checksums). 150 samples per Presidio type, 160 person names (mixed case + ALL CAPS, EN/TR), 100 locations (EN/TR), 30 organisation names (EN/TR), plus alias detection. Fixed seed for full reproducibility.
-
-<p align="center">
-  <img src="screenshots/benchmark-f1-by-type.png" alt="F1 Score by Entity Type" width="900" />
-</p>
-
-<p align="center">
-  <img src="screenshots/benchmark-layer-comparison.png" alt="Detection Accuracy by Pipeline Layer" width="700" />
-</p>
-
-| Layer | Entities | Types | Precision | Recall | F1 |
-|:---|:---:|:---:|:---:|:---:|:---:|
-| **Presidio (L1)** — patterns + validators | 1,710 | 20 | 100% | 94.4% | 97.1% |
-| **NER (L2)** — XLM-RoBERTa + ALL CAPS normalisation | 770 | 3 | 97.5% | 92.7% | 95.1% |
-| **Ollama (L3)** — aya-expanse:8b | 788 | 3 | 99.7% | 91.6% | 95.5% |
-| **Combined** | **3,268** | **23** | **99.3%** | **93.3%** | **96.2%** |
-
-> NER (L2) detects ALL CAPS names (common in medical/legal documents) via automatic titlecase normalisation, and recognises organisation names. Ollama (L3) validates candidates and catches aliases. Benchmark includes adversarial edge cases (spaced IBANs, dotted phone numbers, etc.) that lower Presidio recall to real-world levels. Reproducible: `pytest tests/benchmark_detection.py -v -s`
-
-### Detection Coverage & Limitations
-
-**No PII detection system is 100% accurate.** Septum's benchmark is transparent about this:
-
-- **All 37 regulation entity types are now detectable** — 21 via Presidio pattern recognizers, 3 via NER, 9 via Ollama semantic detection, and 7 via parent-type coverage (e.g. CITY covered by LOCATION, FIRST_NAME by PERSON_NAME).
-- **23 entity types are actively benchmarked** across 3,268 test values in 14 languages with adversarial edge cases.
-- **Semantic types** (DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, etc.) are detected by the Ollama layer and require a local LLM to be running. Detection accuracy depends on the model used (benchmark uses `aya-expanse:8b`).
-- **Context-dependent recognizers** (DATE_OF_BIRTH, PASSPORT_NUMBER, SSN, TAX_ID, etc.) require contextual keywords near the value to reduce false positives. Multilingual keywords in 8+ languages are supported.
-- **Adversarial formats** (spaced TCKNs, dotted phone numbers) show lower detection rates than controlled-format tests. This is reported honestly in the benchmark.
-
-**The Approval Gate is your safety net.** Before any text is sent to the LLM, you see exactly what will be transmitted and can reject it. This is by design — automated detection reduces risk, human review eliminates it.
-
-For full pipeline details, see [Architecture — PII Detection & Anonymisation Pipeline](ARCHITECTURE.md#pii-detection--anonymisation-pipeline).
+See [docs/FEATURES.md](docs/FEATURES.md) for the full detection benchmark, regulation pack table, MCP integration walkthrough, REST API + authentication reference, and the "why Septum" comparison.
 
 ---
 
@@ -478,61 +196,9 @@ Pick your database (SQLite or PostgreSQL), cache (in-memory or Redis), LLM provi
   <img src="screenshots/chat-flow.gif" alt="Chat approval flow — masked prompt, retrieved chunks, assembled cloud prompt, and the deanonymised answer" width="900" />
 </p>
 
-Before every LLM call, Septum shows you three side-by-side panes: the **masked prompt** you typed, the **retrieved document chunks** (editable), and the **full assembled prompt** that will actually be sent to the cloud. Approve it and the answer comes back with real values restored — locally, never in the cloud.
+Before every LLM call, Septum shows three side-by-side panes: the **masked prompt** you typed, the **retrieved document chunks** (editable), and the **full assembled prompt** that will actually be sent to the cloud. Approve it and the answer comes back with real values restored — locally, never in the cloud.
 
-### Document preview with entity highlights
-
-<p align="center">
-  <img src="screenshots/document-preview.gif" alt="Documents list and preview with detected PII entities highlighted inline" width="900" />
-</p>
-
-Every detected entity — names, addresses, dates of birth, phone numbers, medical diagnoses, IDs — is highlighted inline on the original document with a colour coded by entity type. Click any entity to jump to its location; the side panel lists every match with its score and placeholder.
-
-<details>
-<summary><b>More screenshots</b> — Settings, custom regulation rules, audit trail</summary>
-
-<br />
-
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <b>LLM Provider</b><br />
-      <img src="screenshots/14-settings-llm-provider.png" alt="LLM provider settings" />
-    </td>
-    <td width="50%" align="center">
-      <b>Privacy & Sanitization (3-layer pipeline)</b><br />
-      <img src="screenshots/15-settings-privacy-sanitization.png" alt="Privacy sanitization settings" />
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <b>RAG & Hybrid Retrieval</b><br />
-      <img src="screenshots/16-settings-rag.png" alt="RAG settings" />
-    </td>
-    <td align="center">
-      <b>Document Ingestion</b><br />
-      <img src="screenshots/17-settings-ingestion.png" alt="Ingestion settings" />
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <b>Infrastructure</b><br />
-      <img src="screenshots/18-settings-infrastructure.png" alt="Infrastructure settings" />
-    </td>
-    <td align="center">
-      <b>Custom Regulation Rules</b><br />
-      <img src="screenshots/19-regulations-custom-rules.png" alt="Custom regulation rules — regex, keyword list, LLM prompt" />
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center">
-      <b>Audit Trail</b> — append-only compliance log with entity detection metrics, no raw PII<br />
-      <img src="screenshots/23-audit-trail.png" alt="Audit trail" width="720" />
-    </td>
-  </tr>
-</table>
-
-</details>
+For the document preview with inline entity highlights, the settings tour, custom regulation rules, and the audit trail, see the [UI Gallery](docs/FEATURES.md#ui-gallery) in `docs/FEATURES.md`.
 
 ---
 
@@ -554,202 +220,42 @@ docker run --name septum \
   byerlikaya/septum
 ```
 
-Open **http://localhost:3000** — the setup wizard walks you through everything:
+Open **http://localhost:3000** — the setup wizard walks you through database, cache, LLM provider, regulations, and the first admin account. No `.env` files; data persists in named volumes.
 
-1. **Database** — SQLite (default, zero config) or PostgreSQL
-2. **Cache** — In-memory (default) or Redis
-3. **LLM Provider** — Anthropic, OpenAI, OpenRouter, or Ollama (local)
-4. **Audio model** — Whisper model for speech-to-text (optional)
+**Updating.** Stop and remove the container, run `docker pull byerlikaya/septum`, then re-run the same `docker run` command. Your data is preserved in the volumes.
 
-No `.env` file, no manual configuration. Data persists automatically via Docker volumes.
+**Docker Compose.** `docker compose up` starts PostgreSQL, Redis, Ollama, and Septum together. Pull a model before the first chat: `docker compose exec ollama ollama pull llama3.2:3b`. Skip Ollama with `docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up` for cloud-only setups.
 
-### Updating
+**Deployment topologies** — four compose variants ship for different deployment shapes: standalone (single container, SQLite), full dev stack (all modules on one host), air-gapped zone only, and internet-facing zone only. See [ARCHITECTURE.md § Deployment Topologies](ARCHITECTURE.md#deployment-topologies) for the full matrix and a two-host air-gap walkthrough.
 
-```bash
-docker stop septum && docker rm septum
-docker pull byerlikaya/septum
-docker run --name septum \
-  --add-host=host.docker.internal:host-gateway \
-  -p 3000:3000 \
-  -v septum-data:/app/data \
-  -v septum-uploads:/app/uploads \
-  -v septum-anon-maps:/app/anon_maps \
-  -v septum-vector-indexes:/app/vector_indexes \
-  -v septum-bm25-indexes:/app/bm25_indexes \
-  -v septum-models:/app/models \
-  byerlikaya/septum
-```
-
-The `docker pull` step is required — `docker run` alone reuses the cached image. Your data is preserved in the named volumes.
-
-### Docker Compose (PostgreSQL + Redis)
+### Local development
 
 ```bash
-docker compose up
-```
-
-Starts PostgreSQL, Redis, Ollama, and Septum in a single command. Pull a model before the first chat with `docker compose exec ollama ollama pull llama3.2:3b`. Skip Ollama with `docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up` if you only want a cloud provider. The setup wizard configures the LLM provider on first visit.
-
-### Deployment Topologies
-
-Septum ships four compose files, one per deployment shape. Pick the one
-that matches your security posture:
-
-| Topology | Compose file | Hosts | Zone split | When to use |
-|:---|:---|:---:|:---:|:---|
-| **Standalone** | `docker-compose.standalone.yml` | 1 | ✗ | Simplest install. SQLite, no external services, one container. |
-| **Full dev stack** | `docker-compose.yml` | 1 | logical | Local development or single-host install of every module (api + web + gateway + audit + Postgres + Redis). |
-| **Air-gapped zone** | `docker-compose.airgap.yml` | 1 | ✓ | The PII-handling half of a two-host split: api + web + Postgres + Redis. Gateway runs on a separate host. |
-| **Internet-facing zone** | `docker-compose.gateway.yml` | 1 | ✓ | The cloud-facing half: gateway + audit + Redis. Consumes masked requests off the shared Redis Streams. |
-
-For a true air-gapped deployment, run `airgap.yml` on the internal host
-and `gateway.yml` on the DMZ / cloud host, and point both at the same
-Redis over a VPN / private link. Only masked text crosses the queue —
-raw PII never leaves the air-gapped zone.
-
-Every module also ships a dedicated Dockerfile under `docker/` — `api.Dockerfile`,
-`web.Dockerfile`, `gateway.Dockerfile`, `audit.Dockerfile`, `mcp.Dockerfile`,
-`standalone.Dockerfile` — so custom orchestrators (Kubernetes, Nomad,
-ECS) can pick just the images they need. Gateway and audit images are
-deliberately lightweight (~100 MB each, no torch/Presidio); by code
-review invariant they never contain `septum-core`.
-
-### Local Development
-
-```bash
-./dev.sh --setup   # First-time: install dependencies
-./dev.sh           # Start dev servers (port 3000)
+./dev.sh --setup   # first time: install deps
+./dev.sh           # start dev servers (port 3000)
 ```
 
 The setup wizard opens on first visit.
 
-### Docker vs Local
+### Docker vs local
 
-All features work identically in both deployment modes — no functionality is lost in Docker:
-
-| Feature | Docker | Local |
-|:---|:---:|:---:|
-| **NER / PII detection** | CPU | GPU-accelerated |
-| **OCR (PaddleOCR)** | CPU | GPU-accelerated |
-| **Audio transcription (Whisper)** | CPU | GPU-accelerated |
-| **Semantic search (FAISS)** | CPU | CPU |
-| **Chat & de-anonymization** | Full | Full |
-| **Setup complexity** | Single command | Python + Node.js |
-
-**Docker is recommended for most users.** CPU inference handles typical workloads (single documents, interactive chat) with no issues. GPU acceleration (requires local install with NVIDIA CUDA) only makes a noticeable difference when batch-processing large volumes of documents with OCR or audio transcription.
-
-**Apple Silicon:** The Docker image includes native `linux/arm64` builds. M1/M2/M3/M4 Macs run without x86 emulation — no performance penalty.
-
-For architecture details, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
+All features work identically. The difference is acceleration: local install picks up whatever torch variant PyPI serves for your host (CUDA on NVIDIA Linux, MPS on Apple Silicon), while the published Docker image is CPU-only (a separate `byerlikaya/septum:gpu` variant ships with full CUDA runtime for NVIDIA Linux hosts). CPU inference handles typical workloads; GPU matters only for batch OCR or audio transcription at scale.
 
 ---
 
-## For Developers
+## Learn More
 
-### Architecture Overview
-
-Septum is composed of 7 independent modules split across three security zones. Air-gapped modules handle raw PII with zero internet access. The bridge transports only masked placeholders. Internet-facing modules never see raw PII.
-
-```mermaid
-graph TD
-    subgraph CLIENTS["🖥️ MCP Clients"]
-        CD["Claude Desktop"]
-        CHATGPT["ChatGPT Desktop"]
-        OTHER["Any MCP Client"]
-        CD ~~~ CHATGPT ~~~ OTHER
-    end
-
-    subgraph AIRGAP["🔒 Air-Gapped Zone — raw PII stays here"]
-        WEB["septum-web\nDashboard"] --> API["septum-api\nREST API"]
-        API --> CORE["septum-core\nPII Engine"]
-        MCP["septum-mcp\nMCP Server"] --> CORE
-    end
-
-    subgraph INTERNET["☁️ Internet Zone — only masked data"]
-        GW["septum-gateway\nLLM Forwarder"]
-        AUDIT["septum-audit\nCompliance Log"]
-    end
-
-    CLOUD["Cloud LLMs\nAnthropic · OpenAI · OpenRouter"]
-
-    CD --> MCP
-    CHATGPT --> MCP
-    OTHER --> MCP
-    API -- "masked text" --> QUEUE["septum-queue\n📦 Bridge"]
-    QUEUE -- "masked text" --> GW
-    GW --> CLOUD
-    GW --> AUDIT
-    CLOUD -. "response" .-> GW -. "response" .-> QUEUE -. "response" .-> API
-
-    style AIRGAP fill:none,stroke:#4CAF50,stroke-width:2,stroke-dasharray:5 5
-    style INTERNET fill:none,stroke:#2196F3,stroke-width:2,stroke-dasharray:5 5
-    style CLIENTS fill:none,stroke:#FF9800,stroke-width:2,stroke-dasharray:5 5
-    style QUEUE fill:#E65100,color:#fff,stroke:#FF9800,stroke-width:2
-    style CORE fill:#2E7D32,color:#fff,stroke:#4CAF50
-    style MCP fill:#6A1B9A,color:#fff,stroke:#9C27B0
-    style API fill:#1565C0,color:#fff,stroke:#2196F3
-    style WEB fill:#2E7D32,color:#fff,stroke:#4CAF50
-    style GW fill:#01579B,color:#fff,stroke:#2196F3
-    style AUDIT fill:#01579B,color:#fff,stroke:#2196F3
-    style CLOUD fill:#37474F,color:#fff,stroke:#607D8B
-    style CD fill:#BF360C,color:#fff,stroke:#FF5722
-    style CHATGPT fill:#BF360C,color:#fff,stroke:#FF5722
-    style OTHER fill:#BF360C,color:#fff,stroke:#FF5722
-```
-
-### Package Layout
-
-Septum is split into independently installable packages under
-`packages/`. The legacy `backend/` compatibility layer has been
-removed; every backend import goes directly through `septum_api.*` and
-the dashboard lives at `packages/web/`.
-
-| Package | Path | Zone | Description | Status |
-|:---|:---|:---|:---|:---:|
-| `septum-core` | `packages/core/` | Air-gapped | PII detection, masking, unmasking, regulation engine. Zero network deps. | Released |
-| `septum-mcp` | `packages/mcp/` | Air-gapped | MCP server for Claude Desktop, ChatGPT Desktop, and any MCP client. | Released |
-| `septum-api` | `packages/api/` | Air-gapped | FastAPI REST endpoints, models, services, middleware, auth. | Released |
-| `septum-web` | `packages/web/` | Air-gapped | Next.js 16 dashboard (App Router + React 19). Build-time `NEXT_PUBLIC_API_BASE_URL` selects same-origin proxy or split deployment. | Released |
-| `septum-queue` | `packages/queue/` | Bridge | Cross-zone message broker (masked data only). File backend (air-gap default) or Redis Streams (`[redis]` extra). | Released |
-| `septum-gateway` | `packages/gateway/` | Internet-facing | Cloud LLM forwarder for Anthropic / OpenAI / OpenRouter. Consumes from `septum-queue`, never imports `septum-core`. Optional FastAPI `/health` behind the `[server]` extra. | Released |
-| `septum-audit` | `packages/audit/` | Internet-facing | Compliance logging + SIEM export. JSON / CSV / Splunk HEC exporters, age + count retention, optional queue consumer (`[queue]` extra) and FastAPI `/health` + `/api/audit/export` (`[server]` extra). Never imports `septum-core`. | Released |
-
-Air-gapped modules have zero internet access; the bridge transports
-only masked placeholders; internet-facing modules never see raw PII.
-The backend's CORS allow-list is driven by the `FRONTEND_ORIGIN` env
-var (comma-separated for multiple origins; default `*`) so split
-deployments can lock the dashboard origin down without code edits.
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full module
-contracts and zone semantics.
-
-### Quick API Example
-
-```bash
-# Upload a document
-curl -X POST http://localhost:3000/api/documents/upload \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "file=@contract.pdf"
-
-# Ask a question (streamed response via SSE)
-curl -N -X POST http://localhost:3000/api/chat/ask \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"message": "What are the termination clauses?", "document_id": 1}'
-```
-
-The chat endpoint returns Server-Sent Events: `meta` (session info) → `approval_required` (masked chunks for review) → `answer_chunk` (streamed response) → `end`.
-
-Septum handles everything in between: PII detection, anonymisation, retrieval, LLM call, and de-anonymisation. Your app just sends questions and receives clean answers.
-
-For full API reference, pipeline details, code structure, and deployment options, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
+- **[docs/FEATURES.md](docs/FEATURES.md)** — detection benchmark, regulation packs, MCP deep-dive, REST API + auth, why-Septum comparison
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — module contracts, zone semantics, deployment topologies, API reference
+- **[CHANGELOG.md](CHANGELOG.md)** — date-based release history
 
 ---
 
 ## Support the Project
 
-Septum is open source (MIT) and maintained in the open. If it saves you from a privacy incident, helps your team ship faster, or just makes your LLM workflow safer, please consider:
+Septum is open source (MIT) and maintained in the open. If it saves you from a privacy incident, helps your team ship faster, or just makes your LLM workflow safer:
 
-- ⭐ **Star the repo on [GitHub](https://github.com/byerlikaya/Septum)** — the single biggest signal that this project is worth continued investment.
+- ⭐ **Star the repo on [GitHub](https://github.com/byerlikaya/Septum)** — the biggest signal that this project is worth continued investment.
 - **Open issues and discussions** for bugs or features you need — every report shapes the roadmap.
 - **Tell your team** — privacy-first AI tooling is still rare, and word of mouth matters more than any ad.
 
