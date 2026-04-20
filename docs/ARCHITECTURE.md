@@ -18,11 +18,6 @@
 
 ---
 
-> This document covers Septum's internal architecture, pipeline details, code structure, and deployment options.
-> For a high-level overview and quick start, see the [main README](../README.md).
-
----
-
 ## Table of Contents
 
 - [High-Level Architecture](#high-level-architecture)
@@ -39,7 +34,6 @@
 - [Audit Trail & Compliance Reporting](#audit-trail--compliance-reporting)
 - [LLM Resilience & Observability](#llm-resilience--observability)
 - [API Reference](#api-reference)
-- [Roadmap & Extensibility](#roadmap--extensibility)
 
 ---
 
@@ -627,8 +621,15 @@ files needed.
 #### 4. Reset local state
 
 ```bash
-./dev.sh --reset     # wipes DB, config.json, uploads, indexes, anon_maps (top-level runtime state)
+./dev.sh --reset     # stops running dev servers and wipes all runtime state
 ```
+
+Reset covers:
+- Running uvicorn and Next.js dev servers (stopped via SIGTERM so aiosqlite worker threads release the DB handle)
+- Database + SQLite sidecar files (`septum.db`, `septum.db-wal`, `septum.db-shm`; including the legacy `packages/api/septum.db*` copy)
+- `config.json`
+- Uploaded documents, FAISS vector indexes, BM25 indexes, anonymization maps
+- Next.js build cache (`packages/web/.next`, `.turbo`, `node_modules/.cache`)
 
 ---
 
@@ -729,17 +730,6 @@ Septum exposes a RESTful API. Key endpoint groups:
 | **Health** | `GET /health`, `GET /metrics` | System health and Prometheus metrics |
 
 Full OpenAPI schema is available at `http://localhost:3000/docs` when the application is running.
-
----
-
-## Roadmap & Extensibility
-
-- Add new country regulations by creating new regulation packs in the recogniser registry.
-- Add new national ID formats by adding validators and recognisers in the national ID module.
-- Add new document formats by implementing dedicated ingesters in the ingestion layer.
-- Update NER model mappings from the Settings → NER Models screen.
-- Pronoun coreference resolution via local LLM (Ollama) detects implied subject references.
-- PII detection quality metrics for data-driven assessment of detection coverage.
 
 ---
 
