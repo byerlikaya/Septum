@@ -49,3 +49,55 @@ def test_from_env_strips_empty_regulation_entries() -> None:
     cfg = MCPConfig.from_env({"SEPTUM_REGULATIONS": "gdpr,,  , kvkk"})
 
     assert cfg.regulations == ["gdpr", "kvkk"]
+
+
+def test_from_env_http_defaults() -> None:
+    cfg = MCPConfig.from_env({})
+
+    assert cfg.transport == "stdio"
+    assert cfg.http_host == "127.0.0.1"
+    assert cfg.http_port == 8765
+    assert cfg.http_token is None
+    assert cfg.http_mount_path is None
+
+
+def test_from_env_parses_http_transport_variables() -> None:
+    cfg = MCPConfig.from_env(
+        {
+            "SEPTUM_MCP_TRANSPORT": "streamable-http",
+            "SEPTUM_MCP_HTTP_HOST": "0.0.0.0",
+            "SEPTUM_MCP_HTTP_PORT": "9000",
+            "SEPTUM_MCP_HTTP_TOKEN": "  super-secret ",
+            "SEPTUM_MCP_HTTP_MOUNT_PATH": "/api/mcp",
+        }
+    )
+
+    assert cfg.transport == "streamable-http"
+    assert cfg.http_host == "0.0.0.0"
+    assert cfg.http_port == 9000
+    assert cfg.http_token == "super-secret"
+    assert cfg.http_mount_path == "/api/mcp"
+
+
+def test_from_env_unknown_transport_falls_back_to_stdio() -> None:
+    cfg = MCPConfig.from_env({"SEPTUM_MCP_TRANSPORT": "websocket"})
+
+    assert cfg.transport == "stdio"
+
+
+def test_from_env_invalid_port_falls_back_to_default() -> None:
+    cfg = MCPConfig.from_env({"SEPTUM_MCP_HTTP_PORT": "not-a-number"})
+
+    assert cfg.http_port == 8765
+
+
+def test_from_env_out_of_range_port_falls_back_to_default() -> None:
+    cfg = MCPConfig.from_env({"SEPTUM_MCP_HTTP_PORT": "99999"})
+
+    assert cfg.http_port == 8765
+
+
+def test_from_env_blank_token_normalises_to_none() -> None:
+    cfg = MCPConfig.from_env({"SEPTUM_MCP_HTTP_TOKEN": "   "})
+
+    assert cfg.http_token is None

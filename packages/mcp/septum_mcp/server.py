@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-MCP stdio server that exposes the septum-core PII masking pipeline.
+MCP server that exposes the septum-core PII masking pipeline.
 
 The server uses the official ``mcp`` Python SDK's :class:`FastMCP`
 helper so tool schemas are generated from type-annotated handler
@@ -9,13 +9,22 @@ signatures at registration time. Each handler delegates to a pure
 function in :mod:`septum_mcp.tools`, which is also what the unit
 tests exercise — the server itself is a thin transport layer.
 
+Three transports are supported:
+
+- ``stdio`` (default) — for Claude Desktop, Cursor, ChatGPT Desktop,
+  and other subprocess-launching MCP clients.
+- ``streamable-http`` — modern HTTP transport for container / remote /
+  browser deployments. Gated behind a bearer token when
+  ``--token`` / ``SEPTUM_MCP_HTTP_TOKEN`` is set.
+- ``sse`` — legacy HTTP+SSE transport, kept for clients that have not
+  migrated to streamable-http yet.
+
 Run locally::
 
-    python -m septum_mcp.server
-
-Or, once installed::
-
-    septum-mcp
+    python -m septum_mcp.server                 # stdio
+    septum-mcp                                   # stdio (installed)
+    septum-mcp --transport streamable-http \\
+      --port 8765 --token <secret>               # remote HTTP
 
 The engine is created lazily the first time a tool is invoked. This
 keeps startup cost minimal (no transformer model is loaded until
@@ -23,6 +32,7 @@ actually needed), which matters when Claude Code spawns the server
 for every workspace it opens.
 """
 
+import argparse
 import logging
 from typing import List, Optional
 
@@ -31,7 +41,8 @@ from mcp.server.fastmcp.exceptions import ToolError
 from septum_core import SeptumCoreConfig, SeptumEngine
 
 from . import tools as tool_impls
-from .config import MCPConfig
+from .auth import BearerTokenMiddleware
+from .config import MCPConfig, VALID_TRANSPORTS
 
 logger = logging.getLogger("septum_mcp.server")
 
@@ -200,20 +211,115 @@ def create_server(config: Optional[MCPConfig] = None) -> FastMCP:
     return mcp
 
 
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="septum-mcp",
+        description="Septum MCP server — PII masking tools over stdio, streamable-http, or SSE.",
+    )
+    parser.add_argument(
+        "--transport",
+        choices=sorted(VALID_TRANSPORTS),
+        default=None,
+        help="Transport to bind. Defaults to SEPTUM_MCP_TRANSPORT or 'stdio'.",
+    )
+    parser.add_argument(
+        "--host",
+        default=None,
+        help="HTTP bind address (streamable-http / sse only). Defaults to SEPTUM_MCP_HTTP_HOST or 127.0.0.1.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="HTTP TCP port (streamable-http / sse only). Defaults to SEPTUM_MCP_HTTP_PORT or 8765.",
+    )
+    parser.add_argument(
+        "--token",
+        default=None,
+        help="Bearer token required on 'Authorization: Bearer <token>'. Defaults to SEPTUM_MCP_HTTP_TOKEN. When unset, HTTP transport runs without auth — localhost only.",
+    )
+    parser.add_argument(
+        "--mount-path",
+        default=None,
+        help="URL path prefix for the MCP endpoint (streamable-http / sse only). Defaults to the SDK default.",
+    )
+    return parser
+
+
+def _run_http(mcp: FastMCP, *, transport: str, host: str, port: int, token: str | None, mount_path: str | None) -> None:
+    """Serve the FastMCP ASGI app via uvicorn with a bearer-token gate."""
+    # Import uvicorn lazily so stdio-only deployments don't pay the cost
+    # of loading the HTTP stack at import time.
+    import uvicorn  # type: ignore[import-not-found]
+
+    mcp.settings.host = host
+    mcp.settings.port = port
+    if mount_path:
+        if transport == "streamable-http":
+            mcp.settings.streamable_http_path = mount_path
+        else:
+            mcp.settings.sse_path = mount_path
+
+    app = (
+        mcp.streamable_http_app()
+        if transport == "streamable-http"
+        else mcp.sse_app()
+    )
+    app = BearerTokenMiddleware(app, token=token)
+
+    logger.info(
+        "Starting septum-mcp transport=%s host=%s port=%s auth=%s",
+        transport,
+        host,
+        port,
+        "enabled" if token else "disabled",
+    )
+    if token is None and host not in {"127.0.0.1", "localhost", "::1"}:
+        logger.warning(
+            "septum-mcp HTTP transport is binding on %s with no bearer token. "
+            "Set --token / SEPTUM_MCP_HTTP_TOKEN before exposing this port.",
+            host,
+        )
+
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
 def main(argv: Optional[List[str]] = None) -> None:
     """Entry point for the ``septum-mcp`` console script.
 
-    ``argv`` is accepted so tests can bypass ``sys.argv``. The server
-    always speaks stdio transport because that is what Claude Code,
-    Claude Desktop, and Cursor use for local MCP servers.
+    ``argv`` is accepted so tests can bypass ``sys.argv``. Transport is
+    selected by (1) ``--transport`` CLI flag, (2) ``SEPTUM_MCP_TRANSPORT``
+    env var, (3) default ``stdio``.
     """
-    _ = argv
+    parser = _build_arg_parser()
+    args = parser.parse_args(argv)
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    mcp = create_server()
-    mcp.run(transport="stdio")
+
+    cfg = MCPConfig.from_env()
+    transport = args.transport or cfg.transport
+    host = args.host or cfg.http_host
+    port = args.port if args.port is not None else cfg.http_port
+    token = args.token or cfg.http_token
+    mount_path = args.mount_path or cfg.http_mount_path
+
+    mcp = create_server(cfg)
+
+    if transport == "stdio":
+        mcp.run(transport="stdio")
+        return
+
+    _run_http(
+        mcp,
+        transport=transport,
+        host=host,
+        port=port,
+        token=token,
+        mount_path=mount_path,
+    )
 
 
 if __name__ == "__main__":
