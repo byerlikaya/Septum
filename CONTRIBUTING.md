@@ -1,5 +1,23 @@
 # Contributing to Septum
 
+<p align="center">
+  <a href="README.md"><strong>🏠 Home</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
+  &nbsp;·&nbsp;
+  <strong>🤝 Contributing</strong>
+  &nbsp;·&nbsp;
+  <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
+</p>
+
+---
+
 > 🇹🇷 Bu belgenin [Türkçesi](CONTRIBUTING.tr.md).
 
 Thanks for taking the time to contribute! Septum is privacy-first AI

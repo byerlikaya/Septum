@@ -1,3 +1,21 @@
+<p align="center">
+  <a href="README.md"><strong>🏠 Home</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
+  &nbsp;·&nbsp;
+  <a href="CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
+  &nbsp;·&nbsp;
+  <strong>📝 Changelog</strong>
+</p>
+
+---
+
 ## Changelog
 
 All notable changes to this project are documented here in a high‑level, date‑based format.

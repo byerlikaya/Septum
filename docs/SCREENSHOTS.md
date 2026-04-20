@@ -1,5 +1,23 @@
 # Septum — Screenshots
 
+<p align="center">
+  <a href="../README.md"><strong>🏠 Home</strong></a>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.md"><strong>✨ Features</strong></a>
+  &nbsp;·&nbsp;
+  <a href="ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
+  &nbsp;·&nbsp;
+  <a href="DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
+  &nbsp;·&nbsp;
+  <strong>📸 Screenshots</strong>
+  &nbsp;·&nbsp;
+  <a href="../CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
+</p>
+
+---
+
 A visual tour of every Septum screen — the setup wizard, chat approval
 flow, document preview with entity highlights, settings tabs, custom
 regulation rules, and the audit trail.

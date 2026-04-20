@@ -1,5 +1,23 @@
 # Septum — Özellik ve Tespit Referansı
 
+<p align="center">
+  <a href="../README.tr.md"><strong>🏠 Ana Sayfa</strong></a>
+  &nbsp;·&nbsp;
+  <strong>✨ Özellikler</strong>
+  &nbsp;·&nbsp;
+  <a href="ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
+  &nbsp;·&nbsp;
+  <a href="DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
+  &nbsp;·&nbsp;
+  <a href="SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CONTRIBUTING.tr.md"><strong>🤝 Katkı</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
+</p>
+
+---
+
 > [Ana README](../README.tr.md) dışında kalan her şey için ayrıntılı referans.
 > Modül seviyesindeki mimari için [Mimari](ARCHITECTURE.tr.md) dokümanına bakın.
 

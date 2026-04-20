@@ -1,5 +1,23 @@
 # Septum — Architecture & Technical Reference
 
+<p align="center">
+  <a href="../README.md"><strong>🏠 Home</strong></a>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.md"><strong>✨ Features</strong></a>
+  &nbsp;·&nbsp;
+  <strong>🏗️ Architecture</strong>
+  &nbsp;·&nbsp;
+  <a href="DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
+  &nbsp;·&nbsp;
+  <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
+</p>
+
+---
+
 > This document covers Septum's internal architecture, pipeline details, code structure, and deployment options.
 > For a high-level overview and quick start, see the [main README](../README.md).
 

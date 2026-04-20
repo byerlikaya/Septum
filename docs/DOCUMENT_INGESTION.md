@@ -1,5 +1,23 @@
 # Document Ingestion Pipeline
 
+<p align="center">
+  <a href="../README.md"><strong>🏠 Home</strong></a>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.md"><strong>✨ Features</strong></a>
+  &nbsp;·&nbsp;
+  <a href="ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
+  &nbsp;·&nbsp;
+  <strong>📊 Document Ingestion</strong>
+  &nbsp;·&nbsp;
+  <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
+</p>
+
+---
+
 How Septum turns an uploaded file into searchable, anonymised content. Every step runs **locally** — raw PII never leaves the machine.
 
 <p align="center">

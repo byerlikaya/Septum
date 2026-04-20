@@ -1,5 +1,23 @@
 # Doküman İşleme Akışı
 
+<p align="center">
+  <a href="../README.tr.md"><strong>🏠 Ana Sayfa</strong></a>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  &nbsp;·&nbsp;
+  <a href="ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
+  &nbsp;·&nbsp;
+  <strong>📊 Doküman İşleme</strong>
+  &nbsp;·&nbsp;
+  <a href="SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CONTRIBUTING.tr.md"><strong>🤝 Katkı</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
+</p>
+
+---
+
 Septum'un yüklenen bir dosyayı aranabilir, anonimleştirilmiş içeriğe nasıl dönüştürdüğü. Her adım **yerelde** çalışır — ham PII makineden çıkmaz.
 
 <p align="center">

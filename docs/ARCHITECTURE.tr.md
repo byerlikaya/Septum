@@ -1,5 +1,23 @@
 # Septum — Mimari ve Teknik Referans
 
+<p align="center">
+  <a href="../README.tr.md"><strong>🏠 Ana Sayfa</strong></a>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  &nbsp;·&nbsp;
+  <strong>🏗️ Mimari</strong>
+  &nbsp;·&nbsp;
+  <a href="DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
+  &nbsp;·&nbsp;
+  <a href="SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CONTRIBUTING.tr.md"><strong>🤝 Katkı</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
+</p>
+
+---
+
 > Bu doküman Septum'un iç mimarisini, pipeline detaylarını, kod yapısını ve dağıtım seçeneklerini kapsar.
 > Genel bakış ve hızlı başlangıç için [ana README](../README.tr.md) dosyasına bakın.
 

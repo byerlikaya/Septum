@@ -1,5 +1,23 @@
 # Septum — Ekran Görüntüleri
 
+<p align="center">
+  <a href="../README.tr.md"><strong>🏠 Ana Sayfa</strong></a>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  &nbsp;·&nbsp;
+  <a href="ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
+  &nbsp;·&nbsp;
+  <a href="DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
+  &nbsp;·&nbsp;
+  <strong>📸 Ekran Görüntüleri</strong>
+  &nbsp;·&nbsp;
+  <a href="../CONTRIBUTING.tr.md"><strong>🤝 Katkı</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
+</p>
+
+---
+
 Septum'un her ekranının görsel turu — kurulum sihirbazı, sohbet onay
 akışı, varlık renklendirmeli doküman önizlemesi, ayarlar sekmeleri,
 özel regülasyon kuralları ve denetim kaydı.

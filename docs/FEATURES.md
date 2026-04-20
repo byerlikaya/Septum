@@ -1,5 +1,23 @@
 # Septum — Features & Detection Reference
 
+<p align="center">
+  <a href="../README.md"><strong>🏠 Home</strong></a>
+  &nbsp;·&nbsp;
+  <strong>✨ Features</strong>
+  &nbsp;·&nbsp;
+  <a href="ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
+  &nbsp;·&nbsp;
+  <a href="DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
+  &nbsp;·&nbsp;
+  <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
+  &nbsp;·&nbsp;
+  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
+</p>
+
+---
+
 > In-depth reference for everything that did not fit in the [main README](../README.md).
 > For module-level architecture see the [Architecture](ARCHITECTURE.md) doc.
 
