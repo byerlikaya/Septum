@@ -28,17 +28,15 @@ from septum_core.detector import (
     _CONTEXTUAL_ENTITY_TYPES,
     _HIGH_PRIORITY_ENTITY_TYPES,
     _MIN_TEXT_LENGTH_FOR_NER,
-    _MIN_TEXT_LENGTH_FOR_SEMANTIC_ALIAS as _MIN_TEXT_LENGTH_FOR_OLLAMA_ALIAS,
     _NER_LAYER_ENTITY_TYPES,
     _PARENT_TYPE_COVERAGE,
     _PRESIDIO_DEFAULT_LANGUAGE,
     _PRESIDIO_ENTITY_ALIASES,
     _PRESIDIO_REVERSE_ALIASES,
-    _SEMANTIC_VALIDATION_PASSTHROUGH_TYPES as _OLLAMA_VALIDATION_PASSTHROUGH_TYPES,
     BaseCustomRecognizer,
-    CPFRecognizer,
     CookieIDRecognizer,
     CoordinatesRecognizer,
+    CPFRecognizer,
     CreditCardNumberRecognizer,
     DateOfBirthRecognizer,
     Detector,
@@ -54,6 +52,12 @@ from septum_core.detector import (
     TaxIDRecognizer,
     URLRecognizer,
     ValidatedIBANRecognizer,
+)
+from septum_core.detector import (
+    _MIN_TEXT_LENGTH_FOR_SEMANTIC_ALIAS as _MIN_TEXT_LENGTH_FOR_OLLAMA_ALIAS,
+)
+from septum_core.detector import (
+    _SEMANTIC_VALIDATION_PASSTHROUGH_TYPES as _OLLAMA_VALIDATION_PASSTHROUGH_TYPES,
 )
 from septum_core.ner_model_registry import NERModelRegistry
 from septum_core.ports import SemanticDetectionPort

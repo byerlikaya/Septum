@@ -7,11 +7,10 @@ backend side — it loads active rulesets from the SQLAlchemy session
 and then delegates the pure composition to septum-core.
 """
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from septum_core.regulations.composer import ComposedPolicy
 from septum_core.regulations.composer import PolicyComposer as _CorePolicyComposer
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.regulation import CustomRecognizer, NonPiiRule, RegulationRuleset
 

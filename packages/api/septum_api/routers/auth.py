@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
+from ..middleware.rate_limit import get_limiter
 from ..models.user import User
 from ..services.auth import (
     WeakPasswordError,
@@ -16,7 +17,6 @@ from ..services.auth import (
     validate_password_strength,
     verify_password,
 )
-from ..middleware.rate_limit import get_limiter
 from ..utils.auth_dependency import get_current_user
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])

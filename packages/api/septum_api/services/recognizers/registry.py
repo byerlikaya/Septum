@@ -15,8 +15,9 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from presidio_analyzer import EntityRecognizer, RecognizerResult
-
-from septum_core.recognizers.registry import RecognizerRegistry as _CoreRecognizerRegistry
+from septum_core.recognizers.registry import (
+    RecognizerRegistry as _CoreRecognizerRegistry,
+)
 from septum_core.regulations.models import CustomRecognizerLike
 
 from ..ollama_client import call_ollama_sync, extract_json_array, use_ollama_enabled

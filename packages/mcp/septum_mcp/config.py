@@ -56,6 +56,8 @@ from typing import List
 
 from septum_core.recognizers import (
     BUILTIN_REGULATION_IDS as DEFAULT_REGULATIONS,
+)
+from septum_core.recognizers import (
     parse_active_regulations_env,
 )
 

@@ -15,8 +15,8 @@ Design notes
 - Token-level matching (better for legal/contract terminology)
 """
 
-import os
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Sequence, Tuple

@@ -11,10 +11,8 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from sqlalchemy import exists
 
 from ..database import get_db
 from ..models.audit_event import AuditEvent

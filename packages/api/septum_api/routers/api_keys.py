@@ -9,9 +9,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
+from ..middleware.rate_limit import get_limiter
 from ..models.user import User
 from ..services.api_key_service import generate_api_key, list_user_keys, revoke_key
-from ..middleware.rate_limit import get_limiter
 from ..utils.auth_dependency import get_current_user, require_role
 
 router = APIRouter(prefix="/api/api-keys", tags=["api-keys"])

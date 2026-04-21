@@ -30,6 +30,8 @@ from starlette.responses import Response
 
 from ..services.api_key_service import (
     HEADER_NAME as _API_KEY_HEADER,
+)
+from ..services.api_key_service import (
     PREFIX as _API_KEY_PREFIX,
 )
 

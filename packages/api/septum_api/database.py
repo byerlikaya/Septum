@@ -13,8 +13,8 @@ import os
 from typing import Any, AsyncGenerator, List
 
 from fastapi import HTTPException
-from sqlalchemy import select, text
 from septum_core.recognizers import parse_active_regulations_env
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,

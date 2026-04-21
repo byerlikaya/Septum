@@ -42,7 +42,7 @@ from septum_core import SeptumCoreConfig, SeptumEngine
 
 from . import tools as tool_impls
 from .auth import BearerTokenMiddleware
-from .config import MCPConfig, VALID_TRANSPORTS
+from .config import VALID_TRANSPORTS, MCPConfig
 
 logger = logging.getLogger("septum_mcp.server")
 
