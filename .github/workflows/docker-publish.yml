@@ -185,7 +185,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: byerlikaya/${{ matrix.image }}
           short-description: ${{ matrix.description }}
-          readme-filepath: ./DOCKERHUB.md
+          readme-filepath: ./docker/readmes/${{ matrix.image }}.md
 
   github-release:
     needs: [resolve-version, publish]

@@ -60,6 +60,7 @@ Date-based ledger below has the full incremental history.
 - **Nav cleanup**: Dropped the `🤝 Contributing` entry from every top/bottom nav bar; the GitHub sidebar already surfaces it.
 - **Require explicit `POSTGRES_PASSWORD` / `REDIS_PASSWORD` in compose files**: Replaced the `septum_secret` / `septum_redis` dev defaults with `${VAR:?...}` — compose now fails fast if either is missing. Added `.env.example` as the canonical template; README, README.tr and CLAUDE.md updated to point at it. GitGuardian no longer flags the compose files.
 - **Turkish literary polish on `docs/FEATURES.tr.md`**: Rewrote calques and awkward inversions across the Detection Pipeline, Regulation Packs, Auto-RAG, Why Septum, MCP, and REST API sections.
+- **Per-image Docker Hub overviews**: Replaced the single `DOCKERHUB.md` (standalone-only, pushed to all six repos) with six role-specific READMEs under `docker/readmes/` — each image now gets an Overview page that matches what's actually in it (air-gapped vs internet-facing zone badge, role-specific quick-start, transport options for `septum-mcp`, etc.). Workflow `readme-filepath` is now matrix-driven.
 
 ### 2026-04-20
 
