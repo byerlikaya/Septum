@@ -1,6 +1,23 @@
-# Septum — combined image with PostgreSQL, Redis, optional Ollama
-# No .env file needed. Just run: docker compose up
-# For local LLMs: docker compose --profile ollama up
+# -----------------------------------------------------------------------------
+# Septum — full dev stack (all modules on one host)
+#
+# Wires every module together in a single compose file: air-gapped api +
+# web, internet-facing gateway + audit, plus Postgres + Redis + Ollama.
+# Use this for local development or a single-host install where zone
+# isolation is not a hard deployment requirement — for a true two-host
+# split use docker-compose.airgap.yml on one side and
+# docker-compose.gateway.yml on the other.
+#
+# Start:
+#   docker compose up                                                # full stack incl. Ollama
+#   docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up   # without Ollama
+#
+# First-time Ollama setup (pull a model before the first chat):
+#   docker compose exec ollama ollama pull llama3.2:3b
+#
+# Standalone (no Postgres / Redis / Ollama):
+#   docker compose -f docker-compose.standalone.yml up
+# -----------------------------------------------------------------------------
 
 services:
   postgres:
@@ -8,10 +25,10 @@ services:
     container_name: septum-postgres
     environment:
       POSTGRES_USER: septum
-      POSTGRES_PASSWORD: septum_secret
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (see .env.example)}
       POSTGRES_DB: septum
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - septum-pgdata:/var/lib/postgresql/data
     restart: unless-stopped
@@ -25,27 +42,32 @@ services:
   redis:
     image: redis:7-alpine
     container_name: septum-redis
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}"]
     volumes:
       - septum-redis-data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)} redis-cli ping"]
       interval: 10s
       timeout: 5s
       start_period: 5s
       retries: 3
 
-  septum:
+  api:
     build:
       context: .
-      dockerfile: Dockerfile
-    image: byerlikaya/septum:latest
-    container_name: septum
+      dockerfile: docker/api.Dockerfile
+    image: septum/api:latest
+    container_name: septum-api
     environment:
-      - DATABASE_URL=postgresql+asyncpg://septum:septum_secret@postgres:5432/septum
-      - REDIS_URL=redis://redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://septum:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (see .env.example)}@postgres:5432/septum
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
+      USE_GATEWAY_DEFAULT: "true"
+      SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
+      FRONTEND_ORIGIN: http://localhost:3000
+      OLLAMA_BASE_URL: http://ollama:11434
     ports:
-      - "3000:3000"
+      - "8000:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -54,18 +76,135 @@ services:
       - septum-anon-maps:/app/anon_maps
       - septum-vector-indexes:/app/vector_indexes
       - septum-bm25-indexes:/app/bm25_indexes
+      - septum-models:/app/models
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      ollama:
+        condition: service_started
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 30s
       timeout: 5s
       start_period: 60s
       retries: 3
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ""
+        BACKEND_INTERNAL_URL: http://api:8000
+    image: septum/web:latest
+    container_name: septum-web
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO/dev/null http://127.0.0.1:3000 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  gateway-worker:
+    build:
+      context: .
+      dockerfile: docker/gateway.Dockerfile
+    image: septum/gateway:latest
+    container_name: septum-gateway-worker
+    environment:
+      SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
+      SEPTUM_GATEWAY_REQUEST_TOPIC: septum.llm.requests
+      SEPTUM_GATEWAY_RESPONSE_TOPIC: septum.llm.responses
+      SEPTUM_GATEWAY_AUDIT_TOPIC: septum.audit.events
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    command: ["python", "-m", "septum_gateway"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  audit-worker:
+    build:
+      context: .
+      dockerfile: docker/audit.Dockerfile
+    image: septum/audit:latest
+    container_name: septum-audit-worker
+    environment:
+      SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
+      SEPTUM_AUDIT_TOPIC: septum.audit.events
+      SEPTUM_AUDIT_SINK_PATH: /var/log/septum/audit.jsonl
+    command: ["python", "-m", "septum_audit"]
+    volumes:
+      - septum-audit-log:/var/log/septum
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  audit-api:
+    build:
+      context: .
+      dockerfile: docker/audit.Dockerfile
+    image: septum/audit:latest
+    container_name: septum-audit-api
+    environment:
+      SEPTUM_AUDIT_SINK_PATH: /var/log/septum/audit.jsonl
+      SEPTUM_AUDIT_TOPIC: septum.audit.events
+    command:
+      ["python", "-m", "uvicorn", "septum_audit.main:create_app",
+       "--factory", "--host", "0.0.0.0", "--port", "8002"]
+    ports:
+      - "8002:8002"
+    volumes:
+      - septum-audit-log:/var/log/septum
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  # septum-mcp is opt-in because most MCP clients (Claude Desktop, Cursor,
+  # Windsurf) spawn the server themselves as a stdio subprocess and have
+  # no need for a long-running container. Enable with:
+  #   docker compose --profile mcp up
+  # to expose the MCP tools over streamable-http on :8765 for remote /
+  # browser / shared-team clients. SEPTUM_MCP_HTTP_TOKEN gates all non-
+  # /health traffic; set it to something random (e.g. `openssl rand -hex 32`).
+  mcp:
+    build:
+      context: .
+      dockerfile: docker/mcp.Dockerfile
+    image: septum/mcp:latest
+    container_name: septum-mcp
+    environment:
+      SEPTUM_MCP_TRANSPORT: streamable-http
+      SEPTUM_MCP_HTTP_HOST: 0.0.0.0
+      SEPTUM_MCP_HTTP_PORT: "8765"
+      SEPTUM_MCP_HTTP_TOKEN: ${SEPTUM_MCP_HTTP_TOKEN:-}
+      SEPTUM_REGULATIONS: ${SEPTUM_REGULATIONS:-}
+    ports:
+      - "8765:8765"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    profiles: ["mcp"]
 
   ollama:
     image: ollama/ollama:latest
@@ -75,8 +214,12 @@ services:
     volumes:
       - ollama-data:/root/.ollama
     restart: unless-stopped
-    profiles:
-      - ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
 
 volumes:
   septum-pgdata:
@@ -86,4 +229,6 @@ volumes:
   septum-anon-maps:
   septum-vector-indexes:
   septum-bm25-indexes:
+  septum-models:
+  septum-audit-log:
   ollama-data:

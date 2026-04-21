@@ -1,0 +1,48 @@
+# VCS / dev junk
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+.cursor/
+.claude/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Node build artifacts (web rebuilds from source in the image)
+node_modules/
+packages/web/node_modules/
+packages/web/.next/
+packages/web/coverage/
+packages/web/.env.local
+
+# Top-level runtime state (from local dev runs)
+/data/
+/uploads/
+/anon_maps/
+/vector_indexes/
+/bm25_indexes/
+/models/
+/documents/
+/*.db
+/*.log
+/septum.db
+
+# Screenshots / assets that docs pull from, never the image
+screenshots/
+
+# Compose + .dockerignore never get COPY'd into any image. The docker/
+# directory IS part of the build context because api / standalone
+# Dockerfiles COPY docker/scripts/install-torch.sh; keeping docker/
+# in the context costs a few KB (Dockerfiles + scripts, no binaries).
+docker-compose*.yml
+.dockerignore
+
+# Test + CI scripts
+dev.sh
+kickstart.sh

@@ -1,1 +1,0 @@
-"""LGPD recognizer pack package."""

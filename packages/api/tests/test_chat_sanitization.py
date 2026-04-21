@@ -1,0 +1,58 @@
+from __future__ import annotations
+
+"""Tests for chat query sanitization and regulation-aware behaviour."""
+
+
+
+from septum_api.models.settings import AppSettings
+from septum_api.services.anonymization_map import AnonymizationMap
+from septum_api.services.policy_composer import ComposedPolicy
+from septum_api.services.sanitizer import PIISanitizer
+
+
+def test_piisanitizer_policy_construction_does_not_crash() -> None:
+    """
+    Sanity check: PIISanitizer can be constructed with a minimal ComposedPolicy
+    object (without executing .sanitize(), to avoid external IO in tests).
+    """
+
+    policy = ComposedPolicy(
+        entity_types=["EMAIL_ADDRESS"],
+        recognizers=[],
+        regulation_ids=[],
+        non_pii_rules=[],
+    )
+    settings = AppSettings(
+        id=1,
+        llm_provider="anthropic",
+        llm_model="claude-3-5-sonnet-latest",
+        ollama_base_url="http://localhost:11434",
+        ollama_chat_model="llama3.2:3b",
+        ollama_deanon_model="llama3.2:3b",
+        deanon_enabled=True,
+        deanon_strategy="simple",
+        require_approval=False,
+        show_json_output=False,
+        use_presidio_layer=True,
+        use_ner_layer=False,
+        use_ollama_layer=False,
+        chunk_size=800,
+        chunk_overlap=200,
+        top_k_retrieval=5,
+        pdf_chunk_size=1200,
+        audio_chunk_size=60,
+        spreadsheet_chunk_size=200,
+        whisper_model="base",
+        image_ocr_languages=["en"],
+        ocr_provider="paddleocr",
+        ocr_provider_options=None,
+        extract_embedded_images=True,
+        recursive_email_attachments=True,
+        default_active_regulations=["gdpr"],
+    )
+    sanitizer = PIISanitizer(settings=settings, policy=policy)
+    anon_map = AnonymizationMap(document_id=0, language="en")
+    # Just ensure construction and a no-op call path do not raise.
+    assert isinstance(sanitizer, PIISanitizer)
+    assert isinstance(anon_map, AnonymizationMap)
+

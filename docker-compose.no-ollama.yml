@@ -1,0 +1,7 @@
+# Skip Ollama — use a cloud provider instead (no local LLM fallback).
+services:
+  ollama: !reset null
+
+  api:
+    depends_on:
+      ollama: !reset null

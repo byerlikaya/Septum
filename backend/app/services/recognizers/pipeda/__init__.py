@@ -1,1 +1,0 @@
-"""PIPEDA recognizer pack package."""

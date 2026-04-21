@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 240" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#444"/>
+    </marker>
+    <filter id="sh" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="240" fill="#FAFAFA"/>
+
+  <!-- Arrows -->
+  <path d="M 200 120 L 238 120" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 420 120 L 458 120" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 640 120 L 678 120" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 860 120 L 898 120" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <path d="M 1080 120 L 1118 120" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- Input pill -->
+  <rect x="20" y="80" width="180" height="80" rx="40" fill="#E3F2FD" stroke="#1E88E5" stroke-width="2" filter="url(#sh)"/>
+  <text x="110" y="115" text-anchor="middle" font-size="13" font-weight="600" fill="#0D47A1">📥 Document</text>
+  <text x="110" y="135" text-anchor="middle" font-size="13" font-weight="600" fill="#0D47A1">or chat message</text>
+
+  <!-- L1 Presidio -->
+  <rect x="240" y="80" width="180" height="80" rx="10" fill="#FFCCBC" stroke="#E64A19" stroke-width="2" filter="url(#sh)"/>
+  <text x="330" y="108" text-anchor="middle" font-size="13" font-weight="700" fill="#BF360C">Layer 1 · Presidio</text>
+  <text x="330" y="128" text-anchor="middle" font-size="11" fill="#BF360C">Regex +</text>
+  <text x="330" y="144" text-anchor="middle" font-size="11" fill="#BF360C">algorithmic validators</text>
+
+  <!-- L2 NER -->
+  <rect x="460" y="80" width="180" height="80" rx="10" fill="#FFE0B2" stroke="#F57C00" stroke-width="2" filter="url(#sh)"/>
+  <text x="550" y="108" text-anchor="middle" font-size="13" font-weight="700" fill="#E65100">Layer 2 · NER</text>
+  <text x="550" y="128" text-anchor="middle" font-size="11" fill="#E65100">XLM-RoBERTa,</text>
+  <text x="550" y="144" text-anchor="middle" font-size="11" fill="#E65100">per-language model</text>
+
+  <!-- L3 Ollama -->
+  <rect x="680" y="80" width="180" height="80" rx="10" fill="#FFF59D" stroke="#F9A825" stroke-width="2" filter="url(#sh)"/>
+  <text x="770" y="108" text-anchor="middle" font-size="13" font-weight="700" fill="#6D4C00">Layer 3 · Ollama</text>
+  <text x="770" y="128" text-anchor="middle" font-size="11" fill="#6D4C00">Semantic detection</text>
+  <text x="770" y="144" text-anchor="middle" font-size="11" fill="#6D4C00">(optional)</text>
+
+  <!-- Merge -->
+  <rect x="900" y="80" width="180" height="80" rx="10" fill="#C8E6C9" stroke="#2E7D32" stroke-width="2" filter="url(#sh)"/>
+  <text x="990" y="108" text-anchor="middle" font-size="13" font-weight="700" fill="#1B5E20">Merge +</text>
+  <text x="990" y="128" text-anchor="middle" font-size="13" font-weight="700" fill="#1B5E20">coreference</text>
+  <text x="990" y="146" text-anchor="middle" font-size="10" fill="#1B5E20">dedup · alias resolve</text>
+
+  <!-- Output pill -->
+  <rect x="1120" y="80" width="140" height="80" rx="40" fill="#DCEDC8" stroke="#689F38" stroke-width="2" filter="url(#sh)"/>
+  <text x="1190" y="108" text-anchor="middle" font-size="12" font-weight="700" fill="#33691E">📤 Masked text</text>
+  <text x="1190" y="128" text-anchor="middle" font-size="11" fill="#33691E">+ anonymisation</text>
+  <text x="1190" y="144" text-anchor="middle" font-size="11" fill="#33691E">map</text>
+
+  <!-- Bottom note -->
+  <text x="640" y="210" text-anchor="middle" font-size="11" fill="#777" font-style="italic">All layers run locally — raw PII never leaves the machine.</text>
+</svg>

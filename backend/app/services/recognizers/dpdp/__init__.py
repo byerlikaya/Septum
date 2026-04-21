@@ -1,1 +1,0 @@
-"""DPDP recognizer pack package."""

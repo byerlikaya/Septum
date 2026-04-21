@@ -1,1 +1,0 @@
-"""APPI recognizer pack package."""

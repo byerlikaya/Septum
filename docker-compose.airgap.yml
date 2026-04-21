@@ -1,0 +1,154 @@
+# -----------------------------------------------------------------------------
+# Septum — air-gapped deployment
+#
+# Runs ONLY the air-gapped zone modules: api + web + postgres + redis.
+# No gateway, no audit, no cloud LLM network egress. The api publishes
+# masked requests onto a Redis stream; the internet-facing gateway runs
+# on a separate host via docker-compose.gateway.yml and consumes them
+# over a VPN / private link.
+#
+# Start:
+#   docker compose -f docker-compose.airgap.yml up -d
+#
+# Gateway hand-off:
+#   Export the same Redis (or reach it from the gateway host), and
+#   point docker-compose.gateway.yml at it via SEPTUM_QUEUE_URL. Only
+#   masked text crosses the queue.
+# -----------------------------------------------------------------------------
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: septum-postgres
+    environment:
+      POSTGRES_USER: septum
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (see .env.example)}
+      POSTGRES_DB: septum
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - septum-pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U septum"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: septum-redis
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - septum-redis-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)} redis-cli ping"]
+      interval: 10s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: septum/api:latest
+    container_name: septum-api
+    environment:
+      DATABASE_URL: postgresql+asyncpg://septum:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (see .env.example)}@postgres:5432/septum
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
+      # Opt into gateway mode so cloud LLM calls flow over Redis Streams
+      # to the internet-facing zone instead of happening in-process.
+      USE_GATEWAY_DEFAULT: "true"
+      SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
+      FRONTEND_ORIGIN: http://localhost:3000
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - septum-data:/app/data
+      - septum-uploads:/app/uploads
+      - septum-anon-maps:/app/anon_maps
+      - septum-vector-indexes:/app/vector_indexes
+      - septum-bm25-indexes:/app/bm25_indexes
+      - septum-models:/app/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      args:
+        # Empty string = same-origin proxy via Next.js rewrites. Override
+        # with https://api.example.com for a split deployment.
+        NEXT_PUBLIC_API_BASE_URL: ""
+        BACKEND_INTERNAL_URL: http://api:8000
+    image: septum/web:latest
+    container_name: septum-web
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000 >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  # Remote MCP server (opt-in). Air-gapped deployments where a whole
+  # team wants to share one masking engine from browser / remote
+  # clients benefit most from this — stdio clients running on each
+  # laptop don't need it. Gate by setting SEPTUM_MCP_HTTP_TOKEN and
+  # enabling the profile:
+  #   docker compose -f docker-compose.airgap.yml --profile mcp up
+  mcp:
+    build:
+      context: .
+      dockerfile: docker/mcp.Dockerfile
+    image: septum/mcp:latest
+    container_name: septum-mcp
+    environment:
+      SEPTUM_MCP_TRANSPORT: streamable-http
+      SEPTUM_MCP_HTTP_HOST: 0.0.0.0
+      SEPTUM_MCP_HTTP_PORT: "8765"
+      SEPTUM_MCP_HTTP_TOKEN: ${SEPTUM_MCP_HTTP_TOKEN:-}
+      SEPTUM_REGULATIONS: ${SEPTUM_REGULATIONS:-}
+    ports:
+      - "8765:8765"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    profiles: ["mcp"]
+
+volumes:
+  septum-pgdata:
+  septum-redis-data:
+  septum-data:
+  septum-uploads:
+  septum-anon-maps:
+  septum-vector-indexes:
+  septum-bm25-indexes:
+  septum-models:

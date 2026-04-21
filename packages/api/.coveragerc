@@ -1,0 +1,8 @@
+[run]
+source = septum_api
+omit =
+    */__init__.py
+
+[report]
+show_missing = True
+

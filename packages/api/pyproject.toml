@@ -1,0 +1,103 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "septum-api"
+version = "0.1.0"
+description = "Air-gapped FastAPI REST layer for Septum — bootstrap, database, models, and shared utilities."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Septum contributors" },
+]
+keywords = ["pii", "privacy", "api", "fastapi", "gdpr", "kvkk", "septum"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+# septum-api lives in the air-gapped zone. It may import septum-core for
+# PII masking but must never reach the public internet on its own —
+# outbound LLM traffic belongs in septum-gateway. The required set is
+# kept narrow: JWT, bcrypt, slowapi, redis, email-validator, asyncpg,
+# and uvicorn are declared as optional extras so a fresh
+# ``pip install septum-api`` stays lean. Heavy ingestion / ML libraries
+# (torch, Presidio, PaddleOCR, Whisper, …) are listed in
+# ``requirements.txt`` and installed separately by the dev / Docker
+# flows — they are not baked into ``pip install septum-api[...]``.
+dependencies = [
+    "septum-core>=0.1.0",
+    "fastapi>=0.135.1",
+    "starlette>=0.49.0",
+    "sqlalchemy>=2.0.48",
+    "aiosqlite>=0.22.1",
+    "greenlet>=3.3.2",
+    "cryptography>=46.0.5",
+    "prometheus-client>=0.22.1",
+    "python-json-logger>=3.3.0",
+]
+
+[project.optional-dependencies]
+auth = [
+    "PyJWT>=2.9.0",
+    "bcrypt>=4.3.0",
+    "email-validator>=2.2.0",
+]
+rate-limit = [
+    "slowapi>=0.1.9",
+    "redis[hiredis]>=6.2.0",
+]
+postgres = [
+    "asyncpg>=0.30.0",
+]
+server = [
+    "uvicorn[standard]>=0.41.0",
+]
+test = [
+    "pytest>=9.0",
+    "pytest-asyncio>=1.3",
+    "httpx>=0.28",
+]
+benchmark = [
+    # Optional extras for the detection benchmark's external validation
+    # sources. The benchmark runs without them (the external sections
+    # print "skipped"), but installing them cross-validates Septum
+    # against industry-standard public datasets.
+    "presidio-evaluator>=0.2",  # Microsoft's reference PII evaluation framework
+    "datasets>=3.0",             # loads Babelscape/wikineural held-out NER splits
+]
+
+[project.urls]
+Homepage = "https://github.com/byerlikaya/Septum"
+Repository = "https://github.com/byerlikaya/Septum"
+Issues = "https://github.com/byerlikaya/Septum/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["septum_api"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore:.*Using CPU.*:UserWarning",
+    "ignore:.*Downloading.*model.*:UserWarning",
+    "ignore:.*Recognizer not added to registry.*:UserWarning",
+    "ignore:.*doesn't have the corresponding recognizer.*:UserWarning",
+    "ignore:builtin type SwigPyPacked has no __module__:DeprecationWarning",
+    "ignore:builtin type SwigPyObject has no __module__:DeprecationWarning",
+    "ignore:builtin type swigvarlink has no __module__:DeprecationWarning",
+    "ignore:datetime.datetime.utcnow.* is deprecated:DeprecationWarning",
+    "ignore:torch.ao.quantization is deprecated:DeprecationWarning",
+    "ignore:.*pin_memory.*argument is set as true but no accelerator:UserWarning",
+    "ignore:.*has conflict with protected namespace.*model_.*:UserWarning",
+    "ignore:__package__ != __spec__\\.parent.*:DeprecationWarning",
+]

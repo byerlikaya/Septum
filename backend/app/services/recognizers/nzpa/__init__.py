@@ -1,1 +1,0 @@
-"""NZPA recognizer pack package."""

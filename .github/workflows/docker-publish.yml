@@ -1,38 +1,128 @@
 name: Docker Hub Publish
 
-# Triggered when a [release] commit passes all CI tests.
-# Publishes the version in the VERSION file, then bumps patch for next.
+# Triggered by a semver git tag (e.g. ``git tag v0.2.0 && git push --tags``).
+# The tag is the single source of truth for the release version — there
+# is no VERSION file to keep in sync and no bot commit-and-bump dance.
+#
+# workflow_dispatch lets a maintainer re-run a release build from the
+# GitHub UI against an existing tag without pushing a new one.
 
 on:
   push:
-    branches: [main]
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'   # pre-releases (-rc.1, -beta.2, …)
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (without the v prefix, e.g. 0.2.0)'
+        required: true
+        type: string
 
-env:
-  IMAGE: byerlikaya/septum
+# Queue subsequent release runs instead of interleaving. Two tags pushed
+# seconds apart would otherwise race to push :latest / :<major> etc. and
+# the rolling tags could end up pointing at whichever build finished
+# last, not the newer version.
+concurrency:
+  group: docker-publish
+  cancel-in-progress: false
 
 jobs:
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      is_prerelease: ${{ steps.v.outputs.is_prerelease }}
+    steps:
+      - name: Compute version + prerelease flag
+        id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          # Pre-release part (after -) disables rolling tags + latest.
+          if [ "${VERSION}" != "${VERSION%%-*}" ]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Publishing v${VERSION}"
+
+  # One matrix job covers every (image × variant) combination. Only the
+  # two torch-dependent images (septum, septum-api) ship a GPU variant;
+  # web / gateway / audit / mcp are CPU-only because they either do not
+  # import torch at all (web, gateway, audit) or run as a stdio
+  # subprocess where GPU makes little practical difference (mcp).
+  # GPU variants build linux/amd64 only — NVIDIA CUDA wheels are not
+  # published for arm64, and Apple Silicon hosts do not run CUDA.
+  #
+  # When adding torch to another image, append a matching gpu row here
+  # and update the description cluster below.
   publish:
-    if: contains(github.event.head_commit.message, '[release]')
+    needs: resolve-version
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: septum
+            dockerfile: docker/standalone.Dockerfile
+            variant: cpu
+            platforms: linux/amd64,linux/arm64
+            title: Septum
+            description: "Privacy-first AI middleware — anonymize documents, chat with LLMs, no raw PII leaves your machine."
+          - image: septum
+            dockerfile: docker/standalone.Dockerfile
+            variant: gpu
+            platforms: linux/amd64
+            title: Septum (GPU)
+            description: "Septum with NVIDIA GPU-accelerated PyTorch. linux/amd64 only. Same image as byerlikaya/septum but with full torch + CUDA runtime for batch document processing, OCR, and Whisper transcription."
+          - image: septum-api
+            dockerfile: docker/api.Dockerfile
+            variant: cpu
+            platforms: linux/amd64,linux/arm64
+            title: Septum API
+            description: "Septum API — FastAPI REST layer (air-gapped zone). Runs backend endpoints only; pair with septum-web for the dashboard."
+          - image: septum-api
+            dockerfile: docker/api.Dockerfile
+            variant: gpu
+            platforms: linux/amd64
+            title: Septum API (GPU)
+            description: "Septum API with NVIDIA GPU-accelerated PyTorch. linux/amd64 only."
+          - image: septum-web
+            dockerfile: docker/web.Dockerfile
+            variant: cpu
+            platforms: linux/amd64,linux/arm64
+            title: Septum Web
+            description: "Septum Web — Next.js 16 dashboard for Septum. Build-arg NEXT_PUBLIC_API_BASE_URL selects same-origin proxy or split deployment."
+          - image: septum-gateway
+            dockerfile: docker/gateway.Dockerfile
+            variant: cpu
+            platforms: linux/amd64,linux/arm64
+            title: Septum Gateway
+            description: "Septum Gateway — cloud LLM forwarder (internet-facing zone). Consumes masked requests from septum-queue; never imports septum-core."
+          - image: septum-audit
+            dockerfile: docker/audit.Dockerfile
+            variant: cpu
+            platforms: linux/amd64,linux/arm64
+            title: Septum Audit
+            description: "Septum Audit — compliance audit trail (internet-facing zone). JSONL sink + JSON / CSV / Splunk HEC exporters; never imports septum-core."
+          - image: septum-mcp
+            dockerfile: docker/mcp.Dockerfile
+            variant: cpu
+            platforms: linux/amd64,linux/arm64
+            title: Septum MCP
+            description: "Septum MCP — stdio MCP server exposing PII masking tools to Claude Code / Desktop / Cursor. Includes septum-core."
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.PAT_TOKEN }}
-
-      - name: Read version
-        id: version
-        run: |
-          CURRENT=$(cat VERSION | tr -d '[:space:]')
-          echo "current=${CURRENT}" >> "$GITHUB_OUTPUT"
-
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-          PATCH=$((PATCH + 1))
-          echo "next=${MAJOR}.${MINOR}.${PATCH}" >> "$GITHUB_OUTPUT"
-          echo "Publishing v${CURRENT}"
 
       - name: Set up QEMU (for multi-arch builds)
         uses: docker/setup-qemu-action@v3
@@ -46,34 +136,86 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Docker metadata (tags + OCI labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: byerlikaya/${{ matrix.image }}
+          # CPU variants get full semver + latest; GPU variants get the
+          # same rolling tree suffixed with -gpu and 'gpu' as the
+          # floating alias (instead of 'latest'). Pre-releases skip
+          # 'latest' / 'gpu' automatically via enable conditions.
+          flavor: |
+            latest=false
+            suffix=${{ matrix.variant == 'gpu' && '-gpu' || '' }},onlatest=true
+          tags: |
+            type=raw,value=${{ needs.resolve-version.outputs.version }}
+            type=raw,value=${{ needs.resolve-version.outputs.version }},enable=${{ needs.resolve-version.outputs.is_prerelease == 'false' }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.resolve-version.outputs.version }},enable=${{ needs.resolve-version.outputs.is_prerelease == 'false' }}
+            type=semver,pattern={{major}},value=v${{ needs.resolve-version.outputs.version }},enable=${{ needs.resolve-version.outputs.is_prerelease == 'false' }}
+            type=raw,value=${{ matrix.variant == 'gpu' && 'gpu' || 'latest' }},enable=${{ needs.resolve-version.outputs.is_prerelease == 'false' }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.licenses=MIT
+
+      - name: Build and push ${{ matrix.image }} (${{ matrix.variant }})
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platforms }}
           provenance: false
           push: true
-          tags: |
-            ${{ env.IMAGE }}:${{ steps.version.outputs.current }}
-            ${{ env.IMAGE }}:latest
-          cache-from: type=gha,scope=combined
-          cache-to: type=gha,mode=max,scope=combined
+          build-args: |
+            VERSION=${{ needs.resolve-version.outputs.version }}
+            TORCH_VARIANT=${{ matrix.variant }}
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.variant }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.variant }}
 
       - name: Update Docker Hub description
+        # GPU tags re-use the same Docker Hub README under the -gpu
+        # tag namespace; only the CPU variant owns the page.
+        if: matrix.variant == 'cpu'
         uses: peter-evans/dockerhub-description@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ env.IMAGE }}
-          short-description: "Privacy-first AI middleware — anonymize documents, chat with LLMs, no raw PII leaves your machine."
+          repository: byerlikaya/${{ matrix.image }}
+          short-description: ${{ matrix.description }}
           readme-filepath: ./DOCKERHUB.md
 
-      - name: Bump version for next release
-        run: |
-          echo "${{ steps.version.outputs.next }}" > VERSION
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION
-          git commit -m "Bump version to ${{ steps.version.outputs.next }}"
-          git push
+  github-release:
+    needs: [resolve-version, publish]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.resolve-version.outputs.version }}
+          name: v${{ needs.resolve-version.outputs.version }}
+          prerelease: ${{ needs.resolve-version.outputs.is_prerelease }}
+          generate_release_notes: true
+          body: |
+            Docker images (CPU, linux/amd64 + linux/arm64):
+            - `byerlikaya/septum:${{ needs.resolve-version.outputs.version }}` (standalone — SQLite + ML stack, ~5.7 GB)
+            - `byerlikaya/septum-api:${{ needs.resolve-version.outputs.version }}`
+            - `byerlikaya/septum-web:${{ needs.resolve-version.outputs.version }}`
+            - `byerlikaya/septum-gateway:${{ needs.resolve-version.outputs.version }}` (internet-facing, ~250 MB)
+            - `byerlikaya/septum-audit:${{ needs.resolve-version.outputs.version }}` (internet-facing, ~250 MB)
+            - `byerlikaya/septum-mcp:${{ needs.resolve-version.outputs.version }}`
+
+            Docker images (GPU — NVIDIA CUDA, linux/amd64 only):
+            - `byerlikaya/septum:${{ needs.resolve-version.outputs.version }}-gpu`
+            - `byerlikaya/septum-api:${{ needs.resolve-version.outputs.version }}-gpu`
+
+            See [CHANGELOG.md](https://github.com/byerlikaya/Septum/blob/main/CHANGELOG.md) for detailed release notes.

@@ -34,23 +34,89 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('packages/api/requirements.txt', 'packages/*/pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Install backend dependencies
-        working-directory: backend
+      - name: Install backend dependencies (api + its deps + requirements.txt)
         run: |
-          python -m venv .venv
-          source .venv/bin/activate
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          # packages/api/tests only exercises api + its dependency closure
+          # (core, queue). mcp / gateway / audit are covered by modular-tests.
+          python -m pip install -e "packages/core[transformers,test]"
+          python -m pip install -e "packages/queue[redis,test]"
+          python -m pip install -e "packages/api[auth,rate-limit,postgres,server,test]"
+          # Heavy ML / OCR / Whisper / ingestion deps (single source of
+          # truth for the services/ layer).
+          python -m pip install -r packages/api/requirements.txt
 
       - name: Run backend tests
-        working-directory: backend
+        run: pytest packages/api/tests -q
+
+  modular-tests:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-modular-${{ hashFiles('packages/*/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-modular-
+
+      - name: Install septum-queue (+ redis + test extras)
+        # Queue stays stdlib-only at runtime; [redis] pulls the Redis
+        # Streams backend and fakeredis for the round-trip tests.
         run: |
-          source .venv/bin/activate
-          pytest
+          python -m pip install --upgrade pip
+          pip install -e "packages/queue[redis,test]"
+          pip install fakeredis
+
+      - name: Install septum-core (+ transformers + test extras)
+        run: pip install -e "packages/core[transformers,test]"
+
+      - name: Install septum-mcp (+ test extra)
+        run: pip install -e "packages/mcp[test]"
+
+      - name: Install septum-gateway (+ server + test extras)
+        # Server extra pulls fastapi+uvicorn so the /health smoke test
+        # can import create_app; respx handles httpx mocking.
+        run: pip install -e "packages/gateway[server,test]"
+
+      - name: Install septum-audit (+ queue + server + test extras)
+        run: pip install -e "packages/audit[queue,server,test]"
+
+      - name: Download spaCy English model
+        run: python -m spacy download en_core_web_sm
+
+      - name: Run septum-queue tests
+        run: pytest packages/queue/tests/ -q
+
+      - name: Run septum-core tests
+        run: pytest packages/core/tests/ -q
+
+      - name: Run septum-mcp tests
+        run: pytest packages/mcp/tests/ -q
+
+      - name: Run septum-gateway tests
+        run: pytest packages/gateway/tests/ -q
+
+      - name: Run septum-audit tests
+        run: pytest packages/audit/tests/ -q
 
   backend-lint:
     runs-on: ubuntu-latest
@@ -67,12 +133,10 @@ jobs:
         run: pip install ruff bandit
 
       - name: Ruff lint
-        working-directory: backend
-        run: ruff check app/ --select E,W,F,I --ignore E501,E402,E741
+        run: ruff check packages/api/septum_api packages/core/septum_core packages/queue/septum_queue packages/gateway/septum_gateway packages/audit/septum_audit packages/mcp/septum_mcp --select E,W,F,I --ignore E501,E402,E741
 
       - name: Bandit security scan
-        working-directory: backend
-        run: bandit -r app/ -s B101,B603,B607 -q || true
+        run: bandit -r packages/api/septum_api packages/core/septum_core packages/queue/septum_queue packages/gateway/septum_gateway packages/audit/septum_audit packages/mcp/septum_mcp -s B101,B603,B607 -q || true
 
   backend-security:
     runs-on: ubuntu-latest
@@ -89,8 +153,7 @@ jobs:
         run: pip install pip-audit
 
       - name: Audit Python dependencies
-        working-directory: backend
-        run: pip-audit -r requirements.txt --ignore-vuln PYSEC-2024-* || true
+        run: pip-audit -r packages/api/requirements.txt --ignore-vuln PYSEC-2024-* || true
 
   frontend-tests:
     runs-on: ubuntu-latest
@@ -110,11 +173,11 @@ jobs:
           node-version: "22"
 
       - name: Install frontend dependencies
-        working-directory: frontend
+        working-directory: packages/web
         run: npm ci
 
       - name: Run frontend tests
-        working-directory: frontend
+        working-directory: packages/web
         run: npm test -- --runInBand
 
   frontend-typecheck:
@@ -129,11 +192,11 @@ jobs:
           node-version: "22"
 
       - name: Install dependencies
-        working-directory: frontend
+        working-directory: packages/web
         run: npm ci
 
       - name: TypeScript type check
-        working-directory: frontend
+        working-directory: packages/web
         run: npx tsc --noEmit
 
   frontend-security:
@@ -148,9 +211,9 @@ jobs:
           node-version: "22"
 
       - name: Install dependencies
-        working-directory: frontend
+        working-directory: packages/web
         run: npm ci
 
       - name: npm audit
-        working-directory: frontend
+        working-directory: packages/web
         run: npm audit --audit-level=high || true

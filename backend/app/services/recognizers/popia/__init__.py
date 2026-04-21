@@ -1,1 +1,0 @@
-"""POPIA recognizer pack package."""

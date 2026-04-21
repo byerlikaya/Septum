@@ -1,1 +1,0 @@
-"""CCPA recognizer pack package."""

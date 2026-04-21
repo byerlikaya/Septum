@@ -1,0 +1,191 @@
+from __future__ import annotations
+
+"""
+Session-scoped anonymization map with language-aware coreference resolution.
+
+This module keeps an in-memory mapping between original PII values and
+placeholder tokens, plus a token-to-placeholder map so residual token
+mentions are redacted with the correct [ENTITY_TYPE_N] placeholder.
+
+The map is intentionally kept local to the current process and is never
+persisted to disk in order to avoid leaking raw PII.
+"""
+
+import re
+from dataclasses import dataclass, field
+from typing import Dict, Optional, Set
+
+from .text_utils import normalize_for_comparison, strip_possessive_suffix
+
+# FUTURE: migrate to NonPiiRule table for full user-editability.
+# Minimal stopwords kept here for technical filtering (ultra-common function words).
+SANITIZER_STOPWORDS: frozenset[str] = frozenset({"the", "a", "an", "of", "in", "at"})
+
+# Entity types whose tokens should be propagated through the blocklist for
+# coreference resolution.  Only person-identifying types qualify; other
+# categories (locations, identifiers, …) would cause excessive collateral
+# replacements of common words.
+_BLOCKLIST_ENTITY_TYPES: frozenset[str] = frozenset({
+    "PERSON_NAME", "FIRST_NAME", "LAST_NAME", "ALIAS", "USERNAME",
+})
+
+
+@dataclass
+class AnonymizationMap:
+    """In-memory anonymization map with language-aware coreference support.
+
+    The map tracks original entity strings and the placeholder assigned to
+    them, plus a token-to-placeholder mapping used when applying the blocklist:
+    residual token mentions are replaced with the correct [ENTITY_TYPE_N]
+    placeholder, never with a generic [BLOCKED]. Tokens in SANITIZER_STOPWORDS
+    are never added to the blocklist and are never redacted.
+    """
+
+    document_id: int
+    language: str = "en"
+    entity_map: Dict[str, str] = field(default_factory=dict)
+    blocklist: Set[str] = field(default_factory=set)
+    token_to_placeholder: Dict[str, str] = field(default_factory=dict)
+    token_counter: Dict[str, int] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Reconstruct blocklist from token_to_placeholder when deserialized."""
+        if self.token_to_placeholder and not self.blocklist:
+            self.blocklist = set(self.token_to_placeholder.keys())
+
+    def add_entity(self, original: str, entity_type: str) -> str:
+        """Register an entity span and return the placeholder for it.
+
+        Coreference resolution is applied so that if ``original`` can be
+        matched to a previously seen value (for example, "John" after
+        "John Smith"), the existing placeholder is reused.
+
+        Only person-identifying entity types (see ``_BLOCKLIST_ENTITY_TYPES``)
+        have their tokens propagated to the blocklist. Other entity types are
+        recorded in the entity map but do not trigger blocklist expansion,
+        which avoids collateral replacement of common words (e.g. city names).
+        """
+        if not original:
+            raise ValueError("original must be a non-empty string.")
+        if not entity_type:
+            raise ValueError("entity_type must be a non-empty string.")
+
+        existing = self._find_existing(original)
+        if existing is not None:
+            self.entity_map.setdefault(original, existing)
+            if entity_type in _BLOCKLIST_ENTITY_TYPES:
+                self._update_blocklist(original, existing)
+            return existing
+
+        placeholder = self._next_placeholder(entity_type)
+        self.entity_map[original] = placeholder
+        if entity_type in _BLOCKLIST_ENTITY_TYPES:
+            self._update_blocklist(original, placeholder)
+        return placeholder
+
+    def apply_blocklist(self, text: str, language: Optional[str] = None) -> str:
+        """Apply token-level redaction using token_to_placeholder.
+
+        Tokens that match a known entity token are replaced with the
+        corresponding [ENTITY_TYPE_N] placeholder. Placeholder format only.
+        SANITIZER_STOPWORDS are never redacted.
+        """
+        if not text or not self.token_to_placeholder:
+            return text
+
+        lang = language or self.language
+        pattern = re.compile(r"\[[^\]]+\]|\w+", re.UNICODE)
+
+        parts: list[str] = []
+        last_end = 0
+
+        for match in pattern.finditer(text):
+            start, end = match.span()
+            if start > last_end:
+                parts.append(text[last_end:start])
+
+            token = match.group(0)
+            if token.startswith("[") and token.endswith("]"):
+                parts.append(token)
+            else:
+                normalized = normalize_for_comparison(token, lang)
+                if normalized in SANITIZER_STOPWORDS:
+                    parts.append(token)
+                elif normalized in self.token_to_placeholder:
+                    parts.append(self.token_to_placeholder[normalized])
+                else:
+                    parts.append(token)
+
+            last_end = end
+
+        if last_end < len(text):
+            parts.append(text[last_end:])
+
+        return "".join(parts)
+
+    def _next_placeholder(self, entity_type: str) -> str:
+        """Return the next placeholder token for the given entity type."""
+        count = self.token_counter.get(entity_type, 0) + 1
+        self.token_counter[entity_type] = count
+        return f"[{entity_type}_{count}]"
+
+    def _update_blocklist(self, original: str, placeholder: str) -> None:
+        """Update blocklist and token_to_placeholder from ``original``.
+
+        All tokens from detected entities are added to blocklist regardless of
+        casing, except very short tokens (<=2 chars) and stopwords. This ensures
+        residual mentions of person names (e.g. lowercase "sarah", "david") are
+        redacted by apply_blocklist even when NER models miss them.
+
+        Possessive suffixes are stripped before tokenization so that
+        ``"Ahmet's"`` and ``"Ahmet"`` produce the same blocklist tokens.
+        """
+        stripped = strip_possessive_suffix(original, self.language)
+        normalized = normalize_for_comparison(stripped, self.language)
+        orig_tokens = stripped.split()
+        norm_tokens = normalized.split()
+
+        for index, token in enumerate(norm_tokens):
+            if len(token) <= 2:
+                continue
+            if token in SANITIZER_STOPWORDS:
+                continue
+
+            original_token = orig_tokens[index] if index < len(orig_tokens) else ""
+            if not original_token:
+                continue
+
+            self.blocklist.add(token)
+            self.token_to_placeholder[token] = placeholder
+
+    def _find_existing(self, original: str) -> Optional[str]:
+        """Try to find an existing placeholder for ``original``.
+
+        This uses normalized token overlap as a simple coreference heuristic.
+        If the tokens of ``original`` are a subset of those of an existing
+        entity (or vice versa), the same placeholder is reused.
+
+        Possessive suffixes are stripped before comparison so that
+        ``"Ahmet's"`` matches a previously seen ``"Ahmet"``.
+        """
+        if not self.entity_map:
+            return None
+
+        stripped = strip_possessive_suffix(original, self.language)
+        normalized = normalize_for_comparison(stripped, self.language)
+        orig_tokens = {t for t in normalized.split() if len(t) > 2}
+
+        for existing, placeholder in self.entity_map.items():
+            existing_stripped = strip_possessive_suffix(existing, self.language)
+            existing_normalized = normalize_for_comparison(existing_stripped, self.language)
+            if normalized == existing_normalized:
+                return placeholder
+
+            existing_tokens = {t for t in existing_normalized.split() if len(t) > 2}
+            if not orig_tokens or not existing_tokens:
+                continue
+
+            if orig_tokens.issubset(existing_tokens) or existing_tokens.issubset(orig_tokens):
+                return placeholder
+
+        return None

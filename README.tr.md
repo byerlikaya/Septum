@@ -1,304 +1,121 @@
 <p align="center">
-  <img src="septum_logo.png" alt="Septum logosu" width="220" />
+  <img src="assets/septum_logo.png" alt="Septum logosu" width="220" />
 </p>
 
 <h3 align="center">Veriniz dışarı çıkmaz. Yapay zekanız çalışmaya devam eder.</h3>
 
 <p align="center">
   <a href="https://github.com/byerlikaya/Septum/actions/workflows/tests.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/byerlikaya/Septum/tests.yml?branch=main&label=tests" alt="CI Testler" />
+    <img src="https://img.shields.io/github/actions/workflow/status/byerlikaya/Septum/tests.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=tests&color=43A047" alt="CI Testler" />
   </a>
   <a href="https://hub.docker.com/r/byerlikaya/septum">
-    <img src="https://img.shields.io/docker/v/byerlikaya/septum?label=docker%20image&color=blue&sort=semver" alt="Docker Image Sürümü" />
+    <img src="https://img.shields.io/docker/v/byerlikaya/septum?style=for-the-badge&logo=docker&logoColor=white&label=docker&color=1E88E5&sort=semver" alt="Docker Image Sürümü" />
   </a>
   <a href="https://hub.docker.com/r/byerlikaya/septum">
-    <img src="https://img.shields.io/docker/pulls/byerlikaya/septum?label=docker%20pulls" alt="Docker Pulls" />
+    <img src="https://img.shields.io/docker/pulls/byerlikaya/septum?style=for-the-badge&logo=docker&logoColor=white&label=pulls&color=1565C0" alt="Docker Pulls" />
   </a>
   <a href="https://github.com/byerlikaya/Septum/stargazers">
-    <img src="https://img.shields.io/github/stars/byerlikaya/Septum?color=yellow&label=stars" alt="GitHub Yıldızları" />
+    <img src="https://img.shields.io/github/stars/byerlikaya/Septum?style=for-the-badge&logo=github&logoColor=white&label=stars&color=F59E0B" alt="GitHub Yıldızları" />
   </a>
   <a href="LICENSE">
-    <img src="https://img.shields.io/github/license/byerlikaya/Septum?color=blue" alt="Lisans: MIT" />
+    <img src="https://img.shields.io/github/license/byerlikaya/Septum?style=for-the-badge&logo=opensourceinitiative&logoColor=white&label=license&color=607D8B" alt="Lisans: MIT" />
   </a>
   <a href="README.md">
-    <img src="https://img.shields.io/badge/lang-EN-blue" alt="English README" />
+    <img src="https://img.shields.io/badge/lang-English-1E88E5?style=for-the-badge" alt="English README" />
   </a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/byerlikaya/Septum/stargazers"><b>⭐ Septum PII'yi bulutun dışında tutmanıza yardımcı oluyorsa, GitHub'da bir yıldız bu projenin devam etmesi için en büyük sinyaldir.</b></a>
-</p>
-
-<p align="center">
-  <a href="#bu-kimin-için"><strong>Bu Kimin İçin?</strong></a>
-  &middot;
-  <a href="#ekran-görüntüleri"><strong>Ekran Görüntüleri</strong></a>
-  &middot;
-  <a href="#hızlı-başlangıç"><strong>Hızlı Başlangıç</strong></a>
-  &middot;
-  <a href="ARCHITECTURE.tr.md"><strong>Mimari</strong></a>
-  &middot;
-  <a href="CHANGELOG.md"><strong>Değişiklik Günlüğü</strong></a>
-  &middot;
-  <a href="LICENSE"><strong>Lisans</strong></a>
+  <strong>🏠 Ana Sayfa</strong>
+  &nbsp;·&nbsp;
+  <a href="docs/FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
+  &nbsp;·&nbsp;
+  <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
 ---
 
 ## Septum Nedir?
 
-Septum, sizinle bulut LLM'ler arasında duran bir **gizlilik odaklı AI ara katmanıdır**. ChatGPT, Claude veya herhangi bir LLM ile hassas şirket verilerinizi sorgulamanızı — ve özgürce sohbet etmenizi — sağlar; **kişisel verileri otomatik tespit edip maskeleyerek buluta hiçbir şey göndermeden önce korur**.
+Septum, sizinle bulut LLM'leri arasında duran **gizlilik öncelikli bir AI ara katmanıdır**. ChatGPT, Claude, Gemini ya da başka bir LLM'e hassas şirket verilerinizle sorular sorabilir, rahatça sohbet edebilirsiniz; Septum kişisel bilgileri **buluta çıkmadan önce** yerelde tespit edip maskeler.
 
-1. Dokümanlarınızı (PDF, Word, Excel, görsel, ses vb.) yüklersiniz **ve** sohbette sorularınızı yazarsınız.
-2. Septum tüm kişisel verileri **yerelde tespit edip maskeler** — hem dokümanlarınızda *hem de* sohbet mesajlarınızda.
-3. LLM'e yalnızca anonimleştirilmiş metin gönderilir (soru, getirilen bağlam, hepsi).
-4. Cevap, gerçek isim ve değerlerle **yerelde** geri birleştirilir.
 
-> **Tek cümleyle:** Septum, LLM gücünü kullanırken kişisel veri sızdırmak istemeyen ekipler için bir güvenlik katmanıdır — bu veri ister bir dokümanda, ister az önce yazdığınız bir cümlede olsun.
+
+> **Tek cümleyle:** Septum, LLM gücünden faydalanıp kişisel veri sızdırmak istemeyen ekipler için bir güvenlik katmanıdır — veri ister bir dokümanda, ister yazdığınız bir cümlede olsun.
 
 **Önce ve sonra — LLM'in gerçekte gördüğü:**
 
-Hem dokümanlarınız hem de sohbet mesajlarınız aynı maskeleme pipeline'ından geçer.
-
 ```
-Doküman parçası:  "Ahmet Yılmaz Berlin'de yaşıyor, e-posta ahmet.yilmaz@corp.de, TC 12345678901"
-Maskeli:          "[PERSON_1] [LOCATION_1]'de yaşıyor, e-posta [EMAIL_1], TC [NATIONAL_ID_1]"
+Doküman parçası:  "Ahmet Yılmaz 1985'te İstanbul'da doğdu. Annesi Ayşe, babası Ali'dir."
+Maskeli:          "[PERSON_1] 1985'te [LOCATION_1]'da doğdu. Annesi [PERSON_2], babası [PERSON_3]'dir."
 
-Kullanıcı sorusu: "Şu bilgilerle bir karşılama maili yaz: müşteri adı Ahmet Yılmaz,
-                   e-posta ahmet.yilmaz@corp.de, üyelik no 12345678901."
-Maskeli:          "Şu bilgilerle bir karşılama maili yaz: müşteri adı [PERSON_1],
-                   e-posta [EMAIL_1], üyelik no [NATIONAL_ID_1]."
+Kullanıcı sorusu: "Anne adı Ayşe, baba adı Ali olan Ahmet Yılmaz'ın doğum yeri neresidir?"
+Maskeli:          "Anne adı [PERSON_1], baba adı [PERSON_2] olan [PERSON_3]'ın doğum yeri neresidir?"
 ```
 
-LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerçek değerleri yerelde geri yükler.
-
----
-
-## Bu Kimin İçin?
-
-- **Geliştiriciler** — gerçek müşteri verisiyle çalışan yapay zeka uygulamaları geliştiren
-- **Ekipler** — GDPR, KVKK, HIPAA veya diğer gizlilik regülasyonlarına tabi olan
-- **Şirketler** — iç dokümanlarla (sözleşmeler, İK dosyaları, sağlık kayıtları) LLM kullanan
-- **Self-hosting savunucuları** — tam kontrol isteyen, verilerin altyapısından çıkmasını istemeyen
-
----
-
-## Hangi Sorunları Çözer?
-
-**Güvenli kurumsal doküman sorgulama** — Sözleşmeleri, müşteri dosyalarını, sağlık kayıtlarını veya İK dokümanlarını LLM ile sorgulayın. LLM yalnızca `[PERSON_1]`, `[EMAIL_2]` gibi maskeler görür, gerçek kimlikleri asla görmez.
-
-**Regülasyon uyumluluğu** — GDPR, KVKK, HIPAA, CCPA ve diğer regülasyon risklerini, verileri buluta göndermeden **önce** anonimleştirerek azaltır. 17 hazır regülasyon paketi, en kısıtlayıcı kural her zaman kazanır.
-
-**İç bilgi asistanı** — Dokümanlarınızı vektör veritabanına (RAG) gömerek şirket bilgisi üzerinde güçlü arama ve soru-cevap deneyimi oluşturur.
+LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerçek değerleri yerelde geri yazar.
 
 ---
 
 ## Nasıl Çalışır?
 
-1. **Dokümanlarınızı yükleyin**
-   Dokümanlar sayfasından veya sohbet kenar çubuğundan PDF, Office, görsel veya ses dosyalarını ekleyin. Septum dosya tipini, dili ve kişisel verileri otomatik tespit eder; tüm PII'yi maskeler ve arama için hazırlar.
+<p align="center">
+  <a href="#nasıl-çalışır"><img src="assets/how-it-works.tr.svg" alt="Septum sohbet akışı — kullanıcıdan ham soru, yerelde PII maskeleme, buluta maskeli soru, maskeli cevap, yerelde placeholder geri yazma, gerçek cevap kullanıcıya" width="820" /></a>
+</p>
 
-2. **Sohbette sorular sorun**
-   *"Bu sözleşmedeki fesih koşulları neler?"*
-   *"Yeni müşterimiz Ahmet Yılmaz (ahmet.yilmaz@corp.de, üyelik no 12345678901) için karşılama maili yaz."*
-   *"Son 6 aydaki vaka dosyalarını özetle."*
-
-3. **Septum sorunuzu da anonimleştirir**
-   Sohbet mesajınız, dokümanlarınızla **aynı** PII tespit pipeline'ından geçer. Yazdığınız isimler, telefon numaraları, e-postalar, kimlik numaraları ve diğer kişisel veriler; arama yapılmadan ve LLM'e gönderilmeden önce placeholder'larla değiştirilir. PII makineden hiç çıkmaz — ne dokümanlardan, ne de yazdıklarınızdan.
-
-4. **Göndermeden önce onaylayın**
-   LLM'e gönderilecek anonimleştirilmiş içeriği — maskelenmiş sorunuzu **ve** maskelenmiş doküman parçalarını — tam olarak görün. Onaylayın veya reddedin.
-
-5. **Gerçek değerlerle cevap alın**
-   Septum placeholder'ları yerelde orijinal değerlere geri çevirir ve size doğal, okunabilir bir cevap sunar.
+1. **Dokümanlarınızı yükleyin** — Septum dosya tipini ve dili otomatik algılar, tüm kişisel verileri maskeler ve içeriği anonimleştirilmiş haliyle aramaya hazırlar. *([📊 Akış diyagramı](docs/DOCUMENT_INGESTION.tr.md))*
+2. **Sohbette soru sorun** — dilerseniz belirli dokümanları seçin, dilerseniz boş bırakıp kararı Septum'a bırakın. Seçim yoksa yerel Ollama sınıflandırıcısı soruyu ya Otomatik RAG'a (tüm indekslenmiş dokümanları arayıp ilgili parçaları çıkarır) ya da doğrudan sohbet yoluna yönlendirir.
+3. **Sorunuz da maskelenir** — aynı üç katmanlı hat yalnızca dokümanlarda değil, sizin yazdığınız mesajda da çalışır. İsim, telefon, e-posta, kimlik numarası — hepsi retrieval öncesinde placeholder'a dönüşür.
+4. **Göndermeden önce onaylayın** — maskeli sorunuz, getirilen parçalar ve buluta gidecek birleşik istek yan yana gösterilir. Onaylarsınız ya da reddedersiniz.
+5. **Cevap gerçek değerlerle gelir** — placeholder'lar yerelde geri yazılır; siz doğal, okunabilir bir cevap görürsünüz.
 
 ---
 
-## Temel Özellikler
+## Mimari
 
-- **Yerel PII Koruması** — Kişisel verileri buluta göndermeden önce tespit edip maskeler — hem yüklediğiniz dokümanların içinde **hem de** yazdığınız sohbet mesajlarınızda. Dosyalar şifreli saklanır (AES-256-GCM). **Onay Mekanizması** her LLM çağrısından önce maskelenmiş çıktıyı incelemenizi sağlar — onayınız olmadan hiçbir şey gönderilmez.
-- **Çoklu Regülasyon Desteği** — 17 hazır paket (GDPR, KVKK, CCPA, HIPAA, LGPD, PIPEDA, PDPA, APPI, PIPL, POPIA, DPDP, UK GDPR ve daha fazlası). Her regülasyon, kendi bölgesine özgü kimlik numarası algılayıcılarıyla (TCKN checksum, Aadhaar Verhoeff, NRIC/FIN, Resident ID, NINO, CNPJ, My Number ve daha fazlası) birlikte kendi recognizer paketiyle geliyor. Aynı anda birden fazla aktif; en kısıtlayıcı kazanır.
-- **Onay Mekanizması** — LLM'e gönderilmeden önce neyin paylaşılacağını görün ve onaylayın.
-- **Özel Kurallar** — Kendi kalıplarınızı tanımlayın: regex, anahtar kelime listeleri veya LLM-tabanlı tespit.
-- **Zengin Format Desteği** — PDF, Office, hesap tabloları, görseller (OCR), ses (Whisper transkripsiyon), e-postalar.
-- **Hibrit Arama** — BM25 kelime eşleme + FAISS semantik arama, Reciprocal Rank Fusion ile birleştirilir.
-- **Yapısal Veri Çıkarımı** — PDF'lerden tabloları ve anahtar-değer çiftlerini otomatik tespit eder.
-- **Denetim Kaydı** — Salt-ekleme uyumluluk günlüğü ve varlık tespit metrikleri. Denetim olaylarında ham PII bulunmaz.
-- **Çoklu Sağlayıcı** — Anthropic, OpenAI, OpenRouter ve yerel Ollama ile çalışır. Arayüzden değiştirin.
-- **JWT Kimlik Doğrulama ve RBAC** — Admin'e özel kullanıcı yönetim ekranı: hesap oluşturma, rol atama (admin/editor/viewer), şifre sıfırlama ve kullanıcı pasifleştirme; kullanıcının kendi şifresini değiştirmesi; ilk kullanıcı kurulum sihirbazında otomatik admin yapılır.
+Septum, üç güvenlik bölgesine ayrılmış 7 bağımsız modülden oluşur. Air-gapped modüller ham PII'yi işler ve internete çıkmaz. Köprü yalnızca maskeli placeholder taşır. Internet-facing modüller ham PII'yi asla görmez.
 
-<details>
-<summary><b>17 hazır regülasyon paketinin tamamı</b> — yargı alanları, bölgeye özel kimlik tipleri</summary>
+<p align="center">
+  <a href="#mimari"><img src="assets/architecture.tr.svg" alt="Septum mimarisi — 3 güvenlik bölgesine dağıtılmış 7 modül (air-gapped, köprü, internet-facing)" width="800" /></a>
+</p>
 
-| Bölge | Kod | Regülasyon |
+| Paket | Bölge | Görevi |
 |:---|:---|:---|
-| 🇪🇺 AB / AEA | `gdpr` | General Data Protection Regulation |
-| 🇺🇸 ABD (Sağlık) | `hipaa` | Health Insurance Portability and Accountability Act |
-| 🇹🇷 Türkiye | `kvkk` | 6698 sayılı Kişisel Verilerin Korunması Kanunu |
-| 🇧🇷 Brezilya | `lgpd` | Lei Geral de Proteção de Dados |
-| 🇺🇸 ABD (Kaliforniya) | `ccpa` | California Consumer Privacy Act |
-| 🇺🇸 ABD (Kaliforniya) | `cpra` | California Privacy Rights Act |
-| 🇬🇧 Birleşik Krallık | `uk_gdpr` | UK GDPR |
-| 🇨🇦 Kanada | `pipeda` | Personal Information Protection and Electronic Documents Act |
-| 🇹🇭 Tayland | `pdpa_th` | Personal Data Protection Act |
-| 🇸🇬 Singapur | `pdpa_sg` | Personal Data Protection Act |
-| 🇯🇵 Japonya | `appi` | Act on the Protection of Personal Information |
-| 🇨🇳 Çin | `pipl` | Personal Information Protection Law |
-| 🇿🇦 Güney Afrika | `popia` | Protection of Personal Information Act |
-| 🇮🇳 Hindistan | `dpdp` | Digital Personal Data Protection Act |
-| 🇸🇦 Suudi Arabistan | `pdpl_sa` | Personal Data Protection Law |
-| 🇳🇿 Yeni Zelanda | `nzpa` | Privacy Act 2020 |
-| 🇦🇺 Avustralya | `australia_pa` | Privacy Act 1988 |
+| [`septum-core`](packages/core/) | Air-gapped | PII tespit, maskeleme, geri alma, regülasyon motoru |
+| [`septum-mcp`](packages/mcp/) | Air-gapped | Claude Desktop, ChatGPT, Cursor için MCP sunucusu |
+| [`septum-api`](packages/api/) | Air-gapped | FastAPI REST katmanı + model, servis, auth |
+| [`septum-web`](packages/web/) | Air-gapped | Next.js 16 dashboard |
+| [`septum-queue`](packages/queue/) | Gateway | Bölgeler arası broker (dosya / Redis Streams) |
+| [`septum-gateway`](packages/gateway/) | Internet-facing | Bulut LLM yönlendirici — `septum-core`'u asla içe aktarmaz |
+| [`septum-audit`](packages/audit/) | Internet-facing | Uyumluluk kaydı + SIEM export — `septum-core`'u asla içe aktarmaz |
 
-Her satır [`backend/app/services/recognizers/`](backend/app/services/recognizers/) altında yüklenebilir bir pakettir. Birden fazlası aynı anda aktif olabilir — sanitizer hepsinin birleşimini uygular ve en kısıtlayıcı kural kazanır. Her varlık tipinin hukuki kaynağı [`backend/docs/REGULATION_ENTITY_SOURCES.md`](backend/docs/REGULATION_ENTITY_SOURCES.md) dosyasındadır.
-
-</details>
+Modül kontratları ve bölge kuralları [Mimari](docs/ARCHITECTURE.tr.md) dokümanında.
 
 ---
 
-## Neden Septum?
+## Öne Çıkan Özellikler
 
-| Özellik | Septum | ChatGPT / Claude | Azure Presidio | LangChain Pipeline |
-|:---|:---:|:---:|:---:|:---:|
-| **PII buluta gitmeden maskelenir** | **Evet** | Hayır | Yalnızca tespit | Kendin yap |
-| **Çoklu regülasyon (17 paket)** | **Evet** | Hayır | Hayır | Kendin yap |
-| **LLM öncesi onay mekanizması** | **Evet** | Hayır | Hayır | Kendin yap |
-| **De-anonimleştirme (gerçek değerler)** | **Evet** | N/A | Hayır | Kendin yap |
-| **Hibrit arama ile doküman RAG** | **Evet** | Hayır | Hayır | Kısmi |
-| **Özel tespit kuralları** | **Evet** | Hayır | Sınırlı | Kendin yap |
-| **Kullanıma hazır web arayüzü** | **Evet** | N/A | Hayır | Hayır |
-| **Denetim kaydı ve uyumluluk** | **Evet** | Hayır | Hayır | Kendin yap |
-| **Herhangi bir LLM sağlayıcı** | **Evet** | Tek sağlayıcı | Yalnızca Azure | Yapılandırılabilir |
-| **Tamamen self-hosted** | **Evet** | Hayır | Bulut servisi | Duruma bağlı |
+- **Yerel PII Koruması** — üç katmanlı tespit (Presidio + NER + isteğe bağlı Ollama), hem yüklenen dokümanlarda hem de yazdığınız mesajlarda çalışır. Dokümanlar şifreli saklanır (AES-256-GCM).
+- **Onay Kapısı** — her LLM çağrısından önce maskeli prompt, getirilen parçalar ve buluta gidecek hazır istek yan yana görünür. Siz onaylamadan hiçbir şey gönderilmez.
+- **17 Regülasyon Paketi** — GDPR, KVKK, CCPA, HIPAA, LGPD, PIPEDA, PDPA, APPI, PIPL, POPIA, DPDP, UK GDPR ve daha fazlası. Aynı anda birden çoğu aktif olabilir; en kısıtlayıcı kural kazanır. Bölgeye özgü kimlik doğrulayıcıları (TCKN, Aadhaar Verhoeff, NRIC/FIN, CPF, NINO, CNPJ, My Number ve fazlası) algoritmiktir.
+- **Otomatik RAG Yönlendirme** — doküman seçilmediğinde yerel Ollama sınıflandırıcısı soruyu ya Otomatik RAG'a (tüm dokümanları arar) ya da doğrudan sohbet yoluna yönlendirir. Manuel seçim gerekmez.
+- **Özel Kurallar** — regex, anahtar kelime listesi ya da LLM-prompt tabanlı kendi tanıyıcılarınızı tanımlayın.
+- **Zengin Format Desteği** — PDF, Office, hesap tabloları, görseller (OCR), ses (Whisper), e-postalar.
+- **Hibrit Retrieval** — BM25 kelime eşleme + FAISS semantik arama, Reciprocal Rank Fusion ile birleştirilir.
+- **Çoklu Sağlayıcı** — Anthropic, OpenAI, OpenRouter veya yerel Ollama. Arayüzden değiştirin.
+- **JWT + RBAC + API Anahtarları** — ilk kullanıcı kurulum sihirbazında otomatik olarak admin yapılır; admin arayüzünden rol yönetimi (admin / editor / viewer) sağlanır. Programatik API anahtarları SHA-256 hash'li saklanır, rate limit anahtarın önekine göre uygulanır.
+- **MCP Sunucusu** — bağımsız `septum-mcp`, aynı yerel maskeleme hattını MCP uyumlu her istemciye açar: stdio üzerinden lokal istemciler (Claude Desktop, Cursor, Windsurf) ya da streamable-http / sse üzerinden uzak, tarayıcı ve container istemciler için bearer-token auth'lu.
+- **Denetim Kaydı** — salt-ekleme uyumluluk günlüğü ve varlık tespit metrikleri. Denetim olaylarında ham PII yoktur.
 
-**Temel fark:** Diğer araçlar bulmacının parçalarını sunar — burada tespit, orada bir vektör veritabanı. Septum **uçtan uca komple pipeline'dır**: tespit → anonimleştirme → eşleme → arama → onay → LLM çağrısı → de-anonimleştirme → denetim. Kutudan çıktığı gibi, arayüzüyle, her regülasyon için.
-
----
-
-## Tespit ve Gizlilik
-
-Septum, hem yanlış negatifleri (kaçan PII) hem de yanlış pozitifleri (gereksiz maskeleme) en aza indirmek için **çok katmanlı PII tespit pipeline'ı** kullanır. Her katman tespit kapasitesi ekler; hepsi **yerelde** çalışır.
-
-### Her Katman Neyi Tespit Eder?
-
-| Katman | Teknoloji | Tespit Edilen Varlık Tipleri |
-|:---:|:---|:---|
-| 1 | **Presidio** — regex desenleri + algoritmik doğrulayıcılar (Luhn, IBAN MOD-97, TCKN, CPF, SSN checksum'ları). Çok dilli bağlam anahtar kelimeleri ile context-aware tanıma. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE |
-| 2 | **NER** — HuggingFace XLM-RoBERTa, dile özgü model seçimi (20+ dil). BÜYÜK HARF girdi otomatik başlık formatına dönüştürülür. | PERSON_NAME, LOCATION, ORGANIZATION_NAME |
-| 3 | **Ollama** — bağlam duyarlı doğrulama, takma ad tespiti ve semantik varlık tespiti için yerel LLM | PERSON_NAME takma adları/lakapları; DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE |
-
-Katmanlar kümülatiftir: K1 yapısal tanımlayıcıları ve bağlam etiketli değerleri (doğum tarihleri, pasaport numaraları, cihaz ID'leri vb.) yakalar, K2 transformer NER ile isimleri, konumları ve kuruluşları ekler (BÜYÜK HARF metin dahil), K3 yerel LLM ile semantik tipleri (tıbbi teşhisler, ilaçlar, dini/siyasi/etnik referanslar) ve takma adları tespit eder. Sonuçlar coreference çözümleme ile birleştirilir; böylece "Ahmet", "A. Yılmaz" ve "Bay Yılmaz" hepsi aynı `[PERSON_1]` placeholder'ına eşlenir.
-
-> **Kıyaslama modelleri:** NER, `akdeniz27/xlm-roberta-base-turkish-ner` (TR) ve `Davlan/xlm-roberta-base-wikiann-ner` (diğer tüm diller) kullanır. Ollama katmanı `aya-expanse:8b` kullanır. Sonuçlar farklı Ollama modelleri ile değişebilir — daha büyük modeller genellikle semantik tespit doğruluğunu artırır.
-
-### Kıyaslama Sonuçları
-
-Tüm 17 yerleşik regülasyon aktif. 23 varlık tipinde **3,268 algoritmik olarak üretilmiş PII değeri** (geçerli Luhn, IBAN MOD-97, TCKN checksum'ları). Presidio tipi başına 150 örnek, 160 kişi ismi (karma büyük/küçük harf + BÜYÜK HARF, EN/TR), 100 konum (EN/TR), 30 kuruluş ismi (EN/TR) ve takma ad tespiti. Tam tekrarlanabilirlik için sabit seed.
-
-<p align="center">
-  <img src="screenshots/benchmark-f1-by-type.png" alt="Varlık Tipine Göre F1 Skoru" width="900" />
-</p>
-
-<p align="center">
-  <img src="screenshots/benchmark-layer-comparison.png" alt="Katmana Göre Tespit Doğruluğu" width="700" />
-</p>
-
-| Katman | Varlıklar | Tipler | Precision | Recall | F1 |
-|:---|:---:|:---:|:---:|:---:|:---:|
-| **Presidio (K1)** — desenler + doğrulayıcılar | 1,710 | 20 | %100 | %94,4 | %97,1 |
-| **NER (K2)** — XLM-RoBERTa + BÜYÜK HARF normalizasyonu | 770 | 3 | %97,5 | %92,7 | %95,1 |
-| **Ollama (K3)** — aya-expanse:8b | 788 | 3 | %99,7 | %91,6 | %95,5 |
-| **Birleşik** | **3,268** | **23** | **%99,3** | **%93,3** | **%96,2** |
-
-> NER (K2), tıbbi ve hukuki belgelerde yaygın olan BÜYÜK HARF isimleri otomatik başlık formatı normalizasyonuyla tespit eder ve kuruluş isimlerini tanır. Ollama (K3) adayları doğrular ve takma adları yakalar. Benchmark, gerçek dünya seviyelerine düşüren adversarial edge case'leri (boşluklu IBAN, noktalı telefon numaraları vb.) içerir. Tekrarlanabilir: `pytest tests/benchmark_detection.py -v -s`
-
-### Tespit Kapsamı ve Sınırlamalar
-
-**Hiçbir PII tespit sistemi %100 doğru değildir.** Septum'un benchmark'ı bu konuda şeffaftır:
-
-- **Regülasyonlardaki 37 varlık tipinin tamamı artık tespit edilebilir** — 21'i Presidio pattern recognizer'ları, 3'ü NER, 9'u Ollama semantik tespit, 7'si üst tip kapsamı (örn. CITY → LOCATION, FIRST_NAME → PERSON_NAME) ile.
-- **23 varlık tipi aktif olarak kıyaslanır** — 14 dilde 3.268 test değeri ve adversarial edge case'ler dahil.
-- **Semantik tipler** (DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION vb.) Ollama katmanı tarafından tespit edilir ve çalışan bir yerel LLM gerektirir. Tespit doğruluğu kullanılan modele bağlıdır (benchmark `aya-expanse:8b` kullanır).
-- **Bağlam bağımlı tanıyıcılar** (DATE_OF_BIRTH, PASSPORT_NUMBER, SSN, TAX_ID vb.) false positive'leri azaltmak için değer yakınında bağlam anahtar kelimeleri gerektirir. 8+ dilde çok dilli anahtar kelimeler desteklenir.
-- **Adversarial formatlar** (boşluklu TCKN, noktalı telefon numaraları) kontrollü format testlerinden daha düşük tespit oranları gösterir. Bu dürüstçe raporlanır.
-
-**Onay Mekanizması güvenlik ağınızdır.** LLM'e metin gönderilmeden önce neyin iletileceğini tam olarak görür ve reddedebilirsiniz. Bu tasarım gereğidir — otomatik tespit riski azaltır, insan incelemesi ortadan kaldırır.
-
-Pipeline detayları için bkz. [Mimari — PII Tespiti ve Anonimleştirme Akışı](ARCHITECTURE.tr.md#pii-tespiti-ve-anonimleştirme-akışı).
-
----
-
-## Ekran Görüntüleri
-
-### Kurulum sihirbazı — `docker run`'dan çalışan bir yığına 2 dakikadan kısa sürede
-
-<p align="center">
-  <img src="screenshots/setup-wizard.gif" alt="Kurulum sihirbazı adımları — veritabanı, önbellek, LLM sağlayıcı, regülasyonlar, ses modeli, admin hesabı" width="900" />
-</p>
-
-Veritabanınızı (SQLite veya PostgreSQL), önbelleği (in-memory veya Redis), LLM sağlayıcınızı (Anthropic, OpenAI, OpenRouter veya yerel Ollama), gizlilik regülasyonlarını ve ses transkripsiyon modelini rehberli bir sihirbazdan seçin. `.env` dosyası yok, manuel konfigürasyon yok.
-
-### Onay mekanizması — makinenizden tam olarak neyin çıktığını görün
-
-<p align="center">
-  <img src="screenshots/chat-flow.gif" alt="Sohbet onay akışı — maskelenmiş prompt, getirilen parçalar, bulut LLM'e giden tam prompt ve deanonimleştirilmiş cevap" width="900" />
-</p>
-
-Her LLM çağrısından önce Septum size yan yana üç panel gösterir: yazdığınız **maskelenmiş prompt**, getirilen **doküman parçaları** (düzenlenebilir) ve buluta gerçekten gönderilecek **tam birleştirilmiş prompt**. Onayladığınızda cevap gerçek değerlerle birlikte geri döner — yerelde, asla bulutta değil.
-
-### Doküman önizleme — varlık vurguları ile
-
-<p align="center">
-  <img src="screenshots/document-preview.gif" alt="Doküman listesi ve tespit edilen PII varlıklarının satır içi vurgulandığı önizleme" width="900" />
-</p>
-
-Tespit edilen her varlık — isimler, adresler, doğum tarihleri, telefon numaraları, tıbbi teşhisler, kimlikler — orijinal doküman üzerinde varlık tipine göre renklendirilmiş olarak satır içi vurgulanır. Herhangi bir varlığa tıklayarak konumuna gidin; yan panel her eşleşmeyi skoru ve placeholder'ı ile birlikte listeler.
-
-<details>
-<summary><b>Daha fazla ekran görüntüsü</b> — Ayarlar, özel regülasyon kuralları, denetim kaydı</summary>
-
-<br />
-
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <b>LLM Sağlayıcı</b><br />
-      <img src="screenshots/14-settings-llm-provider.png" alt="LLM sağlayıcı ayarları" />
-    </td>
-    <td width="50%" align="center">
-      <b>Gizlilik ve Maskeleme (3 katmanlı pipeline)</b><br />
-      <img src="screenshots/15-settings-privacy-sanitization.png" alt="Gizlilik maskeleme ayarları" />
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <b>RAG ve Hibrit Arama</b><br />
-      <img src="screenshots/16-settings-rag.png" alt="RAG ayarları" />
-    </td>
-    <td align="center">
-      <b>Doküman Ingestion</b><br />
-      <img src="screenshots/17-settings-ingestion.png" alt="Ingestion ayarları" />
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <b>Altyapı</b><br />
-      <img src="screenshots/18-settings-infrastructure.png" alt="Altyapı ayarları" />
-    </td>
-    <td align="center">
-      <b>Özel Regülasyon Kuralları</b><br />
-      <img src="screenshots/19-regulations-custom-rules.png" alt="Özel regülasyon kuralları — regex, anahtar kelime listesi, LLM prompt" />
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center">
-      <b>Denetim Kaydı</b> — salt-ekleme uyumluluk günlüğü, varlık tespit metrikleri, ham PII yok<br />
-      <img src="screenshots/23-audit-trail.png" alt="Denetim kaydı" width="720" />
-    </td>
-  </tr>
-</table>
-
-</details>
+Tam tespit benchmark'ı, regülasyon paket tablosu, MCP entegrasyon kılavuzu, REST API + kimlik doğrulama referansı ve "neden Septum" karşılaştırması için [Özellikler](docs/FEATURES.tr.md) dokümanına bakın. Her Septum ekranının görsel turu — kurulum sihirbazı, onay kapısı, doküman önizleme, ayarlar sekmeleri, özel regülasyon kuralları, denetim kaydı — için [Ekran Görüntüleri](docs/SCREENSHOTS.tr.md) sayfasına bakın.
 
 ---
 
@@ -320,115 +137,58 @@ docker run --name septum \
   byerlikaya/septum
 ```
 
-**http://localhost:3000** adresini açın — kurulum sihirbazı her şeyi adım adım yapılandırır:
+**http://localhost:3000** adresini açın — sihirbaz veritabanı, cache, LLM sağlayıcı, regülasyonlar ve ilk admin hesabı kurulumu için sizi adım adım yönlendirir.
 
-1. **Veritabanı** — SQLite (varsayılan, sıfır konfigürasyon) veya PostgreSQL
-2. **Önbellek** — In-memory (varsayılan) veya Redis
-3. **LLM Provider** — Anthropic, OpenAI, OpenRouter veya Ollama (lokal)
-4. **Ses modeli** — Whisper model seçimi (opsiyonel)
+**Güncelleme.** Container'ı durdurup silin, `docker pull byerlikaya/septum` çekin, aynı `docker run` komutunu çalıştırın. Verileriniz volume'larda korunur.
 
-`.env` dosyası yok, manuel konfigürasyon yok. Veriler Docker volume'lar aracılığıyla otomatik korunur.
+**Docker Compose.** İlk `docker compose up` çağrısından önce `.env.example` dosyasını `.env` olarak kopyalayın ve `POSTGRES_PASSWORD` ile `REDIS_PASSWORD` değerlerini doldurun; compose dosyaları bu iki değişkeni zorunlu tutar ve eksikse başlamaz. Ardından `docker compose up` PostgreSQL, Redis, Ollama ve Septum'u birlikte ayağa kaldırır. İlk sohbetten önce bir model çekin: `docker compose exec ollama ollama pull llama3.2:3b`. Yalnız bulut sağlayıcı kullanacaksanız Ollama'yı `docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up` ile devre dışı bırakabilirsiniz.
 
-### Güncelleme
+**Deployment topolojileri** — farklı dağıtım biçimleri için dört ayrı compose dosyası gelir: standalone (tek container, SQLite), tam dev stack (tüm modüller tek host'ta), yalnızca air-gapped bölge ve yalnızca internet-facing bölge. Tam matris ve iki-host air-gap akışı için Mimari dokümanının [Deployment Topolojileri](docs/ARCHITECTURE.tr.md#deployment-topolojileri) bölümüne bakın.
 
-```bash
-docker stop septum && docker rm septum
-docker pull byerlikaya/septum
-docker run --name septum \
-  --add-host=host.docker.internal:host-gateway \
-  -p 3000:3000 \
-  -v septum-data:/app/data \
-  -v septum-uploads:/app/uploads \
-  -v septum-anon-maps:/app/anon_maps \
-  -v septum-vector-indexes:/app/vector_indexes \
-  -v septum-bm25-indexes:/app/bm25_indexes \
-  -v septum-models:/app/models \
-  byerlikaya/septum
-```
-
-`docker pull` adımı gereklidir — `docker run` tek başına önbellekteki eski image'ı kullanır. Verileriniz named volume'larda korunur.
-
-### Docker Compose (PostgreSQL + Redis)
+### Yerel geliştirme
 
 ```bash
-docker compose up
+./dev.sh --setup   # ilk kez: bağımlılıkları kur
+./dev.sh           # dev sunucularını başlat (port 3000)
 ```
 
-PostgreSQL, Redis ve Septum'u tek komutla başlatır. Yerel Ollama için `--profile ollama` ekleyin. Kurulum sihirbazı ilk ziyarette LLM provider'ı yapılandırır.
+Kurulum sihirbazı ilk ziyarette açılır.
 
-### Yerel Geliştirme
+### Docker vs Yerel
 
-```bash
-./dev.sh --setup   # İlk kurulum: bağımlılıkları yükle
-./dev.sh           # Dev sunucularını başlat (port 3000)
-```
-
-İlk ziyarette kurulum sihirbazı açılır.
-
-### Docker ve Yerel Kurulum Karşılaştırması
-
-Tüm özellikler her iki dağıtım modunda da aynı şekilde çalışır — Docker'da hiçbir işlevsellik kaybı yoktur:
-
-| Özellik | Docker | Yerel |
-|:---|:---:|:---:|
-| **NER / PII tespiti** | CPU | GPU hızlandırmalı |
-| **OCR (PaddleOCR)** | CPU | GPU hızlandırmalı |
-| **Ses transkripsiyonu (Whisper)** | CPU | GPU hızlandırmalı |
-| **Semantik arama (FAISS)** | CPU | CPU |
-| **Sohbet ve de-anonimleştirme** | Tam | Tam |
-| **Kurulum karmaşıklığı** | Tek komut | Python + Node.js |
-
-**Docker çoğu kullanıcı için önerilir.** CPU çıkarımı tipik iş yükleri (tek doküman, interaktif sohbet) için fazlasıyla yeterlidir. GPU hızlandırma (NVIDIA CUDA ile yerel kurulum gerektirir) yalnızca OCR veya ses transkripsiyonu ile büyük hacimli dokümanları toplu işlerken belirgin fark yaratır.
-
-**Apple Silicon:** Docker image'ı native `linux/arm64` build içerir. M1/M2/M3/M4 Mac'ler x86 emülasyonu olmadan çalışır — performans kaybı yoktur.
-
-Mimari detaylar için bkz. **[ARCHITECTURE.tr.md](ARCHITECTURE.tr.md)**.
+Tüm özellikler her iki modda da aynı şekilde çalışır. Tek fark hızlandırmadadır: yerel kurulum, PyPI'nin sisteminize uygun gördüğü torch sürümünü çeker (NVIDIA Linux'ta CUDA, Apple Silicon'da MPS). Yayınlanan Docker imajı ise yalnızca CPU üzerinde çalışır; NVIDIA Linux host'ları için tam CUDA runtime taşıyan ayrı bir `byerlikaya/septum:gpu` imajı da yayınlanır. Günlük iş yüklerinde CPU yeterlidir; GPU'nun farkı yalnızca toplu OCR veya uzun ses transkripsiyonlarında hissedilir.
 
 ---
 
-## Geliştiriciler İçin
+## Projeye Destek Olun
 
-### Hızlı API Örneği
+Septum açık kaynak bir projedir (MIT lisanslı) ve geliştirme süreci herkese açık yürütülür. Bir gizlilik ihlalinin önüne geçmenize, ekibinizin hızlanmasına ya da LLM akışınızın güvenli kalmasına yardımcı olduysa:
 
-```bash
-# Doküman yükle
-curl -X POST http://localhost:3000/api/documents/upload \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "file=@contract.pdf"
+- ⭐ **[GitHub'da repoyu yıldızlayın](https://github.com/byerlikaya/Septum)** — bu projenin sürdürülmeye değer olduğunu gösteren en güçlü sinyal.
+- **Issue açın** — bildirdiğiniz her hata ve eksik özellik yol haritasını şekillendirir.
+- **Ekibinize anlatın** — gizlilik öncelikli AI araçları hâlâ nadir; kulaktan kulağa yayılma her reklamdan daha etkili.
 
-# Soru sor (SSE ile akışlı yanıt)
-curl -N -X POST http://localhost:3000/api/chat/ask \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Fesih koşulları neler?", "document_id": 1}'
-```
-
-Chat endpoint'i Server-Sent Events döner: `meta` (oturum bilgisi) → `approval_required` (onay için maskelenmiş parçalar) → `answer_chunk` (akışlı yanıt) → `end`.
-
-Septum aradaki her şeyi yönetir: PII tespiti, anonimleştirme, arama, LLM çağrısı ve de-anonimleştirme. Uygulamanız sadece soru gönderir ve temiz cevaplar alır.
-
-Tam API referansı, pipeline detayları, kod yapısı ve dağıtım seçenekleri için bkz. **[ARCHITECTURE.tr.md](ARCHITECTURE.tr.md)**.
-
----
-
-## Projeye Destek Ol
-
-Septum açık kaynak (MIT lisanslı) ve halka açık olarak geliştiriliyor. Eğer sizi bir gizlilik ihlalinden kurtardıysa, ekibinizin daha hızlı ilerlemesine yardım ettiyse veya LLM iş akışınızı daha güvenli hâle getirdiyse lütfen şunları değerlendirin:
-
-- ⭐ **[GitHub'da repoya yıldız verin](https://github.com/byerlikaya/Septum)** — bu projeye yatırım yapmaya devam etmenin değeceğine dair en güçlü sinyal budur.
-- **Issue ve discussion açın** — bildirdiğiniz her hata ve istediğiniz her özellik yol haritasını şekillendirir.
-- **Ekibinizle paylaşın** — gizlilik odaklı AI araçları hâlâ nadir; kulaktan kulağa yayılmak her reklamdan daha değerli.
-
-### Yıldız Geçmişi
-
-<p align="center">
-  <a href="https://star-history.com/#byerlikaya/Septum&Date">
-    <img src="https://api.star-history.com/svg?repos=byerlikaya/Septum&type=Date" alt="Yıldız Geçmişi Grafiği" width="720" />
-  </a>
-</p>
 
 ---
 
 ## Lisans
 
-Detaylar için [LICENSE](LICENSE) dosyasına bakın.
+Ayrıntılar için [LICENSE](LICENSE) dosyasına bakın.
+
+---
+
+<p align="center">
+  <strong>🏠 Ana Sayfa</strong>
+  &nbsp;·&nbsp;
+  <a href="docs/FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
+  &nbsp;·&nbsp;
+  <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
+</p>

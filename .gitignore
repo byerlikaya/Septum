@@ -1,3 +1,10 @@
+# Internal planning docs (private, never published)
+.planning/
+
+# Private keys and certificates
+*.pem
+*.key
+
 # macOS
 .DS_Store
 
@@ -12,6 +19,7 @@ venv/
 env/
 .env
 .env.*
+!.env.example
 config.json
 .pytest_cache/
 .mypy_cache/
@@ -33,10 +41,8 @@ build/
 coverage.xml
 
 # Generated / environment-specific (do not commit)
-backend/requirements.lock.txt
-backend/pip-audit-backend.json
 coverage/
-frontend/coverage/
+packages/web/coverage/
 
 # Node / Next.js / frontend
 node_modules/
@@ -56,19 +62,16 @@ out/
 .claude/settings.local.json
 .claude/launch.json
 
-# Project-specific
+# Project-specific runtime state
 bm25_indexes/
-backend/vector_indexes/
-backend/bm25_indexes/
-backend/documents/
-
-# Any other local data/uploads
-backend/uploads/
-backend/storage/
-
-# Encrypted per-document anonymization maps (local only, never in repo)
-backend/anon_maps/
+documents/
+anon_maps/
+vector_indexes/
+uploads/
+data/
+models/
+/storage/
 
 # Test fixtures (do not commit local sample files)
-backend/tests/fixtures/
+packages/api/tests/fixtures/
 
