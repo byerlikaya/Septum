@@ -96,6 +96,7 @@ class EntityMetrics:
 @dataclass
 class BenchmarkReport:
     per_type: Dict[str, EntityMetrics] = field(default_factory=dict)
+    per_language: Dict[str, Dict[str, EntityMetrics]] = field(default_factory=dict)
     total_documents: int = 0
     layer_name: str = ""
 
@@ -1641,6 +1642,159 @@ OLLAMA_ALIAS_DOCUMENTS: list[BenchmarkDocument] = [
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  OLLAMA SEMANTIC-CONTEXTUAL CORPUS — DIAGNOSIS / MEDICATION / RELIGION /
+#  POLITICAL_OPINION / ETHNICITY. These are categories that Presidio and
+#  NER cannot express at all; the Ollama contextual layer is the only
+#  place in the pipeline that extracts them. Without a corpus like this,
+#  an Ollama-on vs Ollama-off ablation shows no delta — the layer is
+#  being asked to do work for which no ground truth is provided. This
+#  data plants one to three semantic entities per paragraph in realistic
+#  EN / TR sentences spanning healthcare, politics, religion, ethnicity,
+#  and sexual orientation so the ablation can measure Ollama's real value.
+# ═══════════════════════════════════════════════════════════════════════════
+
+SEMANTIC_OLLAMA_DOCUMENTS: list[BenchmarkDocument] = [
+    # --- Diagnosis / Medication ---
+    BenchmarkDocument(
+        name="sem_med_en_01", language="en", category="semantic_medical",
+        text=("The patient, a 54-year-old woman, was diagnosed with type 2 diabetes mellitus "
+              "last spring and is currently on metformin and empagliflozin."),
+        planted=[
+            PlantedEntity("type 2 diabetes mellitus", "DIAGNOSIS"),
+            PlantedEntity("metformin", "MEDICATION"),
+            PlantedEntity("empagliflozin", "MEDICATION"),
+        ],
+    ),
+    BenchmarkDocument(
+        name="sem_med_en_02", language="en", category="semantic_medical",
+        text=("Mr. Davis presents with stage III Hodgkin lymphoma and has started "
+              "a combination of doxorubicin, bleomycin, vinblastine, and dacarbazine."),
+        planted=[
+            PlantedEntity("stage III Hodgkin lymphoma", "DIAGNOSIS"),
+            PlantedEntity("doxorubicin", "MEDICATION"),
+            PlantedEntity("bleomycin", "MEDICATION"),
+            PlantedEntity("vinblastine", "MEDICATION"),
+            PlantedEntity("dacarbazine", "MEDICATION"),
+        ],
+    ),
+    BenchmarkDocument(
+        name="sem_med_en_03", language="en", category="semantic_medical",
+        text=("Family history of major depressive disorder; the patient takes "
+              "sertraline 100 mg daily and reports mild insomnia."),
+        planted=[
+            PlantedEntity("major depressive disorder", "DIAGNOSIS"),
+            PlantedEntity("sertraline", "MEDICATION"),
+            PlantedEntity("insomnia", "DIAGNOSIS"),
+        ],
+    ),
+    BenchmarkDocument(
+        name="sem_med_tr_01", language="tr", category="semantic_medical",
+        text=("Hasta son altı ayda tip 2 diyabet tanısı aldı ve metformin ile "
+              "empagliflozin tedavisi başlandı."),
+        planted=[
+            PlantedEntity("tip 2 diyabet", "DIAGNOSIS"),
+            PlantedEntity("metformin", "MEDICATION"),
+            PlantedEntity("empagliflozin", "MEDICATION"),
+        ],
+    ),
+    BenchmarkDocument(
+        name="sem_med_tr_02", language="tr", category="semantic_medical",
+        text=("Hastanın multipl skleroz tanısı bulunmakta olup interferon beta-1a "
+              "tedavisine devam etmektedir."),
+        planted=[
+            PlantedEntity("multipl skleroz", "DIAGNOSIS"),
+            PlantedEntity("interferon beta-1a", "MEDICATION"),
+        ],
+    ),
+    # --- Religion ---
+    BenchmarkDocument(
+        name="sem_rel_en_01", language="en", category="semantic_religion",
+        text=("As a practicing Orthodox Jew, the applicant requested kosher meals "
+              "for the conference, and observance of Shabbat was accommodated."),
+        planted=[
+            PlantedEntity("Orthodox Jew", "RELIGION"),
+        ],
+    ),
+    BenchmarkDocument(
+        name="sem_rel_en_02", language="en", category="semantic_religion",
+        text=("The interview noted that Ms. Chen identifies as Buddhist and "
+              "attends services at a local Zen temple twice a month."),
+        planted=[
+            PlantedEntity("Buddhist", "RELIGION"),
+        ],
+    ),
+    BenchmarkDocument(
+        name="sem_rel_tr_01", language="tr", category="semantic_religion",
+        text=("Başvuru sahibi Alevi kökenli olduğunu belirterek cemevi ziyaretlerine "
+              "uygun izin talep etti."),
+        planted=[
+            PlantedEntity("Alevi", "RELIGION"),
+        ],
+    ),
+    # --- Political opinion ---
+    BenchmarkDocument(
+        name="sem_pol_en_01", language="en", category="semantic_politics",
+        text=("The defendant is a registered member of the Green Party and "
+              "previously served on the party's environmental policy committee."),
+        planted=[
+            PlantedEntity("Green Party", "POLITICAL_OPINION"),
+        ],
+    ),
+    BenchmarkDocument(
+        name="sem_pol_en_02", language="en", category="semantic_politics",
+        text=("Interview records indicate the applicant holds libertarian views and "
+              "has campaigned for several Libertarian Party candidates."),
+        planted=[
+            PlantedEntity("libertarian", "POLITICAL_OPINION"),
+            PlantedEntity("Libertarian Party", "POLITICAL_OPINION"),
+        ],
+    ),
+    BenchmarkDocument(
+        name="sem_pol_tr_01", language="tr", category="semantic_politics",
+        text=("Başvuru formuna göre kişi Cumhuriyet Halk Partisi üyesidir ve "
+              "ilçe gençlik kollarında görev almıştır."),
+        planted=[
+            PlantedEntity("Cumhuriyet Halk Partisi", "POLITICAL_OPINION"),
+        ],
+    ),
+    # --- Ethnicity ---
+    BenchmarkDocument(
+        name="sem_eth_en_01", language="en", category="semantic_ethnicity",
+        text=("The cohort study enrolled 1,200 African-American women aged 40–60 "
+              "to examine cardiovascular outcomes across ethnic groups."),
+        planted=[
+            PlantedEntity("African-American", "ETHNICITY"),
+        ],
+    ),
+    BenchmarkDocument(
+        name="sem_eth_en_02", language="en", category="semantic_ethnicity",
+        text=("The interviewee, of Kurdish descent, spoke about community life "
+              "in Diyarbakır before moving to Germany."),
+        planted=[
+            PlantedEntity("Kurdish", "ETHNICITY"),
+        ],
+    ),
+    # --- Sexual orientation ---
+    BenchmarkDocument(
+        name="sem_sex_en_01", language="en", category="semantic_sexual",
+        text=("Mr. Patel disclosed during the interview that he is openly gay and "
+              "has been in a civil partnership with his husband since 2018."),
+        planted=[
+            PlantedEntity("gay", "SEXUAL_ORIENTATION"),
+        ],
+    ),
+    BenchmarkDocument(
+        name="sem_sex_en_02", language="en", category="semantic_sexual",
+        text=("The employee volunteered that she is bisexual and participates in "
+              "the company's LGBTQ+ affinity group."),
+        planted=[
+            PlantedEntity("bisexual", "SEXUAL_ORIENTATION"),
+        ],
+    ),
+]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  EXTERNAL BENCHMARKS — industry-standard datasets
 #
 #  In addition to the Septum-curated synthetic corpora above (which exercise
@@ -1683,6 +1837,51 @@ _WIKINEURAL_TAG_MAP: Dict[int, str] = {
     6: "LOCATION",           # I-LOC
 }
 
+# Ai4Privacy PII-Masking-300k → Septum entity-type map. Tags not in
+# the list (TITLE, SEX, TIME, CARDISSUER, PASS) are ignored because they
+# are not treated as PII in any of the 17 regulations Septum ships.
+_AI4PRIVACY_ENTITY_MAP: Dict[str, str] = {
+    "GIVENNAME1": "PERSON_NAME", "GIVENNAME2": "PERSON_NAME",
+    "LASTNAME1": "PERSON_NAME", "LASTNAME2": "PERSON_NAME", "LASTNAME3": "PERSON_NAME",
+    "EMAIL": "EMAIL_ADDRESS",
+    "TEL": "PHONE_NUMBER",
+    "IP": "IP_ADDRESS",
+    "IDCARD": "NATIONAL_ID",
+    "PASSPORT": "PASSPORT_NUMBER",
+    "DRIVERLICENSE": "DRIVERS_LICENSE",
+    "SOCIALNUMBER": "SOCIAL_SECURITY_NUMBER",
+    "STREET": "POSTAL_ADDRESS",
+    "BUILDING": "POSTAL_ADDRESS",
+    "SECADDRESS": "POSTAL_ADDRESS",
+    "POSTCODE": "POSTAL_ADDRESS",
+    "CITY": "LOCATION",
+    "COUNTRY": "LOCATION",
+    "STATE": "LOCATION",
+    "GEOCOORD": "COORDINATES",
+    "BOD": "DATE_OF_BIRTH",
+    "USERNAME": "PERSON_NAME",
+}
+
+# Ai4Privacy labels the language column with full names ("English") rather
+# than ISO codes; normalise so downstream code can always use "en", "de", ….
+_AI4PRIVACY_LANG_MAP: Dict[str, str] = {
+    "English": "en", "Dutch": "nl", "French": "fr",
+    "German": "de", "Italian": "it", "Spanish": "es",
+}
+
+# CoNLL-2003 BIO → Septum tags. MISC is intentionally dropped because
+# the CoNLL MISC class conflates nationalities / events / works-of-art
+# and does not map cleanly onto any Septum PII category.
+_CONLL2003_TAG_MAP: Dict[int, str] = {
+    1: "PERSON_NAME",        # B-PER
+    2: "PERSON_NAME",        # I-PER
+    3: "ORGANIZATION_NAME",  # B-ORG
+    4: "ORGANIZATION_NAME",  # I-ORG
+    5: "LOCATION",           # B-LOC
+    6: "LOCATION",           # I-LOC
+    # 7: B-MISC, 8: I-MISC — ignored by design
+}
+
 
 def _presidio_evaluator_docs(num_samples: int = 200) -> list[BenchmarkDocument]:
     """Generate documents using Microsoft's Presidio Evaluator framework.
@@ -1720,6 +1919,332 @@ def _wikineural_docs(
     languages: tuple[str, ...] = ("en", "de", "fr", "es", "it", "nl", "pl", "pt", "ru"),
     samples_per_lang: int = 50,
 ) -> list[BenchmarkDocument]:
+    """Load held-out test samples from Babelscape/wikineural.
+
+    Silently returns an empty list if `datasets` isn't installed or the
+    dataset cannot be fetched (e.g. air-gapped CI). Caveat: the
+    XLM-RoBERTa NER models Septum uses are trained on the related
+    WikiANN corpus, so these numbers skew toward an upper bound on
+    real-world performance for this language set.
+    """
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        logger.info("datasets not installed, skipping wikineural benchmark")
+        return []
+    docs: list[BenchmarkDocument] = []
+    for lang in languages:
+        try:
+            rows = load_dataset("Babelscape/wikineural", split=f"test_{lang}")
+        except Exception as exc:
+            logger.warning("wikineural test_%s unavailable: %s", lang, str(exc)[:120])
+            continue
+        for i, row in enumerate(rows.select(range(min(samples_per_lang, len(rows))))):
+            tokens = row["tokens"]
+            tags = row["ner_tags"]
+            text = " ".join(tokens)
+            planted: list[PlantedEntity] = []
+            current_tokens: list[str] = []
+            current_type: Optional[str] = None
+            for tok, tag in zip(tokens, tags):
+                etype = _WIKINEURAL_TAG_MAP.get(int(tag))
+                is_begin = int(tag) in (1, 3, 5)
+                if etype and (is_begin or etype != current_type):
+                    if current_tokens and current_type:
+                        planted.append(PlantedEntity(" ".join(current_tokens), current_type))
+                    current_tokens = [tok]
+                    current_type = etype
+                elif etype and current_type == etype:
+                    current_tokens.append(tok)
+                else:
+                    if current_tokens and current_type:
+                        planted.append(PlantedEntity(" ".join(current_tokens), current_type))
+                    current_tokens = []
+                    current_type = None
+            if current_tokens and current_type:
+                planted.append(PlantedEntity(" ".join(current_tokens), current_type))
+            if planted:
+                docs.append(BenchmarkDocument(
+                    name=f"wikineural_{lang}_{i:04d}",
+                    text=text,
+                    language=lang,
+                    planted=planted,
+                    category=f"external_wikineural_{lang}",
+                ))
+    return docs
+
+
+def _ai4privacy_docs(
+    samples_per_lang: int = 50,
+    languages: tuple[str, ...] = ("English", "Dutch", "French", "German", "Italian", "Spanish"),
+) -> list[BenchmarkDocument]:
+    """Load validation samples from ai4privacy/pii-masking-300k.
+
+    Modern PII-specific dataset (300k samples, 6 languages, MIT licence)
+    built from scratch for de-identification evaluation — the models
+    Septum uses were NOT trained on this corpus, so it is the closest
+    the benchmark gets to a true out-of-distribution check.
+    """
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        logger.info("datasets not installed, skipping ai4privacy benchmark")
+        return []
+    try:
+        ds = load_dataset("ai4privacy/pii-masking-300k", split="validation")
+    except Exception as exc:
+        logger.warning("ai4privacy dataset unavailable: %s", str(exc)[:120])
+        return []
+    docs: list[BenchmarkDocument] = []
+    for lang in languages:
+        iso = _AI4PRIVACY_LANG_MAP.get(lang, lang.lower()[:2])
+        lang_rows = ds.filter(lambda r, lang=lang: r["language"] == lang)
+        for i, row in enumerate(lang_rows.select(range(min(samples_per_lang, len(lang_rows))))):
+            planted: list[PlantedEntity] = []
+            for span in row["privacy_mask"]:
+                mapped = _AI4PRIVACY_ENTITY_MAP.get(span["label"])
+                if mapped:
+                    planted.append(PlantedEntity(span["value"], mapped))
+            if planted:
+                docs.append(BenchmarkDocument(
+                    name=f"ai4privacy_{iso}_{i:04d}",
+                    text=row["source_text"],
+                    language=iso,
+                    planted=planted,
+                    category=f"external_ai4privacy_{iso}",
+                ))
+    return docs
+
+
+def _conll2003_docs(num_samples: int = 200) -> list[BenchmarkDocument]:
+    """Load held-out test samples from tomaarsen/conll2003 (EN news).
+
+    CoNLL-2003 is the classical news-NER gold standard; unlike WikiANN-
+    family corpora it is *not* what the XLM-RoBERTa models Septum uses
+    were trained on, making it a cleaner out-of-distribution probe on
+    English text.
+    """
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        logger.info("datasets not installed, skipping conll2003 benchmark")
+        return []
+    try:
+        ds = load_dataset("tomaarsen/conll2003", split="test")
+    except Exception as exc:
+        logger.warning("conll2003 dataset unavailable: %s", str(exc)[:120])
+        return []
+    docs: list[BenchmarkDocument] = []
+    for i, row in enumerate(ds.select(range(min(num_samples, len(ds))))):
+        tokens = row["tokens"]
+        tags = row["ner_tags"]
+        text = " ".join(tokens)
+        planted: list[PlantedEntity] = []
+        current_tokens: list[str] = []
+        current_type: Optional[str] = None
+        for tok, tag in zip(tokens, tags):
+            etype = _CONLL2003_TAG_MAP.get(int(tag))
+            is_begin = int(tag) in (1, 3, 5)
+            if etype and (is_begin or etype != current_type):
+                if current_tokens and current_type:
+                    planted.append(PlantedEntity(" ".join(current_tokens), current_type))
+                current_tokens = [tok]
+                current_type = etype
+            elif etype and current_type == etype:
+                current_tokens.append(tok)
+            else:
+                if current_tokens and current_type:
+                    planted.append(PlantedEntity(" ".join(current_tokens), current_type))
+                current_tokens = []
+                current_type = None
+        if current_tokens and current_type:
+            planted.append(PlantedEntity(" ".join(current_tokens), current_type))
+        if planted:
+            docs.append(BenchmarkDocument(
+                name=f"conll2003_{i:04d}",
+                text=text,
+                language="en",
+                planted=planted,
+                category="external_conll2003",
+            ))
+    return docs
+
+
+def _cross_ner_docs(num_samples_per_domain: int = 30) -> list[BenchmarkDocument]:
+    """Load held-out test samples from DFKI-SLT/cross_ner — cross-domain NER.
+
+    CrossNER covers five domains (ai, literature, music, politics, science)
+    with distinct entity vocabularies per domain. Acts as an alternative to
+    TAB (Text Anonymization Benchmark) for domain-shift robustness, since
+    TAB is not distributed in parquet form.
+    """
+    try:
+        from datasets import load_dataset, get_dataset_split_names
+    except ImportError:
+        return []
+    docs: list[BenchmarkDocument] = []
+    for domain in ("ai", "literature", "music", "politics", "science"):
+        try:
+            ds = load_dataset("DFKI-SLT/cross_ner", domain, split="test")
+        except Exception as exc:
+            logger.warning("cross_ner %s unavailable: %s", domain, str(exc)[:120])
+            continue
+        feat = ds.features["ner_tags"]
+        try:
+            tag_names = feat.feature.names
+        except AttributeError:
+            tag_names = None
+        for i, row in enumerate(ds.select(range(min(num_samples_per_domain, len(ds))))):
+            tokens = row["tokens"]
+            tags = row["ner_tags"]
+            text = " ".join(tokens)
+            planted: list[PlantedEntity] = []
+            current_tokens: list[str] = []
+            current_type: Optional[str] = None
+            for tok, tag in zip(tokens, tags):
+                name = tag_names[int(tag)] if tag_names else str(tag)
+                etype: Optional[str] = None
+                is_begin = name.startswith("B-")
+                base = name[2:] if name.startswith(("B-", "I-")) else ""
+                if base in ("person", "politician", "scientist", "musicalartist", "writer"):
+                    etype = "PERSON_NAME"
+                elif base in ("organisation", "politicalparty", "band", "musicalartist", "university", "company"):
+                    # collapse to ORGANIZATION_NAME; musicalartist already matched above
+                    etype = "ORGANIZATION_NAME"
+                elif base in ("location", "country"):
+                    etype = "LOCATION"
+                if etype and (is_begin or etype != current_type):
+                    if current_tokens and current_type:
+                        planted.append(PlantedEntity(" ".join(current_tokens), current_type))
+                    current_tokens = [tok]
+                    current_type = etype
+                elif etype and current_type == etype:
+                    current_tokens.append(tok)
+                else:
+                    if current_tokens and current_type:
+                        planted.append(PlantedEntity(" ".join(current_tokens), current_type))
+                    current_tokens = []
+                    current_type = None
+            if current_tokens and current_type:
+                planted.append(PlantedEntity(" ".join(current_tokens), current_type))
+            if planted:
+                docs.append(BenchmarkDocument(
+                    name=f"crossner_{domain}_{i:03d}",
+                    text=text,
+                    language="en",
+                    planted=planted,
+                    category=f"external_cross_ner_{domain}",
+                ))
+    return docs
+
+
+def _clean_text_fpr_docs() -> list[BenchmarkDocument]:
+    """Paragraphs engineered to contain NO PII — used to measure false-
+    positive rate. Any detection inside these docs is a false positive.
+    Drawn from topics that habitually trip NER models: scientific notions,
+    generic business prose, common nouns that look like names.
+    """
+    clean_corpus = [
+        ("en", "The water cycle consists of evaporation, condensation, precipitation, and runoff. Warm sunlight drives evaporation from oceans and lakes. Water vapour rises, cools, and condenses into clouds. Precipitation returns the water to the surface as rain, snow, sleet, or hail."),
+        ("en", "Software engineering is the systematic application of engineering approaches to the development of software. Modern practice combines version control, continuous integration, automated testing, and code review. These disciplines aim to reduce defect rates and improve long-term maintainability."),
+        ("en", "The tomato plant is a member of the nightshade family. Tomatoes are rich in lycopene, an antioxidant associated with several health benefits. They are typically grown in warm climates and require full sun, regular watering, and well-drained soil."),
+        ("en", "Photosynthesis is the process by which green plants convert sunlight into chemical energy. The reaction occurs in chloroplasts and produces glucose and oxygen from carbon dioxide and water. Light intensity, temperature, and carbon dioxide concentration all affect the rate."),
+        ("en", "Retail sales climbed modestly last quarter as households trimmed discretionary spending. Analysts attribute the slowdown to rising mortgage costs and weaker consumer confidence. Manufacturing output, by contrast, expanded on the back of strong export orders."),
+        ("tr", "Bir ekonomide döngüsel işsizlik, genel ekonomik aktivitedeki dalgalanmalar nedeniyle ortaya çıkar. Resesyon dönemlerinde istihdam daralır; toparlanma dönemlerinde tekrar artar. Yapısal işsizlik ise beceri uyumsuzluğundan kaynaklanır ve kısa vadede kolay düşmez."),
+        ("tr", "Güneş sistemi, Güneş'in çekim alanı altında bulunan sekiz gezegen, cüce gezegenler, uydular, asteroitler ve kuyrukluyıldızlardan oluşur. Gezegenler yörüngelerinde farklı hızlarda hareket eder; dış gezegenler iç gezegenlere göre çok daha uzun yıl dönüşüne sahiptir."),
+        ("tr", "Ormanların karbon yutak kapasitesi, iklim değişikliği politikalarının temel taşlarından biridir. Ağaçlar fotosentez sırasında atmosferden karbondioksit çeker ve biyokütlelerinde depolar. Orman kaybı bu kapasiteyi doğrudan azaltır."),
+        ("de", "Die Quantenmechanik beschreibt das Verhalten von Materie und Energie auf mikroskopischer Ebene. Zentrale Konzepte sind Wellenfunktionen, Superposition und die Heisenbergsche Unschärferelation. Viele Ergebnisse der Theorie lassen sich nur statistisch interpretieren."),
+        ("fr", "La théorie cellulaire énonce que tout organisme vivant est composé d'une ou plusieurs cellules. Elle stipule également que la cellule est l'unité fondamentale de la vie et que toutes les cellules proviennent de cellules préexistantes."),
+        ("es", "El teorema fundamental del cálculo vincula la derivación y la integración, dos de las operaciones centrales del análisis matemático. Establece que la integral definida de una función continua sobre un intervalo puede evaluarse usando su antiderivada."),
+        ("ja", "光合成は植物が太陽光のエネルギーを化学エネルギーに変換するプロセスです。葉緑体で行われ、二酸化炭素と水からブドウ糖と酸素を生成します。地球上の酸素供給の大部分を担っています。"),
+        ("zh", "经济增长通常通过国内生产总值的增长率来衡量。长期增长依赖于资本投入、劳动力供给和技术进步三大因素。政策制定者通过财政和货币工具来影响短期波动。"),
+        ("ar", "يتكون النظام الشمسي من الشمس وثمانية كواكب تدور حولها، بالإضافة إلى عدد كبير من الأقمار والكواكب القزمة والمذنبات والكويكبات. يعتبر الكوكب الرابع المريخ هدفًا رئيسيًا للاستكشاف."),
+        ("hi", "रेडॉक्स अभिक्रियाएं वे रासायनिक प्रक्रियाएं हैं जिनमें दो पदार्थ इलेक्ट्रॉनों का आदान-प्रदान करते हैं। एक पदार्थ ऑक्सीकृत होता है जबकि दूसरा अपचयित होता है। ये अभिक्रियाएं बैटरी और कोशिकीय श्वसन दोनों में महत्वपूर्ण हैं।"),
+    ]
+    return [
+        BenchmarkDocument(
+            name=f"clean_{lang}_{i:02d}",
+            text=text,
+            language=lang,
+            planted=[],  # empty — any detection is a false positive
+            category=f"clean_text_{lang}",
+        )
+        for i, (lang, text) in enumerate(clean_corpus)
+    ]
+
+
+def _adversarial_pii_docs() -> list[BenchmarkDocument]:
+    """Red-team style adversarial inputs designed to probe obfuscation
+    robustness. Every planted entity is a known PII value that a real
+    attacker could try to slip past a PII filter by tweaking spelling or
+    whitespace. Low scores here are honest signal.
+    """
+    docs: list[BenchmarkDocument] = []
+    # Leetspeak: numbers replacing letters.
+    docs.append(BenchmarkDocument(
+        name="adv_leetspeak_01", language="en", category="adversarial",
+        text="Please forward this invoice to j0hn.d03@3xample.c0m by Friday.",
+        planted=[PlantedEntity("j0hn.d03@3xample.c0m", "EMAIL_ADDRESS")],
+    ))
+    docs.append(BenchmarkDocument(
+        name="adv_leetspeak_02", language="en", category="adversarial",
+        text="Customer reached out via +1-5-5-5-1-2-3-4-5-6-7 asking for a refund.",
+        planted=[PlantedEntity("+1-5-5-5-1-2-3-4-5-6-7", "PHONE_NUMBER")],
+    ))
+    # Unicode homoglyph: Cyrillic 'а' / 'о' mimicking Latin.
+    docs.append(BenchmarkDocument(
+        name="adv_homoglyph_01", language="en", category="adversarial",
+        text="Account holder: Jаne Smith contact jаne.smith@еxample.com today.",
+        planted=[
+            PlantedEntity("Jаne Smith", "PERSON_NAME"),
+            PlantedEntity("jаne.smith@еxample.com", "EMAIL_ADDRESS"),
+        ],
+    ))
+    # Zero-width joiner / non-breaking space splitting an email.
+    docs.append(BenchmarkDocument(
+        name="adv_zerowidth_01", language="en", category="adversarial",
+        text="Ticket owner: alice\u200b.smith@contoso\u200b.com opened case 42.",
+        planted=[PlantedEntity("alice\u200b.smith@contoso\u200b.com", "EMAIL_ADDRESS")],
+    ))
+    # Heavily spaced phone / IBAN.
+    docs.append(BenchmarkDocument(
+        name="adv_spaced_iban", language="en", category="adversarial",
+        text="Transfer to D E 8 9  3 7 0 4  0 0 4 4  0 5 3 2  0 1 3 0  0 0 before Monday.",
+        planted=[PlantedEntity("D E 8 9  3 7 0 4  0 0 4 4  0 5 3 2  0 1 3 0  0 0", "IBAN")],
+    ))
+    docs.append(BenchmarkDocument(
+        name="adv_spaced_phone", language="en", category="adversarial",
+        text="Call 4 1 5 . 8 6 7 . 5 3 0 9 after 9am.",
+        planted=[PlantedEntity("4 1 5 . 8 6 7 . 5 3 0 9", "PHONE_NUMBER")],
+    ))
+    # ALL CAPS and mixed-casing attacks.
+    docs.append(BenchmarkDocument(
+        name="adv_caps_tr", language="tr", category="adversarial",
+        text="AHMET YILMAZ dün akşam ankara.gov.tr üzerinden başvurdu.",
+        planted=[
+            PlantedEntity("AHMET YILMAZ", "PERSON_NAME"),
+            PlantedEntity("ankara.gov.tr", "URL"),
+        ],
+    ))
+    # Bracketed PII mimicking redaction (easy for a pattern to re-extract).
+    docs.append(BenchmarkDocument(
+        name="adv_bracketed", language="en", category="adversarial",
+        text="User [alice@acme.io] reported the bug, see ticket log for PII.",
+        planted=[PlantedEntity("alice@acme.io", "EMAIL_ADDRESS")],
+    ))
+    # Comment-style escapes around a credit-card.
+    docs.append(BenchmarkDocument(
+        name="adv_escaped_cc", language="en", category="adversarial",
+        text="/* 4111-1111-1111-1111 -- the Visa test card */  log entry closed.",
+        planted=[PlantedEntity("4111-1111-1111-1111", "CREDIT_CARD_NUMBER")],
+    ))
+    # Line-wrap splitting a TCKN (Turkish national ID).
+    docs.append(BenchmarkDocument(
+        name="adv_wrapped_tckn", language="tr", category="adversarial",
+        text="T.C. kimlik:\n10000000146\nbaşvuruda beyan edildi.",
+        planted=[PlantedEntity("10000000146", "NATIONAL_ID")],
+    ))
+    return docs
     """Load held-out test samples from Babelscape/wikineural.
 
     Silently returns an empty list if `datasets` isn't installed or the
@@ -1810,6 +2335,11 @@ def _make_settings(*, use_ner: bool = False, use_ollama: bool = False) -> AppSet
         require_approval=False, show_json_output=False,
         use_presidio_layer=True, use_ner_layer=use_ner,
         use_ollama_validation_layer=use_ollama, use_ollama_layer=use_ollama,
+        # Semantic contextual detection catches DIAGNOSIS / MEDICATION /
+        # RELIGION / POLITICAL_OPINION / ETHNICITY / etc. — entities that
+        # Presidio and NER cannot express. Benchmark keeps it on whenever
+        # Ollama itself is on so the ablation measures both of Ollama's jobs.
+        use_ollama_semantic_layer=use_ollama,
         chunk_size=800, chunk_overlap=200, top_k_retrieval=5,
         pdf_chunk_size=1200, audio_chunk_size=60, spreadsheet_chunk_size=200,
         whisper_model="base", image_ocr_languages=["en"],
@@ -1922,7 +2452,10 @@ def _run_benchmark(sanitizer: PIISanitizer, docs: list[BenchmarkDocument],
     r = BenchmarkReport(layer_name=layer_name)
     for doc in docs:
         try:
-            _merge(r.per_type, _evaluate(sanitizer, doc))
+            metrics = _evaluate(sanitizer, doc)
+            _merge(r.per_type, metrics)
+            lang_bucket = r.per_language.setdefault(doc.language, {})
+            _merge(lang_bucket, metrics)
             r.total_documents += 1
         except Exception as exc:
             logger.warning("Skipping doc %s (%s): %s", doc.name, doc.language, exc)
@@ -2039,22 +2572,59 @@ def test_benchmark_combined_summary(
         n_r = None; n_t = None; n_n = 0
         print("\n  Layer 2 — NER: skipped (models not available)")
 
-    # Ollama: full pipeline
+    # Ollama: full pipeline — alias detection (OLLAMA_ALIAS_DOCUMENTS) plus
+    # contextual semantic categories (SEMANTIC_OLLAMA_DOCUMENTS: DIAGNOSIS /
+    # MEDICATION / RELIGION / POLITICAL_OPINION / ETHNICITY /
+    # SEXUAL_ORIENTATION). The contextual corpus is the only way to measure
+    # what the Ollama semantic-contextual layer actually does, since
+    # Presidio and NER cannot express those categories at all.
     if ollama_sanitizer is not None:
-        o_docs = all_ner_docs + OLLAMA_ALIAS_DOCUMENTS
+        o_docs = all_ner_docs + OLLAMA_ALIAS_DOCUMENTS + SEMANTIC_OLLAMA_DOCUMENTS
         o_r = _run_benchmark(ollama_sanitizer, o_docs, "Ollama")
         o_t = _totals(o_r.per_type)
         o_n = _planted(o_docs)
         print(f"\n  Layer 3/4 — Ollama ({OLLAMA_MODEL})")
         print(f"    Documents:  {o_r.total_documents}  |  Entities: {o_n}  |  Types: {len(o_r.per_type)}")
         print(f"    Precision: {o_t.precision:.1%}  |  Recall: {o_t.recall:.1%}  |  F1: {o_t.f1:.1%}")
+
+        # Semantic-only breakdown so Ollama's unique contribution is visible.
+        sem_r = _run_benchmark(ollama_sanitizer, SEMANTIC_OLLAMA_DOCUMENTS, "Ollama semantic")
+        sem_t = _totals(sem_r.per_type)
+        sem_n = _planted(SEMANTIC_OLLAMA_DOCUMENTS)
+        print(f"    Semantic-only subset (DIAGNOSIS / MEDICATION / RELIGION / POLITICAL / ETHNICITY / SEXUAL):")
+        print(f"      Documents: {sem_r.total_documents}  |  Entities: {sem_n}  |  Types: {len(sem_r.per_type)}")
+        print(f"      Precision: {sem_t.precision:.1%}  |  Recall: {sem_t.recall:.1%}  |  F1: {sem_t.f1:.1%}")
     else:
         o_r = None; o_t = None; o_n = 0
+        sem_r = None; sem_t = None; sem_n = 0
         print(f"\n  Layer 3/4 — Ollama: skipped (server not available)")
 
-    # External reference datasets (Presidio Evaluator + Babelscape/wikineural)
-    # Reported separately so they never inflate the headline Septum-synthetic
-    # numbers. Uses the fullest sanitizer available (Ollama > NER > Presidio).
+    # Ollama ablation — run the same FULL corpus with Ollama OFF (NER-only)
+    # so the marginal contribution of both Ollama jobs (alias + semantic-
+    # contextual) is directly visible. Including SEMANTIC_OLLAMA_DOCUMENTS
+    # is critical: those entity types (DIAGNOSIS / MEDICATION / …) are
+    # unreachable without Ollama, so a NER-only run will score ~0 on them
+    # and the F1 delta finally reflects Ollama's actual job.
+    if ollama_sanitizer is not None and ner_sanitizer is not None:
+        abl_docs = NER_DOCUMENTS + MULTILINGUAL_NER_DOCUMENTS + OLLAMA_ALIAS_DOCUMENTS + SEMANTIC_OLLAMA_DOCUMENTS
+        abl_r = _run_benchmark(ner_sanitizer, abl_docs, "NER-only ablation")
+        abl_t = _totals(abl_r.per_type)
+        abl_n = _planted(abl_docs)
+        print(f"\n  Ablation — Ollama OFF (same corpus as L3 above, incl. semantic)")
+        print(f"    Documents:  {abl_r.total_documents}  |  Entities: {abl_n}")
+        print(f"    Precision: {abl_t.precision:.1%}  |  Recall: {abl_t.recall:.1%}  |  F1: {abl_t.f1:.1%}")
+        if o_t is not None:
+            delta_f1 = (o_t.f1 - abl_t.f1) * 100
+            delta_r = (o_t.recall - abl_t.recall) * 100
+            print(f"    Ollama marginal: ΔRecall {delta_r:+.2f} pp, ΔF1 {delta_f1:+.2f} pp")
+    else:
+        abl_r = None; abl_t = None; abl_n = 0
+        print(f"\n  Ablation — Ollama OFF: skipped (requires both sanitizers)")
+
+    # External reference datasets (Presidio Evaluator + Babelscape/wikineural
+    # + ai4privacy/pii-masking-300k + CoNLL-2003 + CrossNER). Reported
+    # separately so they never inflate the headline Septum-synthetic aggregate.
+    # Uses the fullest sanitizer available (Ollama > NER > Presidio).
     external_sanitizer = ollama_sanitizer or ner_sanitizer or presidio_sanitizer
     pe_docs = _presidio_evaluator_docs(num_samples=200)
     if pe_docs:
@@ -2065,6 +2635,7 @@ def test_benchmark_combined_summary(
         print(f"    Documents:  {pe_r.total_documents}  |  Entities: {pe_n}  |  Types: {len(pe_r.per_type)}")
         print(f"    Precision: {pe_t.precision:.1%}  |  Recall: {pe_t.recall:.1%}  |  F1: {pe_t.f1:.1%}")
     else:
+        pe_r = None; pe_t = None; pe_n = 0
         print(f"\n  External — Presidio Evaluator: skipped (package not installed)")
 
     wn_docs = _wikineural_docs(samples_per_lang=50)
@@ -2077,7 +2648,82 @@ def test_benchmark_combined_summary(
         print(f"    Documents:  {wn_r.total_documents}  |  Entities: {wn_n}  |  Types: {len(wn_r.per_type)}")
         print(f"    Precision: {wn_t.precision:.1%}  |  Recall: {wn_t.recall:.1%}  |  F1: {wn_t.f1:.1%}")
     else:
+        wn_r = None; wn_t = None; wn_n = 0
         print(f"\n  External — wikineural: skipped (dataset unavailable)")
+
+    # ai4privacy — modern PII-specific, not in XLM-RoBERTa training data.
+    ai_docs = _ai4privacy_docs(samples_per_lang=50)
+    if ai_docs:
+        ai_r = _run_benchmark(external_sanitizer, ai_docs, "ai4privacy")
+        ai_t = _totals(ai_r.per_type)
+        ai_n = _planted(ai_docs)
+        ai_langs = sorted({d.language for d in ai_docs})
+        print(f"\n  External — ai4privacy/pii-masking-300k ({len(ai_langs)} langs: {', '.join(ai_langs)})")
+        print(f"    Documents:  {ai_r.total_documents}  |  Entities: {ai_n}  |  Types: {len(ai_r.per_type)}")
+        print(f"    Precision: {ai_t.precision:.1%}  |  Recall: {ai_t.recall:.1%}  |  F1: {ai_t.f1:.1%}")
+    else:
+        ai_r = None; ai_t = None; ai_n = 0
+        print(f"\n  External — ai4privacy: skipped (dataset unavailable)")
+
+    # CoNLL-2003 — news-domain gold standard, not in training data.
+    cn_docs = _conll2003_docs(num_samples=200)
+    if cn_docs:
+        cn_r = _run_benchmark(external_sanitizer, cn_docs, "CoNLL-2003")
+        cn_t = _totals(cn_r.per_type)
+        cn_n = _planted(cn_docs)
+        print(f"\n  External — CoNLL-2003 (EN news, held-out test split)")
+        print(f"    Documents:  {cn_r.total_documents}  |  Entities: {cn_n}  |  Types: {len(cn_r.per_type)}")
+        print(f"    Precision: {cn_t.precision:.1%}  |  Recall: {cn_t.recall:.1%}  |  F1: {cn_t.f1:.1%}")
+    else:
+        cn_r = None; cn_t = None; cn_n = 0
+        print(f"\n  External — CoNLL-2003: skipped (dataset unavailable)")
+
+    # CrossNER — cross-domain robustness probe.
+    cx_docs = _cross_ner_docs(num_samples_per_domain=20)
+    if cx_docs:
+        cx_r = _run_benchmark(external_sanitizer, cx_docs, "CrossNER")
+        cx_t = _totals(cx_r.per_type)
+        cx_n = _planted(cx_docs)
+        cx_domains = sorted({d.category.replace("external_cross_ner_", "") for d in cx_docs})
+        print(f"\n  External — DFKI-SLT/cross_ner ({len(cx_domains)} domains: {', '.join(cx_domains)})")
+        print(f"    Documents:  {cx_r.total_documents}  |  Entities: {cx_n}  |  Types: {len(cx_r.per_type)}")
+        print(f"    Precision: {cx_t.precision:.1%}  |  Recall: {cx_t.recall:.1%}  |  F1: {cx_t.f1:.1%}")
+    else:
+        cx_r = None; cx_t = None; cx_n = 0
+        print(f"\n  External — CrossNER: skipped (dataset unavailable)")
+
+    # Clean-text false-positive rate — any detection on these docs is a
+    # false positive (planted is empty).
+    ct_docs = _clean_text_fpr_docs()
+    ct_r = _run_benchmark(external_sanitizer, ct_docs, "Clean-text FPR")
+    ct_totals = _totals(ct_r.per_type)
+    ct_tokens = sum(len(d.text.split()) for d in ct_docs)
+    ct_fp_per_k = (ct_totals.fp / ct_tokens * 1000) if ct_tokens else 0
+    print(f"\n  Robustness — clean-text false-positive rate ({len(ct_docs)} PII-free paragraphs)")
+    print(f"    Tokens: {ct_tokens}  |  False positives: {ct_totals.fp}  |  FP / 1k tokens: {ct_fp_per_k:.2f}")
+
+    # Adversarial pack — obfuscated PII (leetspeak, homoglyph, zero-width, …).
+    adv_docs = _adversarial_pii_docs()
+    adv_r = _run_benchmark(external_sanitizer, adv_docs, "Adversarial")
+    adv_t = _totals(adv_r.per_type)
+    adv_n = _planted(adv_docs)
+    print(f"\n  Robustness — adversarial pack ({len(adv_docs)} obfuscated PII inputs)")
+    print(f"    Entities: {adv_n}  |  Precision: {adv_t.precision:.1%}  |  Recall: {adv_t.recall:.1%}  |  F1: {adv_t.f1:.1%}")
+
+    # Per-language breakdown — uses whichever NER-capable run is available
+    # (Ollama pipeline > NER-only) so all 16 languages are covered.
+    per_lang_source = o_r if o_r is not None else n_r
+    per_lang_report: Dict[str, EntityMetrics] = {}
+    if per_lang_source is not None and per_lang_source.per_language:
+        print(f"\n  Per-language breakdown ({'Ollama pipeline' if o_r is not None else 'NER-only'})")
+        header = f"    {'Lang':<6}{'Entities':>10}{'Precision':>12}{'Recall':>10}{'F1':>8}"
+        print(header)
+        print("    " + "-" * (len(header) - 4))
+        for lang in sorted(per_lang_source.per_language.keys()):
+            tot = _totals(per_lang_source.per_language[lang])
+            per_lang_report[lang] = tot
+            entities = tot.tp + tot.fn
+            print(f"    {lang:<6}{entities:>10}{tot.precision*100:>11.1f}%{tot.recall*100:>9.1f}%{tot.f1*100:>7.1f}%")
 
     # Grand total — Septum-synthetic corpus only (Presidio 1a/b/c + NER + Ollama).
     # External datasets (Presidio Evaluator + wikineural) are printed above but
@@ -2119,21 +2765,44 @@ def test_benchmark_combined_summary(
             list(merged_presidio_per_type) + (list(n_r.per_type) if n_r else []) + (list(o_r.per_type) if o_r else [])
         )), "precision": pr, "recall": rc, "f1": f1},
     }
-    # External reference sources, if they ran
+    # External reference sources + adversarial, if they ran
     external_data: dict[str, dict] = {}
     if pe_docs and pe_t is not None:
         external_data["presidio_evaluator"] = {
-            "label": "Presidio Evaluator\n(EN, 200 samples)",
-            "entities": pe_n, "types": len(pe_r.per_type),
-            "precision": pe_t.precision, "recall": pe_t.recall, "f1": pe_t.f1,
+            "label": "Presidio Evaluator\n(EN, synthetic)",
+            "entities": pe_n, "precision": pe_t.precision,
+            "recall": pe_t.recall, "f1": pe_t.f1,
         }
     if wn_docs and wn_t is not None:
         external_data["wikineural"] = {
-            "label": f"Babelscape/wikineural\n({len(sorted({d.language for d in wn_docs}))} langs, {_planted(wn_docs)} entities)",
-            "entities": wn_n, "types": len(wn_r.per_type),
-            "precision": wn_t.precision, "recall": wn_t.recall, "f1": wn_t.f1,
+            "label": f"wikineural\n({len(sorted({d.language for d in wn_docs}))} langs)",
+            "entities": wn_n, "precision": wn_t.precision,
+            "recall": wn_t.recall, "f1": wn_t.f1,
         }
-    _generate_charts(layer_data, external_data)
+    if ai_docs and ai_t is not None:
+        external_data["ai4privacy"] = {
+            "label": f"ai4privacy\n({len(sorted({d.language for d in ai_docs}))} langs, OOD)",
+            "entities": ai_n, "precision": ai_t.precision,
+            "recall": ai_t.recall, "f1": ai_t.f1,
+        }
+    if cn_docs and cn_t is not None:
+        external_data["conll2003"] = {
+            "label": "CoNLL-2003\n(EN news)",
+            "entities": cn_n, "precision": cn_t.precision,
+            "recall": cn_t.recall, "f1": cn_t.f1,
+        }
+    if cx_docs and cx_t is not None:
+        external_data["cross_ner"] = {
+            "label": "CrossNER\n(5 domains)",
+            "entities": cx_n, "precision": cx_t.precision,
+            "recall": cx_t.recall, "f1": cx_t.f1,
+        }
+    external_data["adversarial"] = {
+        "label": "Adversarial\n(obfuscated)",
+        "entities": adv_n, "precision": adv_t.precision,
+        "recall": adv_t.recall, "f1": adv_t.f1,
+    }
+    _generate_charts(layer_data, external_data, per_lang_report)
     _update_readmes(layer_data)
 
 
@@ -2144,14 +2813,21 @@ def test_benchmark_combined_summary(
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
-def _generate_charts(data: dict, external: Optional[dict] = None) -> None:
+def _generate_charts(
+    data: dict,
+    external: Optional[dict] = None,
+    per_language: Optional[Dict[str, "EntityMetrics"]] = None,
+) -> None:
     """Regenerate benchmark SVG charts from live results.
 
-    Writes three charts to ``assets/``:
-      - ``benchmark-f1-by-type.svg``         — per-entity F1 across L1 + L2
-      - ``benchmark-layer-comparison.svg``   — P/R/F1 per Septum layer
-      - ``benchmark-external-validation.svg`` — Septum-combined vs public
-        reference datasets (only when ``external`` is non-empty)
+    Writes up to four charts to ``assets/``:
+      - ``benchmark-f1-by-type.svg``          — per-entity F1 across L1 + L2
+      - ``benchmark-layer-comparison.svg``    — P/R/F1 per Septum layer
+      - ``benchmark-external-validation.svg`` — Septum-combined + every
+        external/robustness source that ran (only when ``external`` is
+        non-empty)
+      - ``benchmark-per-language.svg``        — F1 per language under the
+        full Ollama pipeline (only when ``per_language`` is non-empty)
     """
     try:
         import matplotlib
@@ -2256,7 +2932,10 @@ def _generate_charts(data: dict, external: Optional[dict] = None) -> None:
             "recall": data["combined"]["recall"],
             "f1": data["combined"]["f1"],
         }]
-        for source_key in ("presidio_evaluator", "wikineural"):
+        for source_key in (
+            "presidio_evaluator", "wikineural", "ai4privacy",
+            "conll2003", "cross_ner", "adversarial",
+        ):
             if source_key in external:
                 groups.append(external[source_key])
 
@@ -2292,6 +2971,46 @@ def _generate_charts(data: dict, external: Optional[dict] = None) -> None:
         ax.legend(loc="lower right", fontsize=10)
         plt.tight_layout()
         plt.savefig(str(out_dir / "benchmark-external-validation.svg"),
+                    facecolor="white", edgecolor="none")
+        plt.close()
+
+    # --- Chart 4: Per-language F1 breakdown ---
+    if per_language:
+        langs = sorted(per_language.keys())
+        precision_pct = [per_language[l].precision * 100 for l in langs]
+        recall_pct = [per_language[l].recall * 100 for l in langs]
+        f1_pct = [per_language[l].f1 * 100 for l in langs]
+
+        x4 = np.arange(len(langs))
+        width = max(0.2, 0.8 / max(len(langs), 1) * 0.35)
+        fig, ax = plt.subplots(figsize=(max(10, len(langs) * 0.9), 5.5))
+        b1 = ax.bar(x4 - width, precision_pct, width, label="Precision",
+                    color="#4CAF88", edgecolor="white", linewidth=0.5)
+        b2 = ax.bar(x4, recall_pct, width, label="Recall",
+                    color="#5B9BD5", edgecolor="white", linewidth=0.5)
+        b3 = ax.bar(x4 + width, f1_pct, width, label="F1",
+                    color="#F0A030", edgecolor="white", linewidth=0.5)
+        for bars_group in (b1, b2, b3):
+            for bar in bars_group:
+                val = bar.get_height()
+                ax.text(bar.get_x() + bar.get_width() / 2, val + 1,
+                        f"{val:.1f}", ha="center", va="bottom",
+                        fontsize=8, fontweight="bold", color="#333")
+        ax.set_ylim(0, 115)
+        ax.set_ylabel("Score (%)", fontsize=11)
+        ax.set_title(
+            "Per-Language Detection Accuracy — Ollama pipeline",
+            fontsize=13, fontweight="bold", pad=12,
+        )
+        ax.set_xticks(x4)
+        ax.set_xticklabels([l.upper() for l in langs], fontsize=10)
+        ax.tick_params(axis="y", labelsize=9)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.grid(axis="y", alpha=0.3, linestyle="--")
+        ax.legend(loc="lower right", fontsize=10)
+        plt.tight_layout()
+        plt.savefig(str(out_dir / "benchmark-per-language.svg"),
                     facecolor="white", edgecolor="none")
         plt.close()
 

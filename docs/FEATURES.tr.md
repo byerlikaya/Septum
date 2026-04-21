@@ -52,11 +52,14 @@ Septum, üç katmanlı tespit hattını tamamen yerelde koşturur. Her katman bi
 
 ## Benchmark Sonuçları
 
-Benchmark, 17 hazır regülasyonun tamamı aktifken **üç bağımsız veri kaynağı** üzerinde koşturuldu:
+Benchmark, 17 hazır regülasyonun tamamı aktifken **dört bağımsız veri kaynağı ve iki dayanıklılık probu** üzerinde koşturuldu:
 
-1. **Septum sentetik korpus** — **16 dilde** (ar, de, en, es, fr, hi, it, ja, ko, nl, pl, pt, ru, th, tr, zh) 23 varlık tipi üzerinde algoritmik olarak üretilmiş **3.408 PII değeri**. Hiçbir public dataset'in taşımadığı checksum'lı kimlikleri (geçerli Luhn, IBAN MOD-97, TCKN) kapsamanın tek yolu: Presidio tipi başına 150 örnek, 160 kişi adı (karışık + BÜYÜK HARF, EN/TR), 100 konum (EN/TR), 30 kurum adı (EN/TR), çok-dilli kişi/konum kapsamı, takma ad tespiti. Seed sabit — tam tekrarlanabilir.
-2. **Microsoft [presidio-evaluator](https://github.com/microsoft/presidio-research)** — 200 sentetik Faker cümlesi, endüstri referans çerçevesi. Septum korpusuna karşı cross-validation.
-3. **[Babelscape/wikineural](https://huggingface.co/datasets/Babelscape/wikineural)** — 9 dilde (de/en/es/fr/it/nl/pl/pt/ru) dil başına 50 Wikipedia held-out test cümlesi. Uyarı: Septum'un kullandığı XLM-RoBERTa NER modelleri ilgili WikiANN korpusu üzerinde eğitildi; bu sayılar sıkı out-of-distribution testten ziyade üst sınıra yakındır.
+1. **Septum sentetik korpus** — **16 dilde** (ar, de, en, es, fr, hi, it, ja, ko, nl, pl, pt, ru, th, tr, zh) 23 varlık tipi üzerinde algoritmik olarak üretilmiş **3.435 PII değeri**. Hiçbir public dataset'in taşımadığı checksum'lı kimlikleri (geçerli Luhn, IBAN MOD-97, TCKN) kapsamanın tek yolu, ayrıca Ollama'nın eşsiz katkısını ölçmek için 15 dokümanlık semantik-bağlamsal alt küme (DIAGNOSIS / MEDICATION / RELIGION / POLITICAL_OPINION / ETHNICITY / SEXUAL_ORIENTATION). Seed sabit — tam tekrarlanabilir.
+2. **Microsoft [presidio-evaluator](https://github.com/microsoft/presidio-research)** — 200 sentetik Faker cümlesi, Presidio ekibinin kullandığı referans PII değerlendirme çerçevesi.
+3. **[Babelscape/wikineural](https://huggingface.co/datasets/Babelscape/wikineural)** — 9 dilde × 50 Wikipedia held-out cümle. Uyarı: Septum'un kullandığı XLM-RoBERTa NER modelleri ilgili WikiANN korpusu üzerinde eğitildi; bu sayılar sıkı OOD testten ziyade üst sınıra yakındır.
+4. **[ai4privacy/pii-masking-300k](https://huggingface.co/datasets/ai4privacy/pii-masking-300k)** — 6 dilde (en/de/fr/es/it/nl) × 50 validation cümlesi. Sıfırdan yazılmış modern PII-odaklı dataset; Septum'un kullandığı modeller bunun üzerinde eğitilmedi, dolayısıyla gerçek out-of-distribution testine en yakın kaynak.
+5. **[CoNLL-2003](https://aclanthology.org/W03-0419/)** — klasik EN haber-alanı held-out test setinden 200 cümle. Septum ile ilgili hiçbir eğitim korpusunda yok.
+6. **Dayanıklılık probları** — 15 PII-içermeyen paragraf (yanlış pozitif oranı) + 10 gizlenmiş PII girdisi (leetspeak, Unicode homoglyph, zero-width birleştirici, boşluklu IBAN, parantezli e-posta, yorum içine saklanmış kredi kartı, satır-sonu kırılmış TCKN).
 
 <p align="center">
   <a href="#benchmark-sonuçları"><img src="../assets/benchmark-f1-by-type.svg" alt="Varlık tipine göre F1 skoru" width="1100" /></a>
@@ -72,19 +75,44 @@ Benchmark, 17 hazır regülasyonun tamamı aktifken **üç bağımsız veri kayn
 |:---|:---:|:---:|:---:|:---:|:---:|
 | **Presidio (L1)** — örüntü + doğrulayıcı (controlled + extended + adversarial) | 1.710 | 20 | %100 | %96,4 | %98,2 |
 | **NER (L2)** — XLM-RoBERTa + BÜYÜK HARF normalize (16 dil) | 840 | 3 | %99,9 | %90,8 | %95,1 |
-| **Ollama (L3)** — aya-expanse:8b | 858 | 3 | %100 | %90,1 | %94,8 |
-| **Birleşik** | **3.408** | **23** | **%100** | **%93,5** | **%96,6** |
+| **Ollama (L3)** — aya-expanse:8b (alias + semantik-bağlamsal) | 885 | 9 | %100 | %90,4 | %95,0 |
+| **Birleşik** | **3.435** | **23** | **%100** | **%93,5** | **%96,6** |
+
+**Ollama semantik alt kümesi** (DIAGNOSIS / MEDICATION / RELIGION / POLITICAL_OPINION / ETHNICITY / SEXUAL_ORIENTATION — Presidio ve NER'in ifade edemediği tipler): 15 dokümanda 27 varlık, **F1 %94,1** (Precision %100, Recall %88,9).
+
+**Ollama ablation** — aynı 189 dokümanlı korpus Ollama KAPALI ve AÇIK: **+1,24 pp recall, +0,75 pp F1**. Fark tam agregada ılımlı görünür çünkü dokümanların çoğu PERSON_NAME / ORG / LOC (NER'in işi). Semantik alt kümede Ollama, recall'u sıfırın üstüne çıkarabilen tek katman.
 
 ### Dış referans veri kümeleri
 
 | Kaynak | Varlık | Tip | Precision | Recall | F1 |
 |:---|:---:|:---:|:---:|:---:|:---:|
-| **Microsoft presidio-evaluator** (EN, sentetik Faker, 200 cümle) | 258 | 7 | %98,9 | %68,2 | %80,7 |
-| **Babelscape/wikineural** (9 dil × 50 = 450 cümle, held-out Wikipedia NER) | 634 | 3 | %94,6 | %74,0 | %83,0 |
+| **Microsoft presidio-evaluator** (EN, sentetik Faker, 200 cümle) | 245 | 8 | %98,8 | %66,5 | %79,5 |
+| **Babelscape/wikineural** (9 dil × 50 = 450 cümle, held-out Wikipedia NER) | 634 | 3 | %96,0 | %75,9 | %84,8 |
+| **ai4privacy/pii-masking-300k** (6 dil, gerçek OOD — eğitim verisinde yok) | 1.456 | 12 | %95,6 | %55,4 | %70,2 |
+| **CoNLL-2003** (EN haber, gold-standard held-out split) | 372 | 3 | %97,9 | %37,6 | %54,4 |
+
+CoNLL-2003 recall'u bilinçli olarak düşük: Septum serbest haber metnindeki tek başına yer adlarını varsayılan olarak PII saymıyor (GDPR Art. 4(1) gerekçesi — yer adı tek başına kişiyi tanımlamaz). Ai4Privacy USERNAME ve ince-taneli adres alt tipleri etrafındaki — mevcut regülasyon paketlerinin doğrudan hedeflemediği — boşlukları ortaya çıkarıyor.
 
 <p align="center">
-  <a href="#benchmark-sonuçları"><img src="../assets/benchmark-external-validation.svg" alt="Dış doğrulama — Septum sentetik vs Microsoft presidio-evaluator vs Babelscape/wikineural" width="820" /></a>
+  <a href="#benchmark-sonuçları"><img src="../assets/benchmark-external-validation.svg" alt="Dış doğrulama — Septum sentetik vs Microsoft presidio-evaluator vs Babelscape/wikineural vs ai4privacy vs CoNLL-2003 vs adversarial pack" width="820" /></a>
 </p>
+
+### Dayanıklılık
+
+| Prob | Hacim | Sonuç |
+|:---|:---:|:---:|
+| **Temiz metin yanlış pozitif oranı** (9 dilde 439 tokenli 15 PII-içermeyen paragraf) | 0 FP | **0,00 FP / 1k token** |
+| **Adversarial paket** (10 gizlenmiş PII girdisi: leetspeak, homoglyph, zero-width, boşluklu IBAN, parantezli, yorum içinde CC, sarmalanmış TCKN) | 12 yerleştirilmiş | P %100 · R %66,7 · **F1 %80,0** |
+
+Adversarial sonuç bilinçli olarak kusurlu — Septum hattında hiçbir şey özellikle obfuskasyon için ayarlı değil, bu ham dayanıklılık. %33'lük recall açığı, özel keyword-tabanlı kuralların değerli olacağını dürüstçe gösteriyor.
+
+### Dil bazlı kırılım (Ollama hattı)
+
+<p align="center">
+  <a href="#benchmark-sonuçları"><img src="../assets/benchmark-per-language.svg" alt="Tam Ollama hattında dil bazlı tespit doğruluğu — 16 dil" width="900" /></a>
+</p>
+
+F1, Latin-yazı dillerinde (EN %98,3, DE %100, ES %100, FR %98,0, IT %100, NL %100, PL %98,6, PT %97,1, RU %100, TR %96,2) birbirine yakın ve çok yüksek; Arapça (%97,1) ve Hintçede (%100) de güçlü kalıyor. Dürüst zayıf noktalar Asya yazıları: **Tayca %88,9, Korece %81,4, Japonca %65,4, Çince %44,4** — CJK yazılarında NER tokenizasyon davranışı ve bu yazılar için sınırlı çok-dilli korpus kapsamı nedeniyle. Çince ve Japonca, Septum'un en çok iyileşmeye ihtiyaç duyduğu iki dil; bu rakamlar saklanmadan olduğu gibi raporlanır.
 
 > NER (L2), otomatik başlık-harfi normalizasyonu sayesinde tıbbi ve hukuki dokümanlarda sık görülen BÜYÜK HARF isimleri de yakalar; kurum adlarını da tanır. LOCATION çıktısı conservative bir filtreden geçer (çok-kelimeli VEYA güven skoru ≥ 0,95) — böylece "Doğum" veya Almanca form başlıkları gibi ortak-isim yanlış pozitifleri elenir, "İstanbul" / "Berlin" gibi gerçek yer isimleri ise geçer. Ollama (L3) adayları doğrular ve takma adları yakalar. Benchmark veri kümesi boşluklu IBAN, noktalı telefon gibi zorlayıcı formatları da içerir; bu durum Presidio'nun recall değerini gerçek dünya seviyesine çeker. Testi kendiniz çalıştırabilirsiniz:
 > `pytest packages/api/tests/benchmark_detection.py -v -s`
