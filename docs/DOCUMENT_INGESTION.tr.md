@@ -13,8 +13,6 @@
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
   &nbsp;·&nbsp;
-  <a href="../CONTRIBUTING.tr.md"><strong>🤝 Katkı</strong></a>
-  &nbsp;·&nbsp;
   <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
@@ -61,8 +59,6 @@ Septum, yüklenen bir dosyayı aranabilir ve anonimleştirilmiş içeriğe dön�
   <strong>📊 Doküman İşleme</strong>
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
-  &nbsp;·&nbsp;
-  <a href="../CONTRIBUTING.tr.md"><strong>🤝 Katkı</strong></a>
   &nbsp;·&nbsp;
   <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>

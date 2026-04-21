@@ -38,8 +38,6 @@
   &nbsp;·&nbsp;
   <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
   &nbsp;·&nbsp;
-  <a href="CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
-  &nbsp;·&nbsp;
   <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
@@ -191,8 +189,6 @@ See [LICENSE](LICENSE) for details.
   <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <a href="CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
   &nbsp;·&nbsp;
   <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>

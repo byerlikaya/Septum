@@ -13,8 +13,6 @@
   &nbsp;·&nbsp;
   <strong>📸 Ekran Görüntüleri</strong>
   &nbsp;·&nbsp;
-  <a href="../CONTRIBUTING.tr.md"><strong>🤝 Katkı</strong></a>
-  &nbsp;·&nbsp;
   <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
@@ -141,8 +139,6 @@ Splunk HEC export alabilirsiniz.
   <a href="DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
   &nbsp;·&nbsp;
   <strong>📸 Ekran Görüntüleri</strong>
-  &nbsp;·&nbsp;
-  <a href="../CONTRIBUTING.tr.md"><strong>🤝 Katkı</strong></a>
   &nbsp;·&nbsp;
   <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>

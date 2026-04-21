@@ -13,8 +13,6 @@
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
   &nbsp;·&nbsp;
-  <a href="../CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
-  &nbsp;·&nbsp;
   <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
@@ -314,8 +312,6 @@ topologies, see the [Architecture](ARCHITECTURE.md) doc.
   <a href="DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <a href="../CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
   &nbsp;·&nbsp;
   <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>

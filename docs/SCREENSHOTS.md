@@ -13,8 +13,6 @@
   &nbsp;·&nbsp;
   <strong>📸 Screenshots</strong>
   &nbsp;·&nbsp;
-  <a href="../CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
-  &nbsp;·&nbsp;
   <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
@@ -139,8 +137,6 @@ timestamps. JSON / CSV / Splunk HEC export available via
   <a href="DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
   <strong>📸 Screenshots</strong>
-  &nbsp;·&nbsp;
-  <a href="../CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
   &nbsp;·&nbsp;
   <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>

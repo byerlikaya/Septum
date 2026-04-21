@@ -13,8 +13,6 @@
   &nbsp;·&nbsp;
   <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
   &nbsp;·&nbsp;
-  <strong>🤝 Contributing</strong>
-  &nbsp;·&nbsp;
   <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
@@ -150,8 +148,6 @@ contribution can be distributed under those terms.
   <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <strong>🤝 Contributing</strong>
   &nbsp;·&nbsp;
   <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>

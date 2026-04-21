@@ -13,8 +13,6 @@
   &nbsp;·&nbsp;
   <a href="docs/SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
   &nbsp;·&nbsp;
-  <strong>🤝 Katkı</strong>
-  &nbsp;·&nbsp;
   <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
@@ -155,8 +153,6 @@ etmiş olursunuz.
   <a href="docs/DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
-  &nbsp;·&nbsp;
-  <strong>🤝 Katkı</strong>
   &nbsp;·&nbsp;
   <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>

@@ -38,8 +38,6 @@
   &nbsp;·&nbsp;
   <a href="docs/SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
   &nbsp;·&nbsp;
-  <a href="CONTRIBUTING.tr.md"><strong>🤝 Katkı</strong></a>
-  &nbsp;·&nbsp;
   <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
@@ -191,8 +189,6 @@ Ayrıntılar için [LICENSE](LICENSE) dosyasına bakın.
   <a href="docs/DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
-  &nbsp;·&nbsp;
-  <a href="CONTRIBUTING.tr.md"><strong>🤝 Katkı</strong></a>
   &nbsp;·&nbsp;
   <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>

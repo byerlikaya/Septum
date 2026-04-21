@@ -13,8 +13,6 @@
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
   &nbsp;·&nbsp;
-  <a href="../CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
-  &nbsp;·&nbsp;
   <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
@@ -747,8 +745,6 @@ Full OpenAPI schema is available at `http://localhost:3000/docs` when the applic
   <a href="DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <a href="../CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
   &nbsp;·&nbsp;
   <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>

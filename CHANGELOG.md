@@ -10,8 +10,7 @@
   <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <a href="CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
+
   &nbsp;·&nbsp;
   <strong>📝 Changelog</strong>
 </p>
@@ -25,6 +24,7 @@ All notable changes to this project are documented here in a high‑level, date�
 ### 2026-04-21
 
 - **Split benchmark into its own page**: Moved the benchmark section out of `docs/FEATURES.md` / `.tr.md` into dedicated `docs/BENCHMARK.md` / `.tr.md` pages. Added a `📈 Benchmark` entry to the top + bottom nav of every markdown file and a source-link block on the benchmark pages (HF model cards, dataset papers, regulation primary sources).
+- **Nav cleanup**: Dropped the `🤝 Contributing` entry from every top/bottom nav bar; the GitHub sidebar already surfaces it.
 - **Turkish literary polish on `docs/FEATURES.tr.md`**: Rewrote calques and awkward inversions across the Detection Pipeline, Regulation Packs, Auto-RAG, Why Septum, MCP, and REST API sections.
 
 ### 2026-04-20
@@ -369,8 +369,7 @@ All notable changes to this project are documented here in a high‑level, date�
   <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <a href="CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
+
   &nbsp;·&nbsp;
   <strong>📝 Changelog</strong>
 </p>

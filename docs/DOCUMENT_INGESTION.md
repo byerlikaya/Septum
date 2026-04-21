@@ -13,8 +13,6 @@
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
   &nbsp;·&nbsp;
-  <a href="../CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
-  &nbsp;·&nbsp;
   <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
@@ -54,8 +52,6 @@ How Septum turns an uploaded file into searchable, anonymised content. Every ste
   <strong>📊 Document Ingestion</strong>
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <a href="../CONTRIBUTING.md"><strong>🤝 Contributing</strong></a>
   &nbsp;·&nbsp;
   <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>

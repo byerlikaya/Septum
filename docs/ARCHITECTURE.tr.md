@@ -13,8 +13,6 @@
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
   &nbsp;·&nbsp;
-  <a href="../CONTRIBUTING.tr.md"><strong>🤝 Katkı</strong></a>
-  &nbsp;·&nbsp;
   <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
@@ -617,8 +615,6 @@ Tam OpenAPI şeması, uygulama çalışırken `http://localhost:3000/docs` adres
   <a href="DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
-  &nbsp;·&nbsp;
-  <a href="../CONTRIBUTING.tr.md"><strong>🤝 Katkı</strong></a>
   &nbsp;·&nbsp;
   <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>

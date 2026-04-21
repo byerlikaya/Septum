@@ -13,8 +13,6 @@
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
   &nbsp;·&nbsp;
-  <a href="../CONTRIBUTING.tr.md"><strong>🤝 Katkı</strong></a>
-  &nbsp;·&nbsp;
   <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
@@ -265,8 +263,6 @@ Eksiksiz API referansı, hat detayları ve dağıtım topolojileri için [Mimari
   <a href="DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
-  &nbsp;·&nbsp;
-  <a href="../CONTRIBUTING.tr.md"><strong>🤝 Katkı</strong></a>
   &nbsp;·&nbsp;
   <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
