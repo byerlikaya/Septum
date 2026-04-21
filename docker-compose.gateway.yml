@@ -19,7 +19,7 @@ x-gateway-base: &gateway-base
     dockerfile: docker/gateway.Dockerfile
   image: septum/gateway:latest
   environment: &gateway-env
-    SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:-septum_redis}@redis:6379/0
+    SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
     SEPTUM_GATEWAY_REQUEST_TOPIC: septum.llm.requests
     SEPTUM_GATEWAY_RESPONSE_TOPIC: septum.llm.responses
     SEPTUM_GATEWAY_AUDIT_TOPIC: septum.audit.events
@@ -34,7 +34,7 @@ x-audit-base: &audit-base
     dockerfile: docker/audit.Dockerfile
   image: septum/audit:latest
   environment: &audit-env
-    SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:-septum_redis}@redis:6379/0
+    SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
     SEPTUM_AUDIT_TOPIC: septum.audit.events
     SEPTUM_AUDIT_SINK_PATH: /var/log/septum/audit.jsonl
   volumes:
@@ -45,14 +45,14 @@ services:
   redis:
     image: redis:7-alpine
     container_name: septum-gateway-redis
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-septum_redis}"]
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}"]
     ports:
       - "6379:6379"
     volumes:
       - septum-gateway-redis-data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=$${REDIS_PASSWORD:-septum_redis} redis-cli ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)} redis-cli ping"]
       interval: 10s
       timeout: 5s
       start_period: 5s

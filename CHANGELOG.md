@@ -25,6 +25,7 @@ All notable changes to this project are documented here in a high‑level, date�
 
 - **Split benchmark into its own page**: Moved the benchmark section out of `docs/FEATURES.md` / `.tr.md` into dedicated `docs/BENCHMARK.md` / `.tr.md` pages. Added a `📈 Benchmark` entry to the top + bottom nav of every markdown file and a source-link block on the benchmark pages (HF model cards, dataset papers, regulation primary sources).
 - **Nav cleanup**: Dropped the `🤝 Contributing` entry from every top/bottom nav bar; the GitHub sidebar already surfaces it.
+- **Require explicit `POSTGRES_PASSWORD` / `REDIS_PASSWORD` in compose files**: Replaced the `septum_secret` / `septum_redis` dev defaults with `${VAR:?...}` — compose now fails fast if either is missing. Added `.env.example` as the canonical template; README, README.tr and CLAUDE.md updated to point at it. GitGuardian no longer flags the compose files.
 - **Turkish literary polish on `docs/FEATURES.tr.md`**: Rewrote calques and awkward inversions across the Detection Pipeline, Regulation Packs, Auto-RAG, Why Septum, MCP, and REST API sections.
 
 ### 2026-04-20

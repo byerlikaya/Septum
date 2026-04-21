@@ -141,7 +141,7 @@ Open **http://localhost:3000** — the setup wizard walks you through database, 
 
 **Updating.** Stop and remove the container, run `docker pull byerlikaya/septum`, then re-run the same `docker run` command. Your data is preserved in the volumes.
 
-**Docker Compose.** `docker compose up` starts PostgreSQL, Redis, Ollama, and Septum together. Pull a model before the first chat: `docker compose exec ollama ollama pull llama3.2:3b`. Skip Ollama with `docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up` for cloud-only setups.
+**Docker Compose.** Copy `.env.example` to `.env` and set `POSTGRES_PASSWORD` and `REDIS_PASSWORD` before the first `docker compose up` — the compose files require both and refuse to start without them. `docker compose up` then brings PostgreSQL, Redis, Ollama, and Septum up together. Pull a model before the first chat: `docker compose exec ollama ollama pull llama3.2:3b`. Skip Ollama with `docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up` for cloud-only setups.
 
 **Deployment topologies** — four compose variants ship for different deployment shapes: standalone (single container, SQLite), full dev stack (all modules on one host), air-gapped zone only, and internet-facing zone only. See the [Deployment Topologies](docs/ARCHITECTURE.md#deployment-topologies) section of the Architecture doc for the full matrix and a two-host air-gap walkthrough.
 

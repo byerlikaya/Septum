@@ -287,7 +287,7 @@ Invoke `/security-scan` for a comprehensive audit (`.claude/skills/security-scan
 
 **Local development:** Run `./dev.sh --setup` then `./dev.sh`. Bootstrap auto-generates `config.json` with encryption key and JWT secret. Set `SEPTUM_CONFIG_PATH` to override the default `/app/data/config.json` location. Environment variables (`DATABASE_URL`, `REDIS_URL`, `ENCRYPTION_KEY`, etc.) override `config.json` values.
 
-**docker-compose:** No `.env` needed. `docker compose up` starts PostgreSQL + Redis + Septum with sensible defaults. Database and Redis URLs are wired in `docker-compose.yml`.
+**docker-compose:** Copy `.env.example` to `.env` and set `POSTGRES_PASSWORD` and `REDIS_PASSWORD` — compose files require both and fail fast if either is missing. `docker compose up` then starts PostgreSQL + Redis + Septum. Database and Redis URLs are wired in `docker-compose.yml`.
 
 **Modular docker-compose variants:**
 - `docker-compose.yml` — Full dev stack (api + web + gateway + audit + Postgres + Redis + optional Ollama)

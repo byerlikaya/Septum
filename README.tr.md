@@ -141,7 +141,7 @@ docker run --name septum \
 
 **Güncelleme.** Container'ı durdurup silin, `docker pull byerlikaya/septum` çekin, aynı `docker run` komutunu çalıştırın. Verileriniz volume'larda korunur.
 
-**Docker Compose.** `docker compose up` PostgreSQL, Redis, Ollama ve Septum'u birlikte başlatır. İlk chat öncesi bir model çekin: `docker compose exec ollama ollama pull llama3.2:3b`. Yalnız bulut sağlayıcı kullanacaksanız Ollama'yı `docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up` ile devre dışı bırakabilirsiniz.
+**Docker Compose.** İlk `docker compose up` çağrısından önce `.env.example` dosyasını `.env` olarak kopyalayın ve `POSTGRES_PASSWORD` ile `REDIS_PASSWORD` değerlerini doldurun; compose dosyaları bu iki değişkeni zorunlu tutar ve eksikse başlamaz. Ardından `docker compose up` PostgreSQL, Redis, Ollama ve Septum'u birlikte ayağa kaldırır. İlk sohbetten önce bir model çekin: `docker compose exec ollama ollama pull llama3.2:3b`. Yalnız bulut sağlayıcı kullanacaksanız Ollama'yı `docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up` ile devre dışı bırakabilirsiniz.
 
 **Deployment topolojileri** — farklı dağıtım biçimleri için dört ayrı compose dosyası gelir: standalone (tek container, SQLite), tam dev stack (tüm modüller tek host'ta), yalnızca air-gapped bölge ve yalnızca internet-facing bölge. Tam matris ve iki-host air-gap akışı için Mimari dokümanının [Deployment Topolojileri](docs/ARCHITECTURE.tr.md#deployment-topolojileri) bölümüne bakın.
 

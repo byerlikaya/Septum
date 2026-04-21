@@ -22,7 +22,7 @@ services:
     container_name: septum-postgres
     environment:
       POSTGRES_USER: septum
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-septum_secret}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (see .env.example)}
       POSTGRES_DB: septum
     ports:
       - "127.0.0.1:5432:5432"
@@ -39,14 +39,14 @@ services:
   redis:
     image: redis:7-alpine
     container_name: septum-redis
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-septum_redis}"]
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}"]
     ports:
       - "6379:6379"
     volumes:
       - septum-redis-data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=$${REDIS_PASSWORD:-septum_redis} redis-cli ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)} redis-cli ping"]
       interval: 10s
       timeout: 5s
       start_period: 5s
@@ -59,12 +59,12 @@ services:
     image: septum/api:latest
     container_name: septum-api
     environment:
-      DATABASE_URL: postgresql+asyncpg://septum:${POSTGRES_PASSWORD:-septum_secret}@postgres:5432/septum
-      REDIS_URL: redis://:${REDIS_PASSWORD:-septum_redis}@redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://septum:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (see .env.example)}@postgres:5432/septum
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
       # Opt into gateway mode so cloud LLM calls flow over Redis Streams
       # to the internet-facing zone instead of happening in-process.
       USE_GATEWAY_DEFAULT: "true"
-      SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:-septum_redis}@redis:6379/0
+      SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
       FRONTEND_ORIGIN: http://localhost:3000
     ports:
       - "8000:8000"

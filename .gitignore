@@ -19,6 +19,7 @@ venv/
 env/
 .env
 .env.*
+!.env.example
 config.json
 .pytest_cache/
 .mypy_cache/
