@@ -21,6 +21,39 @@
 
 All notable changes to this project are documented here in a high‑level, date‑based format.
 
+## v1.0.0 — 2026-04-21 — Modular architecture
+
+First major release. Septum is now seven independently installable
+packages across three security zones; the monolithic `backend/` is gone.
+
+- **7 modules**: `septum-core` (PII engine, zero net deps), `septum-mcp`,
+  `septum-api`, `septum-web`, `septum-queue` (file / Redis bridge),
+  `septum-gateway` (cloud LLM forwarder — cannot import core by
+  invariant), `septum-audit`.
+- **4 compose topologies**: standalone (SQLite) · full dev stack ·
+  air-gapped zone · internet-facing zone.
+- **Auto-RAG routing** + **MCP over stdio / streamable-http / sse** +
+  **Audit Trail v2** (every detection links back to its audit event).
+- **17 regulation packs** with canonical `RegulationId` registry,
+  national-ID checksum validators, legal-sources doc.
+- **Honest benchmark**: 3,468 values × 16 languages + 5 external datasets
+  + adversarial pack. Combined F1 96.6%, 0.00 FP/1k on clean text. Full
+  methodology in [`docs/BENCHMARK.md`](docs/BENCHMARK.md).
+- **Security**: Redis AUTH, parameterised compose passwords
+  (`${VAR:?}` fail-fast, `.env.example`), `pickle` → `json` in BM25,
+  18 security-scan findings addressed.
+- **Docker**: six multi-arch images, CPU + GPU variants for
+  torch-dependent ones, git-tag-driven release workflow.
+
+**Breaking**
+- `from backend.app.*` → `from septum_api.*`.
+- Compose files require `POSTGRES_PASSWORD` / `REDIS_PASSWORD` in `.env`
+  (see `.env.example`); no dev defaults.
+
+Date-based ledger below has the full incremental history.
+
+---
+
 ### 2026-04-21
 
 - **Split benchmark into its own page**: Moved the benchmark section out of `docs/FEATURES.md` / `.tr.md` into dedicated `docs/BENCHMARK.md` / `.tr.md` pages. Added a `📈 Benchmark` entry to the top + bottom nav of every markdown file and a source-link block on the benchmark pages (HF model cards, dataset papers, regulation primary sources).
