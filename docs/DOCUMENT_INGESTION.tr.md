@@ -5,6 +5,8 @@
   &nbsp;·&nbsp;
   <a href="FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
   &nbsp;·&nbsp;
+  <a href="BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
   <a href="ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
   &nbsp;·&nbsp;
   <strong>📊 Doküman İşleme</strong>
@@ -51,6 +53,8 @@ Septum, yüklenen bir dosyayı aranabilir ve anonimleştirilmiş içeriğe dön�
   <a href="../README.tr.md"><strong>🏠 Ana Sayfa</strong></a>
   &nbsp;·&nbsp;
   <a href="FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  &nbsp;·&nbsp;
+  <a href="BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
   &nbsp;·&nbsp;
   <a href="ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
   &nbsp;·&nbsp;

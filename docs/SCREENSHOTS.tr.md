@@ -5,6 +5,8 @@
   &nbsp;·&nbsp;
   <a href="FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
   &nbsp;·&nbsp;
+  <a href="BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
   <a href="ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
   &nbsp;·&nbsp;
   <a href="DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
@@ -131,6 +133,8 @@ Splunk HEC export alabilirsiniz.
   <a href="../README.tr.md"><strong>🏠 Ana Sayfa</strong></a>
   &nbsp;·&nbsp;
   <a href="FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  &nbsp;·&nbsp;
+  <a href="BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
   &nbsp;·&nbsp;
   <a href="ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
   &nbsp;·&nbsp;

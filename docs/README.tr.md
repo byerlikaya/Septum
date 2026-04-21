@@ -5,6 +5,8 @@
   &nbsp;·&nbsp;
   <a href="FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
   &nbsp;·&nbsp;
+  <a href="BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
   <a href="ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
   &nbsp;·&nbsp;
   <a href="DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
@@ -24,10 +26,11 @@ Derinlemesine referans materyali. Proje genel bakışı için [ana README](../RE
 
 | | Sayfa | Neyi kapsar |
 |---|---|---|
-| ✨ | [Özellikler](FEATURES.tr.md) | Özellik kataloğu, tespit benchmark'ı, regülasyon paketleri, MCP entegrasyonu, REST API referansı |
+| ✨ | [Özellikler](FEATURES.tr.md) | Özellik kataloğu, tespit hattı, regülasyon paketleri, MCP entegrasyonu, REST API referansı |
+| 📈 | [Benchmark](BENCHMARK.tr.md) | Katman bazlı ve dış veri kümesi sonuçları, dayanıklılık probları, dil bazlı kırılım, kapsam ve sınırlar |
 | 🏗️ | [Mimari](ARCHITECTURE.tr.md) | 7 modüllü mimari, güvenlik bölgeleri (air-gapped / köprü / internet-facing), dağıtım topolojileri |
 | 📊 | [Doküman İşleme](DOCUMENT_INGESTION.tr.md) | Yükleme → tip tespiti → maskeleme → indeksleme hattı, diyagramlarla adım adım |
-| 📸 | [Ekran Görüntüleri](SCREENSHOTS.tr.md) | Her ekranın görsel turu (setup wizard, approval gate, document preview, ayarlar, audit) |
+| 📸 | [Ekran Görüntüleri](SCREENSHOTS.tr.md) | Her ekranın görsel turu (kurulum sihirbazı, onay mekanizması, doküman önizleme, ayarlar, denetim) |
 
 ## Ayrıca
 
@@ -44,6 +47,8 @@ Her sayfanın İngilizce ikizi `.tr` son eki olmadan mevcut — örn. [Features]
   <a href="../README.tr.md"><strong>🏠 Ana Sayfa</strong></a>
   &nbsp;·&nbsp;
   <a href="FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  &nbsp;·&nbsp;
+  <a href="BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
   &nbsp;·&nbsp;
   <a href="ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
   &nbsp;·&nbsp;

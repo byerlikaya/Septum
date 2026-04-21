@@ -5,6 +5,8 @@
   &nbsp;·&nbsp;
   <a href="FEATURES.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
+  <a href="BENCHMARK.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
   <a href="ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;
   <a href="DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
@@ -129,6 +131,8 @@ timestamps. JSON / CSV / Splunk HEC export available via
   <a href="../README.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
   <a href="FEATURES.md"><strong>✨ Features</strong></a>
+  &nbsp;·&nbsp;
+  <a href="BENCHMARK.md"><strong>📈 Benchmark</strong></a>
   &nbsp;·&nbsp;
   <a href="ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;

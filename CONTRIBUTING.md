@@ -5,6 +5,8 @@
   &nbsp;·&nbsp;
   <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
+  <a href="docs/BENCHMARK.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
   <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
@@ -140,6 +142,8 @@ contribution can be distributed under those terms.
   <a href="README.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/BENCHMARK.md"><strong>📈 Benchmark</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;

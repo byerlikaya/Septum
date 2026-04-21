@@ -30,6 +30,8 @@
   &nbsp;·&nbsp;
   <a href="docs/FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
   &nbsp;·&nbsp;
+  <a href="docs/BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
   <a href="docs/ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
@@ -181,6 +183,8 @@ Ayrıntılar için [LICENSE](LICENSE) dosyasına bakın.
   <strong>🏠 Ana Sayfa</strong>
   &nbsp;·&nbsp;
   <a href="docs/FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
   &nbsp;·&nbsp;

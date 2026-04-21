@@ -3,6 +3,8 @@
   &nbsp;·&nbsp;
   <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
+  <a href="docs/BENCHMARK.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
   <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
@@ -19,6 +21,10 @@
 ## Changelog
 
 All notable changes to this project are documented here in a high‑level, date‑based format.
+
+### 2026-04-21
+
+- **Split benchmark into its own page + add 📈 Benchmark navigation entry**: The benchmark section in `docs/FEATURES.md` / `.tr.md` grew large enough (methodology across 5 corpora + 2 robustness probes, 4 SVG charts, per-layer + external + per-language tables, ablation numbers, coverage notes) that it dwarfed the rest of the feature reference. Extracted the full block into dedicated `docs/BENCHMARK.md` and `docs/BENCHMARK.tr.md` pages and removed the benchmark section from FEATURES entirely — FEATURES now stays focused on what Septum does, BENCHMARK answers how well. Added a `📈 Benchmark` entry between `✨ Features` and `🏗️ Architecture` in the top + bottom navigation bars of all 15 markdown files (README, docs/README, FEATURES, ARCHITECTURE, DOCUMENT_INGESTION, SCREENSHOTS, CONTRIBUTING, CHANGELOG — EN + TR), and a Benchmark row in the docs/README index tables. Benchmark pages now also carry an "Additional references" / "Ek kaynaklar" block linking every source: HF model cards for the two NER models and aya-expanse, WikiANN corpus, Ai4Privacy dataset, XLM-RoBERTa / CoNLL-2003 / Few-NERD papers, GDPR Art. 4(1), and primary-source links for the seven most-cited regulations (GDPR, KVKK, HIPAA, CCPA/CPRA, LGPD, UK GDPR, PIPEDA).
 
 ### 2026-04-20
 
@@ -354,6 +360,8 @@ All notable changes to this project are documented here in a high‑level, date�
   <a href="README.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/BENCHMARK.md"><strong>📈 Benchmark</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;

@@ -5,6 +5,8 @@
   &nbsp;·&nbsp;
   <a href="FEATURES.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
+  <a href="BENCHMARK.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
   <a href="ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;
   <strong>📊 Document Ingestion</strong>
@@ -44,6 +46,8 @@ How Septum turns an uploaded file into searchable, anonymised content. Every ste
   <a href="../README.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
   <a href="FEATURES.md"><strong>✨ Features</strong></a>
+  &nbsp;·&nbsp;
+  <a href="BENCHMARK.md"><strong>📈 Benchmark</strong></a>
   &nbsp;·&nbsp;
   <a href="ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;
