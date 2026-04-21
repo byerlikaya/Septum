@@ -1,23 +1,5 @@
 # Contributing to Septum
 
-<p align="center">
-  <a href="README.md"><strong>🏠 Home</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/BENCHMARK.md"><strong>📈 Benchmark</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
-</p>
-
----
-
 > 🇹🇷 Bu belgenin [Türkçesi](CONTRIBUTING.tr.md).
 
 Thanks for taking the time to contribute! Septum is privacy-first AI
@@ -133,21 +115,3 @@ and we'll coordinate a fix + advisory.
 Contributions are licensed under the MIT License, the same as the
 project. By submitting a pull request you agree that your
 contribution can be distributed under those terms.
-
----
-
-<p align="center">
-  <a href="README.md"><strong>🏠 Home</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/BENCHMARK.md"><strong>📈 Benchmark</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
-</p>

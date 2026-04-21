@@ -1,23 +1,5 @@
 # Septum'a Katkıda Bulunma
 
-<p align="center">
-  <a href="README.tr.md"><strong>🏠 Ana Sayfa</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
-  &nbsp;·&nbsp;
-  <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
-</p>
-
----
-
 > 🇬🇧 [English version](CONTRIBUTING.md).
 
 Katkıda bulunmak için ayırdığınız zaman için teşekkürler. Septum
@@ -138,21 +120,3 @@ planlarız.
 Katkılar projenin kendisiyle aynı MIT lisansı altındadır. Bir pull
 request açarak katkınızın bu koşullarda dağıtılabileceğini kabul
 etmiş olursunuz.
-
----
-
-<p align="center">
-  <a href="README.tr.md"><strong>🏠 Ana Sayfa</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
-  &nbsp;·&nbsp;
-  <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
-</p>
