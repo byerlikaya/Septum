@@ -76,7 +76,7 @@ jobs:
             variant: cpu
             platforms: linux/amd64,linux/arm64
             title: Septum
-            description: "Privacy-first AI middleware — anonymize documents, chat with LLMs, no raw PII leaves your machine."
+            description: "Privacy-first AI middleware — mask PII locally, chat with any LLM, raw data never leaves."
           - image: septum
             dockerfile: docker/standalone.Dockerfile
             variant: gpu
@@ -88,7 +88,7 @@ jobs:
             variant: cpu
             platforms: linux/amd64,linux/arm64
             title: Septum API
-            description: "Septum API — FastAPI REST layer (air-gapped zone). Runs backend endpoints only; pair with septum-web for the dashboard."
+            description: "Septum FastAPI backend — air-gapped zone. Document pipeline, PII masking, chat, auth, audit."
           - image: septum-api
             dockerfile: docker/api.Dockerfile
             variant: gpu
@@ -100,25 +100,25 @@ jobs:
             variant: cpu
             platforms: linux/amd64,linux/arm64
             title: Septum Web
-            description: "Septum Web — Next.js 16 dashboard for Septum. Build-arg NEXT_PUBLIC_API_BASE_URL selects same-origin proxy or split deployment."
+            description: "Septum Next.js 16 dashboard — setup wizard, approval gate, document preview, settings, audit."
           - image: septum-gateway
             dockerfile: docker/gateway.Dockerfile
             variant: cpu
             platforms: linux/amd64,linux/arm64
             title: Septum Gateway
-            description: "Septum Gateway — cloud LLM forwarder (internet-facing zone). Consumes masked requests from septum-queue; never imports septum-core."
+            description: "Septum cloud LLM forwarder — internet-facing zone. Never imports septum-core by invariant."
           - image: septum-audit
             dockerfile: docker/audit.Dockerfile
             variant: cpu
             platforms: linux/amd64,linux/arm64
             title: Septum Audit
-            description: "Septum Audit — compliance audit trail (internet-facing zone). JSONL sink + JSON / CSV / Splunk HEC exporters; never imports septum-core."
+            description: "Septum compliance audit log — JSONL sink + JSON / CSV / Splunk HEC exporters. No raw PII."
           - image: septum-mcp
             dockerfile: docker/mcp.Dockerfile
             variant: cpu
             platforms: linux/amd64,linux/arm64
             title: Septum MCP
-            description: "Septum MCP — stdio MCP server exposing PII masking tools to Claude Code / Desktop / Cursor. Includes septum-core."
+            description: "Septum MCP server — stdio / streamable-http / sse. PII masking tools for any MCP client."
 
     steps:
       - name: Checkout
