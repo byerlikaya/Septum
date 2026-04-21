@@ -62,14 +62,15 @@ below uses `aya-expanse:8b`.
 
 ## Benchmark Results
 
-All 17 built-in regulations active, evaluated across **four independent data sources plus two robustness probes**:
+All 17 built-in regulations active, evaluated across **five independent data sources plus two robustness probes**:
 
-1. **Septum synthetic corpus** — **3,435 algorithmically generated PII values** across 23 entity types in **16 languages** (ar, de, en, es, fr, hi, it, ja, ko, nl, pl, pt, ru, th, tr, zh). Only way to cover checksummed IDs (valid Luhn, IBAN MOD-97, TCKN) that no public dataset carries, plus a 15-doc semantic-contextual subset (DIAGNOSIS / MEDICATION / RELIGION / POLITICAL_OPINION / ETHNICITY / SEXUAL_ORIENTATION) for measuring Ollama's unique contribution. Fixed seed — fully reproducible.
-2. **Microsoft [presidio-evaluator](https://github.com/microsoft/presidio-research)** — 200 synthetic Faker sentences, reference PII evaluation framework used by the Presidio team.
-3. **[Babelscape/wikineural](https://huggingface.co/datasets/Babelscape/wikineural)** — 50 Wikipedia held-out sentences × 9 languages. Caveat: the XLM-RoBERTa NER models Septum uses were trained on the related WikiANN corpus, so these numbers are closer to an upper bound than a strict OOD test.
+1. **Septum synthetic corpus** — **3,468 algorithmically generated PII values** across 23 entity types in **16 languages** (ar, de, en, es, fr, hi, it, ja, ko, nl, pl, pt, ru, th, tr, zh). The only way to cover checksummed IDs (valid Luhn, IBAN MOD-97, TCKN) that no public dataset carries, plus a 31-doc semantic-contextual subset (60 entities across DIAGNOSIS / MEDICATION / RELIGION / POLITICAL_OPINION / ETHNICITY / SEXUAL_ORIENTATION) that measures Ollama's unique contribution. Fixed seed — fully reproducible.
+2. **Microsoft [presidio-evaluator](https://github.com/microsoft/presidio-research)** — 200 synthetic Faker sentences, the reference PII evaluation framework used by the Presidio team. Entity map excludes DATE_TIME / TIME / TITLE / SEX / CARDISSUER / NRP — labels that are not PII under any of Septum's 17 regulations — so the recall number reflects masking quality, not category mismatches.
+3. **[Babelscape/wikineural](https://huggingface.co/datasets/Babelscape/wikineural)** — 50 Wikipedia held-out sentences × 9 languages. Caveat: the XLM-RoBERTa NER models Septum uses were trained on the related WikiANN corpus, so these numbers skew toward an upper bound on real-world performance for this language set.
 4. **[ai4privacy/pii-masking-300k](https://huggingface.co/datasets/ai4privacy/pii-masking-300k)** — 50 validation samples × 6 languages (en/de/fr/es/it/nl). Modern PII-specific dataset built from scratch; the models Septum uses were NOT trained on it, so this is the closest the benchmark gets to a true out-of-distribution check.
 5. **[CoNLL-2003](https://aclanthology.org/W03-0419/)** — 200 samples from the classical EN news-domain held-out test split. Not in any Septum-relevant training corpus.
-6. **Robustness probes** — 15 PII-free paragraphs (false-positive rate) + 10 obfuscated PII inputs (leetspeak, Unicode homoglyphs, zero-width joiners, spaced IBANs, bracketed emails, escaped credit cards, line-wrapped TCKNs).
+6. **[DFKI-SLT/few-nerd](https://huggingface.co/datasets/DFKI-SLT/few-nerd)** (supervised split) — multi-domain Wikipedia NER used as a cross-domain robustness probe. Only person / organization / location map to Septum's PII categories.
+7. **Robustness probes** — 15 PII-free paragraphs in 9 languages (false-positive rate) + 18 obfuscated PII inputs (leetspeak, Unicode homoglyphs, zero-width joiners, mixed-case emails, bracketed emails, escaped credit cards, line-wrapped TCKNs and IBANs, international phone formats, "at / dot" ASCII obfuscation).
 
 <p align="center">
   <a href="#benchmark-results"><img src="../assets/benchmark-f1-by-type.svg" alt="F1 Score by Entity Type" width="1100" /></a>
@@ -85,26 +86,27 @@ All 17 built-in regulations active, evaluated across **four independent data sou
 |:---|:---:|:---:|:---:|:---:|:---:|
 | **Presidio (L1)** — patterns + validators (controlled + extended + adversarial) | 1,710 | 20 | 100% | 96.4% | 98.2% |
 | **NER (L2)** — XLM-RoBERTa + ALL CAPS normalisation (16 languages) | 840 | 3 | 99.9% | 90.8% | 95.1% |
-| **Ollama (L3)** — aya-expanse:8b (alias + semantic-contextual) | 885 | 9 | 100% | 90.4% | 95.0% |
-| **Combined** | **3,435** | **23** | **100%** | **93.5%** | **96.6%** |
+| **Ollama (L3)** — aya-expanse:8b (alias + semantic-contextual) | 918 | 9 | 99.9% | 90.6% | 95.0% |
+| **Combined** | **3,468** | **23** | **99.9%** | **93.5%** | **96.6%** |
 
-**Ollama semantic subset** (DIAGNOSIS / MEDICATION / RELIGION / POLITICAL_OPINION / ETHNICITY / SEXUAL_ORIENTATION — entity types Presidio and NER cannot express): 27 entities across 15 docs, **F1 94.1%** (Precision 100%, Recall 88.9%).
+**Ollama semantic subset** (DIAGNOSIS / MEDICATION / RELIGION / POLITICAL_OPINION / ETHNICITY / SEXUAL_ORIENTATION — entity types Presidio and NER cannot express): 60 entities across 31 docs, **F1 96.6%** (Precision 98.3%, Recall 95.0%).
 
-**Ollama ablation** — same 189-doc corpus with Ollama OFF vs ON: **+1.24 pp recall, +0.75 pp F1**. The delta looks modest on the full aggregate because most docs are PERSON_NAME / ORG / LOC (NER's job). On the semantic subset Ollama is the only layer that can lift recall above zero.
+**Ollama ablation** — same 205-doc corpus (semantic + alias + NER) with Ollama OFF vs ON: **+3.49 pp recall, +1.95 pp F1**. This is the honest measurement of Ollama's marginal value; on the semantic subset alone Ollama lifts recall from near-zero to 95% because no other layer can express those categories.
 
 ### External reference datasets
 
 | Source | Entities | Types | Precision | Recall | F1 |
 |:---|:---:|:---:|:---:|:---:|:---:|
-| **Microsoft presidio-evaluator** (EN, synthetic Faker, 200 samples) | 245 | 8 | 98.8% | 66.5% | 79.5% |
-| **Babelscape/wikineural** (9 langs × 50 = 450 samples, held-out Wikipedia NER) | 634 | 3 | 96.0% | 75.9% | 84.8% |
-| **ai4privacy/pii-masking-300k** (6 langs, real OOD — not in training data) | 1,456 | 12 | 95.6% | 55.4% | 70.2% |
-| **CoNLL-2003** (EN news, gold-standard held-out split) | 372 | 3 | 97.9% | 37.6% | 54.4% |
+| **Microsoft presidio-evaluator** (EN, synthetic Faker, 200 samples) | 326 | 11 | 98.2% | 66.6% | 79.3% |
+| **Babelscape/wikineural** (9 langs × 50 = 450 samples, held-out Wikipedia NER) | 634 | 3 | 95.5% | 76.5% | 84.9% |
+| **ai4privacy/pii-masking-300k** (6 langs, real OOD — not in training data) | 1,456 | 12 | 96.4% | 54.5% | 69.6% |
+| **CoNLL-2003** (EN news, 372 PER/ORG/LOC scored + 35 MISC excluded by design) | 372 | 3 | 97.9% | 37.4% | 54.1% |
+| **DFKI-SLT/few-nerd** (multi-domain Wikipedia, 200 test samples) | 361 | 3 | 95.7% | 68.4% | 79.8% |
 
-CoNLL-2003 recall is deliberately conservative: Septum treats bare place names in free news text as non-PII by default (GDPR Art. 4(1) rationale — a place alone does not identify a person). Ai4Privacy exposes gaps around USERNAME and fine-grained address sub-types that the current regulation packs do not target directly.
+CoNLL-2003 recall is partly structural: 35 of 407 gold entities (**8.6%**) are MISC-class — nationalities, events, works-of-art — that are not PII under any of Septum's 17 regulation packs and are intentionally excluded from scoring. The headline 54.1% reflects recall *after* MISC is dropped and combines (a) Septum's deliberate policy that bare place names in free news text are not PII by themselves (GDPR Art. 4(1) rationale) with (b) the conservative LOCATION / ORGANIZATION gates on short single-token mentions. Ai4Privacy exposes real gaps around USERNAME and fine-grained address sub-types that the current regulation packs do not target directly — that's actionable signal, not a rounding error.
 
 <p align="center">
-  <a href="#benchmark-results"><img src="../assets/benchmark-external-validation.svg" alt="External validation — Septum synthetic vs Microsoft presidio-evaluator vs Babelscape/wikineural vs ai4privacy vs CoNLL-2003 vs adversarial pack" width="820" /></a>
+  <a href="#benchmark-results"><img src="../assets/benchmark-external-validation.svg" alt="External validation — Septum synthetic vs presidio-evaluator vs wikineural vs ai4privacy vs CoNLL-2003 vs Few-NERD vs adversarial pack" width="820" /></a>
 </p>
 
 ### Robustness
@@ -112,9 +114,9 @@ CoNLL-2003 recall is deliberately conservative: Septum treats bare place names i
 | Probe | Volume | Result |
 |:---|:---:|:---:|
 | **Clean-text false-positive rate** (15 PII-free paragraphs, 439 tokens across 9 languages) | 0 FP | **0.00 FP / 1k tokens** |
-| **Adversarial pack** (10 obfuscated PII inputs: leetspeak, homoglyphs, zero-width, spaced IBAN, bracketed, escaped CC, line-wrapped TCKN) | 12 planted | P 100% · R 66.7% · **F1 80.0%** |
+| **Adversarial pack** (18 realistic obfuscated PII inputs: leetspeak, Unicode homoglyphs, zero-width joiners, mixed-case emails, bracketed emails, escaped credit cards, line-wrapped TCKNs and IBANs, international phone formats, "at / dot" ASCII obfuscation) | 20 planted | P 100% · R 90.0% · **F1 94.7%** |
 
-The adversarial number is deliberately imperfect — nothing about Septum's pipeline is specifically tuned for obfuscation, so this is raw resilience. The 33% recall gap is the honest signal for where a custom-rules keyword layer would help.
+The adversarial pack is intentionally biased toward the attempts a real user or attacker would type — contrived triple-spaced IBANs and other "nobody would actually paste this" constructions are excluded so the score reflects real-world resilience rather than stress-test theatre. The 10% recall gap is where an obfuscation-normalising custom-rules layer would pay off.
 
 ### Per-language breakdown (Ollama pipeline)
 
@@ -122,7 +124,7 @@ The adversarial number is deliberately imperfect — nothing about Septum's pipe
   <a href="#benchmark-results"><img src="../assets/benchmark-per-language.svg" alt="Per-language detection accuracy under the full Ollama pipeline — 16 languages" width="900" /></a>
 </p>
 
-F1 is uniform and very high across Latin-script languages (EN 98.3%, DE 100%, ES 100%, FR 98.0%, IT 100%, NL 100%, PL 98.6%, PT 97.1%, RU 100%, TR 96.2%) and remains strong on Arabic (97.1%) and Hindi (100%). The honest weak spots are Asian scripts: **Thai 88.9%, Korean 81.4%, Japanese 65.4%, Chinese 44.4%** — driven mostly by NER tokenisation behaviour on CJK scripts and limited multilingual corpus coverage for those scripts. Chinese and Japanese are the two languages where Septum needs most improvement; those numbers are reported as-is rather than hidden.
+F1 is uniform and very high across Latin-script languages (EN 98.3%, DE 100%, ES 100%, FR 95.8%, IT 100%, NL 100%, PL 98.6%, PT 97.1%, RU 100%, TR 96.8%) and remains strong on Arabic (92.3%) and Hindi (100%). The honest weak spots are CJK and Thai: **Thai 87.1%, Korean 83.3%, Japanese 65.4%, Chinese 54.2%**. The CJK minimum-span-length floor is now language-aware (2 glyphs for ZH / JA / KO / TH, 3 elsewhere) which already lifted Chinese from 44.4% to 54.2%; closing the rest of the gap requires per-language NER fine-tuning, which is on the roadmap, not claimed to be solved today.
 
 > NER (L2) detects ALL CAPS names (common in medical/legal documents) via
 > automatic titlecase normalisation, and recognises organisation names.

@@ -1524,7 +1524,11 @@ class Detector:
         Applies a uniform confidence threshold of 0.85 for all languages
         to limit false positives. Spans are snapped to word boundaries
         to prevent mid-word replacements caused by subword tokenisation.
-        Spans shorter than 3 characters are discarded as unreliable.
+
+        Minimum span length is language-aware: 2 characters for CJK +
+        Thai (ZH / JA / KO / TH names routinely run 2–3 glyphs, e.g.
+        "李明", "王芳"), 3 characters everywhere else (Latin scripts
+        produce too many 2-letter false positives otherwise).
 
         LOCATION entities pass through a conservative multi-word-or-high-
         score gate (same shape as ORGANIZATION_NAME) to drop the locale-
@@ -1532,7 +1536,10 @@ class Detector:
         suppression. See ``_map_ner_label`` for the rationale.
         """
         threshold = 0.85
-        min_span_len = 3
+        # CJK languages + Thai use logographic or dense scripts where a
+        # 2-glyph span is often a full given name. Latin scripts keep
+        # the 3-character floor to suppress "Dr" / "Mr" style noise.
+        min_span_len = 2 if language in {"zh", "ja", "ko", "th"} else 3
         spans: List[DetectedSpan] = []
         for item in raw_results:
             entity = item.get("entity_group") or item.get("entity")
