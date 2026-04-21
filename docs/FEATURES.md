@@ -44,7 +44,7 @@ were named.
 | Layer | Technology | Entity types |
 |:---:|:---|:---|
 | 1 | **Presidio** — regex patterns with algorithmic validators (Luhn, IBAN MOD-97, TCKN, CPF, SSN). Context-aware recognisers with multilingual keywords. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE |
-| 2 | **NER** — HuggingFace XLM-RoBERTa with per-language model selection (20+ languages). ALL CAPS input auto-normalised to title case before inference. LOC/GPE labels are deliberately suppressed (see Coverage & limitations). | PERSON_NAME, ORGANIZATION_NAME, (LOCATION via Presidio) |
+| 2 | **NER** — HuggingFace XLM-RoBERTa with per-language model selection (20+ languages). ALL CAPS input auto-normalised to title case. LOCATION + ORGANIZATION_NAME pass through a multi-word-or-high-score gate to drop common-noun mis-fires (see Coverage & limitations). | PERSON_NAME, LOCATION, ORGANIZATION_NAME |
 | 3 | **Ollama** — local LLM for context validation, alias detection, and semantic entities. | PERSON_NAME aliases/nicknames; DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE |
 
 **Coreference resolution.** After all three layers have produced spans, the
@@ -62,11 +62,11 @@ below uses `aya-expanse:8b`.
 
 ## Benchmark Results
 
-All 17 built-in regulations active. **3,268 algorithmically generated PII
-values** across 23 entity types (valid Luhn, IBAN MOD-97, TCKN checksums).
-150 samples per Presidio type, 160 person names (mixed case + ALL CAPS,
-EN/TR), 100 locations (EN/TR), 30 organisation names (EN/TR), plus alias
-detection. Fixed seed for full reproducibility.
+All 17 built-in regulations active, evaluated across **three independent data sources**:
+
+1. **Septum synthetic corpus** — **3,408 algorithmically generated PII values** across 23 entity types in **16 languages** (ar, de, en, es, fr, hi, it, ja, ko, nl, pl, pt, ru, th, tr, zh). Only way to cover checksummed IDs (valid Luhn, IBAN MOD-97, TCKN) that no public dataset carries: 150 samples per Presidio type, 160 person names (mixed case + ALL CAPS, EN/TR), 100 locations (EN/TR), 30 organisation names (EN/TR), multilingual person/location coverage plus alias detection. Fixed seed — fully reproducible.
+2. **Microsoft [presidio-evaluator](https://github.com/microsoft/presidio-research)** — 200 synthetic Faker-generated sentences, industry reference framework. Acts as a cross-validation against the Septum corpus.
+3. **[Babelscape/wikineural](https://huggingface.co/datasets/Babelscape/wikineural)** — 50 Wikipedia held-out test sentences per language × 9 languages (de/en/es/fr/it/nl/pl/pt/ru). Caveat: the XLM-RoBERTa NER models Septum uses are trained on the related WikiANN corpus, so these numbers are closer to an upper bound than a strict out-of-distribution test.
 
 <p align="center">
   <a href="#benchmark-results"><img src="../assets/benchmark-f1-by-type.svg" alt="F1 Score by Entity Type" width="1100" /></a>
@@ -76,40 +76,56 @@ detection. Fixed seed for full reproducibility.
   <a href="#benchmark-results"><img src="../assets/benchmark-layer-comparison.svg" alt="Detection Accuracy by Pipeline Layer" width="820" /></a>
 </p>
 
+### Septum synthetic corpus (per-layer)
+
 | Layer | Entities | Types | Precision | Recall | F1 |
 |:---|:---:|:---:|:---:|:---:|:---:|
 | **Presidio (L1)** — patterns + validators (controlled + extended + adversarial) | 1,710 | 20 | 100% | 96.4% | 98.2% |
-| **NER (L2)** — XLM-RoBERTa + ALL CAPS normalisation (14 languages) | 770 | 3 | 99.8% | 58.3% | 73.6% |
-| **Ollama (L3)** — aya-expanse:8b | 788 | 3 | 100% | 59.5% | 74.6% |
-| **Combined** | **3,268** | **23** | **100%** | **78.5%** | **88.0%** |
+| **NER (L2)** — XLM-RoBERTa + ALL CAPS normalisation (16 languages) | 840 | 3 | 99.9% | 90.8% | 95.1% |
+| **Ollama (L3)** — aya-expanse:8b | 858 | 3 | 100% | 90.1% | 94.8% |
+| **Combined** | **3,408** | **23** | **100%** | **93.5%** | **96.6%** |
+
+### External reference datasets
+
+| Source | Entities | Types | Precision | Recall | F1 |
+|:---|:---:|:---:|:---:|:---:|:---:|
+| **Microsoft presidio-evaluator** (EN, synthetic Faker, 200 samples) | 258 | 7 | 98.9% | 68.2% | 80.7% |
+| **Babelscape/wikineural** (9 langs × 50 = 450 samples, held-out Wikipedia NER) | 634 | 3 | 94.6% | 74.0% | 83.0% |
+
+<p align="center">
+  <a href="#benchmark-results"><img src="../assets/benchmark-external-validation.svg" alt="External validation — Septum synthetic vs Microsoft presidio-evaluator vs Babelscape/wikineural" width="820" /></a>
+</p>
 
 > NER (L2) detects ALL CAPS names (common in medical/legal documents) via
 > automatic titlecase normalisation, and recognises organisation names.
-> Ollama (L3) validates candidates and catches aliases. Benchmark includes
-> adversarial edge cases (spaced IBANs, dotted phone numbers, etc.) that
-> lower Presidio recall to real-world levels. Reproducible:
-> `pytest packages/api/tests/benchmark_detection.py -v -s`
+> LOCATION output goes through a conservative gate (multi-word OR confidence
+> ≥ 0.95) so common-noun mis-fires like Turkish "Doğum" or German form
+> headers are filtered out while real placenames like "İstanbul", "Berlin"
+> still pass through. Ollama (L3) validates candidates and catches aliases.
+> Benchmark includes adversarial edge cases (spaced IBANs, dotted phone
+> numbers, etc.) that lower Presidio recall to real-world levels.
+> Reproducible: `pytest packages/api/tests/benchmark_detection.py -v -s`
 
 ### Coverage & limitations
 
 **No PII detection system is 100% accurate.** Septum's benchmark is
 transparent about where it wins and where it does not:
 
-- **Standalone LOCATION mentions (free-text "Paris", "Istanbul") are
-  detected at 0% by NER — by design.** The NER detector deliberately
-  suppresses LOC/GPE mapping (see [`Detector._map_ner_label`](../packages/core/septum_core/detector.py)
-  — GDPR Art. 4(1) rationale: a place name alone does not identify a
-  natural person, identification comes from the PERSON_NAME anchor).
-  Structured address PII is still caught by Presidio's
-  `StructuralAddressRecognizer` and the per-regulation POSTAL_ADDRESS /
-  STREET_ADDRESS recognisers. This choice drops the NER and combined
-  recall numbers in the benchmark but keeps false-positive rates low
-  across 50+ languages. If your threat model requires standalone city
-  detection, enable a custom keyword ruleset or raise an issue.
+- **LOCATION output passes through a multi-word-or-high-score gate** (same
+  shape as ORGANIZATION_NAME). Multilingual XLM-RoBERTa models produce
+  stochastic single-token LOC mis-fires on common nouns and form-field
+  headers in every language Septum supports (Turkish "Doğum", German form
+  headers, etc.); chasing those per-language via stopword lists does not
+  scale across the 50+ locales the middleware must handle. The gate drops
+  single-token spans below 0.95 confidence — real placenames like
+  "İstanbul", "Berlin" routinely score 0.97+ and multi-word locations
+  ("New York") bypass the score gate entirely. Structured address PII is
+  additionally captured by Presidio's `StructuralAddressRecognizer` and
+  the per-regulation POSTAL_ADDRESS / STREET_ADDRESS recognisers.
 - **All 37 regulation entity types are detectable** — 21 via Presidio, 3
   via NER, 9 via Ollama, and the rest via parent-type coverage
   (FIRST_NAME by PERSON_NAME, CITY by LOCATION, etc.).
-- **23 entity types are actively benchmarked** across 3,268 values in 14
+- **23 entity types are actively benchmarked** across 3,408 values in 16
   languages with adversarial edge cases.
 - **Semantic types** (DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION)
   are detected only by the Ollama layer and require a local LLM to be

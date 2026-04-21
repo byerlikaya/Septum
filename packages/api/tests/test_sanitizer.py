@@ -333,32 +333,41 @@ def test_coverage_validation_logs_uncovered_types(
     assert not any("PERSON_NAME" in msg for msg in caplog.messages)
 
 
-def test_ner_loc_output_is_dropped_entirely(sanitizer: PIISanitizer) -> None:
-    """NER LOC output must never become a LOCATION span, in any language.
+def test_ner_loc_output_passes_conservative_filter(sanitizer: PIISanitizer) -> None:
+    """NER LOC output runs through a multi-word-or-high-score gate.
 
     Stochastic multilingual NER models mis-tag common nouns and form-field
-    labels as LOC in every language Septum supports, and chasing those
-    per-language via stopword lists does not scale. Address PII is
-    captured by the deterministic ``StructuralAddressRecognizer`` and by
-    per-regulation POSTAL_ADDRESS / STREET_ADDRESS recognizers instead,
-    so ``_map_ner_label`` returns ``None`` for LOC. The common-noun case,
-    the real-city case, and the ALL-CAPS header case all collapse to the
-    same assertion — zero LOCATION spans coming out of NER.
+    labels as LOC at moderate confidence (Turkish "Doğum", "TARAFLAR";
+    German form headers; similar across every language Septum supports).
+    The detector mirrors its ORGANIZATION_NAME filter: a single-token LOC
+    span survives only if the model's confidence is ≥ 0.95, and multi-word
+    spans pass regardless. Real place names like "İstanbul" / "Berlin"
+    routinely score 0.97+ on XLM-RoBERTa; common-noun mis-fires land in
+    the 0.80–0.92 range and are dropped.
     """
     fake_ner_results = [
-        # Common-noun false positives (lowercase, title-case, ALL CAPS)
-        {"entity_group": "LOC", "start": 0, "end": 5, "score": 0.95},    # "kabul"
-        {"entity_group": "LOC", "start": 6, "end": 11, "score": 0.95},   # "Doğum"
-        {"entity_group": "LOC", "start": 12, "end": 20, "score": 0.95},  # "TARAFLAR"
-        # Real cities (now also dropped at the NER layer — structural
-        # address recognizers capture them when they appear inside an
-        # actual address block).
+        # Common-noun false positives — below the 0.95 single-token gate
+        {"entity_group": "LOC", "start": 0, "end": 5, "score": 0.88},    # "kabul"
+        {"entity_group": "LOC", "start": 6, "end": 11, "score": 0.92},   # "Doğum"
+        {"entity_group": "LOC", "start": 12, "end": 20, "score": 0.90},  # "TARAFLAR"
+        # Real cities at high confidence — pass the gate
         {"entity_group": "LOC", "start": 21, "end": 29, "score": 0.98},  # "İstanbul"
-        {"entity_group": "LOC", "start": 30, "end": 36, "score": 0.98},  # "Berlin"
+        {"entity_group": "LOC", "start": 30, "end": 36, "score": 0.97},  # "Berlin"
     ]
     text = "kabul Doğum TARAFLAR İstanbul Berlin"
     spans = sanitizer._from_ner_results(fake_ner_results, text, "tr")
-    assert spans == []
+    assert len(spans) == 2
+    assert {s.entity_type for s in spans} == {"LOCATION"}
+    surviving = {text[s.start : s.end] for s in spans}
+    assert surviving == {"İstanbul", "Berlin"}
+
+    # Multi-word spans bypass the score gate even at modest confidence.
+    multiword_results = [
+        {"entity_group": "LOC", "start": 0, "end": 8, "score": 0.88},    # "New York"
+    ]
+    mw_spans = sanitizer._from_ner_results(multiword_results, "New York", "en")
+    assert len(mw_spans) == 1
+    assert mw_spans[0].entity_type == "LOCATION"
 
     # Sanity check: other NER labels still go through.
     person_results = [

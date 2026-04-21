@@ -1526,10 +1526,10 @@ class Detector:
         to prevent mid-word replacements caused by subword tokenisation.
         Spans shorter than 3 characters are discarded as unreliable.
 
-        LOCATION entities are intentionally not produced here — see
-        ``_map_ner_label`` for the rationale (stochastic NER mis-fires on
-        every language, address PII is handled by the deterministic
-        structural recognizers instead).
+        LOCATION entities pass through a conservative multi-word-or-high-
+        score gate (same shape as ORGANIZATION_NAME) to drop the locale-
+        specific single-token mis-fires that motivated the earlier full
+        suppression. See ``_map_ner_label`` for the rationale.
         """
         threshold = 0.85
         min_span_len = 3
@@ -1559,6 +1559,17 @@ class Detector:
                 if len(words) < 2 and score < 0.95:
                     continue
 
+            if entity_type == "LOCATION":
+                # Same conservative filter as ORGANIZATION_NAME: accept only
+                # multi-word spans or very high-confidence single tokens.
+                # Keeps real placenames ("Paris", "İstanbul" — score > 0.95)
+                # while dropping the locale-specific single-token mis-fires
+                # (Turkish "Doğum", German form headers, etc.) that poisoned
+                # the naive LOC → LOCATION mapping before it was dropped.
+                words = span_text.split()
+                if len(words) < 2 and score < 0.95:
+                    continue
+
             spans.append(
                 DetectedSpan(
                     start=start,
@@ -1573,25 +1584,25 @@ class Detector:
     def _map_ner_label(label: str) -> Optional[str]:
         """Map model-specific NER labels to global entity types.
 
-        Only PERSON_NAME and EMAIL_ADDRESS are mapped from NER output.
-        LOC is *not* mapped to LOCATION: multilingual NER models
-        (XLM-RoBERTa variants) are stochastic and produce locale-specific
-        false positives on every language Septum supports — form-field
-        labels, contract headers, common nouns. Chasing those per-language
-        via stopword lists or gazetteers does not scale across the 50+
-        languages the middleware must handle.
+        Four labels are mapped: PER → PERSON_NAME, EMAIL → EMAIL_ADDRESS,
+        ORG → ORGANIZATION_NAME, LOC/GPE → LOCATION. ORGANIZATION_NAME
+        and LOCATION then flow through a conservative confidence filter
+        in ``_extract_entities`` (multi-word span OR score > 0.95) —
+        multilingual NER models (XLM-RoBERTa variants) are stochastic
+        and produce locale-specific single-token false positives on
+        every language Septum supports (Turkish "Doğum", German form
+        headers, Japanese common nouns). The multi-word-or-high-score
+        gate drops those without a language-specific stopword list,
+        keeping the zero-tolerance generic-architecture rule intact.
 
-        Address PII is instead captured by deterministic, language-agnostic
-        structural recognizers: ``StructuralAddressRecognizer`` (labeled
-        fields + abbreviation + numeric density) and per-regulation
-        POSTAL_ADDRESS / STREET_ADDRESS recognizers in
-        ``septum_core.recognizers.<reg_id>``. Standalone mentions of
-        cities or countries in free text are not treated as PII on their
-        own because, under GDPR Art. 4(1) and equivalent, a place name
-        alone does not identify a natural person — the identification
-        comes from the PERSON_NAME anchor, which NER continues to detect.
-
-        ORG is also suppressed as it generates excessive false positives.
+        Real placenames in free text ("Paris", "İstanbul", "New York")
+        routinely score above 0.95 on the XLM-RoBERTa variants used,
+        and multi-word locations ("New York", "San Francisco") bypass
+        the score gate entirely. Structured address PII is still caught
+        by ``StructuralAddressRecognizer`` and per-regulation
+        POSTAL_ADDRESS / STREET_ADDRESS recognizers —
+        ``_extract_entities``'s LOCATION output is additive on top of
+        those.
         """
         upper = label.upper()
         if "PER" in upper or upper.startswith("B-PER") or upper.startswith("I-PER"):
@@ -1600,6 +1611,8 @@ class Detector:
             return "EMAIL_ADDRESS"
         if "ORG" in upper or upper.startswith("B-ORG") or upper.startswith("I-ORG"):
             return "ORGANIZATION_NAME"
+        if "LOC" in upper or "GPE" in upper:
+            return "LOCATION"
         return None
 
     @staticmethod

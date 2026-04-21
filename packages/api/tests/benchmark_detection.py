@@ -1456,6 +1456,64 @@ _CTX_LOC_HI = [
     "{v} में नई शाखा खोली गई।",
 ]
 
+# --- Thai (PDPA Thailand) ---
+
+PERSON_NAMES_TH = [
+    "สมชาย ใจดี", "สุวรรณ รัตนกุล", "ปิยะ วงศ์สวัสดิ์", "อารีย์ จันทร์เพ็ญ",
+    "ธนพล ศรีสุข", "นภาพร ทองเจริญ", "วิชัย พรหมมา", "จุฑามาศ เกียรติยศ",
+    "ประเสริฐ พิพัฒน์", "มาลี ชาญชัย", "อุดม ภาคภูมิ", "ศิริพร อินทรา",
+    "ชาตรี สุขสวัสดิ์", "ปราณี บุญมี", "เกษม อยู่เย็น", "ดวงใจ มณีรัตน์",
+    "อนันต์ พงศ์พันธ์", "พรทิพย์ ยอดรัก", "เจริญ สินธุนาวา", "กมลวรรณ วชิรา",
+]
+
+LOCATIONS_TH = [
+    "กรุงเทพมหานคร", "เชียงใหม่", "ภูเก็ต", "ชลบุรี", "ขอนแก่น",
+    "อุดรธานี", "นครราชสีมา", "สุราษฎร์ธานี", "สงขลา", "หาดใหญ่",
+    "พัทยา", "อยุธยา", "สุโขทัย", "เชียงราย", "กระบี่",
+]
+
+_CTX_NAME_TH = [
+    "รายงานจัดทำโดย {v}", "{v} เข้าร่วมการประชุม",
+    "สัญญาลงนามโดย {v}", "{v} เสนอข้อเสนองบประมาณ",
+    "{v} เป็นผู้นำโครงการ", "การตรวจสอบดำเนินการโดย {v}",
+    "การฝึกอบรมจัดโดย {v}", "{v} อนุมัติสัญญา",
+    "การประเมินส่งโดย {v}", "{v} เป็นประธานการประชุม",
+]
+_CTX_LOC_TH = [
+    "การประชุมจะจัดที่ {v}", "สำนักงานของเราใน {v} กำลังเติบโต",
+    "สินค้าส่งจาก {v}", "การดำเนินงานใน {v} กำลังขยายตัว",
+    "สาขาใหม่เปิดใน {v}",
+]
+
+# --- Korean (non-Latin additional script coverage) ---
+
+PERSON_NAMES_KO = [
+    "김민수", "이지은", "박성호", "최영희",
+    "정현우", "강수진", "조민재", "윤서연",
+    "장우진", "한지훈", "신예린", "오준혁",
+    "임하늘", "서지원", "홍경민", "유재석",
+    "문소영", "배정호", "권나연", "안도현",
+]
+
+LOCATIONS_KO = [
+    "서울", "부산", "인천", "대구", "대전",
+    "광주", "울산", "수원", "제주", "춘천",
+    "청주", "전주", "포항", "창원", "경주",
+]
+
+_CTX_NAME_KO = [
+    "보고서는 {v}에 의해 작성되었습니다.", "{v}님이 회의에 참석했습니다.",
+    "계약은 {v}에 의해 서명되었습니다.", "{v}님이 예산안을 제출했습니다.",
+    "감사는 {v}에 의해 수행되었습니다.", "{v}님이 이니셔티브를 이끌 것입니다.",
+    "교육은 {v}에 의해 조직되었습니다.", "{v}님이 계약을 승인했습니다.",
+    "평가는 {v}에 의해 제출되었습니다.", "{v}님이 회의를 주재했습니다.",
+]
+_CTX_LOC_KO = [
+    "회의는 {v}에서 열립니다.", "{v}의 사무실이 성장하고 있습니다.",
+    "화물이 {v}에서 발송되었습니다.", "{v}의 운영이 확장되고 있습니다.",
+    "{v}에 새 지점이 열렸습니다.",
+]
+
 # --- Build multilingual NER documents ---
 
 MULTILINGUAL_NER_DOCUMENTS: list[BenchmarkDocument] = (
@@ -1485,6 +1543,11 @@ MULTILINGUAL_NER_DOCUMENTS: list[BenchmarkDocument] = (
     + _build_docs(LOCATIONS_ZH, "LOCATION", "ner_loc_zh", _CTX_LOC_ZH, "zh", 5)
     + _build_docs(LOCATIONS_JA, "LOCATION", "ner_loc_ja", _CTX_LOC_JA, "ja", 5)
     + _build_docs(LOCATIONS_HI, "LOCATION", "ner_loc_hi", _CTX_LOC_HI, "hi", 5)
+    # PDPA Thailand + Korean (non-Latin coverage extension)
+    + _build_docs(PERSON_NAMES_TH, "PERSON_NAME", "ner_name_th", _CTX_NAME_TH, "th", 5)
+    + _build_docs(LOCATIONS_TH, "LOCATION", "ner_loc_th", _CTX_LOC_TH, "th", 5)
+    + _build_docs(PERSON_NAMES_KO, "PERSON_NAME", "ner_name_ko", _CTX_NAME_KO, "ko", 5)
+    + _build_docs(LOCATIONS_KO, "LOCATION", "ner_loc_ko", _CTX_LOC_KO, "ko", 5)
     # ALL CAPS multilingual
     + _build_docs(PERSON_NAMES_CAPS_DE, "PERSON_NAME", "ner_caps_de", _CTX_NAME_CAPS_EN, "de", 5)
     + _build_docs(PERSON_NAMES_CAPS_FR, "PERSON_NAME", "ner_caps_fr", _CTX_NAME_CAPS_EN, "fr", 5)
@@ -1575,6 +1638,139 @@ OLLAMA_ALIAS_DOCUMENTS: list[BenchmarkDocument] = [
         ],
     ),
 ]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  EXTERNAL BENCHMARKS — industry-standard datasets
+#
+#  In addition to the Septum-curated synthetic corpora above (which exercise
+#  checksummed IDs like TCKN / IBAN / SSN that public datasets do not carry),
+#  the benchmark also runs against two public sources so the reported numbers
+#  are reproducible with off-the-shelf tooling:
+#
+#  1. Microsoft Presidio Evaluator (`presidio-evaluator` on PyPI) — the
+#     reference evaluation framework used by the Presidio team. Generates
+#     synthetic sentences with ground-truth PII spans via Faker.
+#  2. Babelscape/wikineural (HuggingFace `datasets`) — multilingual Wikipedia
+#     NER held-out test splits for 9 languages (de/en/es/fr/it/nl/pl/pt/ru).
+#     Note: the XLM-RoBERTa NER models Septum uses are trained on the related
+#     WikiANN corpus, so these numbers are closer to an upper bound than to
+#     a strict out-of-distribution test.
+#
+#  Both sources are optional — if their packages aren't installed the
+#  external benchmark is skipped with a log message, not a failure.
+# ═══════════════════════════════════════════════════════════════════════════
+
+_PRESIDIO_EVAL_ENTITY_MAP: Dict[str, str] = {
+    "PERSON": "PERSON_NAME",
+    "EMAIL_ADDRESS": "EMAIL_ADDRESS",
+    "PHONE_NUMBER": "PHONE_NUMBER",
+    "CREDIT_CARD": "CREDIT_CARD_NUMBER",
+    "GPE": "LOCATION",
+    "LOCATION": "LOCATION",
+    "ORGANIZATION": "ORGANIZATION_NAME",
+    "IBAN_CODE": "IBAN",
+    "URL": "URL",
+    "IP_ADDRESS": "IP_ADDRESS",
+}
+
+_WIKINEURAL_TAG_MAP: Dict[int, str] = {
+    1: "PERSON_NAME",        # B-PER
+    2: "PERSON_NAME",        # I-PER
+    3: "ORGANIZATION_NAME",  # B-ORG
+    4: "ORGANIZATION_NAME",  # I-ORG
+    5: "LOCATION",           # B-LOC
+    6: "LOCATION",           # I-LOC
+}
+
+
+def _presidio_evaluator_docs(num_samples: int = 200) -> list[BenchmarkDocument]:
+    """Generate documents using Microsoft's Presidio Evaluator framework.
+
+    Silently returns an empty list if the `presidio-evaluator` package isn't
+    installed — we do not want the primary benchmark to fail on an optional
+    external dep.
+    """
+    try:
+        from presidio_evaluator.data_generator import PresidioSentenceFaker
+    except ImportError:
+        logger.info("presidio-evaluator not installed, skipping external benchmark")
+        return []
+    faker = PresidioSentenceFaker(locale="en", lower_case_ratio=0.05)
+    samples = faker.generate_new_fake_sentences(num_samples=num_samples)
+    docs: list[BenchmarkDocument] = []
+    for i, sample in enumerate(samples):
+        planted: list[PlantedEntity] = []
+        for span in sample.spans:
+            mapped = _PRESIDIO_EVAL_ENTITY_MAP.get(span.entity_type)
+            if mapped:
+                planted.append(PlantedEntity(span.entity_value, mapped))
+        if planted:
+            docs.append(BenchmarkDocument(
+                name=f"presidio_eval_{i:03d}",
+                text=sample.full_text,
+                language="en",
+                planted=planted,
+                category="external_presidio_evaluator",
+            ))
+    return docs
+
+
+def _wikineural_docs(
+    languages: tuple[str, ...] = ("en", "de", "fr", "es", "it", "nl", "pl", "pt", "ru"),
+    samples_per_lang: int = 50,
+) -> list[BenchmarkDocument]:
+    """Load held-out test samples from Babelscape/wikineural.
+
+    Silently returns an empty list if `datasets` isn't installed or the
+    dataset cannot be fetched (e.g. air-gapped CI).
+    """
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        logger.info("datasets not installed, skipping wikineural benchmark")
+        return []
+    docs: list[BenchmarkDocument] = []
+    for lang in languages:
+        try:
+            rows = load_dataset("Babelscape/wikineural", split=f"test_{lang}")
+        except Exception as exc:
+            logger.warning("wikineural test_%s unavailable: %s", lang, str(exc)[:120])
+            continue
+        for i, row in enumerate(rows.select(range(min(samples_per_lang, len(rows))))):
+            tokens = row["tokens"]
+            tags = row["ner_tags"]
+            text = " ".join(tokens)
+            planted: list[PlantedEntity] = []
+            current_tokens: list[str] = []
+            current_type: Optional[str] = None
+            for tok, tag in zip(tokens, tags):
+                etype = _WIKINEURAL_TAG_MAP.get(int(tag))
+                # Start of new entity (B-* or switch)
+                is_begin = int(tag) in (1, 3, 5)
+                if etype and (is_begin or etype != current_type):
+                    if current_tokens and current_type:
+                        planted.append(PlantedEntity(" ".join(current_tokens), current_type))
+                    current_tokens = [tok]
+                    current_type = etype
+                elif etype and current_type == etype:
+                    current_tokens.append(tok)
+                else:
+                    if current_tokens and current_type:
+                        planted.append(PlantedEntity(" ".join(current_tokens), current_type))
+                    current_tokens = []
+                    current_type = None
+            if current_tokens and current_type:
+                planted.append(PlantedEntity(" ".join(current_tokens), current_type))
+            if planted:
+                docs.append(BenchmarkDocument(
+                    name=f"wikineural_{lang}_{i:04d}",
+                    text=text,
+                    language=lang,
+                    planted=planted,
+                    category=f"external_wikineural_{lang}",
+                ))
+    return docs
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1810,9 +2006,14 @@ def test_benchmark_combined_summary(
     a_t = _totals(a_r.per_type)
     a_n = _planted(ADVERSARIAL_DOCUMENTS)
 
+    # --- Language coverage summary ---
+    all_docs_for_ner = NER_DOCUMENTS + MULTILINGUAL_NER_DOCUMENTS
+    languages = sorted({d.language for d in all_docs_for_ner})
+
     print("\n\n" + "=" * 68)
     print("  SEPTUM PII DETECTION BENCHMARK — COMBINED SUMMARY")
     print("  All 17 built-in regulations active")
+    print(f"  Languages tested ({len(languages)}): {', '.join(languages)}")
     print("=" * 68)
     print(f"\n  Layer 1a — Presidio (controlled format)")
     print(f"    Documents:  {p_r.total_documents}  |  Entities: {p_n}  |  Types: {len(p_r.per_type)}")
@@ -1830,7 +2031,8 @@ def test_benchmark_combined_summary(
         n_r = _run_benchmark(ner_sanitizer, all_ner_docs, "NER")
         n_t = _totals(n_r.per_type)
         n_n = _planted(all_ner_docs)
-        print(f"\n  Layer 2 — NER (14 languages)")
+        ner_langs = sorted({d.language for d in all_ner_docs})
+        print(f"\n  Layer 2 — NER ({len(ner_langs)} languages)")
         print(f"    Documents:  {n_r.total_documents}  |  Entities: {n_n}  |  Types: {len(n_r.per_type)}")
         print(f"    Precision: {n_t.precision:.1%}  |  Recall: {n_t.recall:.1%}  |  F1: {n_t.f1:.1%}")
     else:
@@ -1850,7 +2052,37 @@ def test_benchmark_combined_summary(
         o_r = None; o_t = None; o_n = 0
         print(f"\n  Layer 3/4 — Ollama: skipped (server not available)")
 
-    # Grand total (Presidio controlled + extended + adversarial + NER + Ollama)
+    # External reference datasets (Presidio Evaluator + Babelscape/wikineural)
+    # Reported separately so they never inflate the headline Septum-synthetic
+    # numbers. Uses the fullest sanitizer available (Ollama > NER > Presidio).
+    external_sanitizer = ollama_sanitizer or ner_sanitizer or presidio_sanitizer
+    pe_docs = _presidio_evaluator_docs(num_samples=200)
+    if pe_docs:
+        pe_r = _run_benchmark(external_sanitizer, pe_docs, "Presidio Evaluator")
+        pe_t = _totals(pe_r.per_type)
+        pe_n = _planted(pe_docs)
+        print(f"\n  External — Microsoft Presidio Evaluator (EN, synthetic Faker)")
+        print(f"    Documents:  {pe_r.total_documents}  |  Entities: {pe_n}  |  Types: {len(pe_r.per_type)}")
+        print(f"    Precision: {pe_t.precision:.1%}  |  Recall: {pe_t.recall:.1%}  |  F1: {pe_t.f1:.1%}")
+    else:
+        print(f"\n  External — Presidio Evaluator: skipped (package not installed)")
+
+    wn_docs = _wikineural_docs(samples_per_lang=50)
+    if wn_docs:
+        wn_r = _run_benchmark(external_sanitizer, wn_docs, "Wikineural")
+        wn_t = _totals(wn_r.per_type)
+        wn_n = _planted(wn_docs)
+        wn_langs = sorted({d.language for d in wn_docs})
+        print(f"\n  External — Babelscape/wikineural ({len(wn_langs)} langs: {', '.join(wn_langs)})")
+        print(f"    Documents:  {wn_r.total_documents}  |  Entities: {wn_n}  |  Types: {len(wn_r.per_type)}")
+        print(f"    Precision: {wn_t.precision:.1%}  |  Recall: {wn_t.recall:.1%}  |  F1: {wn_t.f1:.1%}")
+    else:
+        print(f"\n  External — wikineural: skipped (dataset unavailable)")
+
+    # Grand total — Septum-synthetic corpus only (Presidio 1a/b/c + NER + Ollama).
+    # External datasets (Presidio Evaluator + wikineural) are printed above but
+    # deliberately kept out of this aggregate so public sources cannot inflate
+    # the headline number.
     all_tp = p_t.tp + e_t.tp + a_t.tp + (n_t.tp if n_t else 0) + (o_t.tp if o_t else 0)
     all_fp = p_t.fp + e_t.fp + a_t.fp + (n_t.fp if n_t else 0) + (o_t.fp if o_t else 0)
     all_fn = p_t.fn + e_t.fn + a_t.fn + (n_t.fn if n_t else 0) + (o_t.fn if o_t else 0)
@@ -1858,7 +2090,7 @@ def test_benchmark_combined_summary(
     pr = all_tp / (all_tp + all_fp) if (all_tp + all_fp) else 0
     rc = all_tp / (all_tp + all_fn) if (all_tp + all_fn) else 0
     f1 = 2 * pr * rc / (pr + rc) if (pr + rc) else 0
-    print(f"\n  Grand Total")
+    print(f"\n  Grand Total (Septum synthetic corpus)")
     print(f"    Entities: {all_n}  |  Precision: {pr:.1%}  |  Recall: {rc:.1%}  |  F1: {f1:.1%}")
     print("\n" + "=" * 68 + "\n")
 
@@ -1887,7 +2119,21 @@ def test_benchmark_combined_summary(
             list(merged_presidio_per_type) + (list(n_r.per_type) if n_r else []) + (list(o_r.per_type) if o_r else [])
         )), "precision": pr, "recall": rc, "f1": f1},
     }
-    _generate_charts(layer_data)
+    # External reference sources, if they ran
+    external_data: dict[str, dict] = {}
+    if pe_docs and pe_t is not None:
+        external_data["presidio_evaluator"] = {
+            "label": "Presidio Evaluator\n(EN, 200 samples)",
+            "entities": pe_n, "types": len(pe_r.per_type),
+            "precision": pe_t.precision, "recall": pe_t.recall, "f1": pe_t.f1,
+        }
+    if wn_docs and wn_t is not None:
+        external_data["wikineural"] = {
+            "label": f"Babelscape/wikineural\n({len(sorted({d.language for d in wn_docs}))} langs, {_planted(wn_docs)} entities)",
+            "entities": wn_n, "types": len(wn_r.per_type),
+            "precision": wn_t.precision, "recall": wn_t.recall, "f1": wn_t.f1,
+        }
+    _generate_charts(layer_data, external_data)
     _update_readmes(layer_data)
 
 
@@ -1898,8 +2144,15 @@ def test_benchmark_combined_summary(
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
-def _generate_charts(data: dict) -> None:
-    """Regenerate benchmark PNG charts from live results."""
+def _generate_charts(data: dict, external: Optional[dict] = None) -> None:
+    """Regenerate benchmark SVG charts from live results.
+
+    Writes three charts to ``assets/``:
+      - ``benchmark-f1-by-type.svg``         — per-entity F1 across L1 + L2
+      - ``benchmark-layer-comparison.svg``   — P/R/F1 per Septum layer
+      - ``benchmark-external-validation.svg`` — Septum-combined vs public
+        reference datasets (only when ``external`` is non-empty)
+    """
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -1994,6 +2247,54 @@ def _generate_charts(data: dict) -> None:
     plt.savefig(str(out_dir / "benchmark-layer-comparison.svg"),
                 facecolor="white", edgecolor="none")
     plt.close()
+
+    # --- Chart 3: External validation (Septum-combined vs public datasets) ---
+    if external:
+        groups: list[dict] = [{
+            "label": "Septum synthetic\n(combined, 16 langs)",
+            "precision": data["combined"]["precision"],
+            "recall": data["combined"]["recall"],
+            "f1": data["combined"]["f1"],
+        }]
+        for source_key in ("presidio_evaluator", "wikineural"):
+            if source_key in external:
+                groups.append(external[source_key])
+
+        labels3 = [g["label"] for g in groups]
+        precision3 = [g["precision"] * 100 for g in groups]
+        recall3 = [g["recall"] * 100 for g in groups]
+        f13 = [g["f1"] * 100 for g in groups]
+
+        x3 = np.arange(len(labels3))
+        fig, ax = plt.subplots(figsize=(10, 5.5))
+        b1 = ax.bar(x3 - w, precision3, w, label="Precision",
+                    color="#4CAF88", edgecolor="white", linewidth=0.5)
+        b2 = ax.bar(x3, recall3, w, label="Recall",
+                    color="#5B9BD5", edgecolor="white", linewidth=0.5)
+        b3 = ax.bar(x3 + w, f13, w, label="F1",
+                    color="#F0A030", edgecolor="white", linewidth=0.5)
+        for bars_group in (b1, b2, b3):
+            for bar in bars_group:
+                val = bar.get_height()
+                ax.text(bar.get_x() + bar.get_width() / 2, val + 0.5,
+                        f"{val:.1f}", ha="center", va="bottom",
+                        fontsize=9, fontweight="bold", color="#333")
+        ax.set_ylim(0, 115)
+        ax.set_ylabel("Score (%)", fontsize=11)
+        ax.set_title("External Validation — Septum vs Public Reference Datasets",
+                     fontsize=13, fontweight="bold", pad=12)
+        ax.set_xticks(x3)
+        ax.set_xticklabels(labels3, fontsize=10)
+        ax.tick_params(axis="y", labelsize=9)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.grid(axis="y", alpha=0.3, linestyle="--")
+        ax.legend(loc="lower right", fontsize=10)
+        plt.tight_layout()
+        plt.savefig(str(out_dir / "benchmark-external-validation.svg"),
+                    facecolor="white", edgecolor="none")
+        plt.close()
+
     logger.info("Benchmark charts regenerated in %s", out_dir)
 
 

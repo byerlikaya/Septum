@@ -41,7 +41,7 @@ Septum, üç katmanlı tespit hattını tamamen yerelde koşturur. Her katman bi
 | Katman | Teknoloji | Tespit ettiği varlık tipleri |
 |:---:|:---|:---|
 | 1 | **Presidio** — algoritmik doğrulayıcılarla desteklenen regex örüntüleri (Luhn, IBAN MOD-97, TCKN, CPF, SSN). Çok dilli anahtar kelimelerle çalışan bağlam duyarlı tanıyıcılar. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE |
-| 2 | **NER** — dile göre model seçen HuggingFace XLM-RoBERTa (20+ dil). Tamamı BÜYÜK HARF olan girdi, çıkarım öncesinde otomatik olarak başlık harflerine dönüştürülür. LOC/GPE etiketleri kasıtlı olarak bastırılır (Kapsam ve sınırlar bölümüne bakın). | PERSON_NAME, ORGANIZATION_NAME, (LOCATION Presidio üzerinden) |
+| 2 | **NER** — dile göre model seçen HuggingFace XLM-RoBERTa (20+ dil). Tamamı BÜYÜK HARF girdi otomatik başlık-harfine çevrilir. LOCATION ve ORGANIZATION_NAME çıktıları, ortak-isim yanlış pozitiflerini elemek için çok-kelimeli-veya-yüksek-skor kapısından geçer (Kapsam ve sınırlar bölümüne bakın). | PERSON_NAME, LOCATION, ORGANIZATION_NAME |
 | 3 | **Ollama** — bağlam doğrulama, takma ad tespiti ve semantik varlıklar için yerel LLM. | PERSON_NAME takma adları; DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE |
 
 **Coreference çözümleme.** Üç katman span'leri ürettikten sonra sanitizer, aynı kişiye yapılan tüm atıfları tek bir placeholder altında toplar. Aynı dokümandaki `"John"`, `"J. Doe"` ve `"Mr. Doe"` ifadelerinin hepsi tek bir `[PERSON_1]` olarak görünür. Bu çözümleme cümleler arasında ve aynı dokümanın farklı parçaları arasında da çalışır.
@@ -52,7 +52,11 @@ Septum, üç katmanlı tespit hattını tamamen yerelde koşturur. Her katman bi
 
 ## Benchmark Sonuçları
 
-Benchmark, 17 hazır regülasyonun tamamı aktifken koşturuldu. Veri kümesi **23 varlık tipi üzerinde algoritmik olarak üretilmiş 3.268 PII değerinden** oluşur (geçerli Luhn, IBAN MOD-97, TCKN checksum'ları). Presidio tipi başına 150 örnek, 160 kişi adı (karışık + BÜYÜK HARF, EN/TR), 100 konum (EN/TR), 30 kurum adı (EN/TR) ve takma ad tespiti dâhil. Seed sabit tutuldu — sonuçlar bire bir tekrarlanabilir.
+Benchmark, 17 hazır regülasyonun tamamı aktifken **üç bağımsız veri kaynağı** üzerinde koşturuldu:
+
+1. **Septum sentetik korpus** — **16 dilde** (ar, de, en, es, fr, hi, it, ja, ko, nl, pl, pt, ru, th, tr, zh) 23 varlık tipi üzerinde algoritmik olarak üretilmiş **3.408 PII değeri**. Hiçbir public dataset'in taşımadığı checksum'lı kimlikleri (geçerli Luhn, IBAN MOD-97, TCKN) kapsamanın tek yolu: Presidio tipi başına 150 örnek, 160 kişi adı (karışık + BÜYÜK HARF, EN/TR), 100 konum (EN/TR), 30 kurum adı (EN/TR), çok-dilli kişi/konum kapsamı, takma ad tespiti. Seed sabit — tam tekrarlanabilir.
+2. **Microsoft [presidio-evaluator](https://github.com/microsoft/presidio-research)** — 200 sentetik Faker cümlesi, endüstri referans çerçevesi. Septum korpusuna karşı cross-validation.
+3. **[Babelscape/wikineural](https://huggingface.co/datasets/Babelscape/wikineural)** — 9 dilde (de/en/es/fr/it/nl/pl/pt/ru) dil başına 50 Wikipedia held-out test cümlesi. Uyarı: Septum'un kullandığı XLM-RoBERTa NER modelleri ilgili WikiANN korpusu üzerinde eğitildi; bu sayılar sıkı out-of-distribution testten ziyade üst sınıra yakındır.
 
 <p align="center">
   <a href="#benchmark-sonuçları"><img src="../assets/benchmark-f1-by-type.svg" alt="Varlık tipine göre F1 skoru" width="1100" /></a>
@@ -62,23 +66,36 @@ Benchmark, 17 hazır regülasyonun tamamı aktifken koşturuldu. Veri kümesi **
   <a href="#benchmark-sonuçları"><img src="../assets/benchmark-layer-comparison.svg" alt="Hat katmanına göre tespit doğruluğu" width="820" /></a>
 </p>
 
+### Septum sentetik korpus (katman bazında)
+
 | Katman | Varlık | Tip | Precision | Recall | F1 |
 |:---|:---:|:---:|:---:|:---:|:---:|
 | **Presidio (L1)** — örüntü + doğrulayıcı (controlled + extended + adversarial) | 1.710 | 20 | %100 | %96,4 | %98,2 |
-| **NER (L2)** — XLM-RoBERTa + BÜYÜK HARF normalize (14 dil) | 770 | 3 | %99,8 | %58,3 | %73,6 |
-| **Ollama (L3)** — aya-expanse:8b | 788 | 3 | %100 | %59,5 | %74,6 |
-| **Birleşik** | **3.268** | **23** | **%100** | **%78,5** | **%88,0** |
+| **NER (L2)** — XLM-RoBERTa + BÜYÜK HARF normalize (16 dil) | 840 | 3 | %99,9 | %90,8 | %95,1 |
+| **Ollama (L3)** — aya-expanse:8b | 858 | 3 | %100 | %90,1 | %94,8 |
+| **Birleşik** | **3.408** | **23** | **%100** | **%93,5** | **%96,6** |
 
-> NER (L2), otomatik başlık-harfi normalizasyonu sayesinde tıbbi ve hukuki dokümanlarda sık görülen BÜYÜK HARF isimleri de yakalar; kurum adlarını da tanır. Ollama (L3) adayları doğrular ve takma adları yakalar. Benchmark veri kümesi boşluklu IBAN, noktalı telefon gibi zorlayıcı formatları da içerir; bu durum Presidio'nun recall değerini gerçek dünya seviyesine çeker. Testi kendiniz çalıştırabilirsiniz:
+### Dış referans veri kümeleri
+
+| Kaynak | Varlık | Tip | Precision | Recall | F1 |
+|:---|:---:|:---:|:---:|:---:|:---:|
+| **Microsoft presidio-evaluator** (EN, sentetik Faker, 200 cümle) | 258 | 7 | %98,9 | %68,2 | %80,7 |
+| **Babelscape/wikineural** (9 dil × 50 = 450 cümle, held-out Wikipedia NER) | 634 | 3 | %94,6 | %74,0 | %83,0 |
+
+<p align="center">
+  <a href="#benchmark-sonuçları"><img src="../assets/benchmark-external-validation.svg" alt="Dış doğrulama — Septum sentetik vs Microsoft presidio-evaluator vs Babelscape/wikineural" width="820" /></a>
+</p>
+
+> NER (L2), otomatik başlık-harfi normalizasyonu sayesinde tıbbi ve hukuki dokümanlarda sık görülen BÜYÜK HARF isimleri de yakalar; kurum adlarını da tanır. LOCATION çıktısı conservative bir filtreden geçer (çok-kelimeli VEYA güven skoru ≥ 0,95) — böylece "Doğum" veya Almanca form başlıkları gibi ortak-isim yanlış pozitifleri elenir, "İstanbul" / "Berlin" gibi gerçek yer isimleri ise geçer. Ollama (L3) adayları doğrular ve takma adları yakalar. Benchmark veri kümesi boşluklu IBAN, noktalı telefon gibi zorlayıcı formatları da içerir; bu durum Presidio'nun recall değerini gerçek dünya seviyesine çeker. Testi kendiniz çalıştırabilirsiniz:
 > `pytest packages/api/tests/benchmark_detection.py -v -s`
 
 ### Kapsam ve sınırlar
 
 **Hiçbir PII tespit sistemi %100 doğru değildir.** Septum'un benchmark'ı nerede güçlü olduğu ve nerede olmadığı konusunda açıktır:
 
-- **Serbest metinde geçen tek başına LOCATION ("Paris", "İstanbul") NER tarafından %0 oranında tespit edilir — bu tasarım gereğidir.** NER detector'ı LOC/GPE etiketlerini kasıtlı olarak bastırır ([`Detector._map_ner_label`](../packages/core/septum_core/detector.py) — GDPR Art. 4(1) gerekçesi: yer ismi tek başına gerçek kişiyi tanımlamaz; tanımlama PERSON_NAME çıpası üzerinden yapılır). Yapılandırılmış adres PII'si hâlâ Presidio'nun `StructuralAddressRecognizer`'ı ve regülasyon bazlı POSTAL_ADDRESS / STREET_ADDRESS tanıyıcılarıyla yakalanır. Bu seçim NER ve birleşik recall değerlerini düşürür ama 50+ dilde yalancı pozitif oranını düşük tutar. Tehdit modeliniz tek başına şehir tespiti gerektiriyorsa özel keyword ruleset tanımlayın ya da issue açın.
+- **LOCATION çıktısı çok-kelimeli-veya-yüksek-skor kapısından geçer** (ORGANIZATION_NAME ile aynı yapı). Çok dilli XLM-RoBERTa modelleri, Septum'un desteklediği her dilde ortak isimler ve form alan başlıklarında stokastik tek-token LOC yanlış pozitifleri üretir (Türkçe "Doğum", Almanca form başlıkları vb.); bu yanlış pozitifleri dil-başına stopword listesiyle kovalamak 50+ lokalde ölçeklenmez. Kapı, 0,95 güven skorunun altındaki tek-token span'leri eler — "İstanbul", "Berlin" gibi gerçek yer isimleri tipik olarak 0,97+ skor alır; "New York" gibi çok-kelimeli lokasyonlar skor kapısını tamamen atlar. Yapılandırılmış adres PII'si ayrıca Presidio'nun `StructuralAddressRecognizer`'ı ve regülasyon bazlı POSTAL_ADDRESS / STREET_ADDRESS tanıyıcılarıyla yakalanır.
 - **37 regülasyon varlık tipinin tamamı tespit edilebilir** — 21'i Presidio, 3'ü NER, 9'u Ollama, geri kalanı ana-tip kapsamıyla (FIRST_NAME, PERSON_NAME'e; CITY, LOCATION'a dâhil vb.).
-- **14 dilde 3.268 değer üzerinden 23 varlık tipi aktif olarak benchmark'a tabi tutulur.**
+- **16 dilde 3.408 değer üzerinden 23 varlık tipi aktif olarak benchmark'a tabi tutulur.**
 - **Semantik tipler** (DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION) yalnızca Ollama katmanı tarafından yakalanır; bunun için yerel bir LLM'in çalışıyor olması gerekir.
 - **Bağlama bağlı tanıyıcılar** (DATE_OF_BIRTH, PASSPORT_NUMBER, SSN, TAX_ID) yalancı pozitif oranını düşürmek için değerin yakınında bağlam anahtar kelimesi arar. 8+ dilde anahtar kelime listesi bulunur.
 - **Zorlayıcı formatlar** (boşluklu TCKN, noktalı telefon) kontrollü format testlerine göre daha düşük tespit oranı gösterir. Benchmark bu durumu dürüstçe raporlar.
