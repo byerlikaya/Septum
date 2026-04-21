@@ -112,7 +112,19 @@ def extract_json_array(text: str) -> list[dict[str, Any]]:
 
     # Strategy 1: Try removing markdown code fences first
     cleaned = re.sub(r"```(?:json)?\s*", "", stripped)
-    cleaned = re.sub(r"```\s*$", "", cleaned)
+    cleaned = re.sub(r"```\s*$", "", cleaned).strip()
+
+    # Strategy 1b: Try parsing the fence-cleaned text directly. Handles the
+    # common case where the model wraps a clean JSON array in a ```json fence.
+    # Running this before the regex strategy avoids false matches on `]`
+    # characters that legitimately appear inside placeholder strings like
+    # "[PERSON_NAME_1]".
+    try:
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, list):
+            return parsed
+    except json.JSONDecodeError:
+        pass
 
     # Strategy 2: Find all potential JSON arrays (greedy match from [ to ])
     # Use a more conservative pattern that matches balanced brackets

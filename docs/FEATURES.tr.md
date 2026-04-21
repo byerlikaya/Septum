@@ -18,9 +18,6 @@
 
 ---
 
-> [Ana README](../README.tr.md) dışında kalan her şey için ayrıntılı referans.
-> Modül seviyesindeki mimari için [Mimari](ARCHITECTURE.tr.md) dokümanına bakın.
-
 ## İçindekiler
 
 - [Tespit Hattı](#tespit-hattı)
@@ -31,124 +28,70 @@
 - [MCP Entegrasyonu](#mcp-entegrasyonu)
 - [REST API ve Kimlik Doğrulama](#rest-api-ve-kimlik-doğrulama)
 
-Tam görsel tur için [Ekran Görüntüleri](SCREENSHOTS.tr.md) sayfasına bakın.
-
 ---
 
 ## Tespit Hattı
 
-Septum, üç katmanlı tespit hattını tamamen yerelde çalıştırır. Her
-katman bir öncekinin üzerine ekler; ardından tüm bulgular bir
-coreference çözümleyicisinden geçirilir. Böylece aynı kişi metinde
-farklı biçimlerde geçse bile tek bir `[PERSON_1]` placeholder olarak
-görünür.
+Septum, üç katmanlı tespit hattını tamamen yerelde koşturur. Her katman bir öncekinin üzerine eklenir; son adımda tüm bulgular bir coreference çözümleyicisinden geçer. Böylece aynı kişi metinde farklı biçimlerde geçse bile tek bir `[PERSON_1]` placeholder'ı olarak görünür.
 
-```mermaid
-flowchart LR
-    INPUT([Doküman veya sohbet mesajı]) --> L1[Katman 1 · Presidio<br/>Regex + algoritmik doğrulayıcılar]
-    L1 --> L2[Katman 2 · NER<br/>XLM-RoBERTa]
-    L2 --> L3[Katman 3 · Ollama<br/>Semantik tespit]
-    L3 --> MERGE[Birleştirme + coreference çözümleme]
-    MERGE --> OUTPUT([Maskeli metin + anonimleştirme haritası])
+<p align="center">
+  <a href="#tespit-hattı"><img src="../assets/detection-pipeline.tr.svg" alt="Septum üç katmanlı tespit hattı — Presidio, NER, Ollama ve coreference birleşimi" width="1100" /></a>
+</p>
 
-    style L1 fill:#ff5722,color:#fff,stroke:#bf360c
-    style L2 fill:#ff9800,color:#fff,stroke:#e65100
-    style L3 fill:#ffc107,color:#000,stroke:#f57f17
-    style MERGE fill:#4caf50,color:#fff,stroke:#2e7d32
-    style INPUT fill:#2196f3,color:#fff,stroke:#1565c0
-    style OUTPUT fill:#4caf50,color:#fff,stroke:#2e7d32
-```
-
-| Katman | Teknoloji | Tespit edilen varlık tipleri |
+| Katman | Teknoloji | Tespit ettiği varlık tipleri |
 |:---:|:---|:---|
-| 1 | **Presidio** — algoritmik doğrulayıcılarla desteklenen regex örüntüleri (Luhn, IBAN MOD-97, TCKN, CPF, SSN). Çok dilli anahtar kelimeler üzerinden çalışan bağlam duyarlı tanıyıcılar. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE |
-| 2 | **NER** — dile göre model seçimi yapan HuggingFace XLM-RoBERTa (20+ dil). Tamamı BÜYÜK HARF olan girdi, çıkarım öncesi otomatik olarak başlık harflerine normalize edilir. | PERSON_NAME, LOCATION, ORGANIZATION_NAME |
+| 1 | **Presidio** — algoritmik doğrulayıcılarla desteklenen regex örüntüleri (Luhn, IBAN MOD-97, TCKN, CPF, SSN). Çok dilli anahtar kelimelerle çalışan bağlam duyarlı tanıyıcılar. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE |
+| 2 | **NER** — dile göre model seçen HuggingFace XLM-RoBERTa (20+ dil). Tamamı BÜYÜK HARF olan girdi, çıkarım öncesinde otomatik olarak başlık harflerine dönüştürülür. LOC/GPE etiketleri kasıtlı olarak bastırılır (Kapsam ve sınırlar bölümüne bakın). | PERSON_NAME, ORGANIZATION_NAME, (LOCATION Presidio üzerinden) |
 | 3 | **Ollama** — bağlam doğrulama, takma ad tespiti ve semantik varlıklar için yerel LLM. | PERSON_NAME takma adları; DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE |
 
-**Coreference çözümleme.** Üç katman span'ları ürettikten sonra
-sanitizer aynı kişiye yapılan tüm atıfları tek bir placeholder altında
-birleştirir. Aynı dokümandaki `"John"`, `"J. Doe"` ve `"Mr. Doe"`
-ifadelerinin hepsi `[PERSON_1]` olarak görünür. Bu çözümleme cümleler
-arasında ve aynı dokümanın farklı parçaları arasında da çalışır.
+**Coreference çözümleme.** Üç katman span'leri ürettikten sonra sanitizer, aynı kişiye yapılan tüm atıfları tek bir placeholder altında toplar. Aynı dokümandaki `"John"`, `"J. Doe"` ve `"Mr. Doe"` ifadelerinin hepsi tek bir `[PERSON_1]` olarak görünür. Bu çözümleme cümleler arasında ve aynı dokümanın farklı parçaları arasında da çalışır.
 
-**3. katman isteğe bağlıdır.** Ayarlarda `use_ollama_semantic_layer=false`
-yaparak atlayabilirsiniz. 1. ve 2. katmanlar yapısal kimlikleri ve
-isimleri yakalar; 3. katman ise regex ve NER'in göremediği hassas-kategori
-(sağlık, din, siyasi görüş vb.) tespiti ekler. Doğruluk Ollama modeline
-bağlıdır — aşağıdaki benchmark `aya-expanse:8b` ile yapılmıştır.
+**3. katman isteğe bağlıdır.** Ayarlardan `use_ollama_semantic_layer=false` yaparak atlayabilirsiniz. 1. ve 2. katmanlar yapısal kimlikleri ve isimleri yakalar; 3. katman ise regex ve NER'in göremediği hassas-kategori (sağlık, din, siyasi görüş vb.) tespiti ekler. Doğruluk tercih edilen Ollama modeline bağlıdır — aşağıdaki benchmark `aya-expanse:8b` ile alınmıştır.
 
 ---
 
 ## Benchmark Sonuçları
 
-Benchmark, 17 hazır regülasyonun tamamı aktifken çalıştırıldı. Veri
-kümesi **23 varlık tipi üzerinden algoritmik olarak üretilmiş 3.268 PII
-değerinden** oluşur (geçerli Luhn, IBAN MOD-97, TCKN checksum'ları).
-Presidio tipi başına 150 örnek, 160 kişi adı (karışık + BÜYÜK HARF,
-EN/TR), 100 konum (EN/TR), 30 kurum adı (EN/TR) ve takma ad tespiti
-dahil. Seed sabit tutuldu — sonuçlar bire bir tekrarlanabilir.
+Benchmark, 17 hazır regülasyonun tamamı aktifken koşturuldu. Veri kümesi **23 varlık tipi üzerinde algoritmik olarak üretilmiş 3.268 PII değerinden** oluşur (geçerli Luhn, IBAN MOD-97, TCKN checksum'ları). Presidio tipi başına 150 örnek, 160 kişi adı (karışık + BÜYÜK HARF, EN/TR), 100 konum (EN/TR), 30 kurum adı (EN/TR) ve takma ad tespiti dâhil. Seed sabit tutuldu — sonuçlar bire bir tekrarlanabilir.
 
 <p align="center">
-  <img src="../assets/benchmark-f1-by-type.png" alt="Varlık tipine göre F1 skoru" width="900" />
+  <a href="#benchmark-sonuçları"><img src="../assets/benchmark-f1-by-type.svg" alt="Varlık tipine göre F1 skoru" width="1100" /></a>
 </p>
 
 <p align="center">
-  <img src="../assets/benchmark-layer-comparison.png" alt="Hat katmanına göre tespit doğruluğu" width="700" />
+  <a href="#benchmark-sonuçları"><img src="../assets/benchmark-layer-comparison.svg" alt="Hat katmanına göre tespit doğruluğu" width="820" /></a>
 </p>
 
 | Katman | Varlık | Tip | Precision | Recall | F1 |
 |:---|:---:|:---:|:---:|:---:|:---:|
-| **Presidio (L1)** — örüntü + doğrulayıcı | 1.710 | 20 | %100 | %94,4 | %97,1 |
-| **NER (L2)** — XLM-RoBERTa + BÜYÜK HARF normalize | 770 | 3 | %97,5 | %92,7 | %95,1 |
-| **Ollama (L3)** — aya-expanse:8b | 788 | 3 | %99,7 | %91,6 | %95,5 |
-| **Birleşik** | **3.268** | **23** | **%99,3** | **%93,3** | **%96,2** |
+| **Presidio (L1)** — örüntü + doğrulayıcı (controlled + extended + adversarial) | 1.710 | 20 | %100 | %96,4 | %98,2 |
+| **NER (L2)** — XLM-RoBERTa + BÜYÜK HARF normalize (14 dil) | 770 | 3 | %99,8 | %58,3 | %73,6 |
+| **Ollama (L3)** — aya-expanse:8b | 788 | 3 | %100 | %59,5 | %74,6 |
+| **Birleşik** | **3.268** | **23** | **%100** | **%78,5** | **%88,0** |
 
-> NER (L2), başlık harfine otomatik normalize ederek tıbbi ve hukuki
-> dokümanlarda sık görülen BÜYÜK HARF isimleri yakalar; kurum adlarını da
-> tanır. Ollama (L3) adayları doğrular ve takma adları yakalar. Benchmark
-> veri kümesi boşluklu IBAN, noktalı telefon gibi adversarial edge case'leri
-> de içerir; bu durum Presidio'nun recall'unu gerçek dünya seviyesine çeker.
-> Testi kendiniz de çalıştırabilirsiniz:
-> `pytest tests/benchmark_detection.py -v -s`
+> NER (L2), otomatik başlık-harfi normalizasyonu sayesinde tıbbi ve hukuki dokümanlarda sık görülen BÜYÜK HARF isimleri de yakalar; kurum adlarını da tanır. Ollama (L3) adayları doğrular ve takma adları yakalar. Benchmark veri kümesi boşluklu IBAN, noktalı telefon gibi zorlayıcı formatları da içerir; bu durum Presidio'nun recall değerini gerçek dünya seviyesine çeker. Testi kendiniz çalıştırabilirsiniz:
+> `pytest packages/api/tests/benchmark_detection.py -v -s`
 
 ### Kapsam ve sınırlar
 
-**Hiçbir PII tespit sistemi %100 doğru değildir.** Septum'un benchmark'ı
-nerede güçlü olduğu, nerede olmadığı konusunda açıktır:
+**Hiçbir PII tespit sistemi %100 doğru değildir.** Septum'un benchmark'ı nerede güçlü olduğu ve nerede olmadığı konusunda açıktır:
 
-- **37 regülasyon varlık tipinin tamamı tespit edilebilir** — 21'i
-  Presidio, 3'ü NER, 9'u Ollama, 7'si ana-tip kapsamıyla (CITY,
-  LOCATION'a dahil; FIRST_NAME, PERSON_NAME'e dahil vb.).
-- **14 dilde 3.268 değer üzerinden 23 varlık tipi aktif olarak benchmark
-  ediliyor.**
-- **Semantik tipler** (DIAGNOSIS, MEDICATION, RELIGION,
-  POLITICAL_OPINION) yalnızca Ollama katmanı tarafından tespit edilir ve
-  çalışan bir yerel LLM gerektirir.
-- **Bağlam bağımlı tanıyıcılar** (DATE_OF_BIRTH, PASSPORT_NUMBER, SSN,
-  TAX_ID) false positive'leri azaltmak için değerin yakınında bağlam
-  anahtar kelimesi arar. 8+ dilde anahtar kelime listesi.
-- **Adversarial formatlar** (boşluklu TCKN, noktalı telefon) kontrollü
-  format testlerinden daha düşük tespit oranı gösterir. Benchmark'ta
-  dürüstçe raporlanıyor.
+- **Serbest metinde geçen tek başına LOCATION ("Paris", "İstanbul") NER tarafından %0 oranında tespit edilir — bu tasarım gereğidir.** NER detector'ı LOC/GPE etiketlerini kasıtlı olarak bastırır ([`Detector._map_ner_label`](../packages/core/septum_core/detector.py) — GDPR Art. 4(1) gerekçesi: yer ismi tek başına gerçek kişiyi tanımlamaz; tanımlama PERSON_NAME çıpası üzerinden yapılır). Yapılandırılmış adres PII'si hâlâ Presidio'nun `StructuralAddressRecognizer`'ı ve regülasyon bazlı POSTAL_ADDRESS / STREET_ADDRESS tanıyıcılarıyla yakalanır. Bu seçim NER ve birleşik recall değerlerini düşürür ama 50+ dilde yalancı pozitif oranını düşük tutar. Tehdit modeliniz tek başına şehir tespiti gerektiriyorsa özel keyword ruleset tanımlayın ya da issue açın.
+- **37 regülasyon varlık tipinin tamamı tespit edilebilir** — 21'i Presidio, 3'ü NER, 9'u Ollama, geri kalanı ana-tip kapsamıyla (FIRST_NAME, PERSON_NAME'e; CITY, LOCATION'a dâhil vb.).
+- **14 dilde 3.268 değer üzerinden 23 varlık tipi aktif olarak benchmark'a tabi tutulur.**
+- **Semantik tipler** (DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION) yalnızca Ollama katmanı tarafından yakalanır; bunun için yerel bir LLM'in çalışıyor olması gerekir.
+- **Bağlama bağlı tanıyıcılar** (DATE_OF_BIRTH, PASSPORT_NUMBER, SSN, TAX_ID) yalancı pozitif oranını düşürmek için değerin yakınında bağlam anahtar kelimesi arar. 8+ dilde anahtar kelime listesi bulunur.
+- **Zorlayıcı formatlar** (boşluklu TCKN, noktalı telefon) kontrollü format testlerine göre daha düşük tespit oranı gösterir. Benchmark bu durumu dürüstçe raporlar.
 
-**Onay Mekanizması güvenlik ağıdır.** LLM'e gönderilmeden önce tam olarak
-ne gideceğini görür, gerektiğinde reddedersiniz. Otomatik tespit riski
-azaltır; son kararı veren insan incelemesi riski tamamen ortadan
-kaldırır.
+**Onay Mekanizması güvenlik ağıdır.** LLM'e gönderilmeden önce tam olarak ne gideceğini görürsünüz, gerektiğinde reddedersiniz. Otomatik tespit riski azaltır; son sözü veren insan incelemesi riski tamamen ortadan kaldırır.
 
-Benchmark modelleri: NER,
-`akdeniz27/xlm-roberta-base-turkish-ner` (TR) ve
-`Davlan/xlm-roberta-base-wikiann-ner` (diğer diller) kullanır. Ollama
-katmanı `aya-expanse:8b` ile çalışır. Daha büyük Ollama modelleri
-genelde semantik tespiti iyileştirir; karşılığında gecikme artar.
+Benchmark modelleri: NER, Türkçe için `akdeniz27/xlm-roberta-base-turkish-ner`, diğer diller için `Davlan/xlm-roberta-base-wikiann-ner` kullanır. Ollama katmanı `aya-expanse:8b` ile koşar. Daha büyük Ollama modelleri genelde semantik tespiti iyileştirir; karşılığında gecikme artar.
 
 ---
 
 ## Regülasyon Paketleri
 
-Septum 17 hazır regülasyon paketiyle gelir. Birden fazlası aynı anda
-aktif olabilir — sanitizer kuralların birleşimini uygular, en kısıtlayıcı
-olan kazanır.
+Septum 17 hazır regülasyon paketiyle gelir. Birden fazlası aynı anda aktif olabilir — sanitizer kuralların birleşimini uygular, en kısıtlayıcı olan kazanır.
 
 | Bölge | Kod | Regülasyon |
 |:---|:---|:---|
@@ -170,63 +113,29 @@ olan kazanır.
 | 🇳🇿 Yeni Zelanda | `nzpa` | Privacy Act 2020 |
 | 🇦🇺 Avustralya | `australia_pa` | Privacy Act 1988 |
 
-Her satır,
-[`packages/core/septum_core/recognizers/`](../packages/core/septum_core/recognizers/)
-altında yüklenebilir bir pakettir. Her varlık tipinin hukuki kaynağı
-[`packages/core/docs/REGULATION_ENTITY_SOURCES.md`](../packages/core/docs/REGULATION_ENTITY_SOURCES.md)
-dosyasındadır.
+Her satır, `packages/core/septum_core/recognizers/` altında yüklenebilir bir pakettir. Her varlık tipinin hukuki kaynağı ise [hukuki kaynaklar belgesinde](../packages/core/docs/REGULATION_ENTITY_SOURCES.md) listelidir.
 
-**Bölgeye özgü kimlik numarası doğrulayıcıları** sadece örüntü değil,
-algoritmiktir: TCKN (Türkiye, mod-10 + mod-11 checksum), Aadhaar
-(Hindistan, Verhoeff), CPF (Brezilya, iki basamaklı checksum), NRIC/FIN
-(Singapur, harf checksum'ı), Resident ID (Çin, ISO 7064 MOD 11-2), NINO
-(İngiltere), CNPJ (Brezilya), My Number (Japonya) ve daha fazlası.
-Geçersiz checksum'lar reddedilir, yani rastgele 11 haneli bir dize
-false-positive üretmez.
+**Bölgeye özgü kimlik numarası doğrulayıcıları** sadece örüntüye değil, algoritmaya dayanır: TCKN (Türkiye, mod-10 + mod-11 checksum), Aadhaar (Hindistan, Verhoeff), CPF (Brezilya, iki basamaklı checksum), NRIC/FIN (Singapur, harf checksum'ı), Resident ID (Çin, ISO 7064 MOD 11-2), NINO (İngiltere), CNPJ (Brezilya), My Number (Japonya) ve diğerleri. Geçersiz checksum reddedilir; rastgele 11 haneli bir dize yalancı pozitif üretmez.
 
-**Özel kurallar.** Dashboard üzerinden adminler regex, anahtar kelime
-veya LLM-prompt tabanlı özel kuralset tanımlayabilir. Özel kurallar
-hazır paketlerle yan yana çalışır — policy composition kuralları yine
-geçerlidir.
+**Özel kurallar.** Dashboard üzerinden adminler regex, anahtar kelime ya da LLM promptu tabanlı özel kuralset tanımlayabilir. Özel kurallar hazır paketlerle yan yana çalışır — policy composition kuralları yine geçerlidir.
 
 ---
 
 ## Otomatik RAG Yönlendirme
 
-Sohbet kenar çubuğunda doküman seçilmediğinde Septum, doküman araması
-mı yapacağına yoksa doğrudan sohbet yoluyla mı yanıt vereceğine kendisi
-karar verir.
+Sohbet kenar çubuğunda doküman seçilmediğinde Septum, doküman araması mı yapacağına yoksa doğrudan sohbet yoluyla mı cevap vereceğine kendisi karar verir.
 
-```mermaid
-flowchart TD
-    Q([Kullanıcı sorusu]) --> CLASSIFY[Yerel Ollama sınıflandırıcı<br/>SEARCH vs CHAT]
-    CLASSIFY -->|SEARCH| SEARCH[Tüm dokümanlar aranır<br/>FAISS + BM25 hibrit]
-    CLASSIFY -->|CHAT| CHAT[Direkt LLM cevabı<br/>doküman bağlamı yok]
-    SEARCH --> SCORE{Relevans<br/>eşiğin üstünde mi?}
-    SCORE -->|Evet| RAG[Otomatik RAG<br/>maskeli parçalar + soru]
-    SCORE -->|Hayır| CHAT
-    RAG --> LLM[Onay kapısı → LLM]
-    CHAT --> LLM
-
-    style CLASSIFY fill:#9c27b0,color:#fff,stroke:#6a1b9a
-    style RAG fill:#4caf50,color:#fff,stroke:#2e7d32
-    style CHAT fill:#2196f3,color:#fff,stroke:#1565c0
-```
+<p align="center">
+  <a href="#otomatik-rag-yönlendirme"><img src="../assets/auto-rag-routing.tr.svg" alt="Otomatik RAG yönlendirme — SEARCH/CHAT sınıflandırıcısı, relevans eşiği, düz LLM ve onay kapısı" width="820" /></a>
+</p>
 
 Üç yol oluşur:
 
-1. **Manuel RAG** — kullanıcı açıkça doküman seçer. Sınıflandırıcı
-   atlanır; retrieval seçilen dokümanlarda çalışır.
-2. **Otomatik RAG** — seçim yok, sınıflandırıcı SEARCH diyor ve relevans
-   skoru eşiğin üzerinde. Kullanıcının tüm dokümanlarından parçalar
-   getirilir.
-3. **Düz LLM** — seçim yok, sınıflandırıcı CHAT diyor veya relevans
-   eşiğin altında. Doküman bağlamı eklenmez; LLM serbestçe yanıtlar.
+1. **Manuel RAG** — kullanıcı açıkça doküman seçer. Sınıflandırıcı atlanır; retrieval seçilen dokümanlarda çalışır.
+2. **Otomatik RAG** — seçim yok, sınıflandırıcı `SEARCH` diyor ve relevans skoru eşiğin üzerinde. Kullanıcının tüm dokümanlarından parçalar getirilir.
+3. **Düz LLM** — seçim yok, sınıflandırıcı `CHAT` diyor ya da relevans eşiğin altında. Doküman bağlamı eklenmez; LLM serbestçe cevaplar.
 
-SSE meta event'i `rag_mode: "manual" | "auto" | "none"` ve
-`matched_document_ids` alanlarını içerir; dashboard her asistan mesajında
-rozet göstermek için bunu kullanır. Eşik değeri RAG ayarlar sekmesinde
-`rag_relevance_threshold` olarak tutulur (varsayılan 0.35).
+SSE meta event'i `rag_mode: "manual" | "auto" | "none"` ve `matched_document_ids` alanlarını taşır; dashboard her asistan mesajında hangi yolun seçildiğini rozetle gösterir. Eşik değeri, RAG ayarlar sekmesinde `rag_relevance_threshold` olarak tutulur (varsayılan 0,35).
 
 ---
 
@@ -234,42 +143,29 @@ rozet göstermek için bunu kullanır. Eşik değeri RAG ayarlar sekmesinde
 
 | Yetenek | Septum | Düz ChatGPT / Claude | Azure Presidio | LangChain Pipeline |
 |:---|:---:|:---:|:---:|:---:|
-| Buluta gitmeden önce PII maskeleme | **Evet** | Hayır | Sadece tespit | Kendin yap |
-| Çoklu regülasyon (17 paket) | **Evet** | Hayır | Hayır | Kendin yap |
-| LLM öncesi onay kapısı | **Evet** | Hayır | Hayır | Kendin yap |
-| Placeholder geri yazma (gerçek değerler) | **Evet** | Yok | Hayır | Kendin yap |
+| Buluta gitmeden önce PII maskeleme | **Evet** | Hayır | Sadece tespit | Elle geliştirilir |
+| Çoklu regülasyon (17 paket) | **Evet** | Hayır | Hayır | Elle geliştirilir |
+| LLM öncesi onay kapısı | **Evet** | Hayır | Hayır | Elle geliştirilir |
+| Placeholder geri yazma (gerçek değerler) | **Evet** | Yok | Hayır | Elle geliştirilir |
 | Hibrit retrieval ile doküman RAG | **Evet** | Hayır | Hayır | Kısmen |
-| Otomatik RAG niyet yönlendirme | **Evet** | Hayır | Hayır | Kendin yap |
-| Özel tespit kuralları | **Evet** | Hayır | Sınırlı | Kendin yap |
+| Otomatik RAG niyet yönlendirme | **Evet** | Hayır | Hayır | Elle geliştirilir |
+| Özel tespit kuralları | **Evet** | Hayır | Sınırlı | Elle geliştirilir |
 | Hazır web arayüzü | **Evet** | Yok | Hayır | Hayır |
-| Denetim kaydı ve uyumluluk | **Evet** | Hayır | Hayır | Kendin yap |
+| Denetim kaydı ve uyumluluk | **Evet** | Hayır | Hayır | Elle geliştirilir |
 | Herhangi bir LLM sağlayıcısı | **Evet** | Tek | Sadece Azure | Yapılandırılabilir |
 | Tamamen self-hosted | **Evet** | Hayır | Bulut servisi | Duruma bağlı |
 
-Diğer araçlar bulmacanın parçalarını sunar — şurada tespit, burada bir
-vektör deposu. Septum uçtan uca komple hat: tespit → anonimleştirme →
-eşleme → retrieval → onay → LLM çağrısı → placeholder geri yazma → denetim. Kutudan
-çıktığı gibi, arayüzüyle, herhangi bir regülasyon için.
+Diğer araçlar bulmacanın yalnızca parçalarını sunar — şurada tespit, burada bir vektör deposu. Septum ise uçtan uca komple bir hattır: tespit → anonimleştirme → eşleme → retrieval → onay → LLM çağrısı → placeholder geri yazma → denetim. Kutudan çıktığı gibi, arayüzüyle, herhangi bir regülasyon için.
 
 ---
 
 ## MCP Entegrasyonu
 
-Septum, aynı yerel PII maskeleme hattını herhangi bir MCP uyumlu
-istemciye bağlayan bağımsız bir **Model Context Protocol** sunucusu,
-[`septum-mcp`](../packages/mcp/), ile birlikte gelir. MCP açık ve
-sağlayıcıdan bağımsız bir [spesifikasyondur](https://modelcontextprotocol.io) —
-sunucu üç standart taşımayı da destekler:
+Septum, aynı yerel PII maskeleme hattını MCP uyumlu her istemciye bağlayan bağımsız bir **Model Context Protocol** sunucusuyla ([`septum-mcp`](../packages/mcp/)) birlikte gelir. MCP açık ve sağlayıcıdan bağımsız bir [spesifikasyondur](https://modelcontextprotocol.io); sunucu üç standart taşımanın üçünü de destekler:
 
-- **stdio** (varsayılan) — alt-süreç olarak başlatılan istemciler:
-  Claude Desktop, Cursor, Windsurf, ChatGPT Desktop, Zed ve
-  Python / TypeScript / Rust / Go / C# / Java SDK'leriyle yazılmış
-  her araç.
-- **streamable-http** — uzak, tarayıcı ya da container içi istemciler
-  için modern HTTP taşıması. `Authorization: Bearer <SEPTUM_MCP_HTTP_TOKEN>`
-  üzerinden bearer token auth.
-- **sse** — streamable-http'ye geçmemiş istemciler için tutulan legacy
-  HTTP + Server-Sent Events taşıması.
+- **stdio** (varsayılan) — alt-süreç olarak başlatılan istemciler için: Claude Desktop, Cursor, Windsurf, ChatGPT Desktop, Zed ve Python / TypeScript / Rust / Go / C# / Java SDK'leriyle yazılmış her araç.
+- **streamable-http** — uzak, tarayıcı ya da container içi istemciler için modern HTTP taşıması. `Authorization: Bearer <SEPTUM_MCP_HTTP_TOKEN>` üzerinden bearer token kimlik doğrulaması.
+- **sse** — streamable-http'ye henüz geçmemiş istemciler için tutulan legacy HTTP + Server-Sent Events taşıması.
 
 `septum-core` süreç içinde çalışır; ham PII ağa hiç erişmez.
 
@@ -315,29 +211,24 @@ sunucu üç standart taşımayı da destekler:
 }
 ```
 
-HTTP sunucusunu kendiniz çalıştırın:
+HTTP sunucusunu kendiniz çalıştırmak için:
 
 ```bash
 SEPTUM_MCP_HTTP_TOKEN=$(openssl rand -hex 32) \
   septum-mcp --transport streamable-http --host 0.0.0.0 --port 8765
 ```
 
-Tam HTTP deployment kılavuzu (Docker, compose profile'ları, TLS
-reverse-proxy kalıbı), ortam değişkeni referansı
-ve uçtan uca kullanım örnekleri için
-[`packages/mcp/README.md`](../packages/mcp/README.md) dosyasına bakın.
+Tam HTTP deployment kılavuzu (Docker, compose profilleri, TLS reverse-proxy kalıbı), ortam değişkeni referansı ve uçtan uca kullanım örnekleri için [MCP sunucu kılavuzuna](../packages/mcp/README.md) bakın.
 
 ---
 
 ## REST API ve Kimlik Doğrulama
 
-Septum backend'i, `/docs` (Swagger) ve `/redoc` altında belgelenen bir
-FastAPI REST katmanı sunar. İki kimlik doğrulama yöntemi desteklenir.
+Septum backend'i, `/docs` (Swagger) ve `/redoc` altında belgelenen bir FastAPI REST katmanı sunar. İki kimlik doğrulama yöntemi desteklenir.
 
 ### JWT (tarayıcı oturumu, kısa ömürlü)
 
-Kurulum sihirbazı ilk admin hesabını oluşturur; sonraki login'lerde 24
-saat geçerli bir JWT döndürülür.
+Kurulum sihirbazı ilk admin hesabını oluşturur; sonraki login'lerde 24 saat geçerli bir JWT döndürülür.
 
 ```bash
 curl -X POST http://localhost:3000/api/auth/login \
@@ -348,9 +239,7 @@ curl -X POST http://localhost:3000/api/auth/login \
 
 ### API anahtarları (CI/CD, MCP entegrasyonları, uzun ömürlü)
 
-Adminler `POST /api/api-keys` ile programatik API anahtarı oluşturur. Ham
-anahtar yalnızca **bir kez** gösterilir; kalıcı olarak yalnızca 8
-karakterlik önek ve SHA-256 hash'i tutulur.
+Adminler `POST /api/api-keys` ile programatik API anahtarı oluşturur. Ham anahtar yalnızca **bir kez** gösterilir; kalıcı olarak yalnızca 8 karakterlik önek ve SHA-256 hash'i tutulur.
 
 ```bash
 # Anahtar oluştur (yanıt raw_key içerir — şimdi kaydedin, sonradan geri alamazsınız)
@@ -378,12 +267,7 @@ curl -X DELETE -H 'X-API-Key: sk-septum-…' http://localhost:3000/api/api-keys/
 | `POST /api/api-keys` | dakikada 10 |
 | Diğer hepsi | dakikada 60 (`RATE_LIMIT_DEFAULT` ile yapılandırılır) |
 
-API anahtarıyla gelen isteklere IP yerine **anahtar öneki** bazında rate
-limit uygulanır — böylece paylaşılan NAT arkasındaki her servis kendi
-kotasına sahip olur. Anonim ve JWT isteklerde ise IP bazlı limit
-geçerlidir. Redis yapılandırıldığında limit sayaçları Redis'te tutulur;
-aksi halde süreç içi bellekte saklanır (tek node'luk geliştirme için
-uygundur).
+API anahtarıyla gelen isteklere IP yerine **anahtar öneki** bazında rate limit uygulanır — böylece paylaşılan NAT arkasındaki her servis kendi kotasına sahip olur. Anonim ve JWT isteklerde ise IP bazlı limit geçerlidir. Redis yapılandırıldığında limit sayaçları Redis'te tutulur; aksi hâlde süreç içi bellekte saklanır (tek-node geliştirme için uygundur).
 
 ### Hızlı API örneği
 
@@ -400,11 +284,10 @@ curl -N -X POST http://localhost:3000/api/chat/ask \
   -d '{"message": "Fesih şartları nedir?", "document_id": 1}'
 ```
 
-Sohbet endpoint'i Server-Sent Events döndürür:
+Sohbet uç noktası Server-Sent Events döndürür:
 `meta` → `approval_required` → `answer_chunk` → `end`.
 
-Tam API referansı, hat detayları ve deployment topolojileri için
-[Mimari](ARCHITECTURE.tr.md) dokümanına bakın.
+Tam API referansı, hat detayları ve deployment topolojileri için [Mimari](ARCHITECTURE.tr.md) dokümanına bakın.
 
 ---
 
@@ -423,4 +306,3 @@ Tam API referansı, hat detayları ve deployment topolojileri için
   &nbsp;·&nbsp;
   <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
-

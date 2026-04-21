@@ -18,9 +18,6 @@
 
 ---
 
-> In-depth reference for everything that did not fit in the [main README](../README.md).
-> For module-level architecture see the [Architecture](ARCHITECTURE.md) doc.
-
 ## Table of Contents
 
 - [Detection Pipeline](#detection-pipeline)
@@ -31,8 +28,6 @@
 - [MCP Integration](#mcp-integration)
 - [REST API & Authentication](#rest-api--authentication)
 
-For the full visual tour, see the [Screenshots](SCREENSHOTS.md) gallery.
-
 ---
 
 ## Detection Pipeline
@@ -42,26 +37,14 @@ is additive — layers are merged through a coreference resolver so the same
 person shows up as a single `[PERSON_1]` placeholder regardless of how they
 were named.
 
-```mermaid
-flowchart LR
-    INPUT([Document or chat message]) --> L1[Layer 1 · Presidio<br/>Regex + algorithmic validators]
-    L1 --> L2[Layer 2 · NER<br/>XLM-RoBERTa]
-    L2 --> L3[Layer 3 · Ollama<br/>Semantic detection]
-    L3 --> MERGE[Merge + coreference resolution]
-    MERGE --> OUTPUT([Masked text + anonymisation map])
-
-    style L1 fill:#ff5722,color:#fff,stroke:#bf360c
-    style L2 fill:#ff9800,color:#fff,stroke:#e65100
-    style L3 fill:#ffc107,color:#000,stroke:#f57f17
-    style MERGE fill:#4caf50,color:#fff,stroke:#2e7d32
-    style INPUT fill:#2196f3,color:#fff,stroke:#1565c0
-    style OUTPUT fill:#4caf50,color:#fff,stroke:#2e7d32
-```
+<p align="center">
+  <a href="#detection-pipeline"><img src="../assets/detection-pipeline.svg" alt="Septum three-layer detection pipeline — Presidio, NER, Ollama, then coreference merge" width="1100" /></a>
+</p>
 
 | Layer | Technology | Entity types |
 |:---:|:---|:---|
 | 1 | **Presidio** — regex patterns with algorithmic validators (Luhn, IBAN MOD-97, TCKN, CPF, SSN). Context-aware recognisers with multilingual keywords. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE |
-| 2 | **NER** — HuggingFace XLM-RoBERTa with per-language model selection (20+ languages). ALL CAPS input auto-normalised to title case before inference. | PERSON_NAME, LOCATION, ORGANIZATION_NAME |
+| 2 | **NER** — HuggingFace XLM-RoBERTa with per-language model selection (20+ languages). ALL CAPS input auto-normalised to title case before inference. LOC/GPE labels are deliberately suppressed (see Coverage & limitations). | PERSON_NAME, ORGANIZATION_NAME, (LOCATION via Presidio) |
 | 3 | **Ollama** — local LLM for context validation, alias detection, and semantic entities. | PERSON_NAME aliases/nicknames; DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE |
 
 **Coreference resolution.** After all three layers have produced spans, the
@@ -86,35 +69,46 @@ EN/TR), 100 locations (EN/TR), 30 organisation names (EN/TR), plus alias
 detection. Fixed seed for full reproducibility.
 
 <p align="center">
-  <img src="../assets/benchmark-f1-by-type.png" alt="F1 Score by Entity Type" width="900" />
+  <a href="#benchmark-results"><img src="../assets/benchmark-f1-by-type.svg" alt="F1 Score by Entity Type" width="1100" /></a>
 </p>
 
 <p align="center">
-  <img src="../assets/benchmark-layer-comparison.png" alt="Detection Accuracy by Pipeline Layer" width="700" />
+  <a href="#benchmark-results"><img src="../assets/benchmark-layer-comparison.svg" alt="Detection Accuracy by Pipeline Layer" width="820" /></a>
 </p>
 
 | Layer | Entities | Types | Precision | Recall | F1 |
 |:---|:---:|:---:|:---:|:---:|:---:|
-| **Presidio (L1)** — patterns + validators | 1,710 | 20 | 100% | 94.4% | 97.1% |
-| **NER (L2)** — XLM-RoBERTa + ALL CAPS normalisation | 770 | 3 | 97.5% | 92.7% | 95.1% |
-| **Ollama (L3)** — aya-expanse:8b | 788 | 3 | 99.7% | 91.6% | 95.5% |
-| **Combined** | **3,268** | **23** | **99.3%** | **93.3%** | **96.2%** |
+| **Presidio (L1)** — patterns + validators (controlled + extended + adversarial) | 1,710 | 20 | 100% | 96.4% | 98.2% |
+| **NER (L2)** — XLM-RoBERTa + ALL CAPS normalisation (14 languages) | 770 | 3 | 99.8% | 58.3% | 73.6% |
+| **Ollama (L3)** — aya-expanse:8b | 788 | 3 | 100% | 59.5% | 74.6% |
+| **Combined** | **3,268** | **23** | **100%** | **78.5%** | **88.0%** |
 
 > NER (L2) detects ALL CAPS names (common in medical/legal documents) via
 > automatic titlecase normalisation, and recognises organisation names.
 > Ollama (L3) validates candidates and catches aliases. Benchmark includes
 > adversarial edge cases (spaced IBANs, dotted phone numbers, etc.) that
 > lower Presidio recall to real-world levels. Reproducible:
-> `pytest tests/benchmark_detection.py -v -s`
+> `pytest packages/api/tests/benchmark_detection.py -v -s`
 
 ### Coverage & limitations
 
 **No PII detection system is 100% accurate.** Septum's benchmark is
 transparent about where it wins and where it does not:
 
+- **Standalone LOCATION mentions (free-text "Paris", "Istanbul") are
+  detected at 0% by NER — by design.** The NER detector deliberately
+  suppresses LOC/GPE mapping (see [`Detector._map_ner_label`](../packages/core/septum_core/detector.py)
+  — GDPR Art. 4(1) rationale: a place name alone does not identify a
+  natural person, identification comes from the PERSON_NAME anchor).
+  Structured address PII is still caught by Presidio's
+  `StructuralAddressRecognizer` and the per-regulation POSTAL_ADDRESS /
+  STREET_ADDRESS recognisers. This choice drops the NER and combined
+  recall numbers in the benchmark but keeps false-positive rates low
+  across 50+ languages. If your threat model requires standalone city
+  detection, enable a custom keyword ruleset or raise an issue.
 - **All 37 regulation entity types are detectable** — 21 via Presidio, 3
-  via NER, 9 via Ollama, and 7 via parent-type coverage (CITY covered by
-  LOCATION, FIRST_NAME by PERSON_NAME, etc.).
+  via NER, 9 via Ollama, and the rest via parent-type coverage
+  (FIRST_NAME by PERSON_NAME, CITY by LOCATION, etc.).
 - **23 entity types are actively benchmarked** across 3,268 values in 14
   languages with adversarial edge cases.
 - **Semantic types** (DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION)
@@ -164,10 +158,7 @@ restrictive rule wins.
 | 🇳🇿 New Zealand | `nzpa` | Privacy Act 2020 |
 | 🇦🇺 Australia | `australia_pa` | Privacy Act 1988 |
 
-Each row is a loadable pack under
-[`packages/core/septum_core/recognizers/`](../packages/core/septum_core/recognizers/).
-Legal sources for every entity type live in
-[`packages/core/docs/REGULATION_ENTITY_SOURCES.md`](../packages/core/docs/REGULATION_ENTITY_SOURCES.md).
+Each row is a loadable pack under `packages/core/septum_core/recognizers/`. Legal sources for every entity type live in the [regulation entity sources doc](../packages/core/docs/REGULATION_ENTITY_SOURCES.md).
 
 **Region-specific national ID validators** are algorithmic, not
 pattern-only: TCKN (Turkey, mod-10 + mod-11 checksum), Aadhaar (India,
@@ -187,21 +178,9 @@ rules sit alongside built-in packs — policy composition rules still apply.
 When no documents are selected in the chat sidebar, Septum decides
 automatically whether to search documents or answer as a plain chatbot.
 
-```mermaid
-flowchart TD
-    Q([User question]) --> CLASSIFY[Local Ollama classifier<br/>SEARCH vs CHAT]
-    CLASSIFY -->|SEARCH| SEARCH[Search all indexed docs<br/>FAISS + BM25 hybrid]
-    CLASSIFY -->|CHAT| CHAT[Direct LLM answer<br/>no document context]
-    SEARCH --> SCORE{Relevance<br/>above threshold?}
-    SCORE -->|Yes| RAG[Auto-RAG<br/>masked chunks + question]
-    SCORE -->|No| CHAT
-    RAG --> LLM[Approval gate → LLM]
-    CHAT --> LLM
-
-    style CLASSIFY fill:#9c27b0,color:#fff,stroke:#6a1b9a
-    style RAG fill:#4caf50,color:#fff,stroke:#2e7d32
-    style CHAT fill:#2196f3,color:#fff,stroke:#1565c0
-```
+<p align="center">
+  <a href="#auto-rag-routing"><img src="../assets/auto-rag-routing.svg" alt="Auto-RAG routing — SEARCH/CHAT classifier, relevance threshold, pure LLM and approval gate" width="820" /></a>
+</p>
 
 Three paths result:
 
@@ -310,7 +289,7 @@ SEPTUM_MCP_HTTP_TOKEN=$(openssl rand -hex 32) \
   septum-mcp --transport streamable-http --host 0.0.0.0 --port 8765
 ```
 
-See [`packages/mcp/README.md`](../packages/mcp/README.md) for the
+See the [MCP server guide](../packages/mcp/README.md) for the
 complete HTTP deployment guide (Docker, compose profiles, TLS
 reverse-proxy pattern), environment variable reference, and
 end-to-end tool examples.

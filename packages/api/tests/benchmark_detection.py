@@ -1895,7 +1895,7 @@ def test_benchmark_combined_summary(
 #  AUTO-UPDATE: Charts + README tables
 # ═══════════════════════════════════════════════════════════════════════════
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _generate_charts(data: dict) -> None:
@@ -1959,7 +1959,7 @@ def _generate_charts(data: dict) -> None:
                        Patch(facecolor="#9B7ED8", label="NER (Layer 2)")],
               loc="lower right", fontsize=9)
     plt.tight_layout()
-    plt.savefig(str(out_dir / "benchmark-f1-by-type.png"), dpi=180, bbox_inches="tight",
+    plt.savefig(str(out_dir / "benchmark-f1-by-type.svg"),
                 facecolor="white", edgecolor="none")
     plt.close()
 
@@ -1980,7 +1980,7 @@ def _generate_charts(data: dict) -> None:
             val = bar.get_height()
             ax.text(bar.get_x() + bar.get_width() / 2, val + 0.2,
                     f"{val:.1f}", ha="center", va="bottom", fontsize=9, fontweight="bold", color="#333")
-    ax.set_ylim(90, 102)
+    ax.set_ylim(0, 115)
     ax.set_ylabel("Score (%)", fontsize=11)
     ax.set_title("Detection Accuracy by Pipeline Layer", fontsize=13, fontweight="bold", pad=12)
     ax.set_xticks(x)
@@ -1991,7 +1991,7 @@ def _generate_charts(data: dict) -> None:
     ax.grid(axis="y", alpha=0.3, linestyle="--")
     ax.legend(loc="lower right", fontsize=10)
     plt.tight_layout()
-    plt.savefig(str(out_dir / "benchmark-layer-comparison.png"), dpi=180, bbox_inches="tight",
+    plt.savefig(str(out_dir / "benchmark-layer-comparison.svg"),
                 facecolor="white", edgecolor="none")
     plt.close()
     logger.info("Benchmark charts regenerated in %s", out_dir)
