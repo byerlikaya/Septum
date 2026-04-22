@@ -3,17 +3,17 @@
 <p align="center">
   <a href="../README.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
-  <a href="FEATURES.md"><strong>✨ Features</strong></a>
+  <a href="INSTALLATION.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
   <strong>📈 Benchmark</strong>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
   <a href="ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;
   <a href="DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
 ---
@@ -150,15 +150,15 @@ semantic detection at the cost of latency.
 <p align="center">
   <a href="../README.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
-  <a href="FEATURES.md"><strong>✨ Features</strong></a>
+  <a href="INSTALLATION.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
   <strong>📈 Benchmark</strong>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
   <a href="ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;
   <a href="DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>

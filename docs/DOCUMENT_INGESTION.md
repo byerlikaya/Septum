@@ -3,17 +3,17 @@
 <p align="center">
   <a href="../README.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
-  <a href="FEATURES.md"><strong>✨ Features</strong></a>
+  <a href="INSTALLATION.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
   <a href="BENCHMARK.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
   <a href="ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;
   <strong>📊 Document Ingestion</strong>
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
 ---
@@ -43,15 +43,15 @@ How Septum turns an uploaded file into searchable, anonymised content. Every ste
 <p align="center">
   <a href="../README.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
-  <a href="FEATURES.md"><strong>✨ Features</strong></a>
+  <a href="INSTALLATION.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
   <a href="BENCHMARK.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
   <a href="ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;
   <strong>📊 Document Ingestion</strong>
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>

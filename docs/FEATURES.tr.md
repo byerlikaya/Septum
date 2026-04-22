@@ -3,17 +3,17 @@
 <p align="center">
   <a href="../README.tr.md"><strong>🏠 Ana Sayfa</strong></a>
   &nbsp;·&nbsp;
-  <strong>✨ Özellikler</strong>
+  <a href="INSTALLATION.tr.md"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;
   <a href="BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
+  <strong>✨ Özellikler</strong>
   &nbsp;·&nbsp;
   <a href="ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
   &nbsp;·&nbsp;
   <a href="DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
-  &nbsp;·&nbsp;
-  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
 ---
@@ -178,7 +178,7 @@ SEPTUM_MCP_HTTP_TOKEN=$(openssl rand -hex 32) \
   septum-mcp --transport streamable-http --host 0.0.0.0 --port 8765
 ```
 
-Eksiksiz HTTP dağıtım kılavuzu (Docker, compose profilleri, TLS reverse-proxy şablonu), ortam değişkeni referansı ve uçtan uca kullanım örnekleri için [MCP sunucu kılavuzuna](../packages/mcp/README.md) göz atabilirsiniz.
+Eksiksiz HTTP dağıtım kılavuzu (Docker, compose profilleri, TLS reverse-proxy şablonu), ortam değişkeni referansı ve uçtan uca kullanım örnekleri için [MCP sunucu kılavuzuna](../packages/mcp/README.tr.md) göz atabilirsiniz.
 
 ---
 
@@ -254,15 +254,15 @@ Eksiksiz API referansı, hat detayları ve dağıtım topolojileri için [Mimari
 <p align="center">
   <a href="../README.tr.md"><strong>🏠 Ana Sayfa</strong></a>
   &nbsp;·&nbsp;
-  <strong>✨ Özellikler</strong>
+  <a href="INSTALLATION.tr.md"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;
   <a href="BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
+  <strong>✨ Özellikler</strong>
   &nbsp;·&nbsp;
   <a href="ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
   &nbsp;·&nbsp;
   <a href="DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
-  &nbsp;·&nbsp;
-  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
