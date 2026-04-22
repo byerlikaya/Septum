@@ -3,17 +3,17 @@
 <p align="center">
   <a href="../README.tr.md"><strong>🏠 Ana Sayfa</strong></a>
   &nbsp;·&nbsp;
-  <a href="FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  <a href="INSTALLATION.tr.md"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;
   <a href="BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
   &nbsp;·&nbsp;
   <a href="ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
   &nbsp;·&nbsp;
   <a href="DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
   &nbsp;·&nbsp;
   <strong>📸 Ekran Görüntüleri</strong>
-  &nbsp;·&nbsp;
-  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
 ---
@@ -130,15 +130,15 @@ Splunk HEC export alabilirsiniz.
 <p align="center">
   <a href="../README.tr.md"><strong>🏠 Ana Sayfa</strong></a>
   &nbsp;·&nbsp;
-  <a href="FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  <a href="INSTALLATION.tr.md"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;
   <a href="BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
   &nbsp;·&nbsp;
   <a href="ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
   &nbsp;·&nbsp;
   <a href="DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
   &nbsp;·&nbsp;
   <strong>📸 Ekran Görüntüleri</strong>
-  &nbsp;·&nbsp;
-  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>

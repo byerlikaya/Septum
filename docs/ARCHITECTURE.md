@@ -3,17 +3,17 @@
 <p align="center">
   <a href="../README.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
-  <a href="FEATURES.md"><strong>✨ Features</strong></a>
+  <a href="INSTALLATION.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
   <a href="BENCHMARK.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
   <strong>🏗️ Architecture</strong>
   &nbsp;·&nbsp;
   <a href="DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
 ---
@@ -736,15 +736,15 @@ Full OpenAPI schema is available at `http://localhost:3000/docs` when the applic
 <p align="center">
   <a href="../README.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
-  <a href="FEATURES.md"><strong>✨ Features</strong></a>
+  <a href="INSTALLATION.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
   <a href="BENCHMARK.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
+  <a href="FEATURES.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
   <strong>🏗️ Architecture</strong>
   &nbsp;·&nbsp;
   <a href="DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
   <a href="SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <a href="../CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>

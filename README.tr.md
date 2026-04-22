@@ -28,17 +28,17 @@
 <p align="center">
   <strong>🏠 Ana Sayfa</strong>
   &nbsp;·&nbsp;
-  <a href="docs/FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  <a href="docs/INSTALLATION.tr.md"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
-  &nbsp;·&nbsp;
-  <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
 ---
@@ -121,42 +121,17 @@ Tam tespit benchmark'ı, regülasyon paket tablosu, MCP entegrasyon kılavuzu, R
 
 ## Hızlı Başlangıç
 
-### Docker (önerilen)
+Önerilen kurulum, PostgreSQL, Redis, Ollama ve Septum'u tek komutla birlikte ayağa kaldırır:
 
 ```bash
-docker pull byerlikaya/septum
-docker run --name septum \
-  --add-host=host.docker.internal:host-gateway \
-  -p 3000:3000 \
-  -v septum-data:/app/data \
-  -v septum-uploads:/app/uploads \
-  -v septum-anon-maps:/app/anon_maps \
-  -v septum-vector-indexes:/app/vector_indexes \
-  -v septum-bm25-indexes:/app/bm25_indexes \
-  -v septum-models:/app/models \
-  byerlikaya/septum
+git clone https://github.com/byerlikaya/Septum.git && cd Septum
+cp .env.example .env && $EDITOR .env    # POSTGRES_PASSWORD ve REDIS_PASSWORD'ü doldurun
+docker compose up
 ```
 
-**http://localhost:3000** adresini açın — sihirbaz veritabanı, cache, LLM sağlayıcı, regülasyonlar ve ilk admin hesabı kurulumu için sizi adım adım yönlendirir.
+**http://localhost:3000** adresini açın — sihirbaz veritabanı, cache, LLM sağlayıcı, regülasyonlar ve ilk admin hesabını sırayla yapılandırır.
 
-**Güncelleme.** Container'ı durdurup silin, `docker pull byerlikaya/septum` çekin, aynı `docker run` komutunu çalıştırın. Verileriniz volume'larda korunur.
-
-**Docker Compose.** İlk `docker compose up` çağrısından önce `.env.example` dosyasını `.env` olarak kopyalayın ve `POSTGRES_PASSWORD` ile `REDIS_PASSWORD` değerlerini doldurun; compose dosyaları bu iki değişkeni zorunlu tutar ve eksikse başlamaz. Ardından `docker compose up` PostgreSQL, Redis, Ollama ve Septum'u birlikte ayağa kaldırır. İlk sohbetten önce bir model çekin: `docker compose exec ollama ollama pull llama3.2:3b`. Yalnız bulut sağlayıcı kullanacaksanız Ollama'yı `docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up` ile devre dışı bırakabilirsiniz.
-
-**Deployment topolojileri** — farklı dağıtım biçimleri için dört ayrı compose dosyası gelir: standalone (tek container, SQLite), tam dev stack (tüm modüller tek host'ta), yalnızca air-gapped bölge ve yalnızca internet-facing bölge. Tam matris ve iki-host air-gap akışı için Mimari dokümanının [Deployment Topolojileri](docs/ARCHITECTURE.tr.md#deployment-topolojileri) bölümüne bakın.
-
-### Yerel geliştirme
-
-```bash
-./dev.sh --setup   # ilk kez: bağımlılıkları kur
-./dev.sh           # dev sunucularını başlat (port 3000)
-```
-
-Kurulum sihirbazı ilk ziyarette açılır.
-
-### Docker vs Yerel
-
-Tüm özellikler her iki modda da aynı şekilde çalışır. Tek fark hızlandırmadadır: yerel kurulum, PyPI'nin sisteminize uygun gördüğü torch sürümünü çeker (NVIDIA Linux'ta CUDA, Apple Silicon'da MPS). Yayınlanan Docker imajı ise yalnızca CPU üzerinde çalışır; NVIDIA Linux host'ları için tam CUDA runtime taşıyan ayrı bir `byerlikaya/septum:gpu` imajı da yayınlanır. Günlük iş yüklerinde CPU yeterlidir; GPU'nun farkı yalnızca toplu OCR veya uzun ses transkripsiyonlarında hissedilir.
+Daha sade bir tek container demosu, iki makineli air-gapped ayrım, Ollama'sız yalnız bulut kurulumu ya da katkı sağlayanlar için kaynaktan geliştirici kurulumu mu arıyorsunuz? **[Kurulum Rehberi](docs/INSTALLATION.tr.md)** desteklenen beş topolojiyi, sistem gereksinimlerini, ilk açılış sihirbazını, güncelleme akışını ve sorun gidermeyi tek sayfada toplar.
 
 ---
 
@@ -180,15 +155,15 @@ Ayrıntılar için [LICENSE](LICENSE) dosyasına bakın.
 <p align="center">
   <strong>🏠 Ana Sayfa</strong>
   &nbsp;·&nbsp;
-  <a href="docs/FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  <a href="docs/INSTALLATION.tr.md"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
-  &nbsp;·&nbsp;
-  <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>

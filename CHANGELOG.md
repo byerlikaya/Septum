@@ -1,18 +1,17 @@
 <p align="center">
   <a href="README.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
+  <a href="docs/INSTALLATION.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/BENCHMARK.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-
-  &nbsp;·&nbsp;
-  <strong>📝 Changelog</strong>
 </p>
 
 ---
@@ -53,6 +52,11 @@ packages across three security zones; the monolithic `backend/` is gone.
 Date-based ledger below has the full incremental history.
 
 ---
+
+### 2026-04-22
+
+- **Dedicated installation guide + compose-first quickstart**: Added `docs/INSTALLATION.md` / `.tr.md` — nine-section guide covering quickstart, system requirements, five supported topologies (full local stack, standalone demo, air-gapped zone, internet-facing zone, native dev), first-launch wizard, LLM providers, volumes, upgrade, troubleshooting, and uninstall. README quickstart sections shortened to one compose command + pointer at the new page; `docs/README.md` / `.tr.md` index tables gain an Installation row. Compose becomes the blessed path for non-trivial installs because it ships Ollama bundled — the standalone single-container image is now positioned as the "hızlı deneme" demo rather than the recommended install.
+- **Nav reshuffle**: Top/bottom nav bars now show `🏠 Home · 🚀 Installation · 📈 Benchmark · ✨ Features · 🏗️ Architecture · 📊 Document Ingestion · 📸 Screenshots`. Installation moves to second position (most-requested resource for new users); Benchmark precedes Features (the "proof before the pitch"). The `📝 Changelog` entry leaves every nav — GitHub's repo sidebar and release pages already surface it.
 
 ### 2026-04-21
 
@@ -395,16 +399,15 @@ Date-based ledger below has the full incremental history.
 <p align="center">
   <a href="README.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
+  <a href="docs/INSTALLATION.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/BENCHMARK.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-
-  &nbsp;·&nbsp;
-  <strong>📝 Changelog</strong>
 </p>

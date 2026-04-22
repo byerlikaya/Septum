@@ -28,17 +28,17 @@
 <p align="center">
   <strong>🏠 Home</strong>
   &nbsp;·&nbsp;
-  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
+  <a href="docs/INSTALLATION.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/BENCHMARK.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
 
 ---
@@ -121,42 +121,17 @@ See the [Features](docs/FEATURES.md) doc for the full detection benchmark, regul
 
 ## Quick Start
 
-### Docker (recommended)
+The recommended installation brings up PostgreSQL, Redis, Ollama, and Septum together with one command:
 
 ```bash
-docker pull byerlikaya/septum
-docker run --name septum \
-  --add-host=host.docker.internal:host-gateway \
-  -p 3000:3000 \
-  -v septum-data:/app/data \
-  -v septum-uploads:/app/uploads \
-  -v septum-anon-maps:/app/anon_maps \
-  -v septum-vector-indexes:/app/vector_indexes \
-  -v septum-bm25-indexes:/app/bm25_indexes \
-  -v septum-models:/app/models \
-  byerlikaya/septum
+git clone https://github.com/byerlikaya/Septum.git && cd Septum
+cp .env.example .env && $EDITOR .env    # set POSTGRES_PASSWORD + REDIS_PASSWORD
+docker compose up
 ```
 
 Open **http://localhost:3000** — the setup wizard walks you through database, cache, LLM provider, regulations, and the first admin account.
 
-**Updating.** Stop and remove the container, run `docker pull byerlikaya/septum`, then re-run the same `docker run` command. Your data is preserved in the volumes.
-
-**Docker Compose.** Copy `.env.example` to `.env` and set `POSTGRES_PASSWORD` and `REDIS_PASSWORD` before the first `docker compose up` — the compose files require both and refuse to start without them. `docker compose up` then brings PostgreSQL, Redis, Ollama, and Septum up together. Pull a model before the first chat: `docker compose exec ollama ollama pull llama3.2:3b`. Skip Ollama with `docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up` for cloud-only setups.
-
-**Deployment topologies** — four compose variants ship for different deployment shapes: standalone (single container, SQLite), full dev stack (all modules on one host), air-gapped zone only, and internet-facing zone only. See the [Deployment Topologies](docs/ARCHITECTURE.md#deployment-topologies) section of the Architecture doc for the full matrix and a two-host air-gap walkthrough.
-
-### Local development
-
-```bash
-./dev.sh --setup   # first time: install deps
-./dev.sh           # start dev servers (port 3000)
-```
-
-The setup wizard opens on first visit.
-
-### Docker vs Local
-
-All features work identically. The difference is acceleration: local install picks up whatever torch variant PyPI serves for your host (CUDA on NVIDIA Linux, MPS on Apple Silicon), while the published Docker image is CPU-only (a separate `byerlikaya/septum:gpu` variant ships with full CUDA runtime for NVIDIA Linux hosts). CPU inference handles typical workloads; GPU matters only for batch OCR or audio transcription at scale.
+Looking for a simpler single-container demo, an air-gapped two-host split, a cloud-provider-only setup without Ollama, or the native source install for contributors? The **[Installation Guide](docs/INSTALLATION.md)** covers all five supported topologies, system requirements, first-launch walkthrough, upgrades, and troubleshooting.
 
 ---
 
@@ -180,15 +155,15 @@ See [LICENSE](LICENSE) for details.
 <p align="center">
   <strong>🏠 Home</strong>
   &nbsp;·&nbsp;
-  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
+  <a href="docs/INSTALLATION.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/BENCHMARK.md"><strong>📈 Benchmark</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
   <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
-  &nbsp;·&nbsp;
-  <a href="CHANGELOG.md"><strong>📝 Changelog</strong></a>
 </p>
