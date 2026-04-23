@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 460" font-family="ui-sans-serif, -apple-system, system-ui, Segoe UI, sans-serif">
+  <defs>
+    <marker id="cra" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/>
+    </marker>
+  </defs>
+
+  <rect width="880" height="460" fill="#FAFAFA"/>
+
+  <!-- Title -->
+  <text x="440" y="36" text-anchor="middle" font-size="18" font-weight="700" fill="currentColor">Custom Rule Pipeline</text>
+
+  <!-- Source diamond -->
+  <polygon points="440,68 540,118 440,168 340,118" fill="#9333ea" stroke="#6b21a8" stroke-width="2"/>
+  <text x="440" y="113" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">Custom Rule</text>
+  <text x="440" y="132" text-anchor="middle" font-size="11" fill="#e9d5ff">choose detection type</text>
+
+  <!-- Three type cards -->
+  <g>
+    <rect x="60" y="200" width="220" height="78" rx="10" fill="#1e40af" stroke="#1e3a8a" stroke-width="2"/>
+    <text x="170" y="226" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Regex</text>
+    <text x="170" y="248" text-anchor="middle" font-size="11" fill="#bfdbfe">Pattern matching</text>
+    <text x="170" y="266" text-anchor="middle" font-size="10" fill="#dbeafe" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">\d{3}-\d{2}-\d{4}</text>
+  </g>
+
+  <g>
+    <rect x="330" y="200" width="220" height="78" rx="10" fill="#0ea5e9" stroke="#0369a1" stroke-width="2"/>
+    <text x="440" y="226" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Keyword</text>
+    <text x="440" y="248" text-anchor="middle" font-size="11" fill="#bae6fd">Word list</text>
+    <text x="440" y="266" text-anchor="middle" font-size="10" fill="#e0f2fe">"confidential", "secret"</text>
+  </g>
+
+  <g>
+    <rect x="600" y="200" width="220" height="78" rx="10" fill="#ec4899" stroke="#9d174d" stroke-width="2"/>
+    <text x="710" y="226" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">LLM Prompt</text>
+    <text x="710" y="248" text-anchor="middle" font-size="11" fill="#fbcfe8">Semantic check</text>
+    <text x="710" y="266" text-anchor="middle" font-size="10" fill="#fce7f3">"Does this contain a diagnosis?"</text>
+  </g>
+
+  <!-- Arrows from diamond to each card -->
+  <path d="M 410,160 L 220,200" stroke="#6b7280" stroke-width="2" fill="none" marker-end="url(#cra)"/>
+  <path d="M 440,168 L 440,200" stroke="#6b7280" stroke-width="2" fill="none" marker-end="url(#cra)"/>
+  <path d="M 470,160 L 660,200" stroke="#6b7280" stroke-width="2" fill="none" marker-end="url(#cra)"/>
+
+  <!-- Apply box -->
+  <rect x="320" y="320" width="240" height="60" rx="10" fill="#f59e0b" stroke="#b45309" stroke-width="2"/>
+  <text x="440" y="346" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">Match found in text</text>
+  <text x="440" y="366" text-anchor="middle" font-size="11" fill="#fef3c7">policy composer merges with built-in packs</text>
+
+  <!-- Arrows down to apply -->
+  <path d="M 170,278 L 380,320" stroke="#6b7280" stroke-width="2" fill="none" marker-end="url(#cra)"/>
+  <path d="M 440,278 L 440,320" stroke="#6b7280" stroke-width="2" fill="none" marker-end="url(#cra)"/>
+  <path d="M 710,278 L 500,320" stroke="#6b7280" stroke-width="2" fill="none" marker-end="url(#cra)"/>
+
+  <!-- Mask result -->
+  <rect x="350" y="410" width="180" height="40" rx="8" fill="#10b981" stroke="#047857" stroke-width="2"/>
+  <text x="440" y="436" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">→ Masked</text>
+  <path d="M 440,380 L 440,410" stroke="#6b7280" stroke-width="2" fill="none" marker-end="url(#cra)"/>
+</svg>

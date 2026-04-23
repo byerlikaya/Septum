@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 480" font-family="ui-sans-serif, -apple-system, system-ui, Segoe UI, sans-serif">
+  <defs>
+    <marker id="aga" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/>
+    </marker>
+  </defs>
+
+  <rect width="1100" height="480" fill="#FAFAFA"/>
+
+  <text x="550" y="36" text-anchor="middle" font-size="18" font-weight="700" fill="currentColor">Onay Mekanizması — üç panel, tek karar</text>
+
+  <g>
+    <rect x="40"  y="80"  width="320" height="220" rx="12" fill="#1e3a8a" stroke="#1e40af" stroke-width="2"/>
+    <text x="200" y="108" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">1 · Maskelenmiş prompt</text>
+    <text x="200" y="128" text-anchor="middle" font-size="11" fill="#bfdbfe">PII placeholder'a çevrilince</text>
+    <text x="200" y="142" text-anchor="middle" font-size="11" fill="#bfdbfe">mesajınız böyle görünür</text>
+    <text x="60"  y="178" font-size="11" fill="#dbeafe" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">"[PERSON_1] adına</text>
+    <text x="60"  y="198" font-size="11" fill="#dbeafe" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">[DATE_1] tarihli</text>
+    <text x="60"  y="218" font-size="11" fill="#dbeafe" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">sözleşmeyi sor"</text>
+    <text x="200" y="262" text-anchor="middle" font-size="10" fill="#93c5fd">salt-okunur</text>
+    <text x="200" y="280" text-anchor="middle" font-size="10" fill="#93c5fd">değiştirmek için mesajınızı düzenleyin</text>
+  </g>
+
+  <g>
+    <rect x="390" y="80"  width="320" height="220" rx="12" fill="#0e7490" stroke="#155e75" stroke-width="2"/>
+    <text x="550" y="108" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">2 · Getirilen parçalar</text>
+    <text x="550" y="128" text-anchor="middle" font-size="11" fill="#a5f3fc">LLM'in göreceği doküman</text>
+    <text x="550" y="142" text-anchor="middle" font-size="11" fill="#a5f3fc">parçaları — bunlar da maskeli</text>
+    <text x="410" y="178" font-size="11" fill="#cffafe" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">"… [PERSON_1], yenileme</text>
+    <text x="410" y="198" font-size="11" fill="#cffafe" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">[DATE_1]'de [LOCATION_1]'da</text>
+    <text x="410" y="218" font-size="11" fill="#cffafe" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">imzalandı …"</text>
+    <text x="550" y="262" text-anchor="middle" font-size="10" fill="#67e8f9">düzenlenebilir</text>
+    <text x="550" y="280" text-anchor="middle" font-size="10" fill="#67e8f9">istemediğiniz parçayı çıkarın</text>
+  </g>
+
+  <g>
+    <rect x="740" y="80"  width="320" height="220" rx="12" fill="#9333ea" stroke="#6b21a8" stroke-width="2"/>
+    <text x="900" y="108" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">3 · Buluta gidecek tam istek</text>
+    <text x="900" y="128" text-anchor="middle" font-size="11" fill="#e9d5ff">air-gapped bölgeyi terk eden</text>
+    <text x="900" y="142" text-anchor="middle" font-size="11" fill="#e9d5ff">bayt bayt nihai içerik</text>
+    <text x="760" y="178" font-size="11" fill="#f3e8ff" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">SYSTEM: …</text>
+    <text x="760" y="198" font-size="11" fill="#f3e8ff" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">CONTEXT: [parçalar]</text>
+    <text x="760" y="218" font-size="11" fill="#f3e8ff" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">USER: [maskeli soru]</text>
+    <text x="900" y="262" text-anchor="middle" font-size="10" fill="#d8b4fe">salt-okunur</text>
+    <text x="900" y="280" text-anchor="middle" font-size="10" fill="#d8b4fe">son uçuş öncesi kontrol</text>
+  </g>
+
+  <polygon points="550,340 700,400 550,460 400,400" fill="#f59e0b" stroke="#b45309" stroke-width="2"/>
+  <text x="550" y="395" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">Gönder?</text>
+  <text x="550" y="414" text-anchor="middle" font-size="11" fill="#fef3c7">karar sizin</text>
+
+  <path d="M 695,400 L 850,400" stroke="#10b981" stroke-width="2" fill="none" marker-end="url(#aga)"/>
+  <text x="900" y="395" font-size="13" font-weight="700" fill="#10b981">Onayla</text>
+  <text x="900" y="412" font-size="11" fill="#34d399">→ Bulut LLM</text>
+
+  <path d="M 405,400 L 250,400" stroke="#f43f5e" stroke-width="2" fill="none" marker-end="url(#aga)"/>
+  <text x="200" y="395" text-anchor="end" font-size="13" font-weight="700" fill="#f43f5e">Reddet</text>
+  <text x="200" y="412" text-anchor="end" font-size="11" fill="#fb7185">hiçbir şey gitmez</text>
+
+  <path d="M 200,300 L 460,340" stroke="#6b7280" stroke-width="1.5" fill="none"/>
+  <path d="M 550,300 L 550,340" stroke="#6b7280" stroke-width="1.5" fill="none"/>
+  <path d="M 900,300 L 640,340" stroke="#6b7280" stroke-width="1.5" fill="none"/>
+</svg>
