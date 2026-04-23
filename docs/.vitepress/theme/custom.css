@@ -1,0 +1,175 @@
+/* Align body content with the header rail (logo … GitHub). VitePress
+ * applies three nested width caps to the body — the outer .container,
+ * the inner .content, and an extra .content-container cap of 688px.
+ * Override all three so the body fills the same horizontal extent as
+ * the navbar without touching the navbar itself. */
+@media (min-width: 960px) {
+  .VPDoc.has-aside .container,
+  .VPDoc:not(.has-sidebar) .container {
+    max-width: calc(var(--vp-layout-max-width) - 64px) !important;
+    margin-inline: auto !important;
+  }
+
+  .VPDoc.has-aside .content,
+  .VPDoc:not(.has-sidebar) .content {
+    max-width: none !important;
+  }
+
+  .VPDoc.has-aside .content-container {
+    max-width: none !important;
+  }
+}
+
+/* Header logo — bigger than the default 24px since it carries the site
+ * name (no separate text title). */
+.VPNavBarTitle .logo {
+  height: 44px;
+  width: auto;
+  max-width: none;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: transparent;
+  box-sizing: content-box;
+  transition: background-color 0.2s ease;
+}
+
+html:not(.dark) .VPNavBarTitle .logo {
+  background: #0f172a;
+}
+
+/* The outline (TOC) stays sticky on the left so it's always reachable.
+ * On long pages — Architecture has 32 entries — the list overflows the
+ * viewport, so the column gets its own internal scroll. The active item
+ * is then nudged into view by the small theme hook that runs after
+ * each route change. */
+@media (min-width: 960px) {
+  .VPDoc .aside-container {
+    max-height: calc(100vh - var(--vp-nav-height) - 32px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+
+  .VPDoc .aside-container::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .VPDoc .aside-container::-webkit-scrollbar-thumb {
+    background: var(--vp-c-divider);
+    border-radius: 3px;
+  }
+}
+
+/* Tighten the spacing around the docs home page logo and pull the
+ * page content up so it sits close to the navbar instead of opening
+ * with a tall band of empty space. */
+.VPDoc:has(.home-logo) {
+  padding-top: 16px !important;
+}
+
+.vp-doc p.home-logo {
+  margin: 0;
+  text-align: center;
+}
+
+.vp-doc p.home-logo img {
+  display: inline-block;
+  margin: 0 auto;
+  max-width: min(360px, 70vw);
+  height: auto;
+}
+
+/* If a heading immediately follows the logo, snug them together. */
+.vp-doc p.home-logo + h1,
+.vp-doc p.home-logo + h2 {
+  margin-top: 8px;
+  text-align: center;
+  border-bottom: none;
+  padding-top: 0;
+}
+
+/* Pull the first real heading after the logo block up so the gap
+ * between the logo and Pages section feels deliberate, not wasted. */
+.vp-doc p.home-logo + h2,
+.vp-doc p.home-logo ~ hr + h2 {
+  margin-top: 24px;
+}
+
+/* Centered badge rows (shields.io etc.) — VitePress' default vp-doc
+ * styles set images to `display: block`, which forces every badge onto
+ * its own line. We override for any image sitting inside a centered
+ * paragraph so they wrap horizontally as a single bar. */
+.vp-doc p[align="center"] {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-block: 16px;
+}
+
+.vp-doc p[align="center"] img,
+.vp-doc p[align="center"] a {
+  display: inline-block;
+  margin: 0;
+}
+
+.vp-doc p[align="center"] a img {
+  vertical-align: middle;
+}
+
+/* Re-allow the homepage logo to render large and on its own line. */
+.vp-doc p.home-logo {
+  display: block;
+}
+
+/* The logo SVG ships with a near-white wordmark that vanishes on a
+ * light page. Wrap it in a card whose layout footprint is identical
+ * across themes (so toggling light/dark doesn't shift the page) —
+ * only the background colour switches. */
+.vp-doc p.home-logo {
+  display: table;
+  margin: 16px auto !important;
+  padding: 20px 28px;
+  border-radius: 18px;
+  background: transparent;
+  transition: background-color 0.2s ease;
+}
+
+html:not(.dark) .vp-doc p.home-logo {
+  background: #0f172a;
+}
+
+/* Tables fill the full content width so short rows aren't cramped
+ * against the left edge while the page has plenty of room to spare.
+ * Columns share the available width evenly unless the markdown
+ * specifies a different alignment. */
+.vp-doc table {
+  display: table;
+  width: 100%;
+  table-layout: auto;
+}
+
+.vp-doc div[class*="language-"] + table,
+.vp-doc table {
+  margin-block: 16px;
+}
+
+/* Make zoomed images sit cleanly above the page chrome. */
+.medium-zoom-overlay {
+  z-index: 999;
+}
+.medium-zoom-image--opened {
+  z-index: 1000;
+}
+
+/* Hover affordance — a subtle cursor tells users an image is
+ * click-to-zoom. Skips images marked .no-zoom and any image inside an
+ * anchor (those are links, the cursor stays as a pointer). */
+.vp-doc img:not(.no-zoom):hover {
+  cursor: zoom-in;
+}
+
+.vp-doc a img {
+  cursor: pointer;
+}
+
