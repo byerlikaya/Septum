@@ -1,5 +1,10 @@
-<p align="center">
-  <img src="assets/septum_logo.png" alt="Septum logosu" width="220" />
+---
+title: "Septum"
+description: "Gizlilik öncelikli AI ara katmanı — dokümanları anonimleştir, dilediğin LLM ile sohbet et, ham PII makineden çıkmaz."
+---
+
+<p align="center" class="home-logo">
+  <img src="assets/septum_logo.svg" alt="Septum logosu" width="320" />
 </p>
 
 <h3 align="center">Veriniz dışarı çıkmaz. Yapay zekanız çalışmaya devam eder.</h3>
@@ -28,17 +33,17 @@
 <p align="center">
   <strong>🏠 Ana Sayfa</strong>
   &nbsp;·&nbsp;
-  <a href="docs/INSTALLATION.tr.md"><strong>🚀 Kurulum</strong></a>
+  <a href="docs/tr/installation.md"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
+  <a href="docs/tr/benchmark.md"><strong>📈 Benchmark</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  <a href="docs/tr/features.md"><strong>✨ Özellikler</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
+  <a href="docs/tr/architecture.md"><strong>🏗️ Mimari</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
+  <a href="docs/tr/document-ingestion.md"><strong>📊 Doküman İşleme</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
+  <a href="docs/tr/screenshots.md"><strong>📸 Ekran Görüntüleri</strong></a>
 </p>
 
 ---
@@ -71,7 +76,7 @@ LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerç
   <a href="#nasıl-çalışır"><img src="assets/how-it-works.tr.svg" alt="Septum sohbet akışı — kullanıcıdan ham soru, yerelde PII maskeleme, buluta maskeli soru, maskeli cevap, yerelde placeholder geri yazma, gerçek cevap kullanıcıya" width="820" /></a>
 </p>
 
-1. **Dokümanlarınızı yükleyin** — Septum dosya tipini ve dili otomatik algılar, tüm kişisel verileri maskeler ve içeriği anonimleştirilmiş haliyle aramaya hazırlar. *([📊 Akış diyagramı](docs/DOCUMENT_INGESTION.tr.md))*
+1. **Dokümanlarınızı yükleyin** — Septum dosya tipini ve dili otomatik algılar, tüm kişisel verileri maskeler ve içeriği anonimleştirilmiş haliyle aramaya hazırlar. *([📊 Akış diyagramı](docs/tr/document-ingestion.md))*
 2. **Sohbette soru sorun** — dilerseniz belirli dokümanları seçin, dilerseniz boş bırakıp kararı Septum'a bırakın. Seçim yoksa yerel Ollama sınıflandırıcısı soruyu ya Otomatik RAG'a (tüm indekslenmiş dokümanları arayıp ilgili parçaları çıkarır) ya da doğrudan sohbet yoluna yönlendirir.
 3. **Sorunuz da maskelenir** — aynı üç katmanlı hat yalnızca dokümanlarda değil, sizin yazdığınız mesajda da çalışır. İsim, telefon, e-posta, kimlik numarası — hepsi retrieval öncesinde placeholder'a dönüşür.
 4. **Göndermeden önce onaylayın** — maskeli sorunuz, getirilen parçalar ve buluta gidecek birleşik istek yan yana gösterilir. Onaylarsınız ya da reddedersiniz.
@@ -97,7 +102,7 @@ Septum, üç güvenlik bölgesine ayrılmış 7 bağımsız modülden oluşur. A
 | [`septum-gateway`](packages/gateway/) | Internet-facing | Bulut LLM yönlendirici — `septum-core`'u asla içe aktarmaz |
 | [`septum-audit`](packages/audit/) | Internet-facing | Uyumluluk kaydı + SIEM export — `septum-core`'u asla içe aktarmaz |
 
-Modül kontratları ve bölge kuralları [Mimari](docs/ARCHITECTURE.tr.md) dokümanında.
+Modül kontratları ve bölge kuralları [Mimari](docs/tr/architecture.md) dokümanında.
 
 ---
 
@@ -115,7 +120,7 @@ Modül kontratları ve bölge kuralları [Mimari](docs/ARCHITECTURE.tr.md) dokü
 - **MCP Sunucusu** — bağımsız `septum-mcp`, aynı yerel maskeleme hattını MCP uyumlu her istemciye açar: stdio üzerinden lokal istemciler (Claude Desktop, Cursor, Windsurf) ya da streamable-http / sse üzerinden uzak, tarayıcı ve container istemciler için bearer-token auth'lu.
 - **Denetim Kaydı** — salt-ekleme uyumluluk günlüğü ve varlık tespit metrikleri. Denetim olaylarında ham PII yoktur.
 
-Tam tespit benchmark'ı, regülasyon paket tablosu, MCP entegrasyon kılavuzu, REST API + kimlik doğrulama referansı ve "neden Septum" karşılaştırması için [Özellikler](docs/FEATURES.tr.md) dokümanına bakın. Her Septum ekranının görsel turu — kurulum sihirbazı, onay kapısı, doküman önizleme, ayarlar sekmeleri, özel regülasyon kuralları, denetim kaydı — için [Ekran Görüntüleri](docs/SCREENSHOTS.tr.md) sayfasına bakın.
+Tam tespit benchmark'ı, regülasyon paket tablosu, MCP entegrasyon kılavuzu, REST API + kimlik doğrulama referansı ve "neden Septum" karşılaştırması için [Özellikler](docs/tr/features.md) dokümanına bakın. Her Septum ekranının görsel turu — kurulum sihirbazı, onay kapısı, doküman önizleme, ayarlar sekmeleri, özel regülasyon kuralları, denetim kaydı — için [Ekran Görüntüleri](docs/tr/screenshots.md) sayfasına bakın.
 
 ---
 
@@ -131,7 +136,7 @@ docker compose up
 
 **http://localhost:3000** adresini açın — sihirbaz veritabanı, cache, LLM sağlayıcı, regülasyonlar ve ilk admin hesabını sırayla yapılandırır.
 
-Daha sade bir tek container demosu, iki makineli air-gapped ayrım, Ollama'sız yalnız bulut kurulumu ya da katkı sağlayanlar için kaynaktan geliştirici kurulumu mu arıyorsunuz? **[Kurulum Rehberi](docs/INSTALLATION.tr.md)** desteklenen beş topolojiyi, sistem gereksinimlerini, ilk açılış sihirbazını, güncelleme akışını ve sorun gidermeyi tek sayfada toplar.
+Daha sade bir tek container demosu, iki makineli air-gapped ayrım, Ollama'sız yalnız bulut kurulumu ya da katkı sağlayanlar için kaynaktan geliştirici kurulumu mu arıyorsunuz? **[Kurulum Rehberi](docs/tr/installation.md)** desteklenen beş topolojiyi, sistem gereksinimlerini, ilk açılış sihirbazını, güncelleme akışını ve sorun gidermeyi tek sayfada toplar.
 
 ---
 
@@ -155,15 +160,15 @@ Ayrıntılar için [LICENSE](LICENSE) dosyasına bakın.
 <p align="center">
   <strong>🏠 Ana Sayfa</strong>
   &nbsp;·&nbsp;
-  <a href="docs/INSTALLATION.tr.md"><strong>🚀 Kurulum</strong></a>
+  <a href="docs/tr/installation.md"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/BENCHMARK.tr.md"><strong>📈 Benchmark</strong></a>
+  <a href="docs/tr/benchmark.md"><strong>📈 Benchmark</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/FEATURES.tr.md"><strong>✨ Özellikler</strong></a>
+  <a href="docs/tr/features.md"><strong>✨ Özellikler</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/ARCHITECTURE.tr.md"><strong>🏗️ Mimari</strong></a>
+  <a href="docs/tr/architecture.md"><strong>🏗️ Mimari</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/DOCUMENT_INGESTION.tr.md"><strong>📊 Doküman İşleme</strong></a>
+  <a href="docs/tr/document-ingestion.md"><strong>📊 Doküman İşleme</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/SCREENSHOTS.tr.md"><strong>📸 Ekran Görüntüleri</strong></a>
+  <a href="docs/tr/screenshots.md"><strong>📸 Ekran Görüntüleri</strong></a>
 </p>

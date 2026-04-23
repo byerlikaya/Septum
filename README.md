@@ -1,5 +1,10 @@
-<p align="center">
-  <img src="assets/septum_logo.png" alt="Septum logo" width="220" />
+---
+title: "Septum"
+description: "Privacy-first AI middleware — anonymize documents, chat with any LLM, no raw PII leaves your machine."
+---
+
+<p align="center" class="home-logo">
+  <img src="assets/septum_logo.svg" alt="Septum logo" width="320" />
 </p>
 
 <h3 align="center">Your data never leaves. Your AI still works.</h3>
@@ -28,17 +33,17 @@
 <p align="center">
   <strong>🏠 Home</strong>
   &nbsp;·&nbsp;
-  <a href="docs/INSTALLATION.md"><strong>🚀 Installation</strong></a>
+  <a href="docs/installation.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/BENCHMARK.md"><strong>📈 Benchmark</strong></a>
+  <a href="docs/benchmark.md"><strong>📈 Benchmark</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
+  <a href="docs/features.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
+  <a href="docs/architecture.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
+  <a href="docs/document-ingestion.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
+  <a href="docs/screenshots.md"><strong>📸 Screenshots</strong></a>
 </p>
 
 ---
@@ -71,7 +76,7 @@ The LLM answers using placeholders. Septum restores real values locally before s
   <a href="#how-it-works"><img src="assets/how-it-works.svg" alt="Septum chat flow — raw question from user, local PII masking, masked question to cloud LLM, masked response, local placeholder restore, real answer to user" width="820" /></a>
 </p>
 
-1. **Upload your documents** — PDFs, Office files, images, audio. Septum detects file type, language, and personal data; masks all PII; prepares anonymised content for search. *([📊 Pipeline diagram](docs/DOCUMENT_INGESTION.md))*
+1. **Upload your documents** — PDFs, Office files, images, audio. Septum detects file type, language, and personal data; masks all PII; prepares anonymised content for search. *([📊 Pipeline diagram](docs/document-ingestion.md))*
 2. **Ask questions in chat** — select specific documents, or leave the selection empty and let Septum decide. With no selection, a local Ollama classifier routes the question to either Auto-RAG (search all indexed documents) or a plain chatbot reply.
 3. **Your question is masked too** — the same three-layer pipeline runs on the message you typed, not just the documents. Names, phones, emails, IDs in your prompt all turn into placeholders before retrieval.
 4. **Approve before sending** — see the masked question, the retrieved chunks, and the assembled cloud prompt side by side. Approve or reject.
@@ -97,7 +102,7 @@ Septum is composed of 7 independent modules split across three security zones. A
 | [`septum-gateway`](packages/gateway/) | Internet-facing | Cloud LLM forwarder — never imports `septum-core` |
 | [`septum-audit`](packages/audit/) | Internet-facing | Compliance log + SIEM export — never imports `septum-core` |
 
-Module contracts and zone semantics live in the [Architecture](docs/ARCHITECTURE.md) doc.
+Module contracts and zone semantics live in the [Architecture](docs/architecture.md) doc.
 
 ---
 
@@ -115,7 +120,7 @@ Module contracts and zone semantics live in the [Architecture](docs/ARCHITECTURE
 - **MCP Server** — standalone `septum-mcp` exposes the same local masking pipeline to any MCP-aware client over stdio (Claude Desktop, Cursor, Windsurf) or streamable-http / sse (remote, browser, containerised clients) with bearer-token auth.
 - **Audit Trail** — append-only compliance log with entity detection metrics. No raw PII in audit events.
 
-See the [Features](docs/FEATURES.md) doc for the full detection benchmark, regulation pack table, MCP integration walkthrough, REST API + authentication reference, and the "why Septum" comparison. For every Septum screen — setup wizard, approval gate, document preview, settings tabs, custom regulation rules, audit trail — see the [Screenshots](docs/SCREENSHOTS.md) tour.
+See the [Features](docs/features.md) doc for the full detection benchmark, regulation pack table, MCP integration walkthrough, REST API + authentication reference, and the "why Septum" comparison. For every Septum screen — setup wizard, approval gate, document preview, settings tabs, custom regulation rules, audit trail — see the [Screenshots](docs/screenshots.md) tour.
 
 ---
 
@@ -131,7 +136,7 @@ docker compose up
 
 Open **http://localhost:3000** — the setup wizard walks you through database, cache, LLM provider, regulations, and the first admin account.
 
-Looking for a simpler single-container demo, an air-gapped two-host split, a cloud-provider-only setup without Ollama, or the native source install for contributors? The **[Installation Guide](docs/INSTALLATION.md)** covers all five supported topologies, system requirements, first-launch walkthrough, upgrades, and troubleshooting.
+Looking for a simpler single-container demo, an air-gapped two-host split, a cloud-provider-only setup without Ollama, or the native source install for contributors? The **[Installation Guide](docs/installation.md)** covers all five supported topologies, system requirements, first-launch walkthrough, upgrades, and troubleshooting.
 
 ---
 
@@ -155,15 +160,15 @@ See [LICENSE](LICENSE) for details.
 <p align="center">
   <strong>🏠 Home</strong>
   &nbsp;·&nbsp;
-  <a href="docs/INSTALLATION.md"><strong>🚀 Installation</strong></a>
+  <a href="docs/installation.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/BENCHMARK.md"><strong>📈 Benchmark</strong></a>
+  <a href="docs/benchmark.md"><strong>📈 Benchmark</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
+  <a href="docs/features.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
+  <a href="docs/architecture.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
+  <a href="docs/document-ingestion.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
+  <a href="docs/screenshots.md"><strong>📸 Screenshots</strong></a>
 </p>
