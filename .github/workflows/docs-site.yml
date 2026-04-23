@@ -1,19 +1,19 @@
 name: Docs Site (VitePress)
 
-# Builds the VitePress site under `site/` from the canonical markdown in
-# `docs/` and deploys it to GitHub Pages at
+# Builds the VitePress site under `docs/` from the canonical markdown
+# (English at `docs/*.md`, Turkish at `docs/tr/*.md`) and deploys it to
+# GitHub Pages at
 # https://byerlikaya.github.io/Septum/.
 #
-# Triggered on every push to `main` that touches the docs source, the
-# site project, or the workflow itself. Manual re-runs available from
-# the Actions UI via workflow_dispatch.
+# Triggered on every push to `main` that touches the docs source or the
+# workflow itself. Manual re-runs available from the Actions UI via
+# workflow_dispatch.
 
 on:
   push:
     branches: [main]
     paths:
       - "docs/**"
-      - "site/**"
       - "assets/**"
       - ".github/workflows/docs-site.yml"
   workflow_dispatch:
@@ -39,20 +39,20 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: site/package-lock.json
+          cache-dependency-path: docs/package-lock.json
 
       - name: Install dependencies
-        working-directory: site
+        working-directory: docs
         run: npm ci
 
       - name: Build site
-        working-directory: site
+        working-directory: docs
         run: npm run build
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site/docs/.vitepress/dist
+          path: docs/.vitepress/dist
 
   deploy:
     needs: build
