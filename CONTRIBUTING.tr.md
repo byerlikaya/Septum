@@ -1,6 +1,9 @@
-# Septum'a Katkıda Bulunma
+---
+title: "Katkı Sağlama"
+description: "Hata bildirme, test çalıştırma, özellik önerme ve PR gönderme rehberi."
+---
 
-> 🇬🇧 [English version](CONTRIBUTING.md).
+# Septum'a Katkıda Bulunma
 
 Katkıda bulunmak için ayırdığınız zaman için teşekkürler. Septum
 gizlilik öncelikli bir AI ara katmanı — her katkının bu çıtayı koruması

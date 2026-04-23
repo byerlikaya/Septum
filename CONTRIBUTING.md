@@ -1,6 +1,9 @@
-# Contributing to Septum
+---
+title: "Contributing"
+description: "How to file bugs, run tests, propose features, and submit PRs."
+---
 
-> 🇹🇷 Bu belgenin [Türkçesi](CONTRIBUTING.tr.md).
+# Contributing to Septum
 
 Thanks for taking the time to contribute! Septum is privacy-first AI
 middleware — we want every contribution to keep that bar.

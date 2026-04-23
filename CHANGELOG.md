@@ -1,17 +1,22 @@
+---
+title: "Changelog"
+description: "Date-based release history for Septum."
+---
+
 <p align="center">
   <a href="README.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/INSTALLATION.md"><strong>🚀 Installation</strong></a>
+  <a href="docs/installation.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/BENCHMARK.md"><strong>📈 Benchmark</strong></a>
+  <a href="docs/benchmark.md"><strong>📈 Benchmark</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
+  <a href="docs/features.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
+  <a href="docs/architecture.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
+  <a href="docs/document-ingestion.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
+  <a href="docs/screenshots.md"><strong>📸 Screenshots</strong></a>
 </p>
 
 ---
@@ -37,7 +42,7 @@ packages across three security zones; the monolithic `backend/` is gone.
   national-ID checksum validators, legal-sources doc.
 - **Honest benchmark**: 3,468 values × 16 languages + 5 external datasets
   + adversarial pack. Combined F1 96.6%, 0.00 FP/1k on clean text. Full
-  methodology in [`docs/BENCHMARK.md`](docs/BENCHMARK.md).
+  methodology in [`docs/benchmark.md`](docs/benchmark.md).
 - **Security**: Redis AUTH, parameterised compose passwords
   (`${VAR:?}` fail-fast, `.env.example`), `pickle` → `json` in BM25,
   18 security-scan findings addressed.
@@ -55,15 +60,15 @@ Date-based ledger below has the full incremental history.
 
 ### 2026-04-22
 
-- **Dedicated installation guide + compose-first quickstart**: Added `docs/INSTALLATION.md` / `.tr.md` — nine-section guide covering quickstart, system requirements, five supported topologies (full local stack, standalone demo, air-gapped zone, internet-facing zone, native dev), first-launch wizard, LLM providers, volumes, upgrade, troubleshooting, and uninstall. README quickstart sections shortened to one compose command + pointer at the new page; `docs/README.md` / `.tr.md` index tables gain an Installation row. Compose becomes the blessed path for non-trivial installs because it ships Ollama bundled — the standalone single-container image is now positioned as the "hızlı deneme" demo rather than the recommended install.
+- **Dedicated installation guide + compose-first quickstart**: Added `docs/installation.md` / `.tr.md` — nine-section guide covering quickstart, system requirements, five supported topologies (full local stack, standalone demo, air-gapped zone, internet-facing zone, native dev), first-launch wizard, LLM providers, volumes, upgrade, troubleshooting, and uninstall. README quickstart sections shortened to one compose command + pointer at the new page; `docs/readme.md` / `.tr.md` index tables gain an Installation row. Compose becomes the blessed path for non-trivial installs because it ships Ollama bundled — the standalone single-container image is now positioned as the "hızlı deneme" demo rather than the recommended install.
 - **Nav reshuffle**: Top/bottom nav bars now show `🏠 Home · 🚀 Installation · 📈 Benchmark · ✨ Features · 🏗️ Architecture · 📊 Document Ingestion · 📸 Screenshots`. Installation moves to second position (most-requested resource for new users); Benchmark precedes Features (the "proof before the pitch"). The `📝 Changelog` entry leaves every nav — GitHub's repo sidebar and release pages already surface it.
 
 ### 2026-04-21
 
-- **Split benchmark into its own page**: Moved the benchmark section out of `docs/FEATURES.md` / `.tr.md` into dedicated `docs/BENCHMARK.md` / `.tr.md` pages. Added a `📈 Benchmark` entry to the top + bottom nav of every markdown file and a source-link block on the benchmark pages (HF model cards, dataset papers, regulation primary sources).
+- **Split benchmark into its own page**: Moved the benchmark section out of `docs/features.md` / `.tr.md` into dedicated `docs/benchmark.md` / `.tr.md` pages. Added a `📈 Benchmark` entry to the top + bottom nav of every markdown file and a source-link block on the benchmark pages (HF model cards, dataset papers, regulation primary sources).
 - **Nav cleanup**: Dropped the `🤝 Contributing` entry from every top/bottom nav bar; the GitHub sidebar already surfaces it.
 - **Require explicit `POSTGRES_PASSWORD` / `REDIS_PASSWORD` in compose files**: Replaced the `septum_secret` / `septum_redis` dev defaults with `${VAR:?...}` — compose now fails fast if either is missing. Added `.env.example` as the canonical template; README, README.tr and CLAUDE.md updated to point at it. GitGuardian no longer flags the compose files.
-- **Turkish literary polish on `docs/FEATURES.tr.md`**: Rewrote calques and awkward inversions across the Detection Pipeline, Regulation Packs, Auto-RAG, Why Septum, MCP, and REST API sections.
+- **Turkish literary polish on `docs/tr/features.md`**: Rewrote calques and awkward inversions across the Detection Pipeline, Regulation Packs, Auto-RAG, Why Septum, MCP, and REST API sections.
 - **Per-image Docker Hub overviews**: Replaced the single `DOCKERHUB.md` (standalone-only, pushed to all six repos) with six role-specific READMEs under `docker/readmes/` — each image now gets an Overview page that matches what's actually in it (air-gapped vs internet-facing zone badge, role-specific quick-start, transport options for `septum-mcp`, etc.). Workflow `readme-filepath` is now matrix-driven.
 
 ### 2026-04-20
@@ -71,12 +76,12 @@ Date-based ledger below has the full incremental history.
 - **Audit Trail entity provenance**: every `EntityDetection` row now carries an `audit_event_id` FK back to the event that produced it. New `GET /api/audit/{event_id}/entity-detections` endpoint plus an `entity_type` query filter (via `EXISTS` correlated subquery). Frontend adds a "Focus on these entities" button on each audit card that opens the document preview highlighting only that event's detections, with an event-scoped navigator and an entity-type filter dropdown on the log itself.
 - **MCP over HTTP**: `septum-mcp` now speaks all three standard MCP transports — stdio (default, unchanged), streamable-http, and sse. Bearer-token ASGI middleware gates non-loopback HTTP with constant-time comparison; `/health` always bypasses auth. CLI flags (`--transport`/`--host`/`--port`/`--token`/`--mount-path`) override the matching `SEPTUM_MCP_*` env vars. Docker image defaults to streamable-http on port 8765 with a healthcheck; `docker-compose.yml` and `.airgap.yml` gained an opt-in `mcp` profile.
 - **Repo layout + architecture diagram refresh**: `ARCHITECTURE.md` / `.tr.md` moved into `docs/` next to `FEATURES`, `screenshots/` renamed to `assets/` (logo joined it), cross-file link references updated in lockstep. Replaced the Mermaid architecture diagram with hand-crafted SVGs (`assets/architecture.svg` + `.tr.svg`) — dashed zone borders, orthogonal L-routed `queue → gateway` arrow, paint-order halo labels, explicit response-path arrows — because Mermaid's auto-layout fought the 7-module topology.
-- **Contributor onboarding**: added `CONTRIBUTING.md` / `.tr.md` (dev setup, code style, PR process, security reporting) so GitHub surfaces the Contribute button. Extracted every screenshot into new `docs/SCREENSHOTS.md` / `.tr.md` so README and FEATURES stay text-focused. README picked up a Roadmap section.
+- **Contributor onboarding**: added `CONTRIBUTING.md` / `.tr.md` (dev setup, code style, PR process, security reporting) so GitHub surfaces the Contribute button. Extracted every screenshot into new `docs/screenshots.md` / `.tr.md` so README and FEATURES stay text-focused. README picked up a Roadmap section.
 - **Simplify-pass cleanup after feature reviews**: `IN (SELECT DISTINCT)` → `EXISTS` correlated subquery in the audit filter; N individual `EntityDetection` UPDATEs consolidated into one bulk statement; the new endpoint returns `EntityDetectionListResponse` for shape parity with its sibling; `septum_mcp/config.py` reuses `parse_active_regulations_env` instead of re-implementing it; `DocumentPreview` useEffect split so modal reopens don't refetch chunks / anon-summary / schema; orphan `audit.card.viewEntities` i18n keys deleted.
-- **Readability pass on `docs/FEATURES.tr.md`**: two rough spots introduced while drafting the Turkish deep-dive today. "Seçim retrieval'ı sürdürür" — I meant "drives" but picked the wrong verb; fixed to "retrieval seçilen dokümanlarda çalışır". "Doküman İngest" — mixed Turkish-dotted İ with an English stem that reads as a neologism; dropped to "Doküman Ingest" so the English tech term stays clean. No other calques detected after a full sweep.
+- **Readability pass on `docs/tr/features.md`**: two rough spots introduced while drafting the Turkish deep-dive today. "Seçim retrieval'ı sürdürür" — I meant "drives" but picked the wrong verb; fixed to "retrieval seçilen dokümanlarda çalışır". "Doküman İngest" — mixed Turkish-dotted İ with an English stem that reads as a neologism; dropped to "Doküman Ingest" so the English tech term stays clean. No other calques detected after a full sweep.
 - **Clean up pre-existing anglicism calques in `ARCHITECTURE.tr.md`**: five calques that pre-date today's auto-RAG / TR-term commit but read as forced translations to the target audience. "ek bileşen / ek bileşeni" (calque of "extra") → "extra" / "extra'sı" — Python devs write `pip install pkg[extra]` in every language, so Turkish tech writing does the same. "Sözleşme gereği sıfır ağ bağımlılığı" (calque of "zero network deps by contract") → "Kod seviyesinde ağ bağımlılığı yok". "Boşta duran maliyet sıfıra yakın" (calque of "idle cost near zero") → "Boşta dururken neredeyse hiç maliyet üretmez". "Sıfır runtime bağımlılığı" → "runtime bağımlılığı yok". "Servis tanımları tekrarı kaldırılmıştır" (calque of "dedupes service definitions") → "servis tanımları tek yerde tutulur". Also fixed a "extra'sınin" double-genitive typo that the global `ek bileşeni` → `extra'sı` replacement introduced.
 - **Update ARCHITECTURE docs for features that landed after the Phase 8 rewrite + stop translating technical zone terms in TR**: Auto-RAG routing (`103c6a0`, 2026-04-18), the 17-pack default behavior (`768d10b`), and the core-side canonical regulation registry (`6eb2335` + `7bcfca0`) were never documented in `ARCHITECTURE.md` / `ARCHITECTURE.tr.md` — the last substantive update (`1ffa995`) pre-dated them. Three surgical edits in both locales: (a) the Policy Composition section now notes the `RegulationId` StrEnum + `BUILTIN_REGULATION_IDS` tuple + `parse_active_regulations_env` helper and the all-17-packs default in the standalone `SeptumEngine`; (b) the AI Privacy Gateway section gains an "Auto-RAG routing" subsection describing the three chat paths (manual / auto / none), the Ollama intent classifier, the `rag_relevance_threshold` setting, and the `rag_mode` + `matched_document_ids` SSE meta fields; (c) the `septum-core` package internals entry spells out per-pack `ENTITY_TYPES` constants and locates the canonical registry in `recognizers/__init__.py`. Across all TR docs (README.tr.md, ARCHITECTURE.tr.md), "hava boşluklu" and "internet-yönlü / İnternete açık" are reverted to "air-gapped" and "internet-facing" — the same rule the codebase already applies to "framework" / "gateway" / "worker" / "broker": technical zone terms stay English in Turkish tech writing; forced calques like "hava boşluklu" read as jokes to the target audience. Heading count still matches 1:1 across EN/TR.
-- **Split READMEs into a slim overview + `docs/FEATURES.md` deep-dive**: Both READMEs were 768 / 772 lines of dense prose — too long to scan and mostly duplicated what belonged in feature reference docs. Trimmed to ~275 lines each: hook, five-step flow, the single 7-module architecture mermaid, a compact feature list, two money-shot screenshots (setup wizard + approval gate), and a Docker quick start. The 17-regulation table, detection benchmark, Auto-RAG walkthrough, Why-Septum comparison, MCP integration, REST API + auth reference, and the full UI gallery (document preview GIF + 5 settings PNGs + audit trail) moved to new `docs/FEATURES.md` + `docs/FEATURES.tr.md`. The Turkish versions were rewritten as native Turkish (not a word-for-word translation): sentence order, idiom, and mermaid diagram labels — "Kullanıcı sorusu", "Maskeli istek", "Maskeleme + Map", "Köprü" — all now read naturally instead of betraying an English source. Net: 1540 lines of README became 1380 lines across two files per locale, with mermaid diagram count going from 5 to 8 and with the navigation structure matching exactly across EN/TR.
+- **Split READMEs into a slim overview + `docs/features.md` deep-dive**: Both READMEs were 768 / 772 lines of dense prose — too long to scan and mostly duplicated what belonged in feature reference docs. Trimmed to ~275 lines each: hook, five-step flow, the single 7-module architecture mermaid, a compact feature list, two money-shot screenshots (setup wizard + approval gate), and a Docker quick start. The 17-regulation table, detection benchmark, Auto-RAG walkthrough, Why-Septum comparison, MCP integration, REST API + auth reference, and the full UI gallery (document preview GIF + 5 settings PNGs + audit trail) moved to new `docs/features.md` + `docs/tr/features.md`. The Turkish versions were rewritten as native Turkish (not a word-for-word translation): sentence order, idiom, and mermaid diagram labels — "Kullanıcı sorusu", "Maskeli istek", "Maskeleme + Map", "Köprü" — all now read naturally instead of betraying an English source. Net: 1540 lines of README became 1380 lines across two files per locale, with mermaid diagram count going from 5 to 8 and with the navigation structure matching exactly across EN/TR.
 
 ### 2026-04-19
 
@@ -399,15 +404,15 @@ Date-based ledger below has the full incremental history.
 <p align="center">
   <a href="README.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/INSTALLATION.md"><strong>🚀 Installation</strong></a>
+  <a href="docs/installation.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/BENCHMARK.md"><strong>📈 Benchmark</strong></a>
+  <a href="docs/benchmark.md"><strong>📈 Benchmark</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/FEATURES.md"><strong>✨ Features</strong></a>
+  <a href="docs/features.md"><strong>✨ Features</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/ARCHITECTURE.md"><strong>🏗️ Architecture</strong></a>
+  <a href="docs/architecture.md"><strong>🏗️ Architecture</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/DOCUMENT_INGESTION.md"><strong>📊 Document Ingestion</strong></a>
+  <a href="docs/document-ingestion.md"><strong>📊 Document Ingestion</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/SCREENSHOTS.md"><strong>📸 Screenshots</strong></a>
+  <a href="docs/screenshots.md"><strong>📸 Screenshots</strong></a>
 </p>
