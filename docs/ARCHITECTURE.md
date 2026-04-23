@@ -1,3 +1,8 @@
+---
+title: "Architecture & Technical Reference"
+description: "Seven-module layout, security zones, deployment topologies, API reference."
+---
+
 # Septum — Architecture & Technical Reference
 
 <p align="center">

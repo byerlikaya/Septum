@@ -1,3 +1,8 @@
+---
+title: "Septum Dokümantasyonu"
+description: "Septum'un derinlemesine referans materyali — gizlilik öncelikli AI ara katmanı."
+---
+
 # Septum Dokümantasyonu
 
 <p align="center">
@@ -35,10 +40,6 @@ Derinlemesine referans materyali. Proje genel bakışı için [ana README](../RE
 
 - 🤝 [Katkı](../CONTRIBUTING.tr.md) — hata raporu, test çalıştırma, PR akışı
 - 📝 [Changelog](../CHANGELOG.md) — tarih bazlı sürüm notları
-
-## İngilizce
-
-Her sayfanın İngilizce ikizi `.tr` son eki olmadan mevcut — örn. [Features](FEATURES.md).
 
 ---
 

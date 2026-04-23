@@ -1,3 +1,8 @@
+---
+title: "Özellik ve Tespit Referansı"
+description: "Tespit hattı, regülasyon paketleri, Otomatik RAG yönlendirme, MCP, REST API."
+---
+
 # Septum — Özellik ve Tespit Referansı
 
 <p align="center">

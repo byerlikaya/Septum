@@ -1,3 +1,8 @@
+---
+title: "Mimari ve Teknik Referans"
+description: "Yedi modüllü yerleşim, güvenlik bölgeleri, dağıtım topolojileri, API referansı."
+---
+
 # Septum — Mimari ve Teknik Referans
 
 <p align="center">

@@ -1,3 +1,8 @@
+---
+title: "Septum Documentation"
+description: "Deep-dive reference material for Septum — privacy-first AI middleware."
+---
+
 # Septum Documentation
 
 <p align="center">
@@ -35,10 +40,6 @@ Deep-dive reference material. For a project overview, start with the [main READM
 
 - 🤝 [Contributing](../CONTRIBUTING.md) — bug reports, running tests, PR workflow
 - 📝 [Changelog](../CHANGELOG.md) — date-based release history
-
-## Turkish
-
-Every page has a Turkish twin suffixed with `.tr.md` — e.g. [Features (Özellikler)](FEATURES.tr.md).
 
 ---
 

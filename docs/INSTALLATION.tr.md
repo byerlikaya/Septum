@@ -1,3 +1,8 @@
+---
+title: "Kurulum Rehberi"
+description: "Hızlı başlangıç, desteklenen topolojiler, ilk açılış sihirbazı, güncelleme ve sorun giderme."
+---
+
 # Septum — Kurulum Rehberi
 
 <p align="center">

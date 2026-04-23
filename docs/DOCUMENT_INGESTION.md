@@ -1,3 +1,8 @@
+---
+title: "Document Ingestion Pipeline"
+description: "Upload → type detection → masking → indexing pipeline, step by step."
+---
+
 # Document Ingestion Pipeline
 
 <p align="center">
