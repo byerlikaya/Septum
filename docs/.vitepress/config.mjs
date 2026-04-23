@@ -335,6 +335,25 @@ export default defineConfig({
 
   head: [
     ["link", { rel: "icon", type: "image/svg+xml", href: "/Septum/septum_logo.svg" }],
+    // First-visit locale auto-detect. Runs synchronously before VitePress
+    // hydrates so we don't show an EN flash before redirecting. Triggers
+    // exactly once per browser (localStorage flag), and only on the
+    // English root URL — deep links and explicit /tr/ visits are
+    // untouched. Manual locale switches via the header label persist
+    // because the user lands on the chosen prefix and the flag is
+    // already set.
+    [
+      "script",
+      {},
+      `(function(){try{
+        if(typeof window==="undefined"||typeof navigator==="undefined")return;
+        if(localStorage.getItem("septum-lang-detected"))return;
+        if(window.location.pathname!=="/Septum/")return;
+        localStorage.setItem("septum-lang-detected","1");
+        var lang=(navigator.language||navigator.userLanguage||"").toLowerCase();
+        if(lang.indexOf("tr")===0){window.location.replace("/Septum/tr/");}
+      }catch(e){}})();`,
+    ],
   ],
 
   // The canonical markdown lives in /docs/*.md at the repo root. VitePress
