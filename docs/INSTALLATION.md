@@ -1,3 +1,8 @@
+---
+title: "Installation Guide"
+description: "Quickstart, supported topologies, first-launch wizard, upgrades, and troubleshooting."
+---
+
 # Septum — Installation Guide
 
 <p align="center">

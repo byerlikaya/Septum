@@ -1,3 +1,8 @@
+---
+title: "Doküman İşleme Akışı"
+description: "Yükleme → tip tespiti → maskeleme → indeksleme akışı, adım adım."
+---
+
 # Doküman İşleme Akışı
 
 <p align="center">
