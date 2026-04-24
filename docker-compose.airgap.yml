@@ -46,7 +46,7 @@ services:
       - septum-redis-data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=$${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)} redis-cli ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)} redis-cli ping"]
       interval: 10s
       timeout: 5s
       start_period: 5s
@@ -56,7 +56,7 @@ services:
     build:
       context: .
       dockerfile: docker/api.Dockerfile
-    image: septum/api:latest
+    image: byerlikaya/septum-api:latest
     container_name: septum-api
     environment:
       DATABASE_URL: postgresql+asyncpg://septum:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (see .env.example)}@postgres:5432/septum
@@ -99,7 +99,7 @@ services:
         # with https://api.example.com for a split deployment.
         NEXT_PUBLIC_API_BASE_URL: ""
         BACKEND_INTERNAL_URL: http://api:8000
-    image: septum/web:latest
+    image: byerlikaya/septum-web:latest
     container_name: septum-web
     ports:
       - "3000:3000"
@@ -124,7 +124,7 @@ services:
     build:
       context: .
       dockerfile: docker/mcp.Dockerfile
-    image: septum/mcp:latest
+    image: byerlikaya/septum-mcp:latest
     container_name: septum-mcp
     environment:
       SEPTUM_MCP_TRANSPORT: streamable-http

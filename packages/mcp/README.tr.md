@@ -133,7 +133,7 @@ URL yolu varsayılan olarak streamable-http için `/mcp`, sse için `/sse`'dir �
 docker run -p 8765:8765 \
   -e SEPTUM_MCP_HTTP_TOKEN=<rastgele-token> \
   -e SEPTUM_MCP_HTTP_HOST=0.0.0.0 \
-  septum/mcp:latest
+  byerlikaya/septum-mcp:latest
 ```
 
 Ya da docker-compose ile `docker-compose.yml` içindeki `mcp` profile'ını açın:

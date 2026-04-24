@@ -61,6 +61,7 @@ Date-based ledger below has the full incremental history.
 ### 2026-04-24
 
 - **Quickstart `$EDITOR` fix**: The `cp .env.example .env && $EDITOR .env` line in README and the installation guide broke on shells without `$EDITOR` set (zsh tried to execute `.env` as a command). Split into a `cp` + explicit "open in your editor" comment; mirrored in the Turkish copies.
+- **Compose files usable out of the box**: `docker-compose*.yml` tagged services as `septum/api`, `septum/web`, `septum/gateway`, `septum/audit`, `septum/mcp`, `septum/standalone` — none of which exist on Docker Hub — so `docker compose up` failed with "pull access denied" for any image not already built locally. Retagged all six services to the real published names (`byerlikaya/septum-*`). Also fixed the Redis healthcheck in the same compose files: `REDISCLI_AUTH=$${REDIS_PASSWORD}` escaped the dollar sign so the in-container shell tried to read `REDIS_PASSWORD` (never set inside the redis container) and errored out, marking Redis unhealthy and cascading to every dependent service; switched to single-dollar so compose interpolates the password into the healthcheck string (same visibility as `--requirepass`, no new leak).
 
 ### 2026-04-22
 

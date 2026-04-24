@@ -157,7 +157,7 @@ sse — override with `--mount-path` or `SEPTUM_MCP_HTTP_MOUNT_PATH`.
 docker run -p 8765:8765 \
   -e SEPTUM_MCP_HTTP_TOKEN=<random-token> \
   -e SEPTUM_MCP_HTTP_HOST=0.0.0.0 \
-  septum/mcp:latest
+  byerlikaya/septum-mcp:latest
 ```
 
 Or with docker-compose, pick up the `mcp` profile in `docker-compose.yml`:

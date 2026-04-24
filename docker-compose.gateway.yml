@@ -17,7 +17,7 @@ x-gateway-base: &gateway-base
   build:
     context: .
     dockerfile: docker/gateway.Dockerfile
-  image: septum/gateway:latest
+  image: byerlikaya/septum-gateway:latest
   environment: &gateway-env
     SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
     SEPTUM_GATEWAY_REQUEST_TOPIC: septum.llm.requests
@@ -32,7 +32,7 @@ x-audit-base: &audit-base
   build:
     context: .
     dockerfile: docker/audit.Dockerfile
-  image: septum/audit:latest
+  image: byerlikaya/septum-audit:latest
   environment: &audit-env
     SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
     SEPTUM_AUDIT_TOPIC: septum.audit.events
@@ -52,7 +52,7 @@ services:
       - septum-gateway-redis-data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=$${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)} redis-cli ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)} redis-cli ping"]
       interval: 10s
       timeout: 5s
       start_period: 5s

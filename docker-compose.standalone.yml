@@ -17,7 +17,7 @@ services:
     build:
       context: .
       dockerfile: docker/standalone.Dockerfile
-    image: septum/standalone:latest
+    image: byerlikaya/septum:latest
     container_name: septum
     ports:
       - "3000:3000"
