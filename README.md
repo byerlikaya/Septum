@@ -1,8 +1,3 @@
----
-title: "Septum"
-description: "Privacy-first AI middleware — anonymize documents, chat with any LLM, no raw PII leaves your machine."
----
-
 <p align="center" class="home-logo">
   <img src="assets/septum_logo.svg" alt="Septum logo" width="320" />
 </p>

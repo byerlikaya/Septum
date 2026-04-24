@@ -1,8 +1,3 @@
----
-title: "Benchmark Sonuçları"
-description: "Katman bazlı ve dış veri kümesi sonuçları, dayanıklılık probları, dil bazlı kırılım."
----
-
 # Septum — Benchmark Sonuçları
 
 <p align="center">

@@ -1,8 +1,3 @@
----
-title: "Ekran Görüntüleri"
-description: "Septum'un her ekranının görsel turu — kurulum sihirbazı, onay kapısı, ayarlar, denetim."
----
-
 # Septum — Ekran Görüntüleri
 
 <p align="center">

@@ -1,8 +1,3 @@
----
-title: "Changelog"
-description: "Date-based release history for Septum."
----
-
 <p align="center">
   <a href="README.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
@@ -21,7 +16,7 @@ description: "Date-based release history for Septum."
 
 ---
 
-## Changelog
+# Changelog
 
 All notable changes to this project are documented here in a high‑level, date‑based format.
 
@@ -63,6 +58,7 @@ Date-based ledger below has the full incremental history.
 - **Quickstart `$EDITOR` fix**: The `cp .env.example .env && $EDITOR .env` line in README and the installation guide broke on shells without `$EDITOR` set (zsh tried to execute `.env` as a command). Split into a `cp` + explicit "open in your editor" comment; mirrored in the Turkish copies.
 - **Compose files usable out of the box**: `docker-compose*.yml` tagged services as `septum/api`, `septum/web`, `septum/gateway`, `septum/audit`, `septum/mcp`, `septum/standalone` — none of which exist on Docker Hub — so `docker compose up` failed with "pull access denied" for any image not already built locally. Retagged all six services to the real published names (`byerlikaya/septum-*`). Also fixed the Redis healthcheck in the same compose files: `REDISCLI_AUTH=$${REDIS_PASSWORD}` escaped the dollar sign so the in-container shell tried to read `REDIS_PASSWORD` (never set inside the redis container) and errored out, marking Redis unhealthy and cascading to every dependent service; switched to single-dollar so compose interpolates the password into the healthcheck string (same visibility as `--requirepass`, no new leak).
 - **Published septum-web image baked against compose topology**: `.github/workflows/docker-publish.yml` did not pass `BACKEND_INTERNAL_URL` to the `septum-web` build, so the published image defaulted to `http://127.0.0.1:8000` (single-container topology) and broke the `docker-compose.yml` multi-container topology where the api is reachable at `http://api:8000`. Added per-image `extra_build_args` to the publish matrix and wired it through the build step so future releases bake the correct proxy target into the web image.
+- **Drop YAML frontmatter from tracked markdowns**: GitHub renders YAML frontmatter as a visible table at the top of every markdown it shows, which cluttered the README and every doc page browsed through the repo UI. Stripped frontmatter from 21 files (5 root MDs + 16 `docs/` pages, EN + TR). Titles and descriptions moved into a central `PAGE_META` map in `docs/.vitepress/config.mjs`; the existing `transformPageData` hook now injects `pageData.title` / `pageData.description` plus Open Graph / Twitter card meta tags per route, so VitePress page titles, Google search snippets, and social share cards stay unique per page. Promoted the `## Changelog` H2 in `CHANGELOG.md` to an H1 so VitePress picks it up as the page title.
 
 ### 2026-04-22
 

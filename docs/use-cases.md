@@ -1,8 +1,3 @@
----
-title: "Use Cases"
-description: "Concrete deployment scenarios — legal contract review, HR analytics, healthcare summarisation, free-form chat, MCP integrations."
----
-
 # Septum — Use Cases
 
 Where teams actually plug Septum in. Each scenario starts with the

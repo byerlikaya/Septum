@@ -1,8 +1,3 @@
----
-title: "Benchmark Results"
-description: "Per-layer and external-dataset scores, robustness probes, per-language breakdown."
----
-
 # Septum — Benchmark Results
 
 <p align="center">

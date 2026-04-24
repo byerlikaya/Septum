@@ -1,8 +1,3 @@
----
-title: "Features & Detection Reference"
-description: "Detection pipeline, regulation packs, Auto-RAG routing, MCP, REST API."
----
-
 # Septum — Features & Detection Reference
 
 <p align="center">

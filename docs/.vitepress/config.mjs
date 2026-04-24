@@ -52,6 +52,123 @@ const footerMessageTr =
   '<a href="/Septum/tr/changelog">Changelog</a>' +
   '&nbsp;·&nbsp;MIT Lisansı altında yayımlanmıştır.';
 
+// Per-page title and description, merged into pageData inside
+// transformPageData below. Kept here (not in per-file frontmatter)
+// because GitHub renders YAML frontmatter as a visible table at the
+// top of every markdown it shows, which breaks the README and every
+// doc page browsed through the repo UI. Pages not listed here fall
+// back to the site-wide title / description declared below.
+const PAGE_META = {
+  "index.md": {
+    title: "Septum",
+    description:
+      "Privacy-first AI middleware — anonymize documents, chat with any LLM, no raw PII leaves your machine.",
+  },
+  "tr/index.md": {
+    title: "Septum",
+    description:
+      "Gizlilik öncelikli AI ara katmanı — dokümanları anonimleştir, dilediğin LLM ile sohbet et, ham PII makineden çıkmaz.",
+  },
+  "changelog.md": {
+    title: "Changelog",
+    description: "Date-based release history for Septum.",
+  },
+  "tr/changelog.md": {
+    title: "Changelog",
+    description: "Date-based release history for Septum.",
+  },
+  "contributing.md": {
+    title: "Contributing",
+    description:
+      "How to file bugs, run tests, propose features, and submit PRs.",
+  },
+  "tr/contributing.md": {
+    title: "Katkı Sağlama",
+    description:
+      "Hata bildirme, test çalıştırma, özellik önerme ve PR gönderme rehberi.",
+  },
+  "architecture.md": {
+    title: "Architecture & Technical Reference",
+    description:
+      "Seven-module layout, security zones, deployment topologies, API reference.",
+  },
+  "tr/architecture.md": {
+    title: "Mimari ve Teknik Referans",
+    description:
+      "Yedi modüllü yerleşim, güvenlik bölgeleri, dağıtım topolojileri, API referansı.",
+  },
+  "benchmark.md": {
+    title: "Benchmark Results",
+    description:
+      "Per-layer and external-dataset scores, robustness probes, per-language breakdown.",
+  },
+  "tr/benchmark.md": {
+    title: "Benchmark Sonuçları",
+    description:
+      "Katman bazlı ve dış veri kümesi sonuçları, dayanıklılık probları, dil bazlı kırılım.",
+  },
+  "document-ingestion.md": {
+    title: "Document Ingestion Pipeline",
+    description:
+      "Upload → type detection → masking → indexing pipeline, step by step.",
+  },
+  "tr/document-ingestion.md": {
+    title: "Doküman İşleme Akışı",
+    description:
+      "Yükleme → tip tespiti → maskeleme → indeksleme akışı, adım adım.",
+  },
+  "features.md": {
+    title: "Features & Detection Reference",
+    description:
+      "Detection pipeline, regulation packs, Auto-RAG routing, MCP, REST API.",
+  },
+  "tr/features.md": {
+    title: "Özellik ve Tespit Referansı",
+    description:
+      "Tespit hattı, regülasyon paketleri, Otomatik RAG yönlendirme, MCP, REST API.",
+  },
+  "installation.md": {
+    title: "Installation Guide",
+    description:
+      "Quickstart, supported topologies, first-launch wizard, upgrades, and troubleshooting.",
+  },
+  "tr/installation.md": {
+    title: "Kurulum Rehberi",
+    description:
+      "Hızlı başlangıç, desteklenen topolojiler, ilk açılış sihirbazı, güncelleme ve sorun giderme.",
+  },
+  "screenshots.md": {
+    title: "Screenshots",
+    description:
+      "Visual tour of every Septum screen — setup wizard, approval gate, settings, audit.",
+  },
+  "tr/screenshots.md": {
+    title: "Ekran Görüntüleri",
+    description:
+      "Septum'un her ekranının görsel turu — kurulum sihirbazı, onay kapısı, ayarlar, denetim.",
+  },
+  "use-cases.md": {
+    title: "Use Cases",
+    description:
+      "Concrete deployment scenarios — legal contract review, HR analytics, healthcare summarisation, free-form chat, MCP integrations.",
+  },
+  "tr/use-cases.md": {
+    title: "Kullanım Senaryoları",
+    description:
+      "Somut dağıtım örnekleri — hukuk, İK analitiği, sağlık, serbest sohbet, MCP entegrasyonları.",
+  },
+  "workflows.md": {
+    title: "Workflows",
+    description:
+      "Step-by-step walkthroughs of every Septum surface — chat, approval gate, custom rules, audit trail.",
+  },
+  "tr/workflows.md": {
+    title: "Akışlar",
+    description:
+      "Septum'un temas yüzeylerinin adım adım anlatımı — sohbet, onay mekanizması, özel kurallar, denetim kaydı.",
+  },
+};
+
 
 export default defineConfig({
   title: "Septum",
@@ -75,6 +192,28 @@ export default defineConfig({
   transformPageData(pageData) {
     if (pageData.frontmatter.aside === undefined) {
       pageData.frontmatter.aside = "left";
+    }
+
+    // Per-page title / description injection. Source of truth is the
+    // PAGE_META map at the top of this file; frontmatter was removed
+    // from the underlying markdowns because GitHub renders YAML
+    // frontmatter as a visible table. Setting both pageData.*
+    // (for the <title> + <meta name="description">) and
+    // frontmatter.head (for og:description / twitter:description)
+    // keeps SEO + social share cards intact.
+    const meta = PAGE_META[pageData.relativePath];
+    if (meta) {
+      pageData.title = meta.title;
+      pageData.description = meta.description;
+      pageData.frontmatter.title = meta.title;
+      pageData.frontmatter.description = meta.description;
+      pageData.frontmatter.head = [
+        ...(pageData.frontmatter.head || []),
+        ["meta", { property: "og:title", content: meta.title }],
+        ["meta", { property: "og:description", content: meta.description }],
+        ["meta", { name: "twitter:title", content: meta.title }],
+        ["meta", { name: "twitter:description", content: meta.description }],
+      ];
     }
 
     const order = pageData.relativePath.startsWith("tr/")

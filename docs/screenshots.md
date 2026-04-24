@@ -1,8 +1,3 @@
----
-title: "Screenshots"
-description: "Visual tour of every Septum screen — setup wizard, approval gate, settings, audit."
----
-
 # Septum — Screenshots
 
 <p align="center">

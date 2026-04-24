@@ -1,8 +1,3 @@
----
-title: "Contributing"
-description: "How to file bugs, run tests, propose features, and submit PRs."
----
-
 # Contributing to Septum
 
 Thanks for taking the time to contribute! Septum is privacy-first AI

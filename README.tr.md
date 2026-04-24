@@ -1,8 +1,3 @@
----
-title: "Septum"
-description: "Gizlilik öncelikli AI ara katmanı — dokümanları anonimleştir, dilediğin LLM ile sohbet et, ham PII makineden çıkmaz."
----
-
 <p align="center" class="home-logo">
   <img src="assets/septum_logo.svg" alt="Septum logosu" width="320" />
 </p>

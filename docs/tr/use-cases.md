@@ -1,8 +1,3 @@
----
-title: "Kullanım Senaryoları"
-description: "Somut dağıtım örnekleri — hukuk, İK analitiği, sağlık, serbest sohbet, MCP entegrasyonları."
----
-
 # Septum — Kullanım Senaryoları
 
 Ekiplerin Septum'u gerçekte hangi noktalara yerleştirdiğini gösteren bölüm. Her senaryo iş probleminden başlar, verinin Septum boyunca uçtan uca izlediği yolu adım adım gösterir ve dağıtımı haklı kılan uyumluluk ya da verimlilik kazancını net biçimde söyler.

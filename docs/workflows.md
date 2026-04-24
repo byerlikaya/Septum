@@ -1,8 +1,3 @@
----
-title: "Workflows"
-description: "Step-by-step walkthroughs of every Septum surface — chat, approval gate, custom rules, audit trail."
----
-
 # Septum — Workflows
 
 How the moving pieces fit together when you actually use Septum. Each

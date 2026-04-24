@@ -1,8 +1,3 @@
----
-title: "Akışlar"
-description: "Septum'un temas yüzeylerinin adım adım anlatımı — sohbet, onay mekanizması, özel kurallar, denetim kaydı."
----
-
 # Septum — Akışlar
 
 Septum'u günlük kullanım sırasında hareketli parçalarının nasıl bir araya geldiğini gösteren rehber. Her bölüm "şu nasıl çalışır?" sorusunu aynı şablonla yanıtlar: önce bir diyagram, ardından adım adım anlatım, sonunda da pratik dengeleri ve uyarıları.

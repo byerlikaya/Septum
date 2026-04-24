@@ -1,8 +1,3 @@
----
-title: "Katkı Sağlama"
-description: "Hata bildirme, test çalıştırma, özellik önerme ve PR gönderme rehberi."
----
-
 # Septum'a Katkıda Bulunma
 
 Katkıda bulunmak için ayırdığınız zaman için teşekkürler. Septum
