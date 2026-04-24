@@ -189,6 +189,22 @@ After any compose variant finishes booting, navigate to **http://localhost:3000*
 
 When the wizard finishes it writes `config.json`, creates the admin user, and redirects to the dashboard. The wizard is one-shot; hitting `/api/setup/*` after completion returns 403.
 
+### Exact values to paste (full compose stack)
+
+If you started with `docker compose up` (the full stack), the api container reaches the bundled PostgreSQL, Redis, and Ollama over the compose network — not over `localhost`. Use the compose service names as hostnames:
+
+| Step | Field | Paste this (replace `<…>` with your `.env` value) |
+|---|---|---|
+| **1. Database → PostgreSQL** | URL | `postgresql+asyncpg://septum:<POSTGRES_PASSWORD>@postgres:5432/septum` |
+| **2. Cache → Redis** | URL | `redis://:<REDIS_PASSWORD>@redis:6379/0` |
+| **3. LLM provider → Ollama (bundled)** | URL | `http://ollama:11434` |
+
+`<POSTGRES_PASSWORD>` / `<REDIS_PASSWORD>` are the values you set in `.env` at quickstart. Recover them with `grep -E 'POSTGRES_PASSWORD\|REDIS_PASSWORD' .env`. Note that the Redis URL has an empty user name between `://` and `:` — Redis's implicit `default` user; the colon-prefix before the password is required.
+
+**Already have Ollama running on the host?** Stop the bundled one (`docker compose stop ollama && docker compose rm -f ollama`) so the port does not conflict, then use `http://host.docker.internal:11434` as the Ollama URL — docker-compose.yml wires `host.docker.internal` into the api container via `extra_hosts`, so it resolves back to your host's Ollama without any extra setup.
+
+Each step has a **Test connection** button — it runs inside the api container, so it reflects what the backend will see after you finish the wizard. Green check = safe to move on.
+
 ---
 
 ## LLM providers

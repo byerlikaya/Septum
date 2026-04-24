@@ -189,6 +189,22 @@ Compose varyantlarından biri açılışı tamamladığında **http://localhost:
 
 Sihirbaz tamamlandığında `config.json` yazılır, admin kullanıcı oluşturulur ve panele yönlendirilirsiniz. Sihirbaz tek seferlik bir akıştır; kurulum bittikten sonra `/api/setup/*` uçlarına yapılan istek 403 döner.
 
+### Sihirbaza yazılacak tam değerler (tam compose yığını)
+
+`docker compose up` ile tam yığını başlattıysanız, api container'ı paketli PostgreSQL, Redis ve Ollama'ya docker ağı üzerinden ulaşır — `localhost` üzerinden değil. Host adı olarak compose servis isimlerini kullanın:
+
+| Adım | Alan | Buraya yapıştırın (`<…>` yerine `.env` değerinizi yazın) |
+|---|---|---|
+| **1. Veritabanı → PostgreSQL** | URL | `postgresql+asyncpg://septum:<POSTGRES_PASSWORD>@postgres:5432/septum` |
+| **2. Önbellek → Redis** | URL | `redis://:<REDIS_PASSWORD>@redis:6379/0` |
+| **3. LLM sağlayıcı → Ollama (paketli)** | URL | `http://ollama:11434` |
+
+`<POSTGRES_PASSWORD>` / `<REDIS_PASSWORD>` hızlı başlangıçta `.env` dosyasında belirlediğiniz değerlerdir. Unutulmuşsa `grep -E 'POSTGRES_PASSWORD\|REDIS_PASSWORD' .env` ile çıkarın. Redis URL'inde `://` ile `:` arasında kullanıcı adı yoktur — bu Redis'in örtük `default` kullanıcısıdır; şifreden önceki iki nokta üst üste zorunludur.
+
+**Host'ta zaten bir Ollama çalışıyorsa:** port çakışmasını önlemek için paketli olanı durdurun (`docker compose stop ollama && docker compose rm -f ollama`), ardından Ollama URL'i olarak `http://host.docker.internal:11434` yazın. docker-compose.yml api container'ına `extra_hosts` ile `host.docker.internal`'ı bağlamış durumda; host'taki Ollama'ya ek bir ayar olmadan erişilir.
+
+Her adımın **Bağlantıyı Test Et** butonu api container'ının içinden çalışır — yani backend kurulum sonrasında ne görecekse sihirbaz o anda onu gösterir. Yeşil onay = devam edebilirsiniz.
+
 ---
 
 ## LLM sağlayıcıları
