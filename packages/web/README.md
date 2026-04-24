@@ -1,5 +1,7 @@
 # septum-web
 
+> 🇹🇷 [Türkçe sürüm](README.tr.md)
+
 Air-gapped Next.js dashboard for [Septum](https://github.com/byerlikaya/Septum). Ships the document management UI, approval gate for masked prompts, chat view, regulation settings, and setup wizard — the human-facing half of the privacy-first middleware.
 
 All PII detection and masking runs behind the dashboard in `septum-api` + `septum-core`. This package is transport-only: it calls the REST API and streams chat responses over SSE. It never sees raw PII on its own.

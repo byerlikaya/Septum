@@ -1,5 +1,7 @@
 # septum-gateway
 
+> 🇹🇷 [Türkçe sürüm](README.tr.md)
+
 Internet-facing LLM forwarder for [Septum](https://github.com/byerlikaya/Septum). Consumes masked chat requests from `septum-queue` and dispatches them to cloud LLM providers (Anthropic, OpenAI, OpenRouter). Raw PII never enters the gateway process — the air-gapped `septum-api` masks every payload via `septum-core` before it hits the queue.
 
 ## Design guarantees

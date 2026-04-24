@@ -1,5 +1,7 @@
 # septum-api
 
+> 🇹🇷 [Türkçe sürüm](README.tr.md)
+
 Air-gapped FastAPI REST layer for [Septum](https://github.com/byerlikaya/Septum).
 Hosts the bootstrap configuration, SQLAlchemy models, routers, services,
 middleware, and the FastAPI app object that together form the

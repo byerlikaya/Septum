@@ -1,5 +1,7 @@
 # septum-audit
 
+> 🇹🇷 [Türkçe sürüm](README.tr.md)
+
 Internet-facing compliance audit trail for Septum. Persists already-masked
 event records and exports them to JSON, CSV, or Splunk HEC for downstream
 SIEM pipelines.

@@ -1,5 +1,7 @@
 # septum-queue
 
+> 🇹🇷 [Türkçe sürüm](README.tr.md)
+
 Cross-zone message queue for [Septum](https://github.com/byerlikaya/Septum). Transports already-masked LLM requests and responses between the air-gapped `septum-api` and the internet-facing `septum-gateway`. Raw PII never enters a queue envelope — the producer has already run every payload through `septum-core` before it reaches this layer.
 
 ## Why it exists

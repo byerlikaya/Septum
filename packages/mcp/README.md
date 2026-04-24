@@ -1,5 +1,7 @@
 # septum-mcp
 
+> 🇹🇷 [Türkçe sürüm](README.tr.md)
+
 Model Context Protocol (MCP) server that exposes
 [Septum](https://github.com/byerlikaya/Septum)'s privacy-first PII
 masking pipeline to **any MCP-compatible client**. MCP is an open,

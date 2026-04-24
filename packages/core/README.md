@@ -1,5 +1,7 @@
 # septum-core
 
+> 🇹🇷 [Türkçe sürüm](README.tr.md)
+
 Privacy-first PII detection, masking, and unmasking engine. The beating heart of [Septum](https://github.com/byerlikaya/Septum).
 
 ## What it does
