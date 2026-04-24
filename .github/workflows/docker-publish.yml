@@ -95,19 +95,6 @@ jobs:
             platforms: linux/amd64
             title: Septum API (GPU)
             description: "Septum API with NVIDIA GPU-accelerated PyTorch. linux/amd64 only."
-          - image: septum-web
-            dockerfile: docker/web.Dockerfile
-            variant: cpu
-            platforms: linux/amd64,linux/arm64
-            title: Septum Web
-            description: "Septum Next.js 16 dashboard — setup wizard, approval gate, document preview, settings, audit."
-            # Next.js bakes BACKEND_INTERNAL_URL into its routes manifest at
-            # build time. The published image is the one consumed by
-            # docker-compose.yml (where the api is at http://api:8000); the
-            # Dockerfile default http://127.0.0.1:8000 would only work for a
-            # single-container topology.
-            extra_build_args: |
-              BACKEND_INTERNAL_URL=http://api:8000
           - image: septum-gateway
             dockerfile: docker/gateway.Dockerfile
             variant: cpu
@@ -195,8 +182,154 @@ jobs:
           short-description: ${{ matrix.description }}
           readme-filepath: ./docker/readmes/${{ matrix.image }}.md
 
+  # septum-web is special-cased out of the QEMU-based matrix above.
+  # It is the only image that runs a heavy production build during
+  # docker build (Next.js 16 webpack on Node.js 20). Under QEMU
+  # arm64 emulation that build can stretch past two hours and
+  # silently OOM, blocking every release. Instead we build each
+  # platform on its own native runner (GitHub provides free arm64
+  # runners for public repos via the ubuntu-24.04-arm label) and
+  # then assemble the multi-arch manifest in a follow-up job. End
+  # result is bit-for-bit identical to the QEMU path:
+  # byerlikaya/septum-web:<version> with linux/amd64 + linux/arm64
+  # under one tag, OCI labels intact, Docker Hub README synced.
+  publish-web:
+    needs: resolve-version
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            arch_id: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch_id: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Docker metadata (labels only — tags applied at manifest merge)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: byerlikaya/septum-web
+          labels: |
+            org.opencontainers.image.title=Septum Web
+            org.opencontainers.image.description=Septum Next.js 16 dashboard — setup wizard, approval gate, document preview, settings, audit.
+            org.opencontainers.image.licenses=MIT
+
+      - name: Build and push by digest (${{ matrix.arch_id }})
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/web.Dockerfile
+          platforms: ${{ matrix.platform }}
+          provenance: false
+          labels: ${{ steps.meta.outputs.labels }}
+          # push-by-digest publishes a digest reference under the
+          # repository without attaching any human tag. The merge-web
+          # job below collects per-arch digests and stitches them
+          # into the multi-arch tags.
+          outputs: type=image,name=byerlikaya/septum-web,push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            VERSION=${{ needs.resolve-version.outputs.version }}
+            TORCH_VARIANT=cpu
+            BACKEND_INTERNAL_URL=http://api:8000
+          cache-from: type=gha,scope=septum-web-${{ matrix.arch_id }}
+          cache-to: type=gha,mode=max,scope=septum-web-${{ matrix.arch_id }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-septum-web-${{ matrix.arch_id }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-web:
+    needs: [resolve-version, publish-web]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Download per-arch digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-septum-web-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Docker metadata (final multi-arch tags)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: byerlikaya/septum-web
+          # Mirror the QEMU matrix tag set for CPU images: pinned
+          # version + rolling major.minor / major / latest, plus
+          # 'latest' alias suppressed for pre-releases. No -gpu
+          # suffix because septum-web has no GPU variant.
+          flavor: |
+            latest=false
+          tags: |
+            type=raw,value=${{ needs.resolve-version.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.resolve-version.outputs.version }},enable=${{ needs.resolve-version.outputs.is_prerelease == 'false' }}
+            type=semver,pattern={{major}},value=v${{ needs.resolve-version.outputs.version }},enable=${{ needs.resolve-version.outputs.is_prerelease == 'false' }}
+            type=raw,value=latest,enable=${{ needs.resolve-version.outputs.is_prerelease == 'false' }}
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'byerlikaya/septum-web@sha256:%s ' *)
+
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect \
+            byerlikaya/septum-web:${{ needs.resolve-version.outputs.version }}
+
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: byerlikaya/septum-web
+          short-description: "Septum Next.js 16 dashboard — setup wizard, approval gate, document preview, settings, audit."
+          readme-filepath: ./docker/readmes/septum-web.md
+
   github-release:
-    needs: [resolve-version, publish]
+    needs: [resolve-version, publish, merge-web]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
