@@ -130,7 +130,8 @@ The recommended installation brings up PostgreSQL, Redis, Ollama, and Septum tog
 
 ```bash
 git clone https://github.com/byerlikaya/Septum.git && cd Septum
-cp .env.example .env && $EDITOR .env    # set POSTGRES_PASSWORD + REDIS_PASSWORD
+cp .env.example .env
+# Open .env in your editor and set POSTGRES_PASSWORD + REDIS_PASSWORD
 docker compose up
 ```
 

@@ -48,7 +48,8 @@ description: "Hızlı başlangıç, desteklenen topolojiler, ilk açılış sihi
 
 ```bash
 git clone https://github.com/byerlikaya/Septum.git && cd Septum
-cp .env.example .env && $EDITOR .env    # POSTGRES_PASSWORD ve REDIS_PASSWORD'ü doldurun
+cp .env.example .env
+# .env dosyasını editörünüzde açıp POSTGRES_PASSWORD ve REDIS_PASSWORD'ü doldurun
 docker compose up
 ```
 

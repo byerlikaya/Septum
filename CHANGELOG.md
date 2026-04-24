@@ -58,6 +58,10 @@ Date-based ledger below has the full incremental history.
 
 ---
 
+### 2026-04-24
+
+- **Quickstart `$EDITOR` fix**: The `cp .env.example .env && $EDITOR .env` line in README and the installation guide broke on shells without `$EDITOR` set (zsh tried to execute `.env` as a command). Split into a `cp` + explicit "open in your editor" comment; mirrored in the Turkish copies.
+
 ### 2026-04-22
 
 - **Dedicated installation guide + compose-first quickstart**: Added `docs/installation.md` / `.tr.md` — nine-section guide covering quickstart, system requirements, five supported topologies (full local stack, standalone demo, air-gapped zone, internet-facing zone, native dev), first-launch wizard, LLM providers, volumes, upgrade, troubleshooting, and uninstall. README quickstart sections shortened to one compose command + pointer at the new page; `docs/readme.md` / `.tr.md` index tables gain an Installation row. Compose becomes the blessed path for non-trivial installs because it ships Ollama bundled — the standalone single-container image is now positioned as the "hızlı deneme" demo rather than the recommended install.

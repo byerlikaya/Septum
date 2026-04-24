@@ -48,7 +48,8 @@ The shortest path to a working Septum. Three commands, five minutes, a local-fir
 
 ```bash
 git clone https://github.com/byerlikaya/Septum.git && cd Septum
-cp .env.example .env && $EDITOR .env    # set POSTGRES_PASSWORD + REDIS_PASSWORD
+cp .env.example .env
+# Open .env in your editor and set POSTGRES_PASSWORD + REDIS_PASSWORD
 docker compose up
 ```
 
