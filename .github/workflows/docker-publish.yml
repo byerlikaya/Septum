@@ -101,6 +101,13 @@ jobs:
             platforms: linux/amd64,linux/arm64
             title: Septum Web
             description: "Septum Next.js 16 dashboard — setup wizard, approval gate, document preview, settings, audit."
+            # Next.js bakes BACKEND_INTERNAL_URL into its routes manifest at
+            # build time. The published image is the one consumed by
+            # docker-compose.yml (where the api is at http://api:8000); the
+            # Dockerfile default http://127.0.0.1:8000 would only work for a
+            # single-container topology.
+            extra_build_args: |
+              BACKEND_INTERNAL_URL=http://api:8000
           - image: septum-gateway
             dockerfile: docker/gateway.Dockerfile
             variant: cpu
@@ -170,6 +177,7 @@ jobs:
           build-args: |
             VERSION=${{ needs.resolve-version.outputs.version }}
             TORCH_VARIANT=${{ matrix.variant }}
+            ${{ matrix.extra_build_args }}
           labels: ${{ steps.meta.outputs.labels }}
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.variant }}
