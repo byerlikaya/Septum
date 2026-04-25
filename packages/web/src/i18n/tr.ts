@@ -25,6 +25,13 @@ export const trMessages: Record<string, string> = {
   "relationships.nodePanel.document": "Doküman",
   "relationships.nodePanel.distinctEntities": "Benzersiz varlık",
   "relationships.nodePanel.totalDetections": "Toplam tespit",
+
+  "chat.disambiguation.title": "Hangi varlığı kastettiniz?",
+  "chat.disambiguation.description": "Sorunuz birden fazla farklı doküman grubuyla eşleşti. Yanıtın hangi grup üzerinden hazırlanacağını seçin veya hepsini kullanın.",
+  "chat.disambiguation.option": "Seçenek {n}",
+  "chat.disambiguation.score": "skor {score}",
+  "chat.disambiguation.useAll": "Tüm grupları kullan",
+  "chat.disambiguation.cancel": "Vazgeç",
   "sidebar.settings": "Ayarlar",
   "sidebar.regulations": "Regülasyonlar",
   "sidebar.users": "Kullanıcılar",

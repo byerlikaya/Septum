@@ -117,6 +117,29 @@ export async function getRelationshipGraph(): Promise<RelationshipGraph> {
   return data;
 }
 
+export interface AnalyzeQueryCluster {
+  document_ids: number[];
+  document_filenames: string[];
+  score: number;
+}
+
+export interface AnalyzeQueryResponse {
+  requires_disambiguation: boolean;
+  clusters: AnalyzeQueryCluster[];
+  narrowed_doc_ids: number[];
+  reason: string;
+}
+
+export async function analyzeChatQuery(
+  message: string,
+): Promise<AnalyzeQueryResponse> {
+  const { data } = await api.post<AnalyzeQueryResponse>(
+    "/api/chat/analyze_query",
+    { message },
+  );
+  return data;
+}
+
 export async function reprocessDocument(documentId: number): Promise<Document> {
   const { data } = await api.post<Document>(
     `/api/documents/${documentId}/reprocess`
@@ -168,6 +191,8 @@ export interface ChatAskParams {
   require_approval?: boolean;
   deanon_enabled?: boolean;
   pre_approved_chunks?: { text: string }[];
+  /** Set by the disambiguation picker — overrides entity-aware narrowing on the server. */
+  scoped_doc_ids?: number[];
 }
 
 export interface ChatDebugPayload {
@@ -199,6 +224,10 @@ export function streamChatAsk(
   if (typeof params.document_id === "number") {
     body.document_id = params.document_id;
     body.document_ids = params.document_ids ?? [params.document_id];
+  }
+
+  if (params.scoped_doc_ids && params.scoped_doc_ids.length > 0) {
+    body.scoped_doc_ids = params.scoped_doc_ids;
   }
 
   (async () => {

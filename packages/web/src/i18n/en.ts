@@ -25,6 +25,13 @@ export const enMessages = {
   "relationships.nodePanel.document": "Document",
   "relationships.nodePanel.distinctEntities": "Distinct entities",
   "relationships.nodePanel.totalDetections": "Total detections",
+
+  "chat.disambiguation.title": "Which entity did you mean?",
+  "chat.disambiguation.description": "Your question matches more than one distinct group of documents. Pick the group that should answer this question, or use all of them.",
+  "chat.disambiguation.option": "Option {n}",
+  "chat.disambiguation.score": "score {score}",
+  "chat.disambiguation.useAll": "Use all groups",
+  "chat.disambiguation.cancel": "Cancel",
   "sidebar.settings": "Settings",
   "sidebar.regulations": "Regulations",
   "sidebar.users": "Users",

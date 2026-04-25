@@ -14,7 +14,7 @@ import json
 import logging
 import re
 import time
-from typing import TYPE_CHECKING, Any, AsyncGenerator, List, Optional
+from typing import TYPE_CHECKING, Any, AsyncGenerator, List, Optional, Tuple
 from uuid import uuid4
 
 if TYPE_CHECKING:
@@ -76,6 +76,7 @@ from ..services.chat_debug_store import (
 )
 from ..services.deanonymizer import Deanonymizer
 from ..services.document_anon_store import get_document_map
+from ..services.document_cluster_service import cluster_documents_by_relationship
 from ..services.entity_index_service import (
     ENTITY_UNIQUENESS_WEIGHTS,
     RELATIONSHIP_THRESHOLD_MEDIUM,
@@ -115,6 +116,12 @@ class ChatRequest(BaseModel):
     require_approval: Optional[bool] = None
     deanon_enabled: Optional[bool] = None
     pre_approved_chunks: Optional[List[dict]] = None
+    # Optional override produced by the disambiguation picker. When set,
+    # entity-aware narrowing is bypassed and retrieval is restricted to
+    # exactly this set of documents. The frontend obtains the value from
+    # the ``analyze_query`` endpoint and resends the message with the
+    # user's chosen cluster.
+    scoped_doc_ids: Optional[List[int]] = None
 
 
 class ChatDebugResponse(BaseModel):
@@ -795,6 +802,128 @@ async def _run_llm_and_deanonymize(
     return result
 
 
+class AnalyzeQueryRequest(BaseModel):
+    """Pre-flight payload for the disambiguation picker."""
+
+    message: str
+    document_ids: Optional[List[int]] = None
+
+
+class AnalyzeQueryCluster(BaseModel):
+    """One disambiguation cluster — a connected group of candidate documents."""
+
+    document_ids: List[int]
+    document_filenames: List[str]
+    score: float
+
+
+class AnalyzeQueryResponse(BaseModel):
+    """Reply describing how the entity router would scope this query.
+
+    ``requires_disambiguation`` is true only when there are 2+ disjoint
+    candidate clusters with at least medium-strength entity overlap; the
+    frontend uses that flag to decide whether to surface the picker. When
+    false, the chat ``/ask`` endpoint is safe to call directly and will
+    apply the same narrowing automatically.
+    """
+
+    requires_disambiguation: bool
+    clusters: List[AnalyzeQueryCluster]
+    narrowed_doc_ids: List[int]
+    reason: str
+
+
+@router.post(
+    "/analyze_query",
+    response_model=AnalyzeQueryResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def chat_analyze_query(
+    body: AnalyzeQueryRequest,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> AnalyzeQueryResponse:
+    """Pre-flight: sanitize the user's question, run entity-aware
+    routing, and group the matching documents into clusters so the
+    frontend can show a disambiguation picker when several distinct
+    real-world entities match the query."""
+
+    settings = await load_settings(db)
+    base_language = "en"
+    language = detect_language(body.message, fallback=base_language)
+    anon_map = AnonymizationMap(document_id=0, language=language)
+    await _sanitize_query(body.message, language, settings, anon_map, db)
+
+    query_entities: List[Tuple[str, str]] = []
+    for original, placeholder in anon_map.entity_map.items():
+        entity_type = _extract_entity_type(placeholder)
+        if entity_type and original:
+            query_entities.append((original, entity_type))
+
+    if not query_entities:
+        return AnalyzeQueryResponse(
+            requires_disambiguation=False,
+            clusters=[],
+            narrowed_doc_ids=[],
+            reason="no_entity_in_query",
+        )
+
+    scores = await find_documents_for_query_entities(db, query_entities)
+    if not scores:
+        return AnalyzeQueryResponse(
+            requires_disambiguation=False,
+            clusters=[],
+            narrowed_doc_ids=[],
+            reason="no_entity_match",
+        )
+
+    medium_or_better = {
+        did for did, sc in scores.items() if sc >= RELATIONSHIP_THRESHOLD_MEDIUM
+    }
+    if not medium_or_better:
+        return AnalyzeQueryResponse(
+            requires_disambiguation=False,
+            clusters=[],
+            narrowed_doc_ids=[],
+            reason="weak_entity_match_only",
+        )
+
+    cluster_lists = await cluster_documents_by_relationship(
+        db, list(medium_or_better)
+    )
+    docs_q = await db.execute(
+        select(Document.id, Document.original_filename).where(
+            Document.id.in_(medium_or_better)
+        )
+    )
+    name_by_id = {
+        doc_id: filename or f"document_{doc_id}"
+        for doc_id, filename in docs_q.all()
+    }
+
+    cluster_payload = [
+        AnalyzeQueryCluster(
+            document_ids=ids,
+            document_filenames=[name_by_id.get(d, str(d)) for d in ids],
+            score=max(scores.get(d, 0.0) for d in ids),
+        )
+        for ids in cluster_lists
+    ]
+    cluster_payload.sort(key=lambda c: c.score, reverse=True)
+
+    requires = len(cluster_lists) > 1
+    narrowed = [d for ids in cluster_lists for d in ids] if requires else (
+        cluster_lists[0] if cluster_lists else []
+    )
+
+    return AnalyzeQueryResponse(
+        requires_disambiguation=requires,
+        clusters=cluster_payload,
+        narrowed_doc_ids=narrowed,
+        reason="multi_cluster_ambiguity" if requires else "single_cluster",
+    )
+
+
 @router.post(
     "/ask",
     response_class=StreamingResponse,
@@ -954,6 +1083,21 @@ async def chat_ask(
 
                     if not all_user_docs:
                         rag_mode = "none"
+                    elif request.scoped_doc_ids:
+                        # Disambiguation picker already chose a specific
+                        # document set (sent back via ``analyze_query``);
+                        # honour it verbatim and skip the entity-aware
+                        # narrowing pass.
+                        scope = set(request.scoped_doc_ids)
+                        before = len(all_user_docs)
+                        all_user_docs = [d for d in all_user_docs if d.id in scope]
+                        logger.info(
+                            "chat entity-routing session_id=%s reason=disambiguation_choice "
+                            "candidates=%d narrowed=%d",
+                            session_id,
+                            before,
+                            len(all_user_docs),
+                        )
                     else:
                         # Entity-aware narrowing: if the user's question
                         # mentioned a specific PII value (a person, an

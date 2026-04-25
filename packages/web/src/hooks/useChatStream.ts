@@ -49,7 +49,11 @@ export interface UseChatStreamReturn {
   } | null>>;
   debugOpen: boolean;
   setDebugOpen: (open: boolean) => void;
-  sendMessage: (text: string, preApprovedChunks?: { text: string }[]) => void;
+  sendMessage: (
+    text: string,
+    preApprovedChunks?: { text: string }[],
+    scopedDocIds?: number[],
+  ) => void;
   regenerate: () => void;
   stopStreaming: () => void;
   handleOpenDebug: (sessionIdOverride?: string) => Promise<void>;
@@ -87,7 +91,11 @@ export function useChatStream({
   const isRetryRef = useRef(false);
 
   const sendMessage = useCallback(
-    (text: string, preApprovedChunks?: { text: string }[]) => {
+    (
+      text: string,
+      preApprovedChunks?: { text: string }[],
+      scopedDocIds?: number[],
+    ) => {
       if (!text.trim() || streaming) return;
 
       setStreamError(null);
@@ -276,6 +284,8 @@ export function useChatStream({
             deanon_enabled: deanonEnabled,
             output_mode: outputMode,
             pre_approved_chunks: preApprovedChunks,
+            scoped_doc_ids:
+              scopedDocIds && scopedDocIds.length > 0 ? scopedDocIds : undefined,
           },
           onEvent
         );
