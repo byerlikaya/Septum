@@ -171,6 +171,114 @@ def _mask_with_anon_map(text: str, anon_map: AnonymizationMap) -> str:
     return anon_map.apply_blocklist(text, language=anon_map.language)
 
 
+_ENTITY_PLACEHOLDER_RE = re.compile(r"\[([A-Z][A-Z_]*)_(\d+)\]")
+
+
+def _build_unified_placeholder_space(
+    anon_maps: dict[int, AnonymizationMap],
+) -> tuple[dict[int, dict[str, str]], AnonymizationMap]:
+    """Re-namespace per-document placeholders into a globally unique set.
+
+    Each document's anon_map is built with a doc-local counter, so two
+    documents can both contain ``[ORGANIZATION_2]`` pointing to different
+    organizations. Concatenating chunks from both into the LLM prompt
+    collapses the two entities into a single placeholder. The cloud LLM
+    cannot tell them apart, and the deanonymizer can only resolve the
+    collision in one direction — the other side either silently rewrites
+    to the wrong original value or leaks the literal placeholder back to
+    the user.
+
+    This helper assigns a fresh global counter per entity type and emits:
+
+    * ``per_doc_remap`` — for each document, the
+      ``{old_placeholder: new_placeholder}`` rename to apply to that
+      document's masked chunk text before assembly. Identical originals
+      that recur across documents collapse onto the same new placeholder.
+    * ``unified_map`` — a merged :class:`AnonymizationMap` whose
+      ``entity_map`` uses the new placeholders. The deanonymizer iterates
+      this map after the LLM responds, so every globally unique
+      placeholder resolves back to the correct original value.
+    """
+    global_counter: dict[str, int] = {}
+    assigned: dict[tuple[str, str], str] = {}
+    per_doc_remap: dict[int, dict[str, str]] = {}
+
+    # Sort by doc id so the global numbering is deterministic across runs.
+    for doc_id in sorted(anon_maps.keys()):
+        m = anon_maps[doc_id]
+        doc_remap: dict[str, str] = {}
+        for original, old_placeholder in m.entity_map.items():
+            match = _ENTITY_PLACEHOLDER_RE.fullmatch(old_placeholder)
+            if not match:
+                continue
+            entity_type = match.group(1)
+            key = (original, entity_type)
+            if key in assigned:
+                new_placeholder = assigned[key]
+            else:
+                global_counter[entity_type] = (
+                    global_counter.get(entity_type, 0) + 1
+                )
+                new_placeholder = (
+                    f"[{entity_type}_{global_counter[entity_type]}]"
+                )
+                assigned[key] = new_placeholder
+            if new_placeholder != old_placeholder:
+                doc_remap[old_placeholder] = new_placeholder
+        per_doc_remap[doc_id] = doc_remap
+
+    first_lang = (
+        next(iter(anon_maps.values())).language if anon_maps else "en"
+    )
+    unified_map = AnonymizationMap(document_id=0, language=first_lang)
+    for doc_id, m in anon_maps.items():
+        doc_remap = per_doc_remap[doc_id]
+        for original, old_placeholder in m.entity_map.items():
+            new_placeholder = doc_remap.get(old_placeholder, old_placeholder)
+            # entity_map is original-keyed and may legitimately collide
+            # when the same original was detected as different entity
+            # types across documents — the dict will silently drop one
+            # of the placeholders. Mirror every (placeholder, original)
+            # pair into ``placeholder_lookup`` so the deanonymizer can
+            # still resolve every globally-minted placeholder.
+            unified_map.entity_map[original] = new_placeholder
+            if new_placeholder:
+                unified_map.placeholder_lookup[new_placeholder] = original
+        for token, old_placeholder in m.token_to_placeholder.items():
+            new_placeholder = doc_remap.get(old_placeholder, old_placeholder)
+            unified_map.token_to_placeholder[token] = new_placeholder
+        unified_map.blocklist.update(m.blocklist)
+
+    return per_doc_remap, unified_map
+
+
+def _apply_chunk_placeholder_remap(
+    text: str, remap: dict[str, str]
+) -> str:
+    """Rewrite per-document placeholders in ``text`` using ``remap``.
+
+    Single-pass regex substitution rather than sequential ``str.replace``
+    calls. The naive sequential approach cascades catastrophically when
+    the rename's old- and new-placeholder ranges overlap — e.g. a remap
+    of ``{[PERSON_NAME_1]: [PERSON_NAME_2], [PERSON_NAME_2]: [PERSON_NAME_1]}``
+    that intends to swap the two placeholders ends up collapsing every
+    occurrence onto ``[PERSON_NAME_1]`` because the first pass writes
+    ``[PERSON_NAME_2]`` everywhere and the second pass then maps every
+    such mention (including the freshly-written ones) back. The single
+    regex pass touches each match exactly once, so swap-shaped renames
+    produced by the placeholder unification stay correct.
+
+    Alternatives are emitted longest-first so a key like
+    ``[ORGANIZATION_10]`` wins over ``[ORGANIZATION_1]`` at the same
+    starting offset.
+    """
+    if not text or not remap:
+        return text
+    keys_sorted = sorted(remap.keys(), key=len, reverse=True)
+    pattern = re.compile("|".join(re.escape(k) for k in keys_sorted))
+    return pattern.sub(lambda m: remap[m.group(0)], text)
+
+
 THEME_SNIPPET_LEN = 400
 MIN_CHUNKS_FOR_LAST = 6
 TOP_K_RETRIEVAL_MAX_CAP = 25
@@ -628,6 +736,29 @@ async def _run_llm_and_deanonymize(
     deanonymizer = Deanonymizer(settings=settings)
     deanonymized = await deanonymizer.deanonymize(masked_answer, anon_map)
 
+    # Diagnostic: report any placeholders that survived deanonymization so
+    # we can tell at a glance whether the LLM emitted a placeholder the
+    # unified anon_map did not carry an entry for (the failure mode that
+    # leaks ``[PERSON_NAME_1]`` literals to the user).
+    answer_placeholders = sorted(set(_PLACEHOLDER_PATTERN.findall(masked_answer)))
+    residual_placeholders = sorted(set(_PLACEHOLDER_PATTERN.findall(deanonymized)))
+    map_placeholders = (
+        set(anon_map.placeholder_lookup.keys())
+        if anon_map.placeholder_lookup
+        else (set(anon_map.entity_map.values()) if anon_map.entity_map else set())
+    )
+    if answer_placeholders or residual_placeholders:
+        logger.info(
+            "chat deanon session_id=%s strategy=%s map_size=%s "
+            "answer_placeholders=%s residual=%s missing_in_map=%s",
+            session_id,
+            getattr(settings, "deanon_strategy", "simple"),
+            len(map_placeholders),
+            answer_placeholders,
+            residual_placeholders,
+            [p for p in answer_placeholders if p not in map_placeholders],
+        )
+
     normalizer = TextNormalizer()
     result = await normalizer.normalize(db, deanonymized)
     if session_id is not None:
@@ -925,31 +1056,76 @@ async def chat_ask(
             else:
                 sanitized_chunk_texts: List[str] = []
                 if documents_by_id and chunks:
-                    anon_maps: dict[int, AnonymizationMap] = {}
-                    if document is not None and document.id in documents_by_id:
-                        anon_maps[document.id] = anon_map
-                    remaining = [
-                        did for did in documents_by_id if did not in anon_maps
-                    ]
-                    if remaining:
-                        loaded = await asyncio.gather(
-                            *(get_document_map(did) for did in remaining)
-                        )
-                        for did, m in zip(remaining, loaded):
-                            anon_maps[did] = m or AnonymizationMap(
-                                document_id=did, language=language
-                            )
+                    # Always (re)load each retrieved document's anon_map from
+                    # disk. The previous optimization that re-used the outer
+                    # ``anon_map`` for the primary ``document`` silently
+                    # injected the empty AnonymizationMap that the auto-RAG
+                    # path left behind (when the user has not picked a
+                    # document up-front, the outer ``anon_map`` is created
+                    # empty before retrieval, and ``document`` is only assigned
+                    # afterwards from auto-RAG matches). That empty map then
+                    # made every placeholder belonging to the primary document
+                    # invisible to the deanonymizer — its placeholders ended
+                    # up in the prompt sent to the LLM but never landed in the
+                    # unified entity_map, so the LLM's echoed placeholders
+                    # surfaced literally in the user-facing answer. Reloading
+                    # is a cheap local file read; correctness over micro-opt.
+                    doc_ids = list(documents_by_id.keys())
+                    loaded = await asyncio.gather(
+                        *(get_document_map(did) for did in doc_ids)
+                    )
+                    anon_maps: dict[int, AnonymizationMap] = {
+                        did: (m or AnonymizationMap(document_id=did, language=language))
+                        for did, m in zip(doc_ids, loaded)
+                    }
 
-                    if len(anon_maps) > 1:
-                        merged_entity_map: dict[str, str] = {}
-                        for m in anon_maps.values():
-                            merged_entity_map.update(m.entity_map)
-                        anon_map = AnonymizationMap(
-                            document_id=0, language=language
+                    # Fold the query's own anon_map into the unification. The
+                    # query was sanitized earlier against an initially empty
+                    # map (auto-RAG cannot know the matched docs up-front), so
+                    # an entity like "Ahmet Çelik" mentioned in the user's
+                    # question received a query-local placeholder — say
+                    # ``[PERSON_NAME_1]`` — that bears no relation to whatever
+                    # placeholder doc 1 assigned to the same person at
+                    # ingestion time (e.g. ``[PERSON_NAME_3]``). The cloud LLM
+                    # then sees two unrelated placeholders and treats them as
+                    # two different people: it cannot tell which placeholder
+                    # in the chunks refers to the entity the question asked
+                    # about, and routinely answers about the wrong person
+                    # whose info happens to be in the same chunks. Including
+                    # the query map in the unification collapses identical
+                    # originals onto a single global placeholder so query and
+                    # context line up in the prompt the LLM receives.
+                    QUERY_MAP_KEY = -1
+                    query_anon_map = anon_map
+                    maps_to_unify = {
+                        QUERY_MAP_KEY: query_anon_map,
+                        **anon_maps,
+                    }
+
+                    per_doc_remap, anon_map = (
+                        _build_unified_placeholder_space(maps_to_unify)
+                    )
+
+                    query_remap = per_doc_remap.pop(QUERY_MAP_KEY, {})
+                    if query_remap:
+                        sanitized_query = _apply_chunk_placeholder_remap(
+                            sanitized_query, query_remap
                         )
-                        anon_map.entity_map = merged_entity_map
-                    elif anon_maps:
-                        anon_map = next(iter(anon_maps.values()))
+
+                    # Log placeholder shape only — never the originals — so
+                    # we can diagnose unification gaps without writing PII
+                    # to the local log file.
+                    logger.info(
+                        "chat unified-map session_id=%s docs=%s "
+                        "unified_entries=%s query_entries=%s "
+                        "query_remap_size=%s placeholders=%s",
+                        session_id,
+                        sorted(anon_maps.keys()),
+                        len(anon_map.entity_map),
+                        len(query_anon_map.entity_map),
+                        len(query_remap),
+                        sorted(set(anon_map.entity_map.values()))[:20],
+                    )
 
                     prev_doc_id: Optional[int] = None
                     for c in chunks:
@@ -972,6 +1148,11 @@ async def chat_ask(
                         chunk_text = c.sanitized_text or ""
                         chunk_map = anon_maps.get(c.document_id, anon_map)
                         masked_chunk = _mask_with_anon_map(chunk_text, chunk_map)
+                        chunk_remap = per_doc_remap.get(c.document_id)
+                        if chunk_remap:
+                            masked_chunk = _apply_chunk_placeholder_remap(
+                                masked_chunk, chunk_remap
+                            )
                         sanitized_chunk_texts.append(
                             header + masked_chunk
                         )

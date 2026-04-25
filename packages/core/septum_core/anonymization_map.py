@@ -47,6 +47,17 @@ class AnonymizationMap:
     blocklist: Set[str] = field(default_factory=set)
     token_to_placeholder: Dict[str, str] = field(default_factory=dict)
     token_counter: Dict[str, int] = field(default_factory=dict)
+    # Optional placeholder→original lookup populated only by the chat-time
+    # multi-document unification path. ``entity_map`` is keyed by original
+    # so a single original cannot carry two distinct placeholders even
+    # though the unification can legitimately assign two of them when the
+    # same name was detected as different entity types across documents
+    # (e.g. ``Antalya`` as LOCATION in one doc and ORGANIZATION_NAME in
+    # another). The reversed lookup keeps every (placeholder, original)
+    # pair so the deanonymizer can still resolve every placeholder the
+    # cloud LLM might echo. Per-document maps leave this field empty and
+    # the deanonymizer derives the lookup from ``entity_map`` directly.
+    placeholder_lookup: Dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Reconstruct blocklist from token_to_placeholder when deserialized."""
