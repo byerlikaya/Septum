@@ -90,13 +90,23 @@ class DocumentPipeline:
                 aggregate_type_counts[etype] = aggregate_type_counts.get(etype, 0) + ecount
             if sanitize_result.detected_spans:
                 per_chunk_spans[semantic_chunk.index] = sanitize_result.detected_spans
+            # Persist the sanitized form of the chunk — the field name
+            # ``sanitized_text`` carries exactly that contract, and storing
+            # the raw value here meant that any PII span the detector
+            # missed (spaced IBAN variants, NER-missed names, novel label
+            # shapes) would leak through the chat-time string-replace pass
+            # untouched because the anon_map never learned about it.
+            # Vector / BM25 indexes keep the raw form via ``raw_texts_for_index``
+            # so semantic search quality is unaffected, and those indexes
+            # stay local.
+            sanitized_chunk_text = sanitize_result.sanitized_text
             stored_chunks.append(
                 SemanticChunk(
-                    text=normalized_raw,
+                    text=sanitized_chunk_text,
                     index=semantic_chunk.index,
                     source_page=semantic_chunk.source_page,
                     section_title=semantic_chunk.section_title,
-                    char_count=len(normalized_raw),
+                    char_count=len(sanitized_chunk_text),
                 )
             )
 
