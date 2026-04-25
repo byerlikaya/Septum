@@ -78,6 +78,63 @@ def _contextual_national_id_recognizer() -> EntityRecognizer:
     )
 
 
+def _turkish_labeled_national_id_recognizer() -> EntityRecognizer:
+    """Turkish-label NATIONAL_ID recognizer for TCKN / Kimlik forms.
+
+    Matches sequences like ``T.C. 29374810562``, ``TC 29374810562``,
+    ``TCKN: 29374810562``, ``T.C. Kimlik No: 29374810562`` and the
+    plain ``Kimlik No 29374810562`` pattern. The dotted abbreviation
+    ``T.C.`` is not reachable through the keyword-based contextual
+    recognizer because its tokens contain punctuation, so it needs
+    its own regex. Optional whitespace inside the label tolerates
+    PDF extraction quirks. Checksum validation is still applied;
+    failures stay visible at a reduced ``0.5`` fallback score since
+    the explicit label is itself a strong identifier signal.
+    """
+    pattern = (
+        r"(?i)(?:T\s*\.?\s*C\s*\.?"
+        r"(?:\s+Kimlik(?:\s+No)?)?"
+        r"|TCKN"
+        r"|Kimlik\s+No)"
+        r"[^\d]{0,16}(\d{10,12})"
+    )
+    return ValidatedPatternRecognizer(
+        entity_type="NATIONAL_ID",
+        config=RegexPatternConfig(
+            name="kvkk_national_id_tr_label",
+            pattern=pattern,
+            score=0.6,
+            narrow_to_group=1,
+            fallback_score=0.5,
+        ),
+        algorithmic_validator=_NATIONAL_ID_VALIDATOR.validate,
+    )
+
+
+def _turkish_labeled_tax_id_recognizer() -> EntityRecognizer:
+    """Turkish-label TAX_ID recognizer for ``Vergi No`` / ``VKN``.
+
+    Turkish VKN (Vergi Kimlik Numarası) is a 10-digit tax identifier
+    for legal entities. A dedicated recognizer keeps the placeholder
+    semantically correct (``[TAX_ID_N]`` rather than ``[NATIONAL_ID_N]``
+    that the generic ``no`` context keyword would otherwise produce).
+    No checksum — algorithmic VKN validation is not yet implemented
+    and privacy-first over-detection is preferable to a silent miss.
+    """
+    return ValidatedPatternRecognizer(
+        entity_type="TAX_ID",
+        config=RegexPatternConfig(
+            name="kvkk_tax_id_tr_label",
+            pattern=(
+                r"(?i)\b(?:Vergi\s*(?:Kimlik\s*)?No|VKN)\b"
+                r"[^\d]{0,16}(\d{10})"
+            ),
+            score=0.6,
+            narrow_to_group=1,
+        ),
+    )
+
+
 def _email_recognizer() -> EntityRecognizer:
     return ValidatedPatternRecognizer(
         entity_type="EMAIL_ADDRESS",
@@ -103,5 +160,7 @@ def get_recognizers() -> List[EntityRecognizer]:
     recognizers.append(_validated_national_id_recognizer())
     recognizers.append(_email_recognizer())
     recognizers.append(_contextual_national_id_recognizer())
+    recognizers.append(_turkish_labeled_national_id_recognizer())
+    recognizers.append(_turkish_labeled_tax_id_recognizer())
     return recognizers
 

@@ -312,6 +312,64 @@ def test_invalid_tckn_with_prefix_is_still_masked_at_fallback_score(
     assert invalid_tckn not in result.sanitized_text
 
 
+def test_invalid_tc_dotted_prefix_is_masked(
+    sanitizer: PIISanitizer,
+) -> None:
+    """``T.C. 29374810562`` must be masked as NATIONAL_ID even with a failing checksum.
+
+    Reproduces a production leak where a KVKK başvuru formu PDF with
+    a synthetic T.C. number passed through the ingestion pipeline
+    unmasked because ``T.C.`` was not in the contextual-keyword
+    alternation (dots are not word characters, so ``\\b``-anchored
+    alternation cannot reach it). The dedicated Turkish-label
+    recognizer closes that gap.
+    """
+    leaked_tckn = "29374810562"
+    text = f"T.C. {leaked_tckn}\nİmza: _____________"
+    anon_map = AnonymizationMap(document_id=11, language="tr")
+
+    result = sanitizer.sanitize(text=text, language="tr", anon_map=anon_map)
+
+    assert "[NATIONAL_ID_" in result.sanitized_text
+    assert leaked_tckn not in result.sanitized_text
+
+
+def test_invalid_vergi_no_across_newline_is_masked(
+    sanitizer: PIISanitizer,
+) -> None:
+    """``Vergi No:\\n5312984760`` must be masked as TAX_ID.
+
+    VKN (Vergi Kimlik Numarası) is a 10-digit Turkish tax identifier
+    for legal entities. PDF extraction frequently drops the value
+    onto the next line after the label; the recognizer must tolerate
+    the newline between ``No:`` and the digits.
+    """
+    leaked_vkn = "5312984760"
+    text = f"Vergi No:\n{leaked_vkn}\nAdres: Güllük Cad."
+    anon_map = AnonymizationMap(document_id=12, language="tr")
+
+    result = sanitizer.sanitize(text=text, language="tr", anon_map=anon_map)
+
+    assert leaked_vkn not in result.sanitized_text
+    assert ("[TAX_ID_" in result.sanitized_text) or (
+        "[NATIONAL_ID_" in result.sanitized_text
+    )
+
+
+def test_tc_kimlik_no_with_colon_is_masked(
+    sanitizer: PIISanitizer,
+) -> None:
+    """``T.C. Kimlik No: 12345678901`` must be masked as NATIONAL_ID."""
+    leaked_tckn = "12345678901"
+    text = f"T.C. Kimlik No: {leaked_tckn}"
+    anon_map = AnonymizationMap(document_id=13, language="tr")
+
+    result = sanitizer.sanitize(text=text, language="tr", anon_map=anon_map)
+
+    assert "[NATIONAL_ID_" in result.sanitized_text
+    assert leaked_tckn not in result.sanitized_text
+
+
 def test_coverage_validation_logs_uncovered_types(
     app_settings: AppSettings, caplog: pytest.LogCaptureFixture
 ) -> None:
