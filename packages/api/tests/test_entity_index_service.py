@@ -252,6 +252,110 @@ async def test_recompute_relationships_writes_one_row_per_pair(
     assert json.loads(pairs[(1, 3)][2]) == {"LOCATION": 1}
 
 
+def test_collect_emits_per_token_hashes_for_compound_locations() -> None:
+    """A compound LOCATION span must emit hashes for each content token
+    in addition to the full-span hash, so two documents that wrap the
+    same city in different surrounding text still link up via the
+    shared token."""
+    am = _build_anon_map(
+        1,
+        {
+            "Muratpaşa / ANTALYA": "[LOCATION_1]",
+        },
+    )
+    rows = collect_entities_from_anon_map(am)
+    types = sorted(t for t, _, _ in rows)
+    # Three rows: full hash + "muratpaşa" + "antalya".
+    assert types == ["LOCATION", "LOCATION", "LOCATION"]
+    assert len({vh for _, vh, _ in rows}) == 3
+
+
+def test_collect_does_not_tokenize_person_names() -> None:
+    """PERSON_NAME entities must NEVER be split into per-token hashes
+    or two different people who share a surname token would collapse
+    into one logical entity. This is the regression that prevents an
+    "Ahmet Çelik" question from being routed to a "Mehmet Çelik" doc."""
+    am = _build_anon_map(
+        1,
+        {"Ahmet Çelik": "[PERSON_NAME_1]"},
+    )
+    rows = collect_entities_from_anon_map(am)
+    # Exactly one row — only the full-span hash.
+    assert len(rows) == 1
+    assert rows[0][0] == "PERSON_NAME"
+
+
+def test_collect_does_not_tokenize_unique_identifiers() -> None:
+    """IBAN / NATIONAL_ID / TAX_ID stay full-span only — they ARE the
+    atom and tokenisation would only produce noise."""
+    am = _build_anon_map(
+        9,
+        {
+            "TR940006200010100007123456": "[IBAN_1]",
+            "12345678901": "[NATIONAL_ID_1]",
+            "5312984760": "[TAX_ID_1]",
+        },
+    )
+    rows = collect_entities_from_anon_map(am)
+    types = sorted(t for t, _, _ in rows)
+    assert types == ["IBAN", "NATIONAL_ID", "TAX_ID"]
+
+
+def test_collect_normalisation_unifies_casing_and_punctuation() -> None:
+    """Two surface forms of the same value must hash to the same row
+    (e.g. "ANTALYA" and "Antalya," and "antalya")."""
+    secret = b"\x00" * 32
+    h_upper = hash_entity_value("ANTALYA", key=secret)
+    h_lower = hash_entity_value("antalya", key=secret)
+    h_punct = hash_entity_value("Antalya,", key=secret)
+    # NOTE: hash_entity_value does NOT normalise on its own — callers
+    # use ``_hashes_for_entity`` which normalises first. So we test
+    # the normalisation pipeline through the public collector.
+    am1 = _build_anon_map(1, {"ANTALYA": "[LOCATION_1]"})
+    am2 = _build_anon_map(2, {"antalya,": "[LOCATION_1]"})
+    rows1 = collect_entities_from_anon_map(am1)
+    rows2 = collect_entities_from_anon_map(am2)
+    hashes1 = {vh for _, vh, _ in rows1}
+    hashes2 = {vh for _, vh, _ in rows2}
+    assert hashes1 == hashes2
+    # And the raw helper outputs are still distinct (proves the
+    # normalisation lives at the higher layer, not in the hash itself).
+    assert h_upper != h_lower
+    assert h_lower != h_punct
+
+
+@pytest.mark.asyncio
+async def test_token_level_hashing_links_address_variants(
+    session: AsyncSession,
+) -> None:
+    """Two documents with different surrounding address text but a
+    shared city core must end up linked via at least one shared
+    LOCATION value_hash row."""
+    await _seed_document(session, 1, "contract.pdf")
+    await _seed_document(session, 2, "kvkk_form.pdf")
+    await replace_index_for_document(
+        session,
+        1,
+        _build_anon_map(
+            1,
+            {"Lara Caddesi No:47 Kat:5 Muratpaşa / ANTALYA": "[POSTAL_ADDRESS_1]"},
+        ),
+    )
+    await replace_index_for_document(
+        session,
+        2,
+        _build_anon_map(
+            2,
+            {"Güllük Cad. Panorama İş Merkezi No:3 Muratpaşa / ANTALYA": "[POSTAL_ADDRESS_1]"},
+        ),
+    )
+    await session.commit()
+
+    written = await recompute_relationships_for_document(session, 1)
+    await session.commit()
+    assert written == 1, "expected one pair row linking the two addresses"
+
+
 @pytest.mark.asyncio
 async def test_recompute_relationships_replaces_prior_rows(
     session: AsyncSession,

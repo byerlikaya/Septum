@@ -37,6 +37,38 @@ from ..utils.crypto import get_encryption_key
 
 _PLACEHOLDER_RE = re.compile(r"^\[([A-Z][A-Z_]*)_(\d+)\]$")
 
+# Entity types whose detected spans are routinely **compound** — long
+# strings like "Muratpaşa / ANTALYA" or "Lara Caddesi No:47 Kat:5 …
+# Muratpaşa / ANTALYA" where two documents almost never carry an
+# identical full span even though they reference the same underlying
+# city or company. For these we emit per-token hashes IN ADDITION to
+# the full-span hash so cross-document overlap (the shared "antalya"
+# token in the example) is detectable. Atomic / identity-bearing
+# types (PERSON_NAME, NATIONAL_ID, IBAN, …) deliberately stay
+# full-span-only so two different people who happen to share a
+# surname token are not collapsed into one entity by the index.
+_TOKENIZABLE_ENTITY_TYPES: frozenset[str] = frozenset(
+    {"LOCATION", "ORGANIZATION_NAME", "POSTAL_ADDRESS"}
+)
+
+_TOKEN_PATTERN = re.compile(r"[a-z0-9çğıöşü]{3,}", re.UNICODE)
+
+# Function-word and structural-marker tokens that should never act as
+# an entity-overlap signal. Address/organisation spans routinely carry
+# these (``no``, ``kat``, ``cad``, ``mh``…) and they would otherwise
+# inflate the relationship score with meaningless cross-doc matches.
+_TOKENIZE_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "and", "ile", "için", "için.", "için,", "için:", "için;",
+        "için-", "için_", "için(", "için)", "için[", "için]",
+        "the",
+        "cad", "cd", "sok", "sk", "sokak", "mah", "mh", "mahalle",
+        "blok", "kat", "daire", "no", "apt", "apartmani",
+        "merkezi", "merkez", "tic", "ltd", "sti", "san", "anonim",
+        "sti.", "ltd.",
+    }
+)
+
 
 # The relative weight assigned to each entity type when scoring how
 # strongly two documents are linked by sharing it. Globally unique
@@ -84,17 +116,71 @@ def _entity_type_from_placeholder(placeholder: str) -> str | None:
     return match.group(1) if match else None
 
 
+_PUNCT_STRIP_RE = re.compile(r"[\.,;:!?/\\\-\(\)\[\]\{\}\"'`]+")
+
+
 def _normalize_value(value: str) -> str:
     """Return the value used for hashing.
 
-    Trims surrounding whitespace and collapses internal whitespace so a
-    PDF that splits an IBAN across two lines hashes the same as the
-    inline form. Casing is preserved because lowercasing identifiers
-    (e.g. credit-card or IBAN) is destructive for some downstream
-    consumers and the over-detection cost of treating "John" and
-    "john" as different originals is acceptable in v1.
+    Lower-casing, punctuation stripping, and whitespace collapsing
+    unify the surface forms of an entity so two documents that wrote
+    "ANTALYA" and "Antalya," still resolve to the same hash. Identity
+    information that the casing carries (acronyms, IBAN check digits)
+    is preserved by the type-specific recognisers themselves; the
+    cross-document index only needs the canonical representation.
     """
-    return re.sub(r"\s+", " ", value.strip())
+    lowered = value.strip().lower()
+    no_punct = _PUNCT_STRIP_RE.sub(" ", lowered)
+    return re.sub(r"\s+", " ", no_punct).strip()
+
+
+def _tokenize_for_index(normalized_value: str) -> List[str]:
+    """Return the per-token hash candidates for a compound entity span.
+
+    Tokens shorter than 3 characters and structural / function words
+    (``no``, ``kat``, ``cad``, ``ve``…) are dropped — they would
+    otherwise dominate the relationship signal with cross-document
+    matches that carry no identifying information.
+    """
+    return [
+        token
+        for token in _TOKEN_PATTERN.findall(normalized_value)
+        if token not in _TOKENIZE_STOPWORDS
+    ]
+
+
+def _hashes_for_entity(
+    entity_type: str,
+    raw_value: str,
+    secret: bytes,
+) -> List[str]:
+    """Return every value_hash an entity should be indexed under.
+
+    Always emits the full-span hash so identity matches keep working.
+    For ``_TOKENIZABLE_ENTITY_TYPES`` (LOCATION / ORGANIZATION_NAME /
+    POSTAL_ADDRESS) also emits a hash per content token so two
+    documents with different surrounding text but a shared core word
+    (e.g. "ANTALYA") still link up. Atomic types (PERSON_NAME,
+    NATIONAL_ID, IBAN, …) get only the full hash so two different
+    people who happen to share a surname token are NOT collapsed.
+    """
+    normalized = _normalize_value(raw_value)
+    if not normalized:
+        return []
+    hashes = [hash_entity_value(normalized, key=secret)]
+    if entity_type in _TOKENIZABLE_ENTITY_TYPES:
+        for token in _tokenize_for_index(normalized):
+            if token == normalized:
+                continue
+            hashes.append(hash_entity_value(token, key=secret))
+    # Dedup while preserving order so callers can iterate idempotently.
+    seen: set[str] = set()
+    unique: List[str] = []
+    for h in hashes:
+        if h not in seen:
+            seen.add(h)
+            unique.append(h)
+    return unique
 
 
 def collect_entities_from_anon_map(
@@ -102,9 +188,12 @@ def collect_entities_from_anon_map(
 ) -> List[Tuple[str, str, int]]:
     """Return a list of ``(entity_type, value_hash, occurrences)`` tuples.
 
-    Aggregates by ``(entity_type, value_hash)`` — if the same original
-    appears multiple times it is counted but stored once per document.
-    Placeholders that do not parse to a known entity type are skipped.
+    Aggregates by ``(entity_type, value_hash)``. For tokenizable types
+    each detected entity contributes both its full-span hash and one
+    hash per content token, all under the same entity type, so cross-
+    document overlap on a shared core word ("antalya" inside two
+    different address strings) is detectable. Placeholders that do
+    not parse to a known entity type are skipped.
     """
     secret = get_encryption_key()
     counts: Dict[Tuple[str, str], int] = defaultdict(int)
@@ -112,11 +201,8 @@ def collect_entities_from_anon_map(
         entity_type = _entity_type_from_placeholder(placeholder)
         if entity_type is None or not original:
             continue
-        normalized = _normalize_value(original)
-        if not normalized:
-            continue
-        value_hash = hash_entity_value(normalized, key=secret)
-        counts[(entity_type, value_hash)] += 1
+        for value_hash in _hashes_for_entity(entity_type, original, secret):
+            counts[(entity_type, value_hash)] += 1
     return [(et, vh, n) for (et, vh), n in counts.items()]
 
 
@@ -155,29 +241,40 @@ async def find_documents_for_query_entities(
     sharing at least one entity with ``entities``.
 
     ``entities`` is an iterable of ``(original_value, entity_type)`` from
-    the user's question. Each is hashed and looked up in the index. Each
-    matching document accrues the entity's uniqueness weight; the
-    returned dict is sorted descending by score by the caller if needed.
+    the user's question. For tokenizable types each query entity is
+    expanded into its full-span hash plus per-token hashes (mirroring
+    the index side), and a document is awarded the entity's weight
+    **once** if any of those hashes matches there — otherwise a
+    multi-token match would inflate the score by the token count and
+    routinely promote weak shared cities to strong-match status.
     """
     secret = get_encryption_key()
-    seen: set[Tuple[str, str]] = set()
+    seen_query_entities: set[Tuple[str, ...]] = set()
     scores: Dict[int, float] = defaultdict(float)
     for raw_value, entity_type in entities:
-        normalized = _normalize_value(raw_value)
-        if not normalized or not entity_type:
+        if not entity_type or not raw_value:
             continue
-        value_hash = hash_entity_value(normalized, key=secret)
-        if (value_hash, entity_type) in seen:
+        hashes = _hashes_for_entity(entity_type, raw_value, secret)
+        if not hashes:
             continue
-        seen.add((value_hash, entity_type))
+        # Dedup: a query that mentions the same canonical entity twice
+        # should not double-score matching documents.
+        signature = (entity_type, *hashes)
+        if signature in seen_query_entities:
+            continue
+        seen_query_entities.add(signature)
+
         weight = ENTITY_UNIQUENESS_WEIGHTS.get(entity_type, 0.30)
         result = await db.execute(
             select(EntityIndex.document_id).where(
-                EntityIndex.value_hash == value_hash,
+                EntityIndex.value_hash.in_(hashes),
                 EntityIndex.entity_type == entity_type,
             )
         )
-        for (document_id,) in result.all():
+        # Each matching document earns this query entity's weight ONCE,
+        # regardless of how many of the entity's hash variants matched
+        # in that document.
+        for document_id in {row[0] for row in result.all()}:
             scores[document_id] += weight
     return dict(scores)
 
