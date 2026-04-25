@@ -76,6 +76,12 @@ from ..services.chat_debug_store import (
 )
 from ..services.deanonymizer import Deanonymizer
 from ..services.document_anon_store import get_document_map
+from ..services.entity_index_service import (
+    ENTITY_UNIQUENESS_WEIGHTS,
+    RELATIONSHIP_THRESHOLD_MEDIUM,
+    RELATIONSHIP_THRESHOLD_STRONG,
+    find_documents_for_query_entities,
+)
 from ..services.error_logger import log_backend_error, log_backend_message
 from ..services.llm_router import LLMRouter, LLMRouterError, _chunk_text
 from ..services.prompts import PromptCatalog
@@ -172,6 +178,19 @@ def _mask_with_anon_map(text: str, anon_map: AnonymizationMap) -> str:
 
 
 _ENTITY_PLACEHOLDER_RE = re.compile(r"\[([A-Z][A-Z_]*)_(\d+)\]")
+
+
+def _extract_entity_type(placeholder: str) -> str | None:
+    """Return the entity type encoded in a placeholder like ``[PERSON_NAME_3]``.
+
+    Mirrors the parser used by the entity index service. Kept as a
+    private helper here so the chat router does not have to import the
+    service-level regex into its own namespace.
+    """
+    if not placeholder:
+        return None
+    match = _ENTITY_PLACEHOLDER_RE.fullmatch(placeholder)
+    return match.group(1) if match else None
 
 
 def _build_unified_placeholder_space(
@@ -936,6 +955,69 @@ async def chat_ask(
                     if not all_user_docs:
                         rag_mode = "none"
                     else:
+                        # Entity-aware narrowing: if the user's question
+                        # mentioned a specific PII value (a person, an
+                        # IBAN, a national ID …) we can confidently scope
+                        # retrieval to only the documents that actually
+                        # contain that value, instead of mixing chunks
+                        # across unrelated docs and risking the cloud
+                        # LLM attributing one person's data to another.
+                        # When no query entity matches the index we fall
+                        # back to the original "every document is a
+                        # candidate" behaviour. The match is HMAC-keyed
+                        # under the local encryption key so we never
+                        # leak originals into the index lookup.
+                        query_entities = [
+                            (original, _extract_entity_type(placeholder))
+                            for original, placeholder in anon_map.entity_map.items()
+                            if placeholder
+                        ]
+                        query_entities = [
+                            (val, etype) for val, etype in query_entities if etype
+                        ]
+                        narrowed_doc_ids: set[int] = set()
+                        narrowing_reason = "no_entity_in_query"
+                        if query_entities:
+                            entity_scores = await find_documents_for_query_entities(
+                                db, query_entities
+                            )
+                            if entity_scores:
+                                strong = {
+                                    did
+                                    for did, sc in entity_scores.items()
+                                    if sc >= RELATIONSHIP_THRESHOLD_STRONG
+                                }
+                                medium = {
+                                    did
+                                    for did, sc in entity_scores.items()
+                                    if sc >= RELATIONSHIP_THRESHOLD_MEDIUM
+                                }
+                                if strong:
+                                    narrowed_doc_ids = strong
+                                    narrowing_reason = "strong_entity_match"
+                                elif medium:
+                                    narrowed_doc_ids = medium
+                                    narrowing_reason = "medium_entity_match"
+                                else:
+                                    # Only weak (e.g. shared LOCATION).
+                                    # Don't narrow — a city name match
+                                    # is too noisy to scope on alone.
+                                    narrowing_reason = "weak_entity_match_only"
+
+                        if narrowed_doc_ids:
+                            before = len(all_user_docs)
+                            all_user_docs = [
+                                d for d in all_user_docs if d.id in narrowed_doc_ids
+                            ]
+                            logger.info(
+                                "chat entity-routing session_id=%s reason=%s "
+                                "candidates=%d narrowed=%d",
+                                session_id,
+                                narrowing_reason,
+                                before,
+                                len(all_user_docs),
+                            )
+
                         doc_names = [
                             d.original_filename or f"document_{d.id}"
                             for d in all_user_docs
