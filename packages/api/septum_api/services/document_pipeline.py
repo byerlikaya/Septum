@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Callable, Dict, List, Sequence
+from typing import Callable, Dict, List, Optional, Sequence
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -114,10 +114,21 @@ class DocumentPipeline:
                 )
             )
 
-        document.transcription_text = "\n\n".join(chunk.text for chunk in stored_chunks)
+        # ``transcription_text`` powers the local document-preview UI,
+        # which renders the ORIGINAL text with the per-entity highlight
+        # overlays so the user can verify what was detected and where.
+        # That preview never leaves the air-gapped zone, so it is safe
+        # — and useful — to show the raw form here even though every
+        # other on-disk surface (chunks, anon_map, indexes) keeps PII
+        # masked or hashed. Concatenating the per-chunk raw text keeps
+        # the preview in sync with the chunk boundaries used for
+        # entity offset highlighting.
+        document.transcription_text = "\n\n".join(raw_texts_for_index)
         document.ocr_confidence = ingestion_confidence
 
-        chunks = await self._persist_chunks(db, document.id, stored_chunks)
+        chunks = await self._persist_chunks(
+            db, document.id, stored_chunks, raw_texts_for_index
+        )
 
         detection_rows: list[EntityDetection] = []
         if per_chunk_spans:
@@ -230,13 +241,20 @@ class DocumentPipeline:
         db: AsyncSession,
         document_id: int,
         semantic_chunks: Sequence[SemanticChunk],
+        raw_texts: Optional[Sequence[str]] = None,
     ) -> List[DocumentChunk]:
         chunks: List[DocumentChunk] = []
-        for semantic_chunk in semantic_chunks:
+        for idx, semantic_chunk in enumerate(semantic_chunks):
+            raw_text = (
+                raw_texts[idx]
+                if raw_texts is not None and idx < len(raw_texts)
+                else None
+            )
             chunk = DocumentChunk(
                 document_id=document_id,
                 index=semantic_chunk.index,
                 sanitized_text=semantic_chunk.text,
+                raw_text=raw_text,
                 char_count=semantic_chunk.char_count,
                 source_page=semantic_chunk.source_page,
                 source_slide=None,

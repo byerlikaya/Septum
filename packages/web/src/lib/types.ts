@@ -100,6 +100,11 @@ export interface Chunk {
   document_id: number;
   index: number;
   sanitized_text: string;
+  /** Raw extracted text before PII masking. Used by the local document
+   *  preview UI so entity highlight overlays render against the
+   *  original characters. Nullable for chunks ingested before this
+   *  field existed; preview falls back to ``sanitized_text``. */
+  raw_text?: string | null;
   char_count: number;
   source_page: number | null;
   source_slide: number | null;

@@ -226,6 +226,10 @@ async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:
             "entity_detections",
             "ALTER TABLE entity_detections ADD COLUMN audit_event_id INTEGER REFERENCES audit_events(id) ON DELETE SET NULL",
         ),
+        (
+            "chunks",
+            "ALTER TABLE chunks ADD COLUMN raw_text TEXT",
+        ),
     ]
 
     async with eng.begin() as conn:
