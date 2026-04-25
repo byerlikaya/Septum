@@ -27,7 +27,9 @@ from .models import Base
 from .models.api_key import ApiKey  # noqa: F401
 from .models.chat_session import ChatMessage, ChatSession  # noqa: F401
 from .models.document import Chunk, Document  # noqa: F401
+from .models.document_relationship import DocumentRelationship  # noqa: F401
 from .models.entity_detection import EntityDetection  # noqa: F401
+from .models.entity_index import EntityIndex  # noqa: F401
 from .models.regulation import NonPiiRule, RegulationRuleset
 from .models.settings import AppSettings
 from .models.user import User  # noqa: F401

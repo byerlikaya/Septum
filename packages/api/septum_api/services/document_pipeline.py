@@ -22,6 +22,10 @@ from .chunking_strategy import (
     StructuredDocumentChunker,
 )
 from .document_anon_store import pop_document_map, set_document_map
+from .entity_index_service import (
+    recompute_relationships_for_document,
+    replace_index_for_document,
+)
 from .sanitizer import ResolvedSpan
 from .sanitizer_factory import create_sanitizer
 from .text_normalizer import TextNormalizer
@@ -143,6 +147,26 @@ class DocumentPipeline:
         await db.refresh(document)
 
         await set_document_map(document.id, anon_map)
+
+        # Populate the cross-document entity index so future chat queries
+        # can route narrowly to the documents that actually contain the
+        # entities the user asked about, and refresh the pairwise
+        # relationship rows that involve this document so the
+        # visualisation graph and the auto-cluster suggester stay in
+        # sync. The index only stores HMAC-SHA256 hashes of the
+        # originals under the local encryption key — no raw PII is
+        # persisted here.
+        try:
+            await replace_index_for_document(db, document.id, anon_map)
+            await recompute_relationships_for_document(db, document.id)
+            await db.commit()
+        except Exception:
+            logger = logging.getLogger(__name__)
+            logger.exception(
+                "Failed to populate entity index / relationships for document %s",
+                document.id,
+            )
+            await db.rollback()
 
         if total_entities > 0:
             placeholder_samples = list(anon_map.entity_map.values())[:5] if anon_map.entity_map else []
