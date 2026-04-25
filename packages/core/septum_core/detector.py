@@ -275,6 +275,29 @@ class ExtendedPhoneRecognizer(BaseCustomRecognizer):
         return results
 
 
+_IBAN_COUNTRY_LENGTHS: dict[str, int] = {
+    # ISO 13616 country IBAN lengths (alphanumerics only, no spaces).
+    # Used as a safety cap when the greedy regex over-captures past the
+    # true IBAN end and no checksum-valid prefix can be found by trimming.
+    "AD": 24, "AE": 23, "AL": 28, "AT": 20, "AZ": 28,
+    "BA": 20, "BE": 16, "BG": 22, "BH": 22, "BR": 29,
+    "BY": 28, "CH": 21, "CR": 22, "CY": 28, "CZ": 24,
+    "DE": 22, "DK": 18, "DO": 28, "EE": 20, "EG": 29,
+    "ES": 24, "FI": 18, "FO": 18, "FR": 27, "GB": 22,
+    "GE": 22, "GI": 23, "GL": 18, "GR": 27, "GT": 28,
+    "HR": 21, "HU": 28, "IE": 22, "IL": 23, "IQ": 23,
+    "IS": 26, "IT": 27, "JO": 30, "KW": 30, "KZ": 20,
+    "LB": 28, "LC": 32, "LI": 21, "LT": 20, "LU": 20,
+    "LV": 21, "LY": 25, "MC": 27, "MD": 24, "ME": 22,
+    "MK": 19, "MR": 27, "MT": 31, "MU": 30, "NL": 18,
+    "NO": 15, "PK": 24, "PL": 28, "PS": 29, "PT": 25,
+    "QA": 29, "RO": 24, "RS": 22, "SA": 24, "SC": 31,
+    "SE": 24, "SI": 19, "SK": 24, "SM": 27, "ST": 25,
+    "SV": 28, "TL": 23, "TN": 24, "TR": 26, "UA": 29,
+    "VA": 22, "VG": 24, "XK": 20,
+}
+
+
 class ValidatedIBANRecognizer(BaseCustomRecognizer):
     """Presidio recognizer for IBAN values with a format-only fallback.
 
@@ -287,6 +310,19 @@ class ValidatedIBANRecognizer(BaseCustomRecognizer):
       IBAN but at a lower score (``0.65``) so downstream filters can
       weigh it accordingly. Privacy-first: a mis-typed IBAN is still
       account information and should not leak to a cloud LLM.
+
+    Span trimming: the greedy regex can over-capture trailing tokens
+    when the IBAN is followed by a label word, country abbreviation,
+    or another alphanumeric run separated only by whitespace
+    (``...TR94 0006 2000 1010 0007 1234 56 IBAN numarali``). To keep
+    the deanonymized output clean the analyzer first tries to find the
+    longest checksum-valid prefix by shrinking from the right; failing
+    that, the span is capped at the ISO 13616 length for the detected
+    country code so a 26-char Turkish IBAN cannot leak the next word
+    of context into the placeholder. The over-greedy form would
+    otherwise be persisted into ``anon_map.entity_map`` and surface as
+    junk text after deanonymization (``[IBAN_1]`` resolved to
+    ``TR94 0006 2000 1010 0007 1234 56 IBA``).
 
     The compiled pattern accepts both the contiguous form
     (``DE89220041010054014200``) and the paper / statement form with
@@ -309,6 +345,41 @@ class ValidatedIBANRecognizer(BaseCustomRecognizer):
             r"\b[A-Za-z]{2}\d{2}[\s0-9A-Za-z]{11,32}"
         )
 
+    @staticmethod
+    def _alnum_count(value: str) -> int:
+        """Return the number of alphanumeric characters in ``value``."""
+        return sum(1 for ch in value if ch.isalnum())
+
+    @staticmethod
+    def _span_for_alnum_count(value: str, target: int) -> int:
+        """Return the substring length of ``value`` that contains
+        exactly ``target`` alphanumeric characters, or ``len(value)``
+        if the string is shorter."""
+        seen = 0
+        for idx, ch in enumerate(value):
+            if ch.isalnum():
+                seen += 1
+                if seen == target:
+                    return idx + 1
+        return len(value)
+
+    def _trim_to_valid_iban(self, full: str) -> Optional[str]:
+        """Find the longest checksum-valid IBAN prefix of ``full``.
+
+        Walks from the right, dropping one character at a time
+        (alphanumeric or separator), and returns the first prefix
+        whose checksum validates. ``None`` if no prefix passes.
+        """
+        candidate = full
+        while candidate:
+            stripped_len = self._alnum_count(candidate)
+            if stripped_len < 15:
+                return None
+            if stripped_len <= 34 and self._validator.validate(candidate):
+                return candidate
+            candidate = candidate[:-1]
+        return None
+
     def analyze(  # type: ignore[override]
         self,
         text: str,
@@ -321,12 +392,30 @@ class ValidatedIBANRecognizer(BaseCustomRecognizer):
         results: List[RecognizerResult] = []
         for match in self._pattern.finditer(text):
             candidate = match.group(0).rstrip()
-            stripped = re.sub(r"[\s.-]", "", candidate)
-            if not (15 <= len(stripped) <= 34):
-                continue
+
+            valid_prefix = self._trim_to_valid_iban(candidate)
+            if valid_prefix is not None:
+                final = valid_prefix
+                score = 0.96
+            else:
+                # No checksum-valid prefix anywhere in the matched span.
+                # Cap at the ISO 13616 length for the country code so a
+                # mis-typed / synthetic IBAN cannot drag along the next
+                # word of context. Fall back to the bare 15-char minimum
+                # if the country code is unrecognized.
+                country = candidate[:2].upper()
+                max_alnum = _IBAN_COUNTRY_LENGTHS.get(country)
+                if max_alnum is not None:
+                    final = candidate[: self._span_for_alnum_count(candidate, max_alnum)].rstrip()
+                else:
+                    final = candidate
+                stripped_len = self._alnum_count(final)
+                if not (15 <= stripped_len <= 34):
+                    continue
+                score = 0.65
+
             start = match.start()
-            end = start + len(candidate)
-            score = 0.96 if self._validator.validate(candidate) else 0.65
+            end = start + len(final)
             results.append(
                 RecognizerResult(
                     entity_type="IBAN",
