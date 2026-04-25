@@ -91,6 +91,32 @@ export async function getDocuments(): Promise<Document[]> {
   return data.items;
 }
 
+export interface RelationshipNode {
+  id: number;
+  filename: string;
+  entity_count: number;
+  distinct_entity_count: number;
+}
+
+export interface RelationshipEdge {
+  source: number;
+  target: number;
+  score: number;
+  shared_entity_count: number;
+  shared_entity_types: Record<string, number>;
+  strength: "strong" | "medium" | "weak";
+}
+
+export interface RelationshipGraph {
+  nodes: RelationshipNode[];
+  edges: RelationshipEdge[];
+}
+
+export async function getRelationshipGraph(): Promise<RelationshipGraph> {
+  const { data } = await api.get<RelationshipGraph>("/api/relationships/graph");
+  return data;
+}
+
 export async function reprocessDocument(documentId: number): Promise<Document> {
   const { data } = await api.post<Document>(
     `/api/documents/${documentId}/reprocess`

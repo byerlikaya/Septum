@@ -22,6 +22,7 @@ const ADMIN_ONLY: readonly UserRole[] = ["admin"];
 const PAGE_ROLES: { readonly prefix: string; readonly allowed: readonly UserRole[] }[] = [
   { prefix: "/chat", allowed: ALL_ROLES },
   { prefix: "/documents", allowed: ADMIN_EDITOR },
+  { prefix: "/relationships", allowed: ADMIN_EDITOR },
   { prefix: "/settings/users", allowed: ADMIN_ONLY },
   { prefix: "/settings/regulations", allowed: ADMIN_ONLY },
   { prefix: "/settings/audit", allowed: ADMIN_ONLY },
