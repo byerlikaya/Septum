@@ -44,16 +44,26 @@ _session_maker: async_sessionmaker[AsyncSession] | None = None
 
 
 def _sqlite_wal_connect(dbapi_conn: Any, _record: Any) -> None:
-    """Enable WAL journal mode and a generous busy timeout for SQLite.
+    """Enable WAL journal mode, busy timeout, and foreign-key enforcement.
 
     WAL lets readers and a single writer run concurrently. The 30s
     busy timeout absorbs spikes when several background ingestion tasks
     flush chunk and entity rows for parallel uploads at the same time.
+
+    ``foreign_keys=ON`` is **per-connection** in SQLite (it is OFF by
+    default — a long-standing footgun) so it has to be set on every
+    connection in the pool. Without it ``ondelete="CASCADE"`` on the
+    EntityDetection / EntityIndex / DocumentRelationship FKs is a
+    no-op, which was leaving orphan rows pointing at long-deleted
+    documents. The orphans then collided with the row IDs of
+    re-uploaded documents and the document-preview UI ended up
+    rendering placeholders sourced from the wrong document's chunks.
     """
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA busy_timeout=30000")
     cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
 
 
@@ -179,8 +189,46 @@ async def init_db() -> None:
         async with eng.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         await _sqlite_ensure_columns(eng)
+        await _sqlite_purge_orphan_child_rows(eng)
 
     await _seed_defaults(sm)
+
+
+async def _sqlite_purge_orphan_child_rows(eng: AsyncEngine) -> None:
+    """One-time cleanup of FK-orphan rows left behind when CASCADE was off.
+
+    ``PRAGMA foreign_keys=ON`` is a per-connection setting in SQLite
+    that defaults to OFF, so any rows inserted before the connect
+    listener started enforcing it leaked CASCADE deletes. Documents
+    were dropped without their entity_detections / entity_index /
+    document_relationships rows being removed, and on re-upload the
+    row-id slots collided: the document preview ended up reading
+    detection rows whose chunk_id pointed at chunks belonging to a
+    different (long-deleted) document and rendered placeholders
+    sourced from the wrong document.
+
+    The cleanup is idempotent and cheap — runs once per startup and
+    deletes only rows whose parent reference no longer resolves.
+    """
+    queries = [
+        # entity_detections referenced via document_id OR chunk_id
+        "DELETE FROM entity_detections WHERE document_id NOT IN (SELECT id FROM documents)",
+        "DELETE FROM entity_detections WHERE chunk_id NOT IN (SELECT id FROM chunks)",
+        # entity_index references documents
+        "DELETE FROM entity_index WHERE document_id NOT IN (SELECT id FROM documents)",
+        # document_relationships references documents on both sides
+        "DELETE FROM document_relationships WHERE doc_a_id NOT IN (SELECT id FROM documents)",
+        "DELETE FROM document_relationships WHERE doc_b_id NOT IN (SELECT id FROM documents)",
+        # chunks references documents
+        "DELETE FROM chunks WHERE document_id NOT IN (SELECT id FROM documents)",
+    ]
+    async with eng.begin() as conn:
+        for query in queries:
+            try:
+                await conn.execute(text(query))
+            except Exception:
+                # Tables may not exist yet on a fresh database; skip silently.
+                continue
 
 
 async def _sqlite_drop_obsolete_tables(eng: AsyncEngine) -> None:
