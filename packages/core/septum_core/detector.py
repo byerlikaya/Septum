@@ -124,6 +124,39 @@ _SEMANTIC_VALIDATION_PASSTHROUGH_TYPES: frozenset[str] = frozenset(
 _MIN_TEXT_LENGTH_FOR_NER = 20
 _MIN_TEXT_LENGTH_FOR_SEMANTIC_ALIAS = 80
 
+# Per-entity-type minimum confidence for keeping a transformer NER
+# detection. Septum is privacy-first: an over-redaction is a recoverable
+# annoyance, an under-redaction is a PII leak. The thresholds here
+# therefore lean toward recall, especially for high-stakes person
+# identifiers, while still gating the entity types that the multilingual
+# XLM-RoBERTa variants are known to fire stochastically on short
+# locale-specific tokens.
+_NER_DEFAULT_MIN_SCORE = 0.85
+_NER_MIN_SCORE_PER_TYPE: Dict[str, float] = {
+    # PERSON_NAME drives identity redaction; xlm-roberta routinely scores
+    # rare Turkish surnames in the 0.80–0.85 band, so the default 0.85
+    # was missing real names. Lowered to 0.80 to recapture them — the
+    # downstream blocklist + coreference layer can absorb the extra
+    # noise this admits.
+    "PERSON_NAME": 0.80,
+    "EMAIL_ADDRESS": _NER_DEFAULT_MIN_SCORE,
+    "ORGANIZATION_NAME": _NER_DEFAULT_MIN_SCORE,
+    "LOCATION": _NER_DEFAULT_MIN_SCORE,
+}
+
+# Single-word entities of the chosen types are the dominant false-positive
+# shape for multilingual NER. They get a stricter floor than multi-word
+# spans of the same type. Multi-word spans bypass this gate entirely.
+_NER_SINGLE_WORD_MIN_SCORE_PER_TYPE: Dict[str, float] = {
+    "ORGANIZATION_NAME": 0.95,
+    "LOCATION": 0.95,
+}
+
+# When the Presidio layer is run alongside the transformer NER layer,
+# Presidio's PERSON_NAME signal is treated as advisory and dropped below
+# this floor — the transformer is the authoritative person source.
+_PRESIDIO_PERSON_MIN_SCORE_WHEN_NER_ENABLED = 0.7
+
 _UPPER_WORD_RE = re.compile(r"\b\w{2,}\b")
 
 
@@ -1488,7 +1521,11 @@ class Detector:
         filtered: List[RecognizerResult] = []
         for r in results:
 
-            if self._config.use_ner_layer and r.entity_type == "PERSON_NAME" and r.score < 0.7:
+            if (
+                self._config.use_ner_layer
+                and r.entity_type == "PERSON_NAME"
+                and r.score < _PRESIDIO_PERSON_MIN_SCORE_WHEN_NER_ENABLED
+            ):
                 continue
 
             if r.entity_type == "PHONE_NUMBER":
@@ -1621,9 +1658,11 @@ class Detector:
     ) -> List[DetectedSpan]:
         """Convert HuggingFace NER pipeline outputs to DetectedSpan.
 
-        Applies a uniform confidence threshold of 0.85 for all languages
-        to limit false positives. Spans are snapped to word boundaries
-        to prevent mid-word replacements caused by subword tokenisation.
+        Confidence thresholds come from ``_NER_MIN_SCORE_PER_TYPE`` (and
+        ``_NER_SINGLE_WORD_MIN_SCORE_PER_TYPE`` for ORG/LOC single-word
+        spans) so per-type tuning happens in one place. Spans are snapped
+        to word boundaries to prevent mid-word replacements caused by
+        subword tokenisation.
 
         Minimum span length is language-aware: 2 characters for CJK +
         Thai (ZH / JA / KO / TH names routinely run 2–3 glyphs, e.g.
@@ -1635,7 +1674,6 @@ class Detector:
         specific single-token mis-fires that motivated the earlier full
         suppression. See ``_map_ner_label`` for the rationale.
         """
-        threshold = 0.85
         # CJK languages + Thai use logographic or dense scripts where a
         # 2-glyph span is often a full given name. Latin scripts keep
         # the 3-character floor to suppress "Dr" / "Mr" style noise.
@@ -1652,7 +1690,10 @@ class Detector:
             if entity_type is None:
                 continue
 
-            if score < threshold:
+            min_score = _NER_MIN_SCORE_PER_TYPE.get(
+                entity_type, _NER_DEFAULT_MIN_SCORE
+            )
+            if score < min_score:
                 continue
 
             start, end = Detector._snap_to_word_boundaries(text, start, end)
@@ -1661,20 +1702,18 @@ class Detector:
             if len(span_text) < min_span_len:
                 continue
 
-            if entity_type == "ORGANIZATION_NAME":
-                words = span_text.split()
-                if len(words) < 2 and score < 0.95:
-                    continue
-
-            if entity_type == "LOCATION":
-                # Same conservative filter as ORGANIZATION_NAME: accept only
-                # multi-word spans or very high-confidence single tokens.
-                # Keeps real placenames ("Paris", "İstanbul" — score > 0.95)
-                # while dropping the locale-specific single-token mis-fires
-                # (Turkish "Doğum", German form headers, etc.) that poisoned
-                # the naive LOC → LOCATION mapping before it was dropped.
-                words = span_text.split()
-                if len(words) < 2 and score < 0.95:
+            single_word_floor = _NER_SINGLE_WORD_MIN_SCORE_PER_TYPE.get(
+                entity_type
+            )
+            if single_word_floor is not None:
+                # Locale-specific single-token mis-fires (Turkish "Doğum",
+                # German form headers, …) are the dominant FP shape for
+                # multilingual XLM-RoBERTa on ORG/LOC. Multi-word spans
+                # bypass; single tokens must clear a higher floor.
+                if (
+                    len(span_text.split()) < 2
+                    and score < single_word_floor
+                ):
                     continue
 
             spans.append(
