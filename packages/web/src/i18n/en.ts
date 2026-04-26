@@ -479,6 +479,8 @@ export const enMessages = {
 
   "chat.ragMode.auto": "Auto-searched",
   "chat.ragMode.none": "Direct answer (no documents used)",
+  "chat.sources.summary": "Generated from {docs} document(s) · {chunks} excerpt(s)",
+  "chat.sources.chunkCount": "{count} excerpt(s)",
 
   "chat.json.title": "JSON output",
   "chat.json.invalid": "Invalid JSON",

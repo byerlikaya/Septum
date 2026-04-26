@@ -145,6 +145,14 @@ export interface ChatMessage {
   debugData?: DebugData;
   ragMode?: RagMode;
   matchedDocNames?: string[];
+  matchedDocuments?: MatchedDocument[];
+  retrievedChunkCount?: number;
+}
+
+export interface MatchedDocument {
+  id: number;
+  name: string;
+  chunk_count: number;
 }
 
 export type OutputMode = "chat" | "json";
@@ -172,6 +180,7 @@ export interface SSEMetaEvent {
   rag_mode?: RagMode;
   matched_document_ids?: number[];
   matched_document_names?: string[];
+  matched_documents?: MatchedDocument[];
 }
 
 export interface SSEApprovalRequiredEvent {

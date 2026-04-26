@@ -141,6 +141,8 @@ export function useChatStream({
                       sessionId: event.session_id,
                       ragMode: event.rag_mode,
                       matchedDocNames: event.matched_document_names,
+                      matchedDocuments: event.matched_documents,
+                      retrievedChunkCount: event.retrieved_chunk_count,
                     }
                   : m
               );

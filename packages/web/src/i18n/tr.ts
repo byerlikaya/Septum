@@ -496,6 +496,8 @@ export const trMessages: Record<string, string> = {
 
   "chat.ragMode.auto": "Otomatik arama",
   "chat.ragMode.none": "Doğrudan yanıt (doküman kullanılmadı)",
+  "chat.sources.summary": "{docs} belgeden, {chunks} parça kullanıldı",
+  "chat.sources.chunkCount": "{count} parça",
 
   "chat.json.title": "JSON çıktısı",
   "chat.json.invalid": "Geçersiz JSON",

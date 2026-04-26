@@ -1272,6 +1272,27 @@ async def chat_ask(
                 effective_settings = copy.copy(settings)
                 effective_settings.deanon_enabled = request.deanon_enabled
 
+            chunks_per_doc: dict[int, int] = {}
+            for c in chunks:
+                chunks_per_doc[c.document_id] = (
+                    chunks_per_doc.get(c.document_id, 0) + 1
+                )
+            matched_documents = [
+                {
+                    "id": did,
+                    "name": (
+                        documents_by_id[did].original_filename
+                        if did in documents_by_id
+                        and documents_by_id[did].original_filename
+                        else str(did)
+                    ),
+                    "chunk_count": count,
+                }
+                for did, count in sorted(
+                    chunks_per_doc.items(), key=lambda kv: -kv[1]
+                )
+            ]
+
             yield _encode_sse(
                 {
                     "type": "meta",
@@ -1286,6 +1307,7 @@ async def chat_ask(
                     "rag_mode": rag_mode,
                     "matched_document_ids": matched_document_ids,
                     "matched_document_names": matched_document_names,
+                    "matched_documents": matched_documents,
                 }
             )
 
