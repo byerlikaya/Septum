@@ -106,13 +106,15 @@ Module contracts and zone semantics live in the [Architecture](docs/architecture
 - **Local PII Protection** — three-layer detection (Presidio + NER + optional Ollama) on both uploaded documents **and** typed chat messages. Documents stored encrypted (AES-256-GCM).
 - **Approval Gate** — review the masked prompt, retrieved chunks, and assembled cloud request before any LLM call. Nothing is sent without your review.
 - **17 Regulation Packs** — GDPR, KVKK, CCPA, HIPAA, LGPD, PIPEDA, PDPA, APPI, PIPL, POPIA, DPDP, UK GDPR, and more. Multiple active simultaneously; most restrictive wins. Region-specific national ID validators (TCKN checksum, Aadhaar Verhoeff, NRIC/FIN, CPF, NINO, CNPJ, My Number, and more).
-- **Auto-RAG Routing** — when no documents are selected, a local Ollama classifier routes between Auto-RAG (search all indexed documents) and a plain chatbot reply. No manual selection required.
+- **Auto-RAG Routing** — when no documents are selected, a local Ollama classifier routes between Auto-RAG (search all indexed documents) and a plain chatbot reply. Auto-RAG is entity-aware: it scopes retrieval to the documents that actually contain the queried PII, with a disambiguation picker for ambiguous matches.
 - **Custom Rules** — define your own detectors: regex, keyword lists, or LLM-prompt based.
 - **Rich Format Support** — PDFs, Office files, spreadsheets, images (OCR), audio (Whisper), emails.
 - **Hybrid Retrieval** — BM25 keyword matching + FAISS semantic search with Reciprocal Rank Fusion.
 - **Multi-Provider** — Anthropic, OpenAI, OpenRouter, or local Ollama. Switch from the UI.
 - **JWT Auth + RBAC + API Keys** — first user auto-promoted via setup wizard; admin UI manages roles (admin / editor / viewer). Programmatic API keys with SHA-256 hashed storage and per-prefix rate limits.
 - **MCP Server** — standalone `septum-mcp` exposes the same local masking pipeline to any MCP-aware client over stdio (Claude Desktop, Cursor, Windsurf) or streamable-http / sse (remote, browser, containerised clients) with bearer-token auth.
+- **Document Relationship Graph** — visual cytoscape-based map of which documents share entities (people, IBANs, IDs, organisations). Distinct-entity counts inside each node, edge weight scaled by entity uniqueness so a shared NATIONAL_ID outweighs a shared city name.
+- **Source Citation** — every grounded chat answer shows which documents fed it and how many excerpts each contributed; expandable per-document breakdown sits under each answer.
 - **Audit Trail** — append-only compliance log with entity detection metrics. No raw PII in audit events.
 
 See the [Features](docs/features.md) doc for the full detection benchmark, regulation pack table, MCP integration walkthrough, REST API + authentication reference, and the "why Septum" comparison. For every Septum screen — setup wizard, approval gate, document preview, settings tabs, custom regulation rules, audit trail — see the [Screenshots](docs/screenshots.md) tour.

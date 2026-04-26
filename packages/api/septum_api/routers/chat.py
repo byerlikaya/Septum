@@ -14,7 +14,7 @@ import json
 import logging
 import re
 import time
-from typing import TYPE_CHECKING, Any, AsyncGenerator, List, Optional
+from typing import TYPE_CHECKING, Any, AsyncGenerator, List, Optional, Tuple
 from uuid import uuid4
 
 if TYPE_CHECKING:
@@ -76,6 +76,12 @@ from ..services.chat_debug_store import (
 )
 from ..services.deanonymizer import Deanonymizer
 from ..services.document_anon_store import get_document_map
+from ..services.document_cluster_service import cluster_documents_by_relationship
+from ..services.entity_index_service import (
+    RELATIONSHIP_THRESHOLD_MEDIUM,
+    RELATIONSHIP_THRESHOLD_STRONG,
+    find_documents_for_query_entities,
+)
 from ..services.error_logger import log_backend_error, log_backend_message
 from ..services.llm_router import LLMRouter, LLMRouterError, _chunk_text
 from ..services.prompts import PromptCatalog
@@ -109,6 +115,12 @@ class ChatRequest(BaseModel):
     require_approval: Optional[bool] = None
     deanon_enabled: Optional[bool] = None
     pre_approved_chunks: Optional[List[dict]] = None
+    # Optional override produced by the disambiguation picker. When set,
+    # entity-aware narrowing is bypassed and retrieval is restricted to
+    # exactly this set of documents. The frontend obtains the value from
+    # the ``analyze_query`` endpoint and resends the message with the
+    # user's chosen cluster.
+    scoped_doc_ids: Optional[List[int]] = None
 
 
 class ChatDebugResponse(BaseModel):
@@ -169,6 +181,127 @@ def _mask_with_anon_map(text: str, anon_map: AnonymizationMap) -> str:
         if original and original in text:
             text = text.replace(original, anon_map.entity_map[original])
     return anon_map.apply_blocklist(text, language=anon_map.language)
+
+
+_ENTITY_PLACEHOLDER_RE = re.compile(r"\[([A-Z][A-Z_]*)_(\d+)\]")
+
+
+def _extract_entity_type(placeholder: str) -> str | None:
+    """Return the entity type encoded in a placeholder like ``[PERSON_NAME_3]``.
+
+    Mirrors the parser used by the entity index service. Kept as a
+    private helper here so the chat router does not have to import the
+    service-level regex into its own namespace.
+    """
+    if not placeholder:
+        return None
+    match = _ENTITY_PLACEHOLDER_RE.fullmatch(placeholder)
+    return match.group(1) if match else None
+
+
+def _build_unified_placeholder_space(
+    anon_maps: dict[int, AnonymizationMap],
+) -> tuple[dict[int, dict[str, str]], AnonymizationMap]:
+    """Re-namespace per-document placeholders into a globally unique set.
+
+    Each document's anon_map is built with a doc-local counter, so two
+    documents can both contain ``[ORGANIZATION_2]`` pointing to different
+    organizations. Concatenating chunks from both into the LLM prompt
+    collapses the two entities into a single placeholder. The cloud LLM
+    cannot tell them apart, and the deanonymizer can only resolve the
+    collision in one direction — the other side either silently rewrites
+    to the wrong original value or leaks the literal placeholder back to
+    the user.
+
+    This helper assigns a fresh global counter per entity type and emits:
+
+    * ``per_doc_remap`` — for each document, the
+      ``{old_placeholder: new_placeholder}`` rename to apply to that
+      document's masked chunk text before assembly. Identical originals
+      that recur across documents collapse onto the same new placeholder.
+    * ``unified_map`` — a merged :class:`AnonymizationMap` whose
+      ``entity_map`` uses the new placeholders. The deanonymizer iterates
+      this map after the LLM responds, so every globally unique
+      placeholder resolves back to the correct original value.
+    """
+    global_counter: dict[str, int] = {}
+    assigned: dict[tuple[str, str], str] = {}
+    per_doc_remap: dict[int, dict[str, str]] = {}
+
+    # Sort by doc id so the global numbering is deterministic across runs.
+    for doc_id in sorted(anon_maps.keys()):
+        m = anon_maps[doc_id]
+        doc_remap: dict[str, str] = {}
+        for original, old_placeholder in m.entity_map.items():
+            match = _ENTITY_PLACEHOLDER_RE.fullmatch(old_placeholder)
+            if not match:
+                continue
+            entity_type = match.group(1)
+            key = (original, entity_type)
+            if key in assigned:
+                new_placeholder = assigned[key]
+            else:
+                global_counter[entity_type] = (
+                    global_counter.get(entity_type, 0) + 1
+                )
+                new_placeholder = (
+                    f"[{entity_type}_{global_counter[entity_type]}]"
+                )
+                assigned[key] = new_placeholder
+            if new_placeholder != old_placeholder:
+                doc_remap[old_placeholder] = new_placeholder
+        per_doc_remap[doc_id] = doc_remap
+
+    first_lang = (
+        next(iter(anon_maps.values())).language if anon_maps else "en"
+    )
+    unified_map = AnonymizationMap(document_id=0, language=first_lang)
+    for doc_id, m in anon_maps.items():
+        doc_remap = per_doc_remap[doc_id]
+        for original, old_placeholder in m.entity_map.items():
+            new_placeholder = doc_remap.get(old_placeholder, old_placeholder)
+            # entity_map is original-keyed and may legitimately collide
+            # when the same original was detected as different entity
+            # types across documents — the dict will silently drop one
+            # of the placeholders. Mirror every (placeholder, original)
+            # pair into ``placeholder_lookup`` so the deanonymizer can
+            # still resolve every globally-minted placeholder.
+            unified_map.entity_map[original] = new_placeholder
+            if new_placeholder:
+                unified_map.placeholder_lookup[new_placeholder] = original
+        for token, old_placeholder in m.token_to_placeholder.items():
+            new_placeholder = doc_remap.get(old_placeholder, old_placeholder)
+            unified_map.token_to_placeholder[token] = new_placeholder
+        unified_map.blocklist.update(m.blocklist)
+
+    return per_doc_remap, unified_map
+
+
+def _apply_chunk_placeholder_remap(
+    text: str, remap: dict[str, str]
+) -> str:
+    """Rewrite per-document placeholders in ``text`` using ``remap``.
+
+    Single-pass regex substitution rather than sequential ``str.replace``
+    calls. The naive sequential approach cascades catastrophically when
+    the rename's old- and new-placeholder ranges overlap — e.g. a remap
+    of ``{[PERSON_NAME_1]: [PERSON_NAME_2], [PERSON_NAME_2]: [PERSON_NAME_1]}``
+    that intends to swap the two placeholders ends up collapsing every
+    occurrence onto ``[PERSON_NAME_1]`` because the first pass writes
+    ``[PERSON_NAME_2]`` everywhere and the second pass then maps every
+    such mention (including the freshly-written ones) back. The single
+    regex pass touches each match exactly once, so swap-shaped renames
+    produced by the placeholder unification stay correct.
+
+    Alternatives are emitted longest-first so a key like
+    ``[ORGANIZATION_10]`` wins over ``[ORGANIZATION_1]`` at the same
+    starting offset.
+    """
+    if not text or not remap:
+        return text
+    keys_sorted = sorted(remap.keys(), key=len, reverse=True)
+    pattern = re.compile("|".join(re.escape(k) for k in keys_sorted))
+    return pattern.sub(lambda m: remap[m.group(0)], text)
 
 
 THEME_SNIPPET_LEN = 400
@@ -628,6 +761,29 @@ async def _run_llm_and_deanonymize(
     deanonymizer = Deanonymizer(settings=settings)
     deanonymized = await deanonymizer.deanonymize(masked_answer, anon_map)
 
+    # Diagnostic: report any placeholders that survived deanonymization so
+    # we can tell at a glance whether the LLM emitted a placeholder the
+    # unified anon_map did not carry an entry for (the failure mode that
+    # leaks ``[PERSON_NAME_1]`` literals to the user).
+    answer_placeholders = sorted(set(_PLACEHOLDER_PATTERN.findall(masked_answer)))
+    residual_placeholders = sorted(set(_PLACEHOLDER_PATTERN.findall(deanonymized)))
+    map_placeholders = (
+        set(anon_map.placeholder_lookup.keys())
+        if anon_map.placeholder_lookup
+        else (set(anon_map.entity_map.values()) if anon_map.entity_map else set())
+    )
+    if answer_placeholders or residual_placeholders:
+        logger.info(
+            "chat deanon session_id=%s strategy=%s map_size=%s "
+            "answer_placeholders=%s residual=%s missing_in_map=%s",
+            session_id,
+            getattr(settings, "deanon_strategy", "simple"),
+            len(map_placeholders),
+            answer_placeholders,
+            residual_placeholders,
+            [p for p in answer_placeholders if p not in map_placeholders],
+        )
+
     normalizer = TextNormalizer()
     result = await normalizer.normalize(db, deanonymized)
     if session_id is not None:
@@ -643,6 +799,128 @@ async def _run_llm_and_deanonymize(
             "Check the encryption key in Settings and re-upload the document.)"
         )
     return result
+
+
+class AnalyzeQueryRequest(BaseModel):
+    """Pre-flight payload for the disambiguation picker."""
+
+    message: str
+    document_ids: Optional[List[int]] = None
+
+
+class AnalyzeQueryCluster(BaseModel):
+    """One disambiguation cluster — a connected group of candidate documents."""
+
+    document_ids: List[int]
+    document_filenames: List[str]
+    score: float
+
+
+class AnalyzeQueryResponse(BaseModel):
+    """Reply describing how the entity router would scope this query.
+
+    ``requires_disambiguation`` is true only when there are 2+ disjoint
+    candidate clusters with at least medium-strength entity overlap; the
+    frontend uses that flag to decide whether to surface the picker. When
+    false, the chat ``/ask`` endpoint is safe to call directly and will
+    apply the same narrowing automatically.
+    """
+
+    requires_disambiguation: bool
+    clusters: List[AnalyzeQueryCluster]
+    narrowed_doc_ids: List[int]
+    reason: str
+
+
+@router.post(
+    "/analyze_query",
+    response_model=AnalyzeQueryResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def chat_analyze_query(
+    body: AnalyzeQueryRequest,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> AnalyzeQueryResponse:
+    """Pre-flight: sanitize the user's question, run entity-aware
+    routing, and group the matching documents into clusters so the
+    frontend can show a disambiguation picker when several distinct
+    real-world entities match the query."""
+
+    settings = await load_settings(db)
+    base_language = "en"
+    language = detect_language(body.message, fallback=base_language)
+    anon_map = AnonymizationMap(document_id=0, language=language)
+    await _sanitize_query(body.message, language, settings, anon_map, db)
+
+    query_entities: List[Tuple[str, str]] = []
+    for original, placeholder in anon_map.entity_map.items():
+        entity_type = _extract_entity_type(placeholder)
+        if entity_type and original:
+            query_entities.append((original, entity_type))
+
+    if not query_entities:
+        return AnalyzeQueryResponse(
+            requires_disambiguation=False,
+            clusters=[],
+            narrowed_doc_ids=[],
+            reason="no_entity_in_query",
+        )
+
+    scores = await find_documents_for_query_entities(db, query_entities)
+    if not scores:
+        return AnalyzeQueryResponse(
+            requires_disambiguation=False,
+            clusters=[],
+            narrowed_doc_ids=[],
+            reason="no_entity_match",
+        )
+
+    medium_or_better = {
+        did for did, sc in scores.items() if sc >= RELATIONSHIP_THRESHOLD_MEDIUM
+    }
+    if not medium_or_better:
+        return AnalyzeQueryResponse(
+            requires_disambiguation=False,
+            clusters=[],
+            narrowed_doc_ids=[],
+            reason="weak_entity_match_only",
+        )
+
+    cluster_lists = await cluster_documents_by_relationship(
+        db, list(medium_or_better)
+    )
+    docs_q = await db.execute(
+        select(Document.id, Document.original_filename).where(
+            Document.id.in_(medium_or_better)
+        )
+    )
+    name_by_id = {
+        doc_id: filename or f"document_{doc_id}"
+        for doc_id, filename in docs_q.all()
+    }
+
+    cluster_payload = [
+        AnalyzeQueryCluster(
+            document_ids=ids,
+            document_filenames=[name_by_id.get(d, str(d)) for d in ids],
+            score=max(scores.get(d, 0.0) for d in ids),
+        )
+        for ids in cluster_lists
+    ]
+    cluster_payload.sort(key=lambda c: c.score, reverse=True)
+
+    requires = len(cluster_lists) > 1
+    narrowed = [d for ids in cluster_lists for d in ids] if requires else (
+        cluster_lists[0] if cluster_lists else []
+    )
+
+    return AnalyzeQueryResponse(
+        requires_disambiguation=requires,
+        clusters=cluster_payload,
+        narrowed_doc_ids=narrowed,
+        reason="multi_cluster_ambiguity" if requires else "single_cluster",
+    )
 
 
 @router.post(
@@ -804,19 +1082,127 @@ async def chat_ask(
 
                     if not all_user_docs:
                         rag_mode = "none"
-                    else:
-                        doc_names = [
-                            d.original_filename or f"document_{d.id}"
-                            for d in all_user_docs
-                        ]
-                        intent = await _classify_query_intent(
-                            query=sanitized_query,
-                            document_names=doc_names,
-                            ollama_base_url=settings.ollama_base_url,
-                            ollama_model=settings.ollama_chat_model,
+                    elif request.scoped_doc_ids:
+                        # Disambiguation picker already chose a specific
+                        # document set (sent back via ``analyze_query``);
+                        # honour it verbatim and skip the entity-aware
+                        # narrowing pass.
+                        scope = set(request.scoped_doc_ids)
+                        before = len(all_user_docs)
+                        all_user_docs = [d for d in all_user_docs if d.id in scope]
+                        logger.info(
+                            "chat entity-routing session_id=%s reason=disambiguation_choice "
+                            "candidates=%d narrowed=%d",
+                            session_id,
+                            before,
+                            len(all_user_docs),
                         )
-                        if intent == "chat":
-                            rag_mode = "none"
+                    else:
+                        # Entity-aware narrowing: if the user's question
+                        # mentioned a specific PII value (a person, an
+                        # IBAN, a national ID …) we can confidently scope
+                        # retrieval to only the documents that actually
+                        # contain that value, instead of mixing chunks
+                        # across unrelated docs and risking the cloud
+                        # LLM attributing one person's data to another.
+                        # When no query entity matches the index we fall
+                        # back to the original "every document is a
+                        # candidate" behaviour. The match is HMAC-keyed
+                        # under the local encryption key so we never
+                        # leak originals into the index lookup.
+                        query_entities = [
+                            (original, _extract_entity_type(placeholder))
+                            for original, placeholder in anon_map.entity_map.items()
+                            if placeholder
+                        ]
+                        query_entities = [
+                            (val, etype) for val, etype in query_entities if etype
+                        ]
+                        narrowed_doc_ids: set[int] = set()
+                        narrowing_reason = "no_entity_in_query"
+                        if query_entities:
+                            entity_scores = await find_documents_for_query_entities(
+                                db, query_entities
+                            )
+                            if entity_scores:
+                                strong = {
+                                    did
+                                    for did, sc in entity_scores.items()
+                                    if sc >= RELATIONSHIP_THRESHOLD_STRONG
+                                }
+                                medium = {
+                                    did
+                                    for did, sc in entity_scores.items()
+                                    if sc >= RELATIONSHIP_THRESHOLD_MEDIUM
+                                }
+                                if strong:
+                                    narrowed_doc_ids = strong
+                                    narrowing_reason = "strong_entity_match"
+                                elif medium:
+                                    narrowed_doc_ids = medium
+                                    narrowing_reason = "medium_entity_match"
+                                else:
+                                    # Only weak (e.g. shared LOCATION).
+                                    # Don't narrow — a city name match
+                                    # is too noisy to scope on alone.
+                                    narrowing_reason = "weak_entity_match_only"
+
+                        if narrowed_doc_ids:
+                            before = len(all_user_docs)
+                            all_user_docs = [
+                                d for d in all_user_docs if d.id in narrowed_doc_ids
+                            ]
+                            logger.info(
+                                "chat entity-routing session_id=%s reason=%s "
+                                "candidates=%d narrowed=%d",
+                                session_id,
+                                narrowing_reason,
+                                before,
+                                len(all_user_docs),
+                            )
+
+                        # When entity routing already proved that the
+                        # query references PII that lives in the corpus
+                        # we have hard evidence the turn is about the
+                        # documents — skip the Ollama-based intent
+                        # classifier entirely. The classifier is
+                        # non-deterministic (the same Turkish question
+                        # asked twice in a row produced "auto" then
+                        # "chat" verdicts in production logs) and
+                        # routinely tagged document-grounded questions
+                        # as general chat, sending the LLM to answer
+                        # from its own knowledge. ANY entity match -
+                        # strong, medium, or even weak - means the user
+                        # mentioned something that exists in their
+                        # corpus, which is the most reliable signal we
+                        # have that the question is about the documents.
+                        # The classifier is only consulted in the
+                        # fallback path where the query carries no
+                        # entity at all (or the entity isn't in the
+                        # index).
+                        if narrowing_reason in (
+                            "strong_entity_match",
+                            "medium_entity_match",
+                            "weak_entity_match_only",
+                        ):
+                            logger.info(
+                                "chat intent-classifier session_id=%s skipped reason=%s",
+                                session_id,
+                                narrowing_reason,
+                            )
+                        else:
+                            doc_names = [
+                                d.original_filename or f"document_{d.id}"
+                                for d in all_user_docs
+                            ]
+                            intent = await _classify_query_intent(
+                                query=sanitized_query,
+                                document_names=doc_names,
+                                ollama_base_url=settings.ollama_base_url,
+                                ollama_model=settings.ollama_chat_model,
+                            )
+                            if intent == "chat":
+                                rag_mode = "none"
 
                 if rag_mode == "auto":
                     async with _phase_timer(session_id, "retrieve_chunks_auto"):
@@ -885,6 +1271,27 @@ async def chat_ask(
                 effective_settings = copy.copy(settings)
                 effective_settings.deanon_enabled = request.deanon_enabled
 
+            chunks_per_doc: dict[int, int] = {}
+            for c in chunks:
+                chunks_per_doc[c.document_id] = (
+                    chunks_per_doc.get(c.document_id, 0) + 1
+                )
+            matched_documents = [
+                {
+                    "id": did,
+                    "name": (
+                        documents_by_id[did].original_filename
+                        if did in documents_by_id
+                        and documents_by_id[did].original_filename
+                        else str(did)
+                    ),
+                    "chunk_count": count,
+                }
+                for did, count in sorted(
+                    chunks_per_doc.items(), key=lambda kv: -kv[1]
+                )
+            ]
+
             yield _encode_sse(
                 {
                     "type": "meta",
@@ -899,6 +1306,7 @@ async def chat_ask(
                     "rag_mode": rag_mode,
                     "matched_document_ids": matched_document_ids,
                     "matched_document_names": matched_document_names,
+                    "matched_documents": matched_documents,
                 }
             )
 
@@ -925,31 +1333,76 @@ async def chat_ask(
             else:
                 sanitized_chunk_texts: List[str] = []
                 if documents_by_id and chunks:
-                    anon_maps: dict[int, AnonymizationMap] = {}
-                    if document is not None and document.id in documents_by_id:
-                        anon_maps[document.id] = anon_map
-                    remaining = [
-                        did for did in documents_by_id if did not in anon_maps
-                    ]
-                    if remaining:
-                        loaded = await asyncio.gather(
-                            *(get_document_map(did) for did in remaining)
-                        )
-                        for did, m in zip(remaining, loaded):
-                            anon_maps[did] = m or AnonymizationMap(
-                                document_id=did, language=language
-                            )
+                    # Always (re)load each retrieved document's anon_map from
+                    # disk. The previous optimization that re-used the outer
+                    # ``anon_map`` for the primary ``document`` silently
+                    # injected the empty AnonymizationMap that the auto-RAG
+                    # path left behind (when the user has not picked a
+                    # document up-front, the outer ``anon_map`` is created
+                    # empty before retrieval, and ``document`` is only assigned
+                    # afterwards from auto-RAG matches). That empty map then
+                    # made every placeholder belonging to the primary document
+                    # invisible to the deanonymizer — its placeholders ended
+                    # up in the prompt sent to the LLM but never landed in the
+                    # unified entity_map, so the LLM's echoed placeholders
+                    # surfaced literally in the user-facing answer. Reloading
+                    # is a cheap local file read; correctness over micro-opt.
+                    doc_ids = list(documents_by_id.keys())
+                    loaded = await asyncio.gather(
+                        *(get_document_map(did) for did in doc_ids)
+                    )
+                    anon_maps: dict[int, AnonymizationMap] = {
+                        did: (m or AnonymizationMap(document_id=did, language=language))
+                        for did, m in zip(doc_ids, loaded)
+                    }
 
-                    if len(anon_maps) > 1:
-                        merged_entity_map: dict[str, str] = {}
-                        for m in anon_maps.values():
-                            merged_entity_map.update(m.entity_map)
-                        anon_map = AnonymizationMap(
-                            document_id=0, language=language
+                    # Fold the query's own anon_map into the unification. The
+                    # query was sanitized earlier against an initially empty
+                    # map (auto-RAG cannot know the matched docs up-front), so
+                    # an entity like "Ahmet Çelik" mentioned in the user's
+                    # question received a query-local placeholder — say
+                    # ``[PERSON_NAME_1]`` — that bears no relation to whatever
+                    # placeholder doc 1 assigned to the same person at
+                    # ingestion time (e.g. ``[PERSON_NAME_3]``). The cloud LLM
+                    # then sees two unrelated placeholders and treats them as
+                    # two different people: it cannot tell which placeholder
+                    # in the chunks refers to the entity the question asked
+                    # about, and routinely answers about the wrong person
+                    # whose info happens to be in the same chunks. Including
+                    # the query map in the unification collapses identical
+                    # originals onto a single global placeholder so query and
+                    # context line up in the prompt the LLM receives.
+                    QUERY_MAP_KEY = -1
+                    query_anon_map = anon_map
+                    maps_to_unify = {
+                        QUERY_MAP_KEY: query_anon_map,
+                        **anon_maps,
+                    }
+
+                    per_doc_remap, anon_map = (
+                        _build_unified_placeholder_space(maps_to_unify)
+                    )
+
+                    query_remap = per_doc_remap.pop(QUERY_MAP_KEY, {})
+                    if query_remap:
+                        sanitized_query = _apply_chunk_placeholder_remap(
+                            sanitized_query, query_remap
                         )
-                        anon_map.entity_map = merged_entity_map
-                    elif anon_maps:
-                        anon_map = next(iter(anon_maps.values()))
+
+                    # Log placeholder shape only — never the originals — so
+                    # we can diagnose unification gaps without writing PII
+                    # to the local log file.
+                    logger.info(
+                        "chat unified-map session_id=%s docs=%s "
+                        "unified_entries=%s query_entries=%s "
+                        "query_remap_size=%s placeholders=%s",
+                        session_id,
+                        sorted(anon_maps.keys()),
+                        len(anon_map.entity_map),
+                        len(query_anon_map.entity_map),
+                        len(query_remap),
+                        sorted(set(anon_map.entity_map.values()))[:20],
+                    )
 
                     prev_doc_id: Optional[int] = None
                     for c in chunks:
@@ -972,6 +1425,11 @@ async def chat_ask(
                         chunk_text = c.sanitized_text or ""
                         chunk_map = anon_maps.get(c.document_id, anon_map)
                         masked_chunk = _mask_with_anon_map(chunk_text, chunk_map)
+                        chunk_remap = per_doc_remap.get(c.document_id)
+                        if chunk_remap:
+                            masked_chunk = _apply_chunk_placeholder_remap(
+                                masked_chunk, chunk_remap
+                            )
                         sanitized_chunk_texts.append(
                             header + masked_chunk
                         )

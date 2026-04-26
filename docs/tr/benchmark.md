@@ -100,6 +100,31 @@ F1, Latin alfabesi kullanan dillerde (EN %98,3, DE %100, ES %100, FR %95,8, IT %
 
 Benchmark modelleri: NER, Türkçe için [`akdeniz27/xlm-roberta-base-turkish-ner`](https://huggingface.co/akdeniz27/xlm-roberta-base-turkish-ner), diğer diller için [`Davlan/xlm-roberta-base-wikiann-ner`](https://huggingface.co/Davlan/xlm-roberta-base-wikiann-ner) kullanır. Ollama katmanı [`aya-expanse:8b`](https://ollama.com/library/aya-expanse) üzerinde çalışır. Daha büyük Ollama modelleri semantik tespiti genelde iyileştirir; bedeli artan gecikmedir.
 
+## Ollama model karşılaştırması (K3 katmanı)
+
+K3 semantik katmanı modülerdir; harness `SEPTUM_BENCHMARK_OLLAMA_MODEL=<model>`
+ortam değişkenini kabul eder ve aday modeli buradan değiştirir. Çoklu
+model sürücüsünü çalıştırın; aşağıdaki tablo donanımınızdaki canlı
+sonuçlarla dolacak:
+
+```bash
+./scripts/benchmark_ollama_models.sh                          # varsayılan üçlü
+./scripts/benchmark_ollama_models.sh llama3.2:3b qwen2.5:14b  # özel set
+```
+
+| Model | Parametre | VRAM ≈ | Precision | Recall | F1 | Notlar |
+|:---|:---:|:---:|:---:|:---:|:---:|:---|
+| [`llama3.2:3b`](https://ollama.com/library/llama3.2) | 3 B | 3 GB | _TBD_ | _TBD_ | _TBD_ | En hızlı; semantik recall'ın düşük olması beklenir |
+| [`aya-expanse:8b`](https://ollama.com/library/aya-expanse) | 8 B | 5 GB | %99,9 | %90,6 | %95,0 | Mevcut varsayılan; çok dilli ince ayarlı |
+| [`qwen2.5:14b`](https://ollama.com/library/qwen2.5) | 14 B | 9 GB | _TBD_ | _TBD_ | _TBD_ | En yüksek doğruluk beklenir; 8 B'ye göre ~3× gecikme |
+
+Yukarıdaki katman tablosundaki rakamlar varsayılan `aya-expanse:8b`
+çalıştırmasını yansıtır; diğer modellerin sonuçları host'a (CPU/GPU,
+Ollama sürümü, sistem prompt'u) bağlıdır ve runner script'iyle
+ölçülene kadar **TBD** bırakılmıştır. CPU'da gecikme parametre
+sayısıyla doğrusal artar; tek 24 GB GPU'da 14 B modeller hâlâ sığar
+fakat ~3× artan çağrı maliyeti ingest pipeline'ında baskın olur.
+
 **Ek kaynaklar:**
 
 - Benchmark test dosyası: [`packages/api/tests/benchmark_detection.py`](../packages/api/tests/benchmark_detection.py)

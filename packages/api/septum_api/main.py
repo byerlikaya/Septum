@@ -49,6 +49,7 @@ from .routers import chunks as chunks_router
 from .routers import documents as documents_router
 from .routers import error_logs as error_logs_router
 from .routers import regulations as regulations_router
+from .routers import relationships as relationships_router
 from .routers import settings as settings_router
 from .routers import setup as setup_router
 from .routers import text_normalization as text_normalization_router
@@ -240,6 +241,7 @@ _all_routers = [
     settings_router.router,
     error_logs_router.router,
     regulations_router.router,
+    relationships_router.router,
     text_normalization_router.router,
     users_router.router,
 ]

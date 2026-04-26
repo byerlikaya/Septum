@@ -524,10 +524,19 @@ async def list_ollama_models_endpoint(
     return OllamaModelsResponse(models=result)
 
 
+class NerModelSuggestion(BaseModel):
+    """Single preset model entry surfaced in the NER Models tab."""
+
+    model_id: str
+    label: str
+    description: str
+
+
 class NerDefaultsResponse(BaseModel):
-    """ISO 639-1 → HuggingFace model ID mapping for the NER Models tab."""
+    """Per-language defaults + curated alternative-model suggestions."""
 
     defaults: dict[str, str]
+    suggestions: dict[str, list[NerModelSuggestion]]
 
 
 @router.get(
@@ -550,7 +559,14 @@ async def get_ner_defaults(
     from ..services.ner_model_registry import NERModelRegistry
 
     registry = NERModelRegistry()
-    return NerDefaultsResponse(defaults=dict(registry.DEFAULT_MODEL_MAP))
+    suggestions = {
+        lang: [NerModelSuggestion(**entry) for entry in entries]
+        for lang, entries in registry.SUGGESTED_MODELS.items()
+    }
+    return NerDefaultsResponse(
+        defaults=dict(registry.DEFAULT_MODEL_MAP),
+        suggestions=suggestions,
+    )
 
 
 class OllamaPullRequest(BaseModel):

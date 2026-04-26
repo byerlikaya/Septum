@@ -312,6 +312,64 @@ def test_invalid_tckn_with_prefix_is_still_masked_at_fallback_score(
     assert invalid_tckn not in result.sanitized_text
 
 
+def test_invalid_tc_dotted_prefix_is_masked(
+    sanitizer: PIISanitizer,
+) -> None:
+    """``T.C. 29374810562`` must be masked as NATIONAL_ID even with a failing checksum.
+
+    Reproduces a production leak where a KVKK başvuru formu PDF with
+    a synthetic T.C. number passed through the ingestion pipeline
+    unmasked because ``T.C.`` was not in the contextual-keyword
+    alternation (dots are not word characters, so ``\\b``-anchored
+    alternation cannot reach it). The dedicated Turkish-label
+    recognizer closes that gap.
+    """
+    leaked_tckn = "29374810562"
+    text = f"T.C. {leaked_tckn}\nİmza: _____________"
+    anon_map = AnonymizationMap(document_id=11, language="tr")
+
+    result = sanitizer.sanitize(text=text, language="tr", anon_map=anon_map)
+
+    assert "[NATIONAL_ID_" in result.sanitized_text
+    assert leaked_tckn not in result.sanitized_text
+
+
+def test_invalid_vergi_no_across_newline_is_masked(
+    sanitizer: PIISanitizer,
+) -> None:
+    """``Vergi No:\\n5312984760`` must be masked as TAX_ID.
+
+    VKN (Vergi Kimlik Numarası) is a 10-digit Turkish tax identifier
+    for legal entities. PDF extraction frequently drops the value
+    onto the next line after the label; the recognizer must tolerate
+    the newline between ``No:`` and the digits.
+    """
+    leaked_vkn = "5312984760"
+    text = f"Vergi No:\n{leaked_vkn}\nAdres: Güllük Cad."
+    anon_map = AnonymizationMap(document_id=12, language="tr")
+
+    result = sanitizer.sanitize(text=text, language="tr", anon_map=anon_map)
+
+    assert leaked_vkn not in result.sanitized_text
+    assert ("[TAX_ID_" in result.sanitized_text) or (
+        "[NATIONAL_ID_" in result.sanitized_text
+    )
+
+
+def test_tc_kimlik_no_with_colon_is_masked(
+    sanitizer: PIISanitizer,
+) -> None:
+    """``T.C. Kimlik No: 12345678901`` must be masked as NATIONAL_ID."""
+    leaked_tckn = "12345678901"
+    text = f"T.C. Kimlik No: {leaked_tckn}"
+    anon_map = AnonymizationMap(document_id=13, language="tr")
+
+    result = sanitizer.sanitize(text=text, language="tr", anon_map=anon_map)
+
+    assert "[NATIONAL_ID_" in result.sanitized_text
+    assert leaked_tckn not in result.sanitized_text
+
+
 def test_coverage_validation_logs_uncovered_types(
     app_settings: AppSettings, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -563,6 +621,66 @@ def test_iban_format_only_fallback_for_synthetic(sanitizer: PIISanitizer) -> Non
     result = sanitizer.sanitize(text=text, language="de", anon_map=anon_map)
     assert "DE89 2004 1010 0540 1420 00" not in result.sanitized_text
     assert "[IBAN_1]" in result.sanitized_text
+
+
+def test_iban_span_does_not_swallow_trailing_label_word(
+    sanitizer: PIISanitizer,
+) -> None:
+    """The greedy IBAN regex must trim trailing label words like "IBAN".
+
+    Reproduces a deanonymization artefact where the LLM answer showed
+    ``TR94 0006 2000 1010 0007 1234 56 IBA`` instead of just the IBAN
+    value. The greedy ``[\\s0-9A-Za-z]{11,32}`` extension was capturing
+    the next word ("IBAN", "SGK", country abbreviations) up to the
+    32-char ceiling and storing the over-captured string in the
+    anonymization map; deanonymization then dumped that whole junk
+    span back into the user-facing answer. The recognizer must trim
+    to the longest checksum-valid prefix.
+    """
+    real_iban = "TR94 0006 2000 1010 0007 1234 56"
+    text = f"... işçinin bildirdiği {real_iban} IBAN numaralı banka hesabı."
+    anon_map = AnonymizationMap(document_id=900, language="tr")
+
+    result = sanitizer.sanitize(text=text, language="tr", anon_map=anon_map)
+
+    # The IBAN value must be replaced by a placeholder ...
+    assert "[IBAN_1]" in result.sanitized_text
+    # ... and the trailing "IBAN" label word must survive untouched
+    # because it is not part of the bank account number itself.
+    assert "IBAN numaralı" in result.sanitized_text
+    # The original digits must not leak.
+    assert real_iban not in result.sanitized_text
+    # The map entry must be the bare IBAN, not the over-captured form.
+    iban_originals = [
+        original
+        for original, placeholder in anon_map.entity_map.items()
+        if placeholder == "[IBAN_1]"
+    ]
+    assert iban_originals == [real_iban]
+
+
+def test_iban_span_caps_at_country_length_when_checksum_fails(
+    sanitizer: PIISanitizer,
+) -> None:
+    """For a synthetic (checksum-failing) IBAN the span must still cap at
+    the ISO 13616 length for the country, not stretch to the regex max.
+
+    Without the cap a fallback IBAN match could pull the next word into
+    the placeholder, leak it into the LLM prompt under the IBAN
+    placeholder, and round-trip junk back to the user during
+    deanonymization. The capped span keeps surrounding context intact.
+    """
+    # 26 chars (TR length) but checksum-failing.
+    synthetic = "TR99 0006 2000 1010 0007 1234 56"
+    text = f"Hesap: {synthetic} BANK çalışıyor."
+    anon_map = AnonymizationMap(document_id=901, language="tr")
+
+    result = sanitizer.sanitize(text=text, language="tr", anon_map=anon_map)
+    assert "[IBAN_1]" in result.sanitized_text
+    assert synthetic not in result.sanitized_text
+    # The trailing word that the greedy regex would otherwise have
+    # absorbed must remain visible in the surrounding text.
+    assert "BANK" in result.sanitized_text
 
 
 def test_date_of_birth_month_name_multilingual(sanitizer: PIISanitizer) -> None:

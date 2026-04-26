@@ -11,8 +11,15 @@ import type { SettingsTabProps } from "./types";
 // to hold its own hardcoded copy that drifted out of sync the moment the
 // backend upgraded the default models (2026-03-12 XLM-RoBERTa refresh);
 // fetching keeps the UI honest.
+interface NerModelSuggestion {
+  model_id: string;
+  label: string;
+  description: string;
+}
+
 interface NerDefaultsResponse {
   defaults: Record<string, string>;
+  suggestions: Record<string, NerModelSuggestion[]>;
 }
 
 export function NerModelsTab({
@@ -22,6 +29,7 @@ export function NerModelsTab({
 }: SettingsTabProps) {
   const t = useI18n();
   const [defaults, setDefaults] = useState<Record<string, string>>({});
+  const [suggestions, setSuggestions] = useState<Record<string, NerModelSuggestion[]>>({});
   const [defaultsLoading, setDefaultsLoading] = useState(true);
   const [defaultsError, setDefaultsError] = useState<string | null>(null);
   const [localOverrides, setLocalOverrides] = useState<Record<string, string>>(
@@ -38,7 +46,10 @@ export function NerModelsTab({
         const response = await api.get<NerDefaultsResponse>(
           "/api/settings/ner-defaults"
         );
-        if (!cancelled) setDefaults(response.data.defaults ?? {});
+        if (!cancelled) {
+          setDefaults(response.data.defaults ?? {});
+          setSuggestions(response.data.suggestions ?? {});
+        }
       } catch {
         if (!cancelled) setDefaultsError(t("settings.ner.defaultsLoadError"));
       } finally {
@@ -162,6 +173,28 @@ export function NerModelsTab({
                     placeholder={defaultModel}
                     aria-label={t("settings.ner.overrideLabel").replace("{lang}", lang)}
                   />
+                  {suggestions[lang] && suggestions[lang].length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {suggestions[lang].map((s) => {
+                        const active = getEffectiveModel(lang) === s.model_id;
+                        return (
+                          <button
+                            key={s.model_id}
+                            type="button"
+                            onClick={() => handleOverrideChange(lang, s.model_id)}
+                            title={s.description}
+                            className={`rounded border px-1.5 py-0.5 text-[10px] transition-colors ${
+                              active
+                                ? "border-sky-600 bg-sky-900/50 text-sky-100"
+                                : "border-slate-700 bg-slate-900 text-slate-300 hover:border-sky-700 hover:text-sky-200"
+                            }`}
+                          >
+                            {s.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </td>
                 <td className="px-2 py-2 align-top">
                   {localOverrides[lang] !== undefined && (

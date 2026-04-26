@@ -72,6 +72,15 @@ class Chunk(Base):
     )
     index: Mapped[int] = mapped_column(Integer, nullable=False)
     sanitized_text: Mapped[str] = mapped_column(Text, nullable=False)
+    # Raw extracted text BEFORE PII masking. Powers the local document
+    # preview UI so the user can verify what was detected (entity
+    # highlight overlays use the document_pipeline-computed offsets,
+    # which are relative to the raw text, not the masked text). Never
+    # leaves the air-gapped zone — chat retrieval reads ``sanitized_text``.
+    # Nullable for backwards compatibility with chunks ingested before
+    # this column existed; preview UI falls back to ``sanitized_text``
+    # when ``raw_text`` is null.
+    raw_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     char_count: Mapped[int] = mapped_column(Integer, nullable=False)
     source_page: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     source_slide: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

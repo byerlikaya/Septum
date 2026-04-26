@@ -302,9 +302,20 @@ export function DocumentPreview({
     document.file_format.toLowerCase() === "xls" ||
     document.file_format.toLowerCase() === "ods";
 
+  // Prefer the raw extracted text for the local preview UI: entity
+  // highlight overlays are computed from offsets relative to the raw
+  // string, so showing the masked text here would (a) misalign the
+  // highlights and (b) defeat the verification workflow that lets the
+  // user see what was actually detected. The masked text is what
+  // leaves the air-gapped zone via chat — the preview never does.
+  // Falls back to ``sanitized_text`` for chunks ingested before the
+  // ``raw_text`` column existed.
+  const previewTextOf = (chunk: { raw_text?: string | null; sanitized_text: string }): string =>
+    chunk.raw_text ?? chunk.sanitized_text;
+
   const combinedText =
     chunks.length > 0
-      ? chunks.map(chunk => chunk.sanitized_text).join("\n\n")
+      ? chunks.map(previewTextOf).join("\n\n")
       : document.transcription_text ?? "";
 
   const fmt = document.file_format.toLowerCase();
@@ -458,7 +469,7 @@ export function DocumentPreview({
                 : getEntityOutlineClasses(det.entity_type);
               const chunk = chunks.find((c) => c.id === det.chunk_id);
               const entityText = chunk
-                ? chunk.sanitized_text.slice(det.start_offset, det.end_offset)
+                ? previewTextOf(chunk).slice(det.start_offset, det.end_offset)
                 : det.placeholder;
               const scorePct = Math.round(det.score * 100);
               return (
@@ -519,7 +530,7 @@ export function DocumentPreview({
               <span key={chunk.id}>
                 {idx > 0 && "\n\n"}
                 <HighlightedText
-                  text={chunk.sanitized_text}
+                  text={previewTextOf(chunk)}
                   detections={chunkDetections}
                   activeEntityType={activeFilter}
                   activeDetectionId={activeDetectionId}
