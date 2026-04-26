@@ -1162,18 +1162,41 @@ async def chat_ask(
                                 len(all_user_docs),
                             )
 
-                        doc_names = [
-                            d.original_filename or f"document_{d.id}"
-                            for d in all_user_docs
-                        ]
-                        intent = await _classify_query_intent(
-                            query=sanitized_query,
-                            document_names=doc_names,
-                            ollama_base_url=settings.ollama_base_url,
-                            ollama_model=settings.ollama_chat_model,
-                        )
-                        if intent == "chat":
-                            rag_mode = "none"
+                        # When entity routing already proved that the
+                        # query references PII that lives in the corpus
+                        # we have hard evidence the turn is about the
+                        # documents — skip the Ollama-based intent
+                        # classifier entirely. The classifier is
+                        # non-deterministic (the same Turkish question
+                        # asked twice in a row produced "auto" then
+                        # "chat" verdicts in production logs) and
+                        # routinely tagged document-grounded questions
+                        # as general chat, sending the LLM to answer
+                        # from its own knowledge. The classifier is
+                        # only consulted in the fallback path where no
+                        # entity match was found.
+                        if narrowing_reason in (
+                            "strong_entity_match",
+                            "medium_entity_match",
+                        ):
+                            logger.info(
+                                "chat intent-classifier session_id=%s skipped reason=%s",
+                                session_id,
+                                narrowing_reason,
+                            )
+                        else:
+                            doc_names = [
+                                d.original_filename or f"document_{d.id}"
+                                for d in all_user_docs
+                            ]
+                            intent = await _classify_query_intent(
+                                query=sanitized_query,
+                                document_names=doc_names,
+                                ollama_base_url=settings.ollama_base_url,
+                                ollama_model=settings.ollama_chat_model,
+                            )
+                            if intent == "chat":
+                                rag_mode = "none"
 
                 if rag_mode == "auto":
                     async with _phase_timer(session_id, "retrieve_chunks_auto"):

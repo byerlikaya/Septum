@@ -110,7 +110,18 @@ _SEMANTIC_VALIDATION_PASSTHROUGH_TYPES: frozenset[str] = frozenset(
     _HIGH_PRIORITY_ENTITY_TYPES
 )
 
-_MIN_TEXT_LENGTH_FOR_NER = 50
+# Minimum text length before the NER layer kicks in. The threshold
+# was originally 50 to avoid transformer hallucinations on tiny page
+# fragments, but that silently disabled NER on chat queries (typically
+# 20–40 chars), so a question like "Ahmet Çelik Antalya'da mı oturuyor?"
+# left ``query_entries=0`` in the anon_map, the entity-routing layer
+# had nothing to match against the index, and the auto-RAG intent
+# classifier was free to wrongly tag the turn as a general-chat
+# request — RAG never ran and the LLM answered from its own knowledge.
+# Lowering the floor to 20 keeps the noise guard for sub-20-char
+# fragments (where NER mis-fires are common) while restoring
+# entity detection on short user questions.
+_MIN_TEXT_LENGTH_FOR_NER = 20
 _MIN_TEXT_LENGTH_FOR_SEMANTIC_ALIAS = 80
 
 _UPPER_WORD_RE = re.compile(r"\b\w{2,}\b")
