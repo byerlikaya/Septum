@@ -33,6 +33,53 @@ _ENTITY_TYPE_PRIORITY: dict[str, int] = {
 }
 
 
+# Domain-aware absorption rules: when a span of the "inner" type
+# overlaps a span of the "outer" type at all (not just full
+# containment), the inner span is dropped and the outer wins.
+# Example: in "ANTALYA SAĞLIK MERKEZİ" the LOCATION span "Antalya"
+# overlaps the ORGANIZATION_NAME span "Antalya Sağlık Merkezi".
+# Without this filter, length-based dedup picks LOCATION whenever it
+# starts earlier than the ORG, which strips the richer ORG label
+# and emits two placeholders for one semantic unit.
+_ABSORPTION_RULES: dict[str, frozenset[str]] = {
+    "ORGANIZATION_NAME": frozenset({"LOCATION"}),
+    "POSTAL_ADDRESS": frozenset({"LOCATION", "STREET_ADDRESS"}),
+    "STREET_ADDRESS": frozenset({"LOCATION"}),
+}
+
+
+def absorb_overlapping_spans(spans: List[DetectedSpan]) -> List[DetectedSpan]:
+    """Drop inner spans that overlap an outer span per ``_ABSORPTION_RULES``.
+
+    Runs before ``deduplicate_spans`` so the longest-wins tiebreak does
+    not silently discard the richer outer span when an inner span
+    happens to start at a lower offset.
+    """
+    if not spans:
+        return spans
+
+    outers_by_inner: dict[str, list[DetectedSpan]] = {}
+    for outer_type, inner_types in _ABSORPTION_RULES.items():
+        outer_spans = [s for s in spans if s.entity_type == outer_type]
+        if not outer_spans:
+            continue
+        for inner_type in inner_types:
+            outers_by_inner.setdefault(inner_type, []).extend(outer_spans)
+
+    if not outers_by_inner:
+        return spans
+
+    kept: List[DetectedSpan] = []
+    for span in spans:
+        outers = outers_by_inner.get(span.entity_type)
+        if outers and any(
+            not (span.end <= o.start or span.start >= o.end) for o in outers
+        ):
+            continue
+        kept.append(span)
+    return kept
+
+
 def deduplicate_spans(
     spans: List[DetectedSpan],
     high_priority_types: Set[str],

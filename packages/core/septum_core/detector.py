@@ -36,6 +36,7 @@ from .non_pii_filter import NonPiiFilter, SpanView
 from .ports import NullSemanticDetectionPort, SemanticDetectionPort
 from .regulations.composer import ComposedPolicy
 from .span_processing import (
+    absorb_overlapping_spans,
     deduplicate_spans,
     expand_person_name_spans,
     merge_adjacent_person_name_spans,
@@ -1451,6 +1452,7 @@ class Detector:
                         break
             spans = keep_spans
 
+        spans = absorb_overlapping_spans(spans)
         spans = deduplicate_spans(spans, _HIGH_PRIORITY_ENTITY_TYPES)
 
         # Expand person-name spans to cover adjacent capitalized tokens so that
