@@ -112,6 +112,19 @@ def test_coreference_mixed_case_same_placeholder() -> None:
     assert ph1 == ph2
 
 
+def test_coreference_whitespace_variants_share_placeholder() -> None:
+    """Whitespace differences (double space, NBSP, leading/trailing) must collapse."""
+    amap = AnonymizationMap(document_id=11, language="tr")
+
+    ph1 = amap.add_entity("Ahmet Çelik", "PERSON_NAME")
+    ph2 = amap.add_entity("Ahmet  Çelik", "PERSON_NAME")
+    ph3 = amap.add_entity("Ahmet Çelik", "PERSON_NAME")
+    ph4 = amap.add_entity("  Ahmet Çelik ", "PERSON_NAME")
+    ph5 = amap.add_entity("Ahmet\tÇelik", "PERSON_NAME")
+
+    assert ph1 == ph2 == ph3 == ph4 == ph5
+
+
 def test_coreference_hyphenated_name() -> None:
     """Hyphenated name subset should resolve coreference."""
     amap = AnonymizationMap(document_id=12, language="fr")
