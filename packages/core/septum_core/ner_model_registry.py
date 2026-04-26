@@ -55,6 +55,44 @@ class NERModelRegistry:
         default_factory=threading.Lock, init=False, repr=False
     )
 
+    # Suggested alternative models per language. The dashboard exposes
+    # these as one-click presets next to the override input so users can
+    # try a community alternative without hunting Hugging Face for the
+    # exact ID. Keep entries to known, currently-hosted IDs.
+    SUGGESTED_MODELS: Dict[str, list[Dict[str, str]]] = field(
+        default_factory=lambda: {
+            "tr": [
+                {
+                    "model_id": "akdeniz27/xlm-roberta-base-turkish-ner",
+                    "label": "akdeniz27 XLM-RoBERTa (default)",
+                    "description": "F1=0.949 on WikiANN-tr; current Septum default.",
+                },
+                {
+                    "model_id": "savasy/bert-base-turkish-ner-cased",
+                    "label": "savasy BERT-base",
+                    "description": "BERT-base cased variant; lower memory footprint.",
+                },
+                {
+                    "model_id": "akdeniz27/convbert-base-turkish-cased-ner",
+                    "label": "akdeniz27 ConvBERT",
+                    "description": "ConvBERT alternative; faster inference at similar F1.",
+                },
+            ],
+            "en": [
+                {
+                    "model_id": "Davlan/xlm-roberta-base-wikiann-ner",
+                    "label": "Davlan XLM-RoBERTa WikiANN (default)",
+                    "description": "Multilingual, 20+ languages.",
+                },
+                {
+                    "model_id": "dslim/bert-base-NER",
+                    "label": "dslim BERT-base NER",
+                    "description": "English-only; smaller, faster.",
+                },
+            ],
+        }
+    )
+
     DEFAULT_MODEL_MAP: Dict[str, str] = field(
         default_factory=lambda: {
             # Best-in-class models per language based on 2024-2025 research
