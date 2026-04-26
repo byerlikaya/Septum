@@ -78,7 +78,6 @@ from ..services.deanonymizer import Deanonymizer
 from ..services.document_anon_store import get_document_map
 from ..services.document_cluster_service import cluster_documents_by_relationship
 from ..services.entity_index_service import (
-    ENTITY_UNIQUENESS_WEIGHTS,
     RELATIONSHIP_THRESHOLD_MEDIUM,
     RELATIONSHIP_THRESHOLD_STRONG,
     find_documents_for_query_entities,

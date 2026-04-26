@@ -186,7 +186,7 @@ export default function RelationshipGraph({ graph }: Props) {
             "curve-style": "bezier",
             "line-color": "data(color)",
             width: "data(width)",
-            opacity: "data(opacity)",
+            opacity: (ele: EdgeSingular) => ele.data("opacity") as number,
             "target-arrow-shape": "none",
           },
         },
@@ -220,12 +220,11 @@ export default function RelationshipGraph({ graph }: Props) {
         gravity: 0.25,
         gravityRangeCompound: 1.5,
         // Push tighter clusters apart so the eye reads them as
-        // distinct groups rather than one big tangle.
-        // @ts-expect-error fcose-specific options not in cytoscape types
+        // distinct groups rather than one big tangle. Three fcose-only
+        // options below; cast handles the missing types in
+        // cytoscape's typings.
         componentSpacing: 80,
-        // @ts-expect-error fcose-specific
         nodeDimensionsIncludeLabels: true,
-        // @ts-expect-error fcose-specific
         packComponents: true,
         padding: 30,
         fit: true,

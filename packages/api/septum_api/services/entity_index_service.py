@@ -19,17 +19,16 @@ The service drives two privacy-aware features:
   cluster view and the auto-cluster suggestion in chat.
 """
 
-import hmac
 import hashlib
+import hmac
 import json
 import re
 from collections import defaultdict
 from typing import Dict, Iterable, List, Mapping, Tuple
 
+from septum_core.anonymization_map import AnonymizationMap
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from septum_core.anonymization_map import AnonymizationMap
 
 from ..models.document_relationship import DocumentRelationship
 from ..models.entity_index import EntityIndex
