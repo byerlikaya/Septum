@@ -12,6 +12,8 @@ export const trMessages: Record<string, string> = {
   "relationships.loadError": "Bağlantı grafiği yüklenemedi.",
   "relationships.empty": "Henüz indekslenmiş doküman yok. Bir doküman yükleyerek varlık grafiğini oluşturmaya başlayın.",
   "relationships.svgAriaLabel": "Doküman bağlantılarını gösteren grafik",
+  "relationships.zoomHint": "Sürükle ve düzenle · Tekerlek ile yakınlaştır · Detay için kenara tıkla",
+  "relationships.fitView": "Tüm grafa sığdır",
   "relationships.legend.title": "Açıklama",
   "relationships.legend.strong": "Güçlü bağ (≥1.0) — küresel benzersiz bir varlık paylaşılıyor",
   "relationships.legend.medium": "Orta bağ (0.4–1.0) — birden fazla varlık paylaşılıyor",

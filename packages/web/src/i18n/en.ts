@@ -12,6 +12,8 @@ export const enMessages = {
   "relationships.loadError": "Failed to load the relationship graph.",
   "relationships.empty": "No documents indexed yet. Upload a document to start building the entity graph.",
   "relationships.svgAriaLabel": "Force-directed graph of document relationships",
+  "relationships.zoomHint": "Drag a node to rearrange · Scroll to zoom · Click an edge for details",
+  "relationships.fitView": "Fit graph to view",
   "relationships.legend.title": "Legend",
   "relationships.legend.strong": "Strong link (≥1.0) — globally unique entity in common",
   "relationships.legend.medium": "Medium link (0.4–1.0) — multiple shared entities",
