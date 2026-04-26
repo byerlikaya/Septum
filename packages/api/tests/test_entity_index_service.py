@@ -325,6 +325,40 @@ def test_collect_normalisation_unifies_casing_and_punctuation() -> None:
 
 
 @pytest.mark.asyncio
+async def test_replace_index_handles_same_token_under_different_types(
+    session: AsyncSession,
+) -> None:
+    """A document containing the same token across two entity types
+    (e.g. "ANTALYA" inside both a LOCATION span and an
+    ORGANIZATION_NAME span) must NOT raise a UNIQUE constraint
+    violation. Both rows share value_hash + document_id but differ on
+    entity_type — the constraint key has to include entity_type or the
+    second insert blows up the whole ingestion transaction."""
+    await _seed_document(session, 100, "kvkk_form.pdf")
+    am = AnonymizationMap(document_id=100, language="tr")
+    am.entity_map = {
+        "Muratpaşa / ANTALYA": "[LOCATION_1]",
+        "ANTALYA SAĞLIK MERKEZİ": "[ORGANIZATION_NAME_1]",
+    }
+    written = await replace_index_for_document(session, 100, am)
+    await session.commit()
+
+    rows = (
+        await session.execute(EntityIndex.__table__.select())
+    ).all()
+    # Each entity emits the full hash + tokens; "antalya" appears in
+    # both, so we expect at least one row pair where value_hash matches
+    # across LOCATION and ORGANIZATION_NAME — the key fact is that the
+    # commit succeeded with a non-zero row count.
+    assert written > 0
+    by_hash: dict[str, set[str]] = {}
+    for row in rows:
+        by_hash.setdefault(row.value_hash, set()).add(row.entity_type)
+    shared = [types for types in by_hash.values() if len(types) > 1]
+    assert any("LOCATION" in s and "ORGANIZATION_NAME" in s for s in shared)
+
+
+@pytest.mark.asyncio
 async def test_token_level_hashing_links_address_variants(
     session: AsyncSession,
 ) -> None:

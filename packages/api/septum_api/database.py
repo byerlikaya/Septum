@@ -175,11 +175,47 @@ async def init_db() -> None:
     sm = get_session_maker()
 
     if is_sqlite():
+        await _sqlite_drop_obsolete_tables(eng)
         async with eng.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         await _sqlite_ensure_columns(eng)
 
     await _seed_defaults(sm)
+
+
+async def _sqlite_drop_obsolete_tables(eng: AsyncEngine) -> None:
+    """Drop SQLite tables whose schema has changed in an
+    ALTER-incompatible way.
+
+    SQLite cannot ALTER a UNIQUE constraint in place — the table has
+    to be recreated. Both ``entity_index`` and ``document_relationships``
+    are caches derived from the on-disk anonymisation maps, so dropping
+    them is non-destructive: the ingestion pipeline repopulates new
+    rows on every upload, and ``scripts/rebuild_entity_index.py``
+    rebuilds rows for documents that were ingested before the change.
+    """
+    async with eng.begin() as conn:
+        # entity_index used to declare ``UniqueConstraint(document_id,
+        # value_hash)``; the new constraint includes entity_type so two
+        # entity types in the same document can legitimately share a
+        # value_hash (token-level hashing collisions across types).
+        # Detect the old shape and drop both tables — relationships
+        # depends on entity_index so it has to go first.
+        row = (
+            await conn.execute(
+                text(
+                    "SELECT sql FROM sqlite_master "
+                    "WHERE type='table' AND name='entity_index'"
+                )
+            )
+        ).first()
+        if row is None:
+            return
+        ddl = row[0] or ""
+        if "uq_entity_index_doc_type_value" in ddl:
+            return  # already on new schema
+        await conn.execute(text("DROP TABLE IF EXISTS document_relationships"))
+        await conn.execute(text("DROP TABLE IF EXISTS entity_index"))
 
 
 async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:

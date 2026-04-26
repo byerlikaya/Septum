@@ -32,8 +32,17 @@ class EntityIndex(Base):
     occurrences: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     __table_args__ = (
+        # Token-level hashing legitimately produces the same value_hash
+        # across different entity types within a single document — e.g.
+        # the token "antalya" can appear in a LOCATION span AND inside
+        # an ORGANIZATION_NAME like "ANTALYA SAĞLIK MERKEZİ". The
+        # uniqueness contract therefore has to include the entity type
+        # so two semantically distinct rows can coexist.
         UniqueConstraint(
-            "document_id", "value_hash", name="uq_entity_index_doc_value"
+            "document_id",
+            "entity_type",
+            "value_hash",
+            name="uq_entity_index_doc_type_value",
         ),
         Index("ix_entity_index_value_type", "value_hash", "entity_type"),
     )
