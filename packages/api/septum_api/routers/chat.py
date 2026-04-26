@@ -1172,12 +1172,19 @@ async def chat_ask(
                         # "chat" verdicts in production logs) and
                         # routinely tagged document-grounded questions
                         # as general chat, sending the LLM to answer
-                        # from its own knowledge. The classifier is
-                        # only consulted in the fallback path where no
-                        # entity match was found.
+                        # from its own knowledge. ANY entity match -
+                        # strong, medium, or even weak - means the user
+                        # mentioned something that exists in their
+                        # corpus, which is the most reliable signal we
+                        # have that the question is about the documents.
+                        # The classifier is only consulted in the
+                        # fallback path where the query carries no
+                        # entity at all (or the entity isn't in the
+                        # index).
                         if narrowing_reason in (
                             "strong_entity_match",
                             "medium_entity_match",
+                            "weak_entity_match_only",
                         ):
                             logger.info(
                                 "chat intent-classifier session_id=%s skipped reason=%s",
