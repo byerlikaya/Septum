@@ -118,15 +118,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # GPU builds bundle PyTorch + CUDA runtime (~6 GB) on top of an
-      # already large nvidia/cuda base, and the GitHub-hosted runner's
-      # default ~14 GB free disk is not enough — the v1.1.0 release
-      # build hit "No space left on device" on every GPU variant.
-      # Removing tools the runner installs by default but Septum builds
-      # never use frees ~50 GB. CPU builds skip this cleanup so the
+      # Septum API + standalone images bundle PyTorch (CPU wheel
+      # ~750 MB, GPU wheel + CUDA runtime ~6 GB) plus the full Septum
+      # detection stack (Presidio, spaCy, transformers, FAISS,
+      # langchain). The GitHub-hosted runner's default ~14 GB free
+      # disk fills up during the install-torch + pip install layer
+      # for both variants — observed in v1.1.0 as "No space left on
+      # device" on septum-api (cpu and gpu) and the gpu standalone
+      # variant. Removing tools the runner installs by default but
+      # Septum builds never use frees ~50 GB. Smaller images
+      # (septum-mcp, gateway, audit, web) skip the cleanup so their
       # cache + idle disk stay untouched.
-      - name: Free runner disk (GPU builds only)
-        if: matrix.variant == 'gpu'
+      - name: Free runner disk (torch-heavy images)
+        if: matrix.image == 'septum-api' || matrix.image == 'septum'
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
