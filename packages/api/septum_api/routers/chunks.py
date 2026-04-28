@@ -30,6 +30,7 @@ class ChunkResponse(BaseModel):
     document_id: int
     index: int
     sanitized_text: str
+    raw_text: Optional[str] = None
     char_count: int
     source_page: Optional[int]
     source_slide: Optional[int]

@@ -104,7 +104,6 @@ class SettingsResponse(BaseModel):
     ollama_deanon_model: str
 
     deanon_enabled: bool
-    deanon_strategy: str
     require_approval: bool
     approval_timeout_seconds: int
     show_json_output: bool
@@ -128,8 +127,6 @@ class SettingsResponse(BaseModel):
     image_ocr_languages: list[str]
     ocr_provider: str
     ocr_provider_options: Optional[dict] = None
-    extract_embedded_images: bool
-    recursive_email_attachments: bool
 
     default_active_regulations: list[str]
     ner_model_overrides: Optional[dict[str, str]] = None
@@ -151,7 +148,6 @@ class SettingsUpdatePayload(BaseModel):
     ollama_deanon_model: Optional[str] = None
 
     deanon_enabled: Optional[bool] = None
-    deanon_strategy: Optional[str] = None
     require_approval: Optional[bool] = None
     approval_timeout_seconds: Optional[int] = None
     show_json_output: Optional[bool] = None
@@ -175,8 +171,6 @@ class SettingsUpdatePayload(BaseModel):
     image_ocr_languages: Optional[list[str]] = None
     ocr_provider: Optional[str] = None
     ocr_provider_options: Optional[dict[str, Any]] = None
-    extract_embedded_images: Optional[bool] = None
-    recursive_email_attachments: Optional[bool] = None
 
     default_active_regulations: Optional[list[str]] = None
     ner_model_overrides: Optional[dict[str, str]] = None
@@ -524,10 +518,24 @@ async def list_ollama_models_endpoint(
     return OllamaModelsResponse(models=result)
 
 
-class NerDefaultsResponse(BaseModel):
-    """ISO 639-1 → HuggingFace model ID mapping for the NER Models tab."""
+class NerModelSuggestion(BaseModel):
+    """Single preset model entry surfaced in the NER Models tab."""
 
-    defaults: dict[str, str]
+    model_id: str
+    label: str
+    description: str
+
+
+class NerDefaultsResponse(BaseModel):
+    """Per-language defaults + curated alternative-model suggestions.
+
+    ``defaults`` is keyed by ISO 639-1 language code; values are the
+    ordered list of model IDs that make up that language's ensemble
+    (one entry for single-model languages, two or more for ensembles).
+    """
+
+    defaults: dict[str, list[str]]
+    suggestions: dict[str, list[NerModelSuggestion]]
 
 
 @router.get(
@@ -550,7 +558,14 @@ async def get_ner_defaults(
     from ..services.ner_model_registry import NERModelRegistry
 
     registry = NERModelRegistry()
-    return NerDefaultsResponse(defaults=dict(registry.DEFAULT_MODEL_MAP))
+    suggestions = {
+        lang: [NerModelSuggestion(**entry) for entry in entries]
+        for lang, entries in registry.SUGGESTED_MODELS.items()
+    }
+    return NerDefaultsResponse(
+        defaults=dict(registry.DEFAULT_MODEL_MAP),
+        suggestions=suggestions,
+    )
 
 
 class OllamaPullRequest(BaseModel):

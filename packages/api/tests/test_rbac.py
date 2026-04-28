@@ -181,11 +181,14 @@ class TestBootstrapModeAccess:
         body = resp.json()
         assert "defaults" in body
         # Must surface the backend's real default map, not the stale
-        # frontend copy — the Turkish default now points at the XLM-R
-        # fine-tune and every entry must be a non-empty HuggingFace ID.
-        assert body["defaults"].get("tr") == "akdeniz27/xlm-roberta-base-turkish-ner"
+        # frontend copy — every value is the per-language ensemble list
+        # (one or more HuggingFace IDs), and the Turkish ensemble must
+        # lead with the XLM-R fine-tune.
+        tr_models = body["defaults"].get("tr") or []
+        assert isinstance(tr_models, list)
+        assert tr_models[0] == "akdeniz27/xlm-roberta-base-turkish-ner"
         assert "fallback" in body["defaults"]
-        assert all(v for v in body["defaults"].values())
+        assert all(isinstance(v, list) and v for v in body["defaults"].values())
 
     async def test_regulations_activate_open_during_bootstrap(
         self, router_client: AsyncClient

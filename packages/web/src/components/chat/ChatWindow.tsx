@@ -11,6 +11,8 @@ import { useChatApproval } from "@/hooks/useChatApproval";
 import { MessageBubble } from "./MessageBubble";
 import { JsonOutputPanel } from "./JsonOutputPanel";
 import { ApprovalModal } from "./ApprovalModal";
+import DisambiguationModal from "./DisambiguationModal";
+import { analyzeChatQuery, type AnalyzeQueryCluster } from "@/lib/api";
 
 export interface ChatWindowProps {
   documentIds: number[];
@@ -140,13 +142,63 @@ export function ChatWindow({
     }
   }, [streaming]);
 
+  const [pendingDisambiguation, setPendingDisambiguation] = useState<
+    | {
+        text: string;
+        clusters: AnalyzeQueryCluster[];
+      }
+    | null
+  >(null);
+
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text || streaming) return;
     setInput("");
     setLastResponseDeanon(false);
+
+    // Send the message immediately so the user's text shows up in the
+    // chat without UI lag. The disambiguation analyze is fire-and-
+    // forget; if it later reports a multi-document ambiguity we cancel
+    // the in-flight stream and surface the picker, otherwise the
+    // streaming response continues uninterrupted.
     streamSendMessage(text);
-  }, [input, streaming, streamSendMessage]);
+
+    if (documentIds.length === 0) {
+      void (async () => {
+        try {
+          const analysis = await analyzeChatQuery(text);
+          if (analysis.requires_disambiguation && analysis.clusters.length > 1) {
+            stopStreaming();
+            setPendingDisambiguation({ text, clusters: analysis.clusters });
+          }
+        } catch {
+          // Best-effort assist; on failure the stream that already
+          // started carries the answer through unchanged.
+        }
+      })();
+    }
+  }, [input, streaming, streamSendMessage, documentIds, stopStreaming]);
+
+  const handleDisambiguationPick = useCallback(
+    (clusterDocIds: number[]) => {
+      const pending = pendingDisambiguation;
+      setPendingDisambiguation(null);
+      if (!pending) return;
+      streamSendMessage(pending.text, undefined, clusterDocIds);
+    },
+    [pendingDisambiguation, streamSendMessage],
+  );
+
+  const handleDisambiguationUseAll = useCallback(() => {
+    const pending = pendingDisambiguation;
+    setPendingDisambiguation(null);
+    if (!pending) return;
+    streamSendMessage(pending.text);
+  }, [pendingDisambiguation, streamSendMessage]);
+
+  const handleDisambiguationCancel = useCallback(() => {
+    setPendingDisambiguation(null);
+  }, []);
 
   const lastAssistantContent =
     messages.filter((m) => m.role === "assistant").pop()?.content ?? "";
@@ -298,6 +350,14 @@ export function ChatWindow({
           )}
         </div>
       </div>
+
+      <DisambiguationModal
+        open={pendingDisambiguation !== null}
+        clusters={pendingDisambiguation?.clusters ?? []}
+        onPick={handleDisambiguationPick}
+        onUseAll={handleDisambiguationUseAll}
+        onCancel={handleDisambiguationCancel}
+      />
 
       <ApprovalModal
         open={approval.approvalOpen}

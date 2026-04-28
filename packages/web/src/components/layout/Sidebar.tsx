@@ -24,6 +24,7 @@ const ADMIN_ONLY: readonly UserRole[] = ["admin"];
 const navItems: NavItemDef[] = [
   { href: "/chat", label: "Chat", exact: true, allowedRoles: ALL_ROLES },
   { href: "/documents", label: "Documents", allowedRoles: ADMIN_EDITOR },
+  { href: "/relationships", label: "Relationships", allowedRoles: ADMIN_EDITOR },
   { href: "/settings", label: "Settings", exact: true, allowedRoles: ADMIN_ONLY },
   { href: "/settings/regulations", label: "Regulations", allowedRoles: ADMIN_ONLY },
   { href: "/settings/users", label: "Users", allowedRoles: ADMIN_ONLY },

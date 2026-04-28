@@ -13,8 +13,11 @@ ISO 639-1 language codes as keys.
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from typing import Dict
+
+_WHITESPACE_RUN = re.compile(r"\s+")
 
 # Locale-specific character transformations for case folding.
 # Uses ISO 639-1 codes. Add new locales as needed without modifying function logic.
@@ -67,8 +70,17 @@ def locale_lower(text: str, language: str = "en") -> str:
 
 
 def normalize_for_comparison(text: str, language: str = "en") -> str:
-    """Normalize and lowercase ``text`` for case-insensitive comparison."""
-    return locale_lower(normalize_unicode(text), language)
+    """Normalize and lowercase ``text`` for case-insensitive comparison.
+
+    Beyond NFC + locale-aware case folding, this also collapses any run
+    of whitespace (including tabs, newlines and non-breaking U+00A0) to
+    a single ASCII space and trims edges, so that ``"Ahmet  Çelik"``,
+    ``"ahmet çelik"`` and ``" Ahmet Çelik "`` all compare equal.
+    Without this, the anonymization map would mint distinct
+    placeholders for the same person across PDF/OCR-extracted spans.
+    """
+    cased = locale_lower(normalize_unicode(text), language)
+    return _WHITESPACE_RUN.sub(" ", cased).strip()
 
 
 # Possessive suffixes to strip, keyed by ISO 639-1 language code.

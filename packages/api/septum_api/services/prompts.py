@@ -120,15 +120,6 @@ class PromptCatalog:
         return f"System: {system_part}\n\nUser: {user_part}"
 
     @staticmethod
-    def deanonymizer_ollama(entity_map_json: str, masked_text: str) -> str:
-        """Prompt for Ollama-based de-anonymization using a placeholder→value map."""
-        return (
-            "Replace every placeholder token in the text with its corresponding "
-            "value from the map. Return ONLY the final text, no explanation.\n\n"
-            f"Map: {entity_map_json}\n\nText: {masked_text}"
-        )
-
-    @staticmethod
     def llm_custom_recognizer_prompt(
         entity_type: str,
         instruction: str,

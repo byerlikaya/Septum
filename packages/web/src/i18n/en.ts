@@ -3,7 +3,37 @@ export const enMessages = {
   "sidebar.tagline": "AI Privacy Gateway",
   "sidebar.chat": "Chat",
   "sidebar.documents": "Documents",
+  "sidebar.relationships": "Relationships",
   "sidebar.chunks": "Chunks",
+
+  "relationships.title": "Document Relationships",
+  "relationships.description": "Documents are connected by the entities they share. Edge thickness reflects how strongly two documents are linked. Click an edge to inspect what they have in common.",
+  "relationships.loading": "Loading relationship graph…",
+  "relationships.loadError": "Failed to load the relationship graph.",
+  "relationships.empty": "No documents indexed yet. Upload a document to start building the entity graph.",
+  "relationships.svgAriaLabel": "Force-directed graph of document relationships",
+  "relationships.zoomHint": "Drag a node to rearrange · Scroll to zoom · Click an edge for details",
+  "relationships.fitView": "Fit graph to view",
+  "relationships.legend.title": "Legend",
+  "relationships.legend.strong": "Strong link (≥1.0) — globally unique entity in common",
+  "relationships.legend.medium": "Medium link (0.4–1.0) — multiple shared entities",
+  "relationships.legend.weak": "Weak link (<0.4) — only a common name or location",
+  "relationships.selectionHint": "Hover a node or click an edge to see details.",
+  "relationships.edgePanel.connection": "Connection",
+  "relationships.edgePanel.score": "Score",
+  "relationships.edgePanel.strength": "Strength",
+  "relationships.edgePanel.sharedCount": "Shared entities",
+  "relationships.edgePanel.sharedTypes": "Shared entity types",
+  "relationships.nodePanel.document": "Document",
+  "relationships.nodePanel.distinctEntities": "Distinct entities",
+  "relationships.nodePanel.totalDetections": "Total detections",
+
+  "chat.disambiguation.title": "Which entity did you mean?",
+  "chat.disambiguation.description": "Your question matches more than one distinct group of documents. Pick the group that should answer this question, or use all of them.",
+  "chat.disambiguation.option": "Option {n}",
+  "chat.disambiguation.score": "score {score}",
+  "chat.disambiguation.useAll": "Use all groups",
+  "chat.disambiguation.cancel": "Cancel",
   "sidebar.settings": "Settings",
   "sidebar.regulations": "Regulations",
   "sidebar.users": "Users",
@@ -179,6 +209,8 @@ export const enMessages = {
   "settings.ner.overrideLabel": "Override model for {lang}",
   "settings.ner.restoreDefault": "Restore default",
   "settings.ner.saveOverrides": "Save overrides",
+  "settings.ner.ensembleHint":
+    "Comma-separate multiple model IDs to run them as an ensemble (union of detections). One ID = single model.",
   "settings.ner.defaultsLoadError":
     "Could not load the default NER model map from the backend.",
   "settings.ner.defaultsEmpty": "No default NER models are registered.",
@@ -237,16 +269,19 @@ export const enMessages = {
   "settings.privacy.layers.title": "Sanitization layers",
   "settings.privacy.layers.presidio.label": "Presidio layer",
   "settings.privacy.layers.presidio.description":
-    "Rule-based recognizers and national ID validators.",
+    "Deterministic regex + national-ID checksum recognizers. Fast, privacy-first; recommended always on.",
   "settings.privacy.layers.ner.label": "NER layer",
   "settings.privacy.layers.ner.description":
-    "Language-specific HuggingFace NER models.",
+    "Per-language transformer NER for PERSON_NAME / LOCATION / ORGANIZATION. Adds ~200-500 ms per chunk.",
   "settings.privacy.layers.ollamaValidation.label": "Ollama validation",
   "settings.privacy.layers.ollamaValidation.description":
-    "Filter false positives using local LLM context and regulation awareness.",
-  "settings.privacy.layers.ollama.label": "Ollama alias layer",
+    "Filter NER false positives via local LLM. Adds latency; deterministic recognizers bypass this layer automatically.",
+  "settings.privacy.layers.ollama.label": "Ollama alias detection",
   "settings.privacy.layers.ollama.description":
-    "Detect nicknames and indirect references using local LLM.",
+    "Catch nicknames and indirect references via local LLM. Adds latency; only useful for documents with informal language.",
+  "settings.privacy.layers.ollamaSemantic.label": "Ollama semantic detection",
+  "settings.privacy.layers.ollamaSemantic.description":
+    "Detect DIAGNOSIS / MEDICATION / RELIGION / ETHNICITY / POLITICAL_OPINION via local LLM. Required for these entity types — no other layer can express them.",
 
 
   "settings.rag.sectionTitle": "RAG Settings",
@@ -449,6 +484,8 @@ export const enMessages = {
 
   "chat.ragMode.auto": "Auto-searched",
   "chat.ragMode.none": "Direct answer (no documents used)",
+  "chat.sources.summary": "Generated from {docs} document(s) · {chunks} excerpt(s)",
+  "chat.sources.chunkCount": "{count} excerpt(s)",
 
   "chat.json.title": "JSON output",
   "chat.json.invalid": "Invalid JSON",
@@ -539,6 +576,18 @@ export const enMessages = {
   "regulations.custom.title": "Custom Rules",
   "regulations.custom.subtitle":
     "Define organization-specific entities using regex, keyword lists, or local LLM prompts. Custom rules are merged with built-in regulations.",
+  "regulations.custom.helpBanner.intro":
+    "Custom rules add detection on top of the 17 built-in regulation packs. Pick the method that matches the shape of the data:",
+  "regulations.custom.helpBanner.regex":
+    "Structural patterns. Example: \\bPRJ-\\d{4}-\\d{5}\\b matches an internal project code like PRJ-2024-04829. Microsecond cost.",
+  "regulations.custom.helpBanner.keyword":
+    "A short list of literal strings. Example: Project Bluebird, Operation Halcyon — useful for codenames and team-internal labels.",
+  "regulations.custom.helpBanner.llm":
+    "Free-text categories regex cannot capture. Example: \"find every medication mention\". Local Ollama, ~1–5 s per chunk.",
+  "regulations.custom.helpBanner.testHint":
+    "Every rule has a Test button in the editor — paste sample text and verify the rule fires before saving.",
+  "regulations.custom.helpBanner.docsLink":
+    "Full guide with worked examples",
   "regulations.custom.addButton": "Add New Rule",
   "regulations.custom.loading": "Custom rules are loading...",
   "regulations.custom.empty":
@@ -637,6 +686,14 @@ export const enMessages = {
   "regulations.nonPii.title": "Non-PII Rules (Advanced)",
   "regulations.nonPii.subtitle":
     "Advanced rules for treating some spans (for example greetings or boilerplate) as non-PII so they are not masked. This list is intended only for advanced users; most setups do not need changes here.",
+  "regulations.nonPii.helpBanner.intro":
+    "Non-PII rules SUPPRESS detections — use them when a recognizer is masking something it shouldn't (test data, page footers, boilerplate phrases). Each rule defines what should NEVER be masked even if a recognizer matched it.",
+  "regulations.nonPii.helpBanner.regex":
+    "Suppress every span whose text matches the pattern. Example: ^Sayfa \\d+/\\d+$ — drops PDF page-number footers that NER misclassifies as ORG.",
+  "regulations.nonPii.helpBanner.token":
+    "Suppress spans whose text equals one of the listed words (case-insensitive). Example: pattern = \"Test Kullanıcı\" — keeps dev-export placeholder names visible.",
+  "regulations.nonPii.helpBanner.scopeHint":
+    "Optional filters: restrict by language code (e.g. tr) or by entity type (e.g. only PERSON_NAME). Min. score also gates by recognizer confidence.",
   "regulations.nonPii.loading": "Non-PII rules are loading...",
   "regulations.nonPii.empty":
     "No Non-PII rules are defined. The system will continue using its default data-driven behaviour.",

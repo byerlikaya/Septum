@@ -34,12 +34,36 @@ class Unmasker:
     )
 
     def unmask(self, text: str, anon_map: AnonymizationMap) -> str:
-        """Return a de-anonymized copy of ``text`` using ``anon_map``."""
-        if not text or not anon_map.entity_map:
+        """Return a de-anonymized copy of ``text`` using ``anon_map``.
+
+        Iteration is keyed by **placeholder**, not by original. The chat-time
+        multi-document unification can legitimately assign two distinct
+        placeholders to a single original string (e.g. when the name was
+        detected as PERSON_NAME in one document and ORGANIZATION_NAME in
+        another) and the original-keyed ``entity_map`` representation
+        silently drops one of those entries through dict overwrite. The
+        reversed ``placeholder_lookup`` field carries every placeholder
+        the unification minted, so every placeholder the cloud LLM echoes
+        back has a chance to resolve. Per-document maps that never set
+        ``placeholder_lookup`` fall back to deriving it from
+        ``entity_map``, preserving the single-document path verbatim.
+        """
+        if not text:
+            return text
+
+        if anon_map.placeholder_lookup:
+            lookup = anon_map.placeholder_lookup
+        elif anon_map.entity_map:
+            lookup = {
+                placeholder: original
+                for original, placeholder in anon_map.entity_map.items()
+                if placeholder
+            }
+        else:
             return text
 
         result = text
-        for original, placeholder in anon_map.entity_map.items():
+        for placeholder, original in lookup.items():
             if not placeholder:
                 continue
             if placeholder in result:

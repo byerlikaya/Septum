@@ -44,31 +44,6 @@ export function PrivacyTab({
           saving={isSaving("deanon_enabled")}
         />
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-slate-200">
-            {t("settings.privacy.deanonStrategy.label")}
-          </label>
-          <select
-            className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
-            value={settings.deanon_strategy || "simple"}
-            onChange={async (event) => {
-              const value = event.target.value || "simple";
-              await onChange("deanon_strategy", value);
-            }}
-          >
-            <option value="simple">simple</option>
-            <option value="ollama">ollama</option>
-            {settings.deanon_strategy &&
-              !["simple", "ollama"].includes(settings.deanon_strategy) && (
-                <option value={settings.deanon_strategy}>
-                  {settings.deanon_strategy}
-                </option>
-              )}
-          </select>
-          <FieldHint text={t("settings.privacy.deanonStrategy.hint")} />
-          {isSaving("deanon_strategy") && <SavingIndicator />}
-        </div>
-
         <ToggleField
           label={t("settings.privacy.requireApproval.label")}
           description={t("settings.privacy.requireApproval.description")}
@@ -159,6 +134,16 @@ export function PrivacyTab({
               await onChange("use_ollama_layer", value);
             }}
             saving={isSaving("use_ollama_layer")}
+          />
+          <ToggleField
+            label={t("settings.privacy.layers.ollamaSemantic.label")}
+            description={t("settings.privacy.layers.ollamaSemantic.description")}
+            checked={settings.use_ollama_semantic_layer}
+            onToggle={async (value) => {
+              onLocalFieldChange(settings, "use_ollama_semantic_layer", value);
+              await onChange("use_ollama_semantic_layer", value);
+            }}
+            saving={isSaving("use_ollama_semantic_layer")}
           />
         </div>
       </div>

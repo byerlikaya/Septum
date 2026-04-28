@@ -36,6 +36,7 @@ from .non_pii_filter import NonPiiFilter, SpanView
 from .ports import NullSemanticDetectionPort, SemanticDetectionPort
 from .regulations.composer import ComposedPolicy
 from .span_processing import (
+    absorb_overlapping_spans,
     deduplicate_spans,
     expand_person_name_spans,
     merge_adjacent_person_name_spans,
@@ -106,12 +107,79 @@ _HIGH_PRIORITY_ENTITY_TYPES: set[str] = {
     "LICENSE_PLATE",
 }
 
+# Entity types that are detected by deterministic recognizers
+# (regex / checksum / structural cues) and must NEVER be filtered by
+# the semantic-validation layer. The Ollama validator returns whichever
+# spans the LLM "agrees" are PII; if a deterministic span (a real
+# address, email, date of birth, IBAN, …) happens to be missing from
+# its output the original sanitize pipeline silently drops it, even
+# though the recognizer that found it never errs probabilistically.
+# Only NER-driven types (PERSON_NAME / LOCATION / ORGANIZATION_NAME)
+# need probabilistic validation; everything else passes through
+# untouched.
 _SEMANTIC_VALIDATION_PASSTHROUGH_TYPES: frozenset[str] = frozenset(
     _HIGH_PRIORITY_ENTITY_TYPES
+    | {
+        "EMAIL_ADDRESS",
+        "URL",
+        "IP_ADDRESS",
+        "MAC_ADDRESS",
+        "DATE_OF_BIRTH",
+        "COORDINATES",
+        "COOKIE_ID",
+        "DEVICE_ID",
+        "POSTAL_ADDRESS",
+        "STREET_ADDRESS",
+        "CUSTOMER_REFERENCE_ID",
+    }
 )
 
-_MIN_TEXT_LENGTH_FOR_NER = 50
+# Minimum text length before the NER layer kicks in. The threshold
+# was originally 50 to avoid transformer hallucinations on tiny page
+# fragments, but that silently disabled NER on chat queries (typically
+# 20–40 chars), so a question like "Ahmet Çelik Antalya'da mı oturuyor?"
+# left ``query_entries=0`` in the anon_map, the entity-routing layer
+# had nothing to match against the index, and the auto-RAG intent
+# classifier was free to wrongly tag the turn as a general-chat
+# request — RAG never ran and the LLM answered from its own knowledge.
+# Lowering the floor to 20 keeps the noise guard for sub-20-char
+# fragments (where NER mis-fires are common) while restoring
+# entity detection on short user questions.
+_MIN_TEXT_LENGTH_FOR_NER = 20
 _MIN_TEXT_LENGTH_FOR_SEMANTIC_ALIAS = 80
+
+# Per-entity-type minimum confidence for keeping a transformer NER
+# detection. Septum is privacy-first: an over-redaction is a recoverable
+# annoyance, an under-redaction is a PII leak. The thresholds here
+# therefore lean toward recall, especially for high-stakes person
+# identifiers, while still gating the entity types that the multilingual
+# XLM-RoBERTa variants are known to fire stochastically on short
+# locale-specific tokens.
+_NER_DEFAULT_MIN_SCORE = 0.85
+_NER_MIN_SCORE_PER_TYPE: Dict[str, float] = {
+    # PERSON_NAME drives identity redaction; xlm-roberta routinely scores
+    # rare Turkish surnames in the 0.80–0.85 band, so the default 0.85
+    # was missing real names. Lowered to 0.80 to recapture them — the
+    # downstream blocklist + coreference layer can absorb the extra
+    # noise this admits.
+    "PERSON_NAME": 0.80,
+    "EMAIL_ADDRESS": _NER_DEFAULT_MIN_SCORE,
+    "ORGANIZATION_NAME": _NER_DEFAULT_MIN_SCORE,
+    "LOCATION": _NER_DEFAULT_MIN_SCORE,
+}
+
+# Single-word entities of the chosen types are the dominant false-positive
+# shape for multilingual NER. They get a stricter floor than multi-word
+# spans of the same type. Multi-word spans bypass this gate entirely.
+_NER_SINGLE_WORD_MIN_SCORE_PER_TYPE: Dict[str, float] = {
+    "ORGANIZATION_NAME": 0.95,
+    "LOCATION": 0.95,
+}
+
+# When the Presidio layer is run alongside the transformer NER layer,
+# Presidio's PERSON_NAME signal is treated as advisory and dropped below
+# this floor — the transformer is the authoritative person source.
+_PRESIDIO_PERSON_MIN_SCORE_WHEN_NER_ENABLED = 0.7
 
 _UPPER_WORD_RE = re.compile(r"\b\w{2,}\b")
 
@@ -275,6 +343,29 @@ class ExtendedPhoneRecognizer(BaseCustomRecognizer):
         return results
 
 
+_IBAN_COUNTRY_LENGTHS: dict[str, int] = {
+    # ISO 13616 country IBAN lengths (alphanumerics only, no spaces).
+    # Used as a safety cap when the greedy regex over-captures past the
+    # true IBAN end and no checksum-valid prefix can be found by trimming.
+    "AD": 24, "AE": 23, "AL": 28, "AT": 20, "AZ": 28,
+    "BA": 20, "BE": 16, "BG": 22, "BH": 22, "BR": 29,
+    "BY": 28, "CH": 21, "CR": 22, "CY": 28, "CZ": 24,
+    "DE": 22, "DK": 18, "DO": 28, "EE": 20, "EG": 29,
+    "ES": 24, "FI": 18, "FO": 18, "FR": 27, "GB": 22,
+    "GE": 22, "GI": 23, "GL": 18, "GR": 27, "GT": 28,
+    "HR": 21, "HU": 28, "IE": 22, "IL": 23, "IQ": 23,
+    "IS": 26, "IT": 27, "JO": 30, "KW": 30, "KZ": 20,
+    "LB": 28, "LC": 32, "LI": 21, "LT": 20, "LU": 20,
+    "LV": 21, "LY": 25, "MC": 27, "MD": 24, "ME": 22,
+    "MK": 19, "MR": 27, "MT": 31, "MU": 30, "NL": 18,
+    "NO": 15, "PK": 24, "PL": 28, "PS": 29, "PT": 25,
+    "QA": 29, "RO": 24, "RS": 22, "SA": 24, "SC": 31,
+    "SE": 24, "SI": 19, "SK": 24, "SM": 27, "ST": 25,
+    "SV": 28, "TL": 23, "TN": 24, "TR": 26, "UA": 29,
+    "VA": 22, "VG": 24, "XK": 20,
+}
+
+
 class ValidatedIBANRecognizer(BaseCustomRecognizer):
     """Presidio recognizer for IBAN values with a format-only fallback.
 
@@ -287,6 +378,19 @@ class ValidatedIBANRecognizer(BaseCustomRecognizer):
       IBAN but at a lower score (``0.65``) so downstream filters can
       weigh it accordingly. Privacy-first: a mis-typed IBAN is still
       account information and should not leak to a cloud LLM.
+
+    Span trimming: the greedy regex can over-capture trailing tokens
+    when the IBAN is followed by a label word, country abbreviation,
+    or another alphanumeric run separated only by whitespace
+    (``...TR94 0006 2000 1010 0007 1234 56 IBAN numarali``). To keep
+    the deanonymized output clean the analyzer first tries to find the
+    longest checksum-valid prefix by shrinking from the right; failing
+    that, the span is capped at the ISO 13616 length for the detected
+    country code so a 26-char Turkish IBAN cannot leak the next word
+    of context into the placeholder. The over-greedy form would
+    otherwise be persisted into ``anon_map.entity_map`` and surface as
+    junk text after deanonymization (``[IBAN_1]`` resolved to
+    ``TR94 0006 2000 1010 0007 1234 56 IBA``).
 
     The compiled pattern accepts both the contiguous form
     (``DE89220041010054014200``) and the paper / statement form with
@@ -309,6 +413,41 @@ class ValidatedIBANRecognizer(BaseCustomRecognizer):
             r"\b[A-Za-z]{2}\d{2}[\s0-9A-Za-z]{11,32}"
         )
 
+    @staticmethod
+    def _alnum_count(value: str) -> int:
+        """Return the number of alphanumeric characters in ``value``."""
+        return sum(1 for ch in value if ch.isalnum())
+
+    @staticmethod
+    def _span_for_alnum_count(value: str, target: int) -> int:
+        """Return the substring length of ``value`` that contains
+        exactly ``target`` alphanumeric characters, or ``len(value)``
+        if the string is shorter."""
+        seen = 0
+        for idx, ch in enumerate(value):
+            if ch.isalnum():
+                seen += 1
+                if seen == target:
+                    return idx + 1
+        return len(value)
+
+    def _trim_to_valid_iban(self, full: str) -> Optional[str]:
+        """Find the longest checksum-valid IBAN prefix of ``full``.
+
+        Walks from the right, dropping one character at a time
+        (alphanumeric or separator), and returns the first prefix
+        whose checksum validates. ``None`` if no prefix passes.
+        """
+        candidate = full
+        while candidate:
+            stripped_len = self._alnum_count(candidate)
+            if stripped_len < 15:
+                return None
+            if stripped_len <= 34 and self._validator.validate(candidate):
+                return candidate
+            candidate = candidate[:-1]
+        return None
+
     def analyze(  # type: ignore[override]
         self,
         text: str,
@@ -321,12 +460,30 @@ class ValidatedIBANRecognizer(BaseCustomRecognizer):
         results: List[RecognizerResult] = []
         for match in self._pattern.finditer(text):
             candidate = match.group(0).rstrip()
-            stripped = re.sub(r"[\s.-]", "", candidate)
-            if not (15 <= len(stripped) <= 34):
-                continue
+
+            valid_prefix = self._trim_to_valid_iban(candidate)
+            if valid_prefix is not None:
+                final = valid_prefix
+                score = 0.96
+            else:
+                # No checksum-valid prefix anywhere in the matched span.
+                # Cap at the ISO 13616 length for the country code so a
+                # mis-typed / synthetic IBAN cannot drag along the next
+                # word of context. Fall back to the bare 15-char minimum
+                # if the country code is unrecognized.
+                country = candidate[:2].upper()
+                max_alnum = _IBAN_COUNTRY_LENGTHS.get(country)
+                if max_alnum is not None:
+                    final = candidate[: self._span_for_alnum_count(candidate, max_alnum)].rstrip()
+                else:
+                    final = candidate
+                stripped_len = self._alnum_count(final)
+                if not (15 <= stripped_len <= 34):
+                    continue
+                score = 0.65
+
             start = match.start()
-            end = start + len(candidate)
-            score = 0.96 if self._validator.validate(candidate) else 0.65
+            end = start + len(final)
             results.append(
                 RecognizerResult(
                     entity_type="IBAN",
@@ -1217,18 +1374,34 @@ class Detector:
         text_len = len(normalized_text.strip())
 
         if self._config.use_ner_layer and text_len >= _MIN_TEXT_LENGTH_FOR_NER:
-            ner_pipeline = self._ner_registry.get_pipeline(language)
-            ner_results = ner_pipeline(normalized_text)
-            ner_spans = self._from_ner_results(ner_results, normalized_text, language)
-
-            # Re-run NER on title-cased text to catch ALL CAPS names that
-            # transformer models miss (trained on mixed-case text).
+            ner_pipelines = self._ner_registry.get_pipelines(language)
             titlecased = _titlecase_upper_segments(normalized_text)
-            if titlecased != normalized_text:
-                tc_results = ner_pipeline(titlecased)
-                tc_spans = self._from_ner_results(tc_results, normalized_text, language)
-                existing = {(s.start, s.end) for s in ner_spans}
-                ner_spans.extend(s for s in tc_spans if (s.start, s.end) not in existing)
+            ner_spans: List[DetectedSpan] = []
+            seen_spans: set[tuple[int, int, str]] = set()
+            for ner_pipeline in ner_pipelines:
+                pipeline_spans = self._from_ner_results(
+                    ner_pipeline(normalized_text), normalized_text, language
+                )
+                # Re-run on title-cased text to catch ALL CAPS names that
+                # transformers (trained on mixed case) miss.
+                if titlecased != normalized_text:
+                    tc_spans = self._from_ner_results(
+                        ner_pipeline(titlecased), normalized_text, language
+                    )
+                    pipeline_offsets = {(s.start, s.end) for s in pipeline_spans}
+                    pipeline_spans.extend(
+                        s for s in tc_spans if (s.start, s.end) not in pipeline_offsets
+                    )
+                # Cross-model dedup: if two ensemble members detect the
+                # exact same (start, end, entity_type) span we keep one
+                # copy. Different entity_types at the same offsets are
+                # left to the downstream absorption + dedup passes.
+                for s in pipeline_spans:
+                    key = (s.start, s.end, s.entity_type)
+                    if key in seen_spans:
+                        continue
+                    seen_spans.add(key)
+                    ner_spans.append(s)
             if self._entity_types is not None:
                 allowed = set(self._entity_types)
                 ner_spans = [s for s in ner_spans if s.entity_type in allowed]
@@ -1318,6 +1491,7 @@ class Detector:
                         break
             spans = keep_spans
 
+        spans = absorb_overlapping_spans(spans)
         spans = deduplicate_spans(spans, _HIGH_PRIORITY_ENTITY_TYPES)
 
         # Expand person-name spans to cover adjacent capitalized tokens so that
@@ -1388,7 +1562,11 @@ class Detector:
         filtered: List[RecognizerResult] = []
         for r in results:
 
-            if self._config.use_ner_layer and r.entity_type == "PERSON_NAME" and r.score < 0.7:
+            if (
+                self._config.use_ner_layer
+                and r.entity_type == "PERSON_NAME"
+                and r.score < _PRESIDIO_PERSON_MIN_SCORE_WHEN_NER_ENABLED
+            ):
                 continue
 
             if r.entity_type == "PHONE_NUMBER":
@@ -1521,9 +1699,11 @@ class Detector:
     ) -> List[DetectedSpan]:
         """Convert HuggingFace NER pipeline outputs to DetectedSpan.
 
-        Applies a uniform confidence threshold of 0.85 for all languages
-        to limit false positives. Spans are snapped to word boundaries
-        to prevent mid-word replacements caused by subword tokenisation.
+        Confidence thresholds come from ``_NER_MIN_SCORE_PER_TYPE`` (and
+        ``_NER_SINGLE_WORD_MIN_SCORE_PER_TYPE`` for ORG/LOC single-word
+        spans) so per-type tuning happens in one place. Spans are snapped
+        to word boundaries to prevent mid-word replacements caused by
+        subword tokenisation.
 
         Minimum span length is language-aware: 2 characters for CJK +
         Thai (ZH / JA / KO / TH names routinely run 2–3 glyphs, e.g.
@@ -1535,7 +1715,6 @@ class Detector:
         specific single-token mis-fires that motivated the earlier full
         suppression. See ``_map_ner_label`` for the rationale.
         """
-        threshold = 0.85
         # CJK languages + Thai use logographic or dense scripts where a
         # 2-glyph span is often a full given name. Latin scripts keep
         # the 3-character floor to suppress "Dr" / "Mr" style noise.
@@ -1552,7 +1731,10 @@ class Detector:
             if entity_type is None:
                 continue
 
-            if score < threshold:
+            min_score = _NER_MIN_SCORE_PER_TYPE.get(
+                entity_type, _NER_DEFAULT_MIN_SCORE
+            )
+            if score < min_score:
                 continue
 
             start, end = Detector._snap_to_word_boundaries(text, start, end)
@@ -1561,20 +1743,18 @@ class Detector:
             if len(span_text) < min_span_len:
                 continue
 
-            if entity_type == "ORGANIZATION_NAME":
-                words = span_text.split()
-                if len(words) < 2 and score < 0.95:
-                    continue
-
-            if entity_type == "LOCATION":
-                # Same conservative filter as ORGANIZATION_NAME: accept only
-                # multi-word spans or very high-confidence single tokens.
-                # Keeps real placenames ("Paris", "İstanbul" — score > 0.95)
-                # while dropping the locale-specific single-token mis-fires
-                # (Turkish "Doğum", German form headers, etc.) that poisoned
-                # the naive LOC → LOCATION mapping before it was dropped.
-                words = span_text.split()
-                if len(words) < 2 and score < 0.95:
+            single_word_floor = _NER_SINGLE_WORD_MIN_SCORE_PER_TYPE.get(
+                entity_type
+            )
+            if single_word_floor is not None:
+                # Locale-specific single-token mis-fires (Turkish "Doğum",
+                # German form headers, …) are the dominant FP shape for
+                # multilingual XLM-RoBERTa on ORG/LOC. Multi-word spans
+                # bypass; single tokens must clear a higher floor.
+                if (
+                    len(span_text.split()) < 2
+                    and score < single_word_floor
+                ):
                     continue
 
             spans.append(

@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle, Copy, Check, FileSearch, Info, MessageSquare, WifiOff, XCircle } from "lucide-react";
+import { CheckCircle, ChevronDown, Copy, Check, FileSearch, Info, MessageSquare, WifiOff, XCircle } from "lucide-react";
 import type { ChatMessage } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
@@ -53,11 +53,28 @@ export function MessageBubble({
           <span>{t("chat.localFallbackBadge")}</span>
         </div>
       )}
-      {!isUser && message.ragMode === "auto" && message.matchedDocNames && message.matchedDocNames.length > 0 && (
-        <div className="mt-1.5 flex items-center gap-1.5 rounded-md border border-sky-800/60 bg-sky-950/40 px-2 py-1.5 text-xs text-sky-200">
-          <FileSearch className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          <span>{t("chat.ragMode.auto")}: {message.matchedDocNames.join(", ")}</span>
-        </div>
+      {!isUser && message.ragMode !== "none" && message.matchedDocuments && message.matchedDocuments.length > 0 && (
+        <details className="mt-1.5 group rounded-md border border-sky-800/60 bg-sky-950/40 text-xs text-sky-200">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 py-1.5 hover:bg-sky-900/40">
+            <FileSearch className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span>
+              {t("chat.sources.summary")
+                .replace("{docs}", String(message.matchedDocuments.length))
+                .replace("{chunks}", String(message.retrievedChunkCount ?? 0))}
+            </span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180" aria-hidden />
+          </summary>
+          <ul className="border-t border-sky-800/60 px-2 py-1.5 space-y-0.5">
+            {message.matchedDocuments.map((d) => (
+              <li key={d.id} className="flex items-center justify-between gap-2">
+                <span className="truncate" title={d.name}>{d.name}</span>
+                <span className="shrink-0 text-sky-300/80">
+                  {t("chat.sources.chunkCount").replace("{count}", String(d.chunk_count))}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
       {!isUser && message.ragMode === "none" && (
         <div className="mt-1.5 flex items-center gap-1.5 rounded-md border border-slate-700/60 bg-slate-800/40 px-2 py-1.5 text-xs text-slate-300">

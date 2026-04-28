@@ -100,6 +100,11 @@ export interface Chunk {
   document_id: number;
   index: number;
   sanitized_text: string;
+  /** Raw extracted text before PII masking. Used by the local document
+   *  preview UI so entity highlight overlays render against the
+   *  original characters. Nullable for chunks ingested before this
+   *  field existed; preview falls back to ``sanitized_text``. */
+  raw_text?: string | null;
   char_count: number;
   source_page: number | null;
   source_slide: number | null;
@@ -140,6 +145,14 @@ export interface ChatMessage {
   debugData?: DebugData;
   ragMode?: RagMode;
   matchedDocNames?: string[];
+  matchedDocuments?: MatchedDocument[];
+  retrievedChunkCount?: number;
+}
+
+export interface MatchedDocument {
+  id: number;
+  name: string;
+  chunk_count: number;
 }
 
 export type OutputMode = "chat" | "json";
@@ -167,6 +180,7 @@ export interface SSEMetaEvent {
   rag_mode?: RagMode;
   matched_document_ids?: number[];
   matched_document_names?: string[];
+  matched_documents?: MatchedDocument[];
 }
 
 export interface SSEApprovalRequiredEvent {
@@ -252,7 +266,6 @@ export interface AppSettingsResponse {
   ollama_chat_model: string;
   ollama_deanon_model: string;
   deanon_enabled: boolean;
-  deanon_strategy: string;
   require_approval: boolean;
   approval_timeout_seconds: number;
   show_json_output: boolean;
@@ -260,6 +273,7 @@ export interface AppSettingsResponse {
   use_ner_layer: boolean;
   use_ollama_validation_layer: boolean;
   use_ollama_layer: boolean;
+  use_ollama_semantic_layer: boolean;
 
   chunk_size: number;
   chunk_overlap: number;
@@ -273,8 +287,6 @@ export interface AppSettingsResponse {
   image_ocr_languages: string[];
   ocr_provider: string;
   ocr_provider_options: Record<string, unknown> | null;
-  extract_embedded_images: boolean;
-  recursive_email_attachments: boolean;
   default_active_regulations: string[];
   ner_model_overrides: Record<string, string> | null;
   has_anthropic_key: boolean;

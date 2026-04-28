@@ -106,13 +106,15 @@ Modül kontratları ve bölge kuralları [Mimari](docs/tr/architecture.md) dokü
 - **Yerel PII Koruması** — üç katmanlı tespit (Presidio + NER + isteğe bağlı Ollama), hem yüklenen dokümanlarda hem de yazdığınız mesajlarda çalışır. Dokümanlar şifreli saklanır (AES-256-GCM).
 - **Onay Kapısı** — her LLM çağrısından önce maskeli prompt, getirilen parçalar ve buluta gidecek hazır istek yan yana görünür. Siz onaylamadan hiçbir şey gönderilmez.
 - **17 Regülasyon Paketi** — GDPR, KVKK, CCPA, HIPAA, LGPD, PIPEDA, PDPA, APPI, PIPL, POPIA, DPDP, UK GDPR ve daha fazlası. Aynı anda birden çoğu aktif olabilir; en kısıtlayıcı kural kazanır. Bölgeye özgü kimlik doğrulayıcıları (TCKN, Aadhaar Verhoeff, NRIC/FIN, CPF, NINO, CNPJ, My Number ve fazlası) algoritmiktir.
-- **Otomatik RAG Yönlendirme** — doküman seçilmediğinde yerel Ollama sınıflandırıcısı soruyu ya Otomatik RAG'a (tüm dokümanları arar) ya da doğrudan sohbet yoluna yönlendirir. Manuel seçim gerekmez.
+- **Otomatik RAG Yönlendirme** — doküman seçilmediğinde yerel Ollama sınıflandırıcısı soruyu ya Otomatik RAG'a (tüm dokümanları arar) ya da doğrudan sohbet yoluna yönlendirir. Otomatik RAG varlık-farkındalıdır: retrieval'ı yalnızca sorgulanan PII'yi gerçekten içeren dokümanlara daraltır; belirsiz eşleşmeler için bir doküman seçici çıkar.
 - **Özel Kurallar** — regex, anahtar kelime listesi ya da LLM-prompt tabanlı kendi tanıyıcılarınızı tanımlayın.
 - **Zengin Format Desteği** — PDF, Office, hesap tabloları, görseller (OCR), ses (Whisper), e-postalar.
 - **Hibrit Retrieval** — BM25 kelime eşleme + FAISS semantik arama, Reciprocal Rank Fusion ile birleştirilir.
 - **Çoklu Sağlayıcı** — Anthropic, OpenAI, OpenRouter veya yerel Ollama. Arayüzden değiştirin.
 - **JWT + RBAC + API Anahtarları** — ilk kullanıcı kurulum sihirbazında otomatik olarak admin yapılır; admin arayüzünden rol yönetimi (admin / editor / viewer) sağlanır. Programatik API anahtarları SHA-256 hash'li saklanır, rate limit anahtarın önekine göre uygulanır.
 - **MCP Sunucusu** — bağımsız `septum-mcp`, aynı yerel maskeleme hattını MCP uyumlu her istemciye açar: stdio üzerinden lokal istemciler (Claude Desktop, Cursor, Windsurf) ya da streamable-http / sse üzerinden uzak, tarayıcı ve container istemciler için bearer-token auth'lu.
+- **Doküman İlişki Grafiği** — hangi dokümanların aynı varlıkları (kişi, IBAN, kimlik, organizasyon) paylaştığını cytoscape tabanlı görsel haritada gösterir. Her düğümün içinde benzersiz varlık sayısı; kenar kalınlığı varlık benzersizliğine göre ölçeklenir, paylaşılan bir NATIONAL_ID paylaşılan bir şehir adından ağır basar.
+- **Kaynak Atıfı** — belgeye dayalı her sohbet yanıtının altında hangi dokümanlardan ne kadar parça kullanıldığı görünür; doküman başına genişleyebilir liste her cevabın altında durur.
 - **Denetim Kaydı** — salt-ekleme uyumluluk günlüğü ve varlık tespit metrikleri. Denetim olaylarında ham PII yoktur.
 
 Tam tespit benchmark'ı, regülasyon paket tablosu, MCP entegrasyon kılavuzu, REST API + kimlik doğrulama referansı ve "neden Septum" karşılaştırması için [Özellikler](docs/tr/features.md) dokümanına bakın. Her Septum ekranının görsel turu — kurulum sihirbazı, onay kapısı, doküman önizleme, ayarlar sekmeleri, özel regülasyon kuralları, denetim kaydı — için [Ekran Görüntüleri](docs/tr/screenshots.md) sayfasına bakın.

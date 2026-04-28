@@ -31,6 +31,7 @@ Ollama only:              pytest tests/benchmark_detection.py -v -s -k ollama
 from __future__ import annotations
 
 import logging
+import os
 import random
 import re
 import string
@@ -49,7 +50,11 @@ from septum_api.services.sanitizer import PIISanitizer
 logger = logging.getLogger(__name__)
 
 _RNG = random.Random(42)
-OLLAMA_MODEL = "aya-expanse:8b"
+# Default Ollama model is overridable via env so the benchmark can
+# compare candidate models (llama3.2:3b vs aya-expanse:8b vs
+# qwen2.5:14b, …) without code edits. scripts/benchmark_ollama_models.sh
+# is the canonical multi-model driver.
+OLLAMA_MODEL = os.environ.get("SEPTUM_BENCHMARK_OLLAMA_MODEL", "aya-expanse:8b")
 N = 150  # samples per entity type
 
 
@@ -3328,7 +3333,7 @@ def _update_readmes(data: dict) -> None:
         "|---|:---:|:---:|:---:|:---:|:---:|\n"
         f"| Presidio (L1) — patterns + validators | {p['entities']:,} | {p['types']} | {_fmt(p['precision'])} | {_fmt(p['recall'])} | {_fmt(p['f1'])} |\n"
         f"| NER (L2) — XLM-RoBERTa + ALL CAPS normalisation | {n['entities']} | {n['types']} | {_fmt(n['precision'])} | {_fmt(n['recall'])} | {_fmt(n['f1'])} |\n"
-        f"| Ollama (L3) — aya-expanse:8b | {o['entities']} | {o['types']} | {_fmt(o['precision'])} | {_fmt(o['recall'])} | {_fmt(o['f1'])} |\n"
+        f"| Ollama (L3) — {OLLAMA_MODEL} | {o['entities']} | {o['types']} | {_fmt(o['precision'])} | {_fmt(o['recall'])} | {_fmt(o['f1'])} |\n"
         f"| **Combined** | **{c['entities']:,}** | **{c['types']}** | **{_fmt(c['precision'])}** | **{_fmt(c['recall'])}** | **{_fmt(c['f1'])}** |"
     )
 
@@ -3347,7 +3352,7 @@ def _update_readmes(data: dict) -> None:
         "|---|:---:|:---:|:---:|:---:|:---:|\n"
         f"| Presidio (K1) — desenler + doğrulayıcılar | {p['entities']:,} | {p['types']} | {_fmt_tr(p['precision'])} | {_fmt_tr(p['recall'])} | {_fmt_tr(p['f1'])} |\n"
         f"| NER (K2) — XLM-RoBERTa + BÜYÜK HARF normalizasyonu | {n['entities']} | {n['types']} | {_fmt_tr(n['precision'])} | {_fmt_tr(n['recall'])} | {_fmt_tr(n['f1'])} |\n"
-        f"| Ollama (K3) — aya-expanse:8b | {o['entities']} | {o['types']} | {_fmt_tr(o['precision'])} | {_fmt_tr(o['recall'])} | {_fmt_tr(o['f1'])} |\n"
+        f"| Ollama (K3) — {OLLAMA_MODEL} | {o['entities']} | {o['types']} | {_fmt_tr(o['precision'])} | {_fmt_tr(o['recall'])} | {_fmt_tr(o['f1'])} |\n"
         f"| **Birleşik** | **{c['entities']:,}** | **{c['types']}** | **{_fmt_tr(c['precision'])}** | **{_fmt_tr(c['recall'])}** | **{_fmt_tr(c['f1'])}** |"
     )
 

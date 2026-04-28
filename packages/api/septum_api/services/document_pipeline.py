@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Callable, Dict, List, Sequence
+from typing import Callable, Dict, List, Optional, Sequence
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +22,10 @@ from .chunking_strategy import (
     StructuredDocumentChunker,
 )
 from .document_anon_store import pop_document_map, set_document_map
+from .entity_index_service import (
+    recompute_relationships_for_document,
+    replace_index_for_document,
+)
 from .sanitizer import ResolvedSpan
 from .sanitizer_factory import create_sanitizer
 from .text_normalizer import TextNormalizer
@@ -90,20 +94,41 @@ class DocumentPipeline:
                 aggregate_type_counts[etype] = aggregate_type_counts.get(etype, 0) + ecount
             if sanitize_result.detected_spans:
                 per_chunk_spans[semantic_chunk.index] = sanitize_result.detected_spans
+            # Persist the sanitized form of the chunk — the field name
+            # ``sanitized_text`` carries exactly that contract, and storing
+            # the raw value here meant that any PII span the detector
+            # missed (spaced IBAN variants, NER-missed names, novel label
+            # shapes) would leak through the chat-time string-replace pass
+            # untouched because the anon_map never learned about it.
+            # Vector / BM25 indexes keep the raw form via ``raw_texts_for_index``
+            # so semantic search quality is unaffected, and those indexes
+            # stay local.
+            sanitized_chunk_text = sanitize_result.sanitized_text
             stored_chunks.append(
                 SemanticChunk(
-                    text=normalized_raw,
+                    text=sanitized_chunk_text,
                     index=semantic_chunk.index,
                     source_page=semantic_chunk.source_page,
                     section_title=semantic_chunk.section_title,
-                    char_count=len(normalized_raw),
+                    char_count=len(sanitized_chunk_text),
                 )
             )
 
-        document.transcription_text = "\n\n".join(chunk.text for chunk in stored_chunks)
+        # ``transcription_text`` powers the local document-preview UI,
+        # which renders the ORIGINAL text with the per-entity highlight
+        # overlays so the user can verify what was detected and where.
+        # That preview never leaves the air-gapped zone, so it is safe
+        # — and useful — to show the raw form here even though every
+        # other on-disk surface (chunks, anon_map, indexes) keeps PII
+        # masked or hashed. Concatenating the per-chunk raw text keeps
+        # the preview in sync with the chunk boundaries used for
+        # entity offset highlighting.
+        document.transcription_text = "\n\n".join(raw_texts_for_index)
         document.ocr_confidence = ingestion_confidence
 
-        chunks = await self._persist_chunks(db, document.id, stored_chunks)
+        chunks = await self._persist_chunks(
+            db, document.id, stored_chunks, raw_texts_for_index
+        )
 
         detection_rows: list[EntityDetection] = []
         if per_chunk_spans:
@@ -133,6 +158,26 @@ class DocumentPipeline:
         await db.refresh(document)
 
         await set_document_map(document.id, anon_map)
+
+        # Populate the cross-document entity index so future chat queries
+        # can route narrowly to the documents that actually contain the
+        # entities the user asked about, and refresh the pairwise
+        # relationship rows that involve this document so the
+        # visualisation graph and the auto-cluster suggester stay in
+        # sync. The index only stores HMAC-SHA256 hashes of the
+        # originals under the local encryption key — no raw PII is
+        # persisted here.
+        try:
+            await replace_index_for_document(db, document.id, anon_map)
+            await recompute_relationships_for_document(db, document.id)
+            await db.commit()
+        except Exception:
+            logger = logging.getLogger(__name__)
+            logger.exception(
+                "Failed to populate entity index / relationships for document %s",
+                document.id,
+            )
+            await db.rollback()
 
         if total_entities > 0:
             placeholder_samples = list(anon_map.entity_map.values())[:5] if anon_map.entity_map else []
@@ -196,13 +241,20 @@ class DocumentPipeline:
         db: AsyncSession,
         document_id: int,
         semantic_chunks: Sequence[SemanticChunk],
+        raw_texts: Optional[Sequence[str]] = None,
     ) -> List[DocumentChunk]:
         chunks: List[DocumentChunk] = []
-        for semantic_chunk in semantic_chunks:
+        for idx, semantic_chunk in enumerate(semantic_chunks):
+            raw_text = (
+                raw_texts[idx]
+                if raw_texts is not None and idx < len(raw_texts)
+                else None
+            )
             chunk = DocumentChunk(
                 document_id=document_id,
                 index=semantic_chunk.index,
                 sanitized_text=semantic_chunk.text,
+                raw_text=raw_text,
                 char_count=semantic_chunk.char_count,
                 source_page=semantic_chunk.source_page,
                 source_slide=None,

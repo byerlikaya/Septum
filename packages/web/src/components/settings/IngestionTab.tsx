@@ -2,22 +2,10 @@
 
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
-import type { AppSettingsResponse } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import type { SettingsTabProps } from "./types";
 import { FieldHint } from "./FieldHint";
 import { SavingIndicator } from "./SavingIndicator";
-import { ToggleField } from "./ToggleField";
-
-function onLocalFieldChange<K extends keyof AppSettingsResponse>(
-  current: AppSettingsResponse,
-  key: K,
-  value: AppSettingsResponse[K] | string
-): void {
-  void current;
-  void key;
-  void value;
-}
 
 type AudioHealth = {
   ffmpeg: string;
@@ -276,35 +264,6 @@ export function IngestionTab({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <ToggleField
-          label={t("settings.ingestion.extractImages.label")}
-          description={t("settings.ingestion.extractImages.description")}
-          checked={settings.extract_embedded_images}
-          onToggle={async (value) => {
-            onLocalFieldChange(settings, "extract_embedded_images", value);
-            await onChange("extract_embedded_images", value);
-          }}
-          saving={isSaving("extract_embedded_images")}
-        />
-
-        <ToggleField
-          label={t("settings.ingestion.recursiveEmail.label")}
-          description={t(
-            "settings.ingestion.recursiveEmail.description"
-          )}
-          checked={settings.recursive_email_attachments}
-          onToggle={async (value) => {
-            onLocalFieldChange(
-              settings,
-              "recursive_email_attachments",
-              value
-            );
-            await onChange("recursive_email_attachments", value);
-          }}
-          saving={isSaving("recursive_email_attachments")}
-        />
-      </div>
     </div>
   );
 }

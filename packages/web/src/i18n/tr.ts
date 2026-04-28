@@ -3,7 +3,37 @@ export const trMessages: Record<string, string> = {
   "sidebar.tagline": "Yapay Zeka Gizlilik Geçidi",
   "sidebar.chat": "Sohbet",
   "sidebar.documents": "Dokümanlar",
+  "sidebar.relationships": "Bağlantılar",
   "sidebar.chunks": "Parçalar",
+
+  "relationships.title": "Doküman Bağlantıları",
+  "relationships.description": "Dokümanlar paylaştıkları varlıklar üzerinden birbirine bağlanır. Çizgi kalınlığı bağlantının gücünü gösterir. Bir kenara tıklayarak ortak varlıkları inceleyebilirsiniz.",
+  "relationships.loading": "Bağlantı grafiği yükleniyor…",
+  "relationships.loadError": "Bağlantı grafiği yüklenemedi.",
+  "relationships.empty": "Henüz indekslenmiş doküman yok. Bir doküman yükleyerek varlık grafiğini oluşturmaya başlayın.",
+  "relationships.svgAriaLabel": "Doküman bağlantılarını gösteren grafik",
+  "relationships.zoomHint": "Sürükle ve düzenle · Tekerlek ile yakınlaştır · Detay için kenara tıkla",
+  "relationships.fitView": "Tüm grafa sığdır",
+  "relationships.legend.title": "Açıklama",
+  "relationships.legend.strong": "Güçlü bağ (≥1.0) — küresel benzersiz bir varlık paylaşılıyor",
+  "relationships.legend.medium": "Orta bağ (0.4–1.0) — birden fazla varlık paylaşılıyor",
+  "relationships.legend.weak": "Zayıf bağ (<0.4) — yalnızca ortak isim veya konum",
+  "relationships.selectionHint": "Detay için bir düğüme dokunun veya bir kenara tıklayın.",
+  "relationships.edgePanel.connection": "Bağlantı",
+  "relationships.edgePanel.score": "Skor",
+  "relationships.edgePanel.strength": "Güç",
+  "relationships.edgePanel.sharedCount": "Paylaşılan varlık",
+  "relationships.edgePanel.sharedTypes": "Paylaşılan varlık türleri",
+  "relationships.nodePanel.document": "Doküman",
+  "relationships.nodePanel.distinctEntities": "Benzersiz varlık",
+  "relationships.nodePanel.totalDetections": "Toplam tespit",
+
+  "chat.disambiguation.title": "Hangi varlığı kastettiniz?",
+  "chat.disambiguation.description": "Sorunuz birden fazla farklı doküman grubuyla eşleşti. Yanıtın hangi grup üzerinden hazırlanacağını seçin veya hepsini kullanın.",
+  "chat.disambiguation.option": "Seçenek {n}",
+  "chat.disambiguation.score": "skor {score}",
+  "chat.disambiguation.useAll": "Tüm grupları kullan",
+  "chat.disambiguation.cancel": "Vazgeç",
   "sidebar.settings": "Ayarlar",
   "sidebar.regulations": "Regülasyonlar",
   "sidebar.users": "Kullanıcılar",
@@ -179,6 +209,8 @@ export const trMessages: Record<string, string> = {
   "settings.ner.overrideLabel": "{lang} için modeli değiştir",
   "settings.ner.restoreDefault": "Varsayılana döndür",
   "settings.ner.saveOverrides": "Değişiklikleri kaydet",
+  "settings.ner.ensembleHint":
+    "Birden çok model ID'sini virgülle ayırarak ensemble (tespitler birleşir) modunda çalıştırabilirsiniz. Tek ID = tek model.",
   "settings.ner.defaultsLoadError":
     "Varsayılan NER model eşlemesi arka uçtan yüklenemedi.",
   "settings.ner.defaultsEmpty": "Kayıtlı varsayılan NER modeli bulunmuyor.",
@@ -239,16 +271,19 @@ export const trMessages: Record<string, string> = {
   "settings.privacy.layers.title": "Anonimleştirme katmanları",
   "settings.privacy.layers.presidio.label": "Presidio katmanı",
   "settings.privacy.layers.presidio.description":
-    "Kural tabanlı tanıyıcılar ve ulusal kimlik doğrulayıcıları.",
+    "Deterministik regex + ulusal kimlik doğrulayıcıları. Hızlı ve privacy-first; her zaman açık önerilir.",
   "settings.privacy.layers.ner.label": "NER katmanı",
   "settings.privacy.layers.ner.description":
-    "Dile özgü HuggingFace NER modelleri.",
+    "Dil bazlı transformer NER (PERSON_NAME / LOCATION / ORGANIZATION). Parça başına ~200-500 ms ekler.",
   "settings.privacy.layers.ollamaValidation.label": "Ollama doğrulama",
   "settings.privacy.layers.ollamaValidation.description":
-    "Yerel LLM bağlam ve regülasyon farkındalığı ile yanlış pozitifleri filtrele.",
-  "settings.privacy.layers.ollama.label": "Ollama lakap katmanı",
+    "NER yanlış pozitiflerini yerel LLM ile filtreler. Gecikme ekler; deterministik tanıyıcılar bu katmanı otomatik atlar.",
+  "settings.privacy.layers.ollama.label": "Ollama lakap tespiti",
   "settings.privacy.layers.ollama.description":
-    "Yerel LLM kullanarak takma adları ve dolaylı referansları tespit et.",
+    "Takma adlar ve dolaylı referansları yerel LLM ile yakalar. Gecikme ekler; yalnızca konuşma dili içeren belgelerde anlamlı.",
+  "settings.privacy.layers.ollamaSemantic.label": "Ollama semantik tespit",
+  "settings.privacy.layers.ollamaSemantic.description":
+    "DIAGNOSIS / MEDICATION / RELIGION / ETHNICITY / POLITICAL_OPINION tipleri yerel LLM ile yakalanır. Bu tipler için gerekli — başka katman bunları ifade edemez.",
 
 
   "settings.rag.sectionTitle": "RAG Ayarları",
@@ -466,6 +501,8 @@ export const trMessages: Record<string, string> = {
 
   "chat.ragMode.auto": "Otomatik arama",
   "chat.ragMode.none": "Doğrudan yanıt (doküman kullanılmadı)",
+  "chat.sources.summary": "{docs} belgeden, {chunks} parça kullanıldı",
+  "chat.sources.chunkCount": "{count} parça",
 
   "chat.json.title": "JSON çıktısı",
   "chat.json.invalid": "Geçersiz JSON",
@@ -557,6 +594,18 @@ export const trMessages: Record<string, string> = {
   "regulations.custom.title": "Özel Kurallar",
   "regulations.custom.subtitle":
     "Regex, anahtar kelime listeleri veya yerel LLM istemleriyle kurumunuza özel varlıklar tanımlayın. Özel kurallar yerleşik regülasyonlarla birleştirilir.",
+  "regulations.custom.helpBanner.intro":
+    "Özel kurallar 17 yerleşik regülasyon paketinin üzerine ek tespit getirir. Verinin şekline uygun yöntemi seçin:",
+  "regulations.custom.helpBanner.regex":
+    "Yapısal desenler. Örnek: \\bPRJ-\\d{4}-\\d{5}\\b — PRJ-2024-04829 gibi dahili proje kodlarını yakalar. Mikrosaniye maliyet.",
+  "regulations.custom.helpBanner.keyword":
+    "Kısa, literal string listesi. Örnek: Project Bluebird, Operation Halcyon — kod adları ve takım içi etiketler için ideal.",
+  "regulations.custom.helpBanner.llm":
+    "Regex ile yakalanamayan serbest metin kategorileri. Örnek: \"her ilaç referansını bul\". Yerel Ollama, parça başına ~1-5 sn.",
+  "regulations.custom.helpBanner.testHint":
+    "Her kuralın editöründe Test düğmesi var — kaydetmeden önce örnek metni yapıştırıp kuralın çalıştığını doğrulayın.",
+  "regulations.custom.helpBanner.docsLink":
+    "İşlenmiş örneklerle tam rehber",
   "regulations.custom.addButton": "Yeni Kural Ekle",
   "regulations.custom.loading": "Özel kurallar yükleniyor...",
   "regulations.custom.empty":
@@ -656,6 +705,14 @@ export const trMessages: Record<string, string> = {
   "regulations.nonPii.title": "Non-PII Kuralları (Gelişmiş)",
   "regulations.nonPii.subtitle":
     "Bazı span'ların (örneğin selamlamalar, boilerplate) PII olarak maskelenmemesi için gelişmiş kurallar. Bu liste yalnızca ileri kullanıcılara yöneliktir; çoğu senaryo için gerekmez.",
+  "regulations.nonPii.helpBanner.intro":
+    "Non-PII kuralları tespitleri BASTIRIR — bir recognizer maskelememesi gereken bir şeyi maskeliyorsa kullanın (test verisi, sayfa altlıkları, boilerplate ifadeler). Her kural, recognizer eşleşse bile maskelenmemesi gereken metni tanımlar.",
+  "regulations.nonPii.helpBanner.regex":
+    "Metni desene uyan her span'i bastırır. Örnek: ^Sayfa \\d+/\\d+$ — NER'in ORG sandığı PDF sayfa-numarası altlıklarını düşürür.",
+  "regulations.nonPii.helpBanner.token":
+    "Listedeki kelimelerden birine eşit metni olan span'leri bastırır (büyük/küçük harf duyarsız). Örnek: pattern = \"Test Kullanıcı\" — dev export'larındaki yer-tutucu isimleri korur.",
+  "regulations.nonPii.helpBanner.scopeHint":
+    "Opsiyonel filtreler: dil koduna göre kısıtlayın (örn. tr) ya da varlık tipine (örn. yalnızca PERSON_NAME). Min. skor recognizer güven eşiğine göre filtreler.",
   "regulations.nonPii.loading": "Non-PII kuralları yükleniyor...",
   "regulations.nonPii.empty":
     "Şu anda tanımlı Non-PII kuralı yok. Sistem, veri odaklı varsayılan davranışla çalışmaya devam eder.",

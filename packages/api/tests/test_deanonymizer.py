@@ -86,35 +86,3 @@ async def test_deanonymizer_disabled_returns_original_text() -> None:
     assert result == text
 
 
-@pytest.mark.asyncio
-async def test_deanonymizer_ollama_strategy_uses_local_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ollama strategy should call the local Ollama HTTP API (via ollama_client)."""
-    from septum_api.services import deanonymizer as deanonymizer_module
-
-    async def _fake_call_ollama_async(
-        prompt: str,
-        base_url: str | None = None,
-        model: str | None = None,
-        timeout: float = 30.0,
-    ) -> str:
-        _fake_call_ollama_async.last_prompt = prompt  # type: ignore[attr-defined]
-        _fake_call_ollama_async.last_model = model  # type: ignore[attr-defined]
-        return "Refined answer with Alice."
-
-    monkeypatch.setattr(deanonymizer_module, "call_ollama_async", _fake_call_ollama_async)
-    monkeypatch.setattr(deanonymizer_module, "use_ollama_enabled", lambda: True)
-
-    settings = _base_settings(strategy="ollama", enabled=True)
-    dean = Deanonymizer(settings=settings)
-
-    amap = AnonymizationMap(document_id=2, language="en")
-    amap.add_entity("Alice", "PERSON_NAME")
-
-    text = "Hello [PERSON_NAME_1]"
-    result = await dean.deanonymize(text, anon_map=amap)
-
-    assert result == "Refined answer with Alice."
-    assert getattr(_fake_call_ollama_async, "last_prompt", "")
-    assert "[PERSON_NAME_1]" in getattr(_fake_call_ollama_async, "last_prompt", "")
-    assert getattr(_fake_call_ollama_async, "last_model", None) == settings.ollama_deanon_model
-

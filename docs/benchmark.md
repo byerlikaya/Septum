@@ -132,6 +132,32 @@ and [`Davlan/xlm-roberta-base-wikiann-ner`](https://huggingface.co/Davlan/xlm-ro
 layer uses [`aya-expanse:8b`](https://ollama.com/library/aya-expanse). Larger Ollama models generally improve
 semantic detection at the cost of latency.
 
+## Ollama model comparison (L3 layer)
+
+The L3 semantic layer is model-pluggable; the harness accepts
+`SEPTUM_BENCHMARK_OLLAMA_MODEL=<model>` to swap the candidate. Run the
+multi-model driver and the table below will be filled from live results
+on your hardware:
+
+```bash
+./scripts/benchmark_ollama_models.sh                          # default trio
+./scripts/benchmark_ollama_models.sh llama3.2:3b qwen2.5:14b  # custom set
+```
+
+| Model | Params | VRAM ≈ | Precision | Recall | F1 | Notes |
+|:---|:---:|:---:|:---:|:---:|:---:|:---|
+| [`llama3.2:3b`](https://ollama.com/library/llama3.2) | 3 B | 3 GB | _TBD_ | _TBD_ | _TBD_ | Fastest, lowest semantic recall expected |
+| [`aya-expanse:8b`](https://ollama.com/library/aya-expanse) | 8 B | 5 GB | 99.9% | 90.6% | 95.0% | Current default; multilingual-tuned |
+| [`qwen2.5:14b`](https://ollama.com/library/qwen2.5) | 14 B | 9 GB | _TBD_ | _TBD_ | _TBD_ | Highest accuracy expected; ~3× latency vs 8 B |
+
+Numbers above the per-layer table reflect the default `aya-expanse:8b`
+run; results for the other models depend on the host (CPU / GPU,
+Ollama version, system prompt locale) and are intentionally left
+**TBD** until the user reports them with the runner script. Latency
+varies linearly with parameter count on CPU; on a single 24 GB GPU,
+14 B models still fit but the ~3× longer per-call cost dominates the
+ingestion pipeline.
+
 **Additional references:**
 
 - Benchmark harness: [`packages/api/tests/benchmark_detection.py`](../packages/api/tests/benchmark_detection.py)

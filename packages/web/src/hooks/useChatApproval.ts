@@ -80,43 +80,47 @@ export function useChatApproval({
     [setMessages]
   );
 
+  const applyRejection = useCallback(() => {
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    const userText = lastUser?.content ?? "";
+
+    const data: ApprovalData = {
+      decision: "rejected",
+      masked_prompt: maskedPromptRef.current,
+      assembled_prompt: assembledPromptRef.current,
+      chunks: chunksRef.current,
+      regulations: regulationsRef.current,
+      original_user_message: userText,
+    };
+
+    setApprovalOpen(false);
+    setApprovalSessionId(null);
+    stopStreaming();
+
+    setMessages((prev) => {
+      const withoutEmptyAssistant = prev.filter((m, i) => {
+        if (i === prev.length - 1 && m.role === "assistant" && m.content === "") return false;
+        return true;
+      });
+      return withoutEmptyAssistant.map((m) =>
+        m.id === lastUser?.id ? { ...m, approvalData: data } : m
+      );
+    });
+
+    setApprovalChunks([]);
+    setApprovalMaskedPrompt("");
+
+    if (onRejectedPersist && userText) {
+      onRejectedPersist(userText, data);
+    }
+  }, [messages, stopStreaming, setMessages, onRejectedPersist]);
+
   const handleReject = useCallback(
     (sessionId: string, reason?: string) => {
-      const lastUser = [...messages].reverse().find((m) => m.role === "user");
-      const userText = lastUser?.content ?? "";
-
-      const data: ApprovalData = {
-        decision: "rejected",
-        masked_prompt: maskedPromptRef.current,
-        assembled_prompt: assembledPromptRef.current,
-        chunks: chunksRef.current,
-        regulations: regulationsRef.current,
-        original_user_message: userText,
-      };
-
       approvalReject(sessionId, reason).catch(() => {});
-      setApprovalOpen(false);
-      setApprovalSessionId(null);
-      stopStreaming();
-
-      setMessages((prev) => {
-        const withoutEmptyAssistant = prev.filter((m, i) => {
-          if (i === prev.length - 1 && m.role === "assistant" && m.content === "") return false;
-          return true;
-        });
-        return withoutEmptyAssistant.map((m) =>
-          m.id === lastUser?.id ? { ...m, approvalData: data } : m
-        );
-      });
-
-      setApprovalChunks([]);
-      setApprovalMaskedPrompt("");
-
-      if (onRejectedPersist && userText) {
-        onRejectedPersist(userText, data);
-      }
+      applyRejection();
     },
-    [messages, stopStreaming, setMessages, onRejectedPersist]
+    [applyRejection]
   );
 
   const onApprovalRequired = useCallback(
@@ -143,10 +147,16 @@ export function useChatApproval({
 
   const onApprovalRejected = useCallback(
     (_reason: string) => {
-      setApprovalOpen(false);
-      setApprovalSessionId(null);
+      // Backend-initiated rejection (e.g. timeout): the gate already
+      // auto-rejected the session, so do NOT call approvalReject() — the
+      // session id is gone and the call would 404. We still want the
+      // same UX as a manual reject: mark the user's message as rejected,
+      // persist it to the session so the user can resend, and close the
+      // modal. ``applyRejection`` is the shared helper that handleReject
+      // also uses.
+      applyRejection();
     },
-    []
+    [applyRejection]
   );
 
   const closeApprovalModal = useCallback(() => {

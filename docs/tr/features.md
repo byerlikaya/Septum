@@ -77,7 +77,7 @@ Tablodaki her satır, `packages/core/septum_core/recognizers/` altında yüklene
 
 **Bölgeye özgü kimlik numarası doğrulayıcıları** yalnızca örüntüye değil, algoritmaya dayanır: TCKN (Türkiye, mod-10 + mod-11 checksum), Aadhaar (Hindistan, Verhoeff), CPF (Brezilya, iki basamaklı checksum), NRIC/FIN (Singapur, harf checksum'ı), Resident ID (Çin, ISO 7064 MOD 11-2), NINO (Birleşik Krallık), CNPJ (Brezilya), My Number (Japonya) ve diğerleri. Geçersiz checksum doğrudan reddedilir; rastgele 11 haneli bir dize yalancı pozitif üretmez.
 
-**Özel kurallar.** Panel üzerinden yöneticiler; regex, anahtar kelime listesi ya da LLM promptu tabanlı özel kural setleri tanımlayabilir. Özel kurallar hazır paketlerle yan yana çalışır ve kural birleştirme mantığı bu süreçte aynen korunur.
+**Özel kurallar.** Panel üzerinden yöneticiler; regex, anahtar kelime listesi ya da LLM promptu tabanlı özel kural setleri tanımlayabilir. Özel kurallar hazır paketlerle yan yana çalışır ve kural birleştirme mantığı bu süreçte aynen korunur. Her tespit yöntemi için işlenmiş örnek, test akışı ve denetim kaydı davranışı [`custom-rules.md`](custom-rules.md) sayfasında.
 
 ---
 
