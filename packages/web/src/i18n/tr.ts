@@ -269,16 +269,19 @@ export const trMessages: Record<string, string> = {
   "settings.privacy.layers.title": "Anonimleştirme katmanları",
   "settings.privacy.layers.presidio.label": "Presidio katmanı",
   "settings.privacy.layers.presidio.description":
-    "Kural tabanlı tanıyıcılar ve ulusal kimlik doğrulayıcıları.",
+    "Deterministik regex + ulusal kimlik doğrulayıcıları. Hızlı ve privacy-first; her zaman açık önerilir.",
   "settings.privacy.layers.ner.label": "NER katmanı",
   "settings.privacy.layers.ner.description":
-    "Dile özgü HuggingFace NER modelleri.",
+    "Dil bazlı transformer NER (PERSON_NAME / LOCATION / ORGANIZATION). Parça başına ~200-500 ms ekler.",
   "settings.privacy.layers.ollamaValidation.label": "Ollama doğrulama",
   "settings.privacy.layers.ollamaValidation.description":
-    "Yerel LLM bağlam ve regülasyon farkındalığı ile yanlış pozitifleri filtrele.",
-  "settings.privacy.layers.ollama.label": "Ollama lakap katmanı",
+    "NER yanlış pozitiflerini yerel LLM ile filtreler. Gecikme ekler; deterministik tanıyıcılar bu katmanı otomatik atlar.",
+  "settings.privacy.layers.ollama.label": "Ollama lakap tespiti",
   "settings.privacy.layers.ollama.description":
-    "Yerel LLM kullanarak takma adları ve dolaylı referansları tespit et.",
+    "Takma adlar ve dolaylı referansları yerel LLM ile yakalar. Gecikme ekler; yalnızca konuşma dili içeren belgelerde anlamlı.",
+  "settings.privacy.layers.ollamaSemantic.label": "Ollama semantik tespit",
+  "settings.privacy.layers.ollamaSemantic.description":
+    "DIAGNOSIS / MEDICATION / RELIGION / ETHNICITY / POLITICAL_OPINION tipleri yerel LLM ile yakalanır. Bu tipler için gerekli — başka katman bunları ifade edemez.",
 
 
   "settings.rag.sectionTitle": "RAG Ayarları",

@@ -267,16 +267,19 @@ export const enMessages = {
   "settings.privacy.layers.title": "Sanitization layers",
   "settings.privacy.layers.presidio.label": "Presidio layer",
   "settings.privacy.layers.presidio.description":
-    "Rule-based recognizers and national ID validators.",
+    "Deterministic regex + national-ID checksum recognizers. Fast, privacy-first; recommended always on.",
   "settings.privacy.layers.ner.label": "NER layer",
   "settings.privacy.layers.ner.description":
-    "Language-specific HuggingFace NER models.",
+    "Per-language transformer NER for PERSON_NAME / LOCATION / ORGANIZATION. Adds ~200-500 ms per chunk.",
   "settings.privacy.layers.ollamaValidation.label": "Ollama validation",
   "settings.privacy.layers.ollamaValidation.description":
-    "Filter false positives using local LLM context and regulation awareness.",
-  "settings.privacy.layers.ollama.label": "Ollama alias layer",
+    "Filter NER false positives via local LLM. Adds latency; deterministic recognizers bypass this layer automatically.",
+  "settings.privacy.layers.ollama.label": "Ollama alias detection",
   "settings.privacy.layers.ollama.description":
-    "Detect nicknames and indirect references using local LLM.",
+    "Catch nicknames and indirect references via local LLM. Adds latency; only useful for documents with informal language.",
+  "settings.privacy.layers.ollamaSemantic.label": "Ollama semantic detection",
+  "settings.privacy.layers.ollamaSemantic.description":
+    "Detect DIAGNOSIS / MEDICATION / RELIGION / ETHNICITY / POLITICAL_OPINION via local LLM. Required for these entity types — no other layer can express them.",
 
 
   "settings.rag.sectionTitle": "RAG Settings",

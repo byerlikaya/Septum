@@ -104,7 +104,6 @@ class SettingsResponse(BaseModel):
     ollama_deanon_model: str
 
     deanon_enabled: bool
-    deanon_strategy: str
     require_approval: bool
     approval_timeout_seconds: int
     show_json_output: bool
@@ -128,8 +127,6 @@ class SettingsResponse(BaseModel):
     image_ocr_languages: list[str]
     ocr_provider: str
     ocr_provider_options: Optional[dict] = None
-    extract_embedded_images: bool
-    recursive_email_attachments: bool
 
     default_active_regulations: list[str]
     ner_model_overrides: Optional[dict[str, str]] = None
@@ -151,7 +148,6 @@ class SettingsUpdatePayload(BaseModel):
     ollama_deanon_model: Optional[str] = None
 
     deanon_enabled: Optional[bool] = None
-    deanon_strategy: Optional[str] = None
     require_approval: Optional[bool] = None
     approval_timeout_seconds: Optional[int] = None
     show_json_output: Optional[bool] = None
@@ -175,8 +171,6 @@ class SettingsUpdatePayload(BaseModel):
     image_ocr_languages: Optional[list[str]] = None
     ocr_provider: Optional[str] = None
     ocr_provider_options: Optional[dict[str, Any]] = None
-    extract_embedded_images: Optional[bool] = None
-    recursive_email_attachments: Optional[bool] = None
 
     default_active_regulations: Optional[list[str]] = None
     ner_model_overrides: Optional[dict[str, str]] = None

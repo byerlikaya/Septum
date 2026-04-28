@@ -266,7 +266,6 @@ export interface AppSettingsResponse {
   ollama_chat_model: string;
   ollama_deanon_model: string;
   deanon_enabled: boolean;
-  deanon_strategy: string;
   require_approval: boolean;
   approval_timeout_seconds: number;
   show_json_output: boolean;
@@ -274,6 +273,7 @@ export interface AppSettingsResponse {
   use_ner_layer: boolean;
   use_ollama_validation_layer: boolean;
   use_ollama_layer: boolean;
+  use_ollama_semantic_layer: boolean;
 
   chunk_size: number;
   chunk_overlap: number;
@@ -287,8 +287,6 @@ export interface AppSettingsResponse {
   image_ocr_languages: string[];
   ocr_provider: string;
   ocr_provider_options: Record<string, unknown> | null;
-  extract_embedded_images: boolean;
-  recursive_email_attachments: boolean;
   default_active_regulations: string[];
   ner_model_overrides: Record<string, string> | null;
   has_anthropic_key: boolean;
