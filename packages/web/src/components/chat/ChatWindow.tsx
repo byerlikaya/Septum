@@ -150,30 +150,34 @@ export function ChatWindow({
     | null
   >(null);
 
-  const handleSend = useCallback(async () => {
+  const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text || streaming) return;
     setInput("");
     setLastResponseDeanon(false);
 
-    // Auto-RAG mode (no manually-picked documents) is the only path
-    // where the disambiguation picker is meaningful — when the user
-    // already chose a document, that choice is the final scope.
-    if (documentIds.length === 0) {
-      try {
-        const analysis = await analyzeChatQuery(text);
-        if (analysis.requires_disambiguation && analysis.clusters.length > 1) {
-          setPendingDisambiguation({ text, clusters: analysis.clusters });
-          return;
-        }
-      } catch {
-        // Analyze is a best-effort assist; on failure, fall through to
-        // the regular chat path so the user still gets an answer.
-      }
-    }
-
+    // Send the message immediately so the user's text shows up in the
+    // chat without UI lag. The disambiguation analyze is fire-and-
+    // forget; if it later reports a multi-document ambiguity we cancel
+    // the in-flight stream and surface the picker, otherwise the
+    // streaming response continues uninterrupted.
     streamSendMessage(text);
-  }, [input, streaming, streamSendMessage, documentIds]);
+
+    if (documentIds.length === 0) {
+      void (async () => {
+        try {
+          const analysis = await analyzeChatQuery(text);
+          if (analysis.requires_disambiguation && analysis.clusters.length > 1) {
+            stopStreaming();
+            setPendingDisambiguation({ text, clusters: analysis.clusters });
+          }
+        } catch {
+          // Best-effort assist; on failure the stream that already
+          // started carries the answer through unchanged.
+        }
+      })();
+    }
+  }, [input, streaming, streamSendMessage, documentIds, stopStreaming]);
 
   const handleDisambiguationPick = useCallback(
     (clusterDocIds: number[]) => {
