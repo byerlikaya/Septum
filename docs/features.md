@@ -97,6 +97,8 @@ random 11-digit strings do not trigger false positives.
 **Custom rules.** The dashboard lets admins define custom rulesets with
 regex patterns, keyword lists, or LLM-prompt based detection. Custom
 rules sit alongside built-in packs — policy composition rules still apply.
+See [`custom-rules.md`](custom-rules.md) for worked examples per detection
+method, the test loop, and audit-trail behavior.
 
 ---
 
