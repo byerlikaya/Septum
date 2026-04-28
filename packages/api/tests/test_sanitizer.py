@@ -357,6 +357,45 @@ def test_invalid_vergi_no_across_newline_is_masked(
     )
 
 
+def test_semantic_validation_passthrough_includes_deterministic_types() -> None:
+    """Deterministic recognizer outputs must never be filtered by Ollama validation.
+
+    POSTAL_ADDRESS, EMAIL_ADDRESS, DATE_OF_BIRTH and friends come from
+    regex / structural recognizers that do not err probabilistically.
+    The semantic-validation layer (``use_ollama_validation_layer``)
+    used to gate them through the LLM, which silently dropped real
+    addresses, emails and DOBs whenever Ollama's "validated" output
+    omitted them — observed on a real KVKK consent form where the
+    second occurrence of every label was missed entirely. The
+    passthrough set now covers every deterministic type so only
+    NER-driven candidates (PERSON_NAME / LOCATION / ORGANIZATION_NAME)
+    reach the validator.
+    """
+    from septum_core.detector import _SEMANTIC_VALIDATION_PASSTHROUGH_TYPES
+
+    for must_pass in (
+        "POSTAL_ADDRESS",
+        "STREET_ADDRESS",
+        "EMAIL_ADDRESS",
+        "DATE_OF_BIRTH",
+        "URL",
+        "IP_ADDRESS",
+        "MAC_ADDRESS",
+        "COORDINATES",
+        "COOKIE_ID",
+        "DEVICE_ID",
+        "CUSTOMER_REFERENCE_ID",
+        "PHONE_NUMBER",
+        "NATIONAL_ID",
+        "IBAN",
+        "TAX_ID",
+    ):
+        assert must_pass in _SEMANTIC_VALIDATION_PASSTHROUGH_TYPES, must_pass
+
+    for must_validate in ("PERSON_NAME", "LOCATION", "ORGANIZATION_NAME"):
+        assert must_validate not in _SEMANTIC_VALIDATION_PASSTHROUGH_TYPES, must_validate
+
+
 def test_kvkk_customer_reference_variants_masked(
     sanitizer: PIISanitizer,
 ) -> None:

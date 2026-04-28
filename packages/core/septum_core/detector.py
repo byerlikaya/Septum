@@ -107,8 +107,31 @@ _HIGH_PRIORITY_ENTITY_TYPES: set[str] = {
     "LICENSE_PLATE",
 }
 
+# Entity types that are detected by deterministic recognizers
+# (regex / checksum / structural cues) and must NEVER be filtered by
+# the semantic-validation layer. The Ollama validator returns whichever
+# spans the LLM "agrees" are PII; if a deterministic span (a real
+# address, email, date of birth, IBAN, …) happens to be missing from
+# its output the original sanitize pipeline silently drops it, even
+# though the recognizer that found it never errs probabilistically.
+# Only NER-driven types (PERSON_NAME / LOCATION / ORGANIZATION_NAME)
+# need probabilistic validation; everything else passes through
+# untouched.
 _SEMANTIC_VALIDATION_PASSTHROUGH_TYPES: frozenset[str] = frozenset(
     _HIGH_PRIORITY_ENTITY_TYPES
+    | {
+        "EMAIL_ADDRESS",
+        "URL",
+        "IP_ADDRESS",
+        "MAC_ADDRESS",
+        "DATE_OF_BIRTH",
+        "COORDINATES",
+        "COOKIE_ID",
+        "DEVICE_ID",
+        "POSTAL_ADDRESS",
+        "STREET_ADDRESS",
+        "CUSTOMER_REFERENCE_ID",
+    }
 )
 
 # Minimum text length before the NER layer kicks in. The threshold
