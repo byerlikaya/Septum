@@ -576,6 +576,18 @@ export const enMessages = {
   "regulations.custom.title": "Custom Rules",
   "regulations.custom.subtitle":
     "Define organization-specific entities using regex, keyword lists, or local LLM prompts. Custom rules are merged with built-in regulations.",
+  "regulations.custom.helpBanner.intro":
+    "Custom rules add detection on top of the 17 built-in regulation packs. Pick the method that matches the shape of the data:",
+  "regulations.custom.helpBanner.regex":
+    "Structural patterns. Example: \\bPRJ-\\d{4}-\\d{5}\\b matches an internal project code like PRJ-2024-04829. Microsecond cost.",
+  "regulations.custom.helpBanner.keyword":
+    "A short list of literal strings. Example: Project Bluebird, Operation Halcyon — useful for codenames and team-internal labels.",
+  "regulations.custom.helpBanner.llm":
+    "Free-text categories regex cannot capture. Example: \"find every medication mention\". Local Ollama, ~1–5 s per chunk.",
+  "regulations.custom.helpBanner.testHint":
+    "Every rule has a Test button in the editor — paste sample text and verify the rule fires before saving.",
+  "regulations.custom.helpBanner.docsLink":
+    "Full guide with worked examples",
   "regulations.custom.addButton": "Add New Rule",
   "regulations.custom.loading": "Custom rules are loading...",
   "regulations.custom.empty":
@@ -674,6 +686,14 @@ export const enMessages = {
   "regulations.nonPii.title": "Non-PII Rules (Advanced)",
   "regulations.nonPii.subtitle":
     "Advanced rules for treating some spans (for example greetings or boilerplate) as non-PII so they are not masked. This list is intended only for advanced users; most setups do not need changes here.",
+  "regulations.nonPii.helpBanner.intro":
+    "Non-PII rules SUPPRESS detections — use them when a recognizer is masking something it shouldn't (test data, page footers, boilerplate phrases). Each rule defines what should NEVER be masked even if a recognizer matched it.",
+  "regulations.nonPii.helpBanner.regex":
+    "Suppress every span whose text matches the pattern. Example: ^Sayfa \\d+/\\d+$ — drops PDF page-number footers that NER misclassifies as ORG.",
+  "regulations.nonPii.helpBanner.token":
+    "Suppress spans whose text equals one of the listed words (case-insensitive). Example: pattern = \"Test Kullanıcı\" — keeps dev-export placeholder names visible.",
+  "regulations.nonPii.helpBanner.scopeHint":
+    "Optional filters: restrict by language code (e.g. tr) or by entity type (e.g. only PERSON_NAME). Min. score also gates by recognizer confidence.",
   "regulations.nonPii.loading": "Non-PII rules are loading...",
   "regulations.nonPii.empty":
     "No Non-PII rules are defined. The system will continue using its default data-driven behaviour.",

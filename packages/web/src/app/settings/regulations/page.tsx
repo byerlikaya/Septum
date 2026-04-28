@@ -328,6 +328,38 @@ export default function RegulationsPage() {
         {/* Custom Rules */}
         {activeTab === "custom" && (
           <div className="space-y-3">
+            <div className="rounded-lg border border-sky-800/40 bg-sky-950/20 px-4 py-3 text-[11px] text-sky-100/80">
+              <p className="mb-2 leading-relaxed">
+                {t("regulations.custom.helpBanner.intro")}
+              </p>
+              <ul className="mb-2 list-disc space-y-1 pl-4">
+                <li>
+                  <span className="font-mono text-sky-300">regex</span> —{" "}
+                  {t("regulations.custom.helpBanner.regex")}
+                </li>
+                <li>
+                  <span className="font-mono text-sky-300">keyword_list</span> —{" "}
+                  {t("regulations.custom.helpBanner.keyword")}
+                </li>
+                <li>
+                  <span className="font-mono text-sky-300">llm_prompt</span> —{" "}
+                  {t("regulations.custom.helpBanner.llm")}
+                </li>
+              </ul>
+              <p className="text-[11px] text-sky-200/70">
+                {t("regulations.custom.helpBanner.testHint")}
+                {" · "}
+                <a
+                  href="https://github.com/byerlikaya/Septum/blob/main/docs/custom-rules.md"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline decoration-dotted underline-offset-2 hover:text-sky-100"
+                >
+                  {t("regulations.custom.helpBanner.docsLink")}
+                </a>
+              </p>
+            </div>
+
             <div className="flex items-center justify-between">
               <p className="text-xs text-slate-400">
                 {t("regulations.custom.subtitle")}
@@ -403,8 +435,32 @@ export default function RegulationsPage() {
         {/* Advanced (Non-PII Rules) */}
         {activeTab === "advanced" && (
           <div className="space-y-3">
-            <div className="rounded-md border border-amber-800/30 bg-amber-950/20 px-3 py-2 text-[11px] text-amber-200/80">
-              {t("regulations.nonPii.subtitle" as never)}
+            <div className="rounded-lg border border-amber-800/40 bg-amber-950/20 px-4 py-3 text-[11px] text-amber-100/80">
+              <p className="mb-2 leading-relaxed">
+                {t("regulations.nonPii.helpBanner.intro")}
+              </p>
+              <ul className="mb-2 list-disc space-y-1 pl-4">
+                <li>
+                  <span className="font-mono text-amber-300">regex</span> —{" "}
+                  {t("regulations.nonPii.helpBanner.regex")}
+                </li>
+                <li>
+                  <span className="font-mono text-amber-300">token</span> —{" "}
+                  {t("regulations.nonPii.helpBanner.token")}
+                </li>
+              </ul>
+              <p className="text-[11px] text-amber-200/70">
+                {t("regulations.nonPii.helpBanner.scopeHint")}
+                {" · "}
+                <a
+                  href="https://github.com/byerlikaya/Septum/blob/main/docs/custom-rules.md"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline decoration-dotted underline-offset-2 hover:text-amber-100"
+                >
+                  {t("regulations.custom.helpBanner.docsLink")}
+                </a>
+              </p>
             </div>
 
             {nonPiiError && <ErrorAlert message={nonPiiError} className="text-xs" />}

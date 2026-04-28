@@ -594,6 +594,18 @@ export const trMessages: Record<string, string> = {
   "regulations.custom.title": "Özel Kurallar",
   "regulations.custom.subtitle":
     "Regex, anahtar kelime listeleri veya yerel LLM istemleriyle kurumunuza özel varlıklar tanımlayın. Özel kurallar yerleşik regülasyonlarla birleştirilir.",
+  "regulations.custom.helpBanner.intro":
+    "Özel kurallar 17 yerleşik regülasyon paketinin üzerine ek tespit getirir. Verinin şekline uygun yöntemi seçin:",
+  "regulations.custom.helpBanner.regex":
+    "Yapısal desenler. Örnek: \\bPRJ-\\d{4}-\\d{5}\\b — PRJ-2024-04829 gibi dahili proje kodlarını yakalar. Mikrosaniye maliyet.",
+  "regulations.custom.helpBanner.keyword":
+    "Kısa, literal string listesi. Örnek: Project Bluebird, Operation Halcyon — kod adları ve takım içi etiketler için ideal.",
+  "regulations.custom.helpBanner.llm":
+    "Regex ile yakalanamayan serbest metin kategorileri. Örnek: \"her ilaç referansını bul\". Yerel Ollama, parça başına ~1-5 sn.",
+  "regulations.custom.helpBanner.testHint":
+    "Her kuralın editöründe Test düğmesi var — kaydetmeden önce örnek metni yapıştırıp kuralın çalıştığını doğrulayın.",
+  "regulations.custom.helpBanner.docsLink":
+    "İşlenmiş örneklerle tam rehber",
   "regulations.custom.addButton": "Yeni Kural Ekle",
   "regulations.custom.loading": "Özel kurallar yükleniyor...",
   "regulations.custom.empty":
@@ -693,6 +705,14 @@ export const trMessages: Record<string, string> = {
   "regulations.nonPii.title": "Non-PII Kuralları (Gelişmiş)",
   "regulations.nonPii.subtitle":
     "Bazı span'ların (örneğin selamlamalar, boilerplate) PII olarak maskelenmemesi için gelişmiş kurallar. Bu liste yalnızca ileri kullanıcılara yöneliktir; çoğu senaryo için gerekmez.",
+  "regulations.nonPii.helpBanner.intro":
+    "Non-PII kuralları tespitleri BASTIRIR — bir recognizer maskelememesi gereken bir şeyi maskeliyorsa kullanın (test verisi, sayfa altlıkları, boilerplate ifadeler). Her kural, recognizer eşleşse bile maskelenmemesi gereken metni tanımlar.",
+  "regulations.nonPii.helpBanner.regex":
+    "Metni desene uyan her span'i bastırır. Örnek: ^Sayfa \\d+/\\d+$ — NER'in ORG sandığı PDF sayfa-numarası altlıklarını düşürür.",
+  "regulations.nonPii.helpBanner.token":
+    "Listedeki kelimelerden birine eşit metni olan span'leri bastırır (büyük/küçük harf duyarsız). Örnek: pattern = \"Test Kullanıcı\" — dev export'larındaki yer-tutucu isimleri korur.",
+  "regulations.nonPii.helpBanner.scopeHint":
+    "Opsiyonel filtreler: dil koduna göre kısıtlayın (örn. tr) ya da varlık tipine (örn. yalnızca PERSON_NAME). Min. skor recognizer güven eşiğine göre filtreler.",
   "regulations.nonPii.loading": "Non-PII kuralları yükleniyor...",
   "regulations.nonPii.empty":
     "Şu anda tanımlı Non-PII kuralı yok. Sistem, veri odaklı varsayılan davranışla çalışmaya devam eder.",
