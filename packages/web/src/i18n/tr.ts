@@ -209,6 +209,8 @@ export const trMessages: Record<string, string> = {
   "settings.ner.overrideLabel": "{lang} için modeli değiştir",
   "settings.ner.restoreDefault": "Varsayılana döndür",
   "settings.ner.saveOverrides": "Değişiklikleri kaydet",
+  "settings.ner.ensembleHint":
+    "Birden çok model ID'sini virgülle ayırarak ensemble (tespitler birleşir) modunda çalıştırabilirsiniz. Tek ID = tek model.",
   "settings.ner.defaultsLoadError":
     "Varsayılan NER model eşlemesi arka uçtan yüklenemedi.",
   "settings.ner.defaultsEmpty": "Kayıtlı varsayılan NER modeli bulunmuyor.",

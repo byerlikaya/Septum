@@ -209,6 +209,8 @@ export const enMessages = {
   "settings.ner.overrideLabel": "Override model for {lang}",
   "settings.ner.restoreDefault": "Restore default",
   "settings.ner.saveOverrides": "Save overrides",
+  "settings.ner.ensembleHint":
+    "Comma-separate multiple model IDs to run them as an ensemble (union of detections). One ID = single model.",
   "settings.ner.defaultsLoadError":
     "Could not load the default NER model map from the backend.",
   "settings.ner.defaultsEmpty": "No default NER models are registered.",

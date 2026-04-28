@@ -93,74 +93,103 @@ class NERModelRegistry:
         }
     )
 
-    DEFAULT_MODEL_MAP: Dict[str, str] = field(
+    # Per-language ensemble: every model in the list runs on the chunk and
+    # their spans are unioned through the regular dedup pipeline. Multiple
+    # models per language give more recall (a name one model misses another
+    # often catches), at the cost of (N × inference time + N × ~500 MB
+    # model memory). Defaults stay single-model except for Turkish where
+    # the second BERT-cased model complements the XLM-RoBERTa one on rare
+    # surnames.
+    DEFAULT_MODEL_MAP: Dict[str, list[str]] = field(
         default_factory=lambda: {
-            # Best-in-class models per language based on 2024-2025 research
-            # akdeniz27/xlm-roberta-base-turkish-ner: F1=0.949, XLM-RoBERTa fine-tuned for tr locale
-            "tr": "akdeniz27/xlm-roberta-base-turkish-ner",
-            # Davlan/xlm-roberta-base-wikiann-ner: Multilingual XLM-RoBERTa for 20 languages
-            # Supports: ar, as, bn, ca, en, es, eu, fr, gu, hi, id, ig, mr, pa, pt, sw, ur, vi, yo, zh
-            "en": "Davlan/xlm-roberta-base-wikiann-ner",
-            "ar": "Davlan/xlm-roberta-base-wikiann-ner",
-            "zh": "Davlan/xlm-roberta-base-wikiann-ner",
-            "es": "Davlan/xlm-roberta-base-wikiann-ner",
-            "fr": "Davlan/xlm-roberta-base-wikiann-ner",
-            "pt": "Davlan/xlm-roberta-base-wikiann-ner",
-            "hi": "Davlan/xlm-roberta-base-wikiann-ner",
-            "bn": "Davlan/xlm-roberta-base-wikiann-ner",
-            "ur": "Davlan/xlm-roberta-base-wikiann-ner",
-            "vi": "Davlan/xlm-roberta-base-wikiann-ner",
-            # Babelscape/wikineural-multilingual-ner: EMNLP 2021, supports 9 European languages
-            # Supports: de, en, es, fr, it, nl, pl, pt, ru
-            "de": "Babelscape/wikineural-multilingual-ner",
-            "it": "Babelscape/wikineural-multilingual-ner",
-            "nl": "Babelscape/wikineural-multilingual-ner",
-            "pl": "Babelscape/wikineural-multilingual-ner",
-            "ru": "Babelscape/wikineural-multilingual-ner",
-            # ja is covered by the Davlan multilingual WikiANN model
-            "ja": "Davlan/xlm-roberta-base-wikiann-ner",
-            # Fallback: Babelscape for best multilingual coverage
-            "fallback": "Babelscape/wikineural-multilingual-ner",
+            # akdeniz27 XLM-RoBERTa F1=0.949 + savasy BERT-cased — different
+            # architectures catch different names; ensemble lifts recall
+            # on rare surnames the XLM-RoBERTa encoder underweights.
+            "tr": [
+                "akdeniz27/xlm-roberta-base-turkish-ner",
+                "savasy/bert-base-turkish-ner-cased",
+            ],
+            # Davlan/xlm-roberta-base-wikiann-ner: Multilingual XLM-RoBERTa
+            # supporting ar, as, bn, ca, en, es, eu, fr, gu, hi, id, ig, mr,
+            # pa, pt, sw, ur, vi, yo, zh.
+            "en": ["Davlan/xlm-roberta-base-wikiann-ner"],
+            "ar": ["Davlan/xlm-roberta-base-wikiann-ner"],
+            "zh": ["Davlan/xlm-roberta-base-wikiann-ner"],
+            "es": ["Davlan/xlm-roberta-base-wikiann-ner"],
+            "fr": ["Davlan/xlm-roberta-base-wikiann-ner"],
+            "pt": ["Davlan/xlm-roberta-base-wikiann-ner"],
+            "hi": ["Davlan/xlm-roberta-base-wikiann-ner"],
+            "bn": ["Davlan/xlm-roberta-base-wikiann-ner"],
+            "ur": ["Davlan/xlm-roberta-base-wikiann-ner"],
+            "vi": ["Davlan/xlm-roberta-base-wikiann-ner"],
+            # Babelscape/wikineural-multilingual-ner: EMNLP 2021,
+            # de / en / es / fr / it / nl / pl / pt / ru.
+            "de": ["Babelscape/wikineural-multilingual-ner"],
+            "it": ["Babelscape/wikineural-multilingual-ner"],
+            "nl": ["Babelscape/wikineural-multilingual-ner"],
+            "pl": ["Babelscape/wikineural-multilingual-ner"],
+            "ru": ["Babelscape/wikineural-multilingual-ner"],
+            "ja": ["Davlan/xlm-roberta-base-wikiann-ner"],
+            "fallback": ["Babelscape/wikineural-multilingual-ner"],
         }
     )
 
-    def get_pipeline(self, language: str) -> object:
-        """Return a cached NER pipeline for the given language.
+    def get_pipelines(self, language: str) -> list[object]:
+        """Return cached NER pipelines for the given language.
 
-        Thread-safe: the actual ``pipeline(...)`` initialization is
-        guarded by ``_load_lock`` so concurrent ingestion tasks for the
-        same language do not redundantly download or load the model.
-        The fast path (already-loaded model) is lock-free.
+        Returns one or more pipelines (the language ensemble). Pipelines
+        are cached by *model id*, not by language, so a model used by
+        many languages (e.g. wikiann across 11 locales) is only loaded
+        once. Thread-safe: the actual ``pipeline(...)`` initialization
+        is guarded by ``_load_lock``.
         """
         lang = (language or "en").lower()
-        cached = self._loaded_models.get(lang)
-        if cached is not None:
-            return cached
+        model_ids = self._resolve_model_ids(lang)
+
+        # Fast path — every model already loaded.
+        loaded = [self._loaded_models.get(mid) for mid in model_ids]
+        if all(p is not None for p in loaded):
+            return loaded  # type: ignore[return-value]
+
+        # Slow path — load whichever models are missing.
+        device = get_device()
+        device_index = -1 if device == "cpu" else 0
         with self._load_lock:
-            cached = self._loaded_models.get(lang)
-            if cached is not None:
-                return cached
-            model_name = self._get_model_name(lang)
-            device = get_device()
-            device_index = -1 if device == "cpu" else 0
-            self._loaded_models[lang] = pipeline(
-                "ner",
-                model=model_name,
-                aggregation_strategy="simple",
-                device=device_index,
-            )
-            return self._loaded_models[lang]
+            for mid in model_ids:
+                if mid in self._loaded_models:
+                    continue
+                self._loaded_models[mid] = pipeline(
+                    "ner",
+                    model=mid,
+                    aggregation_strategy="simple",
+                    device=device_index,
+                )
+        return [self._loaded_models[mid] for mid in model_ids]
 
-    def _get_model_name(self, language: str) -> str:
-        """Resolve the model name for a language.
+    def get_pipeline(self, language: str) -> object:
+        """Return the first NER pipeline for ``language`` (legacy entry-point).
 
-        User overrides take precedence; then the default mapping is used.
+        Kept so existing single-pipeline call sites keep working;
+        new code should call :meth:`get_pipelines` to opt into the
+        per-language ensemble.
         """
-        if language in self._overrides and (self._overrides[language] or "").strip():
-            return (self._overrides[language] or "").strip()
+        return self.get_pipelines(language)[0]
+
+    def _resolve_model_ids(self, language: str) -> list[str]:
+        """Resolve the active model id list for a language.
+
+        Override format is comma-separated so a single string field on
+        ``AppSettings.ner_model_overrides`` can carry either one model
+        id (current behaviour) or several to opt into an ensemble.
+        """
+        override = (self._overrides.get(language) or "").strip()
+        if override:
+            ids = [m.strip() for m in override.split(",") if m.strip()]
+            if ids:
+                return ids
         if language in self.DEFAULT_MODEL_MAP:
-            return self.DEFAULT_MODEL_MAP[language]
-        return self.DEFAULT_MODEL_MAP["fallback"]
+            return list(self.DEFAULT_MODEL_MAP[language])
+        return list(self.DEFAULT_MODEL_MAP["fallback"])
 
 
 _shared_registry: NERModelRegistry | None = None

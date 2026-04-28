@@ -1374,18 +1374,34 @@ class Detector:
         text_len = len(normalized_text.strip())
 
         if self._config.use_ner_layer and text_len >= _MIN_TEXT_LENGTH_FOR_NER:
-            ner_pipeline = self._ner_registry.get_pipeline(language)
-            ner_results = ner_pipeline(normalized_text)
-            ner_spans = self._from_ner_results(ner_results, normalized_text, language)
-
-            # Re-run NER on title-cased text to catch ALL CAPS names that
-            # transformer models miss (trained on mixed-case text).
+            ner_pipelines = self._ner_registry.get_pipelines(language)
             titlecased = _titlecase_upper_segments(normalized_text)
-            if titlecased != normalized_text:
-                tc_results = ner_pipeline(titlecased)
-                tc_spans = self._from_ner_results(tc_results, normalized_text, language)
-                existing = {(s.start, s.end) for s in ner_spans}
-                ner_spans.extend(s for s in tc_spans if (s.start, s.end) not in existing)
+            ner_spans: List[DetectedSpan] = []
+            seen_spans: set[tuple[int, int, str]] = set()
+            for ner_pipeline in ner_pipelines:
+                pipeline_spans = self._from_ner_results(
+                    ner_pipeline(normalized_text), normalized_text, language
+                )
+                # Re-run on title-cased text to catch ALL CAPS names that
+                # transformers (trained on mixed case) miss.
+                if titlecased != normalized_text:
+                    tc_spans = self._from_ner_results(
+                        ner_pipeline(titlecased), normalized_text, language
+                    )
+                    pipeline_offsets = {(s.start, s.end) for s in pipeline_spans}
+                    pipeline_spans.extend(
+                        s for s in tc_spans if (s.start, s.end) not in pipeline_offsets
+                    )
+                # Cross-model dedup: if two ensemble members detect the
+                # exact same (start, end, entity_type) span we keep one
+                # copy. Different entity_types at the same offsets are
+                # left to the downstream absorption + dedup passes.
+                for s in pipeline_spans:
+                    key = (s.start, s.end, s.entity_type)
+                    if key in seen_spans:
+                        continue
+                    seen_spans.add(key)
+                    ner_spans.append(s)
             if self._entity_types is not None:
                 allowed = set(self._entity_types)
                 ner_spans = [s for s in ner_spans if s.entity_type in allowed]

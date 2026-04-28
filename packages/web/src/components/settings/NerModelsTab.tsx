@@ -18,7 +18,7 @@ interface NerModelSuggestion {
 }
 
 interface NerDefaultsResponse {
-  defaults: Record<string, string>;
+  defaults: Record<string, string[]>;
   suggestions: Record<string, NerModelSuggestion[]>;
 }
 
@@ -28,7 +28,7 @@ export function NerModelsTab({
   isSaving
 }: SettingsTabProps) {
   const t = useI18n();
-  const [defaults, setDefaults] = useState<Record<string, string>>({});
+  const [defaults, setDefaults] = useState<Record<string, string[]>>({});
   const [suggestions, setSuggestions] = useState<Record<string, NerModelSuggestion[]>>({});
   const [defaultsLoading, setDefaultsLoading] = useState(true);
   const [defaultsError, setDefaultsError] = useState<string | null>(null);
@@ -65,16 +65,19 @@ export function NerModelsTab({
     setLocalOverrides(settings.ner_model_overrides ?? {});
   }, [settings.ner_model_overrides]);
 
-  const getEffectiveModel = (lang: string): string =>
-    (localOverrides[lang] ?? defaults[lang] ?? "").trim() ||
-    defaults[lang] ||
-    "";
+  const defaultListToString = (lang: string): string =>
+    (defaults[lang] ?? []).join(", ");
+
+  const getEffectiveModel = (lang: string): string => {
+    const override = (localOverrides[lang] ?? "").trim();
+    return override || defaultListToString(lang);
+  };
 
   const handleOverrideChange = (lang: string, value: string): void => {
     const trimmed = value.trim();
     setLocalOverrides((prev) => {
       const next = { ...prev };
-      if (trimmed && trimmed !== defaults[lang]) {
+      if (trimmed && trimmed !== defaultListToString(lang)) {
         next[lang] = trimmed;
       } else {
         delete next[lang];
@@ -156,7 +159,7 @@ export function NerModelsTab({
               </td>
             </tr>
           ) : (
-            entries.map(([lang, defaultModel]) => (
+            entries.map(([lang, defaultModels]) => (
               <tr
                 key={lang}
                 className="border-b border-border/40 last:border-b-0 odd:bg-slate-900/40"
@@ -170,13 +173,19 @@ export function NerModelsTab({
                     className="w-full min-w-[200px] rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-[11px] text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none"
                     value={getEffectiveModel(lang)}
                     onChange={(e) => handleOverrideChange(lang, e.target.value)}
-                    placeholder={defaultModel}
+                    placeholder={defaultModels.join(", ")}
                     aria-label={t("settings.ner.overrideLabel").replace("{lang}", lang)}
                   />
+                  <p className="mt-1 text-[10px] text-slate-500">
+                    {t("settings.ner.ensembleHint")}
+                  </p>
                   {suggestions[lang] && suggestions[lang].length > 0 && (
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       {suggestions[lang].map((s) => {
-                        const active = getEffectiveModel(lang) === s.model_id;
+                        const effective = getEffectiveModel(lang)
+                          .split(",")
+                          .map((m) => m.trim());
+                        const active = effective.includes(s.model_id);
                         return (
                           <button
                             key={s.model_id}

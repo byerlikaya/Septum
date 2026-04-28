@@ -527,9 +527,14 @@ class NerModelSuggestion(BaseModel):
 
 
 class NerDefaultsResponse(BaseModel):
-    """Per-language defaults + curated alternative-model suggestions."""
+    """Per-language defaults + curated alternative-model suggestions.
 
-    defaults: dict[str, str]
+    ``defaults`` is keyed by ISO 639-1 language code; values are the
+    ordered list of model IDs that make up that language's ensemble
+    (one entry for single-model languages, two or more for ensembles).
+    """
+
+    defaults: dict[str, list[str]]
     suggestions: dict[str, list[NerModelSuggestion]]
 
 
