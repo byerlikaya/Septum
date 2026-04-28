@@ -53,6 +53,7 @@ def _kvkk_policy() -> ComposedPolicy:
             "TAX_ID",
             "LICENSE_PLATE",
             "ADDRESS",
+            "CUSTOMER_REFERENCE_ID",
         ],
         recognizers=list(kvkk_get_recognizers()),
         regulation_ids=["kvkk"],
@@ -354,6 +355,40 @@ def test_invalid_vergi_no_across_newline_is_masked(
     assert ("[TAX_ID_" in result.sanitized_text) or (
         "[NATIONAL_ID_" in result.sanitized_text
     )
+
+
+def test_kvkk_customer_reference_variants_masked(
+    sanitizer: PIISanitizer,
+) -> None:
+    """Customer / membership IDs must be masked under KVKK pack.
+
+    KVKK Md. 3 defines kişisel veri broadly enough to cover any code
+    that pins a record to one identifiable person, including loyalty,
+    CRM, and customer-portal references. The Turkish-label
+    recognizer covers the four label cues that real consent forms
+    use, with optional ``(varsa)`` / ``(opsiyonel)`` qualifiers and
+    the double-colon spacing that PDF extraction sometimes produces.
+    """
+    text = (
+        "Müşteri No (varsa): : ETP-2021-00489\n"
+        "Müşteri Numarası: XYZ-2024-9999\n"
+        "Üye Numarası: CRM-2024-1234\n"
+        "CRM No: ABC-123-456\n"
+        "Hesap No: HSP-9999-12345\n"
+    )
+    anon_map = AnonymizationMap(document_id=21, language="tr")
+
+    result = sanitizer.sanitize(text=text, language="tr", anon_map=anon_map)
+
+    for leaked in (
+        "ETP-2021-00489",
+        "XYZ-2024-9999",
+        "CRM-2024-1234",
+        "ABC-123-456",
+        "HSP-9999-12345",
+    ):
+        assert leaked not in result.sanitized_text, leaked
+    assert "[CUSTOMER_REFERENCE_ID_" in result.sanitized_text
 
 
 def test_tc_kimlik_no_with_colon_is_masked(

@@ -135,6 +135,42 @@ def _turkish_labeled_tax_id_recognizer() -> EntityRecognizer:
     )
 
 
+def _customer_reference_recognizer() -> EntityRecognizer:
+    """Customer / membership reference IDs after Turkish-label cues.
+
+    KVKK Art. 3 defines kişisel veri broadly as any data linked to an
+    identifiable person, which covers customer / membership numbers
+    that pin a record to one individual (loyalty IDs, CRM accounts,
+    portal user codes). Forms in the wild use prefixed alphanumeric
+    codes like ``ETP-2021-00489`` or ``CRM-12345``; the contextual
+    cue is one of ``Müşteri No``, ``Üye No``, ``Hesap No`` (when
+    not already covered by BANK_ACCOUNT_NUMBER), ``CRM No``, ``Üye
+    Numarası``, ``Müşteri Numarası``, with optional whitespace
+    around the colon and an optional ``(varsa)`` qualifier as seen
+    on real KVKK consent forms.
+    """
+    pattern = (
+        r"(?i)\b(?:"
+        r"M[üu]şteri(?:\s+(?:No|Numaras[ıi]))?"
+        r"|[ÜU]ye(?:\s+(?:No|Numaras[ıi]))?"
+        r"|CRM(?:\s+No)?"
+        r"|Hesap\s+No"
+        r")"
+        r"(?:\s*\([^)]+\))?"   # optional "(varsa)" / "(opsiyonel)" qualifier
+        r"\s*:?\s*:?\s*"
+        r"([A-Z]{2,8}[-/]\d{2,4}[-/]\d{3,8})"
+    )
+    return ValidatedPatternRecognizer(
+        entity_type="CUSTOMER_REFERENCE_ID",
+        config=RegexPatternConfig(
+            name="kvkk_customer_reference_tr_label",
+            pattern=pattern,
+            score=0.75,
+            narrow_to_group=1,
+        ),
+    )
+
+
 def _email_recognizer() -> EntityRecognizer:
     return ValidatedPatternRecognizer(
         entity_type="EMAIL_ADDRESS",
@@ -162,5 +198,6 @@ def get_recognizers() -> List[EntityRecognizer]:
     recognizers.append(_contextual_national_id_recognizer())
     recognizers.append(_turkish_labeled_national_id_recognizer())
     recognizers.append(_turkish_labeled_tax_id_recognizer())
+    recognizers.append(_customer_reference_recognizer())
     return recognizers
 
