@@ -1259,7 +1259,13 @@ class Detector:
             )
             for rec in recognizers:
                 supported.update(rec.supported_entities)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            # Surface the error so a Presidio API change does not
+            # silently disable coverage warnings — privacy-first
+            # over-detection is preferable to a silent miss.
+            logger.warning(
+                "Skipping entity coverage validation: %s", type(exc).__name__
+            )
             return
 
         for septum_type, presidio_type in _PRESIDIO_ENTITY_ALIASES.items():
@@ -1577,16 +1583,14 @@ class Detector:
                 if has_dot_or_slash and digit_count <= 8:
                     continue
 
-            if r.entity_type == "LOCATION":
-                # Mirror _map_ner_label: Presidio's built-in SpacyRecognizer
-                # maps spaCy GPE to LOCATION, and with en_core_web_sm
-                # running over non-English text it produces stochastic
-                # mis-fires on any Title Case OOV token — "Doğum",
-                # "Uyruk", "TARAFLAR", "T.C." in Turkish and equivalents
-                # in every other language. Address PII is captured by the
-                # deterministic StructuralAddressRecognizer and per-regulation
-                # POSTAL_ADDRESS / STREET_ADDRESS recognizers, so there is no
-                # legitimate LOCATION source left on the Presidio side either.
+            if r.entity_type == "LOCATION" and self._config.use_ner_layer:
+                # Drop Presidio's spaCy-LOCATION output ONLY when the
+                # NER layer is also active — the transformer ensemble
+                # supplies higher-quality LOCATION spans anyway. With
+                # the NER layer disabled (e.g. transformers extra not
+                # installed) Presidio's LOCATION is the only signal,
+                # so let it through even though en_core_web_sm is
+                # noisy on non-English text.
                 continue
 
             filtered.append(r)
@@ -1792,14 +1796,26 @@ class Detector:
         ``_extract_entities``'s LOCATION output is additive on top of
         those.
         """
+        # Use exact set membership instead of substring ``in`` checks:
+        # "PER" in "OPERATION" or "SUPER" used to match too, mis-tagging
+        # third-party NER outputs as person names. The set covers every
+        # tag scheme we have seen in the wild (CoNLL B-/I- prefixes,
+        # OntoNotes long-form, plain "PER" / "ORG" / "LOC").
+        person_tags = {"PER", "PERSON", "B-PER", "I-PER", "B-PERSON", "I-PERSON"}
+        org_tags = {"ORG", "ORGANIZATION", "B-ORG", "I-ORG", "B-ORGANIZATION", "I-ORGANIZATION"}
+        location_tags = {
+            "LOC", "LOCATION", "GPE",
+            "B-LOC", "I-LOC", "B-LOCATION", "I-LOCATION",
+            "B-GPE", "I-GPE",
+        }
         upper = label.upper()
-        if "PER" in upper or upper.startswith("B-PER") or upper.startswith("I-PER"):
+        if upper in person_tags:
             return "PERSON_NAME"
-        if "EMAIL" in upper:
+        if upper in {"EMAIL", "B-EMAIL", "I-EMAIL", "EMAIL_ADDRESS"}:
             return "EMAIL_ADDRESS"
-        if "ORG" in upper or upper.startswith("B-ORG") or upper.startswith("I-ORG"):
+        if upper in org_tags:
             return "ORGANIZATION_NAME"
-        if "LOC" in upper or "GPE" in upper:
+        if upper in location_tags:
             return "LOCATION"
         return None
 

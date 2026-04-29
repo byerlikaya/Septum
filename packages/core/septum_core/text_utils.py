@@ -86,9 +86,8 @@ def normalize_for_comparison(text: str, language: str = "en") -> str:
 # Possessive suffixes to strip, keyed by ISO 639-1 language code.
 # Entries are checked longest-first to avoid partial matches.
 _POSSESSIVE_SUFFIXES: Dict[str, list[str]] = {
-    "tr": ["'ın", "'in", "'un", "'ün", "'nın", "'nin", "'nun", "'nün",
-            "'ın", "'in", "'un", "'ün", "'nın", "'nin", "'nun", "'nün"],
-    "az": ["'ın", "'in", "'un", "'ün", "'ın", "'in", "'un", "'ün"],
+    "tr": ["'ın", "'in", "'un", "'ün", "'nın", "'nin", "'nun", "'nün"],
+    "az": ["'ın", "'in", "'un", "'ün"],
 }
 
 # Suffixes shared across most Latin-script languages.
