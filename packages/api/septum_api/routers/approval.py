@@ -23,6 +23,7 @@ from ..services.approval_gate import (
     ApprovalChunk,
     ApprovalDecision,
     ApprovalGate,
+    ApprovalSessionForbiddenError,
     ApprovalSessionNotFoundError,
     get_approval_gate,
 )
@@ -177,16 +178,19 @@ async def get_session_status(
 async def approve_session(
     session_id: str,
     request: ApproveRequest,
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ApprovalDecisionResponse:
     """Approve an existing session with the (possibly edited) chunks."""
     gate = _get_gate()
     try:
+        await gate.assert_session_owner(
+            session_id, user.id, allow_admin_bypass=user.role == "admin"
+        )
         decision = await gate.approve(
             session_id=session_id,
             edited_chunks=[payload.to_domain() for payload in request.chunks],
         )
-    except ApprovalSessionNotFoundError:
+    except (ApprovalSessionNotFoundError, ApprovalSessionForbiddenError):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Approval session not found.",
@@ -203,13 +207,16 @@ async def approve_session(
 async def reject_session(
     session_id: str,
     request: RejectRequest,
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ApprovalDecisionResponse:
     """Explicitly reject an existing approval session."""
     gate = _get_gate()
     try:
+        await gate.assert_session_owner(
+            session_id, user.id, allow_admin_bypass=user.role == "admin"
+        )
         decision = await gate.reject(session_id=session_id, reason=request.reason)
-    except ApprovalSessionNotFoundError:
+    except (ApprovalSessionNotFoundError, ApprovalSessionForbiddenError):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Approval session not found.",
@@ -227,7 +234,7 @@ async def preview_prompt(
     session_id: str,
     request: PreviewPromptRequest,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> PreviewPromptResponse:
     """Re-assemble the masked user prompt with (possibly edited) chunks.
 
@@ -245,6 +252,19 @@ async def preview_prompt(
     from .chat import _assemble_user_prompt
 
     gate = _get_gate()
+    try:
+        await gate.assert_session_owner(
+            session_id, user.id, allow_admin_bypass=user.role == "admin"
+        )
+    except (ApprovalSessionNotFoundError, ApprovalSessionForbiddenError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "Approval session not found or missing assembly context; "
+                "cannot rebuild the prompt preview."
+            ),
+        ) from None
+
     context = await gate.get_assembly_context(session_id)
     if context is None:
         raise HTTPException(

@@ -51,7 +51,24 @@ from ..services.ingestion.router import IngestionRouter
 from ..services.ingestion.xlsx_ingester import XlsxIngester
 from ..utils.auth_dependency import get_current_user, require_role
 from ..utils.crypto import decrypt, encrypt
-from ..utils.db_helpers import detect_language, get_or_404, load_settings
+from ..utils.db_helpers import (
+    detect_language,
+    get_or_404,
+    get_owned_or_404,
+    load_settings,
+)
+
+
+def _scope_to_owner(stmt, user: User):
+    """Restrict a Document-bearing select to the caller's own rows.
+
+    Admin role bypasses the filter — the operator can list anything for
+    support purposes. Every other role only sees documents they
+    uploaded.
+    """
+    if user.role == "admin":
+        return stmt
+    return stmt.where(Document.user_id == user.id)
 
 try:  # python-magic with system libmagic; may fail if libmagic is missing.
     import magic as _magic  # type: ignore[import]
@@ -178,11 +195,11 @@ class SpreadsheetSchemaUpdatePayload(BaseModel):
 async def get_spreadsheet_schema(
     document_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> SpreadsheetSchemaResponse:
     """Return the spreadsheet schema for a document, if any."""
 
-    await get_or_404(db, Document, document_id, "Document not found.")
+    await get_owned_or_404(db, Document, document_id, user, "Document not found.")
 
     schema_result = await db.execute(
         select(SpreadsheetSchema)
@@ -216,7 +233,7 @@ async def update_spreadsheet_schema(
     document_id: int,
     payload: SpreadsheetSchemaUpdatePayload,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role("admin", "editor")),
+    user: User = Depends(require_role("admin", "editor")),
 ) -> SpreadsheetSchemaResponse:
     """Update the spreadsheet schema for a document.
 
@@ -224,7 +241,7 @@ async def update_spreadsheet_schema(
     ``technical_label`` must match the existing schema.
     """
 
-    await get_or_404(db, Document, document_id, "Document not found.")
+    await get_owned_or_404(db, Document, document_id, user, "Document not found.")
 
     schema_result = await db.execute(
         select(SpreadsheetSchema)
@@ -662,14 +679,17 @@ async def get_processing_progress(
 )
 async def list_documents(
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> DocumentListResponse:
-    """Return every document, ordered by upload time (newest first).
+    """Return the caller's own documents, newest first.
 
-    Documents are shared across all authenticated users regardless of role;
-    ``Document.user_id`` is kept as audit attribution for who uploaded what.
+    Per-user isolation is the default: every non-admin role sees only
+    rows they uploaded. ``admin`` role bypasses the filter so operators
+    can run support queries across the whole corpus.
     """
-    stmt = select(Document).order_by(Document.uploaded_at.desc())
+    stmt = _scope_to_owner(
+        select(Document).order_by(Document.uploaded_at.desc()), user
+    )
     result = await db.execute(stmt)
     docs = list(result.scalars().all())
     return DocumentListResponse(
@@ -685,10 +705,12 @@ async def list_documents(
 async def get_document(
     document_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> DocumentResponse:
     """Return metadata for a single document."""
-    document = await get_or_404(db, Document, document_id, "Document not found.")
+    document = await get_owned_or_404(
+        db, Document, document_id, user, "Document not found."
+    )
     return DocumentResponse.model_validate(document)
 
 
@@ -699,12 +721,12 @@ async def get_document(
 async def get_anon_summary(
     document_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
     """Return a privacy-safe summary of the anonymization map (entity types and counts only)."""
     from ..services.document_anon_store import get_document_map
 
-    await get_or_404(db, Document, document_id, "Document not found.")
+    await get_owned_or_404(db, Document, document_id, user, "Document not found.")
     anon_map = await get_document_map(document_id)
     if anon_map is None:
         return {"document_id": document_id, "entities": {}, "total": 0}
@@ -752,10 +774,10 @@ async def get_entity_detections(
     chunk_id: Optional[int] = None,
     entity_type: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> EntityDetectionListResponse:
     """Return per-entity detection records with positions for a document."""
-    await get_or_404(db, Document, document_id, "Document not found.")
+    await get_owned_or_404(db, Document, document_id, user, "Document not found.")
 
     stmt = (
         select(EntityDetection)
@@ -782,12 +804,14 @@ async def get_entity_detections(
 async def get_document_raw(
     document_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
     """Stream the decrypted original file for in-browser preview."""
     from fastapi.responses import Response
 
-    document = await get_or_404(db, Document, document_id, "Document not found.")
+    document = await get_owned_or_404(
+        db, Document, document_id, user, "Document not found."
+    )
     encrypted_path = Path(document.encrypted_path)
     if not encrypted_path.exists():
         raise HTTPException(
@@ -813,10 +837,12 @@ async def update_document_language(
     document_id: int,
     payload: LanguageUpdatePayload,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role("admin", "editor")),
+    user: User = Depends(require_role("admin", "editor")),
 ) -> DocumentResponse:
     """Override the detected language for a document."""
-    document = await get_or_404(db, Document, document_id, "Document not found.")
+    document = await get_owned_or_404(
+        db, Document, document_id, user, "Document not found."
+    )
 
     document.language_override = payload.language
     await db.commit()
@@ -832,10 +858,12 @@ async def update_document_language(
 async def delete_document(
     document_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role("admin", "editor")),
+    user: User = Depends(require_role("admin", "editor")),
 ) -> None:
     """Delete a document, its chunks, encrypted file, and vector index."""
-    document = await get_or_404(db, Document, document_id, "Document not found.")
+    document = await get_owned_or_404(
+        db, Document, document_id, user, "Document not found."
+    )
 
     try:
         path = Path(document.encrypted_path)
@@ -863,10 +891,12 @@ async def reprocess_document(
     document_id: int,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role("admin", "editor")),
+    user: User = Depends(require_role("admin", "editor")),
 ) -> DocumentResponse:
     """Re-run the sanitization, chunking, and indexing pipeline for an existing document."""
-    document = await get_or_404(db, Document, document_id, "Document not found.")
+    document = await get_owned_or_404(
+        db, Document, document_id, user, "Document not found."
+    )
 
     encrypted_path = Path(document.encrypted_path)
     if not encrypted_path.exists():

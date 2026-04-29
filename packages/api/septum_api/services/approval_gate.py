@@ -74,6 +74,16 @@ class _ApprovalSession:
     # with freshly edited chunks without the chat handler having to hold
     # any request-scoped state.
     assembly_context: Optional[Dict[str, Any]] = field(default=None)
+    # User who initiated the approval. Approve/reject/preview-prompt
+    # endpoints reject mismatched callers so a leaked session_id (logs,
+    # SSE retry) cannot be used by a different user to influence which
+    # masked chunks land in the cloud LLM. ``None`` means "no binding"
+    # — only used by legacy code paths and the open_session helper.
+    owner_user_id: Optional[int] = None
+
+
+class ApprovalSessionForbiddenError(PermissionError):
+    """Raised when a session operation is attempted by the wrong user."""
 
 
 class ApprovalSessionNotFoundError(KeyError):
@@ -128,20 +138,26 @@ class ApprovalGate:
                 logger.warning("Replacing existing approval session: %s", session_id)
             self._sessions[session_id] = session
 
-    def create(
+    async def create(
         self,
         session_id: str,
         masked_prompt: str,
         masked_chunks: List[str],
         entity_count: int,
         assembly_context: Optional[Dict[str, Any]] = None,
+        owner_user_id: Optional[int] = None,
     ) -> None:
-        """Legacy helper to open a session using masked prompt/chunks.
+        """Open a session using masked prompt/chunks.
 
-        This synchronous method is intended for simple scripts and older code
-        paths. It creates the approval session immediately on the current
-        event loop so that a subsequent ``wait_for_approval`` call can always
-        find it.
+        Acquires ``self._lock`` around the dict mutation so a concurrent
+        chat turn (SSE retry, replay) cannot race with in-flight
+        readers and cause a half-formed session to be observed.
+
+        ``owner_user_id`` binds the session to the user who initiated
+        it. The approval router checks this before approve/reject/
+        preview-prompt so a leaked session id cannot be used by another
+        authenticated user to influence which masked chunks land in
+        the cloud LLM.
         """
         chunks: List[ApprovalChunk] = [
             ApprovalChunk(id=None, document_id=None, text=chunk)
@@ -157,12 +173,13 @@ class ApprovalGate:
             masked_prompt=masked_prompt,
             entity_count=entity_count,
             assembly_context=assembly_context,
+            owner_user_id=owner_user_id,
         )
 
-        # Replacing an existing session is allowed but logged.
-        if session_id in self._sessions:
-            logger.warning("Replacing existing approval session: %s", session_id)
-        self._sessions[session_id] = session
+        async with self._lock:
+            if session_id in self._sessions:
+                logger.warning("Replacing existing approval session: %s", session_id)
+            self._sessions[session_id] = session
 
     async def get_assembly_context(
         self, session_id: str
@@ -181,6 +198,30 @@ class ApprovalGate:
                 dict(session.assembly_context)
                 if session.assembly_context is not None
                 else None
+            )
+
+    async def assert_session_owner(
+        self, session_id: str, user_id: int, *, allow_admin_bypass: bool = False
+    ) -> None:
+        """Raise ``ApprovalSessionForbiddenError`` if ``user_id`` does not own the session.
+
+        ``allow_admin_bypass`` lets the caller skip the check when the
+        request is from an admin (the auth middleware passes role).
+        Sessions opened without an owner (legacy code paths) are
+        treated as bound to no one — every non-admin caller is rejected.
+        """
+        async with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise ApprovalSessionNotFoundError(
+                    f"Approval session not found for id={session_id!r}"
+                )
+            owner = session.owner_user_id
+        if allow_admin_bypass:
+            return
+        if owner is None or owner != user_id:
+            raise ApprovalSessionForbiddenError(
+                f"User {user_id} is not the owner of session {session_id!r}"
             )
 
     async def wait_for_decision(

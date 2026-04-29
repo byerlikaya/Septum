@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import Optional, Type, TypeVar
+from typing import Any, Optional, Type, TypeVar
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -23,6 +23,32 @@ async def get_or_404(
     result = await db.execute(select(model).where(model.id == pk))
     row = result.scalar_one_or_none()
     if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+    return row
+
+
+async def get_owned_or_404(
+    db: AsyncSession,
+    model: Type[T],
+    pk: int,
+    user: Any,
+    detail: str = "Resource not found.",
+) -> T:
+    """Fetch a row by primary key, asserting ownership.
+
+    Returns 404 (never 403) on ownership mismatch so non-owner users
+    cannot enumerate which IDs exist for other users. ``admin`` role
+    bypasses the check by design — the system operator can read any
+    artifact for support purposes.
+    """
+    result = await db.execute(select(model).where(model.id == pk))
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+    if getattr(user, "role", None) == "admin":
+        return row
+    owner_id = getattr(row, "user_id", None)
+    if owner_id is None or owner_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
     return row
 

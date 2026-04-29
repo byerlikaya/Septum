@@ -31,7 +31,7 @@ def _make_chunks() -> list[ApprovalChunk]:
 async def test_wait_for_decision_returns_approval() -> None:
     gate = ApprovalGate()
     session_id = "approval-session"
-    gate.create(
+    await gate.create(
         session_id=session_id,
         masked_prompt="What is X?",
         masked_chunks=["masked chunk one", "masked chunk two"],
@@ -62,7 +62,7 @@ async def test_wait_for_decision_returns_approval() -> None:
 async def test_wait_for_decision_times_out() -> None:
     gate = ApprovalGate()
     session_id = "timeout-session"
-    gate.create(
+    await gate.create(
         session_id=session_id,
         masked_prompt="What is X?",
         masked_chunks=["masked chunk"],
@@ -86,7 +86,7 @@ async def test_wait_for_decision_no_timeout_waits_indefinitely() -> None:
     """A timeout of 0 must mean ``wait forever``, not ``return immediately``."""
     gate = ApprovalGate()
     session_id = "infinite-session"
-    gate.create(
+    await gate.create(
         session_id=session_id,
         masked_prompt="What is X?",
         masked_chunks=["masked chunk"],
@@ -113,7 +113,7 @@ async def test_wait_for_decision_no_timeout_waits_indefinitely() -> None:
 async def test_wait_for_decision_rejection() -> None:
     gate = ApprovalGate()
     session_id = "reject-session"
-    gate.create(
+    await gate.create(
         session_id=session_id,
         masked_prompt="What is X?",
         masked_chunks=["masked chunk"],

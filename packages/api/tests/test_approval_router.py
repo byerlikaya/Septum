@@ -78,6 +78,14 @@ class _FakeApprovalGate:
     async def get_session_snapshot(self, session_id: str) -> Optional[_DummySession]:
         return self._sessions.get(session_id)
 
+    async def assert_session_owner(
+        self, session_id: str, user_id: int, *, allow_admin_bypass: bool = False
+    ) -> None:
+        if session_id not in self._sessions:
+            raise ApprovalSessionNotFoundError(session_id)
+        # The fixture above injects an admin user, so allow_admin_bypass
+        # is always True here — the legacy fake sessions have no owner.
+
     async def approve(
         self,
         session_id: str,

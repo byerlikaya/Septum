@@ -15,7 +15,27 @@ from ..models.document import Chunk, Document
 from ..models.user import User
 from ..services.vector_store import VectorStore
 from ..utils.auth_dependency import get_current_user, require_role
-from ..utils.db_helpers import get_or_404
+from ..utils.db_helpers import get_or_404, get_owned_or_404
+
+
+async def _ensure_chunk_owner(db: AsyncSession, chunk: Chunk, user: User) -> None:
+    """Reject the request if the caller does not own the chunk's document.
+
+    Admin role bypasses; every other role must own the parent
+    ``Document.user_id``. Returns 404 (not 403) so non-owners cannot
+    enumerate which chunk ids exist.
+    """
+    if user.role == "admin":
+        return
+    from fastapi import HTTPException, status as _status
+    parent = await db.execute(
+        select(Document.user_id).where(Document.id == chunk.document_id)
+    )
+    parent_user_id = parent.scalar_one_or_none()
+    if parent_user_id != user.id:
+        raise HTTPException(
+            status_code=_status.HTTP_404_NOT_FOUND, detail="Chunk not found."
+        )
 from ..utils.text_utils import normalize_unicode
 
 router = APIRouter(prefix="/api/chunks", tags=["chunks"])
@@ -85,13 +105,20 @@ async def list_chunks(
         description="If provided, only chunks for this document are returned.",
     ),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ChunkListResponse:
-    """Return sanitized chunks, optionally filtered by document."""
-    stmt = select(Chunk)
+    """Return sanitized chunks for documents the caller owns."""
     if document_id is not None:
-        await get_or_404(db, Document, document_id, "Document not found.")
-        stmt = stmt.where(Chunk.document_id == document_id)
+        await get_owned_or_404(db, Document, document_id, user, "Document not found.")
+        stmt = select(Chunk).where(Chunk.document_id == document_id)
+    elif user.role == "admin":
+        stmt = select(Chunk)
+    else:
+        stmt = (
+            select(Chunk)
+            .join(Document, Document.id == Chunk.document_id)
+            .where(Document.user_id == user.id)
+        )
 
     stmt = stmt.order_by(Chunk.document_id, Chunk.index)
     result = await db.execute(stmt)
@@ -110,10 +137,11 @@ async def list_chunks(
 async def get_chunk(
     chunk_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ChunkResponse:
     """Return a single sanitized chunk by id."""
     chunk = await get_or_404(db, Chunk, chunk_id, "Chunk not found.")
+    await _ensure_chunk_owner(db, chunk, user)
     return ChunkResponse.model_validate(chunk)
 
 
@@ -126,10 +154,11 @@ async def update_chunk(
     chunk_id: int,
     payload: ChunkUpdateRequest,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role("admin", "editor")),
+    user: User = Depends(require_role("admin", "editor")),
 ) -> ChunkResponse:
     """Update mutable fields of a chunk (inline edit support)."""
     chunk = await get_or_404(db, Chunk, chunk_id, "Chunk not found.")
+    await _ensure_chunk_owner(db, chunk, user)
 
     if payload.sanitized_text is not None:
         normalized = normalize_unicode(payload.sanitized_text)
@@ -152,10 +181,11 @@ async def update_chunk(
 async def delete_chunk(
     chunk_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role("admin", "editor")),
+    user: User = Depends(require_role("admin", "editor")),
 ) -> None:
     """Delete a chunk."""
     chunk = await get_or_404(db, Chunk, chunk_id, "Chunk not found.")
+    await _ensure_chunk_owner(db, chunk, user)
 
     await db.delete(chunk)
     await db.commit()
@@ -169,10 +199,10 @@ async def delete_chunk(
 async def search_chunks(
     payload: ChunkSearchRequest,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ChunkSearchResponse:
     """Search chunks for a given document using the vector index."""
-    await get_or_404(db, Document, payload.document_id, "Document not found.")
+    await get_owned_or_404(db, Document, payload.document_id, user, "Document not found.")
 
     effective_top_k = payload.top_k if payload.top_k > 0 else 10
 

@@ -840,7 +840,7 @@ class AnalyzeQueryResponse(BaseModel):
 async def chat_analyze_query(
     body: AnalyzeQueryRequest,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> AnalyzeQueryResponse:
     """Pre-flight: sanitize the user's question, run entity-aware
     routing, and group the matching documents into clusters so the
@@ -867,7 +867,11 @@ async def chat_analyze_query(
             reason="no_entity_in_query",
         )
 
-    scores = await find_documents_for_query_entities(db, query_entities)
+    scores = await find_documents_for_query_entities(
+        db,
+        query_entities,
+        owner_id=None if user.role == "admin" else user.id,
+    )
     if not scores:
         return AnalyzeQueryResponse(
             requires_disambiguation=False,
@@ -932,7 +936,7 @@ async def chat_ask(
     request: ChatRequest,
     http_request: Request,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     """Chat endpoint that streams an SSE response for a single turn."""
     message_text = request.message or request.query
@@ -1122,7 +1126,9 @@ async def chat_ask(
                         narrowing_reason = "no_entity_in_query"
                         if query_entities:
                             entity_scores = await find_documents_for_query_entities(
-                                db, query_entities
+                                db,
+                                query_entities,
+                                owner_id=None if current_user.role == "admin" else current_user.id,
                             )
                             if entity_scores:
                                 strong = {
@@ -1461,13 +1467,14 @@ async def chat_ask(
                         query_has_placeholder=query_has_placeholder,
                     )
 
-                    gate.create(
+                    await gate.create(
                         session_id=session_id,
                         masked_prompt=sanitized_query,
                         masked_chunks=[
                             c.text for c in approval_chunks
                         ],
                         entity_count=entity_count,
+                        owner_user_id=current_user.id,
                         assembly_context={
                             "sanitized_query": sanitized_query,
                             "regulation_names": regulation_names,
