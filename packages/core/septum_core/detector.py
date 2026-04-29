@@ -1391,14 +1391,18 @@ class Detector:
                     ner_pipeline(normalized_text), normalized_text, language
                 ))
 
-            # Pass 2: a single ALL-CAPS recovery pass. Mixed-case-trained
-            # transformers all share the same uppercase blind spot, so one
-            # title-cased run via the primary model catches what running
-            # the same pass N times across the ensemble would.
-            if titlecased != normalized_text and ner_pipelines:
-                _add(self._from_ner_results(
-                    ner_pipelines[0](titlecased), normalized_text, language
-                ))
+            # Pass 2: ALL-CAPS recovery. Title-casing fixes the shared
+            # uppercase blind spot of mixed-case-trained transformers, but
+            # rare-surname recall is still architecture-dependent — that is
+            # why the registry pairs models in the first place. Run every
+            # ensemble member on the title-cased text so the backstop model
+            # (e.g. savasy BERT for Turkish) still sees inputs whose only
+            # appearance is ALL CAPS. seen_spans dedupes overlap.
+            if titlecased != normalized_text:
+                for ner_pipeline in ner_pipelines:
+                    _add(self._from_ner_results(
+                        ner_pipeline(titlecased), normalized_text, language
+                    ))
             if self._entity_types is not None:
                 allowed = set(self._entity_types)
                 ner_spans = [s for s in ner_spans if s.entity_type in allowed]
