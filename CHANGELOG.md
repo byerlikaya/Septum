@@ -53,13 +53,15 @@ Date-based ledger below has the full incremental history.
 
 ---
 
-### 2026-04-29
+## v1.2.0 — 2026-04-29 — Deep-review security pass
 
-Multi-agent deep review across all seven packages surfaced 7 CRITICAL,
-40 HIGH, and ~60 MEDIUM/LOW findings. This batch closes the security
-+ correctness items; UX polish (modal a11y, console.log strip, mass-
-delete bounded pool) plus the JWT-cookie + CSRF migration stay
-deferred for the next sprint.
+Multi-agent deep review across all seven packages closed 7 CRITICAL,
+~38 HIGH, and ~60 MEDIUM/LOW findings — anonymization-map encryption,
+per-user data isolation, tamper-evident audit chain, queue durability,
+gateway SSRF defenses, MCP transport hardening, and a backlog of
+smaller privacy / DoS gaps. Modal a11y plus a bounded mass-delete
+pool follow up the same release. JWT-cookie + CSRF migration and
+the transformers 5.0 CVE bump stay deferred for the next sprint.
 
 - **Anonymization-map Redis tier was plaintext JSON**: the disk tier
   encrypted with AES-256-GCM but Redis received `{original: placeholder}`
@@ -156,6 +158,35 @@ deferred for the next sprint.
   `streamSSE` helper; Next.js gains baseline CSP + HSTS +
   `X-Frame-Options: DENY` + Permissions-Policy; PDF preview iframe
   gains `sandbox="allow-same-origin"`.
+
+**Breaking**
+
+- **Per-user document/chunk isolation.** Viewer-role users no longer
+  see other users' documents. Multi-user installs that relied on the
+  previous shared-workspace default need to grant the admin role to
+  operators who must browse the full corpus.
+- **Cloud-LLM API keys removed from the queue envelope.** Split
+  deployments must move provider keys from `AppSettings.*_api_key`
+  on the producer to `SEPTUM_GATEWAY_*_API_KEY` env vars on the
+  gateway zone. Producers stop placing the field on the envelope;
+  the gateway ignores any legacy `api_key` it parses.
+- **Setup-window endpoints require loopback or `SEPTUM_SETUP_TOKEN`.**
+  Operators driving the wizard from a non-localhost machine must
+  start the api with `SEPTUM_SETUP_TOKEN=<secret>` and pass
+  `X-Setup-Token: <secret>` on every wizard request.
+- **`/api/audit/export` requires a Bearer token.** The audit service
+  now refuses the export endpoint with 503 unless
+  `SEPTUM_AUDIT_EXPORT_TOKEN` is set; clients must send
+  `Authorization: Bearer <token>`.
+- **`BaseForwarder(default_api_key=…)` renamed to `api_key=…`.** Custom
+  gateway integrations constructing forwarders directly need to
+  rename the kwarg.
+- **Password minimum 8 → 12 characters.** Existing accounts keep
+  working; new accounts and password resets must use 12+ chars.
+- **Anon-map Redis tier is now AES-256-GCM ciphertext.** Running
+  Redis caches with old plaintext entries become unreadable on
+  upgrade; flush the keys on rollout (entries are best-effort and
+  the system rebuilds them on next access).
 
 ### 2026-04-28
 
