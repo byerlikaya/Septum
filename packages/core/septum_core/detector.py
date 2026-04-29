@@ -107,16 +107,11 @@ _HIGH_PRIORITY_ENTITY_TYPES: set[str] = {
     "LICENSE_PLATE",
 }
 
-# Entity types that are detected by deterministic recognizers
-# (regex / checksum / structural cues) and must NEVER be filtered by
-# the semantic-validation layer. The Ollama validator returns whichever
-# spans the LLM "agrees" are PII; if a deterministic span (a real
-# address, email, date of birth, IBAN, …) happens to be missing from
-# its output the original sanitize pipeline silently drops it, even
-# though the recognizer that found it never errs probabilistically.
-# Only NER-driven types (PERSON_NAME / LOCATION / ORGANIZATION_NAME)
-# need probabilistic validation; everything else passes through
-# untouched.
+# Deterministic-recognizer outputs bypass the Ollama validator — only
+# probabilistic NER types (PERSON_NAME / LOCATION / ORGANIZATION_NAME)
+# need LLM second-guessing, and the validator silently dropping a
+# regex-matched address or email is the bug we observed in real KVKK
+# forms.
 _SEMANTIC_VALIDATION_PASSTHROUGH_TYPES: frozenset[str] = frozenset(
     _HIGH_PRIORITY_ENTITY_TYPES
     | {
@@ -1378,30 +1373,32 @@ class Detector:
             titlecased = _titlecase_upper_segments(normalized_text)
             ner_spans: List[DetectedSpan] = []
             seen_spans: set[tuple[int, int, str]] = set()
-            for ner_pipeline in ner_pipelines:
-                pipeline_spans = self._from_ner_results(
-                    ner_pipeline(normalized_text), normalized_text, language
-                )
-                # Re-run on title-cased text to catch ALL CAPS names that
-                # transformers (trained on mixed case) miss.
-                if titlecased != normalized_text:
-                    tc_spans = self._from_ner_results(
-                        ner_pipeline(titlecased), normalized_text, language
-                    )
-                    pipeline_offsets = {(s.start, s.end) for s in pipeline_spans}
-                    pipeline_spans.extend(
-                        s for s in tc_spans if (s.start, s.end) not in pipeline_offsets
-                    )
-                # Cross-model dedup: if two ensemble members detect the
-                # exact same (start, end, entity_type) span we keep one
-                # copy. Different entity_types at the same offsets are
-                # left to the downstream absorption + dedup passes.
-                for s in pipeline_spans:
+
+            def _add(spans: List[DetectedSpan]) -> None:
+                for s in spans:
                     key = (s.start, s.end, s.entity_type)
                     if key in seen_spans:
                         continue
                     seen_spans.add(key)
                     ner_spans.append(s)
+
+            # Pass 1: every ensemble member sees the original text. Different
+            # architectures catch different rare names; the seen-set unions
+            # their outputs without double-counting identical (start, end,
+            # entity_type) spans.
+            for ner_pipeline in ner_pipelines:
+                _add(self._from_ner_results(
+                    ner_pipeline(normalized_text), normalized_text, language
+                ))
+
+            # Pass 2: a single ALL-CAPS recovery pass. Mixed-case-trained
+            # transformers all share the same uppercase blind spot, so one
+            # title-cased run via the primary model catches what running
+            # the same pass N times across the ensemble would.
+            if titlecased != normalized_text and ner_pipelines:
+                _add(self._from_ner_results(
+                    ner_pipelines[0](titlecased), normalized_text, language
+                ))
             if self._entity_types is not None:
                 allowed = set(self._entity_types)
                 ner_spans = [s for s in ner_spans if s.entity_type in allowed]

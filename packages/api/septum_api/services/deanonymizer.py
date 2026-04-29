@@ -43,14 +43,10 @@ class DeAnonymizer:
     ``entity_map`` of ``{placeholder: original}``.
     """
 
-    def __init__(self, strategy: str = "simple") -> None:
+    def __init__(self) -> None:
         from ..config import get_settings
 
-        settings = get_settings()
-        # ``strategy`` arg accepted for legacy callers but ignored — only
-        # the deterministic path remains.
-        del strategy
-        self._inner = Deanonymizer(settings=settings)
+        self._inner = Deanonymizer(settings=get_settings())
 
     def deanonymize(self, text: str, entity_map: dict[str, str]) -> str:
         """Synchronously de-anonymize ``text`` using a placeholder→original map."""

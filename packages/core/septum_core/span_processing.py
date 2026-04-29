@@ -175,6 +175,24 @@ def expand_person_name_spans(
             return False
         return True
 
+    def _scan_horizontal_ws(idx: int, step: int) -> tuple[int, bool]:
+        """Skip horizontal whitespace from ``idx`` in ``step`` direction.
+
+        Returns the post-scan index and whether a newline was hit. Form
+        labels always sit on a line above/below their value, so any
+        expansion crossing ``\\n`` would absorb the wrong row.
+        """
+        limit = len(text) if step > 0 else 0
+        peek = (lambda i: i) if step > 0 else (lambda i: i - 1)
+        while (step > 0 and idx < limit) or (step < 0 and idx > limit):
+            ch = text[peek(idx)]
+            if not ch.isspace():
+                break
+            if ch in ("\n", "\r"):
+                return idx, True
+            idx += step
+        return idx, False
+
     expanded: list[DetectedSpan] = []
     occupied_ranges = [(s.start, s.end) for s in spans]
 
@@ -191,20 +209,9 @@ def expand_person_name_spans(
             expanded.append(span)
             continue
 
-        # Look right for a candidate surname (one token only). Bail on
-        # the first newline so a value never absorbs the label of the
-        # NEXT row (PDF tables and consent forms put labels on their
-        # own line: "Fatma Nur Öztürk\nT.C. Kimlik No" must not gain
-        # "T.C." as a surname).
-        right = end
-        n = len(text)
-        crossed_newline = False
-        while right < n and text[right].isspace():
-            if text[right] in ("\n", "\r"):
-                crossed_newline = True
-                break
-            right += 1
-        if not crossed_newline and right < n:
+        # Look right for a candidate surname (one token only).
+        right, crossed_nl = _scan_horizontal_ws(end, 1)
+        if not crossed_nl and right < len(text):
             right_end = _find_token_end(right)
             right_token = text[right:right_end]
             if (
@@ -219,19 +226,9 @@ def expand_person_name_spans(
                 if not overlaps:
                     end = right_end
 
-        # Look left for a preceding name token (one token only). Same
-        # newline guard as the right-side scan: form labels always sit
-        # on the line above their value, so an "Ad Soyad\nFatma Nur
-        # Öztürk" layout must not let the name absorb "Soyad" — that
-        # corrupts the entity_index hash and breaks chat lookups.
-        left = start
-        crossed_newline_left = False
-        while left > 0 and text[left - 1].isspace():
-            if text[left - 1] in ("\n", "\r"):
-                crossed_newline_left = True
-                break
-            left -= 1
-        if not crossed_newline_left and left > 0:
+        # Look left for a preceding name token (one token only).
+        left, crossed_nl = _scan_horizontal_ws(start, -1)
+        if not crossed_nl and left > 0:
             left_start = _find_token_start(left - 1)
             left_token = text[left_start:left]
             if (

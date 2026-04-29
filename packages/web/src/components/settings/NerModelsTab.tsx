@@ -65,9 +65,11 @@ export function NerModelsTab({
     setLocalOverrides(settings.ner_model_overrides ?? {});
   }, [settings.ner_model_overrides]);
 
+  const parseModelList = (value: string): string[] =>
+    value.split(",").map((m) => m.trim()).filter(Boolean);
+  const formatModelList = (ids: string[]): string => ids.join(", ");
   const defaultListToString = (lang: string): string =>
-    (defaults[lang] ?? []).join(", ");
-
+    formatModelList(defaults[lang] ?? []);
   const getEffectiveModel = (lang: string): string => {
     const override = (localOverrides[lang] ?? "").trim();
     return override || defaultListToString(lang);
@@ -179,12 +181,11 @@ export function NerModelsTab({
                   <p className="mt-1 text-[10px] text-slate-500">
                     {t("settings.ner.ensembleHint")}
                   </p>
-                  {suggestions[lang] && suggestions[lang].length > 0 && (
+                  {suggestions[lang] && suggestions[lang].length > 0 && (() => {
+                    const effective = parseModelList(getEffectiveModel(lang));
+                    return (
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       {suggestions[lang].map((s) => {
-                        const effective = getEffectiveModel(lang)
-                          .split(",")
-                          .map((m) => m.trim());
                         const active = effective.includes(s.model_id);
                         return (
                           <button
@@ -203,7 +204,8 @@ export function NerModelsTab({
                         );
                       })}
                     </div>
-                  )}
+                    );
+                  })()}
                 </td>
                 <td className="px-2 py-2 align-top">
                   {localOverrides[lang] !== undefined && (
