@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { streamChatAsk, getChatDebug } from "@/lib/api";
 import type {
   ApprovalChunkPayload,
@@ -259,18 +259,26 @@ export function useChatStream({
             }
             break;
           }
-          case "error":
+          case "error": {
+            // Capture the pending id BEFORE we null the ref. The
+            // setMessages mapper runs asynchronously and would
+            // otherwise compare every message id against ``null``,
+            // so the error text never reaches the assistant bubble
+            // and the user sees a perpetual thinking indicator with
+            // an out-of-band toast.
+            const targetId = pendingAssistantIdRef.current;
             setStreaming(false);
             pendingAssistantIdRef.current = null;
             setStreamError(event.message);
             setMessages((prev) =>
               prev.map((m) =>
-                m.id === pendingAssistantIdRef.current
+                m.id === targetId
                   ? { ...m, content: `Error: ${event.message}` }
                   : m
               )
             );
             break;
+          }
           default:
             break;
         }
@@ -312,16 +320,38 @@ export function useChatStream({
   const regenerate = useCallback(() => {
     const lastUserText = lastUserTextRef.current;
     if (!lastUserText || streaming) return;
+    let assistantContent = "";
     setMessages((prev) => {
       let lastAssistantIdx = -1;
       for (let i = prev.length - 1; i >= 0; i--) {
-        if (prev[i].role === "assistant") { lastAssistantIdx = i; break; }
+        if (prev[i].role === "assistant") {
+          lastAssistantIdx = i;
+          break;
+        }
       }
       if (lastAssistantIdx === -1) return prev;
+      assistantContent = prev[lastAssistantIdx].content;
       return prev.slice(0, lastAssistantIdx);
     });
-    sendMessage(lastUserText);
+    // Don't push another user bubble when the previous attempt was a
+    // rejected-approval (assistant content was emptied by
+    // ``applyRejection``); resending would duplicate the user's
+    // question in the transcript. ``preApprovedChunks: []`` skips the
+    // user-message emission inside ``sendMessage``.
+    const wasRejectionEmptied = assistantContent.trim().length === 0;
+    sendMessage(lastUserText, wasRejectionEmptied ? [] : undefined);
   }, [streaming, sendMessage]);
+
+  // Abort the live stream when the hook unmounts. Without this an
+  // SSE in-flight at navigation time keeps reading and calls
+  // setMessages on a torn-down component.
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    };
+  }, []);
+
 
   const stopStreaming = useCallback(() => {
     if (abortRef.current) {

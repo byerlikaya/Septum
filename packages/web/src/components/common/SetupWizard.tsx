@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { Shield, Zap, Check, AlertCircle, Loader2, Globe, Database, HardDrive, Mic, UserPlus } from "lucide-react";
-import api, { initializeInfrastructure, setAuthToken, testDatabaseConnection, testRedisConnection } from "@/lib/api";
+import api, { initializeInfrastructure, setAuthToken, streamSSE, testDatabaseConnection, testRedisConnection } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { useLanguage, type AppLanguage } from "@/lib/language";
 import { OllamaModelCombobox } from "./OllamaModelCombobox";
@@ -194,16 +194,43 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
 
   const handlePullModel = useCallback(async () => {
     setPullProgress(0); setPullStatus(t("setup.step.test.pulling")); setProviderTestStatus("pending");
-    try {
-      const resp = await fetch(`${api.defaults.baseURL || ""}/api/settings/ollama-pull`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, base_url: ollamaUrl }) });
-      const reader = resp.body?.getReader(); if (!reader) return;
-      const decoder = new TextDecoder(); let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read(); if (done) break;
-        buffer += decoder.decode(value, { stream: true }); const lines = buffer.split("\n"); buffer = lines.pop() || "";
-        for (const line of lines) { if (!line.startsWith("data: ")) continue; try { const evt = JSON.parse(line.slice(6)); setPullProgress(evt.percent ?? 0); setPullStatus(evt.status ?? ""); if (evt.done && !evt.error) { setPullProgress(100); setProviderTestStatus("success"); setProviderTestMessage(t("setup.step.test.pullSuccess")); setNeedsPull(false); return; } if (evt.error) { setProviderTestStatus("error"); setProviderTestMessage(evt.status); setPullProgress(null); return; } } catch {} }
-      }
-    } catch { setProviderTestStatus("error"); setProviderTestMessage(t("setup.step.test.pullFailed")); setPullProgress(null); }
+    // streamSSE wraps the same fetch + ReadableStream pipeline but
+    // injects the bearer token so post-register entries to this step
+    // do not silently 401, and centralises the auth header so a
+    // future cookie-based auth migration is a one-liner here.
+    await new Promise<void>((resolve) => {
+      let resolved = false;
+      const handle = streamSSE(
+        "/api/settings/ollama-pull",
+        { model, base_url: ollamaUrl },
+        (raw) => {
+          try {
+            const evt = JSON.parse(raw);
+            setPullProgress(evt.percent ?? 0);
+            setPullStatus(evt.status ?? "");
+            if (evt.done && !evt.error) {
+              setPullProgress(100); setProviderTestStatus("success");
+              setProviderTestMessage(t("setup.step.test.pullSuccess"));
+              setNeedsPull(false);
+              if (!resolved) { resolved = true; handle.abort(); resolve(); }
+              return;
+            }
+            if (evt.error) {
+              setProviderTestStatus("error"); setProviderTestMessage(evt.status);
+              setPullProgress(null);
+              if (!resolved) { resolved = true; handle.abort(); resolve(); }
+            }
+          } catch {
+            /* skip malformed line */
+          }
+        },
+      );
+      // Safety: resolve after 5 minutes so the wizard never hangs
+      // forever on a silently-stalled stream.
+      setTimeout(() => {
+        if (!resolved) { resolved = true; handle.abort(); resolve(); }
+      }, 300_000);
+    });
   }, [model, ollamaUrl, t]);
 
   // Whisper: install + advance in one click
@@ -217,16 +244,36 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
     } catch {}
     // Stream download
     setWhisperMessage(t("setup.step.test.whisper.downloading")); setWhisperProgress(0);
-    try {
-      const resp = await fetch(`${api.defaults.baseURL || ""}/api/setup/install-whisper`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: whisperModel }) });
-      const reader = resp.body?.getReader(); if (!reader) return;
-      const decoder = new TextDecoder(); let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read(); if (done) break;
-        buffer += decoder.decode(value, { stream: true }); const lines = buffer.split("\n"); buffer = lines.pop() || "";
-        for (const line of lines) { if (!line.startsWith("data: ")) continue; try { const evt = JSON.parse(line.slice(6)); setWhisperProgress(evt.percent ?? 0); if (evt.done) { setWhisperProgress(100); setWhisperStatus("success"); setWhisperMessage(t("setup.step.test.whisper.ready")); setStep("register"); return; } if (evt.error) { setWhisperStatus("error"); setWhisperMessage(evt.status); setWhisperProgress(null); return; } } catch {} }
-      }
-    } catch { setWhisperStatus("error"); setWhisperMessage(t("setup.step.test.whisper.failed")); setWhisperProgress(null); }
+    await new Promise<void>((resolve) => {
+      let resolved = false;
+      const handle = streamSSE(
+        "/api/setup/install-whisper",
+        { model: whisperModel },
+        (raw) => {
+          try {
+            const evt = JSON.parse(raw);
+            setWhisperProgress(evt.percent ?? 0);
+            if (evt.done) {
+              setWhisperProgress(100); setWhisperStatus("success");
+              setWhisperMessage(t("setup.step.test.whisper.ready"));
+              setStep("register");
+              if (!resolved) { resolved = true; handle.abort(); resolve(); }
+              return;
+            }
+            if (evt.error) {
+              setWhisperStatus("error"); setWhisperMessage(evt.status);
+              setWhisperProgress(null);
+              if (!resolved) { resolved = true; handle.abort(); resolve(); }
+            }
+          } catch {
+            /* skip malformed line */
+          }
+        },
+      );
+      setTimeout(() => {
+        if (!resolved) { resolved = true; handle.abort(); resolve(); }
+      }, 600_000);
+    });
   }, [whisperModel, t]);
 
   // Register first user

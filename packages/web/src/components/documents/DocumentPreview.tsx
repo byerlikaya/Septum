@@ -424,6 +424,12 @@ export function DocumentPreview({
             src={pdfSrc}
             className="flex-1 min-h-[40vh] w-full rounded-md border border-slate-800 bg-white"
             title={docTitle}
+            // ``allow-same-origin`` is required for the browser's
+            // built-in PDF viewer to read the blob URL; everything
+            // else (top navigation, scripts, popups, downloads,
+            // forms) stays disabled so a malicious PDF cannot
+            // exploit a PDF.js zero-day to escape the preview iframe.
+            sandbox="allow-same-origin"
           />
         </div>
       );
