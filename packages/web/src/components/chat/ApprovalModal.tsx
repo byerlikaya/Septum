@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle, ChevronDown, ChevronUp, Pencil, RefreshCw, XCircle } from "lucide-react";
 import type { ApprovalChunkPayload } from "@/lib/types";
 import { previewApprovalPrompt } from "@/lib/api";
+import { useEscapeToClose } from "@/hooks/useEscapeToClose";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useI18n } from "@/lib/i18n";
 import { getEntityBadgeClasses } from "@/lib/entityColors";
 import { CopyButton } from "@/components/common/CopyButton";
@@ -148,6 +150,14 @@ export function ApprovalModal({
     return countPlaceholders(allText);
   }, [chunks]);
 
+  // The dialog ref + a11y hooks must run on every render — including
+  // the closed state — so React's hook order stays stable. Putting
+  // them after the ``if (!open) return`` early-return changed the
+  // hook count when ``open`` toggled and tripped Rules of Hooks.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEscapeToClose(open && !submitting, onClose);
+  useFocusTrap(dialogRef, open);
+
   if (!open) return <></>;
 
   const handleApprove = () => {
@@ -195,7 +205,10 @@ export function ApprovalModal({
       aria-modal="true"
       aria-labelledby="approval-modal-title"
     >
-      <div className="flex h-[85vh] w-full max-w-7xl flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-xl overflow-hidden">
+      <div
+        ref={dialogRef}
+        className="flex h-[85vh] w-full max-w-7xl flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-xl overflow-hidden"
+      >
         {/* Header — slim: title + optional readOnly decision badge. The
             regulation text and protected-entity summary live inside the
             left column of the body so the header stays compact. */}

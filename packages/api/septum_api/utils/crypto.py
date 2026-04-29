@@ -56,11 +56,13 @@ def _load_key_from_config() -> Optional[bytes]:
 
 
 def get_encryption_key() -> bytes:
-    """Return the process-wide AES-256-GCM key, generating it on first use.
+    """Return the process-wide AES-256-GCM key, loading from bootstrap config.
 
-    If an ``ENCRYPTION_KEY`` is present in the environment, it is validated
-    and used. Otherwise, a new key is generated, cached in memory, and the
-    environment variable is set for the current process.
+    Bootstrap is responsible for persisting an ``encryption_key`` on first
+    run (see ``bootstrap._ensure_secrets``); this function trusts that
+    invariant. If the key is missing here, an ephemeral fallback would
+    silently render every existing encrypted artifact (documents, anon
+    maps) undecryptable on the next restart — fail loudly instead.
     """
     global _ENCRYPTION_KEY
 
@@ -69,7 +71,10 @@ def get_encryption_key() -> bytes:
 
     key = _load_key_from_config()
     if key is None:
-        key = generate_key()
+        raise RuntimeError(
+            "Encryption key missing from bootstrap config. "
+            "Run setup or set ENCRYPTION_KEY before starting the API."
+        )
 
     _ENCRYPTION_KEY = key
     return key
@@ -133,9 +138,18 @@ def decrypt_from_base64(
 
 
 def hash_text(text: str) -> str:
-    """Return a SHA-256 hex digest of the UTF-8 encoded text.
+    """Return an HMAC-SHA-256 hex digest keyed by the encryption key.
 
-    Used for non-reversible hashing of identifiers (e.g. IP) in logs.
+    Used for non-reversible hashing of identifiers (e.g. IP, raw API
+    keys) in logs. Plain SHA-256 is rainbow-tableable for low-entropy
+    inputs (an IPv4 address is only 2^32 possibilities); HMAC under
+    the per-instance encryption key forces an attacker to exfiltrate
+    that key before any precomputation works. The key never leaves
+    the host so log shippers carrying the digest cannot link two
+    deployments' identifiers either.
     """
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    import hmac
+
+    key = get_encryption_key()
+    return hmac.new(key, text.encode("utf-8"), hashlib.sha256).hexdigest()
 

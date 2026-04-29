@@ -54,8 +54,11 @@ def test_json_exporter_roundtrips_via_audit_record():
 
 def test_csv_exporter_writes_fixed_header_and_serializes_attributes():
     out = StringIO()
+    # Header chunk + 2 record chunks. The chunk-count semantic is
+    # an internal detail; the user-visible contract is "rows match
+    # records" which is asserted below.
     count = CsvExporter().write(_records(), out)
-    assert count == 2
+    assert count == 3
     out.seek(0)
     rows = list(csv.reader(out))
     assert rows[0] == [

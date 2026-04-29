@@ -9,7 +9,7 @@ not required — these endpoints are only meaningful during first-time setup.
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -188,8 +188,25 @@ async def test_redis(body: TestRedisRequest, _: None = Depends(_require_setup_ph
 # POST /api/setup/initialize
 # ---------------------------------------------------------------------------
 
+def _initialize_origin_check(request: Request) -> None:
+    """Check setup-window origin only when initialization is actually needed.
+
+    A no-op when the engine is already up (idempotent re-call) so the
+    legitimate operator's repeat clicks don't fail with 403; otherwise
+    requires loopback or ``X-Setup-Token``.
+    """
+    if engine_is_ready():
+        return
+    from ..utils.auth_dependency import _check_setup_window_origin
+
+    _check_setup_window_origin(request)
+
+
 @router.post("/initialize", response_model=InitializeResponse)
-async def initialize(body: InitializeRequest) -> InitializeResponse:
+async def initialize(
+    body: InitializeRequest,
+    _: None = Depends(_initialize_origin_check),
+) -> InitializeResponse:
     """Initialise the database engine and seed defaults.
 
     Called by the wizard after the user picks a database and cache backend.
@@ -347,7 +364,10 @@ class InstallWhisperRequest(BaseModel):
 
 
 @router.post("/install-whisper")
-async def install_whisper(body: InstallWhisperRequest):
+async def install_whisper(
+    body: InstallWhisperRequest,
+    _: None = Depends(_require_setup_phase),
+):
     """Download a Whisper model with SSE progress streaming."""
     import asyncio
     import json as _json

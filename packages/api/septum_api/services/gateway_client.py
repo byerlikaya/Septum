@@ -113,17 +113,20 @@ class GatewayClient:
         temperature: float,
         max_tokens: int | None,
     ) -> RequestEnvelope:
-        """Shape a RequestEnvelope from the current AppSettings row."""
+        """Shape a RequestEnvelope from the current AppSettings row.
+
+        Cloud-provider credentials are intentionally NOT placed on the
+        envelope: the gateway owns its own keys via env-loaded
+        ``GatewayConfig``. Producer-side keys (``settings.*_api_key``)
+        are now used only by the same-process Ollama / direct paths.
+        """
         provider = (settings.llm_provider or "").strip().lower()
-        key_field = _PROVIDER_API_KEY_FIELD.get(provider)
-        api_key = getattr(settings, key_field, None) if key_field else None
         return RequestEnvelope.new(
             provider=provider,
             model=settings.llm_model,
             messages=list(messages),
             temperature=float(temperature),
             max_tokens=max_tokens,
-            api_key=api_key,
         )
 
     async def _await_response(self, correlation_id: str) -> ResponseEnvelope:

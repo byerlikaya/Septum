@@ -52,11 +52,9 @@ def get_rate_limit_key(request: Request) -> str:
 
 def create_limiter(config: BootstrapConfig) -> Limiter:
     """Build a ``Limiter`` from the bootstrap configuration."""
-    storage_uri = (
-        f"redis://{config.redis_url.split('://')[-1]}"
-        if config.redis_url
-        else "memory://"
-    )
+    # Pass the URL through unchanged so a TLS-required scheme like
+    # rediss:// is not silently downgraded to plaintext redis://.
+    storage_uri = config.redis_url if config.redis_url else "memory://"
     return Limiter(
         key_func=get_rate_limit_key,
         default_limits=[config.rate_limit],

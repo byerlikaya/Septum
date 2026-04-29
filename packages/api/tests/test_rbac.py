@@ -17,7 +17,7 @@ from httpx import AsyncClient
 async def _bootstrap_admin(client: AsyncClient) -> str:
     resp = await client.post(
         "/api/auth/register",
-        json={"email": "root@example.com", "password": "password123"},
+        json={"email": "root@example.com", "password": "password-12345"},
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["access_token"]
@@ -31,7 +31,7 @@ async def _create_and_login(
         headers={"Authorization": f"Bearer {admin_token}"},
         json={
             "email": email,
-            "password": "password123",
+            "password": "password-12345",
             "role": role,
             "is_active": True,
         },
@@ -39,7 +39,7 @@ async def _create_and_login(
     assert create.status_code == 201, create.text
     login = await client.post(
         "/api/auth/login",
-        json={"email": email, "password": "password123"},
+        json={"email": email, "password": "password-12345"},
     )
     assert login.status_code == 200, login.text
     return login.json()["access_token"]
@@ -462,13 +462,13 @@ class TestDocumentSharing:
         async with session_maker() as session:
             a = User(
                 email="a@example.com",
-                hashed_password=hash_password("password123"),
+                hashed_password=hash_password("password-12345"),
                 role="editor",
                 is_active=True,
             )
             b = User(
                 email="b@example.com",
-                hashed_password=hash_password("password123"),
+                hashed_password=hash_password("password-12345"),
                 role="viewer",
                 is_active=True,
             )

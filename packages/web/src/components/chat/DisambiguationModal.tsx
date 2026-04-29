@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useId, useRef } from "react";
 import type { AnalyzeQueryCluster } from "@/lib/api";
+import { useEscapeToClose } from "@/hooks/useEscapeToClose";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { useI18n } from "@/lib/i18n";
 
 interface Props {
@@ -20,23 +22,24 @@ export default function DisambiguationModal({
   onCancel,
 }: Props) {
   const t = useI18n();
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onCancel]);
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEscapeToClose(open, onCancel);
+  useFocusTrap(dialogRef, open);
 
   if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-xl">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-xl"
+      >
         <div className="shrink-0 border-b border-slate-700 px-5 py-4">
-          <h2 className="text-base font-semibold text-slate-50">
+          <h2 id={titleId} className="text-base font-semibold text-slate-50">
             {t("chat.disambiguation.title")}
           </h2>
           <p className="mt-1 text-xs text-slate-400">

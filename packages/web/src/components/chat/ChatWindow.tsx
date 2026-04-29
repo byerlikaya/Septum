@@ -156,11 +156,8 @@ export function ChatWindow({
     setInput("");
     setLastResponseDeanon(false);
 
-    // Send the message immediately so the user's text shows up in the
-    // chat without UI lag. The disambiguation analyze is fire-and-
-    // forget; if it later reports a multi-document ambiguity we cancel
-    // the in-flight stream and surface the picker, otherwise the
-    // streaming response continues uninterrupted.
+    // Disambiguation runs fire-and-forget; awaiting it here delays the
+    // user's message render by the analyze round-trip.
     streamSendMessage(text);
 
     if (documentIds.length === 0) {
@@ -172,8 +169,7 @@ export function ChatWindow({
             setPendingDisambiguation({ text, clusters: analysis.clusters });
           }
         } catch {
-          // Best-effort assist; on failure the stream that already
-          // started carries the answer through unchanged.
+          // Best-effort assist; the in-flight stream still answers.
         }
       })();
     }

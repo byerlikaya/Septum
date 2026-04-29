@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import json
 import os
 import time
@@ -27,6 +29,20 @@ class RetentionPolicy:
         return reference - (self.max_age_days * 86400.0)
 
 
+@contextlib.contextmanager
+def _flock_path(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o640)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            yield fd
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
 def apply_retention_to_jsonl(
     path: str | os.PathLike[str],
     policy: RetentionPolicy,
@@ -36,47 +52,62 @@ def apply_retention_to_jsonl(
     """Rewrite ``path`` in place, dropping records that violate ``policy``.
 
     Returns the number of records removed. The rewrite goes through a
-    ``.tmp`` sibling + :func:`os.replace` so a crash mid-pass leaves the
-    original untouched. Corrupt lines count as removals.
+    ``.tmp`` sibling + :func:`os.replace` so a crash mid-pass leaves
+    the original untouched. To prevent the rewrite from clobbering
+    records appended in parallel by a concurrent worker, we acquire
+    the same ``.lock`` file the sink uses (``flock LOCK_EX``) for the
+    full read-rewrite-replace span. Corrupt lines count as removals.
+
+    The ``.tmp`` sibling is unlinked on any failure so a partial
+    snapshot does not survive on disk for an attacker to harvest.
     """
     if policy.is_noop:
         return 0
 
     src = Path(path)
+    lockfile = src.with_suffix(src.suffix + ".lock")
     cutoff = policy.cutoff_timestamp(now=now)
     kept: list[str] = []
     removed = 0
-
-    try:
-        fh = src.open("r", encoding="utf-8")
-    except FileNotFoundError:
-        return 0
-
-    with fh:
-        for raw in fh:
-            line = raw.strip()
-            if not line:
-                continue
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                removed += 1
-                continue
-            if cutoff is not None and float(payload.get("timestamp", 0.0)) < cutoff:
-                removed += 1
-                continue
-            kept.append(line)
-
-    if policy.max_records is not None and len(kept) > policy.max_records:
-        removed += len(kept) - policy.max_records
-        kept = kept[-policy.max_records :]
-
-    if removed == 0:
-        return 0
-
     tmp = src.with_suffix(src.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as fh:
-        for line in kept:
-            fh.write(line + "\n")
-    os.replace(tmp, src)
+
+    with _flock_path(lockfile):
+        try:
+            fh = src.open("r", encoding="utf-8")
+        except FileNotFoundError:
+            return 0
+
+        with fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    removed += 1
+                    continue
+                if cutoff is not None and float(payload.get("timestamp", 0.0)) < cutoff:
+                    removed += 1
+                    continue
+                kept.append(line)
+
+        if policy.max_records is not None and len(kept) > policy.max_records:
+            removed += len(kept) - policy.max_records
+            kept = kept[-policy.max_records :]
+
+        if removed == 0:
+            return 0
+
+        try:
+            with tmp.open("w", encoding="utf-8") as wh:
+                for line in kept:
+                    wh.write(line + "\n")
+                wh.flush()
+                os.fsync(wh.fileno())
+            os.replace(tmp, src)
+        except Exception:
+            # Clean up so a stale partial snapshot does not linger.
+            tmp.unlink(missing_ok=True)
+            raise
     return removed

@@ -107,16 +107,11 @@ _HIGH_PRIORITY_ENTITY_TYPES: set[str] = {
     "LICENSE_PLATE",
 }
 
-# Entity types that are detected by deterministic recognizers
-# (regex / checksum / structural cues) and must NEVER be filtered by
-# the semantic-validation layer. The Ollama validator returns whichever
-# spans the LLM "agrees" are PII; if a deterministic span (a real
-# address, email, date of birth, IBAN, …) happens to be missing from
-# its output the original sanitize pipeline silently drops it, even
-# though the recognizer that found it never errs probabilistically.
-# Only NER-driven types (PERSON_NAME / LOCATION / ORGANIZATION_NAME)
-# need probabilistic validation; everything else passes through
-# untouched.
+# Deterministic-recognizer outputs bypass the Ollama validator — only
+# probabilistic NER types (PERSON_NAME / LOCATION / ORGANIZATION_NAME)
+# need LLM second-guessing, and the validator silently dropping a
+# regex-matched address or email is the bug we observed in real KVKK
+# forms.
 _SEMANTIC_VALIDATION_PASSTHROUGH_TYPES: frozenset[str] = frozenset(
     _HIGH_PRIORITY_ENTITY_TYPES
     | {
@@ -1264,7 +1259,13 @@ class Detector:
             )
             for rec in recognizers:
                 supported.update(rec.supported_entities)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            # Surface the error so a Presidio API change does not
+            # silently disable coverage warnings — privacy-first
+            # over-detection is preferable to a silent miss.
+            logger.warning(
+                "Skipping entity coverage validation: %s", type(exc).__name__
+            )
             return
 
         for septum_type, presidio_type in _PRESIDIO_ENTITY_ALIASES.items():
@@ -1378,30 +1379,36 @@ class Detector:
             titlecased = _titlecase_upper_segments(normalized_text)
             ner_spans: List[DetectedSpan] = []
             seen_spans: set[tuple[int, int, str]] = set()
-            for ner_pipeline in ner_pipelines:
-                pipeline_spans = self._from_ner_results(
-                    ner_pipeline(normalized_text), normalized_text, language
-                )
-                # Re-run on title-cased text to catch ALL CAPS names that
-                # transformers (trained on mixed case) miss.
-                if titlecased != normalized_text:
-                    tc_spans = self._from_ner_results(
-                        ner_pipeline(titlecased), normalized_text, language
-                    )
-                    pipeline_offsets = {(s.start, s.end) for s in pipeline_spans}
-                    pipeline_spans.extend(
-                        s for s in tc_spans if (s.start, s.end) not in pipeline_offsets
-                    )
-                # Cross-model dedup: if two ensemble members detect the
-                # exact same (start, end, entity_type) span we keep one
-                # copy. Different entity_types at the same offsets are
-                # left to the downstream absorption + dedup passes.
-                for s in pipeline_spans:
+
+            def _add(spans: List[DetectedSpan]) -> None:
+                for s in spans:
                     key = (s.start, s.end, s.entity_type)
                     if key in seen_spans:
                         continue
                     seen_spans.add(key)
                     ner_spans.append(s)
+
+            # Pass 1: every ensemble member sees the original text. Different
+            # architectures catch different rare names; the seen-set unions
+            # their outputs without double-counting identical (start, end,
+            # entity_type) spans.
+            for ner_pipeline in ner_pipelines:
+                _add(self._from_ner_results(
+                    ner_pipeline(normalized_text), normalized_text, language
+                ))
+
+            # Pass 2: ALL-CAPS recovery. Title-casing fixes the shared
+            # uppercase blind spot of mixed-case-trained transformers, but
+            # rare-surname recall is still architecture-dependent — that is
+            # why the registry pairs models in the first place. Run every
+            # ensemble member on the title-cased text so the backstop model
+            # (e.g. savasy BERT for Turkish) still sees inputs whose only
+            # appearance is ALL CAPS. seen_spans dedupes overlap.
+            if titlecased != normalized_text:
+                for ner_pipeline in ner_pipelines:
+                    _add(self._from_ner_results(
+                        ner_pipeline(titlecased), normalized_text, language
+                    ))
             if self._entity_types is not None:
                 allowed = set(self._entity_types)
                 ner_spans = [s for s in ner_spans if s.entity_type in allowed]
@@ -1576,16 +1583,14 @@ class Detector:
                 if has_dot_or_slash and digit_count <= 8:
                     continue
 
-            if r.entity_type == "LOCATION":
-                # Mirror _map_ner_label: Presidio's built-in SpacyRecognizer
-                # maps spaCy GPE to LOCATION, and with en_core_web_sm
-                # running over non-English text it produces stochastic
-                # mis-fires on any Title Case OOV token — "Doğum",
-                # "Uyruk", "TARAFLAR", "T.C." in Turkish and equivalents
-                # in every other language. Address PII is captured by the
-                # deterministic StructuralAddressRecognizer and per-regulation
-                # POSTAL_ADDRESS / STREET_ADDRESS recognizers, so there is no
-                # legitimate LOCATION source left on the Presidio side either.
+            if r.entity_type == "LOCATION" and self._config.use_ner_layer:
+                # Drop Presidio's spaCy-LOCATION output ONLY when the
+                # NER layer is also active — the transformer ensemble
+                # supplies higher-quality LOCATION spans anyway. With
+                # the NER layer disabled (e.g. transformers extra not
+                # installed) Presidio's LOCATION is the only signal,
+                # so let it through even though en_core_web_sm is
+                # noisy on non-English text.
                 continue
 
             filtered.append(r)
@@ -1791,14 +1796,26 @@ class Detector:
         ``_extract_entities``'s LOCATION output is additive on top of
         those.
         """
+        # Use exact set membership instead of substring ``in`` checks:
+        # "PER" in "OPERATION" or "SUPER" used to match too, mis-tagging
+        # third-party NER outputs as person names. The set covers every
+        # tag scheme we have seen in the wild (CoNLL B-/I- prefixes,
+        # OntoNotes long-form, plain "PER" / "ORG" / "LOC").
+        person_tags = {"PER", "PERSON", "B-PER", "I-PER", "B-PERSON", "I-PERSON"}
+        org_tags = {"ORG", "ORGANIZATION", "B-ORG", "I-ORG", "B-ORGANIZATION", "I-ORGANIZATION"}
+        location_tags = {
+            "LOC", "LOCATION", "GPE",
+            "B-LOC", "I-LOC", "B-LOCATION", "I-LOCATION",
+            "B-GPE", "I-GPE",
+        }
         upper = label.upper()
-        if "PER" in upper or upper.startswith("B-PER") or upper.startswith("I-PER"):
+        if upper in person_tags:
             return "PERSON_NAME"
-        if "EMAIL" in upper:
+        if upper in {"EMAIL", "B-EMAIL", "I-EMAIL", "EMAIL_ADDRESS"}:
             return "EMAIL_ADDRESS"
-        if "ORG" in upper or upper.startswith("B-ORG") or upper.startswith("I-ORG"):
+        if upper in org_tags:
             return "ORGANIZATION_NAME"
-        if "LOC" in upper or "GPE" in upper:
+        if upper in location_tags:
             return "LOCATION"
         return None
 

@@ -78,7 +78,7 @@ def _contextual_national_id_recognizer() -> EntityRecognizer:
     )
 
 
-def _turkish_labeled_national_id_recognizer() -> EntityRecognizer:
+def _label_prefixed_national_id_recognizer() -> EntityRecognizer:
     """Turkish-label NATIONAL_ID recognizer for TCKN / Kimlik forms.
 
     Matches sequences like ``T.C. 29374810562``, ``TC 29374810562``,
@@ -111,7 +111,7 @@ def _turkish_labeled_national_id_recognizer() -> EntityRecognizer:
     )
 
 
-def _turkish_labeled_tax_id_recognizer() -> EntityRecognizer:
+def _label_prefixed_tax_id_recognizer() -> EntityRecognizer:
     """Turkish-label TAX_ID recognizer for ``Vergi No`` / ``VKN``.
 
     Turkish VKN (Vergi Kimlik Numarası) is a 10-digit tax identifier
@@ -196,8 +196,8 @@ def get_recognizers() -> List[EntityRecognizer]:
     recognizers.append(_validated_national_id_recognizer())
     recognizers.append(_email_recognizer())
     recognizers.append(_contextual_national_id_recognizer())
-    recognizers.append(_turkish_labeled_national_id_recognizer())
-    recognizers.append(_turkish_labeled_tax_id_recognizer())
+    recognizers.append(_label_prefixed_national_id_recognizer())
+    recognizers.append(_label_prefixed_tax_id_recognizer())
     recognizers.append(_customer_reference_recognizer())
     return recognizers
 

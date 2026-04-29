@@ -14,6 +14,7 @@ class AuditConfig:
     audit_topic: str = "septum.audit.events"
     retention_max_age_days: int | None = None
     retention_max_records: int | None = None
+    export_token: str | None = None
 
     @classmethod
     def from_env(cls) -> "AuditConfig":
@@ -25,9 +26,12 @@ class AuditConfig:
                 return None
             return int(raw)
 
+        token = os.getenv("SEPTUM_AUDIT_EXPORT_TOKEN") or None
+
         return cls(
             sink_path=os.getenv("SEPTUM_AUDIT_SINK_PATH", cls.sink_path),
             audit_topic=os.getenv("SEPTUM_AUDIT_TOPIC", cls.audit_topic),
             retention_max_age_days=_opt_int("SEPTUM_AUDIT_RETENTION_DAYS"),
             retention_max_records=_opt_int("SEPTUM_AUDIT_RETENTION_MAX_RECORDS"),
+            export_token=token,
         )

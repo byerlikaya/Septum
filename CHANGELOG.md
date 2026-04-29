@@ -53,6 +53,141 @@ Date-based ledger below has the full incremental history.
 
 ---
 
+## v1.2.0 — 2026-04-29 — Deep-review security pass
+
+Multi-agent deep review across all seven packages closed 7 CRITICAL,
+~38 HIGH, and ~60 MEDIUM/LOW findings — anonymization-map encryption,
+per-user data isolation, tamper-evident audit chain, queue durability,
+gateway SSRF defenses, MCP transport hardening, and a backlog of
+smaller privacy / DoS gaps. Modal a11y plus a bounded mass-delete
+pool follow up the same release. JWT-cookie + CSRF migration and
+the transformers 5.0 CVE bump stay deferred for the next sprint.
+
+- **Anonymization-map Redis tier was plaintext JSON**: the disk tier
+  encrypted with AES-256-GCM but Redis received `{original: placeholder}`
+  in the clear, exposing every PII value to anyone with read access
+  to the bridge cache (RDB/AOF backups, MITM on cleartext `redis://`,
+  compromised infra). Both persistence tiers now carry the same
+  AES-GCM ciphertext keyed by `document_id` as associated data; the
+  in-process memory tier stays plaintext for fast lookup.
+- **Per-user data isolation across documents and chunks**: a viewer-role
+  user could read every document any other user uploaded — including
+  the raw decrypted file via `/raw` and `transcription_text` in the
+  `DocumentResponse` body. Each non-admin role now sees only the
+  documents and chunks they own; admin role bypasses for support
+  queries. The chat auto-RAG path now scopes `EntityIndex` lookups by
+  owner so an entity-aware narrowing query can no longer surface
+  another user's documents. Returns 404 (not 403) on ownership
+  mismatch so non-owners cannot enumerate IDs.
+- **Approval gate concurrency + ownership**: `ApprovalGate.create` was
+  sync and bypassed `self._lock`, racing the dict mutation that
+  decides which masked chunks land in the cloud LLM. Now async +
+  locked. Approve / reject / preview-prompt also bind to the user
+  who opened the session — a leaked `session_id` (logs, telemetry)
+  no longer lets a different authenticated user influence the LLM
+  input.
+- **Setup-window protection**: a fresh container's `/api/setup/*`
+  endpoints (test-database, test-redis, install-whisper, infrastructure
+  PATCH) plus the bootstrap-relaxed PATCH `/api/settings` were
+  reachable from any network origin until the first admin existed —
+  an SSRF probe + settings-poisoning surface. Requests during the
+  bootstrap window must now originate from loopback OR present
+  `X-Setup-Token: <SEPTUM_SETUP_TOKEN>`.
+- **Audit ledger now tamper-evident**: `AuditRecord` carries a
+  `prev_hash` / `hash` chain so a post-write edit, reorder, or
+  deletion fails `verify_chain`. Cross-process `fcntl.flock` around
+  `JsonlFileSink._append` and the retention rewriter closes the
+  race where records appended during pruning were silently lost
+  to `os.replace`. Files default to 0o640. `/api/audit/export` now
+  requires `Authorization: Bearer <SEPTUM_AUDIT_EXPORT_TOKEN>`;
+  Splunk HEC metadata strings reject embedded newlines (HEC log
+  injection).
+- **Cloud-provider API keys removed from queue envelope**:
+  `RequestEnvelope.api_key` was passed through to the gateway zone
+  via the queue spool, exposing every key to anyone with read access
+  to the bridge. The gateway now owns its own credentials via
+  `SEPTUM_GATEWAY_*_API_KEY` env vars; envelopes ship secret-free.
+  Producers stop including the field; `from_dict` silently drops it
+  on legacy payloads.
+- **Gateway forwarder hardening**: per-provider host allow-list on
+  `envelope.base_url` (closes SSRF where a poisoned queue could
+  redirect outbound calls to AWS IMDS / internal services); one
+  `httpx.AsyncClient` per forwarder instead of recreating per
+  attempt; `Idempotency-Key: <correlation_id>` on every request so
+  upstream retries cannot double-bill; retries limited to 5xx / 429
+  / transport errors with full-jitter backoff and `Retry-After`
+  honour. `_sanitize_error_text` strips API-key-shaped substrings
+  from any error envelope text crossing the bridge back to the
+  air-gapped side.
+- **Queue durability and reclaim**: file backend topics validated
+  against `^[A-Za-z0-9._-]+$` (path-traversal); `time.time_ns`
+  filenames so FIFO survives producer restart; `fsync` of tmp file
+  + parent dir around every rename; constructor sweeps orphaned
+  `processing/` files back to `incoming/` on startup; corrupted
+  payloads route to `dead-letter/` instead of being silently
+  skipped; `nack(requeue=True)` mints a fresh filename so poison
+  messages no longer starve newer entries. Redis backend gains
+  `XAUTOCLAIM` reclaim of idle pending entries (the at-least-once
+  promise is now actually implemented), `rediss://` TLS verify by
+  default, scheme allow-list, socket timeouts.
+- **MCP server hardening**: streamable-http / sse refuse to start
+  on a non-loopback host without a bearer token (was a logger
+  warning); `get_session_map` (returns raw `{original: placeholder}`
+  for debugging) is now stdio-only — never registered on a network
+  transport. Lazy `_EngineHolder.get` is thread-safe (was a
+  check-then-set race). `scan_file` honors `SEPTUM_MCP_FILE_ROOT`
+  allow-list, refuses symlinks, caps at `SEPTUM_MCP_MAX_FILE_BYTES`
+  (default 50 MB). Tool exception envelopes no longer echo the inner
+  message and `logger.error` emits only the exception class — raw
+  PII can no longer leak into client log files via stderr.
+- **Custom keyword recognizer regex bug**: `_build_keyword_recognizer`
+  shipped a literal `\\b` (backslash + b) instead of the regex
+  word-boundary metacharacter, silently turning every user-defined
+  keyword-list custom recognizer into a no-op. Pinned with a
+  regression test. Plus tighter NER label dispatch (exact set
+  membership instead of substring `in` so labels like `OPERATION` no
+  longer mis-tag as PERSON_NAME), `SeptumEngine` session registry
+  is now `threading.RLock`-guarded under the FastAPI worker pool.
+- **API + frontend backlog**: password minimum 8 → 12; `hash_text`
+  switched from unsalted SHA-256 to HMAC-SHA-256 keyed by the
+  per-instance encryption key (closes IPv4 rainbow-table); chat
+  debug store bounded LRU (was unbounded); `/api/error-logs/frontend`
+  rate-limited 60/hour with input length caps; document upload reads
+  in chunks against `MAX_UPLOAD_BYTES` and refuses 413 before AES-GCM
+  copies; setup-wizard SSE streams now go through the auth-aware
+  `streamSSE` helper; Next.js gains baseline CSP + HSTS +
+  `X-Frame-Options: DENY` + Permissions-Policy; PDF preview iframe
+  gains `sandbox="allow-same-origin"`.
+
+**Breaking**
+
+- **Per-user document/chunk isolation.** Viewer-role users no longer
+  see other users' documents. Multi-user installs that relied on the
+  previous shared-workspace default need to grant the admin role to
+  operators who must browse the full corpus.
+- **Cloud-LLM API keys removed from the queue envelope.** Split
+  deployments must move provider keys from `AppSettings.*_api_key`
+  on the producer to `SEPTUM_GATEWAY_*_API_KEY` env vars on the
+  gateway zone. Producers stop placing the field on the envelope;
+  the gateway ignores any legacy `api_key` it parses.
+- **Setup-window endpoints require loopback or `SEPTUM_SETUP_TOKEN`.**
+  Operators driving the wizard from a non-localhost machine must
+  start the api with `SEPTUM_SETUP_TOKEN=<secret>` and pass
+  `X-Setup-Token: <secret>` on every wizard request.
+- **`/api/audit/export` requires a Bearer token.** The audit service
+  now refuses the export endpoint with 503 unless
+  `SEPTUM_AUDIT_EXPORT_TOKEN` is set; clients must send
+  `Authorization: Bearer <token>`.
+- **`BaseForwarder(default_api_key=…)` renamed to `api_key=…`.** Custom
+  gateway integrations constructing forwarders directly need to
+  rename the kwarg.
+- **Password minimum 8 → 12 characters.** Existing accounts keep
+  working; new accounts and password resets must use 12+ chars.
+- **Anon-map Redis tier is now AES-256-GCM ciphertext.** Running
+  Redis caches with old plaintext entries become unreadable on
+  upgrade; flush the keys on rollout (entries are best-effort and
+  the system rebuilds them on next access).
+
 ### 2026-04-28
 
 - **Critical fix — Ollama validation was silently dropping deterministic detections**: `use_ollama_validation_layer` gated every span outside the high-priority identifier set through Ollama and kept only the LLM's "validated" subset, so when the model omitted a real address, email, date of birth, or customer reference, the recognizer's correct hit was discarded. Reproduced on a real KVKK consent form: 19 detections persisted out of 24 the recognizers actually produced — every "Adres :" line, the second `(KVKK) :` email, the second `Doğum Tarihi :`, and both customer references were stripped. `_SEMANTIC_VALIDATION_PASSTHROUGH_TYPES` now covers every deterministic type (POSTAL_ADDRESS, STREET_ADDRESS, EMAIL_ADDRESS, DATE_OF_BIRTH, URL, IP_ADDRESS, MAC_ADDRESS, COORDINATES, COOKIE_ID, DEVICE_ID, CUSTOMER_REFERENCE_ID); only NER-driven types (PERSON_NAME / LOCATION / ORGANIZATION_NAME) reach the validator.

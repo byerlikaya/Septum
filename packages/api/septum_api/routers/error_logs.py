@@ -11,8 +11,15 @@ from sqlalchemy import Select, delete, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
+from ..middleware.rate_limit import get_limiter
 from ..models.error_log import ErrorLog
 from ..models.user import User
+
+_limiter = get_limiter()
+
+_MAX_FRONTEND_MESSAGE_LEN = 2000
+_MAX_FRONTEND_STACK_LEN = 8000
+_MAX_FRONTEND_EXTRA_BYTES = 8 * 1024
 from ..utils.auth_dependency import get_optional_user, require_role
 
 router = APIRouter(prefix="/api/error-logs", tags=["error-logs"])
@@ -146,9 +153,10 @@ class FrontendErrorIn(BaseModel):
 
 
 @router.post("/frontend", status_code=204, response_model=None)
+@_limiter.limit("60/hour")
 async def ingest_frontend_error(
-    payload: FrontendErrorIn,
     request: Request,
+    payload: FrontendErrorIn,
     db: AsyncSession = Depends(get_db),
     _user: User | None = Depends(get_optional_user),
 ) -> None:
@@ -156,20 +164,41 @@ async def ingest_frontend_error(
 
     Uses optional auth because frontend error reporting must work for
     pre-login failures (network errors on the login page itself).
+    Rate-limited to 60/hour per identity (IP for unauthenticated
+    callers, API key prefix otherwise) so a misbehaving client cannot
+    flood the error log table and hide real failures under noise.
+    Inputs are length-capped at the same time so a single malformed
+    request cannot exhaust storage on its own.
     """
+    import json as _json
+
     from ..services.error_logger import log_frontend_error
+
+    message = (payload.message or "")[:_MAX_FRONTEND_MESSAGE_LEN]
+    stack = (
+        payload.stack_trace[:_MAX_FRONTEND_STACK_LEN]
+        if payload.stack_trace
+        else None
+    )
+    extra = payload.extra
+    if extra is not None:
+        try:
+            if len(_json.dumps(extra)) > _MAX_FRONTEND_EXTRA_BYTES:
+                extra = {"truncated": True}
+        except (TypeError, ValueError):
+            extra = {"invalid": True}
 
     client_ip = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
 
     await log_frontend_error(
         db=db,
-        message=payload.message,
-        stack_trace=payload.stack_trace,
+        message=message,
+        stack_trace=stack,
         route=payload.route,
         user_agent=user_agent,
         level=payload.level or "ERROR",
-        extra=payload.extra,
+        extra=extra,
         client_ip=client_ip,
     )
 

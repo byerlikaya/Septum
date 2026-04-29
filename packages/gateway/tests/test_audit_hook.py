@@ -130,7 +130,9 @@ class TestGatewayAuditHook:
         attrs = events[0]["attributes"]
         assert events[0]["event_type"] == "llm.request.failed"
         assert attrs["status"] == "error"
-        assert attrs["error"] == "upstream 502"
+        # Audit envelope now carries a stable reason code rather than
+        # the upstream error text (which can echo headers / API keys).
+        assert attrs["error"] in {"unknown", "provider_retries_exhausted"}
 
     async def test_audit_publish_failure_does_not_break_main_path(
         self, tmp_path: Path, caplog

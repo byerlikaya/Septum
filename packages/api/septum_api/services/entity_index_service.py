@@ -24,7 +24,7 @@ import hmac
 import json
 import re
 from collections import defaultdict
-from typing import Dict, Iterable, List, Mapping, Tuple
+from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
 from septum_core.anonymization_map import AnonymizationMap
 from sqlalchemy import delete, select
@@ -235,17 +235,16 @@ async def replace_index_for_document(
 async def find_documents_for_query_entities(
     db: AsyncSession,
     entities: Iterable[Tuple[str, str]],
+    *,
+    owner_id: Optional[int] = None,
 ) -> Dict[int, float]:
-    """Return ``{document_id: weighted_score}`` for every document
-    sharing at least one entity with ``entities``.
+    """Return ``{document_id: weighted_score}`` for documents sharing at
+    least one entity with ``entities``.
 
-    ``entities`` is an iterable of ``(original_value, entity_type)`` from
-    the user's question. For tokenizable types each query entity is
-    expanded into its full-span hash plus per-token hashes (mirroring
-    the index side), and a document is awarded the entity's weight
-    **once** if any of those hashes matches there — otherwise a
-    multi-token match would inflate the score by the token count and
-    routinely promote weak shared cities to strong-match status.
+    ``owner_id`` scopes the auto-RAG match to a single user's documents
+    so a query mentioning a name does not surface matched documents
+    from other users' corpora. Pass ``None`` only for admin-context
+    callers who explicitly need the cross-user view.
     """
     secret = get_encryption_key()
     seen_query_entities: set[Tuple[str, ...]] = set()
@@ -256,23 +255,22 @@ async def find_documents_for_query_entities(
         hashes = _hashes_for_entity(entity_type, raw_value, secret)
         if not hashes:
             continue
-        # Dedup: a query that mentions the same canonical entity twice
-        # should not double-score matching documents.
         signature = (entity_type, *hashes)
         if signature in seen_query_entities:
             continue
         seen_query_entities.add(signature)
 
         weight = ENTITY_UNIQUENESS_WEIGHTS.get(entity_type, 0.30)
-        result = await db.execute(
-            select(EntityIndex.document_id).where(
-                EntityIndex.value_hash.in_(hashes),
-                EntityIndex.entity_type == entity_type,
-            )
+        stmt = select(EntityIndex.document_id).where(
+            EntityIndex.value_hash.in_(hashes),
+            EntityIndex.entity_type == entity_type,
         )
-        # Each matching document earns this query entity's weight ONCE,
-        # regardless of how many of the entity's hash variants matched
-        # in that document.
+        if owner_id is not None:
+            from ..models.document import Document as _Document
+            stmt = stmt.join(
+                _Document, _Document.id == EntityIndex.document_id
+            ).where(_Document.user_id == owner_id)
+        result = await db.execute(stmt)
         for document_id in {row[0] for row in result.all()}:
             scores[document_id] += weight
     return dict(scores)

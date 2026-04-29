@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from .config import AuditConfig
-from .events import AuditRecord
+from .events import AuditRecord, verify_chain
 from .retention import RetentionPolicy, apply_retention_to_jsonl
 from .sink import AuditSink, JsonlFileSink, MemorySink
 
@@ -22,6 +22,7 @@ __all__ = [
     "MemorySink",
     "RetentionPolicy",
     "apply_retention_to_jsonl",
+    "verify_chain",
     "JsonExporter",
     "CsvExporter",
     "SplunkHecExporter",

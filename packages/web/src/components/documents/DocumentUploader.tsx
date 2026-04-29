@@ -1,35 +1,51 @@
 "use client";
 
 import { useCallback } from "react";
-import { useDropzone } from "react-dropzone";
+import { useDropzone, type FileRejection } from "react-dropzone";
 import { FileText, FileSpreadsheet, Image, Music, UploadCloud } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
+
+// Mirrors the backend ``MAX_UPLOAD_BYTES`` env var default. Keeping
+// the cap client-side too means a rogue 5 GB drag-and-drop fails fast
+// at the picker rather than after a long stalled upload.
+const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
 interface DocumentUploaderProps {
   disabled?: boolean;
   onFilesSelected: (files: File[]) => void;
+  onFilesRejected?: (rejections: { file: File; reason: string }[]) => void;
 }
 
 export function DocumentUploader({
   disabled = false,
-  onFilesSelected
+  onFilesSelected,
+  onFilesRejected,
 }: DocumentUploaderProps) {
   const t = useI18n();
   const handleDrop = useCallback(
-    (acceptedFiles: File[]) => {
+    (acceptedFiles: File[], fileRejections: FileRejection[]) => {
+      if (fileRejections.length > 0 && onFilesRejected) {
+        onFilesRejected(
+          fileRejections.map((rej) => ({
+            file: rej.file,
+            reason: rej.errors.map((e) => e.message).join("; "),
+          })),
+        );
+      }
       if (!acceptedFiles.length || disabled) {
         return;
       }
       onFilesSelected(acceptedFiles);
     },
-    [disabled, onFilesSelected]
+    [disabled, onFilesRejected, onFilesSelected],
   );
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop: handleDrop,
     multiple: true,
     noClick: true,
-    disabled
+    disabled,
+    maxSize: MAX_UPLOAD_BYTES,
   });
 
   return (

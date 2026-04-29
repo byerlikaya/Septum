@@ -112,8 +112,14 @@ async def test_blocklist_survives_disk_persistence(
 
 @pytest.mark.asyncio
 async def test_redis_tier_used_when_available(store_dir: Path) -> None:
-    """When Redis has the data, disk should not be read."""
+    """When Redis has the data, disk should not be read.
+
+    Redis stores AES-256-GCM ciphertext (matching the disk tier) so
+    plaintext PII never traverses the bridge persistence layer.
+    """
     import json
+
+    from septum_api.utils.crypto import encrypt
 
     amap = AnonymizationMap(document_id=200, language="en")
     amap.entity_map["Alice"] = "[PERSON_1]"
@@ -124,17 +130,48 @@ async def test_redis_tier_used_when_available(store_dir: Path) -> None:
         "token_to_placeholder": {},
         "token_counter": {},
     }).encode("utf-8")
+    ciphertext = encrypt(serialized, associated_data=b"200")
 
     import septum_api.services.document_anon_store as store_module
 
     store_module._document_maps.pop(200, None)
 
-    with patch("septum_api.services.document_anon_store.redis_get", new_callable=AsyncMock, return_value=serialized):
+    with patch("septum_api.services.document_anon_store.redis_get", new_callable=AsyncMock, return_value=ciphertext):
         loaded = await get_document_map(200)
 
     assert loaded is not None
     assert loaded.entity_map["Alice"] == "[PERSON_1]"
     assert loaded.language == "en"
+
+
+@pytest.mark.asyncio
+async def test_redis_payload_is_ciphertext_not_plaintext(store_dir: Path) -> None:
+    """Verify set_document_map writes AES-GCM ciphertext to Redis.
+
+    Pinning this regression: Redis used to receive plaintext JSON which
+    exposed every original PII value to anyone with Redis read access
+    (RDB/AOF backups, MITM, compromised infrastructure).
+    """
+    captured: dict[str, bytes] = {}
+
+    async def fake_redis_set(key, value, ttl=None):
+        captured[key] = value
+        return True
+
+    amap = AnonymizationMap(document_id=999, language="en")
+    amap.entity_map["Alice"] = "[PERSON_1]"
+    amap.entity_map["alice@example.com"] = "[EMAIL_1]"
+
+    with patch(
+        "septum_api.services.document_anon_store.redis_set",
+        new=fake_redis_set,
+    ):
+        await set_document_map(999, amap)
+
+    payload = captured["anon_map:999"]
+    assert b"Alice" not in payload
+    assert b"alice@example.com" not in payload
+    assert b"PERSON_1" not in payload  # placeholders also encrypted
 
 
 @pytest.mark.asyncio

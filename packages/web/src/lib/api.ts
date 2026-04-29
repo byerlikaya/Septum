@@ -39,7 +39,10 @@ export function resolveBaseURL(value: string | undefined): string {
 
 export const baseURL = resolveBaseURL(process.env.NEXT_PUBLIC_API_BASE_URL);
 
-export const PASSWORD_MIN_LENGTH = 8;
+// Mirrors the backend ``services.auth.PASSWORD_MIN_LENGTH``. Bumping
+// here without bumping the backend yields a confusing UX where a
+// password the form accepts the server then rejects.
+export const PASSWORD_MIN_LENGTH = 12;
 
 export const api = axios.create({ baseURL });
 
@@ -77,7 +80,20 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && typeof window !== "undefined") {
       clearAuthToken();
       if (!window.location.pathname.startsWith("/login")) {
-        window.location.href = "/login";
+        // Defer the navigation through a microtask so it fires after
+        // the current render cycle finishes. Calling
+        // ``window.location.href`` directly inside an axios callback
+        // can interrupt parallel ``Promise.all`` cleanups, leaving
+        // SSE streams and timers dangling and surfacing transient
+        // unmount warnings before the redirect lands.
+        queueMicrotask(() => {
+          if (
+            typeof window !== "undefined" &&
+            !window.location.pathname.startsWith("/login")
+          ) {
+            window.location.href = "/login";
+          }
+        });
       }
     }
     return Promise.reject(error);
@@ -86,9 +102,201 @@ api.interceptors.response.use(
 
 export default api;
 
+
+/**
+ * Stream a server-sent-events endpoint with the bearer-token header
+ * baked in. Centralises the auth + abort plumbing so components do
+ * not reach for raw ``fetch`` and forget to inject the token (which
+ * would silently 401 on any auth-gated SSE route).
+ *
+ * ``onLine`` receives every full ``data: <payload>`` line; the caller
+ * decides whether to JSON.parse it. Returns an abort handle; resolves
+ * when the stream ends or rejects on transport error.
+ */
+export interface StreamSSEHandle {
+  abort: () => void;
+}
+
+export function streamSSE(
+  url: string,
+  body: Record<string, unknown> | undefined,
+  onLine: (raw: string) => void,
+  options?: { method?: "GET" | "POST" }
+): StreamSSEHandle {
+  const controller = new AbortController();
+  (async () => {
+    try {
+      const headers: Record<string, string> = {};
+      const token = getAuthToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      let init: RequestInit = { headers, signal: controller.signal };
+      if (options?.method === "POST" || body !== undefined) {
+        headers["Content-Type"] = "application/json";
+        init = {
+          ...init,
+          method: "POST",
+          body: JSON.stringify(body ?? {}),
+        };
+      }
+      const res = await fetch(`${baseURL}${url}`, init);
+      if (!res.ok || !res.body) return;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) onLine(line.slice(6));
+        }
+      }
+    } catch {
+      // Caller observes failure via the absence of more onLine calls;
+      // keep this swallow tight so we never re-export internal abort
+      // exceptions to UI code.
+    }
+  })();
+  return { abort: () => controller.abort() };
+}
+
+
 export async function getDocuments(): Promise<Document[]> {
   const { data } = await api.get<DocumentListResponse>("/api/documents");
   return data.items;
+}
+
+export async function getDocument(documentId: number): Promise<Document> {
+  const { data } = await api.get<Document>(`/api/documents/${documentId}`);
+  return data;
+}
+
+export async function deleteDocument(documentId: number): Promise<void> {
+  await api.delete(`/api/documents/${documentId}`);
+}
+
+export async function getDocumentProgress(
+  ids: string,
+): Promise<Record<number, { status?: string; progress?: number }>> {
+  const { data } = await api.get<
+    Record<number, { status?: string; progress?: number }>
+  >("/api/documents/progress", { params: { ids } });
+  return data;
+}
+
+export async function getAnonSummary(
+  documentId: number,
+): Promise<{ document_id: number; entities: Record<string, number>; total: number }> {
+  const { data } = await api.get(`/api/documents/${documentId}/anon-summary`);
+  return data;
+}
+
+export async function uploadDocument(file: File): Promise<Document> {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await api.post<Document>("/api/documents/upload", form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+}
+
+export async function listChunks(
+  documentId: number,
+): Promise<{ items: Array<Record<string, unknown>> }> {
+  const { data } = await api.get(`/api/chunks`, {
+    params: { document_id: documentId },
+  });
+  return data;
+}
+
+export async function patchSettings<T = AppSettingsResponse>(
+  payload: Record<string, unknown>,
+): Promise<T> {
+  const { data } = await api.patch<T>("/api/settings", payload);
+  return data;
+}
+
+export async function postSettingsTest<T = TestConnectionResponse>(
+  endpoint:
+    | "/api/settings/test-llm"
+    | "/api/settings/test-local-models",
+  payload: Record<string, unknown>,
+): Promise<T> {
+  const { data } = await api.post<T>(endpoint, payload);
+  return data;
+}
+
+export async function getInfrastructure<T = Record<string, unknown>>(): Promise<T> {
+  const { data } = await api.get<T>("/api/setup/infrastructure");
+  return data;
+}
+
+export async function patchInfrastructure(
+  payload: Record<string, unknown>,
+): Promise<InitializeResponse> {
+  const { data } = await api.patch<InitializeResponse>(
+    "/api/setup/infrastructure",
+    payload,
+  );
+  return data;
+}
+
+export async function getOllamaModels(): Promise<{ models: string[] }> {
+  const { data } = await api.get<{ models: string[] }>(
+    "/api/settings/ollama-models",
+  );
+  return data;
+}
+
+export async function getRouteAuditEvents<T = unknown>(eventId: number): Promise<T> {
+  const { data } = await api.get<T>(`/api/audit/${eventId}`);
+  return data;
+}
+
+export async function clearAuditEvents(): Promise<void> {
+  await api.delete("/api/audit/");
+}
+
+export async function listRegulationDetail<T = unknown>(
+  regulationId: string,
+): Promise<T> {
+  const { data } = await api.get<T>(`/api/regulations/${regulationId}`);
+  return data;
+}
+
+export async function patchRegulation<T = unknown>(
+  regulationId: string,
+  payload: Record<string, unknown>,
+): Promise<T> {
+  const { data } = await api.patch<T>(
+    `/api/regulations/${regulationId}`,
+    payload,
+  );
+  return data;
+}
+
+export async function postCustomRecognizer<T = unknown>(
+  payload: Record<string, unknown>,
+): Promise<T> {
+  const { data } = await api.post<T>("/api/regulations/custom-recognizers", payload);
+  return data;
+}
+
+export async function patchCustomRecognizer<T = unknown>(
+  recognizerId: number,
+  payload: Record<string, unknown>,
+): Promise<T> {
+  const { data } = await api.patch<T>(
+    `/api/regulations/custom-recognizers/${recognizerId}`,
+    payload,
+  );
+  return data;
+}
+
+export async function deleteCustomRecognizer(recognizerId: number): Promise<void> {
+  await api.delete(`/api/regulations/custom-recognizers/${recognizerId}`);
 }
 
 export interface RelationshipNode {

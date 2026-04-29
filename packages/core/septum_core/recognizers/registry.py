@@ -216,7 +216,7 @@ class RecognizerRegistry:
 
         pattern = Pattern(
             name=f"{custom.name}_keywords",
-            regex=rf"\\b(?:{'|'.join(escaped)})\\b",
+            regex=rf"\b(?:{'|'.join(escaped)})\b",
             score=0.7,
         )
         return PatternRecognizer(

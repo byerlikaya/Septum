@@ -22,6 +22,7 @@ The engine never reaches the network on its own. Attach a
 a host wants the optional Ollama / LLM-assisted layers.
 """
 
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -112,6 +113,14 @@ class SeptumEngine:
         self._sessions: Dict[str, AnonymizationMap] = {}
         self._session_expiry: Dict[str, float] = {}
         self._session_ttl_seconds = session_ttl_seconds
+        # The MCP server and the FastAPI worker pool both call mask /
+        # unmask / release from multiple threads. Without a lock the
+        # eviction loop and concurrent registrations can race the two
+        # session dicts, raising ``RuntimeError: dictionary changed
+        # size during iteration`` or — worse — leaking an entry whose
+        # expiry was already deleted (so the AnonymizationMap with raw
+        # PII never re-evicts).
+        self._sessions_lock = threading.RLock()
 
     @staticmethod
     def _compose_policy(regulation_ids: List[str]) -> ComposedPolicy:
@@ -135,8 +144,9 @@ class SeptumEngine:
         session_id = uuid.uuid4().hex
         anon_map = AnonymizationMap(document_id=0, language=language)
         result = self._detector.sanitize(text=text, language=language, anon_map=anon_map)
-        self._sessions[session_id] = anon_map
-        self._touch_session(session_id)
+        with self._sessions_lock:
+            self._sessions[session_id] = anon_map
+            self._touch_session_locked(session_id)
         return MaskResult(
             masked_text=result.sanitized_text,
             session_id=session_id,
@@ -150,7 +160,8 @@ class SeptumEngine:
         anon_map = self._get_live_session(session_id)
         if anon_map is None:
             return text
-        self._touch_session(session_id)
+        with self._sessions_lock:
+            self._touch_session_locked(session_id)
         return self._unmasker.unmask(text, anon_map)
 
     def get_session_map(self, session_id: str) -> Optional[Dict[str, str]]:
@@ -169,34 +180,45 @@ class SeptumEngine:
 
     def release(self, session_id: str) -> None:
         """Drop a session's anonymization map from the in-memory registry."""
-        self._sessions.pop(session_id, None)
-        self._session_expiry.pop(session_id, None)
+        with self._sessions_lock:
+            self._sessions.pop(session_id, None)
+            self._session_expiry.pop(session_id, None)
 
     def active_session_count(self) -> int:
         """Return the number of non-expired sessions currently held."""
         self._evict_expired_sessions()
-        return len(self._sessions)
+        with self._sessions_lock:
+            return len(self._sessions)
 
-    def _touch_session(self, session_id: str) -> None:
+    def _touch_session_locked(self, session_id: str) -> None:
+        """Update expiry. Caller must hold ``self._sessions_lock``."""
         if self._session_ttl_seconds <= 0:
             return
         self._session_expiry[session_id] = time.monotonic() + self._session_ttl_seconds
 
     def _get_live_session(self, session_id: str) -> Optional[AnonymizationMap]:
-        anon_map = self._sessions.get(session_id)
-        if anon_map is None:
-            return None
-        if self._session_ttl_seconds > 0:
-            expiry = self._session_expiry.get(session_id, 0.0)
-            if expiry and time.monotonic() > expiry:
-                self.release(session_id)
+        with self._sessions_lock:
+            anon_map = self._sessions.get(session_id)
+            if anon_map is None:
                 return None
+            if self._session_ttl_seconds > 0:
+                expiry = self._session_expiry.get(session_id, 0.0)
+                if expiry and time.monotonic() > expiry:
+                    self._sessions.pop(session_id, None)
+                    self._session_expiry.pop(session_id, None)
+                    return None
         return anon_map
 
     def _evict_expired_sessions(self) -> None:
-        if self._session_ttl_seconds <= 0 or not self._session_expiry:
+        if self._session_ttl_seconds <= 0:
             return
-        now = time.monotonic()
-        expired = [sid for sid, exp in self._session_expiry.items() if now > exp]
-        for sid in expired:
-            self.release(sid)
+        with self._sessions_lock:
+            if not self._session_expiry:
+                return
+            now = time.monotonic()
+            expired = [
+                sid for sid, exp in self._session_expiry.items() if now > exp
+            ]
+            for sid in expired:
+                self._sessions.pop(sid, None)
+                self._session_expiry.pop(sid, None)

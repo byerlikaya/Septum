@@ -193,6 +193,22 @@ async def update_session(
     if payload.title is not None:
         session.title = payload.title
     if payload.document_ids is not None:
+        # Reject ids the caller does not own — preserves the document
+        # IDOR fix one layer up. Admin role bypasses (operator support).
+        if current_user.role != "admin" and payload.document_ids:
+            from ..models.document import Document as _Document
+            owned = await db.execute(
+                select(_Document.id).where(
+                    _Document.id.in_(payload.document_ids),
+                    _Document.user_id == current_user.id,
+                )
+            )
+            owned_ids = {row[0] for row in owned.all()}
+            if owned_ids != set(payload.document_ids):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="One or more documents not found.",
+                )
         session.document_ids = payload.document_ids
     session.updated_at = datetime.now(timezone.utc)
     await db.commit()

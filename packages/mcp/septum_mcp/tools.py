@@ -27,6 +27,8 @@ without re-parsing exception traces.
 """
 
 import logging
+import os
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from septum_core import SeptumEngine
@@ -35,6 +37,82 @@ from septum_core.recognizers import BUILTIN_REGULATION_IDS, entity_types_for
 from .file_readers import SUPPORTED_EXTENSIONS, read_file
 
 logger = logging.getLogger(__name__)
+
+
+_DEFAULT_MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
+
+
+def _scan_file_root() -> Optional[Path]:
+    """Return the configured allow-list root for ``scan_file`` paths.
+
+    When ``SEPTUM_MCP_FILE_ROOT`` is unset the tool retains its
+    historical "scan anything the process can read" behavior — that is
+    the right default for stdio servers running inside an editor where
+    the user has already authorised the working directory. Operators
+    running ``streamable-http`` (where untrusted clients reach the
+    tool via the bearer-token gate) must set this env var to a path
+    they consider safe.
+    """
+    raw = os.getenv("SEPTUM_MCP_FILE_ROOT")
+    if not raw:
+        return None
+    return Path(raw).resolve()
+
+
+def _scan_file_max_size() -> int:
+    raw = os.getenv("SEPTUM_MCP_MAX_FILE_BYTES", "").strip()
+    if not raw:
+        return _DEFAULT_MAX_FILE_SIZE_BYTES
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_MAX_FILE_SIZE_BYTES
+    return max(1, value)
+
+
+def _validate_scan_path(path_str: str) -> Optional[str]:
+    """Return an error message if the path is unsafe, else ``None``.
+
+    Rejects: paths outside ``SEPTUM_MCP_FILE_ROOT`` (when set);
+    symlinks (an attacker could plant one inside the root that points
+    to ``~/.ssh/id_rsa``); files larger than ``SEPTUM_MCP_MAX_FILE_BYTES``;
+    and dotfiles unless explicitly opted in via the path string.
+    """
+    try:
+        candidate = Path(path_str).expanduser()
+    except Exception:  # noqa: BLE001
+        return f"file_path {path_str!r} is malformed"
+
+    try:
+        resolved = candidate.resolve(strict=True)
+    except FileNotFoundError:
+        return f"file_path {path_str!r} not found"
+    except OSError:
+        return f"file_path {path_str!r} cannot be read"
+
+    if candidate.is_symlink():
+        return "scan_file refuses to follow symlinks"
+
+    root = _scan_file_root()
+    if root is not None:
+        try:
+            resolved.relative_to(root)
+        except ValueError:
+            return (
+                f"file_path {path_str!r} is outside the allow-listed root "
+                f"{str(root)!r}"
+            )
+
+    try:
+        size = resolved.stat().st_size
+    except OSError:
+        return f"file_path {path_str!r} cannot be stat'd"
+    max_bytes = _scan_file_max_size()
+    if size > max_bytes:
+        return (
+            f"file_path {path_str!r} exceeds the {max_bytes}-byte size cap"
+        )
+    return None
 
 
 def _ok(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -92,8 +170,13 @@ def mask_text(
     try:
         result = engine.mask(raw_text, language=lang)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.exception("mask_text failed")
-        return _err(f"mask_text failed: {exc}")
+        # logger.exception would write the full traceback (with locals
+        # like ``raw_text``) to stderr — which MCP clients capture and
+        # persist (e.g. ~/Library/Logs/Claude/...). Log only the
+        # exception class name and return a generic envelope so neither
+        # the log nor the response leaks the input back to the caller.
+        logger.error("mask_text failed: %s", type(exc).__name__)
+        return _err("mask_text failed")
 
     return _ok(
         {
@@ -128,8 +211,8 @@ def unmask_response(
     try:
         restored = engine.unmask(raw_text, sid)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.exception("unmask_response failed")
-        return _err(f"unmask_response failed: {exc}")
+        logger.error("unmask_response failed: %s", type(exc).__name__)
+        return _err("unmask_response failed")
 
     return _ok({"text": restored, "session_id": sid})
 
@@ -157,8 +240,8 @@ def detect_pii(
     try:
         result = engine.mask(raw_text, language=lang)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.exception("detect_pii failed")
-        return _err(f"detect_pii failed: {exc}")
+        logger.error("detect_pii failed: %s", type(exc).__name__)
+        return _err("detect_pii failed")
 
     engine.release(result.session_id)
 
@@ -200,6 +283,10 @@ def scan_file(
     if path is None:
         return _err("'file_path' must be a non-empty string.")
 
+    rejection = _validate_scan_path(path)
+    if rejection is not None:
+        return _err(rejection)
+
     read_result = read_file(path)
     if not read_result.ok:
         return _err(read_result.error)
@@ -211,8 +298,8 @@ def scan_file(
     try:
         result = engine.mask(read_result.text, language=lang)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.exception("scan_file mask failed")
-        return _err(f"scan_file failed: {exc}")
+        logger.error("scan_file mask failed: %s", type(exc).__name__)
+        return _err("scan_file failed")
 
     entities = [
         {

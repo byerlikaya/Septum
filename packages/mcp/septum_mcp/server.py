@@ -34,6 +34,7 @@ for every workspace it opens.
 
 import argparse
 import logging
+import threading
 from typing import List, Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -77,33 +78,53 @@ class _EngineHolder:
     imports (spaCy pipeline, optional transformer weights) the moment
     Claude Code launches the server. Deferring construction to the
     first tool call keeps idle cost near zero.
+
+    The lazy initialisation is guarded by a ``threading.Lock``: FastMCP
+    runs sync tools on a thread pool, so two concurrent first-call
+    requests over the streamable-http transport could each see
+    ``self._engine is None`` and call ``_build_engine`` twice. The
+    second engine would then silently overwrite the first, orphaning
+    any sessions registered against the original.
     """
 
     def __init__(self, config: MCPConfig) -> None:
         self._config = config
         self._engine: Optional[SeptumEngine] = None
+        self._init_lock = threading.Lock()
 
     @property
     def config(self) -> MCPConfig:
         return self._config
 
     def get(self) -> SeptumEngine:
-        if self._engine is None:
+        if self._engine is not None:
+            return self._engine
+        with self._init_lock:
+            # Double-checked: another thread may have built the engine
+            # while we were waiting for the lock.
+            if self._engine is not None:
+                return self._engine
             logger.info(
                 "Initialising SeptumEngine with regulations=%s, ner=%s",
                 self._config.regulations,
                 self._config.use_ner_layer,
             )
             self._engine = _build_engine(self._config)
-        return self._engine
+            return self._engine
 
 
-def create_server(config: Optional[MCPConfig] = None) -> FastMCP:
+def create_server(
+    config: Optional[MCPConfig] = None,
+    *,
+    expose_session_map: bool = True,
+) -> FastMCP:
     """Build a :class:`FastMCP` instance with all septum-mcp tools registered.
 
-    Exposed as a module-level factory so tests and third-party
-    integrators can spin up the server with a hand-built config
-    instead of environment variables.
+    ``expose_session_map`` controls whether ``get_session_map`` (which
+    returns raw PII for debugging) is registered. Callers should pass
+    ``False`` for non-stdio transports — the tool is intended for
+    local-only debugging and exposing it over a network transport
+    leaks raw originals to any client with a valid bearer token.
     """
     cfg = config or MCPConfig.from_env()
     mcp = FastMCP(name="septum-mcp", instructions=SERVER_INSTRUCTIONS)
@@ -193,18 +214,19 @@ def create_server(config: Optional[MCPConfig] = None) -> FastMCP:
             tool_impls.list_regulations(active_regulations=cfg.regulations)
         )
 
-    @mcp.tool(
-        name="get_session_map",
-        description=(
-            "Return the {original -> placeholder} map for a session. "
-            "Intended strictly for local debugging; the values contain "
-            "raw PII and must not be forwarded to any remote system."
-        ),
-    )
-    def get_session_map(session_id: str) -> dict:
-        return _unwrap(
-            tool_impls.get_session_map(holder.get(), session_id=session_id)
+    if expose_session_map:
+        @mcp.tool(
+            name="get_session_map",
+            description=(
+                "Return the {original -> placeholder} map for a session. "
+                "Intended strictly for local debugging; the values contain "
+                "raw PII and must not be forwarded to any remote system."
+            ),
         )
+        def get_session_map(session_id: str) -> dict:
+            return _unwrap(
+                tool_impls.get_session_map(holder.get(), session_id=session_id)
+            )
 
     # Keep a reference on the server for tests that want to introspect.
     mcp._septum_holder = holder  # type: ignore[attr-defined]
@@ -275,10 +297,10 @@ def _run_http(mcp: FastMCP, *, transport: str, host: str, port: int, token: str 
         "enabled" if token else "disabled",
     )
     if token is None and host not in {"127.0.0.1", "localhost", "::1"}:
-        logger.warning(
-            "septum-mcp HTTP transport is binding on %s with no bearer token. "
-            "Set --token / SEPTUM_MCP_HTTP_TOKEN before exposing this port.",
-            host,
+        raise RuntimeError(
+            f"Refusing to start septum-mcp HTTP transport on {host} without a "
+            "bearer token. Set --token / SEPTUM_MCP_HTTP_TOKEN, or bind to "
+            "127.0.0.1 / localhost / ::1 for loopback-only use."
         )
 
     uvicorn.run(app, host=host, port=port, log_level="info")
@@ -306,7 +328,9 @@ def main(argv: Optional[List[str]] = None) -> None:
     token = args.token or cfg.http_token
     mount_path = args.mount_path or cfg.http_mount_path
 
-    mcp = create_server(cfg)
+    # get_session_map returns raw PII; only expose it on stdio (the only
+    # transport that runs as a subprocess of a trusted local client).
+    mcp = create_server(cfg, expose_session_map=(transport == "stdio"))
 
     if transport == "stdio":
         mcp.run(transport="stdio")

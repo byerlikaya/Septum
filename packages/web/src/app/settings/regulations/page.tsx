@@ -23,6 +23,59 @@ import { CustomRuleBuilderPanel } from "@/components/settings/CustomRuleBuilderP
 type Tab = "builtin" | "custom" | "advanced";
 type CustomRuleBuilderMode = "create" | "edit";
 
+const HELP_BANNER_PALETTE = {
+  sky: {
+    container: "border-sky-800/40 bg-sky-950/20 text-sky-100/80",
+    badge: "text-sky-300",
+    footer: "text-sky-200/70",
+    link: "hover:text-sky-100",
+  },
+  amber: {
+    container: "border-amber-800/40 bg-amber-950/20 text-amber-100/80",
+    badge: "text-amber-300",
+    footer: "text-amber-200/70",
+    link: "hover:text-amber-100",
+  },
+} as const;
+
+interface RuleHelpBannerProps {
+  tone: keyof typeof HELP_BANNER_PALETTE;
+  intro: string;
+  bullets: { label: string; description: string }[];
+  footer: string;
+  docsLabel: string;
+}
+
+const DOCS_URL = "https://github.com/byerlikaya/Septum/blob/main/docs/custom-rules.md";
+
+function RuleHelpBanner({ tone, intro, bullets, footer, docsLabel }: RuleHelpBannerProps) {
+  const palette = HELP_BANNER_PALETTE[tone];
+  return (
+    <div className={`rounded-lg border px-4 py-3 text-[11px] ${palette.container}`}>
+      <p className="mb-2 leading-relaxed">{intro}</p>
+      <ul className="mb-2 list-disc space-y-1 pl-4">
+        {bullets.map((b) => (
+          <li key={b.label}>
+            <span className={`font-mono ${palette.badge}`}>{b.label}</span> — {b.description}
+          </li>
+        ))}
+      </ul>
+      <p className={`text-[11px] ${palette.footer}`}>
+        {footer}
+        {" · "}
+        <a
+          href={DOCS_URL}
+          target="_blank"
+          rel="noreferrer"
+          className={`underline decoration-dotted underline-offset-2 ${palette.link}`}
+        >
+          {docsLabel}
+        </a>
+      </p>
+    </div>
+  );
+}
+
 const REGION_FLAGS: Record<string, string> = {
   "EU / EEA": "🇪🇺",
   "USA (California)": "🇺🇸",
@@ -328,37 +381,17 @@ export default function RegulationsPage() {
         {/* Custom Rules */}
         {activeTab === "custom" && (
           <div className="space-y-3">
-            <div className="rounded-lg border border-sky-800/40 bg-sky-950/20 px-4 py-3 text-[11px] text-sky-100/80">
-              <p className="mb-2 leading-relaxed">
-                {t("regulations.custom.helpBanner.intro")}
-              </p>
-              <ul className="mb-2 list-disc space-y-1 pl-4">
-                <li>
-                  <span className="font-mono text-sky-300">regex</span> —{" "}
-                  {t("regulations.custom.helpBanner.regex")}
-                </li>
-                <li>
-                  <span className="font-mono text-sky-300">keyword_list</span> —{" "}
-                  {t("regulations.custom.helpBanner.keyword")}
-                </li>
-                <li>
-                  <span className="font-mono text-sky-300">llm_prompt</span> —{" "}
-                  {t("regulations.custom.helpBanner.llm")}
-                </li>
-              </ul>
-              <p className="text-[11px] text-sky-200/70">
-                {t("regulations.custom.helpBanner.testHint")}
-                {" · "}
-                <a
-                  href="https://github.com/byerlikaya/Septum/blob/main/docs/custom-rules.md"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline decoration-dotted underline-offset-2 hover:text-sky-100"
-                >
-                  {t("regulations.custom.helpBanner.docsLink")}
-                </a>
-              </p>
-            </div>
+            <RuleHelpBanner
+              tone="sky"
+              intro={t("regulations.custom.helpBanner.intro")}
+              bullets={[
+                { label: "regex", description: t("regulations.custom.helpBanner.regex") },
+                { label: "keyword_list", description: t("regulations.custom.helpBanner.keyword") },
+                { label: "llm_prompt", description: t("regulations.custom.helpBanner.llm") },
+              ]}
+              footer={t("regulations.custom.helpBanner.testHint")}
+              docsLabel={t("regulations.custom.helpBanner.docsLink")}
+            />
 
             <div className="flex items-center justify-between">
               <p className="text-xs text-slate-400">
@@ -435,33 +468,16 @@ export default function RegulationsPage() {
         {/* Advanced (Non-PII Rules) */}
         {activeTab === "advanced" && (
           <div className="space-y-3">
-            <div className="rounded-lg border border-amber-800/40 bg-amber-950/20 px-4 py-3 text-[11px] text-amber-100/80">
-              <p className="mb-2 leading-relaxed">
-                {t("regulations.nonPii.helpBanner.intro")}
-              </p>
-              <ul className="mb-2 list-disc space-y-1 pl-4">
-                <li>
-                  <span className="font-mono text-amber-300">regex</span> —{" "}
-                  {t("regulations.nonPii.helpBanner.regex")}
-                </li>
-                <li>
-                  <span className="font-mono text-amber-300">token</span> —{" "}
-                  {t("regulations.nonPii.helpBanner.token")}
-                </li>
-              </ul>
-              <p className="text-[11px] text-amber-200/70">
-                {t("regulations.nonPii.helpBanner.scopeHint")}
-                {" · "}
-                <a
-                  href="https://github.com/byerlikaya/Septum/blob/main/docs/custom-rules.md"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline decoration-dotted underline-offset-2 hover:text-amber-100"
-                >
-                  {t("regulations.custom.helpBanner.docsLink")}
-                </a>
-              </p>
-            </div>
+            <RuleHelpBanner
+              tone="amber"
+              intro={t("regulations.nonPii.helpBanner.intro")}
+              bullets={[
+                { label: "regex", description: t("regulations.nonPii.helpBanner.regex") },
+                { label: "token", description: t("regulations.nonPii.helpBanner.token") },
+              ]}
+              footer={t("regulations.nonPii.helpBanner.scopeHint")}
+              docsLabel={t("regulations.custom.helpBanner.docsLink")}
+            />
 
             {nonPiiError && <ErrorAlert message={nonPiiError} className="text-xs" />}
 

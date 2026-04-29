@@ -10,7 +10,10 @@ import jwt
 from ..bootstrap import get_config
 
 JWT_ALGORITHM = "HS256"
-PASSWORD_MIN_LENGTH = 8
+# 12 chars + bcrypt cost ~12 bring brute-force outside trivial GPU
+# range while still being typeable. Combined with the per-route
+# rate-limit on /api/auth/login this is the practical defence.
+PASSWORD_MIN_LENGTH = 12
 
 
 class WeakPasswordError(ValueError):

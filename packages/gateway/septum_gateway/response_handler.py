@@ -7,6 +7,7 @@ per handled request — no prompt content, response text, or api keys.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -18,7 +19,7 @@ from septum_queue import (
     ResponseEnvelope,
 )
 
-from .forwarder import ForwarderRegistry, GatewayError
+from .forwarder import ForwarderRegistry, GatewayError, _sanitize_error_text
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +50,18 @@ class GatewayConsumer:
         return False
 
     async def run_forever(self, *, block_ms: int = 5000) -> None:
-        """Loop until cancelled, processing one message per iteration."""
+        """Loop until cancelled, processing one message per iteration.
+
+        ``await asyncio.sleep`` after empty cycles guarantees a yield
+        even if the queue backend ignored ``block_ms`` (some file-
+        backend variants return immediately on empty), so this loop
+        cannot busy-spin and peg CPU on idle.
+        """
+        idle_sleep = max(0.05, min(block_ms / 1000, 1.0))
         while True:
             processed = await self.run_once(block_ms=block_ms)
             if not processed:
-                continue  # idle cycle; block_ms already did the waiting
+                await asyncio.sleep(idle_sleep)
 
     async def _handle(self, message: Message) -> None:
         try:
@@ -96,7 +104,7 @@ class GatewayConsumer:
             )
             return ResponseEnvelope(
                 correlation_id=envelope.correlation_id,
-                error=str(exc),
+                error=_sanitize_error_text(str(exc)),
                 provider=envelope.provider,
                 model=envelope.model,
             )
@@ -106,9 +114,12 @@ class GatewayConsumer:
                 envelope.provider,
                 envelope.correlation_id,
             )
+            # Never echo the inner exception text — provider/transport
+            # exceptions historically include header values (api keys,
+            # bearer tokens) and request bodies.
             return ResponseEnvelope(
                 correlation_id=envelope.correlation_id,
-                error=f"unexpected gateway error: {type(exc).__name__}: {exc}",
+                error=f"unexpected gateway error ({type(exc).__name__})",
                 provider=envelope.provider,
                 model=envelope.model,
             )
@@ -133,7 +144,18 @@ class GatewayConsumer:
         if envelope.max_tokens is not None:
             attributes["max_tokens"] = envelope.max_tokens
         if response.error is not None:
-            attributes["error"] = response.error
+            # Stable reason code for the audit trail rather than the
+            # full upstream error text; the response queue carries the
+            # detailed message back to the producer for the user.
+            error_lower = response.error.lower()
+            if "rejected" in error_lower or "non-retryable" in error_lower:
+                attributes["error"] = "provider_4xx"
+            elif "after" in error_lower and "attempts" in error_lower:
+                attributes["error"] = "provider_retries_exhausted"
+            elif "disallowed" in error_lower or "allow-list" in error_lower:
+                attributes["error"] = "blocked_base_url"
+            else:
+                attributes["error"] = "unknown"
 
         payload = {
             "id": uuid.uuid4().hex,

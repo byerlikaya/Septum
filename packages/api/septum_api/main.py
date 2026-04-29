@@ -218,9 +218,15 @@ app.add_middleware(PrometheusMiddleware)
 # so that preflight OPTIONS responses always carry the correct headers.
 from .utils.cors import resolve_cors_origins  # noqa: E402
 
+_cors_origins = resolve_cors_origins(bootstrap.get_config().frontend_origin)
+if _cors_origins == ["*"]:
+    logger.warning(
+        "CORS allow_origins is wildcard (*). Set FRONTEND_ORIGIN to an "
+        "explicit comma-separated list before exposing this instance."
+    )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=resolve_cors_origins(bootstrap.get_config().frontend_origin),
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
