@@ -53,7 +53,6 @@ from ..utils.auth_dependency import get_current_user, require_role
 from ..utils.crypto import decrypt, encrypt
 from ..utils.db_helpers import (
     detect_language,
-    get_or_404,
     get_owned_or_404,
     load_settings,
 )

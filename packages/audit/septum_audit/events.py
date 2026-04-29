@@ -22,7 +22,6 @@ import uuid
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Mapping
 
-
 _GENESIS_HASH = "0" * 64
 
 

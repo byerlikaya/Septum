@@ -27,7 +27,8 @@ async def _ensure_chunk_owner(db: AsyncSession, chunk: Chunk, user: User) -> Non
     """
     if user.role == "admin":
         return
-    from fastapi import HTTPException, status as _status
+    from fastapi import HTTPException
+    from fastapi import status as _status
     parent = await db.execute(
         select(Document.user_id).where(Document.id == chunk.document_id)
     )
