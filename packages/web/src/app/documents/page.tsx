@@ -7,6 +7,7 @@ import {
   reprocessDocument,
   sendFrontendError,
 } from "@/lib/api";
+import { poolMap } from "@/lib/concurrency";
 import type { Document } from "@/lib/types";
 import { DocumentUploader } from "@/components/documents/DocumentUploader";
 import { DocumentList } from "@/components/documents/DocumentList";
@@ -234,7 +235,12 @@ export default function DocumentsPage() {
 
     try {
       setIsDeletingAll(true);
-      await Promise.all(documents.map(doc => api.delete(`/api/documents/${doc.id}`)));
+      // ``poolMap`` caps concurrency so a 100-doc bulk delete does not
+      // saturate the browser's per-host socket pool and stall every
+      // other request the page is making in parallel.
+      await poolMap(documents, 4, (doc) =>
+        api.delete(`/api/documents/${doc.id}`),
+      );
       setDocuments([]);
     } catch {
       setError(t("errors.documents.deleteAll"));
@@ -249,7 +255,7 @@ export default function DocumentsPage() {
       // eslint-disable-next-line no-alert
       if (!window.confirm(t("documents.bulk.confirmDelete").replace("{count}", String(ids.length)))) return;
       try {
-        await Promise.all(ids.map((id) => api.delete(`/api/documents/${id}`)));
+        await poolMap(ids, 4, (id) => api.delete(`/api/documents/${id}`));
         setDocuments((prev) => prev.filter((d) => !ids.includes(d.id)));
       } catch {
         setError(t("errors.documents.deleteAll"));
