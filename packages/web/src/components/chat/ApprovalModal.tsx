@@ -150,6 +150,14 @@ export function ApprovalModal({
     return countPlaceholders(allText);
   }, [chunks]);
 
+  // The dialog ref + a11y hooks must run on every render — including
+  // the closed state — so React's hook order stays stable. Putting
+  // them after the ``if (!open) return`` early-return changed the
+  // hook count when ``open`` toggled and tripped Rules of Hooks.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEscapeToClose(open && !submitting, onClose);
+  useFocusTrap(dialogRef, open);
+
   if (!open) return <></>;
 
   const handleApprove = () => {
@@ -189,12 +197,6 @@ export function ApprovalModal({
       : t("chat.approval.noRegulations");
 
   const totalEntities = Array.from(entitySummary.values()).reduce((a, b) => a + b, 0);
-
-  const dialogRef = useRef<HTMLDivElement>(null);
-  // ESC dismiss + focus trap. Disabled while submitting so a stray
-  // ESC during the network round-trip does not double-cancel.
-  useEscapeToClose(open && !submitting, onClose);
-  useFocusTrap(dialogRef, open);
 
   return (
     <div
