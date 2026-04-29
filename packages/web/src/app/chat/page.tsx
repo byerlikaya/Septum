@@ -14,6 +14,7 @@ import api, {
   updateChatSession,
   sendFrontendError,
 } from "@/lib/api";
+import { poolMap } from "@/lib/concurrency";
 import type { AppSettingsResponse, ApprovalData, ChatSessionSummary, DebugData, Document } from "@/lib/types";
 import { DocumentSelector } from "@/components/chat/DocumentSelector";
 import { ChatWindow } from "@/components/chat/ChatWindow";
@@ -298,7 +299,7 @@ export default function ChatPage() {
       // eslint-disable-next-line no-alert
       if (!window.confirm(t("chat.history.deleteAllConfirm"))) return;
       try {
-        await Promise.all(sessions.map((s) => deleteChatSession(s.id)));
+        await poolMap(sessions, 4, (s) => deleteChatSession(s.id));
         setSessions([]);
         handleNewChat();
       } catch {

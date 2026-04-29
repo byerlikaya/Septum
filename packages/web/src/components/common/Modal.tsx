@@ -1,7 +1,10 @@
 "use client";
 
 import { X } from "lucide-react";
-import type { ReactNode } from "react";
+import { useId, useRef, type ReactNode } from "react";
+
+import { useEscapeToClose } from "@/hooks/useEscapeToClose";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 export interface ModalProps {
   open: boolean;
@@ -30,17 +33,40 @@ export function Modal({
   onSubmit,
   children,
 }: ModalProps) {
+  const titleId = useId();
+  const containerRef = useRef<HTMLFormElement>(null);
+  useEscapeToClose(open && !submitting, onClose);
+  useFocusTrap(containerRef, open);
+
   if (!open) return null;
 
+  // Backdrop click dismisses the modal — matches the standard
+  // dialog UX pattern. Inner ``stopPropagation`` keeps clicks on
+  // the form itself from bubbling out and triggering close.
+  const handleBackdropClick = (): void => {
+    if (!submitting) onClose();
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4"
+      onClick={handleBackdropClick}
+      role="presentation"
+    >
       <form
+        ref={containerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         onSubmit={onSubmit}
+        onClick={(event) => event.stopPropagation()}
         className="w-full max-w-md space-y-4 rounded-lg border border-border/80 bg-slate-900 p-6 shadow-xl"
       >
         <div className="flex items-start justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-100">{title}</h2>
+            <h2 id={titleId} className="text-lg font-semibold text-slate-100">
+              {title}
+            </h2>
             {subtitle && (
               <p className="mt-1 text-xs text-slate-400">{subtitle}</p>
             )}
