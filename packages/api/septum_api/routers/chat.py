@@ -1073,7 +1073,7 @@ async def chat_ask(
                     all_user_docs_result = await db.execute(
                         select(Document).where(
                             or_(
-                                Document.user_id == _user.id,
+                                Document.user_id == current_user.id,
                                 Document.user_id.is_(None),
                             ),
                             Document.ingestion_status == "completed",
