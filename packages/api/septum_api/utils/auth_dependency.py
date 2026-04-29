@@ -10,6 +10,9 @@ middleware stack).
 
 from __future__ import annotations
 
+import hmac
+import os
+
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
@@ -22,6 +25,48 @@ from ..models.user import User
 from ..services.auth import decode_access_token
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+
+
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "testclient"}
+_SETUP_TOKEN_HEADER = "x-setup-token"
+
+
+def _is_loopback_request(request: Request) -> bool:
+    client = getattr(request, "client", None)
+    host = getattr(client, "host", None) if client else None
+    return host in _LOOPBACK_HOSTS if host else False
+
+
+def _check_setup_window_origin(request: Request) -> None:
+    """Reject bootstrap-window requests from non-loopback hosts that lack a setup token.
+
+    Septum's setup endpoints (test-database, test-redis, initialize,
+    install-whisper, ollama-pull, infrastructure PATCH, settings PATCH
+    during the first-admin window, ...) used to be reachable from any
+    network origin until the first admin was created. That made every
+    fresh container an SSRF probe and a settings-poisoning surface for
+    any attacker who could reach port 3000 before the legitimate
+    operator finished the wizard.
+
+    Now: requests during the bootstrap window must originate from
+    loopback OR present ``X-Setup-Token: <SEPTUM_SETUP_TOKEN env>``.
+    Once setup completes the bootstrap-window relaxations no longer
+    apply and standard admin auth takes over.
+    """
+    if _is_loopback_request(request):
+        return
+    expected = os.getenv("SEPTUM_SETUP_TOKEN", "").strip()
+    presented = request.headers.get(_SETUP_TOKEN_HEADER, "").strip()
+    if expected and presented and hmac.compare_digest(expected, presented):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=(
+            "Setup wizard is only reachable from localhost during the "
+            "bootstrap window. Set SEPTUM_SETUP_TOKEN and pass it via "
+            "the X-Setup-Token header to drive the wizard remotely."
+        ),
+    )
 
 
 async def get_current_user(
@@ -160,13 +205,18 @@ async def require_admin_or_bootstrap(
 
     This dependency relaxes admin enforcement **only** while the
     system is still in first-run bootstrap state (see
-    :func:`_is_bootstrap_mode`). Once the first admin is created or
-    ``setup_completed`` flips to ``True``, the dependency becomes
+    :func:`_is_bootstrap_mode`). During that window the request must
+    also originate from loopback OR present a valid
+    ``X-Setup-Token: <SEPTUM_SETUP_TOKEN>`` header — otherwise an
+    attacker reachable on port 3000 could plant settings, register the
+    first admin, and lock the legitimate operator out before they ever
+    finish the wizard. Once setup completes, the dependency becomes
     strictly admin-only — equivalent to ``require_role("admin")``.
     Returns ``None`` during bootstrap so handlers that want to use
     the user must handle the optional case.
     """
     if await _is_bootstrap_mode(db):
+        _check_setup_window_origin(request)
         return None
 
     user = await get_current_user(request, token, db)
@@ -187,11 +237,11 @@ async def require_user_or_bootstrap(
 
     Same bootstrap escape hatch as :func:`require_admin_or_bootstrap`
     but for endpoints that only require *some* authenticated user
-    (admin / editor / viewer) outside of first-run setup. The setup
-    wizard's ``GET /api/regulations`` call is the canonical consumer:
-    after setup completes, any role may list regulations, but during
-    first-run the wizard has no token to present.
+    (admin / editor / viewer) outside of first-run setup. Bootstrap
+    requests must come from loopback or carry the setup token (see
+    :func:`require_admin_or_bootstrap`).
     """
     if await _is_bootstrap_mode(db):
+        _check_setup_window_origin(request)
         return None
     return await get_current_user(request, token, db)
