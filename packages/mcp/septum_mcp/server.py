@@ -34,6 +34,7 @@ for every workspace it opens.
 
 import argparse
 import logging
+import threading
 from typing import List, Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -77,25 +78,39 @@ class _EngineHolder:
     imports (spaCy pipeline, optional transformer weights) the moment
     Claude Code launches the server. Deferring construction to the
     first tool call keeps idle cost near zero.
+
+    The lazy initialisation is guarded by a ``threading.Lock``: FastMCP
+    runs sync tools on a thread pool, so two concurrent first-call
+    requests over the streamable-http transport could each see
+    ``self._engine is None`` and call ``_build_engine`` twice. The
+    second engine would then silently overwrite the first, orphaning
+    any sessions registered against the original.
     """
 
     def __init__(self, config: MCPConfig) -> None:
         self._config = config
         self._engine: Optional[SeptumEngine] = None
+        self._init_lock = threading.Lock()
 
     @property
     def config(self) -> MCPConfig:
         return self._config
 
     def get(self) -> SeptumEngine:
-        if self._engine is None:
+        if self._engine is not None:
+            return self._engine
+        with self._init_lock:
+            # Double-checked: another thread may have built the engine
+            # while we were waiting for the lock.
+            if self._engine is not None:
+                return self._engine
             logger.info(
                 "Initialising SeptumEngine with regulations=%s, ner=%s",
                 self._config.regulations,
                 self._config.use_ner_layer,
             )
             self._engine = _build_engine(self._config)
-        return self._engine
+            return self._engine
 
 
 def create_server(
