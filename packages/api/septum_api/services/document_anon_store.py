@@ -67,19 +67,27 @@ def _deserialize(document_id: int, data: bytes) -> AnonymizationMap:
 
 
 async def set_document_map(document_id: int, anon_map: AnonymizationMap) -> None:
-    """Store the anonymization map in all three tiers."""
-    # Tier 1: memory
+    """Store the anonymization map in all three tiers.
+
+    All tiers carry the SAME AES-256-GCM ciphertext. Redis used to hold
+    plaintext JSON which exposed every original PII value to anyone with
+    Redis read access (RDB/AOF backups, MITM on cleartext links,
+    compromised infra). The disk-tier ciphertext is reused so an
+    operator never accidentally writes raw PII to either persistence
+    layer.
+    """
+    # Tier 1: memory (plaintext, in-process only)
     _document_maps[document_id] = anon_map
 
     serialized = _serialize(anon_map)
+    associated_data = str(document_id).encode("utf-8")
+    encrypted_bytes = encrypt(serialized, associated_data=associated_data)
 
-    # Tier 2: Redis (plaintext JSON, internal network only)
-    await redis_set(_redis_key(document_id), serialized, ttl=_REDIS_TTL)
+    # Tier 2: Redis (encrypted)
+    await redis_set(_redis_key(document_id), encrypted_bytes, ttl=_REDIS_TTL)
 
     # Tier 3: encrypted disk
     try:
-        associated_data = str(document_id).encode("utf-8")
-        encrypted_bytes = encrypt(serialized, associated_data=associated_data)
         _map_path(document_id).write_bytes(encrypted_bytes)
     except OSError:
         pass
@@ -95,17 +103,22 @@ async def get_document_map(document_id: int) -> AnonymizationMap | None:
     if document_id in _document_maps:
         return _document_maps[document_id]
 
-    # Tier 2: Redis
+    associated_data = str(document_id).encode("utf-8")
+
+    # Tier 2: Redis (encrypted)
     redis_data = await redis_get(_redis_key(document_id))
     if redis_data is not None:
         try:
-            anon_map = _deserialize(document_id, redis_data)
+            plaintext = decrypt(redis_data, associated_data=associated_data)
+            anon_map = _deserialize(document_id, plaintext)
             _document_maps[document_id] = anon_map  # backfill memory
             return anon_map
-        except (ValueError, KeyError, json.JSONDecodeError):
+        except Exception as exc:
             logger.warning(
-                "Corrupt Redis data for document_id=%s, falling through to disk",
+                "Could not decrypt Redis anon map for document_id=%s "
+                "(falling through to disk): %s",
                 document_id,
+                type(exc).__name__,
             )
             await redis_delete(_redis_key(document_id))
 
@@ -120,13 +133,13 @@ async def get_document_map(document_id: int) -> AnonymizationMap | None:
         return None
     try:
         encrypted_bytes = path.read_bytes()
-        associated_data = str(document_id).encode("utf-8")
         plaintext = decrypt(encrypted_bytes, associated_data=associated_data)
         anon_map = _deserialize(document_id, plaintext)
 
-        # Backfill memory and Redis
+        # Backfill memory and Redis (Redis backfill carries ciphertext,
+        # not plaintext, so the bridge tier never holds raw originals).
         _document_maps[document_id] = anon_map
-        await redis_set(_redis_key(document_id), plaintext, ttl=_REDIS_TTL)
+        await redis_set(_redis_key(document_id), encrypted_bytes, ttl=_REDIS_TTL)
 
         return anon_map
     except Exception as e:
