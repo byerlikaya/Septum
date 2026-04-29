@@ -52,13 +52,26 @@ const nextConfig = {
     // for Tailwind-injected styles; ``frame-ancestors 'none'`` blocks
     // clickjacking + ``connect-src 'self'`` keeps the dashboard from
     // beaconing to a different host even if a future dependency tries.
+    //
+    // Dev-mode caveats: Next.js + React HMR / fast-refresh use
+    // ``eval()`` to reconstruct cross-realm callstacks and the dev
+    // server pipes hot-update payloads over a WebSocket on the same
+    // origin. Production never uses either, so the relaxations are
+    // gated on ``NODE_ENV !== "production"``.
+    const isDev = process.env.NODE_ENV !== "production";
+    const scriptSrc = isDev
+      ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+      : "script-src 'self' 'unsafe-inline'";
+    const connectSrc = isDev
+      ? "connect-src 'self' ws: wss:"
+      : "connect-src 'self'";
     const csp = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",
+      scriptSrc,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
-      "connect-src 'self'",
+      connectSrc,
       "frame-src 'self' blob:",
       "frame-ancestors 'none'",
       "base-uri 'self'",
