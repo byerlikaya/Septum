@@ -52,9 +52,16 @@ class RequestEnvelope:
 
     The gateway consumer rebuilds a provider-specific HTTP call from
     these fields. ``messages`` is the already-sanitized OpenAI-style
-    chat list. ``api_key`` is passed through so the gateway never needs
-    to read api-side settings — in a split deployment the two zones
-    have separate secrets stores.
+    chat list. Cloud-provider credentials are owned by the gateway
+    (env-loaded ``GatewayConfig``) — they NEVER cross the queue. An
+    earlier version of this envelope carried ``api_key`` per request;
+    that exposed every API key to anyone with read access to the
+    queue spool, RDB/AOF backups, or a MITM on a cleartext redis://
+    link. ``from_dict`` silently drops legacy ``api_key`` fields so
+    in-flight messages from old producers still parse.
+
+    ``base_url`` is also no longer trusted blindly: the gateway
+    validates it against a per-provider allow-list before dialing.
     """
 
     correlation_id: str
@@ -63,7 +70,6 @@ class RequestEnvelope:
     messages: list[dict[str, str]]
     temperature: float = 0.2
     max_tokens: int | None = None
-    api_key: str | None = None
     base_url: str | None = None
     created_at: float = field(default_factory=_now)
 
@@ -76,7 +82,6 @@ class RequestEnvelope:
         messages: list[dict[str, str]],
         temperature: float = 0.2,
         max_tokens: int | None = None,
-        api_key: str | None = None,
         base_url: str | None = None,
     ) -> "RequestEnvelope":
         """Convenience constructor that assigns a fresh correlation id."""
@@ -87,7 +92,6 @@ class RequestEnvelope:
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
-            api_key=api_key,
             base_url=base_url,
         )
 
@@ -99,6 +103,9 @@ class RequestEnvelope:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "RequestEnvelope":
+        # ``api_key`` may exist on payloads written by older producers;
+        # silently drop it so the secret never round-trips through
+        # the gateway code path.
         return cls(
             correlation_id=str(data["correlation_id"]),
             provider=str(data["provider"]),
@@ -108,7 +115,6 @@ class RequestEnvelope:
             max_tokens=(
                 int(data["max_tokens"]) if data.get("max_tokens") is not None else None
             ),
-            api_key=data.get("api_key"),
             base_url=data.get("base_url"),
             created_at=float(data.get("created_at") or _now()),
         )

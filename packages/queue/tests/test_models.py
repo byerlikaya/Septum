@@ -29,7 +29,6 @@ class TestRequestEnvelope:
             messages=[{"role": "user", "content": "What is [PERSON_1]?"}],
             temperature=0.7,
             max_tokens=512,
-            api_key="sk-test",
             base_url="https://api.example.com",
         )
         data = json.loads(original.to_json())
@@ -39,7 +38,6 @@ class TestRequestEnvelope:
         assert restored.messages == original.messages
         assert restored.temperature == original.temperature
         assert restored.max_tokens == original.max_tokens
-        assert restored.api_key == original.api_key
         assert restored.base_url == original.base_url
         assert restored.correlation_id == original.correlation_id
 
@@ -54,8 +52,23 @@ class TestRequestEnvelope:
         )
         assert envelope.temperature == 0.2
         assert envelope.max_tokens is None
-        assert envelope.api_key is None
         assert envelope.base_url is None
+        # api_key field was removed; envelope no longer carries secrets.
+        assert not hasattr(envelope, "api_key")
+
+    def test_legacy_api_key_field_is_silently_dropped(self):
+        """Old payloads still parse but never expose the secret again."""
+        envelope = RequestEnvelope.from_dict(
+            {
+                "correlation_id": "abc",
+                "provider": "anthropic",
+                "model": "claude-3",
+                "messages": [],
+                "api_key": "sk-legacy-secret",
+            }
+        )
+        # Round-trip back to a dict — the legacy field must NOT reappear.
+        assert "api_key" not in envelope.to_dict()
 
 
 class TestResponseEnvelope:

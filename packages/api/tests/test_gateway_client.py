@@ -144,10 +144,10 @@ class TestGatewayClient:
             await req_q.close()
             await resp_q.close()
 
-    async def test_envelope_carries_api_key_for_configured_provider(
+    async def test_envelope_does_not_carry_api_key(
         self, tmp_path: Path
     ):
-        """The api-side settings supply the secret so gateway does not need its own."""
+        """Cloud credentials are owned by the gateway zone — envelopes are secret-free."""
         req_q = FileQueueBackend(tmp_path, topic="req")
         resp_q = FileQueueBackend(tmp_path, topic="resp")
         client = GatewayClient(
@@ -172,8 +172,11 @@ class TestGatewayClient:
                 messages=[{"role": "user", "content": "hi"}],
             )
             await fake
-            assert captured[0].api_key == "sk-openai-from-api"
             assert captured[0].provider == "openai"
+            # The producer-side api_key field is no longer placed on
+            # the queue — the gateway loads the credential from its
+            # own SEPTUM_GATEWAY_*_API_KEY env vars.
+            assert "api_key" not in captured[0].to_dict()
         finally:
             await req_q.close()
             await resp_q.close()
