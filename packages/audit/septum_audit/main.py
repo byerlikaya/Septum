@@ -33,14 +33,14 @@ _EXPORTERS: dict[ExportFormat, type[BaseExporter]] = {
 
 def _import_fastapi():
     try:
-        from fastapi import FastAPI, Query
+        from fastapi import Depends, FastAPI, Header, HTTPException, Query
         from fastapi.responses import StreamingResponse
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError(
             "septum-audit[server] is required to run the FastAPI app. "
             "Install with: pip install 'septum-audit[server]'"
         ) from exc
-    return FastAPI, Query, StreamingResponse
+    return FastAPI, Depends, Header, HTTPException, Query, StreamingResponse
 
 
 async def _stream_export(
@@ -67,7 +67,7 @@ def create_app(
     sink: AuditSink | None = None,
 ) -> Any:
     """Build the FastAPI app. The caller may inject a sink for tests."""
-    FastAPI, Query, StreamingResponse = _import_fastapi()
+    FastAPI, Depends, Header, HTTPException, Query, StreamingResponse = _import_fastapi()
     cfg = config or AuditConfig.from_env()
     active_sink: AuditSink = sink if sink is not None else JsonlFileSink(cfg.sink_path)
 
@@ -81,6 +81,32 @@ def create_app(
         version="0.1.0",
     )
 
+    def _require_export_token(
+        authorization: str | None = Header(default=None),
+    ) -> None:
+        """Reject /api/audit/export when SEPTUM_AUDIT_EXPORT_TOKEN is unset
+        or the caller's bearer token does not match.
+
+        The audit ledger sits in the internet-facing zone; without this
+        gate, anyone reachable on the export port can stream every event
+        the system has ever recorded.
+        """
+        import hmac
+
+        if not cfg.export_token:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Audit export is disabled. Set SEPTUM_AUDIT_EXPORT_TOKEN "
+                    "to enable the endpoint."
+                ),
+            )
+        if not authorization or not authorization.lower().startswith("bearer "):
+            raise HTTPException(status_code=401, detail="Missing bearer token.")
+        presented = authorization.split(" ", 1)[1].strip()
+        if not hmac.compare_digest(presented, cfg.export_token):
+            raise HTTPException(status_code=401, detail="Invalid bearer token.")
+
     @app.get("/health")
     async def health() -> dict[str, Any]:
         return {
@@ -89,9 +115,10 @@ def create_app(
             "audit_topic": cfg.audit_topic,
             "sink_path": cfg.sink_path,
             "supported_formats": sorted(_EXPORTERS.keys()),
+            "export_enabled": cfg.export_token is not None,
         }
 
-    @app.get("/api/audit/export")
+    @app.get("/api/audit/export", dependencies=[Depends(_require_export_token)])
     async def export(
         format: ExportFormat = Query(  # noqa: A002 (FastAPI param name)
             "jsonl",
@@ -105,6 +132,7 @@ def create_app(
             media_type=exporter.content_type,
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store, max-age=0",
             },
         )
 

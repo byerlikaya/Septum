@@ -17,9 +17,21 @@ from septum_audit import AuditConfig, AuditRecord, MemorySink  # noqa: E402
 from septum_audit.main import create_app  # noqa: E402
 
 
-def _build(records: Sequence[AuditRecord] | None = None) -> TestClient:
+_TEST_TOKEN = "test-export-token"
+_AUTH_HEADERS = {"Authorization": f"Bearer {_TEST_TOKEN}"}
+
+
+def _build(
+    records: Sequence[AuditRecord] | None = None,
+    *,
+    token: str | None = _TEST_TOKEN,
+) -> TestClient:
     sink = MemorySink(initial_records=records)
-    cfg = AuditConfig(sink_path="ignored.jsonl", audit_topic="septum.audit.events")
+    cfg = AuditConfig(
+        sink_path="ignored.jsonl",
+        audit_topic="septum.audit.events",
+        export_token=token,
+    )
     return TestClient(create_app(cfg, sink=sink))
 
 
@@ -41,7 +53,7 @@ def test_export_jsonl_default_returns_one_record_per_line():
         AuditRecord(id="r-2", source="api", event_type="y", attributes={"b": 2}),
     ]
     with _build(records) as client:
-        resp = client.get("/api/audit/export")
+        resp = client.get("/api/audit/export", headers=_AUTH_HEADERS)
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("application/x-ndjson")
     assert 'attachment; filename="septum-audit.jsonl"' in resp.headers[
@@ -56,7 +68,7 @@ def test_export_csv_returns_flat_rows_with_attributes_cell():
         AuditRecord(id="r-1", source="api", event_type="x", attributes={"k": "v"}),
     ]
     with _build(records) as client:
-        resp = client.get("/api/audit/export?format=csv")
+        resp = client.get("/api/audit/export?format=csv", headers=_AUTH_HEADERS)
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/csv")
     assert 'filename="septum-audit.csv"' in resp.headers["content-disposition"]
@@ -79,7 +91,7 @@ def test_export_siem_wraps_records_in_hec_envelope():
         )
     ]
     with _build(records) as client:
-        resp = client.get("/api/audit/export?format=siem")
+        resp = client.get("/api/audit/export?format=siem", headers=_AUTH_HEADERS)
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("application/json")
     assert 'filename="septum-audit.hec.jsonl"' in resp.headers["content-disposition"]
@@ -90,7 +102,7 @@ def test_export_siem_wraps_records_in_hec_envelope():
 
 def test_export_unknown_format_returns_422_from_pydantic_validation():
     with _build() as client:
-        resp = client.get("/api/audit/export?format=xml")
+        resp = client.get("/api/audit/export?format=xml", headers=_AUTH_HEADERS)
     # FastAPI's Literal validation surfaces as 422 with the allowed set.
     assert resp.status_code == 422
     detail = resp.json()["detail"]
@@ -99,6 +111,45 @@ def test_export_unknown_format_returns_422_from_pydantic_validation():
 
 def test_export_with_empty_sink_returns_empty_body():
     with _build() as client:
-        resp = client.get("/api/audit/export")
+        resp = client.get("/api/audit/export", headers=_AUTH_HEADERS)
     assert resp.status_code == 200
     assert resp.text == ""
+
+
+def test_export_disabled_when_token_unset():
+    with _build(token=None) as client:
+        resp = client.get("/api/audit/export")
+    assert resp.status_code == 503
+    assert "SEPTUM_AUDIT_EXPORT_TOKEN" in resp.json()["detail"]
+
+
+def test_export_rejects_missing_authorization_header():
+    with _build() as client:
+        resp = client.get("/api/audit/export")
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Missing bearer token."
+
+
+def test_export_rejects_wrong_bearer_token():
+    with _build() as client:
+        resp = client.get(
+            "/api/audit/export",
+            headers={"Authorization": "Bearer wrong-token"},
+        )
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Invalid bearer token."
+
+
+def test_export_response_has_no_store_cache_header():
+    with _build() as client:
+        resp = client.get("/api/audit/export", headers=_AUTH_HEADERS)
+    assert resp.headers["cache-control"] == "no-store, max-age=0"
+
+
+def test_health_advertises_export_enabled_flag():
+    with _build() as client:
+        resp = client.get("/health")
+    assert resp.json()["export_enabled"] is True
+    with _build(token=None) as client:
+        resp = client.get("/health")
+    assert resp.json()["export_enabled"] is False
