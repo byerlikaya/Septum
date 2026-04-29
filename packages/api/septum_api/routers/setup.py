@@ -347,7 +347,10 @@ class InstallWhisperRequest(BaseModel):
 
 
 @router.post("/install-whisper")
-async def install_whisper(body: InstallWhisperRequest):
+async def install_whisper(
+    body: InstallWhisperRequest,
+    _: None = Depends(_require_setup_phase),
+):
     """Download a Whisper model with SSE progress streaming."""
     import asyncio
     import json as _json
