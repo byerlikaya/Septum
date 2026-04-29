@@ -19,12 +19,23 @@ class CsvExporter(BaseExporter):
 
     def iter_chunks(self, records: Iterable[AuditRecord]) -> Iterator[str]:
         buffer = StringIO()
-        writer = csv.writer(buffer)
-        first = True
+        # ``QUOTE_ALL`` + explicit ``\n`` terminator pin RFC 4180-style
+        # quoting so downstream re-parsers (Excel, BigQuery, Splunk
+        # universal forwarder) cannot disagree on embedded quotes /
+        # commas / newlines inside the JSON-serialised attributes cell.
+        writer = csv.writer(
+            buffer,
+            quoting=csv.QUOTE_ALL,
+            lineterminator="\n",
+        )
+        # Always emit a header row, even on an empty record set, so a
+        # downstream "import not run" is distinguishable from a real
+        # zero-row export.
+        writer.writerow(_HEADER)
+        yield buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate()
         for record in records:
-            if first:
-                writer.writerow(_HEADER)
-                first = False
             writer.writerow(
                 [
                     record.id,
