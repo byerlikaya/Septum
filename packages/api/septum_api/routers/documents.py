@@ -522,6 +522,9 @@ async def _record_background_failure(
         pass
 
 
+_MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(500 * 1024 * 1024)))
+
+
 @router.post(
     "/upload",
     response_model=DocumentResponse,
@@ -536,12 +539,30 @@ async def upload_document(
     """Upload a document, ingest it, and build its vector index.
 
     The raw file is:
-    * Read into memory.
+    * Read into memory in chunks with a running size guard.
     * Typed via python-magic.
     * Encrypted with AES-256-GCM and written to disk.
     * Passed through the ingestion → sanitize → chunk → embed pipeline.
+
+    The total payload is capped at ``MAX_UPLOAD_BYTES`` (default 500 MB).
+    A larger upload is refused with HTTP 413 before the encrypt step
+    so the bytes never copy through the AES-GCM input buffer.
     """
-    raw_bytes = await file.read()
+    raw_bytes = bytearray()
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        if len(raw_bytes) + len(chunk) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=(
+                    f"Upload exceeds {_MAX_UPLOAD_BYTES} bytes. "
+                    "Set MAX_UPLOAD_BYTES to raise the cap."
+                ),
+            )
+        raw_bytes.extend(chunk)
+    raw_bytes = bytes(raw_bytes)
     if not raw_bytes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

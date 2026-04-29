@@ -13,7 +13,7 @@ from septum_api.models.user import User
 
 
 async def _bootstrap_admin(
-    client: AsyncClient, email: str = "root@example.com", password: str = "password123"
+    client: AsyncClient, email: str = "root@example.com", password: str = "password-12345"
 ) -> str:
     """Register the first (admin) user and return their token."""
     resp = await client.post(
@@ -32,7 +32,7 @@ async def _create_user(
     client: AsyncClient,
     admin_token: str,
     email: str,
-    password: str = "password123",
+    password: str = "password-12345",
     role: str = "editor",
     is_active: bool = True,
 ) -> dict:
@@ -68,7 +68,7 @@ class TestAdminGate:
     async def test_non_admin_cannot_list_users(self, router_client: AsyncClient) -> None:
         admin_token = await _bootstrap_admin(router_client)
         await _create_user(router_client, admin_token, "editor@example.com", role="editor")
-        editor_token = await _login(router_client, "editor@example.com", "password123")
+        editor_token = await _login(router_client, "editor@example.com", "password-12345")
 
         resp = await router_client.get("/api/users", headers=_auth(editor_token))
         assert resp.status_code == 403
@@ -76,14 +76,14 @@ class TestAdminGate:
     async def test_viewer_cannot_create_users(self, router_client: AsyncClient) -> None:
         admin_token = await _bootstrap_admin(router_client)
         await _create_user(router_client, admin_token, "viewer@example.com", role="viewer")
-        viewer_token = await _login(router_client, "viewer@example.com", "password123")
+        viewer_token = await _login(router_client, "viewer@example.com", "password-12345")
 
         resp = await router_client.post(
             "/api/users",
             headers=_auth(viewer_token),
             json={
                 "email": "new@example.com",
-                "password": "password123",
+                "password": "password-12345",
                 "role": "editor",
             },
         )
@@ -98,7 +98,7 @@ class TestAdminGate:
         second = await _create_user(
             router_client, admin_token, "second@example.com", role="admin"
         )
-        second_token = await _login(router_client, "second@example.com", "password123")
+        second_token = await _login(router_client, "second@example.com", "password-12345")
 
         # Second admin deactivates the bootstrap admin.
         me = await router_client.get("/api/auth/me", headers=_auth(admin_token))
@@ -156,7 +156,7 @@ class TestUserCrud:
             headers=_auth(admin_token),
             json={
                 "email": "dup@example.com",
-                "password": "password123",
+                "password": "password-12345",
                 "role": "editor",
             },
         )
@@ -169,7 +169,7 @@ class TestUserCrud:
             headers=_auth(admin_token),
             json={
                 "email": "bad@example.com",
-                "password": "password123",
+                "password": "password-12345",
                 "role": "superuser",
             },
         )
@@ -341,19 +341,19 @@ class TestLastAdminHelper:
                 [
                     User(
                         email="a@example.com",
-                        hashed_password=hash_password("password123"),
+                        hashed_password=hash_password("password-12345"),
                         role="admin",
                         is_active=True,
                     ),
                     User(
                         email="b@example.com",
-                        hashed_password=hash_password("password123"),
+                        hashed_password=hash_password("password-12345"),
                         role="admin",
                         is_active=False,
                     ),
                     User(
                         email="c@example.com",
-                        hashed_password=hash_password("password123"),
+                        hashed_password=hash_password("password-12345"),
                         role="editor",
                         is_active=True,
                     ),

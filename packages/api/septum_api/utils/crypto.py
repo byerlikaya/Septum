@@ -138,9 +138,18 @@ def decrypt_from_base64(
 
 
 def hash_text(text: str) -> str:
-    """Return a SHA-256 hex digest of the UTF-8 encoded text.
+    """Return an HMAC-SHA-256 hex digest keyed by the encryption key.
 
-    Used for non-reversible hashing of identifiers (e.g. IP) in logs.
+    Used for non-reversible hashing of identifiers (e.g. IP, raw API
+    keys) in logs. Plain SHA-256 is rainbow-tableable for low-entropy
+    inputs (an IPv4 address is only 2^32 possibilities); HMAC under
+    the per-instance encryption key forces an attacker to exfiltrate
+    that key before any precomputation works. The key never leaves
+    the host so log shippers carrying the digest cannot link two
+    deployments' identifiers either.
     """
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    import hmac
+
+    key = get_encryption_key()
+    return hmac.new(key, text.encode("utf-8"), hashlib.sha256).hexdigest()
 
