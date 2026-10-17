@@ -145,6 +145,24 @@ async def get_optional_user(
         return None
 
 
+def require_interactive_session(request: Request) -> None:
+    """Reject requests authenticated with an API key (403).
+
+    API keys act as their owner, and their ``scopes`` column is reserved
+    and not enforced. Account and credential management (API keys, users,
+    passwords, provider credentials), masking-policy writes (regulation
+    activation, custom recognizers, non-PII rules, text normalization) and
+    the setup infrastructure update therefore need an interactive JWT
+    session, so a leaked key cannot escalate, weaken masking, or outlive
+    its own revocation.
+    """
+    if getattr(request.state, "auth_method", None) == "api_key":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This operation requires an interactive login session, not an API key",
+        )
+
+
 def require_role(*allowed_roles: str):
     """Return a dependency that enforces one or more roles.
 

@@ -235,7 +235,7 @@ app.add_middleware(
 app.add_route("/metrics", metrics_endpoint, methods=["GET"])
 
 
-# All API routers are mounted under both /api (legacy) and /api/v1 (versioned).
+# Every router carries its own /api/... prefix and is mounted once.
 _all_routers = [
     setup_router.router,
     auth_router.router,

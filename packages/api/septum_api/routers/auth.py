@@ -17,7 +17,7 @@ from ..services.auth import (
     validate_password_strength,
     verify_password,
 )
-from ..utils.auth_dependency import get_current_user
+from ..utils.auth_dependency import get_current_user, require_interactive_session
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 _limiter = get_limiter()
@@ -140,7 +140,11 @@ async def me(
     )
 
 
-@router.post("/change-password", response_model=TokenResponse)
+@router.post(
+    "/change-password",
+    response_model=TokenResponse,
+    dependencies=[Depends(require_interactive_session)],
+)
 async def change_password(
     payload: ChangePasswordRequest,
     current_user: User = Depends(get_current_user),

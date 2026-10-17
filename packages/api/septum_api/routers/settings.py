@@ -31,6 +31,7 @@ from ..services.whisper_models import WhisperInstallBusy, ensure_whisper_model
 from ..utils.auth_dependency import (
     get_current_user,
     require_admin_or_bootstrap,
+    require_interactive_session,
     require_role,
 )
 from ..utils.db_helpers import load_settings
@@ -236,6 +237,7 @@ async def get_settings_endpoint(
     "",
     response_model=SettingsResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_interactive_session)],
 )
 async def update_settings_endpoint(
     payload: SettingsUpdatePayload,

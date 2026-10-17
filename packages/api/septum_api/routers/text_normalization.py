@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.text_normalization import TextNormalizationRule
 from ..models.user import User
-from ..utils.auth_dependency import require_role
+from ..utils.auth_dependency import require_interactive_session, require_role
 from ..utils.db_helpers import validate_regex
 
 router = APIRouter(prefix="/api/text-normalization", tags=["text-normalization"])
@@ -62,6 +62,7 @@ async def list_rules(
     "",
     response_model=TextNormalizationRulePayload,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_interactive_session)],
 )
 async def create_rule(
     payload: TextNormalizationRulePayload,
@@ -101,6 +102,7 @@ async def create_rule(
     "/{rule_id}",
     response_model=TextNormalizationRulePayload,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_interactive_session)],
 )
 async def update_rule(
     rule_id: int,
@@ -148,6 +150,7 @@ async def update_rule(
     "/{rule_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
+    dependencies=[Depends(require_interactive_session)],
 )
 async def delete_rule(
     rule_id: int,

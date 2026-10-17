@@ -13,11 +13,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.user import User
 from ..services.auth import hash_password
-from ..utils.auth_dependency import require_role
+from ..utils.auth_dependency import require_interactive_session, require_role
 from ..utils.db_helpers import get_or_404
 from .auth import require_strong_password
 
-router = APIRouter(prefix="/api/users", tags=["users"])
+router = APIRouter(
+    prefix="/api/users",
+    tags=["users"],
+    dependencies=[Depends(require_interactive_session)],
+)
 
 UserRole = Literal["admin", "editor", "viewer"]
 

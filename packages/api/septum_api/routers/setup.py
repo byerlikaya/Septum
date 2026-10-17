@@ -36,7 +36,11 @@ from ..services.whisper_models import (
     resolve_whisper_target,
     whisper_file_plausible,
 )
-from ..utils.auth_dependency import require_admin_or_bootstrap, require_role
+from ..utils.auth_dependency import (
+    require_admin_or_bootstrap,
+    require_interactive_session,
+    require_role,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -288,7 +292,11 @@ async def get_infrastructure(
 # PATCH /api/setup/infrastructure
 # ---------------------------------------------------------------------------
 
-@router.patch("/infrastructure", response_model=InitializeResponse)
+@router.patch(
+    "/infrastructure",
+    response_model=InitializeResponse,
+    dependencies=[Depends(require_interactive_session)],
+)
 async def update_infrastructure(
     body: InfrastructureUpdateRequest,
     _user: User = Depends(require_role("admin")),

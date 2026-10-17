@@ -1,4 +1,14 @@
-"""FastAPI router for API key management (create, list, revoke)."""
+"""FastAPI router for API key management (create, list, revoke).
+
+Every route here requires an interactive JWT session; a request
+authenticated by an API key cannot list, mint or revoke keys. The
+``ApiKey.scopes`` column is reserved and not enforced: a key acts with
+its owner's role on every route except those guarded by
+:func:`require_interactive_session` — credential management (API keys,
+users, passwords, provider settings), masking-policy writes (regulations,
+custom recognizers, non-PII rules, text normalization) and the setup
+infrastructure update.
+"""
 
 from __future__ import annotations
 
@@ -12,9 +22,17 @@ from ..database import get_db
 from ..middleware.rate_limit import get_limiter
 from ..models.user import User
 from ..services.api_key_service import generate_api_key, list_user_keys, revoke_key
-from ..utils.auth_dependency import get_current_user, require_role
+from ..utils.auth_dependency import (
+    get_current_user,
+    require_interactive_session,
+    require_role,
+)
 
-router = APIRouter(prefix="/api/api-keys", tags=["api-keys"])
+router = APIRouter(
+    prefix="/api/api-keys",
+    tags=["api-keys"],
+    dependencies=[Depends(require_interactive_session)],
+)
 _limiter = get_limiter()
 
 

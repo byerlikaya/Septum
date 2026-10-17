@@ -212,11 +212,13 @@ curl -X POST http://localhost:3000/api/api-keys \
 curl -H 'X-API-Key: sk-septum-<64 hex>' http://localhost:3000/api/auth/me
 
 # Anahtarları listele (sadece önek ve metadata — ham anahtar bir daha dönmez)
-curl -H 'X-API-Key: sk-septum-…' http://localhost:3000/api/api-keys
+curl -H 'Authorization: Bearer <jwt>' http://localhost:3000/api/api-keys
 
 # İptal et
-curl -X DELETE -H 'X-API-Key: sk-septum-…' http://localhost:3000/api/api-keys/{id}
+curl -X DELETE -H 'Authorization: Bearer <jwt>' http://localhost:3000/api/api-keys/{id}
 ```
+
+API anahtarları veri ve okuma otomasyonu içindir. API anahtarlarını, kullanıcıları veya parolaları yönetemez, sağlayıcı ayarlarını veya altyapıyı değiştiremez, maskeleme politikasını (regülasyon etkinleştirme, özel tanıyıcılar, PII dışı kurallar, metin normalleştirme) düzenleyemez; bu istekler `401` veya `403` döndürür ve etkileşimli oturum (JWT) gerektirir.
 
 ### Rate limit
 
