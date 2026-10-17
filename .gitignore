@@ -75,3 +75,8 @@ models/
 # Test fixtures (do not commit local sample files)
 packages/api/tests/fixtures/
 
+# Local tooling and generated files
+.claude/
+.crewforth/
+.private-terms.txt
+packages/web/next-env.d.ts
