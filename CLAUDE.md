@@ -312,7 +312,7 @@ GitHub Actions (`.github/workflows/tests.yml`) runs on push to main and PRs. Pyt
 - `backend-lint`: ruff (`E,W,F,I`) and bandit, both failing
 - `backend-security`: `pip-audit -r packages/api/requirements.txt`, failing
 - `frontend-tests` (Jest, `--runInBand`), `frontend-typecheck` (`tsc --noEmit`), `frontend-lint` (`eslint .`)
-- `frontend-security`: `npm audit --audit-level=high`, failing
+- `frontend-security`: `npm audit --omit=dev --audit-level=high`, failing; dev dependencies are excluded for now (an unpatched advisory in dev tooling), Dependabot still tracks them
 - `repo-policy`: policy check and its unit tests (see Pre-Commit Checks)
 
 Actions are pinned to commit SHAs. Dependabot (`.github/dependabot.yml`) opens weekly PRs for pip, npm, GitHub Actions, Docker and docker-compose, grouping minor/patch updates per ecosystem (majors come as separate PRs) with a 3-day cooldown.
