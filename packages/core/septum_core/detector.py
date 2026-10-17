@@ -176,6 +176,17 @@ _NER_SINGLE_WORD_MIN_SCORE_PER_TYPE: Dict[str, float] = {
 # this floor — the transformer is the authoritative person source.
 _PRESIDIO_PERSON_MIN_SCORE_WHEN_NER_ENABLED = 0.7
 
+# Logographic / dense scripts where a 2-glyph span is often a full given
+# name. Every other language keeps the default floor, which suppresses
+# "Dr" / "Mr" style noise.
+_NER_DEFAULT_MIN_SPAN_LEN = 3
+_NER_MIN_SPAN_LEN_PER_LANGUAGE: Dict[str, int] = {
+    "zh": 2,
+    "ja": 2,
+    "ko": 2,
+    "th": 2,
+}
+
 _UPPER_WORD_RE = re.compile(r"\b\w{2,}\b")
 
 
@@ -1720,10 +1731,9 @@ class Detector:
         specific single-token mis-fires that motivated the earlier full
         suppression. See ``_map_ner_label`` for the rationale.
         """
-        # CJK languages + Thai use logographic or dense scripts where a
-        # 2-glyph span is often a full given name. Latin scripts keep
-        # the 3-character floor to suppress "Dr" / "Mr" style noise.
-        min_span_len = 2 if language in {"zh", "ja", "ko", "th"} else 3
+        min_span_len = _NER_MIN_SPAN_LEN_PER_LANGUAGE.get(
+            language, _NER_DEFAULT_MIN_SPAN_LEN
+        )
         spans: List[DetectedSpan] = []
         for item in raw_results:
             entity = item.get("entity_group") or item.get("entity")
