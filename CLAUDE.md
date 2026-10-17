@@ -274,15 +274,19 @@ Apply these Septum-specific instructions on top of it:
 - Report format: `[SEVERITY] Title — file:LINE` with Issue/Impact/Fix
 - Rules: never auto-install tools, mask secrets, never auto-fix without confirmation
 
-## Pre-Commit Checks (manual)
+## Pre-Commit Checks
 
-No script runs these automatically. Local hooks only do a trace/secret scan and require a review record, so verify every item below by hand before each `git commit` and block the commit if any fails:
-- Zero-tolerance violations (country/language names in production code)
-- Language-specific if-branches detected
+**Enforced in CI** (`repo-policy` job in `tests.yml`, script `.github/scripts/policy_check.py`, unit-tested by `.github/scripts/test_policy_check.py`). Run it locally with `python .github/scripts/policy_check.py` before pushing:
+- Zero-tolerance violations: country/language names in class, function, argument or variable names of tracked `packages/**/*.py`. Exempt (this and the branch check): paths containing a `tests`, `test`, `national_ids`, `docs`, `node_modules` or `__pycache__` directory; files named `test_*.py`, `conftest.py` or `database.py`. Also exempt: dunder names and the `AUSTRALIA_PA` regulation id
+- Language-specific branches: `if`/`elif` comparing a `lang`/`language`/`locale`/`lang_code`/`language_code` variable to a two-letter code (`if language == "xx"`), and `match` on such a variable with a code in a `case`
+- README.md and README.tr.md heading structure (levels and order) must match
+- `database.py` `entity_types` changed without a `REGULATION_ENTITY_SOURCES.md` update (pull requests only)
+- Tracked `config.json`
+
+**Still manual** (no script runs these). Local hooks only do a trace/secret scan and require a review record, so verify by hand before each `git commit` and block the commit if any fails:
 - CHANGELOG.md has an entry for today's date (checked in the final push bundle, since CHANGELOG is only touched at push time)
-- Secrets files (`config.json`) staged for commit
-- README.md changed without README.tr.md (or vice versa)
-- `database.py` entity_types changed without REGULATION_ENTITY_SOURCES.md update
+- Secrets or `config.json` staged for commit
+- README.md and README.tr.md carry the same content, not only the same headings
 
 ## Environment Setup
 
@@ -302,7 +306,15 @@ No script runs these automatically. Local hooks only do a trace/secret scan and 
 
 ## CI/CD
 
-GitHub Actions (`.github/workflows/tests.yml`): runs backend pytest (Python 3.13) and frontend Jest (Node 22) in parallel on push to main and PRs. Both must pass.
+GitHub Actions (`.github/workflows/tests.yml`) runs on push to main and PRs, and is reusable (`workflow_call` with a `ref` input) so a release can test the tagged commit. Python 3.13, Node 22. All jobs run in parallel and must pass:
+- `backend-tests` (api), `modular-tests` (queue, core, mcp, gateway, audit): pytest
+- `backend-lint`: ruff (`E,W,F,I`) and bandit, both failing
+- `backend-security`: `pip-audit -r packages/api/requirements.txt`, failing
+- `frontend-tests` (Jest, `--runInBand`), `frontend-typecheck` (`tsc --noEmit`), `frontend-lint` (`eslint .`)
+- `frontend-security`: `npm audit --audit-level=high`, failing
+- `repo-policy`: policy check and its unit tests (see Pre-Commit Checks)
+
+Actions are pinned to commit SHAs. Dependabot (`.github/dependabot.yml`) opens weekly PRs for pip, npm, GitHub Actions, Docker and docker-compose, grouping minor/patch updates per ecosystem (majors come as separate PRs) with a 3-day cooldown.
 
 ## Release process
 
