@@ -133,9 +133,11 @@ class RecognizerRegistry:
 
             try:
                 pack_recognizers = list(get_recognizers())
-            except Exception:  # pragma: no cover - defensive logging
-                logger.exception(
-                    "Error while loading recognizers from pack %s.", module_path
+            except Exception as exc:
+                logger.error(
+                    "Error while loading recognizers from pack %s: %s",
+                    module_path,
+                    type(exc).__name__,
                 )
                 continue
 
@@ -245,10 +247,11 @@ class RecognizerRegistry:
             return None
         try:
             return self._llm_recognizer_factory(custom)
-        except Exception:  # pragma: no cover - defensive logging
-            logger.exception(
-                "LLM recognizer factory failed for custom rule %s (%s); skipping.",
+        except Exception as exc:
+            logger.error(
+                "LLM recognizer factory failed for custom rule %s (%s); skipping: %s",
                 custom.id,
                 custom.name,
+                type(exc).__name__,
             )
             return None

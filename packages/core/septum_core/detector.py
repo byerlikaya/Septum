@@ -1270,7 +1270,7 @@ class Detector:
             )
             for rec in recognizers:
                 supported.update(rec.supported_entities)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             # Surface the error so a Presidio API change does not
             # silently disable coverage warnings — privacy-first
             # over-detection is preferable to a silent miss.
@@ -1440,9 +1440,10 @@ class Detector:
                     len(validated_spans),
                 )
                 spans = validated_spans
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.warning(
-                    "Semantic validation layer failed, continuing with all candidates: %s", e
+                    "Semantic validation layer failed, continuing with all candidates: %s",
+                    type(e).__name__,
                 )
 
         if (
@@ -1459,8 +1460,10 @@ class Detector:
                     len(semantic_spans),
                 )
                 spans.extend(semantic_spans)
-            except Exception as e:  # noqa: BLE001
-                logger.warning("Semantic alias layer failed, continuing without it: %s", e)
+            except Exception as e:
+                logger.warning(
+                    "Semantic alias layer failed, continuing without it: %s", type(e).__name__
+                )
 
             if self._config.use_semantic_contextual_detection:
                 semantic_types = [
@@ -1478,8 +1481,8 @@ class Detector:
                             len(contextual_spans),
                         )
                         spans.extend(contextual_spans)
-                    except Exception as e:  # noqa: BLE001
-                        logger.warning("Semantic contextual layer failed: %s", e)
+                    except Exception as e:
+                        logger.warning("Semantic contextual layer failed: %s", type(e).__name__)
 
         if self._non_pii_filter is not None:
             span_views = [
@@ -1543,8 +1546,10 @@ class Detector:
                     anon_map=anon_map,
                     language=language,
                 )
-            except Exception as e:  # noqa: BLE001
-                logger.warning("Pronoun coreference resolution failed, continuing: %s", e)
+            except Exception as e:
+                logger.warning(
+                    "Pronoun coreference resolution failed, continuing: %s", type(e).__name__
+                )
 
         sanitized = anon_map.apply_blocklist(sanitized, language)
         self._log_low_confidence(spans)
