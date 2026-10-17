@@ -16,6 +16,7 @@ from ..services.auth import (
     hash_password,
     validate_password_strength,
     verify_password,
+    verify_password_or_dummy,
 )
 from ..utils.auth_dependency import get_current_user, require_interactive_session
 
@@ -112,7 +113,8 @@ async def login(
     result = await db.execute(select(User).where(User.email == payload.email))
     user = result.scalar_one_or_none()
 
-    if user is None or not verify_password(payload.password, user.hashed_password):
+    stored_hash = user.hashed_password if user is not None else None
+    if not verify_password_or_dummy(payload.password, stored_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",

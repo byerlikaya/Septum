@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """FastAPI application entrypoint for Septum."""
 
+import asyncio
 import logging
 import warnings
 
@@ -111,6 +112,9 @@ async def _reset_orphaned_processing_docs() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan handler — initialise database if already configured."""
+    from .services.auth import warm_dummy_password_hash
+
+    await asyncio.to_thread(warm_dummy_password_hash)
     config = bootstrap.get_config()
     if not bootstrap.needs_setup():
         url = build_database_url(config.database_url, config.db_path)

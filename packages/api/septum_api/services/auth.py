@@ -3,6 +3,7 @@ from __future__ import annotations
 """JWT token and password hashing utilities."""
 
 from datetime import datetime, timedelta, timezone
+from functools import cache
 
 import bcrypt
 import jwt
@@ -66,6 +67,27 @@ def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(encoded[:PASSWORD_MAX_BYTES], hashed.encode())
 
 
+# Same cost factor as real hashes, so a lookup miss costs one full bcrypt
+# check and login timing does not reveal whether an email is registered.
+@cache
+def _dummy_password_hash() -> str:
+    """Return the timing-equalizer hash, created on first use instead of at import."""
+    return bcrypt.hashpw(b"septum-timing-equalizer", bcrypt.gensalt()).decode()
+
+
+def warm_dummy_password_hash() -> None:
+    """Build the timing-equalizer hash now, so the first login miss costs the same as later ones."""
+    _dummy_password_hash()
+
+
+def verify_password_or_dummy(plain: str, hashed: str | None) -> bool:
+    """Verify against *hashed*, or burn an equal-cost check and return False when it is None."""
+    if hashed is None:
+        verify_password(plain, _dummy_password_hash())
+        return False
+    return verify_password(plain, hashed)
+
+
 def create_access_token(user_id: int, email: str) -> str:
     """Create a signed JWT access token."""
     expire = datetime.now(timezone.utc) + timedelta(minutes=_jwt_expiration_minutes())
@@ -82,4 +104,9 @@ def decode_access_token(token: str) -> dict:
 
     Raises ``jwt.InvalidTokenError`` on failure.
     """
-    return jwt.decode(token, _jwt_secret(), algorithms=[JWT_ALGORITHM])
+    return jwt.decode(
+        token,
+        _jwt_secret(),
+        algorithms=[JWT_ALGORITHM],
+        options={"require": ["exp", "sub"]},
+    )
