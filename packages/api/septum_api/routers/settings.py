@@ -9,6 +9,7 @@ supported via a dedicated PATCH schema.
 """
 
 import asyncio
+import logging
 import os
 import shutil
 from pathlib import Path
@@ -24,6 +25,7 @@ from ..database import get_db
 from ..models.user import User
 from ..services.error_logger import log_backend_error, log_backend_message
 from ..services.llm_router import LLMRouter, LLMRouterError
+from ..services.ollama_client import ollama_url_problem
 from ..utils.auth_dependency import (
     get_current_user,
     require_admin_or_bootstrap,
@@ -32,9 +34,9 @@ from ..utils.auth_dependency import (
 from ..utils.db_helpers import load_settings
 from ..utils.device import get_device
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+logger = logging.getLogger(__name__)
 
-_ALLOWED_OLLAMA_HOSTS = {"localhost", "127.0.0.1", "host.docker.internal", "ollama"}
+router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
 async def _validate_regulation_ids(
@@ -72,21 +74,13 @@ async def _validate_regulation_ids(
 
 
 def _validate_ollama_url(url: str) -> str:
-    """Validate that an Ollama URL points to an allowed host.
+    """Validate an Ollama URL against :func:`ollama_url_problem`.
 
-    Prevents SSRF by restricting base_url to a known-safe set of
-    hostnames (localhost variants, Docker internal DNS, Compose service).
-    Raises HTTPException 400 if the host is not allowed.
+    Raises HTTPException 400 with the reason when the URL is refused.
     """
-    from urllib.parse import urlparse
-
-    parsed = urlparse(url)
-    hostname = (parsed.hostname or "").lower()
-    if hostname not in _ALLOWED_OLLAMA_HOSTS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Ollama URL host '{hostname}' is not allowed. Use localhost, host.docker.internal, or ollama.",
-        )
+    problem = ollama_url_problem(url)
+    if problem is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=problem)
     return url
 
 
@@ -260,6 +254,8 @@ async def update_settings_endpoint(
 
     if "default_active_regulations" in update_data:
         await _validate_regulation_ids(db, update_data["default_active_regulations"])
+    if update_data.get("ollama_base_url") is not None:
+        _validate_ollama_url(update_data["ollama_base_url"])
 
     for field_name, value in update_data.items():
         setattr(settings, field_name, value)
@@ -590,7 +586,17 @@ async def ollama_pull_endpoint(
 
     import json as _json
 
+    def _event(status_text: str, percent: int, done: bool, error: bool = False) -> str:
+        evt: dict[str, Any] = {"status": status_text, "percent": percent, "done": done}
+        if error:
+            evt["error"] = True
+        return f"data: {_json.dumps(evt)}\n\n"
+
+    failed = _event("Model pull failed.", 0, True, error=True)
+
     async def event_stream():
+        # Upstream status text and exception messages are never echoed to
+        # the client: only fixed status strings and the progress percent.
         async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)) as client:
             try:
                 async with client.stream(
@@ -598,6 +604,10 @@ async def ollama_pull_endpoint(
                     f"{base_url}/api/pull",
                     json={"name": payload.model, "stream": True},
                 ) as resp:
+                    if resp.status_code >= 400:
+                        logger.warning("Ollama pull rejected: http_status=%s", resp.status_code)
+                        yield failed
+                        return
                     async for line in resp.aiter_lines():
                         if not line.strip():
                             continue
@@ -605,19 +615,22 @@ async def ollama_pull_endpoint(
                             data = _json.loads(line)
                         except _json.JSONDecodeError:
                             continue
-                        total = data.get("total", 0)
-                        completed = data.get("completed", 0)
-                        pct = int(completed * 100 / total) if total else 0
-                        msg = data.get("status", "")
-                        evt = {"status": msg, "percent": pct, "done": False}
-                        if msg == "success" or data.get("status") == "success":
-                            evt["done"] = True
-                            evt["percent"] = 100
-                        yield f"data: {_json.dumps(evt)}\n\n"
-                        if evt["done"]:
+                        if not isinstance(data, dict):
+                            continue
+                        if data.get("error"):
+                            logger.warning("Ollama pull reported an error")
+                            yield failed
                             return
+                        if data.get("status") == "success":
+                            yield _event("success", 100, True)
+                            return
+                        total = data.get("total") or 0
+                        completed = data.get("completed") or 0
+                        pct = int(completed * 100 / total) if total else 0
+                        yield _event("downloading", pct, False)
             except Exception as exc:
-                yield f"data: {_json.dumps({'status': str(exc), 'percent': 0, 'done': True, 'error': True})}\n\n"
+                logger.warning("Ollama pull failed: %s", type(exc).__name__)
+                yield failed
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
