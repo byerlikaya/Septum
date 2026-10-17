@@ -310,8 +310,8 @@ class PromptCatalog:
                 "mean. Do not only list field labels. Answer in the user's language, based only on the context, without inventing facts "
                 "or medical conclusions not stated in the context. Do NOT respond with \"I cannot find that information in the document\" "
                 "for such requests when the context contains document content—synthesize and interpret from the context instead.\n\n"
-                "CRITICAL FOR MULTIPLE DOCUMENTS: When the context contains multiple documents (each marked with '--- Document: <filename> ---'), "
-                "you MUST interpret or summarize EACH document individually with full detail. For EACH document: (1) identify it by name, "
+                "CRITICAL FOR MULTIPLE DOCUMENTS: When the context contains multiple documents (each marked with '--- Document N ---', where N is its position), "
+                "you MUST interpret or summarize EACH document individually with full detail. For EACH document: (1) identify it by its number, "
                 "(2) extract and present ALL key findings, diagnoses, measurements, results, and conclusions from that document's chunks, "
                 "(3) provide a complete interpretation. Do NOT skip any document. Do NOT provide only superficial summaries. If a document's "
                 "chunks contain diagnostic or clinical information, you MUST present that information in your answer. After covering all documents "
@@ -341,6 +341,15 @@ class PromptCatalog:
             f"{sanitized_query}"
             f"{output_instruction}"
         )
+
+    @staticmethod
+    def document_context_header(index: int) -> str:
+        """Neutral header separating context chunks of different documents.
+
+        Documents are identified by their 1-based position in the turn,
+        never by filename, so no original filename reaches the cloud LLM.
+        """
+        return f"--- Document {index} ---\n\n"
 
     @staticmethod
     def pure_chat_prompt(sanitized_query: str) -> str:

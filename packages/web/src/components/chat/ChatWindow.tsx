@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Paperclip } from "lucide-react";
 import { ErrorWithRetry } from "@/components/common/ErrorWithRetry";
-import type { ApprovalChunkPayload, ApprovalData, ChatMessage, OutputMode } from "@/lib/types";
+import type { ApprovalChunkPayload, ApprovalData, ChatMessage, DebugData, OutputMode } from "@/lib/types";
 import { renderWithPlaceholders } from "@/components/common/PlaceholderText";
 import { useI18n } from "@/lib/i18n";
 import { useChatStream } from "@/hooks/useChatStream";
@@ -21,10 +21,10 @@ export interface ChatWindowProps {
   activeRegulations: string[];
   showJsonOutput: boolean;
   onResponseComplete?: (deanonApplied: boolean) => void;
-  onMessagePairComplete?: (userText: string, assistantText: string, sseSessionId?: string, approvalData?: ApprovalData, isRetry?: boolean, debugData?: import("@/lib/types").DebugData) => void;
+  onMessagePairComplete?: (userText: string, assistantText: string, debugId?: string, approvalData?: ApprovalData, isRetry?: boolean, debugData?: DebugData) => void;
   onRejectedPersist?: (userText: string, approvalData: ApprovalData) => void;
   onUploadFiles?: (files: File[]) => void;
-  initialMessages?: { role: string; content: string; sessionId?: string; approvalData?: ApprovalData; debugData?: import("@/lib/types").DebugData }[];
+  initialMessages?: { role: string; content: string; debugId?: string; approvalData?: ApprovalData; debugData?: DebugData }[];
 }
 
 export function ChatWindow({
@@ -63,7 +63,8 @@ export function ChatWindow({
       maskedPrompt: string,
       chunks: ApprovalChunkPayload[],
       activeRegulations: string[],
-      assembledPrompt: string
+      assembledPrompt: string,
+      numberingToken?: string
     ) => void
   >(() => {});
   const approvalRejectedRef = useRef<
@@ -93,8 +94,8 @@ export function ChatWindow({
     onResponseComplete: handleResponseComplete,
     onMessagePairComplete,
     getApprovalData: () => approvalDataRef.current,
-    onApprovalRequired: (sessionId, maskedPrompt, chunks, regs, assembledPrompt) => {
-      approvalRequiredRef.current(sessionId, maskedPrompt, chunks, regs, assembledPrompt);
+    onApprovalRequired: (sessionId, maskedPrompt, chunks, regs, assembledPrompt, numberingToken) => {
+      approvalRequiredRef.current(sessionId, maskedPrompt, chunks, regs, assembledPrompt, numberingToken);
     },
     onApprovalRejected: (reason) => {
       approvalRejectedRef.current(reason);
@@ -118,7 +119,7 @@ export function ChatWindow({
         id: `restored-${i}`,
         role: m.role as "user" | "assistant",
         content: m.content,
-        sessionId: m.sessionId,
+        debugId: m.debugId,
         approvalData: m.approvalData,
         debugData: m.debugData,
       }));
@@ -259,11 +260,11 @@ export function ChatWindow({
                         setDebugData({
                           masked_prompt: msg.debugData.masked_prompt,
                           masked_answer: msg.debugData.masked_answer,
-                          final_answer: msg.debugData.final_answer,
+                          final_answer: msg.content,
                         });
                         setDebugOpen(true);
-                      } else if (msg.sessionId) {
-                        void handleOpenDebug(msg.sessionId);
+                      } else if (msg.debugId) {
+                        void handleOpenDebug(msg.debugId, msg.content);
                       }
                     }}
                     onApprovalClick={msg.approvalData ? () => {
@@ -382,9 +383,14 @@ export function ChatWindow({
         onRetry={
           reviewApprovalData?.decision === "rejected" && reviewApprovalData.original_user_message
             ? () => {
-                const chunksForRetry = reviewApprovalData.chunks.map((c) => ({ text: c.text }));
+                const chunksForRetry = reviewApprovalData.chunks.map((c) => ({
+                  text: c.text,
+                  document_id: c.document_id,
+                }));
                 setReviewApprovalData(null);
-                streamSendMessage(reviewApprovalData.original_user_message!, chunksForRetry);
+                streamSendMessage(reviewApprovalData.original_user_message!, chunksForRetry, undefined, {
+                  numberingToken: reviewApprovalData.numbering_token,
+                });
               }
             : undefined
         }

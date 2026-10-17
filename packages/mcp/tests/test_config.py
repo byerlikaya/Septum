@@ -101,3 +101,14 @@ def test_from_env_blank_token_normalises_to_none() -> None:
     cfg = MCPConfig.from_env({"SEPTUM_MCP_HTTP_TOKEN": "   "})
 
     assert cfg.http_token is None
+
+
+def test_from_env_session_map_exposure_defaults_off() -> None:
+    assert MCPConfig.from_env({}).expose_session_map is False
+    assert MCPConfig.from_env({"SEPTUM_MCP_EXPOSE_SESSION_MAP": "no"}).expose_session_map is False
+
+
+def test_from_env_session_map_exposure_opt_in() -> None:
+    cfg = MCPConfig.from_env({"SEPTUM_MCP_EXPOSE_SESSION_MAP": "true"})
+
+    assert cfg.expose_session_map is True

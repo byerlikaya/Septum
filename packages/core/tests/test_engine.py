@@ -9,7 +9,6 @@ the tests don't try to download a transformer model.
 """
 
 import pytest
-
 from septum_core import SeptumCoreConfig, SeptumEngine
 from septum_core.ports import NullSemanticDetectionPort
 
@@ -57,6 +56,19 @@ def test_unmask_round_trips_llm_response(engine: SeptumEngine) -> None:
 def test_unmask_returns_input_when_session_unknown(engine: SeptumEngine) -> None:
     text = "[EMAIL_ADDRESS_1] is unchanged"
     assert engine.unmask(text, session_id="nonexistent") == text
+
+
+def test_unmask_allowed_placeholders_restores_only_listed(engine: SeptumEngine) -> None:
+    result = engine.mask("Mail a@example.com and b@example.com today.", language="en")
+    reply = "[EMAIL_ADDRESS_1] and [EMAIL_ADDRESS_2]"
+
+    restricted = engine.unmask(
+        reply, result.session_id, allowed_placeholders={"[EMAIL_ADDRESS_1]"}
+    )
+
+    assert restricted == "a@example.com and [EMAIL_ADDRESS_2]"
+    assert engine.unmask(reply, result.session_id, allowed_placeholders=set()) == reply
+    assert engine.unmask(reply, result.session_id) == "a@example.com and b@example.com"
 
 
 def test_release_drops_session(engine: SeptumEngine) -> None:

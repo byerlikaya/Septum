@@ -201,6 +201,8 @@ If you started with `docker compose up` (the full stack), the api container reac
 
 `<POSTGRES_PASSWORD>` / `<REDIS_PASSWORD>` are the values you set in `.env` at quickstart. Recover them with `grep -E 'POSTGRES_PASSWORD\|REDIS_PASSWORD' .env`. Note that the Redis URL has an empty user name between `://` and `:` — Redis's implicit `default` user; the colon-prefix before the password is required.
 
+**Bringing your own Redis?** Run it with `maxmemory-policy noeviction` (the Redis default, which the bundled compose Redis uses). Erasing a document leaves a short-lived tombstone in Redis that stops other workers from serving a cached copy of its anonymization map; any eviction policy — `allkeys-*` or `volatile-*`, since the tombstone carries a TTL — could drop it early.
+
 **Already have Ollama running on the host?** Stop the bundled one (`docker compose stop ollama && docker compose rm -f ollama`) so the port does not conflict, then use `http://host.docker.internal:11434` as the Ollama URL — docker-compose.yml wires `host.docker.internal` into the api container via `extra_hosts`, so it resolves back to your host's Ollama without any extra setup.
 
 Each step has a **Test connection** button — it runs inside the api container, so it reflects what the backend will see after you finish the wizard. Green check = safe to move on.

@@ -54,6 +54,7 @@ from .routers import settings as settings_router
 from .routers import setup as setup_router
 from .routers import text_normalization as text_normalization_router
 from .routers import users as users_router
+from .services.document_anon_store import sweep_stale_temp_files
 from .services.error_logger import log_backend_error, log_backend_message
 from .utils.device import get_device
 
@@ -116,6 +117,7 @@ async def lifespan(app: FastAPI):
         initialize_engine(url)
         await init_db()
         await _reset_orphaned_processing_docs()
+        sweep_stale_temp_files()
         threading.Thread(target=_preload_models, daemon=True).start()
     yield
 

@@ -389,6 +389,16 @@ export async function getRegulations(): Promise<RegulationRuleset[]> {
   return data;
 }
 
+/**
+ * A chunk resent on a retry. `document_id` is the source document the server
+ * offered it from (null for client-added text); the server owner-checks it and
+ * uses it to rebuild the turn's placeholder numbering.
+ */
+export interface PreApprovedChunk {
+  text: string;
+  document_id?: number | null;
+}
+
 export interface ChatAskParams {
   message: string;
   document_id?: number;
@@ -398,16 +408,17 @@ export interface ChatAskParams {
   output_mode?: "chat" | "json";
   require_approval?: boolean;
   deanon_enabled?: boolean;
-  pre_approved_chunks?: { text: string }[];
+  pre_approved_chunks?: PreApprovedChunk[];
+  /** Token from the approval event of the turn being retried with `pre_approved_chunks`. */
+  numbering_token?: string;
   /** Set by the disambiguation picker — overrides entity-aware narrowing on the server. */
   scoped_doc_ids?: number[];
 }
 
 export interface ChatDebugPayload {
-  session_id: string;
+  debug_id: string;
   masked_prompt: string;
   masked_answer: string;
-  final_answer: string;
 }
 
 /**
@@ -427,6 +438,7 @@ export function streamChatAsk(
     require_approval: params.require_approval,
     deanon_enabled: params.deanon_enabled,
     pre_approved_chunks: params.pre_approved_chunks,
+    numbering_token: params.numbering_token,
   };
 
   if (typeof params.document_id === "number") {
@@ -507,8 +519,10 @@ export function streamChatAsk(
   };
 }
 
-export async function getChatDebug(sessionId: string): Promise<ChatDebugPayload> {
-  const { data } = await api.get<ChatDebugPayload>(`/api/chat/debug/${sessionId}`);
+export async function getChatDebug(debugId: string): Promise<ChatDebugPayload> {
+  const { data } = await api.get<ChatDebugPayload>(
+    `/api/chat/debug/${encodeURIComponent(debugId)}`
+  );
   return data;
 }
 

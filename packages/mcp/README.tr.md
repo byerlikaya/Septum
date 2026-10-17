@@ -8,18 +8,18 @@
 - **streamable-http** — uzak, container içi ya da tarayıcıya gömülü istemciler için modern HTTP taşıması. Statik bir bearer token ile güvenceye alınır.
 - **sse** — eski HTTP + Server-Sent Events taşıması; henüz streamable-http'ye geçmemiş istemciler için tutulur.
 
-Tespitin tamamı `septum-core` üzerinden **yerelde** yürür. Ham PII makineden dışarı çıkmaz. Sunucu yalnızca taşıma görevi görür: çekirdek motoru sarıp çağıranın eline altı araç bırakır.
+Tespitin tamamı `septum-core` üzerinden **yerelde** yürür. Ham PII makineden dışarı çıkmaz. Sunucu yalnızca taşıma görevi görür: çekirdek motoru sarıp çağıranın eline beş araç (ve isteğe bağlı bir debug aracı olan `get_session_map`'i) bırakır.
 
 ## Araçlar
 
 | Araç | Açıklama |
 |---|---|
 | `mask_text` | Metindeki PII'yi tespit eder ve maskeler. Maskelenmiş metin + `session_id` döner. |
-| `unmask_response` | LLM cevabındaki placeholder'ları `session_id` üzerinden gerçek değerlere geri yazar. |
+| `unmask_response` | LLM cevabındaki placeholder'ları `session_id` üzerinden gerçek değerlere geri yazar. Yalnızca o session'ın ürettiği placeholder'lar, session başına en fazla `SEPTUM_MCP_MAX_UNMASK_PLACEHOLDERS` farklı placeholder geri yazılır. |
 | `detect_pii` | Session tutmadan metindeki PII'yi tarar. |
-| `scan_file` | Yerel bir dosyayı (`.txt`, `.md`, `.csv`, `.json`, `.pdf`, `.docx`) okur ve içeriğini tarar. |
+| `scan_file` | Yerel bir dosyayı (`.txt`, `.md`, `.csv`, `.json`, `.pdf`, `.docx`) okur ve içeriğini tarar. HTTP/SSE üzerinde `SEPTUM_MCP_FILE_ROOT` gerektirir. |
 | `list_regulations` | Yerleşik regülasyon paketlerini ve tanımladıkları varlık tiplerini listeler. |
-| `get_session_map` | Bir session için `{orijinal → placeholder}` haritasını döner (yalnızca debug amaçlı). |
+| `get_session_map` | **İsteğe bağlı, yalnız stdio, varsayılan olarak kapalı.** Bir session için `{orijinal → placeholder}` haritasını döner (yalnızca debug amaçlı). Bkz. `SEPTUM_MCP_EXPOSE_SESSION_MAP`. |
 
 ## Kurulum
 
@@ -91,7 +91,7 @@ Her MCP istemcisinin bir sunucu kaydetme yolu vardır — aşağıdaki blok Clau
 
 ## Uzak HTTP dağıtımı
 
-MCP istemcisi bir alt süreç başlatamadığında HTTP taşımasına geçin: web tabanlı ajanlar, tarayıcı eklentileri, paylaşılan takım sunucusu ya da container orkestrasyon dağıtımı. Sunucu aynı altı aracı sunmaya devam eder; yalnızca taşıma değişir.
+MCP istemcisi bir alt süreç başlatamadığında HTTP taşımasına geçin: web tabanlı ajanlar, tarayıcı eklentileri, paylaşılan takım sunucusu ya da container orkestrasyon dağıtımı. Sunucu aynı beş aracı sunmaya devam eder; yalnızca taşıma değişir. `get_session_map` HTTP ya da SSE üzerinden hiçbir zaman sunulmaz.
 
 ### Sunucuyu çalıştırmak
 
@@ -160,6 +160,10 @@ SEPTUM_MCP_HTTP_TOKEN=<rastgele-token> \
 | `SEPTUM_USE_NER` | `true` | Transformer NER katmanını etkinleştirir. Model indirmesinden kaçınmak için `false` yapın. |
 | `SEPTUM_USE_PRESIDIO` | `true` | Presidio tanıyıcı katmanını etkinleştirir. |
 | `SEPTUM_SESSION_TTL` | `3600` | Boşta kalan bir anonimleştirme session'ının atılacağı saniye sayısı. `0` eviction'ı tamamen kapatır. |
+| `SEPTUM_MCP_EXPOSE_SESSION_MAP` | `false` | `get_session_map` aracını kaydetmek için `true` yapın. Yalnız stdio'da geçerlidir. **MCP istemcisine ham PII döner** — güvenlik notlarına bakın. |
+| `SEPTUM_MCP_MAX_UNMASK_PLACEHOLDERS` | `25` | Session başına geri yazma bütçesi: `unmask_response`'un bir session için tüm çağrıları boyunca geri yazabileceği en fazla farklı placeholder sayısı. Bütçeyi aşacak çağrı hata döner ve hiçbir şey geri yazılmaz; daha önce geri yazılmış bir placeholder'ı yeniden geri yazmak bütçeden düşmez. Pozitif tam sayı; geçersiz değerler varsayılana döner. |
+| `SEPTUM_MCP_FILE_ROOT` | ayarsız | `scan_file`'ın sınırlandığı dizin. stdio'da isteğe bağlıdır; HTTP/SSE'de ayarlanmadıkça `scan_file` her yolu reddeder. Sunucu başlarken dizin olarak var olmalıdır (yoksa başlatma açık bir hatayla durur) ve o anda sabitlenir: sembolik bağlantı arkasındaki bir köke izin verilir ve hedefine sabitlenir; kök yolu sonradan değiştirilirse sınır taşınmaz, okumalar reddedilir. Sunucu bu dizinden yalnızca okur; salt okunur bağlayın (paketle gelen compose dosyaları `septum-mcp-scan`'i `/data/scan:ro` olarak bağlar). |
+| `SEPTUM_MCP_MAX_FILE_BYTES` | `52428800` | `scan_file`'ın okuyacağı en büyük dosya boyutu (50 MB). |
 
 **Yalnız HTTP taşımasında (stdio modunda yok sayılır):**
 
@@ -228,7 +232,9 @@ Desteklenen regülasyon paket id'leri: `gdpr`, `kvkk`, `ccpa`, `cpra`, `hipaa`, 
 
 - **septum-mcp air-gapped'tir.** Dışarıya çıkan hiçbir ağ çağrısı yoktur. Opsiyonel NER katmanı bile modelleri yerel Hugging Face cache'inden yükler. `SEPTUM_USE_NER`'ı kapatırsanız hiç model indirmesi olmaz.
 - **Session'lar yalnızca bellektedir.** Anonimleştirme haritaları sunucu süreci içinde yaşar; sunucu sonlandığında ya da session başına TTL dolduğunda düşer. Diske hiçbir şey yazılmaz.
-- **`get_session_map` ham PII döner.** Yalnız yerel debug araçları için tasarlanmıştır. Çıktısını uzak bir sisteme aktarmayın.
+- **`get_session_map` ham PII döndüğü için varsayılan olarak kapalıdır.** MCP istemcisini genellikle bir bulut modeli yönetir; bir aracın döndürdüğü her şey o modelin bağlamına girebilir — session haritası placeholder'ların ardındaki tüm orijinal değerleri modele verir ve maskelemeyi boşa çıkarır. `SEPTUM_MCP_EXPOSE_SESSION_MAP=true` ayarlanmadıkça araç kaydedilmez (`tools/list` içinde görünmez); ayarlansa bile yalnız stdio'da geçerlidir, HTTP ve SSE bayrağı yok sayıp uyarı loglar. Yalnızca araç çıktısını uzak bir modele iletmeyen bir istemciyle yerel debug için açın ve iş bitince yeniden kapatın.
+- **`unmask_response` yalnızca session'ın ürettiği placeholder'larla sınırlıdır.** Sadece o session'ın `mask_text` ya da `scan_file` (`mask=true`) çıktısında yer alan placeholder'ları geri yazar; diğer her placeholder ve araçların hiç maskelemediği bir session'daki tüm placeholder'lar olduğu gibi kalır. Her session'ın, **tüm** çağrıları boyunca sayılan `SEPTUM_MCP_MAX_UNMASK_PLACEHOLDERS` (varsayılan `25`) farklı placeholder'lık bir geri yazma bütçesi vardır: session'ı bu bütçenin üstüne çıkaracak bir çağrı, hiçbir şey geri yazılmadan reddedilir; bu yüzden hazırlanmış bir cevabı çok sayıda küçük çağrıya bölmek sınırı aşmaya yetmez. Session'ın zaten geri yazdığı bir placeholder'ı yeniden geri yazmak bütçeden düşmez. Bütçe içinde geri yazılan değerler yine ham PII'dir; geri yazılmış çıktıyı buna göre ele alın.
+- **`scan_file` sınırlandırılmıştır.** Sembolik bağlantıları, dotfile'ları ve nokta ile başlayan bir dizinin altındaki her şeyi (`.env`, `.ssh/`, `.git/`) ve `SEPTUM_MCP_MAX_FILE_BYTES` üstündeki dosyaları reddeder. Tek bir dizine sınırlamak için `SEPTUM_MCP_FILE_ROOT` ayarlayın. stdio'da kök isteğe bağlıdır; HTTP ve SSE'de kök ayarlanana kadar `scan_file` her yolu reddeder, böylece uzak bir istemci sunucu sürecinin okuyabildiği keyfi dosyaları asla okuyamaz. Kök, sunucu başlarken var olmalıdır ve o anda çözümlendiği dizine sabitlenir; kök yolu sonradan değiştirilirse (örneğin bir sembolik bağlantıyla) okumalar bağlantıyı izlemek yerine reddedilir. Kök dışındaki bir yol, bulunmayan bir dosya ve bir dotfile aynı hatayı alır; hata ne yolu ne de kökü içerir.
 - **HTTP modu, loopback olmayan her bağlanmada bearer token ister.** `SEPTUM_MCP_HTTP_TOKEN`, `/health` dışındaki her isteğin önünde durur; tokensiz ve loopback olmayan bir host sesli bir başlangıç uyarısı basar. Sunucunun önünde mutlaka TLS sonlandırın (reverse proxy) ki token düz metinle gitmesin.
 - **HTTP modu bugün tek kiracılıdır.** Bağlı tüm istemciler tek bir `SeptumEngine`'i ve tek bir session registry'sini paylaşır. İzolasyon önemliyse her kiracı için ayrı bir örnek çalıştırın.
 

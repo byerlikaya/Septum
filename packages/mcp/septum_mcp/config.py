@@ -33,6 +33,23 @@ Environment variables:
   layer. Defaults to ``"true"``.
 - ``SEPTUM_SESSION_TTL`` — session retention in seconds. ``0`` or
   negative values disable TTL eviction. Defaults to ``3600``.
+- ``SEPTUM_MCP_EXPOSE_SESSION_MAP`` — ``"true"`` registers the
+  ``get_session_map`` debugging tool, which returns raw PII to the MCP
+  client (and therefore to whatever model drives it). Defaults to
+  ``"false"``. Honoured on stdio only; network transports never
+  register the tool.
+- ``SEPTUM_MCP_MAX_UNMASK_PLACEHOLDERS`` — per-session budget: the most
+  distinct placeholders ``unmask_response`` may restore for one session
+  across all of its calls. A call that would exceed it is refused
+  without restoring anything; re-restoring a placeholder already
+  restored is free. Positive integer; defaults to ``25``. Invalid
+  values fall back to the default.
+- ``SEPTUM_MCP_FILE_ROOT`` — directory ``scan_file`` is confined to.
+  Optional on stdio; on network transports ``scan_file`` refuses every
+  path while it is unset. Read once when the server is created: the
+  directory must exist then, and it is pinned to the target it resolves
+  to (a root behind a symlink is allowed), so a later swap of the root
+  path refuses reads instead of moving the boundary.
 
 HTTP-only variables (ignored in stdio mode):
 
@@ -52,7 +69,7 @@ HTTP-only variables (ignored in stdio mode):
 
 import os
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Mapping
 
 from septum_core.recognizers import (
     BUILTIN_REGULATION_IDS as DEFAULT_REGULATIONS,
@@ -63,6 +80,7 @@ from septum_core.recognizers import (
 
 DEFAULT_LANGUAGE = "en"
 DEFAULT_SESSION_TTL_SECONDS = 3600.0
+DEFAULT_MAX_UNMASK_PLACEHOLDERS = 25
 
 DEFAULT_TRANSPORT = "stdio"
 DEFAULT_HTTP_HOST = "127.0.0.1"
@@ -108,6 +126,22 @@ def _parse_port(value: str | None, default: int) -> int:
     return port
 
 
+def _parse_positive_int(value: str | None, default: int) -> int:
+    if not value or not value.strip():
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        return default
+    return parsed if parsed >= 1 else default
+
+
+def file_root_from_env(env: Mapping[str, str] | None = None) -> str | None:
+    """Return ``SEPTUM_MCP_FILE_ROOT`` from ``env`` (defaults to ``os.environ``)."""
+    source = env if env is not None else os.environ
+    return source.get("SEPTUM_MCP_FILE_ROOT") or None
+
+
 def _parse_optional_str(value: str | None) -> str | None:
     if value is None:
         return None
@@ -122,6 +156,10 @@ class MCPConfig:
     Populated from environment variables by :meth:`from_env`, but can
     also be constructed directly in tests to avoid mutating the process
     environment.
+
+    ``file_root`` left as ``None`` is not final: :func:`septum_mcp.server.create_server`
+    falls back to ``SEPTUM_MCP_FILE_ROOT`` from the process environment, so a
+    hand-built config cannot silently drop a root the operator set.
     """
 
     regulations: List[str] = field(default_factory=lambda: list(DEFAULT_REGULATIONS))
@@ -134,6 +172,9 @@ class MCPConfig:
     http_port: int = DEFAULT_HTTP_PORT
     http_token: str | None = None
     http_mount_path: str | None = None
+    expose_session_map: bool = False
+    max_unmask_placeholders: int = DEFAULT_MAX_UNMASK_PLACEHOLDERS
+    file_root: str | None = None
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "MCPConfig":
@@ -152,4 +193,10 @@ class MCPConfig:
             http_port=_parse_port(source.get("SEPTUM_MCP_HTTP_PORT"), DEFAULT_HTTP_PORT),
             http_token=_parse_optional_str(source.get("SEPTUM_MCP_HTTP_TOKEN")),
             http_mount_path=_parse_optional_str(source.get("SEPTUM_MCP_HTTP_MOUNT_PATH")),
+            expose_session_map=_parse_bool(source.get("SEPTUM_MCP_EXPOSE_SESSION_MAP"), False),
+            max_unmask_placeholders=_parse_positive_int(
+                source.get("SEPTUM_MCP_MAX_UNMASK_PLACEHOLDERS"),
+                DEFAULT_MAX_UNMASK_PLACEHOLDERS,
+            ),
+            file_root=file_root_from_env(source),
         )

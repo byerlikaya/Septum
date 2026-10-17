@@ -46,7 +46,7 @@ it("calls onDebugClick when debug button is pressed", () => {
     id: "a1",
     role: "assistant" as const,
     content: "Answer",
-    sessionId: "sess-123"
+    debugId: "dbg-123"
   };
 
   render(<MessageBubble message={msg} onDebugClick={onDebugClick} />);
@@ -54,6 +54,6 @@ it("calls onDebugClick when debug button is pressed", () => {
   const debugButton = screen.getByRole("button", { name: "chat.debug.button" });
   fireEvent.click(debugButton);
 
-  expect(onDebugClick).toHaveBeenCalledWith("sess-123");
+  expect(onDebugClick).toHaveBeenCalledTimes(1);
 });
 

@@ -16,17 +16,24 @@ Design overview
 * The frontend receives the candidate chunks (for example via SSE) and
   responds through the HTTP layer, which calls :meth:`ApprovalGate.approve`
   or :meth:`ApprovalGate.reject`.
-* The session waits indefinitely until a decision is received.
+* The session ends when a decision arrives, when the optional timeout
+  elapses or when the waiting task is cancelled (client disconnect); the
+  session is removed in every case. Sessions nobody waits on are swept
+  once they outlive the approval timeout.
 
 All state is kept in memory and scoped to the current process; no raw PII or
-anonymization maps are persisted or exposed.
+anonymization maps are persisted or exposed. A session holds a private copy
+of its turn's anonymization map only so the prompt preview can gate edited
+chunks exactly like the send path does.
 """
 
 import asyncio
+import copy
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +87,17 @@ class _ApprovalSession:
     # masked chunks land in the cloud LLM. ``None`` means "no binding"
     # — only used by legacy code paths and the open_session helper.
     owner_user_id: Optional[int] = None
+    # Private copy of the turn's anonymization map at the time the chunks
+    # were offered. Never returned as-is: previews work on a fresh copy.
+    anon_map: Optional[Any] = field(default=None, repr=False)
+    # Number of tasks currently inside ``wait_for_decision`` for this
+    # session; a session with a waiter is never swept.
+    waiters: int = 0
+    # ``time.monotonic()`` of the last accepted prompt preview.
+    last_preview_at: Optional[float] = None
+
+
+DEFAULT_ABANDONED_SESSION_SECONDS = 300.0
 
 
 class ApprovalSessionForbiddenError(PermissionError):
@@ -146,8 +164,21 @@ class ApprovalGate:
         entity_count: int,
         assembly_context: Optional[Dict[str, Any]] = None,
         owner_user_id: Optional[int] = None,
-    ) -> None:
+        anon_map: Optional[Any] = None,
+        abandon_after_seconds: Optional[float] = None,
+    ) -> _ApprovalSession:
         """Open a session using masked prompt/chunks.
+
+        Before the new session is stored, sessions nobody is waiting on and
+        older than ``abandon_after_seconds`` (the approval timeout; a
+        non-positive or missing value falls back to
+        :data:`DEFAULT_ABANDONED_SESSION_SECONDS`) are dropped, so a chat
+        stream that died before it started waiting cannot leave its map
+        copy behind.
+
+        ``anon_map`` is the turn's anonymization map; the gate keeps its own
+        copy so later preview requests gate edits against the same state the
+        send path will use.
 
         Acquires ``self._lock`` around the dict mutation so a concurrent
         chat turn (SSE retry, replay) cannot race with in-flight
@@ -157,7 +188,15 @@ class ApprovalGate:
         it. The approval router checks this before approve/reject/
         preview-prompt so a leaked session id cannot be used by another
         authenticated user to influence which masked chunks land in
-        the cloud LLM.
+        the cloud LLM. A session id already held by a different owner
+        is never replaced: :class:`ApprovalSessionForbiddenError` is
+        raised instead, so one user cannot hijack another's pending
+        approval by reusing its id. When the same owner replaces a session,
+        the old one drops its map copy and its waiter is released (it
+        resolves as rejected with reason ``superseded``), so nothing keeps the old map alive.
+
+        Returns the stored session as an opaque handle for
+        :meth:`discard_session`.
         """
         chunks: List[ApprovalChunk] = [
             ApprovalChunk(id=None, document_id=None, text=chunk)
@@ -174,12 +213,58 @@ class ApprovalGate:
             entity_count=entity_count,
             assembly_context=assembly_context,
             owner_user_id=owner_user_id,
+            anon_map=copy.deepcopy(anon_map) if anon_map is not None else None,
         )
 
         async with self._lock:
-            if session_id in self._sessions:
+            self._sweep_abandoned_locked(abandon_after_seconds)
+            existing = self._sessions.get(session_id)
+            if existing is not None:
+                if existing.owner_user_id != owner_user_id:
+                    raise ApprovalSessionForbiddenError(
+                        f"Approval session {session_id!r} belongs to another owner"
+                    )
                 logger.warning("Replacing existing approval session: %s", session_id)
+                if existing.decision is None:
+                    existing.decision = ApprovalDecision(
+                        approved=False, chunks=[], reason="superseded"
+                    )
+                existing.anon_map = None
+                existing.event.set()
             self._sessions[session_id] = session
+        return session
+
+    def discard_session(self, session_id: str, handle: _ApprovalSession) -> None:
+        """Drop ``handle`` if it is still the session stored under ``session_id``.
+
+        For a chat stream that ends before (or while) waiting for the
+        decision. A replacement stored under the same id is left alone.
+        Synchronous, so it is safe in a ``finally`` that runs on
+        cancellation; the dict mutation is atomic on the event loop.
+        """
+        if self._sessions.get(session_id) is handle:
+            del self._sessions[session_id]
+        handle.anon_map = None
+        handle.event.set()
+
+    async def claim_preview(self, session_id: str, min_interval_seconds: float) -> bool:
+        """Return ``False`` if a preview for the session ran too recently.
+
+        Otherwise records the preview time and returns ``True``. Raises
+        :class:`ApprovalSessionNotFoundError` for an unknown session.
+        """
+        now = time.monotonic()
+        async with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise ApprovalSessionNotFoundError(
+                    f"Approval session not found for id={session_id!r}"
+                )
+            last = session.last_preview_at
+            if last is not None and now - last < min_interval_seconds:
+                return False
+            session.last_preview_at = now
+            return True
 
     async def get_assembly_context(
         self, session_id: str
@@ -199,6 +284,24 @@ class ApprovalGate:
                 if session.assembly_context is not None
                 else None
             )
+
+    async def get_preview_state(
+        self, session_id: str
+    ) -> Optional[Tuple[Dict[str, Any], List[str], Optional[Any]]]:
+        """Return ``(assembly_context, offered_texts, anon_map_copy)`` for a preview.
+
+        ``anon_map_copy`` is a fresh copy on every call, so gating edited
+        chunks for a preview never changes the session's map. Returns
+        ``None`` if the session does not exist or has no stored context.
+        """
+        async with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None or session.assembly_context is None:
+                return None
+            context = dict(session.assembly_context)
+            offered = [c.text for c in session.chunks]
+            anon_map = session.anon_map
+        return context, offered, copy.deepcopy(anon_map) if anon_map is not None else None
 
     async def assert_session_owner(
         self, session_id: str, user_id: int, *, allow_admin_bypass: bool = False
@@ -255,27 +358,35 @@ class ApprovalGate:
                 raise ApprovalSessionNotFoundError(
                     f"Approval session not found for id={session_id!r}"
                 )
+            session.waiters += 1
             event = session.event
 
         timed_out = False
-        if timeout is not None and timeout > 0:
-            try:
-                await asyncio.wait_for(event.wait(), timeout=timeout)
-            except asyncio.TimeoutError:
-                timed_out = True
-                logger.warning(
-                    "Approval session %s timed out after %.1fs",
-                    session_id,
-                    timeout,
-                )
-        else:
-            await event.wait()
-
-        async with self._lock:
-            session = self._sessions.pop(session_id, None)
+        try:
+            if timeout is not None and timeout > 0:
+                try:
+                    await asyncio.wait_for(event.wait(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    timed_out = True
+                    logger.warning(
+                        "Approval session %s timed out after %.1fs",
+                        session_id,
+                        timeout,
+                    )
+            else:
+                await event.wait()
+        finally:
+            # Runs on cancellation too (SSE client gone), so an abandoned
+            # session never keeps its map copy alive. No await here: the
+            # cleanup is atomic on the event loop and cannot be interrupted
+            # by a second cancellation while waiting for ``self._lock``.
+            session.waiters -= 1
+            if self._sessions.get(session_id) is session:
+                del self._sessions[session_id]
+            session.anon_map = None
 
         if timed_out:
-            # Session was popped above; even if a late decision arrives via
+            # Session was removed above; even if a late decision arrives via
             # approve/reject it will hit ApprovalSessionNotFoundError, which
             # the HTTP layer surfaces as 404 to the user.
             return ApprovalDecision(
@@ -285,7 +396,7 @@ class ApprovalGate:
                 timed_out=True,
             )
 
-        if session is None or session.decision is None:
+        if session.decision is None:
             # As a safety net, treat missing decisions as a hard rejection.
             logger.error(
                 "Approval session %s completed without a decision; treating as rejected.",
@@ -410,7 +521,30 @@ class ApprovalGate:
                 )
                 return
             session.decision = decision
+            session.anon_map = None
             session.event.set()
+
+    def _sweep_abandoned_locked(self, max_age_seconds: Optional[float]) -> None:
+        """Drop sessions without a waiter older than ``max_age_seconds``.
+
+        Caller must hold ``self._lock``.
+        """
+        max_age = (
+            max_age_seconds
+            if max_age_seconds is not None and max_age_seconds > 0
+            else DEFAULT_ABANDONED_SESSION_SECONDS
+        )
+        now = datetime.now(tz=timezone.utc)
+        stale = [
+            sid
+            for sid, session in self._sessions.items()
+            if session.waiters == 0
+            and (now - session.created_at).total_seconds() > max_age
+        ]
+        for sid in stale:
+            self._sessions.pop(sid).anon_map = None
+        if stale:
+            logger.info("Dropped %d abandoned approval sessions", len(stale))
 
 
 _default_gate = ApprovalGate()

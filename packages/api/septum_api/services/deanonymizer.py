@@ -10,6 +10,7 @@ path is faster, predictable, and free of LLM hallucination risk.
 """
 
 import asyncio
+from typing import Collection, Optional
 
 from septum_core.anonymization_map import AnonymizationMap
 from septum_core.unmasker import Unmasker
@@ -24,15 +25,21 @@ class Deanonymizer:
         self._settings = settings
         self._unmasker = Unmasker()
 
-    async def deanonymize(self, text: str, anon_map: AnonymizationMap) -> str:
+    async def deanonymize(
+        self,
+        text: str,
+        anon_map: AnonymizationMap,
+        allowed_placeholders: Optional[Collection[str]] = None,
+    ) -> str:
         """Return a de-anonymized version of ``text``.
 
         If de-anonymization is disabled in :class:`AppSettings`, the input
-        text is returned unchanged.
+        text is returned unchanged. ``allowed_placeholders`` restricts
+        restoration to the given placeholders (see :meth:`Unmasker.unmask`).
         """
         if not self._settings.deanon_enabled or not text:
             return text
-        return self._unmasker.unmask(text, anon_map)
+        return self._unmasker.unmask(text, anon_map, allowed_placeholders)
 
 
 class DeAnonymizer:

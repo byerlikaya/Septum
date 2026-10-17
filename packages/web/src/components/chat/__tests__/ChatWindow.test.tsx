@@ -66,3 +66,61 @@ it("renders empty state when there are no messages", () => {
   expect(screen.getByText("chat.emptyState")).toBeInTheDocument();
 });
 
+
+it("a retry from a rejected approval resends each chunk's source document id", async () => {
+  mockStreamChatAsk.mockReturnValue({ abort: jest.fn() });
+  const chunk = (id: number, documentId: number | null, text: string) => ({
+    id,
+    document_id: documentId,
+    text,
+    source_page: null,
+    source_slide: null,
+    source_sheet: null,
+    source_timestamp_start: null,
+    source_timestamp_end: null,
+    section_title: null,
+  });
+
+  render(
+    <ChatWindow
+      documentIds={[]}
+      requireApproval={true}
+      deanonEnabled={true}
+      activeRegulations={["GDPR"]}
+      showJsonOutput={false}
+      initialMessages={[
+        {
+          role: "user",
+          content: "Who owns what?",
+          approvalData: {
+            decision: "rejected",
+            masked_prompt: "Who owns what?",
+            chunks: [
+              chunk(1, 7, "[PERSON_1] owns the house."),
+              chunk(2, 9, "[PERSON_2] owns the car."),
+              chunk(3, null, "added note"),
+            ],
+            regulations: ["GDPR"],
+            original_user_message: "Who owns what?",
+            numbering_token: "v1.signed",
+          },
+        },
+      ]}
+    />
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "chat.approval.badge.rejected" }));
+  fireEvent.click(screen.getByRole("button", { name: "chat.approval.button.retry" }));
+
+  await waitFor(() => {
+    expect(mockStreamChatAsk).toHaveBeenCalledTimes(1);
+  });
+  const [params] = mockStreamChatAsk.mock.calls[0];
+  expect(params.document_ids).toBeUndefined();
+  expect(params.pre_approved_chunks).toEqual([
+    { text: "[PERSON_1] owns the house.", document_id: 7 },
+    { text: "[PERSON_2] owns the car.", document_id: 9 },
+    { text: "added note", document_id: null },
+  ]);
+  expect(params.numbering_token).toBe("v1.signed");
+});

@@ -20,7 +20,8 @@ export interface UseChatApprovalReturn {
     maskedPrompt: string,
     chunks: ApprovalChunkPayload[],
     activeRegulations: string[],
-    assembledPrompt: string
+    assembledPrompt: string,
+    numberingToken?: string
   ) => void;
   onApprovalRejected: (reason: string) => void;
   closeApprovalModal: () => void;
@@ -52,6 +53,7 @@ export function useChatApproval({
   const assembledPromptRef = useRef("");
   const chunksRef = useRef<ApprovalChunkPayload[]>([]);
   const regulationsRef = useRef<string[]>([]);
+  const numberingTokenRef = useRef<string | undefined>(undefined);
   const lastApprovalDataRef = useRef<ApprovalData | null>(null);
 
   const handleApprove = useCallback(
@@ -62,6 +64,7 @@ export function useChatApproval({
         assembled_prompt: assembledPromptRef.current,
         chunks: editedChunks,
         regulations: regulationsRef.current,
+        numbering_token: numberingTokenRef.current,
       };
       lastApprovalDataRef.current = data;
       await approvalApprove(sessionId, editedChunks);
@@ -91,6 +94,7 @@ export function useChatApproval({
       chunks: chunksRef.current,
       regulations: regulationsRef.current,
       original_user_message: userText,
+      numbering_token: numberingTokenRef.current,
     };
 
     setApprovalOpen(false);
@@ -129,9 +133,11 @@ export function useChatApproval({
       maskedPrompt: string,
       chunks: ApprovalChunkPayload[],
       activeRegulations: string[],
-      assembledPrompt: string
+      assembledPrompt: string,
+      numberingToken?: string
     ) => {
       maskedPromptRef.current = maskedPrompt;
+      numberingTokenRef.current = numberingToken;
       assembledPromptRef.current = assembledPrompt;
       chunksRef.current = chunks;
       regulationsRef.current = activeRegulations;

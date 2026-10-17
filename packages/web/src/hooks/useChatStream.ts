@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { streamChatAsk, getChatDebug } from "@/lib/api";
+import { streamChatAsk, getChatDebug, type PreApprovedChunk } from "@/lib/api";
 import type {
   ApprovalChunkPayload,
+  ApprovalData,
   ChatMessage,
+  DebugData,
+  DebugPanelData,
   OutputMode,
   SSEChatEvent
 } from "@/lib/types";
@@ -19,16 +22,24 @@ export interface UseChatStreamOptions {
   deanonEnabled: boolean;
   outputMode: OutputMode;
   onResponseComplete?: (deanonApplied: boolean) => void;
-  onMessagePairComplete?: (userText: string, assistantText: string, sseSessionId?: string, approvalData?: import("@/lib/types").ApprovalData, isRetry?: boolean, debugData?: import("@/lib/types").DebugData) => void;
-  getApprovalData?: () => import("@/lib/types").ApprovalData | null;
+  onMessagePairComplete?: (userText: string, assistantText: string, debugId?: string, approvalData?: ApprovalData, isRetry?: boolean, debugData?: DebugData) => void;
+  getApprovalData?: () => ApprovalData | null;
   onApprovalRequired: (
     sessionId: string,
     maskedPrompt: string,
     chunks: ApprovalChunkPayload[],
     activeRegulations: string[],
-    assembledPrompt: string
+    assembledPrompt: string,
+    numberingToken?: string
   ) => void;
   onApprovalRejected: (reason: string) => void;
+}
+
+export interface SendMessageOptions {
+  /** Resend an already-shown question without adding a second user bubble. */
+  suppressUserBubble?: boolean;
+  /** Numbering token of the turn whose `preApprovedChunks` are being resent. */
+  numberingToken?: string;
 }
 
 export interface UseChatStreamReturn {
@@ -36,27 +47,19 @@ export interface UseChatStreamReturn {
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   streaming: boolean;
   streamError: string | null;
-  debugSessionId: string | null;
-  debugData: {
-    masked_prompt: string;
-    masked_answer: string;
-    final_answer: string;
-  } | null;
-  setDebugData: React.Dispatch<React.SetStateAction<{
-    masked_prompt: string;
-    masked_answer: string;
-    final_answer: string;
-  } | null>>;
+  debugData: DebugPanelData | null;
+  setDebugData: React.Dispatch<React.SetStateAction<DebugPanelData | null>>;
   debugOpen: boolean;
   setDebugOpen: (open: boolean) => void;
   sendMessage: (
     text: string,
-    preApprovedChunks?: { text: string }[],
+    preApprovedChunks?: PreApprovedChunk[],
     scopedDocIds?: number[],
+    options?: SendMessageOptions,
   ) => void;
   regenerate: () => void;
   stopStreaming: () => void;
-  handleOpenDebug: (sessionIdOverride?: string) => Promise<void>;
+  handleOpenDebug: (debugId: string, finalAnswer: string) => Promise<void>;
   pendingAssistantIdRef: React.RefObject<string | null>;
 }
 
@@ -76,16 +79,11 @@ export function useChatStream({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
-  const [debugSessionId, setDebugSessionId] = useState<string | null>(null);
-  const [debugData, setDebugData] = useState<{
-    masked_prompt: string;
-    masked_answer: string;
-    final_answer: string;
-  } | null>(null);
+  const [debugData, setDebugData] = useState<DebugPanelData | null>(null);
   const [debugOpen, setDebugOpen] = useState(false);
   const abortRef = useRef<{ abort: () => void } | null>(null);
   const pendingAssistantIdRef = useRef<string | null>(null);
-  const currentSessionIdRef = useRef<string | null>(null);
+  const currentDebugIdRef = useRef<string | null>(null);
   const streamedContentRef = useRef<string>("");
   const lastUserTextRef = useRef<string>("");
   const isRetryRef = useRef(false);
@@ -93,15 +91,17 @@ export function useChatStream({
   const sendMessage = useCallback(
     (
       text: string,
-      preApprovedChunks?: { text: string }[],
+      preApprovedChunks?: PreApprovedChunk[],
       scopedDocIds?: number[],
+      options?: SendMessageOptions,
     ) => {
       if (!text.trim() || streaming) return;
 
       setStreamError(null);
       const assistantId = generateId();
+      const isRetry = !!preApprovedChunks || !!options?.suppressUserBubble;
 
-      if (preApprovedChunks) {
+      if (isRetry) {
         setMessages((prev) => [
           ...prev,
           { id: assistantId, role: "assistant", content: "" }
@@ -121,7 +121,8 @@ export function useChatStream({
       pendingAssistantIdRef.current = assistantId;
       streamedContentRef.current = "";
       lastUserTextRef.current = text;
-      isRetryRef.current = !!preApprovedChunks;
+      isRetryRef.current = isRetry;
+      currentDebugIdRef.current = null;
       setStreaming(true);
 
       let activeRegs: string[] = [];
@@ -130,15 +131,15 @@ export function useChatStream({
         switch (event.type) {
           case "meta": {
             activeRegs = event.active_regulations ?? [];
-            currentSessionIdRef.current = event.session_id;
+            currentDebugIdRef.current = event.debug_id ?? null;
+            const targetId = pendingAssistantIdRef.current;
             setMessages((prev) => {
-              const targetId = pendingAssistantIdRef.current;
               if (!targetId) return prev;
               return prev.map((m) =>
                 m.id === targetId
                   ? {
                       ...m,
-                      sessionId: event.session_id,
+                      debugId: event.debug_id,
                       ragMode: event.rag_mode,
                       matchedDocNames: event.matched_document_names,
                       matchedDocuments: event.matched_documents,
@@ -155,7 +156,8 @@ export function useChatStream({
               event.masked_prompt ?? "",
               event.chunks,
               activeRegs,
-              event.assembled_prompt ?? ""
+              event.assembled_prompt ?? "",
+              event.numbering_token
             );
             break;
           case "approval_rejected": {
@@ -202,19 +204,17 @@ export function useChatStream({
             setStreaming(false);
             const finishedId = pendingAssistantIdRef.current;
             pendingAssistantIdRef.current = null;
-            const sseId = currentSessionIdRef.current;
-            setDebugSessionId(sseId);
+            const debugId = currentDebugIdRef.current;
 
             // Fetch debug data, persist on assistant message, then notify
             const fetchAndPersist = async () => {
-              let debug: import("@/lib/types").DebugData | undefined;
-              if (sseId) {
+              let debug: DebugData | undefined;
+              if (debugId) {
                 try {
-                  const payload = await getChatDebug(sseId);
+                  const payload = await getChatDebug(debugId);
                   debug = {
                     masked_prompt: payload.masked_prompt,
                     masked_answer: payload.masked_answer,
-                    final_answer: payload.final_answer,
                   };
                   if (finishedId) {
                     setMessages((prev) =>
@@ -245,7 +245,7 @@ export function useChatStream({
               onMessagePairComplete?.(
                 lastUserTextRef.current,
                 streamedContentRef.current,
-                sseId ?? undefined,
+                debugId ?? undefined,
                 approvalData,
                 isRetryRef.current,
                 debug
@@ -267,13 +267,17 @@ export function useChatStream({
             // and the user sees a perpetual thinking indicator with
             // an out-of-band toast.
             const targetId = pendingAssistantIdRef.current;
+            const errorMessage =
+              event.code === "retry_numbering_changed"
+                ? t("chat.error.retryNumberingChanged")
+                : event.message;
             setStreaming(false);
             pendingAssistantIdRef.current = null;
-            setStreamError(event.message);
+            setStreamError(errorMessage);
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === targetId
-                  ? { ...m, content: `Error: ${event.message}` }
+                  ? { ...m, content: `Error: ${errorMessage}` }
                   : m
               )
             );
@@ -290,10 +294,11 @@ export function useChatStream({
             message: text,
             document_id: documentIds.length > 0 ? documentIds[0] : undefined,
             document_ids: documentIds.length > 0 ? documentIds : undefined,
-            require_approval: preApprovedChunks ? false : requireApproval,
+            require_approval: requireApproval,
             deanon_enabled: deanonEnabled,
             output_mode: outputMode,
             pre_approved_chunks: preApprovedChunks,
+            numbering_token: preApprovedChunks ? options?.numberingToken : undefined,
             scoped_doc_ids:
               scopedDocIds && scopedDocIds.length > 0 ? scopedDocIds : undefined,
           },
@@ -333,13 +338,13 @@ export function useChatStream({
       assistantContent = prev[lastAssistantIdx].content;
       return prev.slice(0, lastAssistantIdx);
     });
-    // Don't push another user bubble when the previous attempt was a
-    // rejected-approval (assistant content was emptied by
-    // ``applyRejection``); resending would duplicate the user's
-    // question in the transcript. ``preApprovedChunks: []`` skips the
-    // user-message emission inside ``sendMessage``.
+    // A rejected-approval attempt left an empty assistant bubble
+    // (``applyRejection``); resending must not duplicate the user's
+    // question. The request itself is a fresh turn and re-enters approval.
     const wasRejectionEmptied = assistantContent.trim().length === 0;
-    sendMessage(lastUserText, wasRejectionEmptied ? [] : undefined);
+    sendMessage(lastUserText, undefined, undefined, {
+      suppressUserBubble: wasRejectionEmptied,
+    });
   }, [streaming, sendMessage]);
 
   // Abort the live stream when the hook unmounts. Without this an
@@ -362,28 +367,25 @@ export function useChatStream({
     pendingAssistantIdRef.current = null;
   }, []);
 
-  const handleOpenDebug = useCallback(async (sessionIdOverride?: string) => {
-    const sid = sessionIdOverride ?? debugSessionId;
-    if (!sid) return;
+  const handleOpenDebug = useCallback(async (debugId: string, finalAnswer: string) => {
     try {
-      const payload = await getChatDebug(sid);
+      const payload = await getChatDebug(debugId);
       setDebugData({
         masked_prompt: payload.masked_prompt,
         masked_answer: payload.masked_answer,
-        final_answer: payload.final_answer
+        final_answer: finalAnswer
       });
       setDebugOpen(true);
     } catch {
       // Debug data is ephemeral — silently ignore if unavailable (e.g. after server restart)
     }
-  }, [debugSessionId, t]);
+  }, []);
 
   return {
     messages,
     setMessages,
     streaming,
     streamError,
-    debugSessionId,
     debugData,
     setDebugData,
     debugOpen,

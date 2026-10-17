@@ -1,4 +1,4 @@
-import { baseURL, resolveBaseURL } from "../api";
+import api, { baseURL, getChatDebug, resolveBaseURL } from "../api";
 
 describe("baseURL (module-load resolution)", () => {
   // jest.setup.ts does not set NEXT_PUBLIC_API_BASE_URL, so the module
@@ -26,5 +26,18 @@ describe("resolveBaseURL", () => {
     expect(resolveBaseURL("https://api.septum.example///")).toBe(
       "https://api.septum.example",
     );
+  });
+});
+
+describe("getChatDebug", () => {
+  it("requests the debug record by URL-encoded debug_id", async () => {
+    const spy = jest
+      .spyOn(api, "get")
+      .mockResolvedValue({ data: { debug_id: "a/b", masked_prompt: "", masked_answer: "" } });
+
+    await getChatDebug("a/b?c");
+
+    expect(spy).toHaveBeenCalledWith("/api/chat/debug/a%2Fb%3Fc");
+    spy.mockRestore();
   });
 });

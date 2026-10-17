@@ -8,7 +8,7 @@ import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
 interface MessageBubbleProps {
   message: ChatMessage;
   isThinking?: boolean;
-  onDebugClick?: (sessionId: string) => void;
+  onDebugClick?: () => void;
   onApprovalClick?: () => void;
 }
 
@@ -123,16 +123,10 @@ export function MessageBubble({
               </>
             )}
           </button>
-          {!isUser && (message.debugData || (onDebugClick && message.sessionId)) && (
+          {!isUser && onDebugClick && (message.debugData || message.debugId) && (
             <button
               type="button"
-              onClick={() => {
-                if (message.debugData && onDebugClick) {
-                  onDebugClick(message.sessionId ?? "__stored__");
-                } else if (onDebugClick && message.sessionId) {
-                  onDebugClick(message.sessionId);
-                }
-              }}
+              onClick={onDebugClick}
               className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-slate-400 hover:bg-slate-700/80 hover:text-slate-200 transition-colors"
               title={t("chat.debug.button")}
               aria-label={t("chat.debug.button")}

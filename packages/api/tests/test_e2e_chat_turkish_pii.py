@@ -11,17 +11,18 @@ from pathlib import Path
 import fitz  # type: ignore[import]
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    async_sessionmaker as create_async_sessionmaker,
-    create_async_engine,
-)
-
 from septum_api.database import init_db
 from septum_api.main import app
 from septum_api.models.user import User
 from septum_api.routers import documents as documents_router
 from septum_api.utils.auth_dependency import get_current_user, get_optional_user
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    create_async_engine,
+)
+from sqlalchemy.ext.asyncio import (
+    async_sessionmaker as create_async_sessionmaker,
+)
 
 
 def _make_turkish_pii_pdf_bytes() -> bytes:
@@ -89,6 +90,8 @@ def e2e_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(documents_router, "detect_language", _detect_language_en)
     monkeypatch.setenv("VECTOR_INDEX_DIR", str(vec_dir))
     monkeypatch.setenv("USE_NER_LAYER_DEFAULT", "false")  # Presidio only; no HuggingFace NER download
+    # A request can no longer lower the approval floor, so disable it server-side.
+    monkeypatch.setenv("REQUIRE_APPROVAL_DEFAULT", "false")
     # Prevent OCR from replacing the PDF text layer so Presidio can detect emails in CI.
     from septum_api.services.ingestion import pdf_ingester as pdf_ingester_module
 
@@ -187,7 +190,7 @@ def test_e2e_turkish_pii_upload_ask_approve_deanonymized(
 
     # Wait for async pipeline to complete (up to 30s)
     for _ in range(30):
-        poll = client.get(f"/api/documents")
+        poll = client.get("/api/documents")
         poll_doc = next((d for d in poll.json()["items"] if d["id"] == document_id), None)
         if poll_doc and poll_doc["ingestion_status"] == "completed":
             break
@@ -217,7 +220,9 @@ def test_e2e_turkish_pii_upload_ask_approve_deanonymized(
         f"Bu belgede {p1} ve {p2} geçmektedir. İletişim bilgileri: {p1}, {p2}."
     )
 
-    from septum_api.services.document_anon_store import get_document_map as _original_get
+    from septum_api.services.document_anon_store import (
+        get_document_map as _original_get,
+    )
 
     async def _get_map_for_chat(doc_id: int):
         return stored_map if doc_id == document_id else await _original_get(doc_id)

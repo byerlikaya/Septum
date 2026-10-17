@@ -8,15 +8,98 @@ LLMContextRecognizer) is always enabled and routed through this client.
 Connection uses OLLAMA_BASE_URL.
 """
 
+import ipaddress
 import json
 import logging
 import os
 import re
-from typing import Any
+from typing import Any, Optional
+from urllib.parse import urlsplit
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+_ALLOWED_OLLAMA_HOSTS = frozenset(
+    {"localhost", "host.docker.internal", "host.containers.internal", "ollama"}
+)
+_ALLOWED_OLLAMA_NETWORKS = (
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+)
+_ALLOWED_OLLAMA_SCHEMES = frozenset({"http", "https"})
+
+
+def _is_allowed_ollama_host(hostname: str) -> bool:
+    """Return True for a known local name or a canonical loopback IP literal.
+
+    Only canonical address forms pass: ``ipaddress`` rejects decimal
+    (``2130706433``), hex (``0x7f.1``), short (``127.1``) and leading-zero
+    octal IPv4 spellings, and any other DNS name is refused because it
+    could resolve to a remote or metadata address after validation.
+    """
+    if hostname in _ALLOWED_OLLAMA_HOSTS:
+        return True
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    return any(address in network for network in _ALLOWED_OLLAMA_NETWORKS)
+
+
+def ollama_url_problem(url: str) -> Optional[str]:
+    """Return why ``url`` is not an acceptable Ollama base URL, or ``None``.
+
+    Prevents SSRF: the scheme must be http(s), the URL must carry no
+    userinfo, and the host must be a loopback address literal or one of
+    the local container-host names; private-network (RFC 1918 / ULA)
+    addresses are refused. Trailing-dot and scoped hostnames are refused.
+    The URL names the server only: a path other than ``/``, a query,
+    a fragment or ``;`` parameters are refused, so a base URL cannot point
+    the client at another service's API on an allowed host.
+    """
+    try:
+        parts = urlsplit(url)
+        scheme = parts.scheme.lower()
+        netloc = parts.netloc
+        hostname = parts.hostname or ""
+        _ = parts.port  # raises ValueError on a malformed port
+    except ValueError:
+        return "Ollama URL is malformed."
+    if scheme not in _ALLOWED_OLLAMA_SCHEMES:
+        return "Ollama URL must use the http or https scheme."
+    if "@" in netloc or "\\" in netloc:
+        return "Ollama URL must not contain credentials."
+    if parts.path not in ("", "/") or any(ch in url for ch in "?#;"):
+        return "Ollama URL must not contain a path, query, fragment or parameters."
+    if (
+        not hostname
+        or hostname.endswith(".")
+        or "%" in hostname
+        or not _is_allowed_ollama_host(hostname.lower())
+    ):
+        return (
+            f"Ollama URL host '{hostname}' is not allowed. Use localhost, "
+            "a loopback IP address, host.docker.internal, "
+            "host.containers.internal, or ollama."
+        )
+    return None
+
+
+def _checked_generate_url(base_url: str | None) -> Optional[str]:
+    """Return the ``/api/generate`` URL, or ``None`` if the base URL is refused.
+
+    Applied on every call so a base URL stored before the settings
+    validator existed (or set through the environment) cannot reach a
+    public or metadata host.
+    """
+    base = (base_url or _default_base_url()).rstrip("/")
+    if ollama_url_problem(base) is not None:
+        logger.warning("Refusing Ollama call: configured base URL is not a local host")
+        return None
+    return f"{base}/api/generate"
 
 
 def use_ollama_enabled() -> bool:
@@ -45,8 +128,14 @@ def call_ollama_sync(
     model: str | None = None,
     timeout: float = 30.0,
 ) -> str:
-    """Synchronously call Ollama /api/generate and return the response text."""
-    url = f"{(base_url or _default_base_url())}/api/generate"
+    """Synchronously call Ollama /api/generate and return the response text.
+
+    Returns ``""`` (the same contract as an unreachable server) when the
+    base URL is refused by :func:`ollama_url_problem`.
+    """
+    url = _checked_generate_url(base_url)
+    if url is None:
+        return ""
     payload: dict[str, Any] = {
         "model": model or _default_deanon_model(),
         "prompt": prompt,
@@ -74,8 +163,14 @@ async def call_ollama_async(
     timeout: float = 30.0,
     options: dict[str, Any] | None = None,
 ) -> str:
-    """Asynchronously call Ollama /api/generate and return the response text."""
-    url = f"{(base_url or _default_base_url())}/api/generate"
+    """Asynchronously call Ollama /api/generate and return the response text.
+
+    Returns ``""`` (the same contract as an unreachable server) when the
+    base URL is refused by :func:`ollama_url_problem`.
+    """
+    url = _checked_generate_url(base_url)
+    if url is None:
+        return ""
     payload: dict[str, Any] = {
         "model": model or _default_deanon_model(),
         "prompt": prompt,
@@ -153,9 +248,7 @@ def extract_json_array(text: str) -> list[dict[str, Any]]:
         pass
 
     logger.warning(
-        "Could not extract valid JSON array from Ollama response (length=%d). "
-        "First 200 chars: %s",
+        "Could not extract valid JSON array from Ollama response (length=%d)",
         len(stripped),
-        stripped[:200],
     )
     return []

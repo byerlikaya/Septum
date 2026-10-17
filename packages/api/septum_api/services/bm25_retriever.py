@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 BM25-based sparse retriever for Septum.
 
@@ -15,7 +13,10 @@ Design notes
 - Token-level matching (better for legal/contract terminology)
 """
 
+from __future__ import annotations
+
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,6 +26,10 @@ from cryptography.exceptions import InvalidTag
 from rank_bm25 import BM25Okapi
 
 from ..utils.crypto import decrypt, encrypt
+from .index_file_io import discard_index_file, index_io_error
+
+_log = logging.getLogger(__name__)
+
 
 
 def _tokenize(text: str) -> List[str]:
@@ -137,13 +142,12 @@ class BM25Retriever:
         return results[:top_k]
 
     def delete_index(self, document_id: int) -> None:
-        """Remove the stored BM25 index for a document, if it exists."""
-        path = self._index_path(document_id)
-        if path.exists():
-            try:
-                path.unlink()
-            except OSError:
-                pass
+        """Remove the stored BM25 index for a document.
+
+        A missing index counts as already erased; any other ``OSError``
+        propagates so the caller cannot report the erasure as done.
+        """
+        self._index_path(document_id).unlink(missing_ok=True)
 
     def _index_path(self, document_id: int) -> Path:
         """Return the filesystem path for a document's encrypted BM25 index."""
@@ -160,29 +164,40 @@ class BM25Retriever:
         path.write_bytes(encrypted)
 
     def _load_index(self, document_id: int) -> dict | None:
-        """Load and decrypt a BM25 index for a document, if present."""
-        path = self._index_path(document_id)
-        if not path.exists():
-            return None
+        """Load and decrypt a BM25 index for a document, if present.
 
-        encrypted = path.read_bytes()
+        Filesystem failures other than a missing file are re-raised as a
+        :class:`RuntimeError` naming the document, the tier and the error
+        class, with the original exception (and its path) suppressed.
+        """
+        path = self._index_path(document_id)
+        try:
+            encrypted = path.read_bytes()
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise index_io_error("BM25", document_id, "read", exc) from None
+
         associated_data = str(document_id).encode("utf-8")
 
         try:
             raw_bytes = decrypt(encrypted, associated_data=associated_data)
-        except InvalidTag:
-            # Invalid encryption key or corrupted file; delete and return None
-            try:
-                path.unlink()
-            except OSError:
-                pass
+        except InvalidTag as exc:
+            discard_index_file(path, "BM25", document_id)
+            _log.warning(
+                "Discarded unreadable BM25 index for document %s (%s)",
+                document_id,
+                type(exc).__name__,
+            )
             return None
 
         try:
             return json.loads(raw_bytes)
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            try:
-                path.unlink()
-            except OSError:
-                pass
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            discard_index_file(path, "BM25", document_id)
+            _log.warning(
+                "Discarded corrupt BM25 index for document %s (%s)",
+                document_id,
+                type(exc).__name__,
+            )
             return None

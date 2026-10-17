@@ -26,7 +26,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Collection, Dict, List, Optional
 
 from .anonymization_map import AnonymizationMap
 from .config import SeptumCoreConfig
@@ -155,14 +155,26 @@ class SeptumEngine:
             detected_spans=list(result.detected_spans),
         )
 
-    def unmask(self, text: str, session_id: str) -> str:
-        """Restore original values in ``text`` using the recorded session map."""
+    def unmask(
+        self,
+        text: str,
+        session_id: str,
+        allowed_placeholders: Optional[Collection[str]] = None,
+    ) -> str:
+        """Restore original values in ``text`` using the recorded session map.
+
+        When ``allowed_placeholders`` is given, only those placeholders are
+        restored and every other placeholder stays literal. Each call
+        refreshes the session's idle TTL.
+        """
         anon_map = self._get_live_session(session_id)
         if anon_map is None:
             return text
         with self._sessions_lock:
             self._touch_session_locked(session_id)
-        return self._unmasker.unmask(text, anon_map)
+        return self._unmasker.unmask(
+            text, anon_map, allowed_placeholders=allowed_placeholders
+        )
 
     def get_session_map(self, session_id: str) -> Optional[Dict[str, str]]:
         """Return the ``{original: placeholder}`` map for ``session_id``.

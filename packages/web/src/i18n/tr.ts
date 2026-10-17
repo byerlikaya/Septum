@@ -485,6 +485,8 @@ export const trMessages: Record<string, string> = {
 
   "chat.approval.rejected": "Bağlam reddedildi. LLM'e yanıt gönderilmedi.",
   "chat.approval.rejectedDefault": "Reddedildi.",
+  "chat.error.retryNumberingChanged":
+    "Bu yanıt hazırlandıktan sonra belgeler değişti; lütfen soruyu yeniden sorun.",
   "chat.debug.fetchError": "Hata ayıklama bilgisi alınırken bir hata oluştu.",
   "chat.morePills": "+{count} daha",
 

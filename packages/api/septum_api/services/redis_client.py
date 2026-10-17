@@ -22,6 +22,16 @@ def _get_redis_url() -> str | None:
     return url or None
 
 
+def redis_configured() -> bool:
+    """Return True when a Redis URL is configured, reachable or not.
+
+    Callers that must not treat an unreachable Redis as "no Redis" (map
+    erasure, cross-worker map versioning) check this next to
+    :func:`get_redis`.
+    """
+    return _get_redis_url() is not None
+
+
 async def get_redis():
     """Return an async Redis client, or None if REDIS_URL is not set."""
     global _redis_pool, _redis_unavailable
@@ -72,6 +82,18 @@ async def redis_set(key: str, value: bytes, ttl: int | None = None) -> bool:
         return True
     except Exception:
         logger.warning("Redis SET failed for key=%s", key, exc_info=True)
+        return False
+
+
+async def redis_set_if_absent(key: str, value: bytes) -> bool:
+    """Set ``key`` only if it does not exist; False if not set or on failure."""
+    client = await get_redis()
+    if client is None:
+        return False
+    try:
+        return bool(await client.set(key, value, nx=True))
+    except Exception:
+        logger.warning("Redis SET NX failed for key=%s", key, exc_info=True)
         return False
 
 

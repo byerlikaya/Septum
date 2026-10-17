@@ -266,17 +266,20 @@ All LLM calls in tests must be mocked — never send real requests to cloud LLMs
 
 ## Security Scan
 
-Invoke `/security-scan` for a comprehensive audit (`.claude/skills/security-scan/SKILL.md`):
-- Dependency audit (pip-audit, npm audit), OWASP Top 10, Septum-specific checks (PII in logs, crypto keys, anon map exposure), config scan
+Invoke `/security-scan` for a comprehensive audit. It is stack-agnostic: it maps the attack surface, traces untrusted input to dangerous calls, checks dependency and configuration flaws, and returns a severity-ranked report with fixes.
+
+Apply these Septum-specific instructions on top of it:
+- Check for PII in logs, crypto key handling, and anon map exposure (maps must never reach the frontend, cloud, or logs)
+- Run the dependency audits (pip-audit, npm audit) as part of the scan
 - Report format: `[SEVERITY] Title — file:LINE` with Issue/Impact/Fix
 - Rules: never auto-install tools, mask secrets, never auto-fix without confirmation
 
-## Automated Pre-Commit Checks
+## Pre-Commit Checks (manual)
 
-`.claude/pre-commit-check.sh` runs automatically before `git commit` and blocks if:
+No script runs these automatically. Local hooks only do a trace/secret scan and require a review record, so verify every item below by hand before each `git commit` and block the commit if any fails:
 - Zero-tolerance violations (country/language names in production code)
 - Language-specific if-branches detected
-- CHANGELOG.md missing entry for today's date
+- CHANGELOG.md has an entry for today's date (checked in the final push bundle, since CHANGELOG is only touched at push time)
 - Secrets files (`config.json`) staged for commit
 - README.md changed without README.tr.md (or vice versa)
 - `database.py` entity_types changed without REGULATION_ENTITY_SOURCES.md update

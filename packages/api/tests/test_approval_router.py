@@ -5,7 +5,6 @@ from typing import Any, Iterator, List, Optional
 
 import pytest
 from fastapi.testclient import TestClient
-
 from septum_api.main import app
 from septum_api.models.user import User
 from septum_api.routers import approval as approval_router
@@ -224,3 +223,66 @@ def test_reject_session_not_found_raises_404() -> None:
     assert response.status_code == 404
     assert response.json()["detail"] == "Approval session not found."
 
+
+
+@pytest.mark.parametrize("endpoint", ["approve", "preview-prompt"])
+@pytest.mark.parametrize(
+    "chunks",
+    [
+        pytest.param(
+            [{"text": "x"}] * (approval_router.MAX_CONTEXT_CHUNKS + 1), id="too-many-chunks"
+        ),
+        pytest.param(
+            [{"text": "x" * (approval_router.MAX_PRE_APPROVED_CHUNK_CHARS + 1)}],
+            id="chunk-too-long",
+        ),
+    ],
+)
+def test_oversized_approval_payload_is_rejected(endpoint: str, chunks: list) -> None:
+    gate = _FakeApprovalGate()
+    gate._sessions["limits"] = _DummySession(session_id="limits")
+    client = _make_client_with_gate(gate)
+
+    response = client.post(f"/api/approval/limits/{endpoint}", json={"chunks": chunks})
+
+    assert response.status_code == 422
+    assert gate.approve_calls == []
+
+
+def test_approval_payload_at_the_limits_is_accepted() -> None:
+    gate = _FakeApprovalGate()
+    gate._sessions["at-limit"] = _DummySession(session_id="at-limit")
+    client = _make_client_with_gate(gate)
+    chunks = [{"text": "x" * approval_router.MAX_PRE_APPROVED_CHUNK_CHARS}] + [
+        {"text": "y"}
+    ] * (approval_router.MAX_CONTEXT_CHUNKS - 1)
+
+    response = client.post("/api/approval/at-limit/approve", json={"chunks": chunks})
+
+    assert response.status_code == 200
+
+
+def test_overlong_section_title_is_rejected() -> None:
+    gate = _FakeApprovalGate()
+    gate._sessions["title"] = _DummySession(session_id="title")
+    client = _make_client_with_gate(gate)
+    chunk = {"text": "x", "section_title": "t" * (approval_router.MAX_SECTION_TITLE_CHARS + 1)}
+
+    response = client.post("/api/approval/title/approve", json={"chunks": [chunk]})
+
+    assert response.status_code == 422
+    assert gate.approve_calls == []
+
+
+def test_overlong_reject_reason_is_rejected() -> None:
+    gate = _FakeApprovalGate()
+    gate._sessions["reason"] = _DummySession(session_id="reason")
+    client = _make_client_with_gate(gate)
+
+    response = client.post(
+        "/api/approval/reason/reject",
+        json={"reason": "r" * (approval_router.MAX_REJECT_REASON_CHARS + 1)},
+    )
+
+    assert response.status_code == 422
+    assert gate.reject_calls == []

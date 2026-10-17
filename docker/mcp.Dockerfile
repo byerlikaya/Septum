@@ -67,11 +67,14 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/packages /app/packages
 
+RUN mkdir -p /data/scan && chown septum:septum /data/scan
+
 USER septum
 
 ENV SEPTUM_MCP_TRANSPORT=streamable-http \
     SEPTUM_MCP_HTTP_HOST=0.0.0.0 \
-    SEPTUM_MCP_HTTP_PORT=8765
+    SEPTUM_MCP_HTTP_PORT=8765 \
+    SEPTUM_MCP_FILE_ROOT=/data/scan
 
 EXPOSE 8765
 

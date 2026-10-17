@@ -12,10 +12,10 @@ Approve / Reject in the frontend.
 import asyncio
 
 import pytest
-
 from septum_api.services.approval_gate import (
     ApprovalChunk,
     ApprovalGate,
+    ApprovalSessionForbiddenError,
     ApprovalSessionNotFoundError,
 )
 
@@ -133,3 +133,183 @@ async def test_wait_for_decision_rejection() -> None:
     assert decision.approved is False
     assert decision.timed_out is False
     assert decision.reason == "not-allowed"
+
+
+@pytest.mark.asyncio
+async def test_create_refuses_to_replace_another_owners_session() -> None:
+    gate = ApprovalGate()
+    await gate.create(
+        session_id="s", masked_prompt="first", masked_chunks=["a"], entity_count=0, owner_user_id=1
+    )
+
+    with pytest.raises(ApprovalSessionForbiddenError):
+        await gate.create(
+            session_id="s", masked_prompt="hijack", masked_chunks=["b"], entity_count=0, owner_user_id=2
+        )
+
+    await gate.assert_session_owner("s", 1)
+    snapshot = await gate.get_session_snapshot("s")
+    assert [c.text for c in snapshot.chunks] == ["a"]
+
+
+@pytest.mark.asyncio
+async def test_create_lets_the_owner_replace_their_session() -> None:
+    gate = ApprovalGate()
+    await gate.create(
+        session_id="s", masked_prompt="first", masked_chunks=["a"], entity_count=0, owner_user_id=1
+    )
+    await gate.create(
+        session_id="s", masked_prompt="again", masked_chunks=["b"], entity_count=0, owner_user_id=1
+    )
+
+    snapshot = await gate.get_session_snapshot("s")
+    assert [c.text for c in snapshot.chunks] == ["b"]
+
+
+async def _open_with_map(gate: ApprovalGate, session_id: str, **kwargs) -> None:
+    from septum_api.services.anonymization_map import AnonymizationMap
+
+    amap = AnonymizationMap(document_id=0, language="en")
+    amap.entity_map["Alice"] = "[PERSON_1]"
+    await gate.create(
+        session_id=session_id,
+        masked_prompt="q",
+        masked_chunks=["[PERSON_1] signed."],
+        entity_count=1,
+        anon_map=amap,
+        **kwargs,
+    )
+
+
+@pytest.mark.asyncio
+async def test_cancelled_wait_removes_the_session_and_its_map() -> None:
+    gate = ApprovalGate()
+    await _open_with_map(gate, "s-cancel")
+    session = gate._sessions["s-cancel"]
+
+    task = asyncio.create_task(gate.wait_for_decision("s-cancel", timeout=300))
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert "s-cancel" not in gate._sessions
+    assert session.anon_map is None
+    with pytest.raises(ApprovalSessionNotFoundError):
+        await gate.approve("s-cancel", edited_chunks=[])
+
+
+@pytest.mark.asyncio
+async def test_decision_clears_the_map_copy() -> None:
+    gate = ApprovalGate()
+    await _open_with_map(gate, "s-decided")
+    session = gate._sessions["s-decided"]
+
+    await gate.approve("s-decided", edited_chunks=[])
+
+    assert session.anon_map is None
+    decision = await gate.wait_for_decision("s-decided", timeout=1)
+    assert decision.approved is True
+    assert "s-decided" not in gate._sessions
+
+
+@pytest.mark.asyncio
+async def test_finished_wait_does_not_remove_a_replacing_session() -> None:
+    gate = ApprovalGate()
+    await _open_with_map(gate, "s-replaced")
+    task = asyncio.create_task(gate.wait_for_decision("s-replaced", timeout=300))
+    await asyncio.sleep(0)
+    await _open_with_map(gate, "s-replaced")
+    replacement = gate._sessions["s-replaced"]
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert gate._sessions["s-replaced"] is replacement
+    assert replacement.anon_map is not None
+
+
+@pytest.mark.asyncio
+async def test_abandoned_sessions_are_swept_after_the_timeout() -> None:
+    from datetime import timedelta
+
+    gate = ApprovalGate()
+    await _open_with_map(gate, "s-old")
+    old = gate._sessions["s-old"]
+    old.created_at -= timedelta(seconds=120)
+    await _open_with_map(gate, "s-waited")
+    waited = gate._sessions["s-waited"]
+    waited.created_at -= timedelta(seconds=120)
+    waiter = asyncio.create_task(gate.wait_for_decision("s-waited", timeout=0))
+    await asyncio.sleep(0)
+
+    await _open_with_map(gate, "s-new", abandon_after_seconds=60)
+
+    assert "s-old" not in gate._sessions
+    assert old.anon_map is None
+    assert "s-waited" in gate._sessions
+    assert "s-new" in gate._sessions
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+
+
+@pytest.mark.asyncio
+async def test_young_sessions_survive_the_sweep() -> None:
+    gate = ApprovalGate()
+    await _open_with_map(gate, "s-young")
+
+    await _open_with_map(gate, "s-next", abandon_after_seconds=60)
+
+    assert "s-young" in gate._sessions
+
+
+@pytest.mark.asyncio
+async def test_owner_replacing_a_session_releases_the_old_waiter_and_map() -> None:
+    gate = ApprovalGate()
+    await _open_with_map(gate, "s-superseded", owner_user_id=1)
+    old = gate._sessions["s-superseded"]
+    task = asyncio.create_task(gate.wait_for_decision("s-superseded", timeout=300))
+    await asyncio.sleep(0)
+
+    await _open_with_map(gate, "s-superseded", owner_user_id=1)
+    replacement = gate._sessions["s-superseded"]
+    decision = await asyncio.wait_for(task, timeout=1)
+
+    assert decision.approved is False
+    assert decision.reason == "superseded"
+    assert old.anon_map is None
+    assert gate._sessions["s-superseded"] is replacement
+    assert replacement.anon_map is not None
+
+
+@pytest.mark.asyncio
+async def test_discard_session_drops_only_its_own_session() -> None:
+    gate = ApprovalGate()
+    first = await gate.create(
+        session_id="s-discard", masked_prompt="q", masked_chunks=["a"], entity_count=0
+    )
+    gate.discard_session("s-discard", first)
+    assert "s-discard" not in gate._sessions
+
+    stale = await gate.create(
+        session_id="s-discard", masked_prompt="q", masked_chunks=["a"], entity_count=0
+    )
+    current = await gate.create(
+        session_id="s-discard", masked_prompt="q", masked_chunks=["b"], entity_count=0
+    )
+    gate.discard_session("s-discard", stale)
+    assert gate._sessions["s-discard"] is current
+
+
+@pytest.mark.asyncio
+async def test_claim_preview_refuses_a_second_preview_within_the_interval() -> None:
+    gate = ApprovalGate()
+    await gate.create(session_id="s-preview", masked_prompt="q", masked_chunks=["a"], entity_count=0)
+
+    assert await gate.claim_preview("s-preview", 60) is True
+    assert await gate.claim_preview("s-preview", 60) is False
+    assert await gate.claim_preview("s-preview", 0) is True
+    with pytest.raises(ApprovalSessionNotFoundError):
+        await gate.claim_preview("missing", 60)
