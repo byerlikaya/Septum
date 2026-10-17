@@ -229,3 +229,47 @@ async def test_llm_router_falls_back_to_ollama_on_transport_error(
     # Prompt should contain the user content in some form.
     assert "Explain fallback behaviour." in recorded_prompts[0]
 
+
+@pytest.mark.asyncio
+async def test_cloud_failure_logs_and_persists_only_class_and_status(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Provider error text (prompt echoes, keys) must not reach logs or the error table."""
+    import logging
+
+    from septum_api.services.llm_router import LLMRouterError
+
+    sentinel = "sentinel-prompt-text sk-SENTINELKEY"
+    request = httpx.Request("POST", "https://llm.invalid/v1/chat")
+    status_error = httpx.HTTPStatusError(
+        sentinel, request=request, response=httpx.Response(429, request=request)
+    )
+
+    async def _failing_dispatch(self: LLMRouter, **_: Any) -> str:
+        raise LLMRouterError(f"provider said: {sentinel}") from status_error
+
+    async def _failing_ollama(**_: Any) -> str:
+        raise RuntimeError(f"ollama echoed: {sentinel}")
+
+    monkeypatch.setattr(LLMRouter, "_dispatch_cloud_call", _failing_dispatch)
+    monkeypatch.setattr(ollama_client, "call_ollama_async", _failing_ollama)
+
+    persisted: list[tuple[str, dict[str, Any]]] = []
+
+    async def _on_cloud_failure(message: str, extra: dict[str, Any]) -> None:
+        persisted.append((message, extra))
+
+    router = LLMRouter(settings=make_app_settings(provider="openai", model="leak-check-model"))
+    with caplog.at_level(logging.DEBUG, logger="septum_api"):
+        await router.complete(
+            messages=[{"role": "user", "content": "hello"}],
+            on_cloud_failure=_on_cloud_failure,
+        )
+
+    assert sentinel not in caplog.text
+    assert "LLMRouterError (status=429)" in caplog.text
+    assert "RuntimeError" in caplog.text
+    assert len(persisted) == 1
+    message, extra = persisted[0]
+    assert sentinel not in message
+    assert extra["error"] == "LLMRouterError (status=429)"

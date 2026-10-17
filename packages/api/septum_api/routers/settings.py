@@ -315,17 +315,17 @@ async def test_llm_connection_endpoint(
     except LLMRouterError as exc:
         try:
             await log_backend_error(db, request, exc, status_code=400)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as log_exc:
+            logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         try:
             await log_backend_error(db, request, exc, status_code=400)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as log_exc:
+            logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cloud LLM connection test failed due to an unexpected error.",
@@ -686,7 +686,7 @@ async def get_ingestion_health_endpoint(
                 filename = os.path.basename(model_url)
             else:
                 filename = f"{model_name}.pt"
-        except Exception:  # noqa: BLE001
+        except Exception:
             filename = f"{model_name}.pt"
 
         cache_dir = base_cache_dir / "whisper"

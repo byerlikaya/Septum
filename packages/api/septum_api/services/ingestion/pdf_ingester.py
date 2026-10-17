@@ -16,6 +16,7 @@ sanitization pipeline and is not persisted in plaintext on disk.
 
 import asyncio
 import io
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -28,6 +29,8 @@ from ...utils.text_utils import strip_control_characters
 from .base import BaseIngester, IngestionResult
 from .ocr import run_ocr
 from .table_extractor import TableFieldExtractor
+
+logger = logging.getLogger(__name__)
 
 
 class PdfIngester(BaseIngester):
@@ -155,9 +158,8 @@ class PdfIngester(BaseIngester):
                     os.unlink(tmp_path)
                 except OSError:
                     pass
-        except Exception:
-            # If field extraction fails, continue with text-only
-            pass
+        except Exception as exc:
+            logger.debug("Form field extraction failed, continuing with text only: %s", type(exc).__name__)
 
         avg_confidence = (
             float(sum(ocr_confidences) / len(ocr_confidences))
@@ -249,7 +251,8 @@ class PdfIngester(BaseIngester):
                 if ocr_texts:
                     image_texts.append("\n".join(ocr_texts))
                     image_confs.extend(confs)
-            except Exception:
+            except Exception as exc:
+                logger.debug("Embedded image OCR failed, skipping image: %s", type(exc).__name__)
                 continue
 
         return image_texts, image_confs

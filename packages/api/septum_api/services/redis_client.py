@@ -51,8 +51,8 @@ async def get_redis():
 
         _redis_pool = aioredis.from_url(url, decode_responses=False)
         return _redis_pool
-    except Exception:
-        logger.warning("Failed to create Redis connection pool", exc_info=True)
+    except Exception as exc:
+        logger.warning("Failed to create Redis connection pool: %s", type(exc).__name__)
         _redis_unavailable = True
         return None
 
@@ -64,8 +64,8 @@ async def redis_get(key: str) -> bytes | None:
         return None
     try:
         return await client.get(key)
-    except Exception:
-        logger.warning("Redis GET failed for key=%s", key, exc_info=True)
+    except Exception as exc:
+        logger.warning("Redis GET failed for key=%s: %s", key, type(exc).__name__)
         return None
 
 
@@ -80,8 +80,8 @@ async def redis_set(key: str, value: bytes, ttl: int | None = None) -> bool:
         else:
             await client.set(key, value)
         return True
-    except Exception:
-        logger.warning("Redis SET failed for key=%s", key, exc_info=True)
+    except Exception as exc:
+        logger.warning("Redis SET failed for key=%s: %s", key, type(exc).__name__)
         return False
 
 
@@ -92,8 +92,8 @@ async def redis_set_if_absent(key: str, value: bytes) -> bool:
         return False
     try:
         return bool(await client.set(key, value, nx=True))
-    except Exception:
-        logger.warning("Redis SET NX failed for key=%s", key, exc_info=True)
+    except Exception as exc:
+        logger.warning("Redis SET NX failed for key=%s: %s", key, type(exc).__name__)
         return False
 
 
@@ -105,8 +105,8 @@ async def redis_delete(key: str) -> bool:
     try:
         await client.delete(key)
         return True
-    except Exception:
-        logger.warning("Redis DELETE failed for key=%s", key, exc_info=True)
+    except Exception as exc:
+        logger.warning("Redis DELETE failed for key=%s: %s", key, type(exc).__name__)
         return False
 
 

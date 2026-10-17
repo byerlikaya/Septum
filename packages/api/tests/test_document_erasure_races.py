@@ -498,3 +498,32 @@ def test_every_map_write_is_guarded_by_a_held_lock() -> None:
                 f"{source.name}: ensure_held is not called on an enclosing document_map_lock"
             )
     assert found >= 2
+
+
+async def test_ingestion_failure_stores_no_exception_text(
+    env: _Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from septum_api.models.error_log import ErrorLog
+
+    sentinel = "Sentinel Patient Q7X9 diagnosed"
+    doc, _ = await env.add_document()
+
+    async def _ingest(**kwargs):
+        raise ValueError(f"could not parse page: {sentinel}")
+
+    monkeypatch.setattr(documents_module._INGESTION_ROUTER, "ingest", _ingest)
+
+    resp = await env.client.post(f"/api/documents/{doc}/reprocess")
+
+    assert resp.status_code == 200
+    stored = await env.document(doc)
+    assert stored.ingestion_status == "failed"
+    assert stored.ingestion_error == "Ingestion failed (ValueError)"
+    async with env.session_maker() as session:
+        rows = (await session.execute(select(ErrorLog))).scalars().all()
+    assert rows, "the failure still reaches the error log"
+    for row in rows:
+        assert sentinel not in row.message
+        assert sentinel not in (row.stack_trace or "")
+        assert sentinel not in str(row.extra)
+    assert any(row.exception_type == "ValueError" and " in _ingest" in row.stack_trace for row in rows)

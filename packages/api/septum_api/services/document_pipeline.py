@@ -8,6 +8,7 @@ from typing import Callable, Dict, List, Optional, Sequence
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..errors import ContentFreeError
 from ..models.document import Chunk as DocumentChunk
 from ..models.document import Document
 from ..models.entity_detection import EntityDetection
@@ -42,6 +43,10 @@ _ARTIFACT_TIER_LABELS = {
     "bm25_index": "BM25 index",
     "anonymization_map": "anonymization map",
 }
+
+
+class ArtifactCleanupError(ContentFreeError, RuntimeError):
+    """Erasure failed; the message names only the document id, tier and error class."""
 
 
 class ArtifactErasureError(RuntimeError):
@@ -238,11 +243,11 @@ class DocumentPipeline:
             await replace_index_for_document(db, document.id, anon_map)
             await recompute_relationships_for_document(db, document.id)
             await db.commit()
-        except Exception:
-            logger = logging.getLogger(__name__)
-            logger.exception(
-                "Failed to populate entity index / relationships for document %s",
+        except Exception as exc:
+            logging.getLogger(__name__).error(
+                "Failed to populate entity index / relationships for document %s: %s",
                 document.id,
+                type(exc).__name__,
             )
             await db.rollback()
 
@@ -414,7 +419,7 @@ class DocumentPipeline:
 
         Runs under :func:`document_map_lock`, so a concurrent map edit can
         neither interleave with nor outlive the erasure. Any failure raises a
-        :class:`RuntimeError` naming the document, the tier and the error
+        :class:`ArtifactCleanupError` naming the document, the tier and the error
         class only, with the original exception suppressed, so the path never
         reaches the error log or the document row.
         """
@@ -422,7 +427,7 @@ class DocumentPipeline:
             try:
                 await erase_document_artifacts(document_id)
             except ArtifactErasureError as exc:
-                raise RuntimeError(
+                raise ArtifactCleanupError(
                     f"Could not remove {exc.label} for document {document_id} "
                     f"({type(exc.error).__name__})"
                 ) from None

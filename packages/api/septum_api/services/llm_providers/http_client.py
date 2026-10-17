@@ -50,7 +50,9 @@ async def post_with_retries(
             await asyncio.sleep(backoff)
         except httpx.HTTPError as exc:
             last_error = exc
-            logger.error("LLM transport error while calling provider: url=%s error=%s", url, exc)
+            logger.error(
+                "LLM transport error while calling provider: url=%s error=%s", url, type(exc).__name__
+            )
             if attempt >= max_attempts:
                 break
             backoff = base_backoff_seconds * (2 ** (attempt - 1))

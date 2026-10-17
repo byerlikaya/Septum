@@ -9,6 +9,7 @@ not required — these endpoints are only meaningful during first-time setup.
 
 import logging
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -23,6 +24,7 @@ from ..database import (
     init_db,
     initialize_engine,
 )
+from ..errors import public_error_text
 from ..models.settings import AppSettings
 from ..models.user import User
 from ..utils.auth_dependency import require_role
@@ -120,8 +122,8 @@ async def setup_status() -> SetupStatusResponse:
             completed = result.scalar_one_or_none()
             if completed:
                 return SetupStatusResponse(status="complete", version=version)
-    except Exception:
-        logger.warning("Could not query setup_completed", exc_info=True)
+    except Exception as exc:
+        logger.warning("Could not query setup_completed: %s", type(exc).__name__)
 
     return SetupStatusResponse(status="needs_application_setup", version=version)
 
@@ -152,8 +154,8 @@ async def test_database(body: TestDatabaseRequest, _: None = Depends(_require_se
         await eng.dispose()
         return TestConnectionResponse(ok=True, message="Connection successful")
     except Exception as exc:
-        logger.info("Database test failed: %s", exc)
-        return TestConnectionResponse(ok=False, message=str(exc))
+        logger.info("Database test failed: %s", type(exc).__name__)
+        return TestConnectionResponse(ok=False, message=public_error_text(exc, "Database connection failed"))
 
 
 # ---------------------------------------------------------------------------
@@ -180,8 +182,8 @@ async def test_redis(body: TestRedisRequest, _: None = Depends(_require_setup_ph
         await client.aclose()
         return TestConnectionResponse(ok=True, message="Connection successful")
     except Exception as exc:
-        logger.info("Redis test failed: %s", exc)
-        return TestConnectionResponse(ok=False, message=str(exc))
+        logger.info("Redis test failed: %s", type(exc).__name__)
+        return TestConnectionResponse(ok=False, message=public_error_text(exc, "Redis connection failed"))
 
 
 # ---------------------------------------------------------------------------
@@ -238,8 +240,10 @@ async def initialize(
 
         return InitializeResponse(ok=True, message="Infrastructure initialised")
     except Exception as exc:
-        logger.error("Infrastructure initialisation failed: %s", exc, exc_info=True)
-        return InitializeResponse(ok=False, message=str(exc))
+        logger.error("Infrastructure initialisation failed: %s", type(exc).__name__)
+        return InitializeResponse(
+            ok=False, message=public_error_text(exc, "Infrastructure initialisation failed")
+        )
 
 
 def _mask_url(url: str) -> str:
@@ -318,8 +322,8 @@ async def update_infrastructure(
 
         return InitializeResponse(ok=True, message="Configuration updated")
     except Exception as exc:
-        logger.error("Infrastructure update failed: %s", exc, exc_info=True)
-        return InitializeResponse(ok=False, message=str(exc))
+        logger.error("Infrastructure update failed: %s", type(exc).__name__)
+        return InitializeResponse(ok=False, message=public_error_text(exc, "Infrastructure update failed"))
 
 
 # ---------------------------------------------------------------------------
@@ -492,7 +496,6 @@ async def check_update() -> UpdateCheckResponse:
     current = _read_version()
 
     try:
-        import httpx
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(
                 "https://hub.docker.com/v2/repositories/byerlikaya/septum/tags",
@@ -524,7 +527,7 @@ async def check_update() -> UpdateCheckResponse:
             update_command=f"docker pull byerlikaya/septum:{latest}" if update_available else "",
         )
     except Exception as exc:
-        logger.info("Update check failed: %s", exc)
+        logger.info("Update check failed: %s", type(exc).__name__)
         return UpdateCheckResponse(
             current_version=current,
             latest_version=current,

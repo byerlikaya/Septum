@@ -226,8 +226,9 @@ async def _sqlite_purge_orphan_child_rows(eng: AsyncEngine) -> None:
         for query in queries:
             try:
                 await conn.execute(text(query))
-            except Exception:
-                # Tables may not exist yet on a fresh database; skip silently.
+            except Exception as exc:
+                # A table may not exist yet on a fresh database; the query is skipped.
+                logger.debug("Skipping integrity query: %s", type(exc).__name__)
                 continue
 
 

@@ -150,7 +150,7 @@ def call_ollama_sync(
             response.raise_for_status()
             data = response.json()
     except httpx.HTTPError as exc:
-        logger.debug("Ollama sync call failed: %s", exc)
+        logger.debug("Ollama sync call failed: %s", type(exc).__name__)
         return ""
     out = data.get("response")
     return out if isinstance(out, str) else ""
@@ -184,7 +184,7 @@ async def call_ollama_async(
             response.raise_for_status()
             data = response.json()
     except httpx.HTTPError as exc:
-        logger.debug("Ollama async call failed: %s", exc)
+        logger.debug("Ollama async call failed: %s", type(exc).__name__)
         return ""
     out = data.get("response")
     return out if isinstance(out, str) else ""

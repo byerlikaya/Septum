@@ -29,8 +29,8 @@ async def _persist(db: AsyncSession, event: AuditEvent) -> Optional[AuditEvent]:
         await db.commit()
         await db.refresh(event)
         return event
-    except Exception:
-        logger.exception("Failed to persist audit event")
+    except Exception as exc:
+        logger.error("Failed to persist audit event: %s", type(exc).__name__)
         await db.rollback()
         return None
 

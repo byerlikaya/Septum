@@ -923,8 +923,8 @@ async def _run_llm_and_deanonymize(
         if http_request is not None:
             try:
                 await log_backend_message(db, http_request, message, level="ERROR", extra=extra)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as log_exc:
+                logger.warning("Cloud-failure log persistence failed: %s", type(log_exc).__name__)
 
     if rag_mode == "none":
         user_prompt = PromptCatalog.pure_chat_prompt(sanitized_query)
@@ -1928,8 +1928,8 @@ async def chat_ask(
                 await log_backend_error(
                     db, http_request, exc, status_code=400
                 )
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as log_exc:
+                logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
             yield _encode_sse(
                 {
                     "type": "error",
@@ -1937,15 +1937,13 @@ async def chat_ask(
                 }
             )
         except Exception as exc:
-            logger.exception(
-                "Unhandled exception in chat event stream"
-            )
+            logger.error("Unhandled exception in chat event stream: %s", type(exc).__name__)
             try:
                 await log_backend_error(
                     db, http_request, exc, status_code=500
                 )
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as log_exc:
+                logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
             yield _encode_sse(
                 {
                     "type": "error",

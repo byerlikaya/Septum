@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..database import get_db
+from ..errors import public_error_text
 from ..models.audit_event import AuditEvent
 from ..models.document import Chunk as DocumentChunk
 from ..models.document import Document
@@ -415,8 +416,8 @@ def _detect_mime_type(raw_bytes: bytes, fallback_mime_type: Optional[str] = None
                 "application/zip",
             ):
                 return mime
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:
+            logger.debug("Content-based MIME detection failed, using structural checks: %s", type(exc).__name__)
 
     if raw_bytes.startswith(b"%PDF-"):
         return "application/pdf"
@@ -515,24 +516,24 @@ async def _record_background_failure(
     """
     try:
         await bg_db.rollback()
-    except Exception:  # noqa: BLE001 - best-effort recovery
-        pass
+    except Exception as log_exc:
+        logger.warning("Rollback during ingestion failure handling failed: %s", type(log_exc).__name__)
     try:
         await bg_db.execute(
             update(Document)
             .where(Document.id == doc_id)
             .values(
                 ingestion_status="failed",
-                ingestion_error=f"{type(exc).__name__}: {exc}",
+                ingestion_error=public_error_text(exc, "Ingestion failed"),
             )
         )
         await bg_db.commit()
-    except Exception:  # noqa: BLE001
+    except Exception as log_exc:
         # If even the recovery UPDATE cannot land, the connection is
         # unsalvageable; the original error is still surfaced via the caller's
         # logs and the document will be picked up by the orphaned-cleanup pass
         # on the next server restart.
-        pass
+        logger.warning("Recovery update for failed ingestion did not land: %s", type(log_exc).__name__)
 
     # Also write the failure to the centralized error log so it shows up in
     # the Error Logs UI alongside HTTP-handler failures. ``log_backend_error``
@@ -547,8 +548,8 @@ async def _record_background_failure(
             exc,
             extra={"source": "ingestion", "document_id": doc_id},
         )
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as log_exc:
+        logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
 
 
 _MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(500 * 1024 * 1024)))

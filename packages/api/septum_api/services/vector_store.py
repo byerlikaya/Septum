@@ -80,8 +80,8 @@ def get_shared_sentence_transformer(
             try:
                 if hasattr(_shared_st_model, "to"):
                     _shared_st_model = _shared_st_model.to("cpu")
-            except Exception:
-                pass
+            except Exception as exc:
+                _log.debug("Moving shared model to CPU failed: %s", type(exc).__name__)
         return _shared_st_model
 
 
