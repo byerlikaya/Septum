@@ -20,10 +20,11 @@ from septum_api.models import Base
 from septum_api.models.document import Chunk, Document
 from septum_api.models.user import User
 from septum_api.routers import chat as chat_module
-from septum_api.services import chat_debug_store
+from septum_api.services import chat_debug_store, pii_gate
 from septum_api.services.approval_gate import ApprovalDecision, ApprovalGate
 from septum_api.services.llm_router import LLMRouter
 from septum_api.utils.auth_dependency import get_current_user
+from septum_core.spans import SanitizeResult
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -112,6 +113,17 @@ class _FakeGate:
         return ApprovalDecision(approved=False, chunks=[], reason="test")
 
 
+class _NoEntitySanitizer:
+    """Sanitizer double that detects nothing, so no NER model is loaded."""
+
+    def sanitize(self, text: str, language: str, anon_map: Any) -> SanitizeResult:
+        return SanitizeResult(sanitized_text=text, entity_count=0, detected_spans=[])
+
+
+async def _create_sanitizer(db: Any, settings: Any, enable_ollama: bool = False) -> _NoEntitySanitizer:
+    return _NoEntitySanitizer()
+
+
 class _FakeDeanonymizer:
     """Deterministic local de-anonymizer: restores the one known placeholder."""
 
@@ -175,6 +187,8 @@ async def chat_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIter
         monkeypatch.setattr(chat_module, "get_document_map", _no_map)
         monkeypatch.setattr(chat_module, "_classify_query_intent", _classify)
         monkeypatch.setattr(chat_module, "Deanonymizer", _FakeDeanonymizer)
+        monkeypatch.setattr(chat_module, "create_sanitizer", _create_sanitizer)
+        monkeypatch.setattr(pii_gate, "create_sanitizer", _create_sanitizer)
         monkeypatch.setattr(chat_module, "get_approval_gate", lambda: env.gate)
         monkeypatch.setattr(LLMRouter, "complete", _complete)
 
