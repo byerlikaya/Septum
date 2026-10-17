@@ -468,6 +468,8 @@ export const enMessages = {
 
   "chat.approval.rejected": "Context was rejected. No answer sent to the LLM.",
   "chat.approval.rejectedDefault": "Rejected.",
+  "chat.error.retryNumberingChanged":
+    "The documents changed since this answer was prepared; please ask again.",
   "chat.debug.fetchError": "An error occurred while fetching debug information.",
   "chat.morePills": "+{count} more",
 

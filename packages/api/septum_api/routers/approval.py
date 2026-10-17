@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.user import User
+from ..services.anonymization_map import AnonymizationMap
 from ..services.approval_gate import (
     ApprovalChunk,
     ApprovalDecision,
@@ -27,9 +28,23 @@ from ..services.approval_gate import (
     ApprovalSessionNotFoundError,
     get_approval_gate,
 )
+from ..services.pii_gate import reserve_placeholder_counters
 from ..utils.auth_dependency import get_current_user
+from ..utils.db_helpers import load_settings
+from .chat import (
+    MAX_CONTEXT_CHUNKS,
+    MAX_PRE_APPROVED_CHUNK_CHARS,
+    _assemble_user_prompt,
+    _gate_edited_chunks,
+)
 
 router = APIRouter(prefix="/api/approval", tags=["approval"])
+
+MAX_SECTION_TITLE_CHARS = 512
+MAX_REJECT_REASON_CHARS = 512
+# Below the approval modal's own debounce, so normal editing never hits it;
+# it only stops a client from running the PII gate in a tight loop.
+PREVIEW_MIN_INTERVAL_SECONDS = 0.25
 
 
 class ApprovalChunkPayload(BaseModel):
@@ -75,6 +90,15 @@ class ApprovalChunkPayload(BaseModel):
         )
 
 
+class ApprovalChunkInput(ApprovalChunkPayload):
+    """A chunk sent back by the client, bounded like a chat retry chunk."""
+
+    text: str = Field(max_length=MAX_PRE_APPROVED_CHUNK_CHARS)
+    section_title: Optional[str] = Field(
+        default=None, max_length=MAX_SECTION_TITLE_CHARS
+    )
+
+
 class ApprovalDecisionResponse(BaseModel):
     """API response describing the outcome of an approval session."""
 
@@ -112,19 +136,19 @@ class ApprovalSessionStatus(BaseModel):
 class ApproveRequest(BaseModel):
     """Request body for approving a pending session."""
 
-    chunks: List[ApprovalChunkPayload]
+    chunks: List[ApprovalChunkInput] = Field(max_length=MAX_CONTEXT_CHUNKS)
 
 
 class RejectRequest(BaseModel):
     """Request body for rejecting a pending session."""
 
-    reason: Optional[str] = None
+    reason: Optional[str] = Field(default=None, max_length=MAX_REJECT_REASON_CHARS)
 
 
 class PreviewPromptRequest(BaseModel):
     """Request body for re-assembling the user prompt with edited chunks."""
 
-    chunks: List[ApprovalChunkPayload]
+    chunks: List[ApprovalChunkInput] = Field(max_length=MAX_CONTEXT_CHUNKS)
 
 
 class PreviewPromptResponse(BaseModel):
@@ -145,15 +169,25 @@ def _get_gate() -> ApprovalGate:
 )
 async def get_session_status(
     session_id: str,
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ApprovalSessionStatus:
     """Return basic status information for an approval session.
 
     This endpoint is intended primarily for debugging and optional UI polling.
     The primary data flow of chunks to the frontend remains the chat SSE
     stream; the approval router simply coordinates the user's decision.
+    A session owned by another user is reported as not found.
     """
     gate = _get_gate()
+    try:
+        await gate.assert_session_owner(
+            session_id, user.id, allow_admin_bypass=user.role == "admin"
+        )
+    except (ApprovalSessionNotFoundError, ApprovalSessionForbiddenError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Approval session not found.",
+        ) from None
     session = await gate.get_session_snapshot(session_id)
     if session is None:
         raise HTTPException(
@@ -245,16 +279,20 @@ async def preview_prompt(
     regulation list, language, output mode, etc.) from the in-memory
     approval session, swaps the chunks, and runs the exact same
     ``_assemble_user_prompt`` helper the chat handler uses.
-    """
-    # Imported lazily to avoid a circular import between the chat router
-    # (which depends on approval_gate) and this router (which now wants to
-    # share the chat router's prompt-assembly helper).
-    from .chat import _assemble_user_prompt
 
+    Edited chunks pass the same PII gate the send path applies, against a
+    copy of the session's anonymization map, so the preview shows exactly
+    what would be sent and the session map is never changed by a preview.
+    A second preview for the same session within
+    :data:`PREVIEW_MIN_INTERVAL_SECONDS` is refused with 429.
+    """
     gate = _get_gate()
     try:
         await gate.assert_session_owner(
             session_id, user.id, allow_admin_bypass=user.role == "admin"
+        )
+        preview_allowed = await gate.claim_preview(
+            session_id, PREVIEW_MIN_INTERVAL_SECONDS
         )
     except (ApprovalSessionNotFoundError, ApprovalSessionForbiddenError):
         raise HTTPException(
@@ -264,9 +302,14 @@ async def preview_prompt(
                 "cannot rebuild the prompt preview."
             ),
         ) from None
+    if not preview_allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Prompt previews are requested too often. Try again shortly.",
+        )
 
-    context = await gate.get_assembly_context(session_id)
-    if context is None:
+    state = await gate.get_preview_state(session_id)
+    if state is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
@@ -274,15 +317,28 @@ async def preview_prompt(
                 "cannot rebuild the prompt preview."
             ),
         )
+    context, offered_texts, preview_map = state
+    returned_texts = [c.text for c in request.chunks]
+    if preview_map is None:
+        preview_map = AnonymizationMap(
+            document_id=0, language=context.get("language", "en")
+        )
+        reserve_placeholder_counters(preview_map, offered_texts + returned_texts)
+    gated_texts = await _gate_edited_chunks(
+        offered_texts=offered_texts,
+        returned_texts=returned_texts,
+        anon_map=preview_map,
+        db=db,
+        settings=await load_settings(db),
+    )
 
     assembled = await _assemble_user_prompt(
-        db=db,
         sanitized_query=context.get("sanitized_query", ""),
-        context_chunks=[c.text for c in request.chunks],
+        context_chunks=gated_texts,
         regulation_names=list(context.get("regulation_names", []) or []),
         language=context.get("language", "en"),
         output_mode=context.get("output_mode", "chat"),
-        document_id=context.get("document_id"),
+        column_descriptions=list(context.get("column_descriptions", []) or []),
         query_has_placeholder=bool(context.get("query_has_placeholder", False)),
     )
 

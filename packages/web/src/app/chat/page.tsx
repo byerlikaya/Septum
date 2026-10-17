@@ -25,6 +25,14 @@ import { downloadJSON, downloadChatPDF } from "@/lib/export";
 import { useI18n } from "@/lib/i18n";
 import { uploadDocuments } from "@/lib/uploadDocuments";
 
+/** Keep only the masked fields of a stored assistant debug record. */
+function toPersistedDebugData(raw: unknown): DebugData | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const { masked_prompt, masked_answer } = raw as Partial<DebugData>;
+  if (typeof masked_prompt !== "string" || typeof masked_answer !== "string") return undefined;
+  return { masked_prompt, masked_answer };
+}
+
 export default function ChatPage() {
   const t = useI18n();
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -41,10 +49,10 @@ export default function ChatPage() {
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
   const [chatResetKey, setChatResetKey] = useState(0);
   const [initialMessages, setInitialMessages] = useState<
-    { role: string; content: string; sessionId?: string; approvalData?: ApprovalData; debugData?: DebugData }[]
+    { role: string; content: string; debugId?: string; approvalData?: ApprovalData; debugData?: DebugData }[]
   >([]);
   const sessionIdRef = useRef<number | null>(null);
-  const debugSessionMapRef = useRef<Map<number, string>>(new Map());
+  const lastDebugIdMapRef = useRef<Map<number, string>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -210,13 +218,13 @@ export default function ChatPage() {
   }, [documentIds]);
 
   const handleMessagePairComplete = useCallback(
-    async (userText: string, assistantText: string, sseSessionId?: string, approvalData?: ApprovalData, isRetry?: boolean, debugData?: DebugData) => {
+    async (userText: string, assistantText: string, debugId?: string, approvalData?: ApprovalData, isRetry?: boolean, debugData?: DebugData) => {
       if (!userText || !assistantText) return;
 
       const sid = await ensureSession(userText);
 
-      if (sseSessionId) {
-        debugSessionMapRef.current.set(sid, sseSessionId);
+      if (debugId) {
+        lastDebugIdMapRef.current.set(sid, debugId);
       }
 
       if (isRetry) {
@@ -251,14 +259,14 @@ export default function ChatPage() {
       const detail = await getChatSession(id);
       sessionIdRef.current = id;
       setActiveSessionId(id);
-      const sseId = debugSessionMapRef.current.get(id);
+      const lastDebugId = lastDebugIdMapRef.current.get(id);
       setInitialMessages(
         detail.messages.map((m) => ({
           role: m.role,
           content: m.content,
-          sessionId: m.role === "assistant" && sseId ? sseId : undefined,
+          debugId: m.role === "assistant" && lastDebugId ? lastDebugId : undefined,
           approvalData: m.role === "user" ? ((m.approval_data as ApprovalData | null) ?? undefined) : undefined,
-          debugData: m.role === "assistant" && m.approval_data ? (m.approval_data as unknown as DebugData) : undefined,
+          debugData: m.role === "assistant" ? toPersistedDebugData(m.approval_data) : undefined,
         }))
       );
       setChatResetKey((k) => k + 1);

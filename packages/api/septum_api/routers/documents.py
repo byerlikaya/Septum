@@ -9,6 +9,7 @@ This router is responsible for:
 """
 
 import asyncio
+import logging
 import os
 import re
 from datetime import datetime
@@ -28,6 +29,7 @@ from fastapi import (
 from langdetect import DetectorFactory
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, update
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -40,7 +42,17 @@ from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
 from ..models.spreadsheet_schema import SpreadsheetColumn, SpreadsheetSchema
 from ..models.user import User
-from ..services.document_pipeline import DocumentPipeline
+from ..services.document_anon_store import (
+    DocumentMapErasureError,
+    DocumentMapLockHandle,
+    DocumentMapLockLost,
+    document_map_lock,
+)
+from ..services.document_pipeline import (
+    ArtifactErasureError,
+    DocumentPipeline,
+    erase_document_artifacts,
+)
 from ..services.error_logger import log_backend_error
 from ..services.ingestion.audio_ingester import AudioIngester
 from ..services.ingestion.docx_ingester import DocxIngester
@@ -49,6 +61,7 @@ from ..services.ingestion.ods_ingester import OdsIngester
 from ..services.ingestion.pdf_ingester import PdfIngester
 from ..services.ingestion.router import IngestionRouter
 from ..services.ingestion.xlsx_ingester import XlsxIngester
+from ..services.pii_gate import gate_document_texts
 from ..utils.auth_dependency import get_current_user, require_role
 from ..utils.crypto import decrypt, encrypt
 from ..utils.db_helpers import (
@@ -74,6 +87,8 @@ try:  # python-magic with system libmagic; may fail if libmagic is missing.
 except ImportError:  # pragma: no cover - environment-dependent
     _magic = None
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -237,10 +252,26 @@ async def update_spreadsheet_schema(
     """Update the spreadsheet schema for a document.
 
     Only ``semantic_label`` and ``is_numeric`` fields are mutable; ``index`` and
-    ``technical_label`` must match the existing schema.
+    ``technical_label`` must match the existing schema. Semantic labels are
+    user-typed and end up in the cloud prompt, so they pass the PII gate
+    before they are stored. ``technical_label`` is never taken from the
+    client: new columns get the server-generated ``COLUMN_<index+1>``.
     """
 
-    await get_owned_or_404(db, Document, document_id, user, "Document not found.")
+    document = await get_owned_or_404(
+        db, Document, document_id, user, "Document not found."
+    )
+    typed_labels = [
+        c.semantic_label for c in payload.columns if c.semantic_label
+    ]
+    if typed_labels:
+        settings = await load_settings(db)
+        gated_labels = iter(
+            await gate_document_texts(db, settings, document, typed_labels)
+        )
+        for c in payload.columns:
+            if c.semantic_label:
+                c.semantic_label = next(gated_labels)
 
     schema_result = await db.execute(
         select(SpreadsheetSchema)
@@ -253,18 +284,17 @@ async def update_spreadsheet_schema(
         schema = SpreadsheetSchema(document_id=document_id)
         db.add(schema)
         await db.flush()
-
-    # Build an index → column mapping for quick lookups.
-    columns_by_index = {col.index: col for col in schema.columns}
+        columns_by_index = {}
+    else:
+        columns_by_index = {col.index: col for col in schema.columns}
 
     for col_payload in payload.columns:
         existing = columns_by_index.get(col_payload.index)
         if existing is None:
-            # New column index; create it with the provided mapping.
             new_col = SpreadsheetColumn(
                 schema_id=schema.id,
                 index=col_payload.index,
-                technical_label=col_payload.technical_label,
+                technical_label=f"COLUMN_{col_payload.index + 1}",
                 semantic_label=col_payload.semantic_label,
                 is_numeric=col_payload.is_numeric,
             )
@@ -880,26 +910,119 @@ async def delete_document(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin", "editor")),
 ) -> None:
-    """Delete a document, its chunks, encrypted file, and vector index."""
+    """Delete a document, its chunks, encrypted file, indexes and map.
+
+    Every stored copy is erased before the record goes: if any of them
+    cannot be removed the record stays and 500 is returned, so the delete
+    can be retried. Each step treats a missing file as already erased,
+    which makes a retry after a partial failure succeed.
+
+    A document still being ingested is refused with 409: the pipeline
+    would otherwise write its map and indexes after the erasure. The
+    erasure and the row delete run under the document's map lock, so a
+    concurrent map edit either finishes before the erasure or finds the
+    row gone and writes nothing. A concurrent delete that removed the row
+    first yields 404; a map lock found lost before the commit aborts with
+    500 and keeps the record, and one that expires on release after the
+    delete was committed is logged and the delete still succeeds.
+    """
     document = await get_owned_or_404(
         db, Document, document_id, user, "Document not found."
     )
+    _refuse_while_processing(document)
+
+    committed = False
+    try:
+        async with document_map_lock(document_id) as lock:
+            try:
+                await db.refresh(document)
+            except InvalidRequestError:
+                # A concurrent delete removed the row while this request
+                # waited for the lock.
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Document not found.",
+                ) from None
+            _refuse_while_processing(document)
+            await _erase_document_locked(db, document, lock)
+            committed = True
+    except DocumentMapLockLost:
+        if not committed:
+            raise
+        # The erasure and the row delete are already committed; the lock
+        # expiring on release cannot undo them.
+        logger.warning(
+            "Map lock of document_id=%s expired after a committed delete",
+            document_id,
+        )
+
+
+async def _erase_document_locked(
+    db: AsyncSession, document: Document, lock: DocumentMapLockHandle
+) -> None:
+    """Erase every stored copy of ``document``, then delete and commit its row.
+
+    Caller holds the document's map lock. Raises HTTP 500 if a stored copy
+    survives, or if the lock is no longer held right before the commit —
+    a writer that took it over could store a map the erasure never saw.
+    Either way the row stays in place so the delete can be retried.
+    """
+    document_id = document.id
 
     try:
-        path = Path(document.encrypted_path)
-        if path.exists():
-            path.unlink()
-    except OSError:
-        pass
-
-    await DocumentPipeline.cleanup_artifacts(document_id)
+        await erase_document_artifacts(document_id, source_path=document.encrypted_path)
+    except ArtifactErasureError as exc:
+        error = exc.error
+        if not isinstance(error, DocumentMapErasureError):
+            logger.error(
+                "Could not erase document_id=%s tier=%s error=%s errno=%s",
+                document_id,
+                exc.tier,
+                type(error).__name__,
+                getattr(error, "errno", None),
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                "The document's stored data could not be fully erased; "
+                "the document was not deleted. Try again."
+            ),
+        ) from error
 
     from sqlalchemy import delete as sa_delete
     await db.execute(
         sa_delete(AuditEvent).where(AuditEvent.document_id == document_id)
     )
     await db.delete(document)
+    try:
+        await lock.ensure_held()
+    except DocumentMapLockLost:
+        await db.rollback()
+        logger.error(
+            "Map lock of document_id=%s lost before the delete was committed",
+            document_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                "The document could not be deleted because a concurrent "
+                "update interfered. Try again."
+            ),
+        ) from None
     await db.commit()
+
+
+def _refuse_while_processing(document: Document) -> None:
+    """Raise 409 if the document is still being ingested."""
+    if document.ingestion_status == "processing":
+        raise _processing_conflict()
+
+
+def _processing_conflict() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="The document is still being processed. Try again when it has finished.",
+    )
 
 
 @router.post(
@@ -913,10 +1036,16 @@ async def reprocess_document(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin", "editor")),
 ) -> DocumentResponse:
-    """Re-run the sanitization, chunking, and indexing pipeline for an existing document."""
+    """Re-run the sanitization, chunking, and indexing pipeline for an existing document.
+
+    A document still being ingested is refused with 409, like delete; the
+    status is claimed with a conditional update so two concurrent requests
+    cannot both start a pipeline run.
+    """
     document = await get_owned_or_404(
         db, Document, document_id, user, "Document not found."
     )
+    _refuse_while_processing(document)
 
     encrypted_path = Path(document.encrypted_path)
     if not encrypted_path.exists():
@@ -924,6 +1053,21 @@ async def reprocess_document(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Encrypted source file not found on disk.",
         )
+
+    claimed = await db.execute(
+        update(Document)
+        .where(Document.id == document_id, Document.ingestion_status != "processing")
+        .values(
+            ingestion_status="processing",
+            ingestion_error=None,
+            chunk_count=0,
+            entity_count=0,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if claimed.rowcount == 0:
+        await db.rollback()
+        raise _processing_conflict()
 
     from sqlalchemy import delete as sa_delete
 
@@ -933,10 +1077,6 @@ async def reprocess_document(
     await db.execute(
         sa_delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
     )
-    document.ingestion_status = "processing"
-    document.ingestion_error = None
-    document.chunk_count = 0
-    document.entity_count = 0
     await db.commit()
     await db.refresh(document)
 

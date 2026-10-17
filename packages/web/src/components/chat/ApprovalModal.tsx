@@ -304,7 +304,7 @@ export function ApprovalModal({
 
                 return (
                   <div
-                    key={chunk.id ?? i}
+                    key={chunk.id != null ? `id-${chunk.id}` : `idx-${i}`}
                     className="rounded-lg border border-slate-700/60 bg-slate-800/40 overflow-hidden"
                   >
                     {/* Chunk header */}

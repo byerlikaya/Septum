@@ -125,11 +125,18 @@ export interface ApprovalData {
   chunks: ApprovalChunkPayload[];
   regulations: string[];
   original_user_message?: string;
+  /** Server-signed token for the placeholder numbering of this turn; required to retry it. */
+  numbering_token?: string;
 }
 
+/** Masked debug data for one turn; this is the only shape that is persisted. */
 export interface DebugData {
   masked_prompt: string;
   masked_answer: string;
+}
+
+/** Debug panel view: the masked data plus the answer already rendered in the chat. */
+export interface DebugPanelData extends DebugData {
   final_answer: string;
 }
 
@@ -139,7 +146,7 @@ export interface ChatMessage {
   id: string;
   role: ChatMessageRole;
   content: string;
-  sessionId?: string;
+  debugId?: string;
   usedOllamaFallback?: boolean;
   approvalData?: ApprovalData;
   debugData?: DebugData;
@@ -172,6 +179,7 @@ export interface ApprovalChunkPayload {
 export interface SSEMetaEvent {
   type: "meta";
   session_id: string;
+  debug_id: string;
   document_id: number | null;
   language: string;
   require_approval: boolean;
@@ -186,6 +194,7 @@ export interface SSEMetaEvent {
 export interface SSEApprovalRequiredEvent {
   type: "approval_required";
   session_id: string;
+  numbering_token?: string;
   masked_prompt?: string;
   assembled_prompt?: string;
   chunks: ApprovalChunkPayload[];
@@ -211,6 +220,8 @@ export interface SSEEndEvent {
 export interface SSEErrorEvent {
   type: "error";
   message: string;
+  /** Machine-readable reason; "retry_numbering_changed" when a retry is refused. */
+  code?: string;
 }
 
 export type SSEChatEvent =

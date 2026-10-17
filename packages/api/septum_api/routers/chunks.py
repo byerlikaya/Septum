@@ -13,9 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.document import Chunk, Document
 from ..models.user import User
+from ..services.pii_gate import gate_document_texts
 from ..services.vector_store import VectorStore
 from ..utils.auth_dependency import get_current_user, require_role
-from ..utils.db_helpers import get_or_404, get_owned_or_404
+from ..utils.db_helpers import get_or_404, get_owned_or_404, load_settings
 
 
 async def _ensure_chunk_owner(db: AsyncSession, chunk: Chunk, user: User) -> None:
@@ -157,14 +158,23 @@ async def update_chunk(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin", "editor")),
 ) -> ChunkResponse:
-    """Update mutable fields of a chunk (inline edit support)."""
+    """Update mutable fields of a chunk (inline edit support).
+
+    Edited text is user-typed, so it passes the PII gate before it is
+    stored: ``sanitized_text`` never holds raw PII, and entities first seen
+    here are added to the document's (encrypted) anonymization map.
+    """
     chunk = await get_or_404(db, Chunk, chunk_id, "Chunk not found.")
     await _ensure_chunk_owner(db, chunk, user)
 
     if payload.sanitized_text is not None:
-        normalized = normalize_unicode(payload.sanitized_text)
-        chunk.sanitized_text = normalized
-        chunk.char_count = len(normalized)
+        document = await get_or_404(db, Document, chunk.document_id, "Chunk not found.")
+        settings = await load_settings(db)
+        [masked] = await gate_document_texts(
+            db, settings, document, [normalize_unicode(payload.sanitized_text)]
+        )
+        chunk.sanitized_text = masked
+        chunk.char_count = len(masked)
 
     if payload.section_title is not None:
         chunk.section_title = payload.section_title
