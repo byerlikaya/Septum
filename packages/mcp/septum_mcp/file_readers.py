@@ -32,6 +32,24 @@ from typing import Callable, Dict, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
+FileIdentity = Tuple[int, int, int, int]
+"""``(st_dev, st_ino, st_size, st_ctime_ns)`` of a regular file.
+
+``(st_dev, st_ino)`` alone does not tell a replaced file from the original:
+some filesystems (ext4) hand a freed inode number straight to the next file
+created, so an unlink-and-recreate keeps both. ``st_ctime_ns`` changes on
+create, replace and metadata change, and ``st_size`` catches a replacement
+with different content made within the same clock tick. Residual: kernel
+timestamps are coarse, so an inode-reusing replacement of identical size
+within one tick still matches; its content is then read through the same
+root-confined descriptor walk and size cap, never from outside the root.
+"""
+
+
+def file_identity(info: os.stat_result) -> FileIdentity:
+    """Return the :data:`FileIdentity` of a ``stat``/``fstat`` result."""
+    return info.st_dev, info.st_ino, info.st_size, info.st_ctime_ns
+
 SUPPORTED_EXTENSIONS: tuple[str, ...] = (
     ".txt",
     ".md",
@@ -83,7 +101,7 @@ def read_file(
     path: str | Path,
     *,
     max_bytes: Optional[int] = None,
-    expected_identity: Optional[Tuple[int, int]] = None,
+    expected_identity: Optional[FileIdentity] = None,
 ) -> FileReadResult:
     """Read ``path`` and return its textual content.
 
@@ -111,7 +129,7 @@ def read_file_beneath(
     parts: Sequence[str],
     *,
     max_bytes: Optional[int] = None,
-    expected_identity: Optional[Tuple[int, int]] = None,
+    expected_identity: Optional[FileIdentity] = None,
     root_identity: Optional[Tuple[int, int]] = None,
 ) -> FileReadResult:
     """Read ``root/parts...`` without following any symlink below ``root``.
@@ -194,14 +212,15 @@ def _read_descriptor(
     extension: str,
     *,
     max_bytes: Optional[int],
-    expected_identity: Optional[Tuple[int, int]],
+    expected_identity: Optional[FileIdentity],
 ) -> FileReadResult:
     """Validate and parse the open file ``fd``; always closes it.
 
     Every check — regular file with a single link (a hardlink could alias
-    a file outside the allowed tree), ``(st_dev, st_ino)`` matching
-    ``expected_identity``, size within ``max_bytes`` — runs on ``fd``, so
-    the bytes parsed are the bytes checked.
+    a file outside the allowed tree), :func:`file_identity` matching
+    ``expected_identity`` (see :data:`FileIdentity` for what it does and
+    does not catch), size within ``max_bytes`` — runs on ``fd``, so the
+    bytes parsed are the bytes checked.
     """
     try:
         info = os.fstat(fd)
@@ -220,10 +239,10 @@ def _read_descriptor(
                 f"Unsupported file type. septum-mcp supports: {supported}",
             )
         fmt = extension.lstrip(".")
-        if expected_identity is not None and (info.st_dev, info.st_ino) != expected_identity:
-            return _failure(READ_CHANGED, "File changed during read")
         if max_bytes is not None and info.st_size > max_bytes:
             return _failure(READ_TOO_LARGE, "File exceeds the size cap")
+        if expected_identity is not None and file_identity(info) != expected_identity:
+            return _failure(READ_CHANGED, "File changed during read")
         data = handle.read() if max_bytes is None else handle.read(max_bytes + 1)
     if max_bytes is not None and len(data) > max_bytes:
         return _failure(READ_TOO_LARGE, "File exceeds the size cap")

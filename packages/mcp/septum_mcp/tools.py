@@ -47,7 +47,9 @@ from .file_readers import (
     READ_TOO_LARGE,
     READ_UNSUPPORTED,
     SUPPORTED_EXTENSIONS,
+    FileIdentity,
     FileReadResult,
+    file_identity,
     read_file_beneath,
 )
 
@@ -215,13 +217,13 @@ class _ScanTarget:
 
     ``path`` is the resolved file, ``base`` the directory the read is bound
     to (the resolved root, or the filesystem anchor when no root is set),
-    ``identity`` the ``(st_dev, st_ino)`` seen at validation time, and
+    ``identity`` the :data:`FileIdentity` seen at validation time, and
     ``base_identity`` the pinned root's identity (``None`` without a root).
     """
 
     path: Path
     base: Path
-    identity: Tuple[int, int]
+    identity: FileIdentity
     max_bytes: int
     base_identity: Optional[Tuple[int, int]] = None
 
@@ -305,7 +307,7 @@ def _validate_scan_path(
     return None, _ScanTarget(
         resolved,
         base,
-        (info.st_dev, info.st_ino),
+        file_identity(info),
         max_bytes,
         None if file_root is None else file_root.identity,
     )

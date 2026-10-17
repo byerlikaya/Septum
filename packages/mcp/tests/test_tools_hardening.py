@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import stat
 import threading
 from pathlib import Path
 
 import pytest
 from septum_mcp import server as server_module
 from septum_mcp.config import MCPConfig
+from septum_mcp.file_readers import file_identity
 
 
 def _stub_env(monkeypatch) -> None:
@@ -318,6 +320,66 @@ def test_scan_file_refuses_file_swapped_after_validation(tmp_path: Path, monkeyp
     assert result["error"] == tools._SCAN_PATH_UNAVAILABLE
 
 
+class _ReusedInodeStat:
+    """An ``fstat`` result for a replacement that reused the inode number."""
+
+    def __init__(self, real: os.stat_result, size_delta: int, ctime_delta: int) -> None:
+        self._real = real
+        self.st_size = real.st_size + size_delta
+        self.st_ctime_ns = real.st_ctime_ns + ctime_delta
+
+    def __getattr__(self, name: str):
+        return getattr(self._real, name)
+
+
+@pytest.mark.parametrize(
+    ("size_delta", "ctime_delta"),
+    [(0, 1), (1, 0)],
+    ids=["ctime-changed", "size-changed"],
+)
+def test_scan_file_refuses_replacement_that_reuses_the_inode(
+    tmp_path: Path, monkeypatch, size_delta: int, ctime_delta: int
+) -> None:
+    """Same ``(st_dev, st_ino)`` is not enough: ext4 reuses a freed inode at once."""
+    tools, engine, root, outside, secret, pinned = _scan_root_fixture(tmp_path, monkeypatch)
+    target = root / "reused.txt"
+    target.write_text("jane@example.com", encoding="utf-8")
+
+    from septum_mcp import file_readers
+
+    real_fstat = os.fstat
+
+    def reused_inode_fstat(fd: int):
+        info = real_fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            return info
+        return _ReusedInodeStat(info, size_delta, ctime_delta)
+
+    monkeypatch.setattr(file_readers.os, "fstat", reused_inode_fstat)
+    result = tools.scan_file(engine, file_root=pinned, file_path=str(target), mask=True)
+
+    assert result["ok"] is False
+    assert result["error"] == tools._SCAN_PATH_UNAVAILABLE
+
+
+def test_scan_file_reads_untouched_file_with_matching_identity(
+    tmp_path: Path, monkeypatch
+) -> None:
+    tools, engine, root, outside, secret, pinned = _scan_root_fixture(tmp_path, monkeypatch)
+    target = root / "steady.txt"
+    target.write_text("jane@example.com", encoding="utf-8")
+
+    error, validated = tools._validate_scan_path(
+        str(target), require_root=True, file_root=pinned
+    )
+    assert error is None
+    assert validated.identity == file_identity(target.stat())
+
+    result = tools.scan_file(engine, file_root=pinned, file_path=str(target), mask=True)
+
+    assert result["ok"] is True
+
+
 def test_scan_file_read_error_is_generic(tmp_path: Path, monkeypatch, caplog) -> None:
     tools, engine, root, outside, secret, pinned = _scan_root_fixture(tmp_path, monkeypatch)
     broken = root / "broken.pdf"
@@ -377,8 +439,7 @@ def test_scan_file_refuses_directory_swapped_for_symlink_after_validation(
     assert error is None
     inside.rename(root / "parked")
     inside.symlink_to(escaped, target_is_directory=True)
-    outside_info = (escaped / "x.txt").stat()
-    raced = dataclasses.replace(target, identity=(outside_info.st_dev, outside_info.st_ino))
+    raced = dataclasses.replace(target, identity=file_identity((escaped / "x.txt").stat()))
 
     result = tools._read_scan_target(raced)
 

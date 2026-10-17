@@ -7,7 +7,12 @@ import os
 from pathlib import Path
 
 import pytest
-from septum_mcp.file_readers import SUPPORTED_EXTENSIONS, read_file, read_file_beneath
+from septum_mcp.file_readers import (
+    SUPPORTED_EXTENSIONS,
+    file_identity,
+    read_file,
+    read_file_beneath,
+)
 
 
 def test_read_plain_text_file(tmp_path: Path) -> None:
@@ -185,10 +190,26 @@ def test_identity_mismatch_is_refused(tmp_path: Path) -> None:
     target = tmp_path / "a.txt"
     target.write_text("data", encoding="utf-8")
 
-    result = read_file(target, expected_identity=(-1, -1))
+    real = file_identity(target.stat())
 
-    assert result.ok is False
-    assert result.code == "changed"
+    for stale in (
+        (-1, -1, real[2], real[3]),
+        (real[0], real[1], real[2] + 1, real[3]),
+        (real[0], real[1], real[2], real[3] - 1),
+    ):
+        result = read_file(target, expected_identity=stale)
+        assert result.ok is False
+        assert result.code == "changed"
+
+
+def test_identity_match_reads(tmp_path: Path) -> None:
+    target = tmp_path / "a.txt"
+    target.write_text("data", encoding="utf-8")
+
+    result = read_file(target, expected_identity=file_identity(target.stat()))
+
+    assert result.ok is True
+    assert result.text == "data"
 
 
 def test_read_beneath_reads_nested_regular_file(tmp_path: Path) -> None:
