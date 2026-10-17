@@ -61,9 +61,11 @@ export function NerModelsTab({
     };
   }, [t]);
 
-  useEffect(() => {
+  const [prevOverrides, setPrevOverrides] = useState(settings.ner_model_overrides);
+  if (prevOverrides !== settings.ner_model_overrides) {
+    setPrevOverrides(settings.ner_model_overrides);
     setLocalOverrides(settings.ner_model_overrides ?? {});
-  }, [settings.ner_model_overrides]);
+  }
 
   const parseModelList = (value: string): string[] =>
     value.split(",").map((m) => m.trim()).filter(Boolean);

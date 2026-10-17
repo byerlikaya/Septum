@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import type { CustomRecognizer, DetectionMethod } from "@/lib/types";
@@ -93,48 +93,57 @@ export function CustomRuleBuilderPanel({
   );
   const [deletePending, setDeletePending] = useState<boolean>(false);
 
-  useEffect(() => {
-    if (!open) {
-      return;
+  const [syncedInputs, setSyncedInputs] = useState<{
+    open: boolean;
+    mode: CustomRuleBuilderPanelProps["mode"];
+    rule: CustomRuleBuilderPanelProps["rule"];
+  } | null>(null);
+  if (
+    syncedInputs === null ||
+    syncedInputs.open !== open ||
+    syncedInputs.mode !== mode ||
+    syncedInputs.rule !== rule
+  ) {
+    setSyncedInputs({ open, mode, rule });
+    if (open) {
+      if (mode === "edit" && rule) {
+        setForm({
+          id: rule.id,
+          name: rule.name,
+          entity_type: rule.entity_type,
+          detection_method: rule.detection_method,
+          pattern: rule.pattern ?? "",
+          keywordsText: (rule.keywords ?? []).join(", "),
+          llm_prompt: rule.llm_prompt ?? "",
+          contextWordsText: rule.context_words.join(", "),
+          placeholder_label: rule.placeholder_label,
+          is_active: rule.is_active,
+          sample_text: ""
+        });
+        setEphemeralId(undefined);
+      } else {
+        setForm({
+          id: undefined,
+          name: "",
+          entity_type: "",
+          detection_method: "regex",
+          pattern: "",
+          keywordsText: "",
+          llm_prompt: "",
+          contextWordsText: "",
+          placeholder_label: "",
+          is_active: true,
+          sample_text: ""
+        });
+        setEphemeralId(undefined);
+      }
+      setSaving(false);
+      setTesting(false);
+      setDeletePending(false);
+      setTestStatus({ state: "idle" });
+      setTestMatches([]);
     }
-
-    if (mode === "edit" && rule) {
-      setForm({
-        id: rule.id,
-        name: rule.name,
-        entity_type: rule.entity_type,
-        detection_method: rule.detection_method,
-        pattern: rule.pattern ?? "",
-        keywordsText: (rule.keywords ?? []).join(", "),
-        llm_prompt: rule.llm_prompt ?? "",
-        contextWordsText: rule.context_words.join(", "),
-        placeholder_label: rule.placeholder_label,
-        is_active: rule.is_active,
-        sample_text: ""
-      });
-      setEphemeralId(undefined);
-    } else {
-      setForm({
-        id: undefined,
-        name: "",
-        entity_type: "",
-        detection_method: "regex",
-        pattern: "",
-        keywordsText: "",
-        llm_prompt: "",
-        contextWordsText: "",
-        placeholder_label: "",
-        is_active: true,
-        sample_text: ""
-      });
-      setEphemeralId(undefined);
-    }
-    setSaving(false);
-    setTesting(false);
-    setDeletePending(false);
-    setTestStatus({ state: "idle" });
-    setTestMatches([]);
-  }, [open, mode, rule]);
+  }
 
   const handleCloseInternal = async (): Promise<void> => {
     if (ephemeralId !== undefined) {
@@ -142,7 +151,6 @@ export function CustomRuleBuilderPanel({
         await api.delete(`/api/regulations/custom/${ephemeralId}`);
         onDeleted(ephemeralId);
       } catch (error) {
-        // eslint-disable-next-line no-console
         console.error(error);
       }
     }
@@ -306,7 +314,6 @@ export function CustomRuleBuilderPanel({
         });
       }
     } catch (error) {
-      // eslint-disable-next-line no-console
       console.error(error);
       setTestStatus({
         state: "error",
@@ -355,7 +362,6 @@ export function CustomRuleBuilderPanel({
       setEphemeralId(undefined);
       onClose();
     } catch (error) {
-      // eslint-disable-next-line no-console
       console.error(error);
       setTestStatus({
         state: "error",
@@ -379,7 +385,6 @@ export function CustomRuleBuilderPanel({
       setEphemeralId(undefined);
       onClose();
     } catch (error) {
-      // eslint-disable-next-line no-console
       console.error(error);
       setTestStatus({
         state: "error",

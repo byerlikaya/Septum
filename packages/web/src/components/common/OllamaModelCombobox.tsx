@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Loader2 } from "lucide-react";
 import api from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
@@ -32,8 +32,6 @@ export function OllamaModelCombobox({
   className = "",
 }: OllamaModelComboboxProps) {
   const t = useI18n();
-  const [models, setModels] = useState<OllamaModel[]>([]);
-  const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState(value);
   const [isSearching, setIsSearching] = useState(false);
@@ -41,34 +39,39 @@ export function OllamaModelCombobox({
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Sync external value into filter text
-  useEffect(() => {
+  const [syncedValue, setSyncedValue] = useState(value);
+  if (syncedValue !== value) {
+    setSyncedValue(value);
     setFilter(value);
     setIsSearching(false);
-  }, [value]);
+  }
 
-  // Fetch models when baseUrl changes
-  const fetchModels = useCallback(async () => {
-    if (!baseUrl.trim()) {
-      setModels([]);
-      return;
-    }
-    setLoading(true);
-    try {
-      const { data } = await api.get<{ models: OllamaModel[] }>(
-        "/api/settings/ollama-models",
-        { params: { base_url: baseUrl } },
-      );
-      setModels(data.models);
-    } catch {
-      setModels([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [baseUrl]);
+  // Fetch models when baseUrl changes. The result is tagged with the URL it
+  // was fetched for, so a response for a previous URL is never shown and
+  // "loading" is derived rather than set from the effect.
+  const [fetched, setFetched] = useState<{ url: string; models: OllamaModel[] } | null>(null);
+  const hasBaseUrl = baseUrl.trim() !== "";
+  const isCurrent = fetched?.url === baseUrl;
+  const models = hasBaseUrl && isCurrent ? fetched.models : [];
+  const loading = hasBaseUrl && !isCurrent;
 
   useEffect(() => {
-    fetchModels();
-  }, [fetchModels]);
+    if (!baseUrl.trim()) return;
+    let cancelled = false;
+    api
+      .get<{ models: OllamaModel[] }>("/api/settings/ollama-models", {
+        params: { base_url: baseUrl },
+      })
+      .then(({ data }) => {
+        if (!cancelled) setFetched({ url: baseUrl, models: data.models });
+      })
+      .catch(() => {
+        if (!cancelled) setFetched({ url: baseUrl, models: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl]);
 
   // Close dropdown on outside click
   useEffect(() => {

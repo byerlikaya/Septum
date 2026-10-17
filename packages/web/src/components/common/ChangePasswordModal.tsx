@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   PASSWORD_MIN_LENGTH,
   authChangePassword,
@@ -33,7 +33,9 @@ export function ChangePasswordModal({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
 
-  useEffect(() => {
+  const [prevOpen, setPrevOpen] = useState<boolean>(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
     if (open) {
       setCurrent("");
       setNext("");
@@ -41,7 +43,7 @@ export function ChangePasswordModal({
       setError(null);
       setSubmitting(false);
     }
-  }, [open]);
+  }
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();

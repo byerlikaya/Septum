@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { PASSWORD_MIN_LENGTH } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { ROLE_LABEL_KEYS, type UserListItem, type UserRole } from "@/lib/types";
@@ -56,7 +56,9 @@ export function UserFormModal(props: UserFormModalProps) {
   const [isActive, setIsActive] = useState<boolean>(initialUser?.is_active ?? true);
   const [submitting, setSubmitting] = useState<boolean>(false);
 
-  useEffect(() => {
+  const [prevOpen, setPrevOpen] = useState<boolean>(props.open);
+  if (prevOpen !== props.open) {
+    setPrevOpen(props.open);
     if (props.open) {
       setEmail(initialUser?.email ?? "");
       setPassword("");
@@ -64,11 +66,7 @@ export function UserFormModal(props: UserFormModalProps) {
       setIsActive(initialUser?.is_active ?? true);
       setSubmitting(false);
     }
-    // Only re-initialise when the modal transitions to open. Deliberately
-    // excluding ``initialUser`` so in-flight edits aren't wiped by parent
-    // re-renders that carry an unchanged user reference.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.open]);
+  }
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
