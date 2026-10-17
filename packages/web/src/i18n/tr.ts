@@ -42,7 +42,6 @@ export const trMessages: Record<string, string> = {
   "sidebar.footer": "Gizlilik-öncelikli · Yerel-öncelikli",
   "sidebar.logout": "Çıkış Yap",
   "sidebar.changePassword": "Şifreyi değiştir",
-  "sidebar.updateAvailable": "mevcut",
 
   "auth.login.title": "Giriş Yap",
   "auth.login.subtitle": "Septum hesabınıza giriş yapın",

@@ -12,7 +12,6 @@ import json
 import logging
 import time
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -463,73 +462,6 @@ async def install_whisper(
             yield _sse({"percent": 0, "status": public_error_text(failure, "Model download failed"), "error": True})
 
     return StreamingResponse(_stream_progress(), media_type="text/event-stream")
-
-
-# ---------------------------------------------------------------------------
-# GET /api/setup/check-update
-# ---------------------------------------------------------------------------
-
-class UpdateCheckResponse(BaseModel):
-    """Version update check result."""
-    current_version: str
-    latest_version: str
-    update_available: bool
-    update_command: str = ""
-
-
-@router.get("/check-update", response_model=UpdateCheckResponse)
-async def check_update() -> UpdateCheckResponse:
-    """Check Docker Hub for a newer version of the Septum image."""
-    current = _read_version()
-
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(
-                "https://hub.docker.com/v2/repositories/byerlikaya/septum/tags",
-                params={"page_size": 50, "ordering": "last_updated"},
-            )
-            resp.raise_for_status()
-            tags = resp.json().get("results", [])
-
-        # Find the highest semantic version tag (skip "latest")
-        latest = current
-        for tag in tags:
-            name = tag.get("name", "")
-            if name == "latest" or not name[0].isdigit():
-                continue
-            parts = name.split(".")
-            if len(parts) == 3:
-                try:
-                    [int(p) for p in parts]
-                    if _version_gt(name, latest):
-                        latest = name
-                except ValueError:
-                    continue
-
-        update_available = _version_gt(latest, current)
-        return UpdateCheckResponse(
-            current_version=current,
-            latest_version=latest,
-            update_available=update_available,
-            update_command=f"docker pull byerlikaya/septum:{latest}" if update_available else "",
-        )
-    except Exception as exc:
-        logger.info("Update check failed: %s", type(exc).__name__)
-        return UpdateCheckResponse(
-            current_version=current,
-            latest_version=current,
-            update_available=False,
-        )
-
-
-def _version_gt(a: str, b: str) -> bool:
-    """Return True if version *a* is greater than version *b*."""
-    try:
-        a_parts = [int(x) for x in a.split(".")]
-        b_parts = [int(x) for x in b.split(".")]
-        return a_parts > b_parts
-    except ValueError:
-        return False
 
 
 async def _run_alembic_upgrade(database_url: str) -> None:
