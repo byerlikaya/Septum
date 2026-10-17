@@ -7,7 +7,10 @@ run before the user has chosen a database backend. Auth is intentionally
 not required — these endpoints are only meaningful during first-time setup.
 """
 
+import asyncio
+import json
 import logging
+import time
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -27,7 +30,14 @@ from ..database import (
 from ..errors import public_error_text
 from ..models.settings import AppSettings
 from ..models.user import User
-from ..utils.auth_dependency import require_role
+from ..services.whisper_models import (
+    WhisperDownloadError,
+    WhisperInstallBusy,
+    install_whisper_file,
+    resolve_whisper_target,
+    whisper_file_plausible,
+)
+from ..utils.auth_dependency import require_admin_or_bootstrap, require_role
 
 logger = logging.getLogger(__name__)
 
@@ -327,6 +337,15 @@ async def update_infrastructure(
 
 
 # ---------------------------------------------------------------------------
+# Whisper model files
+# ---------------------------------------------------------------------------
+
+def _sse(payload: dict) -> str:
+    """Encode one server-sent event."""
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+# ---------------------------------------------------------------------------
 # GET /api/setup/whisper-status
 # ---------------------------------------------------------------------------
 
@@ -338,23 +357,27 @@ class WhisperStatusResponse(BaseModel):
 
 
 @router.get("/whisper-status", response_model=WhisperStatusResponse)
-async def whisper_status(model: str = "base") -> WhisperStatusResponse:
-    """Check if a Whisper model is already downloaded."""
+async def whisper_status(
+    model: str = "base",
+    _: User | None = Depends(require_admin_or_bootstrap),
+) -> WhisperStatusResponse:
+    """Report whether a Whisper model looks installed, without hashing it.
+
+    Open to the wizard during bootstrap, admin-only afterwards. The check is
+    stat-based so it stays cheap; the install path runs the full SHA256
+    verification.
+    """
     try:
         import whisper  # type: ignore[import]
     except ImportError:
         return WhisperStatusResponse(installed=False, model=model, message="whisper package not available")
 
-    import os
-    from pathlib import Path
-    base_cache = Path(os.getenv("XDG_CACHE_HOME", str(Path.home() / ".cache")))
-    cache_dir = base_cache / "whisper"
-    models_map = getattr(whisper, "_MODELS", {})
-    expected_file = models_map.get(model, "")
-    if expected_file:
-        fname = Path(expected_file).name
-        if (cache_dir / fname).exists():
-            return WhisperStatusResponse(installed=True, model=model, message="Model ready")
+    try:
+        target = resolve_whisper_target(getattr(whisper, "_MODELS", {}), model)
+    except WhisperDownloadError as exc:
+        return WhisperStatusResponse(installed=False, model=model, message=str(exc))
+    if whisper_file_plausible(target):
+        return WhisperStatusResponse(installed=True, model=model, message="Model ready")
     return WhisperStatusResponse(installed=False, model=model, message="Model not downloaded")
 
 
@@ -370,14 +393,9 @@ class InstallWhisperRequest(BaseModel):
 @router.post("/install-whisper")
 async def install_whisper(
     body: InstallWhisperRequest,
-    _: None = Depends(_require_setup_phase),
+    _: User | None = Depends(require_admin_or_bootstrap),
 ):
     """Download a Whisper model with SSE progress streaming."""
-    import asyncio
-    import json as _json
-    import os
-    from pathlib import Path
-
     from fastapi.responses import StreamingResponse
 
     model_name = body.model.strip() or "base"
@@ -387,93 +405,62 @@ async def install_whisper(
     except ImportError:
         return TestConnectionResponse(ok=False, message="openai-whisper package not installed")
 
-    # Resolve expected file path and size from whisper's model registry
-    models_map = getattr(whisper, "_MODELS", {})
-    model_url = models_map.get(model_name, "")
-    base_cache = Path(os.getenv("XDG_CACHE_HOME", str(Path.home() / ".cache")))
-    cache_dir = base_cache / "whisper"
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        target = resolve_whisper_target(getattr(whisper, "_MODELS", {}), model_name)
+    except WhisperDownloadError as exc:
+        status = str(exc)
 
-    if model_url:
-        expected_fname = Path(model_url).name
-        expected_path = cache_dir / expected_fname
-    else:
-        expected_path = None
-
-    # Known approximate sizes (bytes) for progress calculation
-    model_sizes = {
-        "tiny": 75_000_000, "base": 145_000_000, "small": 484_000_000,
-        "medium": 1_500_000_000, "large": 2_900_000_000,
-    }
-    expected_size = model_sizes.get(model_name, 0)
-
-    # Check if already installed
-    if expected_path and expected_path.exists():
-        async def _already_done():
-            yield f"data: {_json.dumps({'percent': 100, 'status': 'ready', 'done': True})}\n\n"
-        return StreamingResponse(_already_done(), media_type="text/event-stream")
+        async def _refused():
+            yield _sse({"percent": 0, "status": status, "error": True})
+        return StreamingResponse(_refused(), media_type="text/event-stream")
 
     # Download with direct byte-level progress tracking instead of
-    # polling file size (which is unreliable under Docker/QEMU I/O).
-    import hashlib
-    import urllib.request
+    # polling file size (which is unreliable under Docker/QEMU I/O). Each
+    # attempt takes the model's lock without blocking, so a concurrent
+    # install never parks an executor thread; this request polls instead.
+    progress = {"downloaded": 0, "total": target.approx_bytes}
 
-    download_error: list[str] = []
-    download_done = asyncio.Event()
-    progress = {"downloaded": 0, "total": expected_size}
+    def _percent() -> int:
+        total = progress["total"]
+        return min(int(progress["downloaded"] * 100 / total), 99) if total > 0 else 0
 
-    def _download_sync():
-        try:
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            download_target = cache_dir / Path(model_url).name
-            expected_sha256 = model_url.split("/")[-2]
-
-            if download_target.is_file():
-                with open(download_target, "rb") as f:
-                    if hashlib.sha256(f.read()).hexdigest() == expected_sha256:
-                        progress["downloaded"] = progress["total"]
-                        return
-
-            with urllib.request.urlopen(model_url) as source:
-                content_len = source.info().get("Content-Length")
-                if content_len:
-                    progress["total"] = int(content_len)
-                with open(download_target, "wb") as output:
-                    while True:
-                        buf = source.read(8192)
-                        if not buf:
-                            break
-                        output.write(buf)
-                        progress["downloaded"] += len(buf)
-
-            with open(download_target, "rb") as f:
-                if hashlib.sha256(f.read()).hexdigest() != expected_sha256:
-                    raise RuntimeError("SHA256 checksum mismatch — please retry")
-        except Exception as exc:
-            download_error.append(str(exc))
-        finally:
-            download_done.set()
+    def _settle_abandoned(task: asyncio.Future) -> None:
+        """Collect the outcome of an attempt whose client went away."""
+        if not task.cancelled() and task.exception() is not None:
+            logger.warning(
+                "Whisper model download failed after client left: %s",
+                type(task.exception()).__name__,
+            )
 
     async def _stream_progress():
-        loop = asyncio.get_event_loop()
-        loop.run_in_executor(None, _download_sync)
-
-        yield f"data: {_json.dumps({'percent': 0, 'status': 'downloading'})}\n\n"
-
-        while not download_done.is_set():
-            await asyncio.sleep(1)
-            total = progress["total"]
-            percent = (
-                min(int(progress["downloaded"] * 100 / total), 99)
-                if total > 0
-                else 0
+        yield _sse({"percent": 0, "status": "downloading"})
+        give_up = time.monotonic() + target.deadline_seconds
+        while True:
+            attempt = asyncio.ensure_future(
+                asyncio.to_thread(install_whisper_file, target, progress, wait=False)
             )
-            yield f"data: {_json.dumps({'percent': percent, 'status': 'downloading'})}\n\n"
+            try:
+                while not attempt.done():
+                    await asyncio.wait({attempt}, timeout=1)
+                    if not attempt.done():
+                        yield _sse({"percent": _percent(), "status": "downloading"})
+            finally:
+                if not attempt.done():
+                    # The worker thread cannot be interrupted; it finishes
+                    # under its deadline and releases the locks on its own.
+                    attempt.add_done_callback(_settle_abandoned)
+            failure = attempt.exception()
+            if isinstance(failure, WhisperInstallBusy) and time.monotonic() < give_up:
+                yield _sse({"percent": 0, "status": "waiting"})
+                await asyncio.sleep(1)
+                continue
+            break
 
-        if download_error:
-            yield f"data: {_json.dumps({'percent': 0, 'status': download_error[0], 'error': True})}\n\n"
+        if failure is None:
+            yield _sse({"percent": 100, "status": "ready", "done": True})
         else:
-            yield f"data: {_json.dumps({'percent': 100, 'status': 'ready', 'done': True})}\n\n"
+            logger.warning("Whisper model download failed: %s", type(failure).__name__)
+            yield _sse({"percent": 0, "status": public_error_text(failure, "Model download failed"), "error": True})
 
     return StreamingResponse(_stream_progress(), media_type="text/event-stream")
 

@@ -22,10 +22,12 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
+from ..errors import public_error_text
 from ..models.user import User
 from ..services.error_logger import log_backend_error, log_backend_message
 from ..services.llm_router import LLMRouter, LLMRouterError
 from ..services.ollama_client import ollama_url_problem
+from ..services.whisper_models import WhisperInstallBusy, ensure_whisper_model
 from ..utils.auth_dependency import (
     get_current_user,
     require_admin_or_bootstrap,
@@ -743,15 +745,21 @@ async def install_whisper_model_endpoint(
         ) from exc
 
     def _load_model_sync() -> None:
-        device = get_device()
-        whisper.load_model(model_name, device=device)
+        ensure_whisper_model(model_name, wait=False)
+        whisper.load_model(model_name, device=get_device())
 
     try:
         await asyncio.to_thread(_load_model_sync)
-    except Exception as exc:  # noqa: BLE001
+    except WhisperInstallBusy as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Model install already in progress",
+        ) from exc
+    except Exception as exc:
+        logger.warning("Whisper model install failed: %s", type(exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to download or load Whisper model '{model_name}': {exc}",
+            detail=f"Failed to download or load Whisper model '{model_name}' ({public_error_text(exc)})",
         ) from exc
 
     return WhisperInstallResponse(
