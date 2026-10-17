@@ -20,6 +20,18 @@
 
 All notable changes to this project are documented here in a high‑level, date‑based format.
 
+## Unreleased
+
+### 2026-10-17
+
+- Added one final PII gate in the chat path: every user-typed text (approval edits, retried chunks, chunk edits, spreadsheet labels, custom regulation names) is masked before it reaches the cloud LLM or storage. Filenames no longer reach the prompt, de-anonymization restores only placeholders that were actually sent, and debug records hold masked text only.
+- Enforced ownership and approval rules in chat: document ids in chat and retries are owner-checked, auto-RAG sees only the caller's documents, and the client can only tighten approval. Retries are bound to the original placeholder numbering and refused if the documents changed.
+- Made document erasure verifiable and race-safe across memory, Redis and disk, using a versioned map cache with erasure tombstones and atomic private writes. Erasure errors are no longer swallowed, deleting a document that is still processing returns 409, and Redis must now run with the `noeviction` policy.
+- Restricted the Ollama base URL to local hosts (loopback and the container names) and re-checked it at call time. Pull errors no longer echo upstream text.
+- Hardened the MCP server: the session-map tool is opt-in and stdio-only, and unmask restores only placeholders the session emitted, within a per-session budget. File scanning is confined to a root pinned at startup (no symlink, hardlink or dotfile escape) and fails closed over HTTP without a root; the Docker images set a read-only scan root.
+- Hardened the core unmasker: it accepts an allowed-placeholder set and a short alias can no longer hijack a mapped placeholder. Recognizer validation failures no longer log candidate text.
+- Cleaned up repository hygiene: local assistant-tool config and the generated Next.js type file are no longer tracked. The old project pre-commit script is retired and its checks are listed as manual checks in the project rules.
+
 ## v1.0.0 — 2026-04-21 — Modular architecture
 
 First major release. Septum is now seven independently installable
