@@ -14,6 +14,8 @@ JWT_ALGORITHM = "HS256"
 # range while still being typeable. Combined with the per-route
 # rate-limit on /api/auth/login this is the practical defence.
 PASSWORD_MIN_LENGTH = 12
+# bcrypt only reads the first 72 bytes and bcrypt>=5 raises beyond that.
+PASSWORD_MAX_BYTES = 72
 
 
 class WeakPasswordError(ValueError):
@@ -21,10 +23,18 @@ class WeakPasswordError(ValueError):
 
 
 def validate_password_strength(password: str) -> None:
-    """Raise :class:`WeakPasswordError` if *password* is too short."""
+    """Raise :class:`WeakPasswordError` if *password* is too short, too long or not encodable."""
     if len(password) < PASSWORD_MIN_LENGTH:
         raise WeakPasswordError(
             f"Password must be at least {PASSWORD_MIN_LENGTH} characters long"
+        )
+    try:
+        encoded = password.encode()
+    except UnicodeEncodeError as exc:
+        raise WeakPasswordError("Password contains invalid characters") from exc
+    if len(encoded) > PASSWORD_MAX_BYTES:
+        raise WeakPasswordError(
+            f"Password must be at most {PASSWORD_MAX_BYTES} bytes long"
         )
 
 
@@ -42,8 +52,18 @@ def hash_password(plain: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    """Verify a plaintext password against a bcrypt hash."""
-    return bcrypt.checkpw(plain.encode(), hashed.encode())
+    """Verify a plaintext password against a bcrypt hash.
+
+    Input is cut to :data:`PASSWORD_MAX_BYTES` exactly as bcrypt<5 did
+    implicitly, so hashes created from longer passwords keep verifying
+    and an over-long login attempt fails cleanly instead of raising.
+    Input that cannot be UTF-8 encoded (lone surrogates) never matches.
+    """
+    try:
+        encoded = plain.encode()
+    except UnicodeEncodeError:
+        return False
+    return bcrypt.checkpw(encoded[:PASSWORD_MAX_BYTES], hashed.encode())
 
 
 def create_access_token(user_id: int, email: str) -> str:
