@@ -201,6 +201,8 @@ Sihirbaz tamamlandığında `config.json` yazılır, admin kullanıcı oluşturu
 
 `<POSTGRES_PASSWORD>` / `<REDIS_PASSWORD>` hızlı başlangıçta `.env` dosyasında belirlediğiniz değerlerdir. Unutulmuşsa `grep -E 'POSTGRES_PASSWORD\|REDIS_PASSWORD' .env` ile çıkarın. Redis URL'inde `://` ile `:` arasında kullanıcı adı yoktur — bu Redis'in örtük `default` kullanıcısıdır; şifreden önceki iki nokta üst üste zorunludur.
 
+**Kendi Redis'inizi mi kullanıyorsunuz?** Redis'i `maxmemory-policy noeviction` ile çalıştırın (Redis'in varsayılanı; paketli compose Redis'i de bunu kullanır). Bir doküman silindiğinde Redis'e kısa ömürlü bir tombstone yazılır; bu kayıt diğer worker'ların o dokümanın anonimleştirme haritasının önbellekteki kopyasını sunmasını engeller. Herhangi bir eviction politikası — tombstone bir TTL taşıdığı için `allkeys-*` de `volatile-*` de — onu vaktinden önce silebilir.
+
 **Host'ta zaten bir Ollama çalışıyorsa:** port çakışmasını önlemek için paketli olanı durdurun (`docker compose stop ollama && docker compose rm -f ollama`), ardından Ollama URL'i olarak `http://host.docker.internal:11434` yazın. docker-compose.yml api container'ına `extra_hosts` ile `host.docker.internal`'ı bağlamış durumda; host'taki Ollama'ya ek bir ayar olmadan erişilir.
 
 Her adımın **Bağlantıyı Test Et** butonu api container'ının içinden çalışır — yani backend kurulum sonrasında ne görecekse sihirbaz o anda onu gösterir. Yeşil onay = devam edebilirsiniz.

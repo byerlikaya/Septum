@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.document import Chunk as DocumentChunk
@@ -21,7 +22,7 @@ from .chunking_strategy import (
     SlidingWindowChunker,
     StructuredDocumentChunker,
 )
-from .document_anon_store import pop_document_map, set_document_map
+from .document_anon_store import document_map_lock, pop_document_map, set_document_map
 from .entity_index_service import (
     recompute_relationships_for_document,
     replace_index_for_document,
@@ -30,6 +31,56 @@ from .sanitizer import ResolvedSpan
 from .sanitizer_factory import create_sanitizer
 from .text_normalizer import TextNormalizer
 from .vector_store import VectorStore
+
+
+class DocumentDeletedDuringIngestionError(RuntimeError):
+    """The document row disappeared while its artifacts were being written."""
+
+
+_ARTIFACT_TIER_LABELS = {
+    "vector_index": "FAISS index",
+    "bm25_index": "BM25 index",
+    "anonymization_map": "anonymization map",
+}
+
+
+class ArtifactErasureError(RuntimeError):
+    """A stored copy of a document could not be erased; ``tier`` names it."""
+
+    def __init__(self, tier: str, error: BaseException) -> None:
+        super().__init__(tier)
+        self.tier = tier
+        self.error = error
+
+    @property
+    def label(self) -> str:
+        return _ARTIFACT_TIER_LABELS.get(self.tier, self.tier)
+
+
+async def erase_document_artifacts(
+    document_id: int, *, source_path: Optional[str] = None
+) -> None:
+    """Erase every stored copy of a document; the caller holds its map lock.
+
+    Order: the source file (only when ``source_path`` is given), the FAISS
+    index, the BM25 index, then the anonymization map. A missing file or
+    index counts as already erased. The first tier that fails raises
+    :class:`ArtifactErasureError` and later tiers are not attempted.
+    """
+    steps: list[tuple[str, Callable[[], None]]] = []
+    if source_path is not None:
+        steps.append(("source_file", lambda: Path(source_path).unlink(missing_ok=True)))
+    steps.append(("vector_index", lambda: VectorStore().delete_index(document_id)))
+    steps.append(("bm25_index", lambda: BM25Retriever().delete_index(document_id)))
+    for tier, erase in steps:
+        try:
+            erase()
+        except Exception as exc:
+            raise ArtifactErasureError(tier, exc) from exc
+    try:
+        await pop_document_map(document_id)
+    except Exception as exc:
+        raise ArtifactErasureError("anonymization_map", exc) from exc
 
 
 class DocumentPipeline:
@@ -54,6 +105,15 @@ class DocumentPipeline:
         detection is still executed per chunk in order to populate the
         anonymization map and entity counters, but the sanitized strings are not
         stored; masking happens only when chunks are sent to the LLM.
+
+        ``ingestion_status`` stays ``processing`` until every artifact (map,
+        FAISS and BM25 indexes) is written, and the delete endpoint refuses
+        a processing document, so no artifact is written after an erasure.
+        The map is stored under :func:`document_map_lock` after confirming
+        the row still exists; a document deleted meanwhile (a delete that
+        started before a reprocess) aborts with
+        :class:`DocumentDeletedDuringIngestionError` before any index is
+        written.
         """
         def _emit(pct: int) -> None:
             if on_progress is not None:
@@ -152,12 +212,19 @@ class DocumentPipeline:
 
         document.chunk_count = len(chunks)
         document.entity_count = total_entities
-        document.ingestion_status = "completed"
-        document.ingestion_error = None
         await db.commit()
         await db.refresh(document)
 
-        await set_document_map(document.id, anon_map)
+        async with document_map_lock(document.id) as lock:
+            still_exists = await db.scalar(
+                select(Document.id).where(Document.id == document.id)
+            )
+            if still_exists is None:
+                raise DocumentDeletedDuringIngestionError(
+                    f"Document {document.id} was deleted during ingestion"
+                )
+            await lock.ensure_held()
+            await set_document_map(document.id, anon_map)
 
         # Populate the cross-document entity index so future chat queries
         # can route narrowly to the documents that actually contain the
@@ -214,6 +281,10 @@ class DocumentPipeline:
                 chunks,
                 raw_texts_for_index,
             )
+
+        document.ingestion_status = "completed"
+        document.ingestion_error = None
+        await db.commit()
 
     async def _build_chunks(
         self,
@@ -339,15 +410,20 @@ class DocumentPipeline:
 
     @staticmethod
     async def cleanup_artifacts(document_id: int) -> None:
-        """Remove FAISS index, BM25 index, and anonymization map for a document."""
-        _log = logging.getLogger(__name__)
-        try:
-            VectorStore().delete_index(document_id)
-        except Exception:
-            _log.warning("Failed to delete FAISS index for document %s", document_id, exc_info=True)
-        try:
-            BM25Retriever().delete_index(document_id)
-        except Exception:
-            _log.warning("Failed to delete BM25 index for document %s", document_id, exc_info=True)
-        await pop_document_map(document_id)
+        """Remove FAISS index, BM25 index, and anonymization map for a document.
+
+        Runs under :func:`document_map_lock`, so a concurrent map edit can
+        neither interleave with nor outlive the erasure. Any failure raises a
+        :class:`RuntimeError` naming the document, the tier and the error
+        class only, with the original exception suppressed, so the path never
+        reaches the error log or the document row.
+        """
+        async with document_map_lock(document_id):
+            try:
+                await erase_document_artifacts(document_id)
+            except ArtifactErasureError as exc:
+                raise RuntimeError(
+                    f"Could not remove {exc.label} for document {document_id} "
+                    f"({type(exc.error).__name__})"
+                ) from None
 

@@ -22,6 +22,7 @@ Design notes
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from dataclasses import dataclass, field
@@ -33,6 +34,11 @@ import numpy as np
 from cryptography.exceptions import InvalidTag
 
 from ..utils.crypto import decrypt, encrypt
+from .index_file_io import discard_index_file, index_io_error
+
+_log = logging.getLogger(__name__)
+
+
 
 if TYPE_CHECKING:
     from sentence_transformers import SentenceTransformer
@@ -309,13 +315,12 @@ class VectorStore:
         return combined[:top_k]
 
     def delete_index(self, document_id: int) -> None:
-        """Remove the stored FAISS index for a document, if it exists."""
-        path = self._index_path(document_id)
-        if path.exists():
-            try:
-                path.unlink()
-            except OSError:
-                pass
+        """Remove the stored FAISS index for a document.
+
+        A missing index counts as already erased; any other ``OSError``
+        propagates so the caller cannot report the erasure as done.
+        """
+        self._index_path(document_id).unlink(missing_ok=True)
 
     def _get_model(self) -> SentenceTransformer:
         """Return the lazy-loaded multilingual MiniLM encoder.
@@ -356,19 +361,29 @@ class VectorStore:
         path.write_bytes(encrypted)
 
     def _load_index(self, document_id: int) -> faiss.Index | None:
-        """Load and decrypt a FAISS index for a document, if present."""
+        """Load and decrypt a FAISS index for a document, if present.
+
+        Filesystem failures other than a missing file are re-raised as a
+        :class:`RuntimeError` naming the document, the tier and the error
+        class, with the original exception (and its path) suppressed.
+        """
         path = self._index_path(document_id)
-        if not path.exists():
+        try:
+            encrypted = path.read_bytes()
+        except FileNotFoundError:
             return None
-        encrypted = path.read_bytes()
+        except OSError as exc:
+            raise index_io_error("FAISS", document_id, "read", exc) from None
         associated_data = str(document_id).encode("utf-8")
         try:
             raw_bytes = decrypt(encrypted, associated_data=associated_data)
-        except InvalidTag:
-            try:
-                path.unlink()
-            except OSError:
-                pass
+        except InvalidTag as exc:
+            discard_index_file(path, "FAISS", document_id)
+            _log.warning(
+                "Discarded unreadable FAISS index for document %s (%s)",
+                document_id,
+                type(exc).__name__,
+            )
             return None
 
         buffer = np.frombuffer(raw_bytes, dtype="uint8")
