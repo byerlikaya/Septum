@@ -8,6 +8,7 @@ import {
   setAuthToken,
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { exceedsPasswordByteLimit, passwordTooLongMessage } from "@/lib/password";
 import { Modal } from "@/components/common/Modal";
 
 export interface ChangePasswordModalProps {
@@ -58,6 +59,10 @@ export function ChangePasswordModal({
           String(PASSWORD_MIN_LENGTH)
         )
       );
+      return;
+    }
+    if (exceedsPasswordByteLimit(next)) {
+      setError(passwordTooLongMessage(t));
       return;
     }
     setError(null);

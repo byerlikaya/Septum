@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { PASSWORD_MIN_LENGTH } from "@/lib/api";
+import { exceedsPasswordByteLimit, passwordTooLongMessage } from "@/lib/password";
 import { useI18n } from "@/lib/i18n";
 import { ROLE_LABEL_KEYS, type UserListItem, type UserRole } from "@/lib/types";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
@@ -55,6 +56,7 @@ export function UserFormModal(props: UserFormModalProps) {
   const [role, setRole] = useState<UserRole>(initialUser?.role ?? "editor");
   const [isActive, setIsActive] = useState<boolean>(initialUser?.is_active ?? true);
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   const [prevOpen, setPrevOpen] = useState<boolean>(props.open);
   if (prevOpen !== props.open) {
@@ -65,11 +67,17 @@ export function UserFormModal(props: UserFormModalProps) {
       setRole(initialUser?.role ?? "editor");
       setIsActive(initialUser?.is_active ?? true);
       setSubmitting(false);
+      setLocalError(null);
     }
   }
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
+    if (props.mode === "create" && exceedsPasswordByteLimit(password)) {
+      setLocalError(passwordTooLongMessage(t));
+      return;
+    }
+    setLocalError(null);
     setSubmitting(true);
     try {
       const trimmedEmail = email.trim();
@@ -105,7 +113,7 @@ export function UserFormModal(props: UserFormModalProps) {
       submittingLabel={t("users.form.saving")}
       cancelLabel={t("users.form.cancel")}
       submitting={submitting}
-      errorMessage={props.errorMessage}
+      errorMessage={localError ?? props.errorMessage}
       onClose={props.onClose}
       onSubmit={handleSubmit}
     >

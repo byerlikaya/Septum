@@ -2,8 +2,9 @@
 
 import { useCallback, useState } from "react";
 import { Shield, Zap, Check, AlertCircle, Loader2, Globe, Database, HardDrive, Mic, UserPlus } from "lucide-react";
-import api, { initializeInfrastructure, setAuthToken, streamSSE, testDatabaseConnection, testRedisConnection } from "@/lib/api";
+import api, { PASSWORD_MIN_LENGTH, initializeInfrastructure, setAuthToken, streamSSE, testDatabaseConnection, testRedisConnection } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { exceedsPasswordByteLimit, passwordTooLongMessage } from "@/lib/password";
 import { useLanguage, type AppLanguage } from "@/lib/language";
 import { OllamaModelCombobox } from "./OllamaModelCombobox";
 
@@ -290,6 +291,8 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
   // Register first user
   const handleRegister = useCallback(async () => {
     if (regPassword !== regConfirm) { setRegStatus("error"); setRegMessage(t("setup.step.register.mismatch")); return; }
+    if (regPassword.length < PASSWORD_MIN_LENGTH) { setRegStatus("error"); setRegMessage(t("auth.changePassword.tooShort", { min: PASSWORD_MIN_LENGTH })); return; }
+    if (exceedsPasswordByteLimit(regPassword)) { setRegStatus("error"); setRegMessage(passwordTooLongMessage(t)); return; }
     setRegStatus("pending"); setRegMessage("");
     try {
       const { data } = await api.post<{ access_token: string }>("/api/auth/register", { email: regEmail, password: regPassword });

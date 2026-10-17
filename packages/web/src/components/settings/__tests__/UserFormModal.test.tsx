@@ -7,7 +7,8 @@ jest.mock("../../../lib/i18n", () => ({
 }));
 
 jest.mock("../../../lib/api", () => ({
-  PASSWORD_MIN_LENGTH: 8
+  PASSWORD_MIN_LENGTH: 8,
+  PASSWORD_MAX_BYTES: 72
 }));
 
 const user = {
@@ -50,4 +51,27 @@ it("starts blank in create mode after reopening", () => {
   rerender(<UserFormModal open {...base} />);
   expect(emailInput().value).toBe("");
   expect(screen.getByRole("dialog")).toBeInTheDocument();
+});
+
+function submitCreate(password: string, onSubmit: jest.Mock) {
+  render(<UserFormModal open mode="create" onClose={jest.fn()} onSubmit={onSubmit} />);
+  fireEvent.change(emailInput(), { target: { value: "x@y.z" } });
+  fireEvent.change(document.querySelector<HTMLInputElement>("input[type=password]")!, {
+    target: { value: password }
+  });
+  fireEvent.submit(screen.getByRole("dialog"));
+}
+
+it("rejects a create password over 72 UTF-8 bytes even when it is under 72 characters", () => {
+  const onSubmit = jest.fn();
+  submitCreate("ş".repeat(37), onSubmit);
+  expect(screen.getByText("auth.changePassword.tooLong")).toBeInTheDocument();
+  expect(onSubmit).not.toHaveBeenCalled();
+});
+
+it("accepts a create password of exactly 72 ASCII bytes", () => {
+  const onSubmit = jest.fn().mockResolvedValue(undefined);
+  submitCreate("a".repeat(72), onSubmit);
+  expect(screen.queryByText("auth.changePassword.tooLong")).toBeNull();
+  expect(onSubmit).toHaveBeenCalledTimes(1);
 });

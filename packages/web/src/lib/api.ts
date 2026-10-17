@@ -41,6 +41,10 @@ export const baseURL = resolveBaseURL(process.env.NEXT_PUBLIC_API_BASE_URL);
 // password the form accepts the server then rejects.
 export const PASSWORD_MIN_LENGTH = 12;
 
+// Mirrors the backend limit: bcrypt only accepts passwords up to 72 bytes of
+// UTF-8, and the server rejects anything longer.
+export const PASSWORD_MAX_BYTES = 72;
+
 export const api = axios.create({ baseURL });
 
 export function extractErrorDetail(err: unknown): string | null {

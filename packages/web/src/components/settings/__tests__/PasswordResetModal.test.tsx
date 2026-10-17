@@ -6,7 +6,8 @@ jest.mock("../../../lib/i18n", () => ({
 }));
 
 jest.mock("../../../lib/api", () => ({
-  PASSWORD_MIN_LENGTH: 8
+  PASSWORD_MIN_LENGTH: 8,
+  PASSWORD_MAX_BYTES: 72
 }));
 
 function passwordInputs(): HTMLInputElement[] {
@@ -29,4 +30,26 @@ it("clears typed values and the local error when reopened", () => {
 
   passwordInputs().forEach((input) => expect(input.value).toBe(""));
   expect(screen.queryByText("auth.changePassword.mismatch")).toBeNull();
+});
+
+function submitPassword(value: string, onSubmit: jest.Mock) {
+  render(<PasswordResetModal open email="a@b.c" onClose={jest.fn()} onSubmit={onSubmit} />);
+  const [pw, confirm] = passwordInputs();
+  fireEvent.change(pw, { target: { value } });
+  fireEvent.change(confirm, { target: { value } });
+  fireEvent.submit(screen.getByRole("dialog"));
+}
+
+it("rejects a password over 72 UTF-8 bytes even when it is under 72 characters", () => {
+  const onSubmit = jest.fn();
+  submitPassword("ş".repeat(37), onSubmit);
+  expect(screen.getByText("auth.changePassword.tooLong")).toBeInTheDocument();
+  expect(onSubmit).not.toHaveBeenCalled();
+});
+
+it("accepts a password of exactly 72 ASCII bytes", () => {
+  const onSubmit = jest.fn().mockResolvedValue(undefined);
+  submitPassword("a".repeat(72), onSubmit);
+  expect(screen.queryByText("auth.changePassword.tooLong")).toBeNull();
+  expect(onSubmit).toHaveBeenCalledWith("a".repeat(72));
 });

@@ -60,6 +60,8 @@ export const enMessages = {
   "auth.changePassword.success": "Password updated.",
   "auth.changePassword.mismatch": "Passwords do not match.",
   "auth.changePassword.tooShort": "Password must be at least {min} characters.",
+  "auth.changePassword.tooLong":
+    "Password must be at most {max} bytes. Accented letters or emoji count as more than one byte.",
   "auth.changePassword.wrongCurrent": "Current password is incorrect.",
   "auth.changePassword.error": "Could not change password.",
 

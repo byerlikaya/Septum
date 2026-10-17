@@ -60,6 +60,8 @@ export const trMessages: Record<string, string> = {
   "auth.changePassword.success": "Şifre güncellendi.",
   "auth.changePassword.mismatch": "Şifreler eşleşmiyor.",
   "auth.changePassword.tooShort": "Şifre en az {min} karakter olmalı.",
+  "auth.changePassword.tooLong":
+    "Şifre en fazla {max} bayt olabilir. ş, ğ veya emoji gibi karakterler birden fazla bayt sayılır.",
   "auth.changePassword.wrongCurrent": "Mevcut şifre hatalı.",
   "auth.changePassword.error": "Şifre değiştirilemedi.",
 
