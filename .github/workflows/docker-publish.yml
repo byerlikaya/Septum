@@ -5,7 +5,9 @@ name: Docker Hub Publish
 # is no VERSION file to keep in sync and no bot commit-and-bump dance.
 #
 # workflow_dispatch lets a maintainer re-run a release build from the
-# GitHub UI against an existing tag without pushing a new one.
+# GitHub UI against an existing tag without pushing a new one. Every job
+# checks out the commit that tag points at, never the branch the run was
+# started from.
 
 on:
   push:
@@ -27,29 +29,62 @@ concurrency:
   group: docker-publish
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   resolve-version:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
       is_prerelease: ${{ steps.v.outputs.is_prerelease }}
+      sha: ${{ steps.v.outputs.sha }}
     steps:
-      - name: Compute version + prerelease flag
+      - name: Compute version, commit + prerelease flag
         id: v
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ inputs.version }}"
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="$INPUT_VERSION"
           else
             VERSION="${GITHUB_REF#refs/tags/v}"
           fi
+          SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+          if [[ ! "$VERSION" =~ $SEMVER_RE ]]; then
+            echo "::error::Version must look like 1.2.3 or 1.2.3-rc.1"
+            exit 1
+          fi
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            # Fails when the tag does not exist; dereferences annotated tags.
+            SHA="$(gh api "repos/${GITHUB_REPOSITORY}/commits/refs/tags/v${VERSION}" --jq .sha)"
+          else
+            SHA="$GITHUB_SHA"
+          fi
+          if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not resolve tag v${VERSION} to a commit"
+            exit 1
+          fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
           # Pre-release part (after -) disables rolling tags + latest.
           if [ "${VERSION}" != "${VERSION%%-*}" ]; then
             echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
           else
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "Publishing v${VERSION}"
+          echo "Publishing v${VERSION} from ${SHA}"
+
+  tests:
+    needs: resolve-version
+    permissions:
+      contents: read
+    uses: ./.github/workflows/tests.yml
+    with:
+      ref: ${{ needs.resolve-version.outputs.sha }}
 
   # One matrix job covers every (image × variant) combination. Only the
   # two torch-dependent images (septum, septum-api) ship a GPU variant;
@@ -62,8 +97,11 @@ jobs:
   # When adding torch to another image, append a matching gpu row here
   # and update the description cluster below.
   publish:
-    needs: resolve-version
+    needs: [resolve-version, tests]
     runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://hub.docker.com/u/byerlikaya
     permissions:
       contents: read
 
@@ -116,7 +154,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.resolve-version.outputs.sha }}
+          persist-credentials: false
 
       # Septum API + standalone images bundle PyTorch (CPU wheel
       # ~750 MB, GPU wheel + CUDA runtime ~6 GB) plus the full Septum
@@ -140,20 +181,20 @@ jobs:
           df -h
 
       - name: Set up QEMU (for multi-arch builds)
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Docker metadata (tags + OCI labels)
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: byerlikaya/${{ matrix.image }}
           # CPU variants get full semver + latest; GPU variants get the
@@ -173,9 +214,10 @@ jobs:
             org.opencontainers.image.title=${{ matrix.title }}
             org.opencontainers.image.description=${{ matrix.description }}
             org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.revision=${{ needs.resolve-version.outputs.sha }}
 
       - name: Build and push ${{ matrix.image }} (${{ matrix.variant }})
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -195,7 +237,7 @@ jobs:
         # GPU tags re-use the same Docker Hub README under the -gpu
         # tag namespace; only the CPU variant owns the page.
         if: matrix.variant == 'cpu'
-        uses: peter-evans/dockerhub-description@v4
+        uses: peter-evans/dockerhub-description@432a30c9e07499fd01da9f8a49f0faf9e0ca5b77 # v4.0.2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -215,8 +257,11 @@ jobs:
   # byerlikaya/septum-web:<version> with linux/amd64 + linux/arm64
   # under one tag, OCI labels intact, Docker Hub README synced.
   publish-web:
-    needs: resolve-version
+    needs: [resolve-version, tests]
     runs-on: ${{ matrix.runner }}
+    environment:
+      name: release
+      url: https://hub.docker.com/u/byerlikaya
     permissions:
       contents: read
     strategy:
@@ -232,30 +277,34 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.resolve-version.outputs.sha }}
+          persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Docker metadata (labels only — tags applied at manifest merge)
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: byerlikaya/septum-web
           labels: |
             org.opencontainers.image.title=Septum Web
             org.opencontainers.image.description=Septum Next.js 16 dashboard — setup wizard, approval gate, document preview, settings, audit.
             org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.revision=${{ needs.resolve-version.outputs.sha }}
 
       - name: Build and push by digest (${{ matrix.arch_id }})
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: docker/web.Dockerfile
@@ -275,13 +324,15 @@ jobs:
           cache-to: type=gha,mode=max,scope=septum-web-${{ matrix.arch_id }}
 
       - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           mkdir -p /tmp/digests
-          digest="${{ steps.build.outputs.digest }}"
+          digest="$DIGEST"
           touch "/tmp/digests/${digest#sha256:}"
 
       - name: Upload digest artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: digest-septum-web-${{ matrix.arch_id }}
           path: /tmp/digests/*
@@ -291,6 +342,9 @@ jobs:
   merge-web:
     needs: [resolve-version, publish-web]
     runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://hub.docker.com/u/byerlikaya
     permissions:
       contents: read
 
@@ -300,27 +354,30 @@ jobs:
         # ./docker/readmes/septum-web.md from the workspace, so the repo
         # has to be on disk. The manifest-merge step itself does not need
         # any files — only the digests downloaded from the build jobs.
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.resolve-version.outputs.sha }}
+          persist-credentials: false
 
       - name: Download per-arch digests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: /tmp/digests
           pattern: digest-septum-web-*
           merge-multiple: true
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Docker metadata (final multi-arch tags)
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: byerlikaya/septum-web
           # Mirror the QEMU matrix tag set for CPU images: pinned
@@ -343,12 +400,13 @@ jobs:
             $(printf 'byerlikaya/septum-web@sha256:%s ' *)
 
       - name: Inspect image
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
-          docker buildx imagetools inspect \
-            byerlikaya/septum-web:${{ needs.resolve-version.outputs.version }}
+          docker buildx imagetools inspect "byerlikaya/septum-web:${VERSION}"
 
       - name: Update Docker Hub description
-        uses: peter-evans/dockerhub-description@v4
+        uses: peter-evans/dockerhub-description@432a30c9e07499fd01da9f8a49f0faf9e0ca5b77 # v4.0.2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -364,15 +422,21 @@ jobs:
     # place rather than failing.
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://hub.docker.com/u/byerlikaya
     permissions:
       contents: write
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.resolve-version.outputs.sha }}
+          persist-credentials: false
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ needs.resolve-version.outputs.version }}
           name: v${{ needs.resolve-version.outputs.version }}
