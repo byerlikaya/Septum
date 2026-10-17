@@ -78,3 +78,56 @@ def test_unmask_is_idempotent_when_no_placeholder_matches() -> None:
 
     text = "No placeholder here."
     assert unmasker.unmask(text, amap) == text
+
+
+def test_unmask_with_allow_set_restores_only_allowed_placeholders() -> None:
+    unmasker = Unmasker()
+    amap = _make_map({"Jane Roe": "[PERSON_NAME_1]", "John Doe": "[PERSON_NAME_2]"})
+    result = unmasker.unmask(
+        "[PERSON_NAME_1] met [PERSON_NAME_2].",
+        amap,
+        allowed_placeholders={"[PERSON_NAME_1]"},
+    )
+    assert result == "Jane Roe met [PERSON_NAME_2]."
+
+
+def test_unmask_with_allow_set_resolves_alias_of_allowed_placeholder() -> None:
+    unmasker = Unmasker()
+    amap = _make_map({"Jane Roe": "[PERSON_NAME_1]", "John Doe": "[PERSON_NAME_2]"})
+    result = unmasker.unmask(
+        "[PERSON_1] and [PERSON_2]",
+        amap,
+        allowed_placeholders={"[PERSON_NAME_1]"},
+    )
+    assert result == "Jane Roe and [PERSON_2]"
+
+
+def test_unmask_with_empty_allow_set_restores_nothing() -> None:
+    unmasker = Unmasker()
+    amap = _make_map({"Jane Roe": "[PERSON_NAME_1]"})
+    assert unmasker.unmask("[PERSON_NAME_1]", amap, allowed_placeholders=set()) == "[PERSON_NAME_1]"
+
+
+def test_unmask_allow_set_applies_to_placeholder_lookup() -> None:
+    unmasker = Unmasker()
+    amap = AnonymizationMap(document_id=0, language="en")
+    amap.placeholder_lookup = {"[LOCATION_1]": "Springfield", "[ORGANIZATION_NAME_1]": "Springfield"}
+    result = unmasker.unmask(
+        "[LOCATION_1] / [ORGANIZATION_NAME_1]",
+        amap,
+        allowed_placeholders=["[ORGANIZATION_NAME_1]"],
+    )
+    assert result == "[LOCATION_1] / Springfield"
+
+
+def test_unmask_without_allow_set_keeps_restoring_every_placeholder() -> None:
+    unmasker = Unmasker()
+    amap = _make_map({"Jane Roe": "[PERSON_NAME_1]", "John Doe": "[PERSON_NAME_2]"})
+    assert unmasker.unmask("[PERSON_NAME_1] met [PERSON_NAME_2].", amap) == "Jane Roe met John Doe."
+
+
+def test_unmask_short_form_that_is_a_real_placeholder_is_not_an_alias() -> None:
+    unmasker = Unmasker()
+    amap = _make_map({"Jane Roe": "[PERSON_NAME_1]", "Michael Thompson": "[PERSON_1]"})
+    result = unmasker.unmask("[PERSON_NAME_1] paid [PERSON_1].", amap)
+    assert result == "Jane Roe paid Michael Thompson."

@@ -116,12 +116,12 @@ class ValidatedPatternRecognizer(PatternRecognizer):
             return None
         try:
             return bool(self._algorithmic_validator(pattern_text))
-        except Exception:  # noqa: BLE001 - validators must never crash analysis
+        except Exception as exc:  # validators must never crash analysis
             logger.warning(
-                "Algorithmic validator raised on %r for recognizer %s",
-                pattern_text,
+                "Algorithmic validator raised %s for recognizer %s (candidate length=%d)",
+                type(exc).__name__,
                 self.name,
-                exc_info=True,
+                len(pattern_text),
             )
             return False
 

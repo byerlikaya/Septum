@@ -16,6 +16,7 @@ is unavailable.
 """
 
 import re
+from typing import Collection, Optional
 
 from .anonymization_map import AnonymizationMap
 
@@ -26,6 +27,8 @@ class Unmasker:
     The current implementation performs direct string replacement and also
     understands a small set of short placeholder aliases that LLMs emit in
     place of the full form (``[PERSON_1]`` instead of ``[PERSON_NAME_1]``).
+    A short form that is itself a mapped placeholder is never treated as an
+    alias, so it resolves to its own original.
     """
 
     _PLACEHOLDER_SHORT_ALIASES = (
@@ -33,8 +36,20 @@ class Unmasker:
         (re.compile(r"^\[ORGANIZATION_NAME_(\d+)\]$"), "ORGANIZATION"),
     )
 
-    def unmask(self, text: str, anon_map: AnonymizationMap) -> str:
+    def unmask(
+        self,
+        text: str,
+        anon_map: AnonymizationMap,
+        allowed_placeholders: Optional[Collection[str]] = None,
+    ) -> str:
         """Return a de-anonymized copy of ``text`` using ``anon_map``.
+
+        When ``allowed_placeholders`` is given, only those placeholders (and
+        their short aliases) are restored; every other placeholder in
+        ``text`` stays literally as is. Hosts pass the placeholders that
+        actually appeared in the prompt sent to the LLM, so an answer cannot
+        pull originals out of the map that the turn never exposed. ``None``
+        keeps the historical behaviour of restoring every mapped placeholder.
 
         Iteration is keyed by **placeholder**, not by original. The chat-time
         multi-document unification can legitimately assign two distinct
@@ -66,12 +81,16 @@ class Unmasker:
         for placeholder, original in lookup.items():
             if not placeholder:
                 continue
+            if allowed_placeholders is not None and placeholder not in allowed_placeholders:
+                continue
             if placeholder in result:
                 result = result.replace(placeholder, original)
             for pattern, short_prefix in self._PLACEHOLDER_SHORT_ALIASES:
                 match = pattern.match(placeholder)
                 if match:
                     short_form = f"[{short_prefix}_{match.group(1)}]"
+                    if short_form in lookup:
+                        break
                     if short_form in result:
                         result = result.replace(short_form, original)
                     break
