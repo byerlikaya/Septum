@@ -280,7 +280,7 @@ class PromptCatalog:
             language_instruction = (
                 "IMPORTANT: Respond in the same language as the user's message.\n\n"
             )
-        elif language and language != "en":
+        elif language:
             language_instruction = (
                 f"IMPORTANT: The user's query is in {language.upper()} language. "
                 f"You MUST respond in the same language ({language.upper()}).\n\n"
