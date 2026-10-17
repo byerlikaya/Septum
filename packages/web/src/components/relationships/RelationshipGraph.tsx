@@ -131,9 +131,16 @@ export default function RelationshipGraph({ graph }: Props) {
     return map;
   }, [graph]);
 
+  const hasNodes = graph.nodes.length > 0;
+
+  const selectedEdgeRef = useRef<SelectedEdgeState | null>(null);
+  useEffect(() => {
+    selectedEdgeRef.current = selectedEdge;
+  }, [selectedEdge]);
+
   useEffect(() => {
     if (!containerRef.current) return;
-    if (graph.nodes.length === 0) return;
+    if (!hasNodes) return;
 
     const cy = cytoscape({
       container: containerRef.current,
@@ -288,11 +295,11 @@ export default function RelationshipGraph({ graph }: Props) {
         entity_count: node.data("entity_count") as number,
         distinct_entity_count: node.data("distinct_entity_count") as number,
       });
-      if (!selectedEdge) applyHighlight("node", node);
+      if (!selectedEdgeRef.current) applyHighlight("node", node);
     });
     cy.on("mouseout", "node", () => {
       setHoveredNode(null);
-      if (!selectedEdge) clearHighlight();
+      if (!selectedEdgeRef.current) clearHighlight();
     });
     cy.on("tap", (event: EventObject) => {
       // Clicking blank canvas clears selection.
@@ -330,8 +337,7 @@ export default function RelationshipGraph({ graph }: Props) {
     // We intentionally rebuild the cytoscape instance whenever the graph
     // identity changes — fcose runs once per mount and the layout cost
     // is acceptable for the corpus sizes we expect.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [elements]);
+  }, [elements, hasNodes, nodeFilenameById]);
 
   if (graph.nodes.length === 0) {
     return (

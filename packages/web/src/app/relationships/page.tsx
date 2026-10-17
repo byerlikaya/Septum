@@ -16,11 +16,11 @@ export default function RelationshipsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
     getRelationshipGraph()
       .then((data) => {
-        if (!cancelled) setGraph(data);
+        if (cancelled) return;
+        setGraph(data);
+        setError(null);
       })
       .catch((err) => {
         if (!cancelled)

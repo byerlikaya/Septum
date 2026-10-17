@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ExternalLink,
@@ -119,6 +119,11 @@ export default function RegulationsPage() {
   const [panelMode, setPanelMode] = useState<CustomRuleBuilderMode>("create");
   const [panelRule, setPanelRule] = useState<CustomRecognizer | undefined>(undefined);
 
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  });
+
   useEffect(() => {
     const fetchData = async (): Promise<void> => {
       setRulesetsLoading(true);
@@ -137,7 +142,7 @@ export default function RegulationsPage() {
         setCustomError(null);
         setNonPiiError(null);
       } catch {
-        const message = t("errors.regulations.load");
+        const message = tRef.current("errors.regulations.load");
         setRulesetsError(message);
         setCustomError(message);
         setNonPiiError(message);

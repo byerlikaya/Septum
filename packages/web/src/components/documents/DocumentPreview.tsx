@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
+import Image from "next/image";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 import api, {
   getAuditEventEntityDetections,
@@ -39,6 +40,18 @@ interface DocumentPreviewProps {
   auditEventId?: number | null;
 }
 
+function selectDetections(
+  detections: EntityDetection[],
+  filter: string | null
+): EntityDetection[] {
+  const list = filter
+    ? detections.filter((d) => d.entity_type === filter)
+    : detections;
+  return [...list].sort(
+    (a, b) => a.chunk_id - b.chunk_id || a.start_offset - b.start_offset
+  );
+}
+
 export function DocumentPreview({
   document,
   open,
@@ -68,14 +81,19 @@ export function DocumentPreview({
   const textScrollRef = useRef<HTMLDivElement>(null);
   const entityListScrollRef = useRef<HTMLDivElement>(null);
 
-  const filteredDetections = useMemo(() => {
-    const list = activeFilter
-      ? detections.filter((d) => d.entity_type === activeFilter)
-      : detections;
-    return [...list].sort(
-      (a, b) => a.chunk_id - b.chunk_id || a.start_offset - b.start_offset
-    );
-  }, [detections, activeFilter]);
+  const documentId = document?.id;
+  const documentFormat = document?.file_format;
+  const documentChunkCount = document?.chunk_count;
+
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  });
+
+  const filteredDetections = useMemo(
+    () => selectDetections(detections, activeFilter),
+    [detections, activeFilter]
+  );
 
   // Chip bar counts must mirror the "Detected entities" panel: one entry per
   // entity_detections row. anonSummary groups by distinct anon_map *values*
@@ -141,17 +159,21 @@ export function DocumentPreview({
     [filteredDetections, chunks, scrollToDetection]
   );
 
-  useEffect(() => {
-    setOccurrenceIndex(0);
-    if (filteredDetections.length > 0) {
-      const det = filteredDetections[0];
-      setTimeout(() => scrollToDetection(det.id), 100);
-      const chunk = chunks.find((c) => c.id === det.chunk_id);
-      if (chunk?.source_page != null) {
-        setPdfPage(chunk.source_page);
+  const selectFilter = useCallback(
+    (next: string | null) => {
+      setActiveFilter(next);
+      setOccurrenceIndex(0);
+      const first = selectDetections(detections, next)[0];
+      if (first) {
+        setTimeout(() => scrollToDetection(first.id), 100);
+        const chunk = chunks.find((c) => c.id === first.chunk_id);
+        if (chunk?.source_page != null) {
+          setPdfPage(chunk.source_page);
+        }
       }
-    }
-  }, [activeFilter]);  // eslint-disable-line react-hooks/exhaustive-deps
+    },
+    [detections, chunks, scrollToDetection]
+  );
 
   useEffect(() => {
     if (activeDetectionId == null) return;
@@ -162,7 +184,7 @@ export function DocumentPreview({
   }, [activeDetectionId]);
 
   useEffect(() => {
-    if (!open || !document) {
+    if (!open || documentId === undefined || documentFormat === undefined) {
       return;
     }
 
@@ -173,14 +195,14 @@ export function DocumentPreview({
         setIsLoading(true);
         setError(null);
         const response = await api.get<{ items: Chunk[] }>("/api/chunks", {
-          params: { document_id: document.id }
+          params: { document_id: documentId }
         });
         if (!isCancelled) {
           setChunks(response.data.items);
         }
         try {
           const anonRes = await api.get<{ entities: Record<string, number>; total: number }>(
-            `/api/documents/${document.id}/anon-summary`
+            `/api/documents/${documentId}/anon-summary`
           );
           if (!isCancelled) setAnonSummary(anonRes.data);
         } catch {
@@ -188,7 +210,7 @@ export function DocumentPreview({
         }
       } catch {
         if (!isCancelled) {
-          setError(t("errors.preview.document"));
+          setError(tRef.current("errors.preview.document"));
         }
       } finally {
         if (!isCancelled) {
@@ -196,7 +218,7 @@ export function DocumentPreview({
         }
       }
 
-      const fileFormat = document.file_format.toLowerCase();
+      const fileFormat = documentFormat.toLowerCase();
       const isTabular =
         fileFormat === "xlsx" || fileFormat === "xls" || fileFormat === "ods";
 
@@ -213,7 +235,7 @@ export function DocumentPreview({
         setIsSchemaLoading(true);
         setSchemaError(null);
         const schemaResponse = await api.get<SpreadsheetSchema>(
-          `/api/documents/${document.id}/schema`
+          `/api/documents/${documentId}/schema`
         );
         if (!isCancelled) {
           setSchema(schemaResponse.data);
@@ -222,7 +244,7 @@ export function DocumentPreview({
       } catch {
         if (!isCancelled) {
           setSchema(null);
-          setSchemaError(t("documents.preview.schemaLoadError"));
+          setSchemaError(tRef.current("documents.preview.schemaLoadError"));
         }
       } finally {
         if (!isCancelled) {
@@ -236,19 +258,19 @@ export function DocumentPreview({
     return () => {
       isCancelled = true;
     };
-  }, [open, document?.id, document?.file_format, document?.chunk_count]);
+  }, [open, documentId, documentFormat, documentChunkCount]);
 
   // Detections fetch is split out so reopening the modal on the same
   // document with a different audit event focus does not re-fetch
   // chunks / anon-summary / spreadsheet schema.
   useEffect(() => {
-    if (!open || !document) return;
+    if (!open || documentId === undefined) return;
     let isCancelled = false;
     (async () => {
       try {
         const detRes = auditEventId != null
           ? await getAuditEventEntityDetections(auditEventId)
-          : await getEntityDetections(document.id);
+          : await getEntityDetections(documentId);
         if (!isCancelled) setDetections(detRes.items);
       } catch {
         // entity detections are optional — document may predate this feature
@@ -257,12 +279,10 @@ export function DocumentPreview({
     return () => {
       isCancelled = true;
     };
-  }, [open, document?.id, auditEventId]);
+  }, [open, documentId, auditEventId]);
 
   useEffect(() => {
-    if (!open || !document) {
-      setRawObjectUrl(null);
-      setRawLoadError(null);
+    if (!open || documentId === undefined) {
       return;
     }
 
@@ -272,7 +292,7 @@ export function DocumentPreview({
     (async () => {
       try {
         const response = await api.get<Blob>(
-          `/api/documents/${document.id}/raw`,
+          `/api/documents/${documentId}/raw`,
           { responseType: "blob" }
         );
         if (cancelled) return;
@@ -282,7 +302,7 @@ export function DocumentPreview({
       } catch {
         if (!cancelled) {
           setRawObjectUrl(null);
-          setRawLoadError(t("errors.preview.document"));
+          setRawLoadError(tRef.current("errors.preview.document"));
         }
       }
     })();
@@ -290,8 +310,10 @@ export function DocumentPreview({
     return () => {
       cancelled = true;
       if (createdUrl) URL.revokeObjectURL(createdUrl);
+      setRawObjectUrl(null);
+      setRawLoadError(null);
     };
-  }, [open, document?.id, t]);
+  }, [open, documentId]);
 
   if (!open || !document) {
     return null;
@@ -406,10 +428,14 @@ export function DocumentPreview({
           <div className="text-xs font-medium text-slate-300">
             {t("documents.preview.originalDocument")}
           </div>
-          <img
+          <Image
             src={rawObjectUrl}
             alt={docTitle}
-            className="w-full rounded-md border border-slate-800 object-contain"
+            width={0}
+            height={0}
+            sizes="100vw"
+            unoptimized
+            className="h-auto w-full rounded-md border border-slate-800 object-contain"
           />
         </div>
       );
@@ -618,7 +644,7 @@ export function DocumentPreview({
                         ? "bg-sky-900/60 border-sky-500/60 text-sky-200"
                         : "bg-slate-800/40 border-slate-700/40 text-slate-400 hover:text-slate-200"
                     }`}
-                    onClick={() => setActiveFilter(null)}
+                    onClick={() => selectFilter(null)}
                   >
                     {t("documents.preview.allTypes")}
                   </button>
@@ -640,9 +666,7 @@ export function DocumentPreview({
                       className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-all ${colorClasses} ${interactionClasses}`}
                       onClick={() => {
                         if (detections.length > 0) {
-                          setActiveFilter((prev) =>
-                            prev === type ? null : type
-                          );
+                          selectFilter(activeFilter === type ? null : type);
                         }
                       }}
                     >

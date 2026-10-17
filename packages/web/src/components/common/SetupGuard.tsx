@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { getSettings, getSetupStatus } from "@/lib/api";
 import type { AppSettingsResponse, SetupStatus } from "@/lib/types";
 import { SetupWizard } from "./SetupWizard";
@@ -9,38 +9,52 @@ interface SetupGuardProps {
   children: React.ReactNode;
 }
 
+interface SetupProbeResult {
+  status: SetupStatus;
+  settings: AppSettingsResponse | null;
+}
+
+const SETUP_PROBE_RETRIES = 5;
+const SETUP_PROBE_DELAY_MS = 2000;
+
+async function probeSetup(isCancelled: () => boolean): Promise<SetupProbeResult> {
+  for (let i = 0; i < SETUP_PROBE_RETRIES && !isCancelled(); i++) {
+    try {
+      const status = await getSetupStatus();
+      let settings: AppSettingsResponse | null = null;
+      if (status.status === "needs_application_setup") {
+        try {
+          settings = await getSettings();
+        } catch { /* settings not yet available */ }
+      }
+      return { status, settings };
+    } catch {
+      if (i < SETUP_PROBE_RETRIES - 1) {
+        await new Promise((resolve) => setTimeout(resolve, SETUP_PROBE_DELAY_MS));
+      }
+    }
+  }
+  // All retries failed — assume fresh install (show wizard)
+  return { status: { status: "needs_infrastructure", version: "" }, settings: null };
+}
+
 export function SetupGuard({ children }: SetupGuardProps) {
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [settings, setSettings] = useState<AppSettingsResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const checkStatus = useCallback(async (retries = 5): Promise<void> => {
-    for (let i = 0; i < retries; i++) {
-      try {
-        const s = await getSetupStatus();
-        setSetupStatus(s);
-        if (s.status === "needs_application_setup") {
-          try {
-            const appSettings = await getSettings();
-            setSettings(appSettings);
-          } catch { /* settings not yet available */ }
-        }
-        setLoading(false);
-        return;
-      } catch {
-        if (i < retries - 1) {
-          await new Promise((r) => setTimeout(r, 2000));
-        }
-      }
-    }
-    // All retries failed — assume fresh install (show wizard)
-    setSetupStatus({ status: "needs_infrastructure", version: "" });
-    setLoading(false);
-  }, []);
-
   useEffect(() => {
-    checkStatus();
-  }, [checkStatus]);
+    let cancelled = false;
+    probeSetup(() => cancelled).then((result) => {
+      if (cancelled) return;
+      setSetupStatus(result.status);
+      if (result.settings) setSettings(result.settings);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (loading) return null;
 

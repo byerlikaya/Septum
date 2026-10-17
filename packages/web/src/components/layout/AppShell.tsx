@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { LogOut, FileCode, BookOpen, KeyRound } from "lucide-react";
 import { authMe, getAuthToken, clearAuthToken } from "@/lib/api";
 import { ROLE_LABEL_KEYS, type AuthUser, type UserRole } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
+import { hardNavigate } from "@/lib/navigation";
 import { Sidebar } from "./Sidebar";
 import { ChangePasswordModal } from "@/components/common/ChangePasswordModal";
 
@@ -39,38 +40,54 @@ function allowedRolesForPath(pathname: string): readonly UserRole[] {
 
 type AuthState = "loading" | AuthUser | null;
 
+function subscribeToAuthToken(listener: () => void): () => void {
+  window.addEventListener("storage", listener);
+  return () => window.removeEventListener("storage", listener);
+}
+
+function getServerAuthToken(): undefined {
+  return undefined;
+}
+
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const t = useI18n();
-  const [authState, setAuthState] = useState<AuthState>("loading");
   const [changePasswordOpen, setChangePasswordOpen] = useState<boolean>(false);
 
   const isAuthPage = AUTH_PAGES.some((p) => pathname.startsWith(p));
 
+  // ``undefined`` while the token cannot be read yet (server render and
+  // hydration); ``null`` when there is no token.
+  const token = useSyncExternalStore(
+    subscribeToAuthToken,
+    getAuthToken,
+    getServerAuthToken
+  );
+  const [resolved, setResolved] = useState<{
+    token: string;
+    user: AuthUser | null;
+  } | null>(null);
+
   useEffect(() => {
-    if (isAuthPage) {
-      setAuthState(null);
-      return;
-    }
-
-    const token = getAuthToken();
-    if (!token) {
-      setAuthState(null);
-      return;
-    }
-
+    if (isAuthPage || !token) return;
     let cancelled = false;
     authMe()
-      .then((user) => { if (!cancelled) setAuthState(user); })
+      .then((user) => { if (!cancelled) setResolved({ token, user }); })
       .catch(() => {
         if (!cancelled) {
           clearAuthToken();
-          setAuthState(null);
+          setResolved({ token, user: null });
         }
       });
     return () => { cancelled = true; };
-  }, [isAuthPage]);
+  }, [isAuthPage, token]);
+
+  let authState: AuthState;
+  if (token === undefined) authState = "loading";
+  else if (isAuthPage || token === null) authState = null;
+  else if (resolved?.token === token) authState = resolved.user;
+  else authState = "loading";
 
   useEffect(() => {
     if (authState === null && !isAuthPage) {
@@ -123,7 +140,7 @@ export function AppShell({ children }: AppShellProps) {
           </button>
           <button
             type="button"
-            onClick={() => { clearAuthToken(); window.location.href = "/login"; }}
+            onClick={() => { clearAuthToken(); hardNavigate("/login"); }}
             className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
           >
             <LogOut className="h-3.5 w-3.5" />

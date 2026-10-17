@@ -15,6 +15,7 @@ import {
 import { fetchAuditEvents } from "@/lib/api";
 import type { AuditEvent, AuditListResponse } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
+import { useRequestGuard } from "@/hooks/useRequestGuard";
 
 type AuditLogTableProps = {
   pageSize?: number;
@@ -251,36 +252,64 @@ export function AuditLogTable({ pageSize = 50, onViewDocument }: AuditLogTablePr
   const [eventTypeFilter, setEventTypeFilter] = useState<string>("");
   const [entityTypeFilter, setEntityTypeFilter] = useState<string>("");
 
-  const loadPage = useCallback(
-    async (p: number, eventType: string, entityType: string) => {
-      setLoading(true);
-      try {
-        const res: AuditListResponse = await fetchAuditEvents({
-          page: p,
-          page_size: pageSize,
-          event_type: eventType || undefined,
-          entity_type: entityType || undefined,
-        });
-        setItems(res.items);
-        setTotal(res.total);
-        setPage(res.page);
-      } catch {
-        setItems([]);
-        setTotal(0);
-      } finally {
-        setLoading(false);
-      }
-    },
+  const { begin, invalidate } = useRequestGuard();
+
+  const fetchPage = useCallback(
+    (
+      p: number,
+      eventType: string,
+      entityType: string,
+      isStale: () => boolean
+    ): Promise<void> =>
+      fetchAuditEvents({
+        page: p,
+        page_size: pageSize,
+        event_type: eventType || undefined,
+        entity_type: entityType || undefined,
+      })
+        .then((res: AuditListResponse) => {
+          if (isStale()) return;
+          setItems(res.items);
+          setTotal(res.total);
+          setPage(res.page);
+        })
+        .catch(() => {
+          if (isStale()) return;
+          setItems([]);
+          setTotal(0);
+        })
+        .finally(() => {
+          if (!isStale()) setLoading(false);
+        }),
     [pageSize]
   );
 
+  const loadPage = useCallback(
+    async (p: number, eventType: string, entityType: string) => {
+      setLoading(true);
+      await fetchPage(p, eventType, entityType, begin());
+    },
+    [fetchPage, begin]
+  );
+
   useEffect(() => {
-    // Reset the visible page BEFORE the async load so the pagination
-    // buttons don't disable/enable based on a stale page from the
-    // previous filter while the new fetch is in flight.
+    void fetchPage(1, eventTypeFilter, entityTypeFilter, begin());
+    return invalidate;
+  }, [fetchPage, begin, invalidate, eventTypeFilter, entityTypeFilter]);
+
+  // Reset the visible page and show the loading state BEFORE the async load
+  // so the pagination buttons don't disable/enable based on a stale page
+  // from the previous filter while the new fetch is in flight.
+  const changeEventTypeFilter = (value: string) => {
     setPage(1);
-    void loadPage(1, eventTypeFilter, entityTypeFilter);
-  }, [loadPage, eventTypeFilter, entityTypeFilter]);
+    setLoading(true);
+    setEventTypeFilter(value);
+  };
+  const changeEntityTypeFilter = (value: string) => {
+    setPage(1);
+    setLoading(true);
+    setEntityTypeFilter(value);
+  };
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -295,7 +324,7 @@ export function AuditLogTable({ pageSize = 50, onViewDocument }: AuditLogTablePr
           <select
             className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
             value={eventTypeFilter}
-            onChange={(e) => setEventTypeFilter(e.target.value)}
+            onChange={(e) => changeEventTypeFilter(e.target.value)}
           >
             <option value="">{t("audit.filter.allEvents")}</option>
             {EVENT_TYPES.map((et) => {
@@ -306,7 +335,7 @@ export function AuditLogTable({ pageSize = 50, onViewDocument }: AuditLogTablePr
           <select
             className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
             value={entityTypeFilter}
-            onChange={(e) => setEntityTypeFilter(e.target.value)}
+            onChange={(e) => changeEntityTypeFilter(e.target.value)}
             title={t("audit.filter.entityTypeHint")}
           >
             <option value="">{t("audit.filter.allEntityTypes")}</option>

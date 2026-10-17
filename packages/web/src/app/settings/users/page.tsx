@@ -51,22 +51,36 @@ export default function UsersPage() {
   const [modalError, setModalError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
+  const loadUsers = useCallback(
+    (isStale: () => boolean): Promise<void> =>
+      listUsers()
+        .then((data) => {
+          if (isStale()) return;
+          setUsers(data);
+          setError(null);
+        })
+        .catch(() => {
+          if (!isStale()) setError(t("users.error.loadFailed"));
+        })
+        .finally(() => {
+          if (!isStale()) setLoading(false);
+        }),
+    [t]
+  );
+
   const fetchUsers = useCallback(async (): Promise<void> => {
     setLoading(true);
     setError(null);
-    try {
-      const data = await listUsers();
-      setUsers(data);
-    } catch {
-      setError(t("users.error.loadFailed"));
-    } finally {
-      setLoading(false);
-    }
-  }, [t]);
+    await loadUsers(() => false);
+  }, [loadUsers]);
 
   useEffect(() => {
-    void fetchUsers();
-  }, [fetchUsers]);
+    let cancelled = false;
+    void loadUsers(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [loadUsers]);
 
   const handleCreate = useCallback(
     async (values: {
