@@ -19,15 +19,15 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "entity_detections",
-        sa.Column(
-            "audit_event_id",
-            sa.Integer(),
-            sa.ForeignKey("audit_events.id", ondelete="SET NULL"),
-            nullable=True,
-        ),
-    )
+    with op.batch_alter_table("entity_detections") as batch:
+        batch.add_column(sa.Column("audit_event_id", sa.Integer(), nullable=True))
+        batch.create_foreign_key(
+            "fk_entity_detections_audit_event_id_audit_events",
+            "audit_events",
+            ["audit_event_id"],
+            ["id"],
+            ondelete="SET NULL",
+        )
     op.create_index(
         "ix_entity_detections_audit_event_id",
         "entity_detections",
@@ -37,4 +37,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("ix_entity_detections_audit_event_id", "entity_detections")
-    op.drop_column("entity_detections", "audit_event_id")
+    with op.batch_alter_table("entity_detections") as batch:
+        batch.drop_column("audit_event_id")

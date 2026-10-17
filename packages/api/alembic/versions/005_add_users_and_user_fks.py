@@ -26,23 +26,23 @@ def upgrade() -> None:
     )
     op.create_index("ix_users_email", "users", ["email"])
 
-    op.add_column(
-        "documents",
-        sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=True),
-    )
+    with op.batch_alter_table("documents") as batch:
+        batch.add_column(sa.Column("user_id", sa.Integer(), nullable=True))
+        batch.create_foreign_key("fk_documents_user_id_users", "users", ["user_id"], ["id"], ondelete="CASCADE")
     op.create_index("ix_documents_user_id", "documents", ["user_id"])
 
-    op.add_column(
-        "chat_sessions",
-        sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=True),
-    )
+    with op.batch_alter_table("chat_sessions") as batch:
+        batch.add_column(sa.Column("user_id", sa.Integer(), nullable=True))
+        batch.create_foreign_key("fk_chat_sessions_user_id_users", "users", ["user_id"], ["id"], ondelete="CASCADE")
     op.create_index("ix_chat_sessions_user_id", "chat_sessions", ["user_id"])
 
 
 def downgrade() -> None:
     op.drop_index("ix_chat_sessions_user_id", "chat_sessions")
-    op.drop_column("chat_sessions", "user_id")
+    with op.batch_alter_table("chat_sessions") as batch:
+        batch.drop_column("user_id")
     op.drop_index("ix_documents_user_id", "documents")
-    op.drop_column("documents", "user_id")
+    with op.batch_alter_table("documents") as batch:
+        batch.drop_column("user_id")
     op.drop_index("ix_users_email", "users")
     op.drop_table("users")

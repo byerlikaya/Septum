@@ -13,6 +13,23 @@ jobs:
   backend-tests:
     runs-on: ubuntu-latest
 
+    # Migrations and the PostgreSQL-only tests run against a real server;
+    # the rest of the suite stays on SQLite.
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        env:
+          POSTGRES_USER: septum
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: septum
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U septum -d septum"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Free disk space
         run: |
@@ -50,7 +67,21 @@ jobs:
           # truth for the services/ layer).
           python -m pip install -r packages/api/requirements.txt
 
+      # Upgrade, check the models match, step one revision down and back up.
+      - name: Check database migrations on PostgreSQL
+        env:
+          DATABASE_URL: postgresql+asyncpg://septum:ci@localhost:5432/septum
+        run: |
+          cd packages/api
+          python -m alembic upgrade head
+          python -m alembic check
+          python -m alembic downgrade -1
+          python -m alembic upgrade head
+          python -m alembic check
+
       - name: Run backend tests
+        env:
+          SEPTUM_TEST_POSTGRES_URL: postgresql+asyncpg://septum:ci@localhost:5432/septum
         run: pytest packages/api/tests -q
 
   modular-tests:
