@@ -75,10 +75,7 @@ async def redis_set(key: str, value: bytes, ttl: int | None = None) -> bool:
     if client is None:
         return False
     try:
-        if ttl:
-            await client.setex(key, ttl, value)
-        else:
-            await client.set(key, value)
+        await client.set(key, value, ex=ttl or None)
         return True
     except Exception as exc:
         logger.warning("Redis SET failed for key=%s: %s", key, type(exc).__name__)

@@ -40,7 +40,7 @@ dependencies = [
     # Pulled in by default so `pip install septum-mcp` gives the full
     # feature set; adds ~400 KB on top of starlette (already a transitive
     # dep of mcp) and has no runtime cost for stdio deployments.
-    "uvicorn>=0.37",
+    "uvicorn>=0.54.0",
 ]
 
 [project.optional-dependencies]

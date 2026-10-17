@@ -30,13 +30,13 @@ classifiers = [
 # that needs network access is injected through a Protocol defined inside this
 # package so the core stays air-gap safe.
 dependencies = [
-    "presidio-analyzer>=2.2.359",
+    "presidio-analyzer>=2.2.362",
     "presidio-anonymizer>=2.2.362",
     # Security floor: presidio-anonymizer 2.2.363/2.2.364 cap cryptography
     # below the patched releases, so this floor forces the resolver onto a
     # presidio-anonymizer that accepts a patched cryptography.
     "cryptography>=50.0.0",
-    "spacy>=3.8.11",
+    "spacy>=3.8.16",
     "pydantic>=2.10",
     "regex>=2024.11.6",
 ]

@@ -35,7 +35,7 @@ dependencies = []
 
 [project.optional-dependencies]
 redis = [
-    "redis>=5.2.0",
+    "redis>=8.1.0",
 ]
 test = [
     "pytest>=9.0",
