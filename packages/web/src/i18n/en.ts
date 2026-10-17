@@ -326,6 +326,8 @@ export const enMessages = {
     "Failed to read ingestion health status.",
   "settings.ingestion.health.installFailed":
     "Failed to install or load the Whisper model.",
+  "settings.ingestion.health.installInProgress":
+    "A Whisper model install is already in progress. Please wait for it to finish.",
   "settings.ingestion.audioHealth.whisperPackageLabel": "Whisper package:",
   "settings.ingestion.audioHealth.whisperModelLabel": "Whisper model:",
   "settings.ingestion.whisperModel.label": "Whisper model",

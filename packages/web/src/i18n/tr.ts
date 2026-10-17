@@ -332,6 +332,8 @@ export const trMessages: Record<string, string> = {
     "İçe aktarma sağlık durumu okunamadı.",
   "settings.ingestion.health.installFailed":
     "Whisper modeli yüklenirken veya okunurken hata oluştu.",
+  "settings.ingestion.health.installInProgress":
+    "Bir Whisper modeli kurulumu zaten devam ediyor. Lütfen bitmesini bekleyin.",
   "settings.ingestion.audioHealth.whisperPackageLabel": "Whisper paketi:",
   "settings.ingestion.audioHealth.whisperModelLabel": "Whisper modeli:",
   "settings.ingestion.whisperModel.label": "Whisper modeli",
