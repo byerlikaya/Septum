@@ -3,7 +3,7 @@
 #
 # One image, one container. SQLite + direct in-process cloud LLM calls.
 # No PostgreSQL, no Redis, no queue, no gateway — the simplest possible
-# Septum install. This is the image published as byerlikaya/septum:latest.
+# Septum install. The image is built locally from docker/standalone.Dockerfile.
 #
 # Start:
 #   docker compose -f docker-compose.standalone.yml up -d
@@ -17,7 +17,8 @@ services:
     build:
       context: .
       dockerfile: docker/standalone.Dockerfile
-    image: byerlikaya/septum:latest
+    image: septum:local
+    pull_policy: never
     container_name: septum
     ports:
       - "3000:3000"
@@ -38,10 +39,19 @@ services:
       start_period: 60s
       retries: 3
 
+# Fixed names (no compose project prefix) match the volumes the earlier
+# `docker run --name septum -v septum-data:/app/data …` install created,
+# so switching to this file keeps existing data, keys and models.
 volumes:
   septum-data:
+    name: septum-data
   septum-uploads:
+    name: septum-uploads
   septum-anon-maps:
+    name: septum-anon-maps
   septum-vector-indexes:
+    name: septum-vector-indexes
   septum-bm25-indexes:
+    name: septum-bm25-indexes
   septum-models:
+    name: septum-models

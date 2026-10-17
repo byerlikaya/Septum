@@ -5,10 +5,9 @@
 # default; setup wizard configures everything on first run — no .env file
 # needed.
 #
-# This is the image published as ``byerlikaya/septum:latest``. The modular
-# compose variants (docker-compose.airgap.yml / .gateway.yml) ship separate
-# per-module images built from docker/api.Dockerfile etc; pick one or the
-# other, not both.
+# docker-compose.standalone.yml builds it. The modular compose variants
+# (docker-compose.airgap.yml / .gateway.yml) build separate per-module images
+# from docker/api.Dockerfile etc; pick one or the other, not both.
 #
 # Build:
 #   docker build -f docker/standalone.Dockerfile -t septum/standalone .
@@ -54,8 +53,8 @@ RUN pip install --no-warn-script-location -e /app/packages/core \
 # ── Stage 2: build Next.js frontend ──
 FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS frontend-builder
 
-# Version is injected by the Docker Hub publish workflow from the git
-# tag; defaults to 0.0.0-dev for local builds that skip --build-arg.
+# Pass --build-arg VERSION=<x.y.z> to stamp a release version;
+# defaults to 0.0.0-dev when it is not given.
 ARG VERSION=0.0.0-dev
 
 WORKDIR /app

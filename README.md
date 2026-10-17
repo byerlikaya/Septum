@@ -8,12 +8,6 @@
   <a href="https://github.com/byerlikaya/Septum/actions/workflows/tests.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/byerlikaya/Septum/tests.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=tests&color=43A047" alt="CI Tests" />
   </a>
-  <a href="https://hub.docker.com/r/byerlikaya/septum">
-    <img src="https://img.shields.io/docker/v/byerlikaya/septum?style=for-the-badge&logo=docker&logoColor=white&label=docker&color=1E88E5&sort=semver" alt="Docker Image Version" />
-  </a>
-  <a href="https://hub.docker.com/r/byerlikaya/septum">
-    <img src="https://img.shields.io/docker/pulls/byerlikaya/septum?style=for-the-badge&logo=docker&logoColor=white&label=pulls&color=1565C0" alt="Docker Pulls" />
-  </a>
   <a href="https://github.com/byerlikaya/Septum/stargazers">
     <img src="https://img.shields.io/github/stars/byerlikaya/Septum?style=for-the-badge&logo=github&logoColor=white&label=stars&color=F59E0B" alt="GitHub Stars" />
   </a>
@@ -123,16 +117,18 @@ See the [Features](docs/features.md) doc for the full detection benchmark, regul
 
 ## Quick Start
 
-The recommended installation brings up PostgreSQL, Redis, Ollama, and Septum together with one command:
+Septum is installed from source: clone the repository and build the images locally with the provided compose files. The recommended installation builds and brings up PostgreSQL, Redis, Ollama, and Septum together with one command:
 
 ```bash
 git clone https://github.com/byerlikaya/Septum.git && cd Septum
 cp .env.example .env
 # Open .env in your editor and set POSTGRES_PASSWORD + REDIS_PASSWORD
-docker compose up
+docker compose up --build
 ```
 
 Open **http://localhost:3000** — the setup wizard walks you through database, cache, LLM provider, regulations, and the first admin account.
+
+Septum no longer publishes container images; the older `byerlikaya/septum*` images on Docker Hub stay available but are no longer updated.
 
 Looking for a simpler single-container demo, an air-gapped two-host split, a cloud-provider-only setup without Ollama, or the native source install for contributors? The **[Installation Guide](docs/installation.md)** covers all five supported topologies, system requirements, first-launch walkthrough, upgrades, and troubleshooting.
 

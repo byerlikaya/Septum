@@ -157,18 +157,21 @@ sse — override with `--mount-path` or `SEPTUM_MCP_HTTP_MOUNT_PATH`.
 
 ### Docker
 
+Septum does not publish container images; build the image from a clone of the repository:
+
 ```bash
+docker build -f docker/mcp.Dockerfile -t septum-mcp:local .
 docker run -p 8765:8765 \
   -e SEPTUM_MCP_HTTP_TOKEN=<random-token> \
   -e SEPTUM_MCP_HTTP_HOST=0.0.0.0 \
-  byerlikaya/septum-mcp:latest
+  septum-mcp:local
 ```
 
 Or with docker-compose, pick up the `mcp` profile in `docker-compose.yml`:
 
 ```bash
 SEPTUM_MCP_HTTP_TOKEN=<random-token> \
-  docker compose --profile mcp up mcp
+  docker compose --profile mcp up --build mcp
 ```
 
 ### Deployment notes
