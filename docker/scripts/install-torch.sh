@@ -6,7 +6,7 @@
 set -eu
 
 VARIANT="${1:-cpu}"
-TORCH_PIN="torch==2.10.0"
+TORCH_PIN="torch==2.14.1"
 
 case "$VARIANT" in
   gpu)
@@ -15,7 +15,7 @@ case "$VARIANT" in
     ;;
   cpu)
     # CPU-only wheel; excludes CUDA / nvidia / triton (saves ~6 GB).
-    # The torch==2.10.0 pin in requirements.txt matches both wheels so
+    # The torch==2.14.1 pin in requirements.txt matches both wheels so
     # the follow-up pip install -r is a no-op for torch (PEP 440
     # ignores the +cpu local version suffix).
     pip install --no-warn-script-location \

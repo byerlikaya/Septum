@@ -73,7 +73,6 @@ def get_shared_sentence_transformer(
             _shared_st_model = SentenceTransformer(
                 model_name,
                 device="cpu",
-                model_kwargs={"low_cpu_mem_usage": False},
             )
         except Exception:
             _shared_st_model = SentenceTransformer(model_name)

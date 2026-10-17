@@ -338,6 +338,6 @@ git push --tags
 
 **Base images** are pinned by digest (`python:3.13-slim@sha256:…`, `node:22-alpine@sha256:…`, `node:22-slim@sha256:…`); Dependabot's Docker ecosystem proposes the bumps.
 
-**Local dev (`./dev.sh`) is GPU-native:** `packages/api/requirements.txt` pins `torch==2.10.0` without a CPU-only index override, so a local dev install picks up whatever torch variant PyPI serves for the host platform — CUDA on NVIDIA-equipped Linux, MPS on Apple Silicon, CPU everywhere else. The CPU-only constraint only applies to the published Docker images.
+**Local dev (`./dev.sh`) is GPU-native:** `packages/api/requirements.txt` pins `torch==2.14.1` without a CPU-only index override, so a local dev install picks up whatever torch variant PyPI serves for the host platform — CUDA on NVIDIA-equipped Linux, MPS on Apple Silicon, CPU everywhere else. The CPU-only constraint only applies to the published Docker images.
 
 Pre-releases (`v0.2.0-rc.1`) skip the rolling tags and `latest`; they publish only the exact version.

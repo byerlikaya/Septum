@@ -41,14 +41,14 @@ dependencies = [
     "sqlalchemy>=2.0.48",
     "aiosqlite>=0.22.1",
     "greenlet>=3.3.2",
-    "cryptography>=46.0.5",
+    "cryptography>=50.0.0",
     "prometheus-client>=0.22.1",
     "python-json-logger>=3.3.0",
 ]
 
 [project.optional-dependencies]
 auth = [
-    "PyJWT>=2.9.0",
+    "PyJWT>=2.15.0",
     "bcrypt>=4.3.0",
     "email-validator>=2.2.0",
 ]
