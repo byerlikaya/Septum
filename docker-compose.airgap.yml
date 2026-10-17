@@ -132,8 +132,11 @@ services:
       SEPTUM_MCP_HTTP_PORT: "8765"
       SEPTUM_MCP_HTTP_TOKEN: ${SEPTUM_MCP_HTTP_TOKEN:-}
       SEPTUM_REGULATIONS: ${SEPTUM_REGULATIONS:-}
+      SEPTUM_MCP_FILE_ROOT: /data/scan
     ports:
       - "8765:8765"
+    volumes:
+      - septum-mcp-scan:/data/scan:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health')"]
@@ -152,3 +155,4 @@ volumes:
   septum-vector-indexes:
   septum-bm25-indexes:
   septum-models:
+  septum-mcp-scan:

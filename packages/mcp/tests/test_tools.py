@@ -96,7 +96,7 @@ def test_scan_file_detect_only(tmp_path: Path, engine: SeptumEngine) -> None:
     target = tmp_path / "note.txt"
     target.write_text("Contact jane@example.com today.", encoding="utf-8")
 
-    result = tools.scan_file(engine, file_path=str(target), mask=False)
+    result = tools.scan_file(engine, file_root=None, file_path=str(target), mask=False)
 
     assert result["ok"] is True
     data = result["data"]
@@ -110,7 +110,7 @@ def test_scan_file_with_mask_returns_session(tmp_path: Path, engine: SeptumEngin
     target = tmp_path / "note.txt"
     target.write_text("Contact jane@example.com today.", encoding="utf-8")
 
-    result = tools.scan_file(engine, file_path=str(target), mask=True)
+    result = tools.scan_file(engine, file_root=None, file_path=str(target), mask=True)
 
     assert result["ok"] is True
     data = result["data"]
@@ -125,7 +125,7 @@ def test_scan_file_with_mask_returns_session(tmp_path: Path, engine: SeptumEngin
 
 
 def test_scan_file_missing_path(engine: SeptumEngine) -> None:
-    result = tools.scan_file(engine, file_path="/does/not/exist.txt")
+    result = tools.scan_file(engine, file_root=None, file_path="/does/not/exist.txt")
 
     assert result["ok"] is False
     assert "not found" in result["error"].lower()
@@ -135,7 +135,7 @@ def test_scan_file_empty_file(tmp_path: Path, engine: SeptumEngine) -> None:
     target = tmp_path / "empty.txt"
     target.write_text("", encoding="utf-8")
 
-    result = tools.scan_file(engine, file_path=str(target))
+    result = tools.scan_file(engine, file_root=None, file_path=str(target))
 
     assert result["ok"] is False
     assert "empty" in result["error"].lower()

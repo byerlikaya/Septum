@@ -33,6 +33,7 @@ for every workspace it opens.
 """
 
 import argparse
+import dataclasses
 import logging
 import threading
 from typing import List, Optional
@@ -43,7 +44,7 @@ from septum_core import SeptumCoreConfig, SeptumEngine
 
 from . import tools as tool_impls
 from .auth import BearerTokenMiddleware
-from .config import VALID_TRANSPORTS, MCPConfig
+from .config import VALID_TRANSPORTS, MCPConfig, file_root_from_env
 
 logger = logging.getLogger("septum_mcp.server")
 
@@ -53,8 +54,7 @@ SERVER_INSTRUCTIONS = (
     "machine. Typical workflow: call mask_text before sending content to a "
     "remote LLM, then call unmask_response on the reply using the returned "
     "session_id. Use detect_pii for read-only scans, scan_file for local "
-    "documents, list_regulations to see available packs, and get_session_map "
-    "for debugging."
+    "documents, and list_regulations to see available packs."
 )
 
 
@@ -116,17 +116,31 @@ class _EngineHolder:
 def create_server(
     config: Optional[MCPConfig] = None,
     *,
-    expose_session_map: bool = True,
+    expose_session_map: Optional[bool] = None,
 ) -> FastMCP:
-    """Build a :class:`FastMCP` instance with all septum-mcp tools registered.
+    """Build a :class:`FastMCP` instance with the septum-mcp tools registered.
 
-    ``expose_session_map`` controls whether ``get_session_map`` (which
-    returns raw PII for debugging) is registered. Callers should pass
-    ``False`` for non-stdio transports — the tool is intended for
-    local-only debugging and exposing it over a network transport
-    leaks raw originals to any client with a valid bearer token.
+    ``get_session_map`` returns raw PII, so it is registered only when
+    ``expose_session_map`` is true. ``None`` (the default) defers to
+    ``config.expose_session_map``, which is off unless the operator sets
+    ``SEPTUM_MCP_EXPOSE_SESSION_MAP=true``. It is also off on every transport
+    other than ``stdio``. The tool is left unregistered rather than
+    registered-but-refusing so the model driving the client never sees it
+    in ``tools/list`` and cannot be steered into calling it.
+
+    On any transport other than ``stdio`` (``cfg.transport``),
+    ``scan_file`` refuses every path until ``SEPTUM_MCP_FILE_ROOT`` is set.
+    The root is resolved and pinned here, once: it must already exist as a
+    directory, otherwise :class:`~septum_mcp.tools.FileRootError` is raised.
+    A config whose ``file_root`` is ``None`` falls back to the environment
+    value, so hand-built configs stay confined too.
     """
     cfg = config or MCPConfig.from_env()
+    file_root = tool_impls.load_file_root(cfg.file_root or file_root_from_env())
+    if expose_session_map is None:
+        expose_session_map = cfg.expose_session_map
+    expose_session_map = expose_session_map and cfg.transport == "stdio"
+    require_file_root = cfg.transport != "stdio"
     mcp = FastMCP(name="septum-mcp", instructions=SERVER_INSTRUCTIONS)
     holder = _EngineHolder(cfg)
 
@@ -158,15 +172,21 @@ def create_server(
     @mcp.tool(
         name="unmask_response",
         description=(
-            "Restore original PII values inside an LLM response by "
-            "replacing placeholders with the values recorded in the "
-            "session anonymization map."
+            "Restore original PII values inside an LLM response. Only "
+            "placeholders that this session's mask_text or scan_file "
+            "output contained are restored; others stay literal. Each "
+            "session may restore at most a configured number of distinct "
+            "placeholders across all calls; a call exceeding that budget "
+            "is refused."
         ),
     )
     def unmask_response(text: str, session_id: str) -> dict:
         return _unwrap(
             tool_impls.unmask_response(
-                holder.get(), text=text, session_id=session_id
+                holder.get(),
+                text=text,
+                session_id=session_id,
+                max_placeholders=cfg.max_unmask_placeholders,
             )
         )
 
@@ -198,6 +218,8 @@ def create_server(
                 file_path=file_path,
                 mask=mask,
                 language=language,
+                require_root=require_file_root,
+                file_root=file_root,
             )
         )
 
@@ -327,10 +349,29 @@ def main(argv: Optional[List[str]] = None) -> None:
     port = args.port if args.port is not None else cfg.http_port
     token = args.token or cfg.http_token
     mount_path = args.mount_path or cfg.http_mount_path
+    cfg = dataclasses.replace(cfg, transport=transport)
 
-    # get_session_map returns raw PII; only expose it on stdio (the only
-    # transport that runs as a subprocess of a trusted local client).
-    mcp = create_server(cfg, expose_session_map=(transport == "stdio"))
+    if cfg.expose_session_map and transport != "stdio":
+        logger.warning(
+            "SEPTUM_MCP_EXPOSE_SESSION_MAP is ignored on the %s transport; "
+            "get_session_map is only available over stdio.",
+            transport,
+        )
+    elif cfg.expose_session_map:
+        logger.warning(
+            "get_session_map is enabled: the MCP client can read raw PII "
+            "from anonymization sessions."
+        )
+    if transport != "stdio" and not cfg.file_root:
+        logger.warning(
+            "SEPTUM_MCP_FILE_ROOT is unset; scan_file refuses every path on "
+            "the %s transport.",
+            transport,
+        )
+    try:
+        mcp = create_server(cfg)
+    except tool_impls.FileRootError as exc:
+        raise SystemExit(f"septum-mcp: {exc}") from exc
 
     if transport == "stdio":
         mcp.run(transport="stdio")

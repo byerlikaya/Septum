@@ -20,7 +20,7 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 pytestmark = pytest.mark.asyncio
 
 
-def _server_parameters() -> StdioServerParameters:
+def _server_parameters(extra_env: dict[str, str] | None = None) -> StdioServerParameters:
     return StdioServerParameters(
         command=sys.executable,
         args=["-m", "septum_mcp.server"],
@@ -28,6 +28,7 @@ def _server_parameters() -> StdioServerParameters:
             "SEPTUM_REGULATIONS": "gdpr",
             "SEPTUM_USE_NER": "false",
             "PYTHONUNBUFFERED": "1",
+            **(extra_env or {}),
         },
     )
 
@@ -48,10 +49,10 @@ def _extract_json_payload(result) -> dict:
     raise AssertionError(f"No JSON payload found in tool result: {result}")
 
 
-async def test_stdio_lists_all_six_tools() -> None:
+async def test_stdio_default_tools_exclude_session_map() -> None:
     async with stdio_client(_server_parameters()) as (read, write):
         async with ClientSession(read, write) as session:
-            await session.initialize()
+            init = await session.initialize()
             tools = await session.list_tools()
 
     names = {tool.name for tool in tools.tools}
@@ -61,8 +62,18 @@ async def test_stdio_lists_all_six_tools() -> None:
         "detect_pii",
         "scan_file",
         "list_regulations",
-        "get_session_map",
     }
+    assert "session_map" not in (init.instructions or "")
+
+
+async def test_stdio_session_map_opt_in() -> None:
+    params = _server_parameters({"SEPTUM_MCP_EXPOSE_SESSION_MAP": "true"})
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            tools = await session.list_tools()
+
+    assert "get_session_map" in {tool.name for tool in tools.tools}
 
 
 async def test_stdio_mask_and_unmask_round_trip() -> None:
