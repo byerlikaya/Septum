@@ -26,6 +26,7 @@ import type {
   UpdateUserPayload,
   UserListItem,
 } from "./types";
+import { hardNavigate } from "./navigation";
 
 // Default ``""`` makes requests relative so Next.js rewrites in
 // ``next.config.mjs`` proxy ``/api/*`` to the backend on the same
@@ -91,7 +92,7 @@ api.interceptors.response.use(
             typeof window !== "undefined" &&
             !window.location.pathname.startsWith("/login")
           ) {
-            window.location.href = "/login";
+            hardNavigate("/login");
           }
         });
       }

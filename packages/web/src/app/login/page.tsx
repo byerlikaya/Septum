@@ -1,14 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Shield } from "lucide-react";
 import { authLogin, setAuthToken } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { hardNavigate } from "@/lib/navigation";
 
 export default function LoginPage() {
   const t = useI18n();
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +20,7 @@ export default function LoginPage() {
     try {
       const { access_token } = await authLogin(email, password);
       setAuthToken(access_token);
-      window.location.href = "/chat";
+      hardNavigate("/chat");
     } catch {
       setError(t("auth.login.error"));
     } finally {
