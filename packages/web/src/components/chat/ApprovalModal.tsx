@@ -84,30 +84,43 @@ export function ApprovalModal({
     }, 50);
   }, []);
 
+  // Reset the editing state whenever the modal opens or its inputs change.
+  // This runs whenever the modal is open, regardless of sessionId: the
+  // read-only review modal passes sessionId={null} by design. The live
+  // preview refresh (refreshAssembledPrompt) is gated on sessionId
+  // separately, so read-only mode never calls the preview endpoint.
+  // Keyed on the content of the inputs, not array identity: a parent
+  // re-render that hands over a fresh but equal ``chunks`` array must not
+  // wipe in-progress edits.
+  const syncKey = useMemo(
+    () => JSON.stringify([sessionId, assembledPrompt, chunks.map((c) => c.text)]),
+    [sessionId, assembledPrompt, chunks]
+  );
+  const [synced, setSynced] = useState<{ open: boolean; key: string } | null>(null);
+  if (synced === null || synced.open !== open || synced.key !== syncKey) {
+    setSynced({ open, key: syncKey });
+    if (open) {
+      setEditedTexts(chunks.map((c) => c.text));
+      setEditingIndex(null);
+      setCollapsedChunks(new Set());
+      setCurrentAssembledPrompt(assembledPrompt);
+      setPreviewIsStale(false);
+      setPreviewError(null);
+      setPreviewLoading(false);
+    }
+  }
+
   useEffect(() => {
-    // Run state sync whenever the modal becomes open, regardless of
-    // sessionId. The read-only review modal (for inspecting a past
-    // approved/rejected turn) passes sessionId={null} by design — gating
-    // this effect on sessionId left currentAssembledPrompt stuck at its
-    // first-mount value ("") so the "Bulut LLM'e gönderilecek tam prompt"
-    // panel showed the empty-state hint for every past turn. The live
-    // preview refresh (refreshAssembledPrompt) is still gated on sessionId
-    // separately, so read-only mode never calls the preview endpoint.
+    latestEditedTextsRef.current = editedTexts;
+  }, [editedTexts]);
+
+  useEffect(() => {
     if (!open) return;
-    const initialTexts = chunks.map((c) => c.text);
-    setEditedTexts(initialTexts);
-    latestEditedTextsRef.current = initialTexts;
-    setEditingIndex(null);
-    setCollapsedChunks(new Set());
-    setCurrentAssembledPrompt(assembledPrompt);
-    setPreviewIsStale(false);
-    setPreviewError(null);
-    setPreviewLoading(false);
     if (previewTimerRef.current != null) {
       clearTimeout(previewTimerRef.current);
       previewTimerRef.current = null;
     }
-  }, [open, sessionId, chunks, assembledPrompt]);
+  }, [open, syncKey]);
 
   const refreshAssembledPrompt = useCallback(
     async (latestTexts: string[]) => {

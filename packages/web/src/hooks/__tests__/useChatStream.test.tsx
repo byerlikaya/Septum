@@ -195,3 +195,44 @@ it("shows the translated message when a retry is refused", async () => {
   const assistant = result.current.messages.find((m) => m.role === "assistant");
   expect(assistant?.content).toBe("Error: chat.error.retryNumberingChanged");
 });
+
+it("restores initialMessages on first render", () => {
+  const initial = [
+    { id: "a", role: "user" as const, content: "hi" },
+    { id: "b", role: "assistant" as const, content: "hello" }
+  ];
+  const { result } = renderStream({ initialMessages: initial });
+  expect(result.current.messages).toEqual(initial);
+  expect(result.current.pendingAssistantId).toBeNull();
+});
+
+it("tracks pendingAssistantId while streaming and clears it on end", async () => {
+  const { result } = renderStream({ requireApproval: false });
+
+  act(() => result.current.sendMessage("Question?"));
+  await waitFor(() => expect(mockStreamChatAsk).toHaveBeenCalledTimes(1));
+
+  const pending = result.current.pendingAssistantId;
+  expect(pending).not.toBeNull();
+  expect(result.current.messages[result.current.messages.length - 1].id).toBe(pending);
+
+  act(() => {
+    lastOnEvent()({ type: "answer_chunk", text: "partial" } as SSEChatEvent);
+  });
+  expect(result.current.messages.find((m) => m.id === pending)?.content).toBe("partial");
+
+  act(() => {
+    lastOnEvent()({ type: "end" } as SSEChatEvent);
+  });
+  expect(result.current.pendingAssistantId).toBeNull();
+  expect(result.current.streaming).toBe(false);
+});
+
+it("clears pendingAssistantId when streaming is stopped", async () => {
+  const { result } = renderStream();
+  act(() => result.current.sendMessage("Question?"));
+  await waitFor(() => expect(mockStreamChatAsk).toHaveBeenCalledTimes(1));
+  expect(result.current.pendingAssistantId).not.toBeNull();
+  act(() => result.current.stopStreaming());
+  expect(result.current.pendingAssistantId).toBeNull();
+});

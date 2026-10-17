@@ -83,3 +83,28 @@ it("calls onReject and closes", () => {
   expect(onClose).toHaveBeenCalled();
 });
 
+
+it("resets edited chunk text when the modal is closed and reopened", () => {
+  const onApprove = jest.fn();
+  const props: ApprovalModalProps = {
+    open: true,
+    sessionId: "sess-1",
+    maskedPrompt: "masked",
+    chunks: baseChunks,
+    activeRegulations: ["GDPR"],
+    onApprove,
+    onReject: jest.fn(),
+    onClose: jest.fn()
+  };
+  const { rerender } = render(<ApprovalModal {...props} />);
+
+  fireEvent.click(screen.getByTitle("chat.approval.editChunk"));
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "edited" } });
+  fireEvent.click(screen.getByRole("button", { name: "chat.approval.doneEditing" }));
+
+  rerender(<ApprovalModal {...props} open={false} />);
+  rerender(<ApprovalModal {...props} open={true} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "chat.approval.button.approve" }));
+  expect(onApprove.mock.calls[0][1][0].text).toBe("original text");
+});

@@ -1,7 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { approvalApprove, approvalReject } from "@/lib/api";
 import type { ApprovalChunkPayload, ApprovalData, ChatMessage } from "@/lib/types";
-import { useI18n } from "@/lib/i18n";
 
 export interface UseChatApprovalReturn {
   approvalOpen: boolean;
@@ -41,7 +40,6 @@ export function useChatApproval({
   setMessages,
   onRejectedPersist,
 }: UseChatApprovalOptions): UseChatApprovalReturn {
-  const t = useI18n();
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [approvalSessionId, setApprovalSessionId] = useState<string | null>(null);
   const [approvalMaskedPrompt, setApprovalMaskedPrompt] = useState("");
@@ -152,7 +150,7 @@ export function useChatApproval({
   );
 
   const onApprovalRejected = useCallback(
-    (_reason: string) => {
+    () => {
       // Backend-initiated rejection (e.g. timeout): the gate already
       // auto-rejected the session, so do NOT call approvalReject() — the
       // session id is gone and the call would 404. We still want the
