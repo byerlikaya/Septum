@@ -3,9 +3,8 @@
 import {
   createContext,
   useContext,
-  useEffect,
   useMemo,
-  useState,
+  useSyncExternalStore,
   type ReactNode
 } from "react";
 
@@ -26,39 +25,59 @@ type LanguageProviderProps = {
   children: ReactNode;
 };
 
-export function LanguageProvider(props: LanguageProviderProps) {
-  const { children } = props;
-  const [language, setLanguageState] = useState<AppLanguage>("en");
+const languageListeners = new Set<() => void>();
+let currentLanguage: AppLanguage | null = null;
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
+function readLanguage(): AppLanguage {
+  if (currentLanguage === null) {
+    currentLanguage = "en";
     try {
       const stored = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
       if (stored === "tr" || stored === "en") {
-        setLanguageState(stored);
+        currentLanguage = stored;
       }
     } catch {
       // ignore storage errors
     }
-  }, []);
+  }
+  return currentLanguage;
+}
 
-  const setLanguage = (next: AppLanguage): void => {
-    setLanguageState(next);
-    if (typeof window !== "undefined") {
-      try {
-        window.localStorage.setItem(LANGUAGE_STORAGE_KEY, next);
-      } catch {
-        // ignore storage errors
-      }
-    }
+function subscribeToLanguage(listener: () => void): () => void {
+  languageListeners.add(listener);
+  return () => {
+    languageListeners.delete(listener);
   };
+}
+
+function getServerLanguage(): AppLanguage {
+  return "en";
+}
+
+function writeLanguage(next: AppLanguage): void {
+  currentLanguage = next;
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, next);
+    } catch {
+      // ignore storage errors
+    }
+  }
+  languageListeners.forEach((listener) => listener());
+}
+
+export function LanguageProvider(props: LanguageProviderProps) {
+  const { children } = props;
+  const language = useSyncExternalStore(
+    subscribeToLanguage,
+    readLanguage,
+    getServerLanguage
+  );
 
   const value = useMemo<LanguageContextValue>(
     () => ({
       language,
-      setLanguage
+      setLanguage: writeLanguage
     }),
     [language]
   );
