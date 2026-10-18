@@ -57,7 +57,7 @@ rejected by CI.
   required on public APIs.
 - **TypeScript:** `npm run lint` + `tsc --noEmit` must pass.
 - **No country or language names** in class/function/variable names
-  (see `CLAUDE.md` § Zero-Tolerance Generic Architecture). Exceptions:
+  (enforced in CI by `.github/scripts/policy_check.py`). Exceptions:
   `national_ids/` algorithmic validators, ISO 639-1 codes in mapping
   tables, HuggingFace model IDs, regulation seed descriptions, tests.
 - **No inline LLM prompts.** All prompts go through `PromptCatalog`
