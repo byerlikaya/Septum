@@ -51,7 +51,8 @@ Environment variables:
   to (a root behind a symlink is allowed), so a later swap of the root
   path refuses reads instead of moving the boundary.
 
-HTTP-only variables (ignored in stdio mode):
+HTTP-only variables (ignored in stdio mode, except that a malformed
+``SEPTUM_MCP_HTTP_ALLOWED_HOSTS`` is a startup error in every mode):
 
 - ``SEPTUM_MCP_TRANSPORT`` — ``"stdio"``, ``"streamable-http"`` or
   ``"sse"``. Defaults to ``"stdio"``.
@@ -65,9 +66,21 @@ HTTP-only variables (ignored in stdio mode):
 - ``SEPTUM_MCP_HTTP_MOUNT_PATH`` — URL path prefix for the MCP
   endpoint. Defaults to the SDK default (``/mcp`` for streamable-http,
   ``/sse`` for sse).
+- ``SEPTUM_MCP_HTTP_ALLOWED_HOSTS`` — comma-separated ``Host`` header
+  allowlist, e.g. ``"mcp.internal:8765,mcp.internal:*"``. Each entry is
+  ``host``, ``host:port`` or ``host:*`` (IPv6 hosts in brackets);
+  entries are lowercased and normalised before matching. When
+  set, DNS-rebinding protection is enabled: requests whose ``Host``
+  header is not listed get 421, and a browser ``Origin`` header must be
+  ``http://`` or ``https://`` plus one of the entries (else 403). When
+  unset, loopback binds keep the SDK's localhost-only default and other
+  binds accept any ``Host``. A malformed entry is a startup error in
+  every transport mode.
 """
 
+import ipaddress
 import os
+import re
 from dataclasses import dataclass, field
 from typing import List, Mapping
 
@@ -87,6 +100,16 @@ DEFAULT_HTTP_HOST = "127.0.0.1"
 DEFAULT_HTTP_PORT = 8765
 
 VALID_TRANSPORTS = frozenset({"stdio", "sse", "streamable-http"})
+
+_HOST_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+_ALLOWED_HOST_PATTERN = re.compile(
+    rf"(?P<name>{_HOST_LABEL}(?:\.{_HOST_LABEL})*|\[(?P<ipv6>[0-9A-Fa-f:.]+)\])"
+    r"(?::(?P<port>\d{1,5}|\*))?"
+)
+
+
+class AllowedHostsError(ValueError):
+    """Raised when ``SEPTUM_MCP_HTTP_ALLOWED_HOSTS`` holds a malformed entry."""
 
 
 def _parse_bool(value: str | None, default: bool) -> bool:
@@ -149,6 +172,66 @@ def _parse_optional_str(value: str | None) -> str | None:
     return stripped or None
 
 
+def _normalise_allowed_host(entry: str) -> str | None:
+    """Return ``entry`` in the form the SDK's exact Host match expects, or ``None`` if malformed.
+
+    The host is lowercased, an IPv6 host is rewritten to its bracketed
+    compressed form and a numeric port loses leading zeros; ``*`` stays.
+    """
+    match = _ALLOWED_HOST_PATTERN.fullmatch(entry)
+    if match is None:
+        return None
+    ipv6 = match.group("ipv6")
+    if ipv6 is not None:
+        try:
+            name = f"[{ipaddress.IPv6Address(ipv6).compressed}]"
+        except ValueError:
+            return None
+    else:
+        name = match.group("name").lower()
+    port = match.group("port")
+    if port is None:
+        return name
+    if port == "*":
+        return f"{name}:*"
+    port_number = int(port)
+    if not 1 <= port_number <= 65535:
+        return None
+    return f"{name}:{port_number}"
+
+
+def parse_allowed_hosts(value: str | None) -> list[str]:
+    """Parse a comma-separated ``Host`` allowlist into a list of entries.
+
+    Whitespace is stripped and empty entries are dropped, so an unset or
+    blank value yields ``[]`` (no allowlist). Each remaining entry must be
+    ``host``, ``host:port`` or ``host:*``, where ``host`` is a dotted DNS
+    name or IPv4-style address, or a bracketed IPv6 address. Entries are
+    normalised (lowercase host, compressed IPv6, port without leading
+    zeros) because the SDK matches the ``Host`` header exactly. Anything
+    else (a scheme, a path, credentials, a bare ``*``, an out-of-range
+    port) raises :class:`AllowedHostsError`. The message names the entry's
+    position rather than echoing it; the entries themselves are never
+    logged (the server logs only their count), so a mis-pasted secret does
+    not reach the logs.
+    """
+    if not value:
+        return []
+    entries = [part.strip() for part in value.split(",")]
+    entries = [entry for entry in entries if entry]
+    normalised: list[str] = []
+    for position, entry in enumerate(entries, start=1):
+        result = _normalise_allowed_host(entry)
+        if result is None:
+            raise AllowedHostsError(
+                f"allowed-hosts entry #{position} is invalid; "
+                "expected host, host:port or host:* (IPv6 in brackets), "
+                "comma-separated, without scheme or path."
+            )
+        normalised.append(result)
+    return normalised
+
+
 @dataclass
 class MCPConfig:
     """Runtime configuration for the septum-mcp server.
@@ -172,13 +255,18 @@ class MCPConfig:
     http_port: int = DEFAULT_HTTP_PORT
     http_token: str | None = None
     http_mount_path: str | None = None
+    http_allowed_hosts: list[str] = field(default_factory=list)
     expose_session_map: bool = False
     max_unmask_placeholders: int = DEFAULT_MAX_UNMASK_PLACEHOLDERS
     file_root: str | None = None
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "MCPConfig":
-        """Build an :class:`MCPConfig` from ``env`` (defaults to ``os.environ``)."""
+        """Build an :class:`MCPConfig` from ``env`` (defaults to ``os.environ``).
+
+        Raises :class:`AllowedHostsError` when ``SEPTUM_MCP_HTTP_ALLOWED_HOSTS``
+        holds a malformed entry; every other variable falls back to its default.
+        """
         source = env if env is not None else os.environ
         return cls(
             regulations=parse_active_regulations_env(source.get("SEPTUM_REGULATIONS")),
@@ -193,6 +281,7 @@ class MCPConfig:
             http_port=_parse_port(source.get("SEPTUM_MCP_HTTP_PORT"), DEFAULT_HTTP_PORT),
             http_token=_parse_optional_str(source.get("SEPTUM_MCP_HTTP_TOKEN")),
             http_mount_path=_parse_optional_str(source.get("SEPTUM_MCP_HTTP_MOUNT_PATH")),
+            http_allowed_hosts=parse_allowed_hosts(source.get("SEPTUM_MCP_HTTP_ALLOWED_HOSTS")),
             expose_session_map=_parse_bool(source.get("SEPTUM_MCP_EXPOSE_SESSION_MAP"), False),
             max_unmask_placeholders=_parse_positive_int(
                 source.get("SEPTUM_MCP_MAX_UNMASK_PLACEHOLDERS"),
