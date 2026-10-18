@@ -58,7 +58,7 @@ istekleri CI tarafından reddedilir.
   type hint zorunlu.
 - **TypeScript:** `npm run lint` + `tsc --noEmit` geçmeli.
 - **Sınıf/fonksiyon/değişken isimlerinde ülke veya dil adı yok**
-  (bkz. `CLAUDE.md` § Zero-Tolerance Generic Architecture).
+  (CI'da `.github/scripts/policy_check.py` ile denetlenir).
   İstisnalar: `national_ids/` algoritmik doğrulayıcılar, mapping
   tablolarında ISO 639-1 kodları, HuggingFace model ID'leri,
   regülasyon seed açıklamaları, test dosyaları.

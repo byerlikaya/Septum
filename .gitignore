@@ -80,3 +80,9 @@ packages/api/tests/fixtures/
 .crewforth/
 .private-terms.txt
 packages/web/next-env.d.ts
+docs/HANDOVER.md
+docs/PLAN.md
+docs/SESSION_STATE.md
+docs/adr/
+CLAUDE.md
+.cursorrules
