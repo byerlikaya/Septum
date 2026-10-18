@@ -43,24 +43,38 @@ export default function SettingsPage() {
     savedTimerRef.current = setTimeout(() => setShowSaved(false), 2000);
   }, []);
 
+  const loadSettings = useCallback(
+    (isStale: () => boolean): Promise<void> =>
+      api
+        .get<SettingsResponse>("/api/settings")
+        .then((response) => {
+          if (isStale()) return;
+          setSettings(response.data);
+          setError(null);
+        })
+        .catch((err) => {
+          if (isStale()) return;
+          console.error(err);
+          setError(t("errors.settings.load"));
+        })
+        .finally(() => {
+          if (!isStale()) setLoading(false);
+        }),
+    [t]
+  );
+
   const fetchSettings = useCallback(async (): Promise<void> => {
-    try {
-      setLoading(true);
-      const response = await api.get<SettingsResponse>("/api/settings");
-      setSettings(response.data);
-      setError(null);
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error(err);
-      setError(t("errors.settings.load"));
-    } finally {
-      setLoading(false);
-    }
-  }, [t]);
+    setLoading(true);
+    await loadSettings(() => false);
+  }, [loadSettings]);
 
   useEffect(() => {
-    void fetchSettings();
-  }, [fetchSettings]);
+    let cancelled = false;
+    void loadSettings(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [loadSettings]);
 
   const updateField = async <K extends keyof SettingsUpdatePayload>(
     key: K,
@@ -78,7 +92,6 @@ export default function SettingsPage() {
       setError(null);
       flashSaved();
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.error(err);
       setError(t("errors.settings.update"));
     } finally {
@@ -105,7 +118,6 @@ export default function SettingsPage() {
             : t("settings.llm.test.failed"))
       });
     } catch (err: unknown) {
-      // eslint-disable-next-line no-console
       console.error(err);
       let message = t("settings.llm.test.failed");
       const anyErr = err as {
@@ -141,7 +153,6 @@ export default function SettingsPage() {
             : t("settings.llm.test.failed"))
       });
     } catch (err: unknown) {
-      // eslint-disable-next-line no-console
       console.error(err);
       let message = t("settings.llm.test.failed");
       const anyErr = err as {

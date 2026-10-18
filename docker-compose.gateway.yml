@@ -17,7 +17,8 @@ x-gateway-base: &gateway-base
   build:
     context: .
     dockerfile: docker/gateway.Dockerfile
-  image: byerlikaya/septum-gateway:latest
+  image: septum-gateway:local
+  pull_policy: never
   environment: &gateway-env
     SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
     SEPTUM_GATEWAY_REQUEST_TOPIC: septum.llm.requests
@@ -32,7 +33,8 @@ x-audit-base: &audit-base
   build:
     context: .
     dockerfile: docker/audit.Dockerfile
-  image: byerlikaya/septum-audit:latest
+  image: septum-audit:local
+  pull_policy: never
   environment: &audit-env
     SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
     SEPTUM_AUDIT_TOPIC: septum.audit.events

@@ -8,12 +8,6 @@
   <a href="https://github.com/byerlikaya/Septum/actions/workflows/tests.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/byerlikaya/Septum/tests.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=tests&color=43A047" alt="CI Testler" />
   </a>
-  <a href="https://hub.docker.com/r/byerlikaya/septum">
-    <img src="https://img.shields.io/docker/v/byerlikaya/septum?style=for-the-badge&logo=docker&logoColor=white&label=docker&color=1E88E5&sort=semver" alt="Docker Image Sürümü" />
-  </a>
-  <a href="https://hub.docker.com/r/byerlikaya/septum">
-    <img src="https://img.shields.io/docker/pulls/byerlikaya/septum?style=for-the-badge&logo=docker&logoColor=white&label=pulls&color=1565C0" alt="Docker Pulls" />
-  </a>
   <a href="https://github.com/byerlikaya/Septum/stargazers">
     <img src="https://img.shields.io/github/stars/byerlikaya/Septum?style=for-the-badge&logo=github&logoColor=white&label=stars&color=F59E0B" alt="GitHub Yıldızları" />
   </a>
@@ -123,16 +117,18 @@ Tam tespit benchmark'ı, regülasyon paket tablosu, MCP entegrasyon kılavuzu, R
 
 ## Hızlı Başlangıç
 
-Önerilen kurulum, PostgreSQL, Redis, Ollama ve Septum'u tek komutla birlikte ayağa kaldırır:
+Septum kaynaktan kurulur: depoyu klonlayın ve image'ları birlikte gelen compose dosyalarıyla yerelde derleyin. Önerilen kurulum, PostgreSQL, Redis, Ollama ve Septum'u tek komutla derleyip birlikte ayağa kaldırır:
 
 ```bash
 git clone https://github.com/byerlikaya/Septum.git && cd Septum
 cp .env.example .env
 # .env dosyasını editörünüzde açıp POSTGRES_PASSWORD ve REDIS_PASSWORD'ü doldurun
-docker compose up
+docker compose up --build
 ```
 
 **http://localhost:3000** adresini açın — sihirbaz veritabanı, cache, LLM sağlayıcı, regülasyonlar ve ilk admin hesabını sırayla yapılandırır.
+
+Septum artık container image'ı yayınlamıyor; Docker Hub'daki eski `byerlikaya/septum*` image'ları duruyor ancak güncellenmiyor.
 
 Daha sade bir tek container demosu, iki makineli air-gapped ayrım, Ollama'sız yalnız bulut kurulumu ya da katkı sağlayanlar için kaynaktan geliştirici kurulumu mu arıyorsunuz? **[Kurulum Rehberi](docs/tr/installation.md)** desteklenen beş topolojiyi, sistem gereksinimlerini, ilk açılış sihirbazını, güncelleme akışını ve sorun gidermeyi tek sayfada toplar.
 

@@ -8,9 +8,9 @@ interface DeanonymizationBannerProps {
 }
 
 export function DeanonymizationBanner({ visible }: DeanonymizationBannerProps) {
-  if (!visible) return <></>;
-
   const t = useI18n();
+
+  if (!visible) return <></>;
 
   return (
     <div

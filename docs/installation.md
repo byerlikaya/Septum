@@ -45,12 +45,12 @@ The shortest path to a working Septum. Three commands, five minutes, a local-fir
 git clone https://github.com/byerlikaya/Septum.git && cd Septum
 cp .env.example .env
 # Open .env in your editor and set POSTGRES_PASSWORD + REDIS_PASSWORD
-docker compose up
+docker compose up --build
 ```
 
 Open **http://localhost:3000** — the setup wizard takes you the rest of the way.
 
-The compose stack brings up PostgreSQL, Redis, Ollama, the FastAPI backend, and the Next.js dashboard on a single host. The first run pulls all images from Docker Hub and a default Ollama model; subsequent runs are instant. No raw PII ever leaves the machine — detection, masking, and LLM inference all happen locally.
+The compose stack brings up PostgreSQL, Redis, Ollama, the FastAPI backend, and the Next.js dashboard on a single host. Septum is installed from source: the first run builds the Septum images locally (several minutes) and pulls the base services and a default Ollama model; subsequent runs reuse the build cache. No raw PII ever leaves the machine — detection, masking, and LLM inference all happen locally.
 
 ---
 
@@ -66,8 +66,8 @@ The compose stack brings up PostgreSQL, Redis, Ollama, the FastAPI backend, and 
 
 **Platform notes.**
 
-- **Apple Silicon (M1/M2/M3/M4)** — fully supported. Ollama uses Metal acceleration automatically; no extra flags needed. Multi-arch Docker images ship an arm64 variant.
-- **NVIDIA GPU (Linux amd64)** — optional. Use the `-gpu` tag of `byerlikaya/septum` / `byerlikaya/septum-api` for CUDA-accelerated PyTorch (faster OCR, Whisper, embedding). Ollama runs on the GPU automatically when one is visible inside the container.
+- **Apple Silicon (M1/M2/M3/M4)** — fully supported. Ollama uses Metal acceleration automatically; no extra flags needed. The images build natively for arm64.
+- **NVIDIA GPU (Linux amd64)** — optional. Build the `docker/standalone.Dockerfile` or `docker/api.Dockerfile` image with the build argument `TORCH_VARIANT=gpu` (add `TORCH_VARIANT: gpu` under the service's `build.args` in the compose file and run `up --build`; or build it yourself with `docker build -f docker/api.Dockerfile --build-arg TORCH_VARIANT=gpu -t septum-api:local .` and start the stack without `--build` so compose keeps that tag) for CUDA-accelerated PyTorch (faster OCR, Whisper, embedding). The host needs an NVIDIA driver with CUDA 13 support. Ollama runs on the GPU automatically when one is visible inside the container.
 - **Windows** — WSL2 is required; native Windows containers are not supported. All paths and volume examples assume a POSIX shell; run them from a WSL terminal.
 
 ---
@@ -85,9 +85,9 @@ git clone https://github.com/byerlikaya/Septum.git && cd Septum
 cp .env.example .env
 # Edit .env: set POSTGRES_PASSWORD and REDIS_PASSWORD (required)
 
-docker compose up           # foreground — watch the first-boot logs
+docker compose up --build       # foreground — watch the first-boot logs
 # or
-docker compose up -d        # detached — release the terminal
+docker compose up -d --build    # detached — release the terminal
 
 # First-time: pull a default model into the bundled Ollama
 docker compose exec ollama ollama pull llama3.2:3b
@@ -98,7 +98,7 @@ Navigate to **http://localhost:3000**. See the [First launch](#first-launch--set
 To run without Ollama (cloud-provider-only deployments):
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up
+docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up --build
 ```
 
 ### 2. Standalone single container — **demo**
@@ -106,16 +106,8 @@ docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up
 One container, SQLite, no external services. Fastest way to try Septum on a single laptop; ideal for sales demos and hobby deployments.
 
 ```bash
-docker run --name septum \
-  --add-host=host.docker.internal:host-gateway \
-  -p 3000:3000 \
-  -v septum-data:/app/data \
-  -v septum-uploads:/app/uploads \
-  -v septum-anon-maps:/app/anon_maps \
-  -v septum-vector-indexes:/app/vector_indexes \
-  -v septum-bm25-indexes:/app/bm25_indexes \
-  -v septum-models:/app/models \
-  byerlikaya/septum
+git clone https://github.com/byerlikaya/Septum.git && cd Septum
+docker compose -f docker-compose.standalone.yml up -d --build
 ```
 
 Standalone does not bundle Ollama. Either run Ollama on the host (`brew install ollama && ollama serve`) and point the wizard at `http://host.docker.internal:11434`, or skip Ollama and use a cloud provider (Anthropic / OpenAI / OpenRouter).
@@ -132,7 +124,7 @@ Runs only the air-gapped zone (api + web + PostgreSQL + Redis) on a host with no
 cp .env.example .env
 # Set POSTGRES_PASSWORD + REDIS_PASSWORD
 
-docker compose -f docker-compose.airgap.yml up -d
+docker compose -f docker-compose.airgap.yml up -d --build
 ```
 
 This topology sets `USE_GATEWAY_DEFAULT=true` so every LLM call is routed through `septum-queue` (Redis Streams) instead of HTTP. Only masked text crosses the zone boundary. Pair with variant 4 on the internet-facing host.
@@ -146,7 +138,7 @@ cp .env.example .env
 # Set REDIS_PASSWORD (same value as the air-gapped host, over VPN / private net)
 # Set provider keys: ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.
 
-docker compose -f docker-compose.gateway.yml up -d
+docker compose -f docker-compose.gateway.yml up -d --build
 ```
 
 The gateway image does not contain `septum-core` by security invariant — it only sees placeholder-masked text and publishes masked answers back. The audit sidecar logs every request with entity types, counts, and regulation ids (never raw PII) and exposes `/api/audit/export` for SIEM ingestion.
@@ -239,7 +231,7 @@ The active model for chat vs semantic detection is chosen from the Settings → 
 
 ## Data persistence & volumes
 
-The compose stack declares named Docker volumes so your data survives container restarts and image upgrades:
+The compose files declare named Docker volumes so your data survives container restarts and rebuilds. The standalone file uses the fixed names below; the full stack (`docker-compose.yml`) and the air-gapped file prefix them with the compose project name (for example `septum_septum-data`).
 
 | Volume | Path inside container | Content |
 |---|---|---|
@@ -249,22 +241,29 @@ The compose stack declares named Docker volumes so your data survives container 
 | `septum-vector-indexes` | `/app/vector_indexes` | FAISS embeddings |
 | `septum-bm25-indexes` | `/app/bm25_indexes` | BM25 keyword indexes |
 | `septum-models` | `/app/models` | Cached HuggingFace / Whisper models |
-| `septum-postgres` | `/var/lib/postgresql/data` | PostgreSQL cluster (compose only) |
-| `septum-redis` | `/data` | Redis AOF/RDB (compose only) |
-| `septum-ollama` | `/root/.ollama` | Downloaded Ollama models |
+| `septum-pgdata` | `/var/lib/postgresql/data` | PostgreSQL cluster (compose only) |
+| `septum-redis-data` | `/data` | Redis AOF/RDB (compose only) |
+| `ollama-data` | `/root/.ollama` | Downloaded Ollama models (full stack only) |
+| `septum-audit-log` | `/var/log/septum` | Audit log files (full stack and gateway file) |
+| `septum-mcp-scan` | `/data/scan` | MCP scan directory, mounted read-only (full stack and air-gapped file) |
 
 **Backup.** A consistent backup means two things: a PostgreSQL dump *and* the encrypted volumes (uploads + anon-maps + vector/BM25 indexes). The encryption key lives in `septum-data/config.json` — lose it and every encrypted volume becomes unreadable.
 
 ```bash
-# Dump Postgres
+# Dump Postgres (full stack only)
 docker compose exec -T postgres pg_dump -U septum septum > septum-$(date +%F).sql
 
-# Tar the named volumes
+# Tar the named volumes (works for standalone and the full stack)
 for v in data uploads anon-maps vector-indexes bm25-indexes models; do
-  docker run --rm -v septum-$v:/src -v "$PWD":/dst alpine \
+  name=$(docker volume ls -q --filter "label=com.docker.compose.volume=septum-$v" | head -n 1)
+  name=${name:-septum-$v}
+  docker volume inspect "$name" >/dev/null 2>&1 || { echo "volume $name not found, skipped" >&2; continue; }
+  docker run --rm -v "$name":/src -v "$PWD":/dst alpine \
     tar czf /dst/septum-$v-$(date +%F).tar.gz -C /src .
 done
 ```
+
+The loop looks up the real volume name from the label compose puts on it, so the project prefix does not matter. Run it with only one Septum stack on the host.
 
 **Restore** is the reverse. Stop the stack, `docker volume rm` the existing volumes, recreate + extract, start.
 
@@ -276,22 +275,36 @@ Septum follows semver. Minor versions never break configs; major versions are ca
 
 ```bash
 git pull                                    # compose file changes occasionally
-docker compose pull                         # fetch new image tags from Docker Hub
-docker compose up -d                        # recreate containers with the new images
+docker compose up -d --build                # rebuild the images and recreate the containers
 docker compose logs -f api                  # watch the migration run
 ```
 
-Alembic migrations apply automatically at api boot. If a migration fails, the api container exits with a descriptive error — inspect the logs, resolve the cause, retry the `up -d`.
+Alembic migrations apply automatically at api boot. If a migration fails, the api container exits with a descriptive error — inspect the logs, resolve the cause, retry the `up -d --build`.
 
-For the standalone image:
+For the standalone variant, run the same command with its compose file:
 
 ```bash
-docker stop septum && docker rm septum
-docker pull byerlikaya/septum
-# Re-run the same `docker run ...` you used initially
+git pull
+docker compose -f docker-compose.standalone.yml up -d --build
 ```
 
-Volumes are preserved across the stop / rm / run cycle because they are named volumes.
+Volumes are preserved across the rebuild because they are named volumes.
+
+**Coming from the published `byerlikaya/septum` image.** Remove the old container only, then build and start the standalone compose file. The container removal keeps the volumes, and the compose file uses the same volume names (`septum-data`, `septum-uploads`, `septum-anon-maps`, `septum-vector-indexes`, `septum-bm25-indexes`, `septum-models`), so your data, `config.json` and encryption key are reused.
+
+```bash
+docker rm -f septum
+git clone https://github.com/byerlikaya/Septum.git && cd Septum
+docker compose -f docker-compose.standalone.yml up -d --build
+```
+
+If you already ran the standalone compose file before it used fixed volume names, your data sits in prefixed volumes (for example `septum_septum-data`). Copy each one once into the fixed-name volume, repeating for every volume in the table above:
+
+```bash
+docker run --rm -v septum_septum-data:/from -v septum-data:/to alpine cp -a /from/. /to/
+```
+
+Never run `docker volume prune` while moving: it deletes every volume no container currently uses, including the ones that hold your data.
 
 ---
 
@@ -328,18 +341,14 @@ The cleanest removal:
 
 ```bash
 docker compose down -v           # stops containers + removes named volumes
-docker rmi $(docker images 'byerlikaya/septum*' -q)
 ```
 
 `-v` is the important flag — without it, volumes persist and a subsequent `docker compose up` resurrects your old data. If you want to keep the data "in case", omit `-v` and back the volumes up first (see [Data persistence](#data-persistence--volumes)).
 
-For the standalone image:
+For the standalone variant:
 
 ```bash
-docker stop septum && docker rm septum
-docker volume rm septum-data septum-uploads septum-anon-maps \
-                 septum-vector-indexes septum-bm25-indexes septum-models
-docker rmi byerlikaya/septum
+docker compose -f docker-compose.standalone.yml down -v
 ```
 
 For the native install, remove the cloned directory and the Python / npm caches Septum wrote under `~/.cache/septum` (if any).

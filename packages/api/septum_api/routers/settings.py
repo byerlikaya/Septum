@@ -22,13 +22,16 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
+from ..errors import public_error_text
 from ..models.user import User
 from ..services.error_logger import log_backend_error, log_backend_message
 from ..services.llm_router import LLMRouter, LLMRouterError
 from ..services.ollama_client import ollama_url_problem
+from ..services.whisper_models import WhisperInstallBusy, ensure_whisper_model
 from ..utils.auth_dependency import (
     get_current_user,
     require_admin_or_bootstrap,
+    require_interactive_session,
     require_role,
 )
 from ..utils.db_helpers import load_settings
@@ -234,6 +237,7 @@ async def get_settings_endpoint(
     "",
     response_model=SettingsResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_interactive_session)],
 )
 async def update_settings_endpoint(
     payload: SettingsUpdatePayload,
@@ -315,17 +319,17 @@ async def test_llm_connection_endpoint(
     except LLMRouterError as exc:
         try:
             await log_backend_error(db, request, exc, status_code=400)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as log_exc:
+            logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         try:
             await log_backend_error(db, request, exc, status_code=400)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as log_exc:
+            logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cloud LLM connection test failed due to an unexpected error.",
@@ -686,7 +690,7 @@ async def get_ingestion_health_endpoint(
                 filename = os.path.basename(model_url)
             else:
                 filename = f"{model_name}.pt"
-        except Exception:  # noqa: BLE001
+        except Exception:
             filename = f"{model_name}.pt"
 
         cache_dir = base_cache_dir / "whisper"
@@ -743,15 +747,21 @@ async def install_whisper_model_endpoint(
         ) from exc
 
     def _load_model_sync() -> None:
-        device = get_device()
-        whisper.load_model(model_name, device=device)
+        ensure_whisper_model(model_name, wait=False)
+        whisper.load_model(model_name, device=get_device())
 
     try:
         await asyncio.to_thread(_load_model_sync)
-    except Exception as exc:  # noqa: BLE001
+    except WhisperInstallBusy as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Model install already in progress",
+        ) from exc
+    except Exception as exc:
+        logger.warning("Whisper model install failed: %s", type(exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to download or load Whisper model '{model_name}': {exc}",
+            detail=f"Failed to download or load Whisper model '{model_name}' ({public_error_text(exc)})",
         ) from exc
 
     return WhisperInstallResponse(

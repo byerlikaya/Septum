@@ -44,7 +44,7 @@ import pytest
 from septum_api.models.settings import AppSettings
 from septum_api.seeds.regulations import builtin_regulations
 from septum_api.services.anonymization_map import AnonymizationMap
-from septum_api.services.policy_composer import PolicyComposer
+from septum_api.services.policy_composer import ComposedPolicy, PolicyComposer
 from septum_api.services.sanitizer import PIISanitizer
 
 logger = logging.getLogger(__name__)
@@ -2527,64 +2527,13 @@ def _adversarial_pii_docs() -> list[BenchmarkDocument]:
     ))
 
     return docs
-    """Load held-out test samples from Babelscape/wikineural.
-
-    Silently returns an empty list if `datasets` isn't installed or the
-    dataset cannot be fetched (e.g. air-gapped CI).
-    """
-    try:
-        from datasets import load_dataset
-    except ImportError:
-        logger.info("datasets not installed, skipping wikineural benchmark")
-        return []
-    docs: list[BenchmarkDocument] = []
-    for lang in languages:
-        try:
-            rows = load_dataset("Babelscape/wikineural", split=f"test_{lang}")
-        except Exception as exc:
-            logger.warning("wikineural test_%s unavailable: %s", lang, str(exc)[:120])
-            continue
-        for i, row in enumerate(rows.select(range(min(samples_per_lang, len(rows))))):
-            tokens = row["tokens"]
-            tags = row["ner_tags"]
-            text = " ".join(tokens)
-            planted: list[PlantedEntity] = []
-            current_tokens: list[str] = []
-            current_type: Optional[str] = None
-            for tok, tag in zip(tokens, tags):
-                etype = _WIKINEURAL_TAG_MAP.get(int(tag))
-                # Start of new entity (B-* or switch)
-                is_begin = int(tag) in (1, 3, 5)
-                if etype and (is_begin or etype != current_type):
-                    if current_tokens and current_type:
-                        planted.append(PlantedEntity(" ".join(current_tokens), current_type))
-                    current_tokens = [tok]
-                    current_type = etype
-                elif etype and current_type == etype:
-                    current_tokens.append(tok)
-                else:
-                    if current_tokens and current_type:
-                        planted.append(PlantedEntity(" ".join(current_tokens), current_type))
-                    current_tokens = []
-                    current_type = None
-            if current_tokens and current_type:
-                planted.append(PlantedEntity(" ".join(current_tokens), current_type))
-            if planted:
-                docs.append(BenchmarkDocument(
-                    name=f"wikineural_{lang}_{i:04d}",
-                    text=text,
-                    language=lang,
-                    planted=planted,
-                    category=f"external_wikineural_{lang}",
-                ))
-    return docs
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  FIXTURES — all 17 regulations active
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _make_policy() -> "ComposedPolicy":
+def _make_policy() -> ComposedPolicy:
     """Activate all 17 built-in regulations and compose a unified policy.
 
     NOTE: 'IBAN' has a dedicated ValidatedIBANRecognizer but is not listed

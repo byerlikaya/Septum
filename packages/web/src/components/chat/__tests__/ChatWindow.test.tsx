@@ -18,10 +18,10 @@ jest.mock("../../../lib/api", () => {
   const original = jest.requireActual("../../../lib/api");
   return {
     ...original,
-    streamChatAsk: (...args: any[]) => mockStreamChatAsk(...args),
-    approvalApprove: (...args: any[]) => mockApprovalApprove(...args),
-    approvalReject: (...args: any[]) => mockApprovalReject(...args),
-    getChatDebug: (...args: any[]) => mockGetChatDebug(...args)
+    streamChatAsk: (...args: unknown[]) => mockStreamChatAsk(...args),
+    approvalApprove: (...args: unknown[]) => mockApprovalApprove(...args),
+    approvalReject: (...args: unknown[]) => mockApprovalReject(...args),
+    getChatDebug: (...args: unknown[]) => mockGetChatDebug(...args)
   };
 });
 
@@ -35,7 +35,6 @@ function renderChatWindow(documentIds: number[] = [1]) {
       documentIds={documentIds}
       requireApproval={false}
       deanonEnabled={true}
-      activeRegulations={["GDPR"]}
       showJsonOutput={true}
     />
   );
@@ -86,7 +85,6 @@ it("a retry from a rejected approval resends each chunk's source document id", a
       documentIds={[]}
       requireApproval={true}
       deanonEnabled={true}
-      activeRegulations={["GDPR"]}
       showJsonOutput={false}
       initialMessages={[
         {

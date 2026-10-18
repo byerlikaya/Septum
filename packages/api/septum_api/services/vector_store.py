@@ -24,10 +24,30 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Sequence, Tuple
+
+if sys.platform == "darwin":
+    # The macOS torch and faiss wheels each bundle their own libomp, and dyld
+    # binds both runtimes' weak symbols to whichever image loaded first, so the
+    # worker threads of the second runtime crash inside the first one's code.
+    # Load and start torch's runtime first, then keep faiss's runtime (which
+    # reads OMP_NUM_THREADS when it starts) from spawning workers at all.
+    # This sets OMP_NUM_THREADS=1 for the whole process and its children (every
+    # OpenMP library started later, e.g. faiss or paddle, runs single-threaded);
+    # a value above 1 that the user set beforehand re-opens the crash.
+    import torch
+
+    torch.get_num_threads()
+    if os.environ.get("OMP_NUM_THREADS", "1") != "1":
+        logging.getLogger(__name__).warning(
+            "OMP_NUM_THREADS=%s on macOS can crash embedding next to faiss; set it to 1",
+            os.environ["OMP_NUM_THREADS"],
+        )
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 import faiss  # type: ignore[import]
 import numpy as np
@@ -73,15 +93,14 @@ def get_shared_sentence_transformer(
             _shared_st_model = SentenceTransformer(
                 model_name,
                 device="cpu",
-                model_kwargs={"low_cpu_mem_usage": False},
             )
         except Exception:
             _shared_st_model = SentenceTransformer(model_name)
             try:
                 if hasattr(_shared_st_model, "to"):
                     _shared_st_model = _shared_st_model.to("cpu")
-            except Exception:
-                pass
+            except Exception as exc:
+                _log.debug("Moving shared model to CPU failed: %s", type(exc).__name__)
         return _shared_st_model
 
 

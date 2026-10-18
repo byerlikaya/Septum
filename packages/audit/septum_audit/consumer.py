@@ -46,16 +46,18 @@ class AuditConsumer:
             logger.error(
                 "audit consumer dropping malformed payload: id=%s error=%s",
                 message.id,
-                exc,
+                type(exc).__name__,
             )
             await self._queue.ack(message.id)
             return
 
         try:
             await self._sink.write(record)
-        except Exception:
-            logger.exception(
-                "audit consumer sink write failed: record_id=%s", record.id
+        except Exception as exc:
+            logger.error(
+                "audit consumer sink write failed: record_id=%s error=%s",
+                record.id,
+                type(exc).__name__,
             )
             await self._queue.nack(message.id, requeue=True)
             return

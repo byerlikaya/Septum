@@ -23,7 +23,7 @@
 # without a network round-trip.
 # -----------------------------------------------------------------------------
 
-FROM python:3.12-slim AS builder
+FROM python:3.13-slim@sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -54,7 +54,7 @@ RUN pip install --no-warn-script-location -e "/app/packages/core[transformers]" 
     && pip install --no-warn-script-location -e /app/packages/mcp
 
 # ── runtime ──
-FROM python:3.12-slim AS runtime
+FROM python:3.13-slim@sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -80,8 +80,8 @@ EXPOSE 8765
 
 # /health is answered by septum_mcp.auth.BearerTokenMiddleware and
 # always bypasses bearer auth, so this probe works regardless of
-# whether SEPTUM_MCP_HTTP_TOKEN is set. curl is already installed in
-# the python:3.12-slim base.
+# whether SEPTUM_MCP_HTTP_TOKEN is set. The probe uses the Python
+# standard library because the slim base image ships without curl.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health').read()" || exit 1
 

@@ -286,6 +286,9 @@ class AudioIngester(BaseIngester):
 
         import whisper  # type: ignore[import]
 
+        from ..whisper_models import ensure_whisper_model
+
+        ensure_whisper_model(self._model_name)
         device = get_device()
         if device == "mps":
             device = "cpu"

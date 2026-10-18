@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import axios from "axios";
 import api from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import type { SettingsTabProps } from "./types";
@@ -22,6 +23,14 @@ const WHISPER_MODELS: Record<string, string> = {
   large: "large (\u22482.9 GB)"
 };
 
+type AudioHealthError = "readFailed" | "installFailed" | "installInProgress";
+
+const AUDIO_HEALTH_ERROR_KEYS = {
+  readFailed: "settings.ingestion.health.readFailed",
+  installFailed: "settings.ingestion.health.installFailed",
+  installInProgress: "settings.ingestion.health.installInProgress",
+} as const;
+
 export function IngestionTab({
   settings,
   onChange,
@@ -31,7 +40,7 @@ export function IngestionTab({
   const [audioHealthStatus, setAudioHealthStatus] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle");
-  const [audioHealthError, setAudioHealthError] = useState<string | null>(null);
+  const [audioHealthError, setAudioHealthError] = useState<AudioHealthError | null>(null);
   const [installingWhisper, setInstallingWhisper] = useState(false);
   const t = useI18n();
 
@@ -44,10 +53,9 @@ export function IngestionTab({
         setAudioHealth(response.data);
         setAudioHealthStatus("ready");
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.error(err);
         setAudioHealthStatus("error");
-        setAudioHealthError(t("settings.ingestion.health.readFailed"));
+        setAudioHealthError("readFailed");
       }
     };
 
@@ -62,11 +70,14 @@ export function IngestionTab({
       setAudioHealth(response.data);
       setAudioHealthStatus("ready");
       setAudioHealthError(null);
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error(err);
-        setAudioHealthStatus("error");
-        setAudioHealthError(t("settings.ingestion.health.installFailed"));
+    } catch (err) {
+      console.error(err);
+      setAudioHealthStatus("error");
+      setAudioHealthError(
+        axios.isAxiosError(err) && err.response?.status === 409
+          ? "installInProgress"
+          : "installFailed"
+      );
     } finally {
       setInstallingWhisper(false);
     }
@@ -154,7 +165,9 @@ export function IngestionTab({
             <p className="text-[11px] text-slate-400">{audioHealth.message}</p>
           )}
           {audioHealthStatus === "error" && audioHealthError && (
-            <p className="text-[11px] text-red-300">{audioHealthError}</p>
+            <p className="text-[11px] text-red-300">
+              {t(AUDIO_HEALTH_ERROR_KEYS[audioHealthError])}
+            </p>
           )}
           {audioHealth && audioHealth.ffmpeg === "missing" && (
             <p className="text-[11px] text-slate-400">

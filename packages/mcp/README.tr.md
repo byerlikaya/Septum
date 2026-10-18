@@ -129,18 +129,21 @@ URL yolu varsayılan olarak streamable-http için `/mcp`, sse için `/sse`'dir �
 
 ### Docker
 
+Septum container image'ı yayınlamaz; image'ı depoyu klonlayarak kendiniz derleyin:
+
 ```bash
+docker build -f docker/mcp.Dockerfile -t septum-mcp:local .
 docker run -p 8765:8765 \
   -e SEPTUM_MCP_HTTP_TOKEN=<rastgele-token> \
   -e SEPTUM_MCP_HTTP_HOST=0.0.0.0 \
-  byerlikaya/septum-mcp:latest
+  septum-mcp:local
 ```
 
 Ya da docker-compose ile `docker-compose.yml` içindeki `mcp` profile'ını açın:
 
 ```bash
 SEPTUM_MCP_HTTP_TOKEN=<rastgele-token> \
-  docker compose --profile mcp up mcp
+  docker compose --profile mcp up --build mcp
 ```
 
 ### Dağıtım notları

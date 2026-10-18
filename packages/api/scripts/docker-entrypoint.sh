@@ -12,11 +12,13 @@ log() { echo "[entrypoint] $*"; }
 python -c "from septum_api.bootstrap import get_config; get_config()"
 
 # --- Run database migrations (PostgreSQL only; SQLite uses create_all) ---
+# A failed migration stops the container: serving on a half-migrated
+# schema breaks at runtime in ways that are much harder to diagnose.
 python -c "
 from septum_api.bootstrap import get_config, needs_setup
 config = get_config()
 if config.database_url and not needs_setup():
-    import subprocess, os
+    import subprocess, os, sys
     env = os.environ.copy()
     env['DATABASE_URL'] = config.database_url
     result = subprocess.run(
@@ -24,7 +26,12 @@ if config.database_url and not needs_setup():
         env=env,
     )
     if result.returncode != 0:
-        print('[entrypoint] WARNING: Alembic migration failed')
+        print(
+            '[entrypoint] ERROR: database migration failed (alembic exit code '
+            + str(result.returncode) + '); not starting on an outdated schema',
+            file=sys.stderr,
+        )
+        sys.exit(1)
 else:
     print('[entrypoint] No DATABASE_URL configured — using SQLite with auto-init')
 "

@@ -24,15 +24,42 @@ from sqlalchemy.ext.asyncio import (
 
 from .config import default_ollama_url
 from .models import Base
-from .models.api_key import ApiKey  # noqa: F401
-from .models.chat_session import ChatMessage, ChatSession  # noqa: F401
-from .models.document import Chunk, Document  # noqa: F401
-from .models.document_relationship import DocumentRelationship  # noqa: F401
-from .models.entity_detection import EntityDetection  # noqa: F401
-from .models.entity_index import EntityIndex  # noqa: F401
-from .models.regulation import NonPiiRule, RegulationRuleset
+from .models.api_key import ApiKey
+from .models.audit_event import AuditEvent
+from .models.chat_session import ChatMessage, ChatSession
+from .models.document import Chunk, Document
+from .models.document_relationship import DocumentRelationship
+from .models.entity_detection import EntityDetection
+from .models.entity_index import EntityIndex
+from .models.error_log import ErrorLog
+from .models.regulation import CustomRecognizer, NonPiiRule, RegulationRuleset
 from .models.settings import AppSettings
-from .models.user import User  # noqa: F401
+from .models.spreadsheet_schema import SpreadsheetColumn, SpreadsheetSchema
+from .models.text_normalization import TextNormalizationRule
+from .models.user import User
+
+# Every ORM model, imported here so ``Base.metadata`` is complete for both
+# SQLite ``create_all`` and Alembic regardless of application import order.
+REGISTERED_MODELS: tuple[type[Base], ...] = (
+    ApiKey,
+    AppSettings,
+    AuditEvent,
+    ChatMessage,
+    ChatSession,
+    Chunk,
+    CustomRecognizer,
+    Document,
+    DocumentRelationship,
+    EntityDetection,
+    EntityIndex,
+    ErrorLog,
+    NonPiiRule,
+    RegulationRuleset,
+    SpreadsheetColumn,
+    SpreadsheetSchema,
+    TextNormalizationRule,
+    User,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -226,8 +253,9 @@ async def _sqlite_purge_orphan_child_rows(eng: AsyncEngine) -> None:
         for query in queries:
             try:
                 await conn.execute(text(query))
-            except Exception:
-                # Tables may not exist yet on a fresh database; skip silently.
+            except Exception as exc:
+                # A table may not exist yet on a fresh database; the query is skipped.
+                logger.debug("Skipping integrity query: %s", type(exc).__name__)
                 continue
 
 

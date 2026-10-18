@@ -259,11 +259,13 @@ curl -X POST http://localhost:3000/api/api-keys \
 curl -H 'X-API-Key: sk-septum-<64 hex chars>' http://localhost:3000/api/auth/me
 
 # List keys (prefixes + metadata only — raw keys are never returned again)
-curl -H 'X-API-Key: sk-septum-…' http://localhost:3000/api/api-keys
+curl -H 'Authorization: Bearer <jwt>' http://localhost:3000/api/api-keys
 
 # Revoke
-curl -X DELETE -H 'X-API-Key: sk-septum-…' http://localhost:3000/api/api-keys/{id}
+curl -X DELETE -H 'Authorization: Bearer <jwt>' http://localhost:3000/api/api-keys/{id}
 ```
+
+API keys are for data and read automation. They cannot manage API keys, users or passwords, change provider settings or infrastructure, or edit the masking policy (regulation activation, custom recognizers, non-PII rules, text normalization); those requests return `401` or `403` and need an interactive login (JWT).
 
 ### Rate limits
 

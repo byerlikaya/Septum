@@ -9,6 +9,7 @@ import {
   type ErrorLogDetailItem
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { useRequestGuard } from "@/hooks/useRequestGuard";
 import { CopyButton } from "@/components/common/CopyButton";
 
 type ErrorLogTableProps = {
@@ -38,32 +39,61 @@ export function ErrorLogTable({
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ErrorLogDetailItem | null>(null);
 
-  const loadPage = useCallback(
-    async (p: number, source: string, level: string) => {
-      setLoading(true);
-      try {
-        const res = await fetchErrorLogs({
-          page: p,
-          page_size: pageSize,
-          source: source || undefined,
-          level: level || undefined
-        });
-        setItems(res.items);
-        setTotal(res.total);
-        setPage(res.page);
-      } catch {
-        setItems([]);
-        setTotal(0);
-      } finally {
-        setLoading(false);
-      }
-    },
+  const { begin, invalidate } = useRequestGuard();
+
+  const fetchPage = useCallback(
+    (
+      p: number,
+      source: string,
+      level: string,
+      isStale: () => boolean
+    ): Promise<void> =>
+      fetchErrorLogs({
+        page: p,
+        page_size: pageSize,
+        source: source || undefined,
+        level: level || undefined
+      })
+        .then((res) => {
+          if (isStale()) return;
+          setItems(res.items);
+          setTotal(res.total);
+          setPage(res.page);
+        })
+        .catch(() => {
+          if (isStale()) return;
+          setItems([]);
+          setTotal(0);
+        })
+        .finally(() => {
+          if (!isStale()) setLoading(false);
+        }),
     [pageSize]
   );
 
+  const loadPage = useCallback(
+    async (p: number, source: string, level: string) => {
+      setLoading(true);
+      await fetchPage(p, source, level, begin());
+    },
+    [fetchPage, begin]
+  );
+
   useEffect(() => {
-    void loadPage(1, sourceFilter, levelFilter);
-  }, [loadPage, sourceFilter, levelFilter]);
+    void fetchPage(1, sourceFilter, levelFilter, begin());
+    return invalidate;
+  }, [fetchPage, begin, invalidate, sourceFilter, levelFilter]);
+
+  const changeSourceFilter = (value: string) => {
+    setPage(1);
+    setLoading(true);
+    setSourceFilter(value);
+  };
+  const changeLevelFilter = (value: string) => {
+    setPage(1);
+    setLoading(true);
+    setLevelFilter(value);
+  };
 
   const handleClearAll = useCallback(async () => {
     const confirmed = window.confirm(t("errorLogs.confirm.clearAll"));
@@ -103,7 +133,7 @@ export function ErrorLogTable({
         <select
           className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
           value={sourceFilter}
-          onChange={(e) => setSourceFilter(e.target.value)}
+          onChange={(e) => changeSourceFilter(e.target.value)}
           aria-label={t("errorLogs.filter.source")}
         >
           <option value="">{t("errorLogs.filter.allSources")}</option>
@@ -113,7 +143,7 @@ export function ErrorLogTable({
         <select
           className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
           value={levelFilter}
-          onChange={(e) => setLevelFilter(e.target.value)}
+          onChange={(e) => changeLevelFilter(e.target.value)}
           aria-label={t("errorLogs.filter.level")}
         >
           <option value="">{t("errorLogs.filter.allLevels")}</option>

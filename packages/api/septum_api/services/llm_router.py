@@ -35,6 +35,7 @@ from typing import (
     Sequence,
 )
 
+from ..errors import public_error_text
 from ..models.settings import AppSettings
 from . import ollama_client
 from .llm_errors import LLMRouterError  # noqa: F401 — re-exported
@@ -143,22 +144,23 @@ class LLMRouter:
                     max_tokens=max_tokens,
                 )
                 record_success(provider_key)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 record_failure(provider_key)
+                failure = _failure_summary(exc)
                 logger.error(
                     "Cloud LLM call failed, attempting Ollama fallback: provider=%s, model=%s, error=%s",
                     self._provider,
                     self._model,
-                    exc,
+                    failure,
                 )
                 if on_cloud_failure is not None:
                     try:
                         await on_cloud_failure(
-                            f"Cloud LLM call failed, attempting Ollama fallback: provider={self._provider}, model={self._model}, error={exc}",
-                            {"provider": self._provider, "model": self._model, "error": str(exc)},
+                            f"Cloud LLM call failed, attempting Ollama fallback: provider={self._provider}, model={self._model}, error={failure}",
+                            {"provider": self._provider, "model": self._model, "error": failure},
                         )
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except Exception as log_exc:
+                        logger.warning("on_cloud_failure callback failed: %s", type(log_exc).__name__)
                 text = await self._fallback_via_ollama(messages, temperature, max_tokens)
 
         for chunk in _chunk_text(text):
@@ -245,8 +247,10 @@ class LLMRouter:
                 model=ollama_model,
                 timeout=60.0,
             )
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Ollama fallback call failed: model=%s error=%s", ollama_model, exc)
+        except Exception as exc:
+            logger.error(
+                "Ollama fallback call failed: model=%s error=%s", ollama_model, _failure_summary(exc)
+            )
             response = ""
 
         if response and response.strip():
@@ -261,6 +265,22 @@ class LLMRouter:
     # Provider-specific HTTP and response handling is delegated to strategy
     # objects created by ``build_provider``. The router remains responsible
     # only for orchestrating calls and handling provider-agnostic fallbacks.
+
+
+def _failure_summary(exc: BaseException) -> str:
+    """Describe a provider failure by class and HTTP status only.
+
+    Exception text from providers and HTTP clients can echo request content
+    (masked prompts) or credentials, so it never reaches logs or the error table.
+    """
+    text = public_error_text(exc)
+    for candidate in (exc, exc.__cause__):
+        status = getattr(getattr(candidate, "response", None), "status_code", None)
+        if status is None:
+            status = getattr(candidate, "status_code", None)
+        if isinstance(status, int):
+            return f"{text} (status={status})"
+    return text
 
 
 def _chunk_text(text: str, max_chunk_size: int = 256) -> Iterable[str]:

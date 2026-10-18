@@ -1,0 +1,84 @@
+"""Alembic migrations must build exactly the schema the ORM models declare.
+
+SQLite runs always. PostgreSQL runs when ``SEPTUM_TEST_POSTGRES_URL`` points
+at a throwaway database; the test leaves it migrated to head.
+"""
+
+from __future__ import annotations
+
+import importlib
+import os
+import pkgutil
+from pathlib import Path
+
+import pytest
+import sqlalchemy as sa
+from alembic import command
+from alembic.config import Config
+
+import septum_api.models as models_package
+from septum_api.database import REGISTERED_MODELS
+from septum_api.models import Base
+
+_API_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _alembic_config() -> Config:
+    """Build a config without an ini file so Alembic leaves logging untouched."""
+    cfg = Config()
+    cfg.set_main_option("script_location", str(_API_ROOT / "alembic"))
+    return cfg
+
+
+def _round_trip(cfg: Config) -> None:
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+    command.downgrade(cfg, "-1")
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+
+
+def test_sqlite_migrations_match_models(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'migrated.db'}")
+    _round_trip(_alembic_config())
+
+
+def test_revision_016_is_noop_on_create_all_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "create_all.db"
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text(
+                "INSERT INTO users (email, hashed_password, is_active, created_at, role) "
+                "VALUES ('owner@example.com', 'x', 1, '2026-01-01', 'admin')"
+            )
+        )
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.stamp(cfg, "015")
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+
+    with engine.connect() as conn:
+        assert conn.execute(sa.text("SELECT COUNT(*) FROM users")).scalar_one() == 1
+    engine.dispose()
+
+
+@pytest.mark.skipif(
+    not os.getenv("SEPTUM_TEST_POSTGRES_URL"),
+    reason="SEPTUM_TEST_POSTGRES_URL not set",
+)
+def test_postgres_migrations_match_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", os.environ["SEPTUM_TEST_POSTGRES_URL"])
+    _round_trip(_alembic_config())
+
+
+def test_every_model_module_is_registered() -> None:
+    for module in pkgutil.iter_modules(models_package.__path__):
+        importlib.import_module(f"{models_package.__name__}.{module.name}")
+    registered = {model.__table__.name for model in REGISTERED_MODELS}
+    assert set(Base.metadata.tables) == registered

@@ -8,8 +8,31 @@ from typing import Any, Optional
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..errors import public_error_text
 from ..models.error_log import ErrorLog
 from ..utils.crypto import hash_text
+
+
+def sanitized_stack(exc: BaseException) -> str:
+    """Render the exception chain as class names and ``file:line in function`` frames.
+
+    Message lines and source lines are left out on purpose: both can carry
+    raw text that the error log must never store.
+    """
+    blocks: list[str] = []
+    seen: set[int] = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        frames = [
+            f"  {frame.filename}:{frame.lineno} in {frame.name}"
+            for frame in traceback.extract_tb(current.__traceback__)
+        ]
+        blocks.append("\n".join([current.__class__.__name__, *frames]))
+        current = current.__cause__ or (
+            None if current.__suppress_context__ else current.__context__
+        )
+    return "\n-- caused by --\n".join(blocks)
 
 
 async def log_backend_error(
@@ -36,14 +59,12 @@ async def log_backend_error(
             ip_hash = hash_text(client_host)
         request_id = request.headers.get("x-request-id")
 
-    stack = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-
     log_entry = ErrorLog(
         source="backend",
         level=level,
-        message=str(exc) or exc.__class__.__name__,
+        message=public_error_text(exc),
         exception_type=exc.__class__.__name__,
-        stack_trace=stack,
+        stack_trace=sanitized_stack(exc),
         path=path,
         method=method,
         status_code=status_code,

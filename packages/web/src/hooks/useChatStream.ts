@@ -9,7 +9,6 @@ import type {
   OutputMode,
   SSEChatEvent
 } from "@/lib/types";
-import { useLanguage } from "@/lib/language";
 import { useI18n } from "@/lib/i18n";
 
 function generateId(): string {
@@ -21,6 +20,7 @@ export interface UseChatStreamOptions {
   requireApproval: boolean;
   deanonEnabled: boolean;
   outputMode: OutputMode;
+  initialMessages?: ChatMessage[];
   onResponseComplete?: (deanonApplied: boolean) => void;
   onMessagePairComplete?: (userText: string, assistantText: string, debugId?: string, approvalData?: ApprovalData, isRetry?: boolean, debugData?: DebugData) => void;
   getApprovalData?: () => ApprovalData | null;
@@ -60,7 +60,7 @@ export interface UseChatStreamReturn {
   regenerate: () => void;
   stopStreaming: () => void;
   handleOpenDebug: (debugId: string, finalAnswer: string) => Promise<void>;
-  pendingAssistantIdRef: React.RefObject<string | null>;
+  pendingAssistantId: string | null;
 }
 
 export function useChatStream({
@@ -68,21 +68,26 @@ export function useChatStream({
   requireApproval,
   deanonEnabled,
   outputMode,
+  initialMessages,
   onResponseComplete,
   onMessagePairComplete,
   getApprovalData,
   onApprovalRequired,
   onApprovalRejected
 }: UseChatStreamOptions): UseChatStreamReturn {
-  const { language } = useLanguage();
   const t = useI18n();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages ?? []);
   const [streaming, setStreaming] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [debugData, setDebugData] = useState<DebugPanelData | null>(null);
   const [debugOpen, setDebugOpen] = useState(false);
   const abortRef = useRef<{ abort: () => void } | null>(null);
   const pendingAssistantIdRef = useRef<string | null>(null);
+  const [pendingAssistantId, setPendingAssistantIdState] = useState<string | null>(null);
+  const setPendingAssistantId = useCallback((id: string | null) => {
+    pendingAssistantIdRef.current = id;
+    setPendingAssistantIdState(id);
+  }, []);
   const currentDebugIdRef = useRef<string | null>(null);
   const streamedContentRef = useRef<string>("");
   const lastUserTextRef = useRef<string>("");
@@ -118,7 +123,7 @@ export function useChatStream({
           { id: assistantId, role: "assistant", content: "" }
         ]);
       }
-      pendingAssistantIdRef.current = assistantId;
+      setPendingAssistantId(assistantId);
       streamedContentRef.current = "";
       lastUserTextRef.current = text;
       isRetryRef.current = isRetry;
@@ -203,7 +208,7 @@ export function useChatStream({
             }
             setStreaming(false);
             const finishedId = pendingAssistantIdRef.current;
-            pendingAssistantIdRef.current = null;
+            setPendingAssistantId(null);
             const debugId = currentDebugIdRef.current;
 
             // Fetch debug data, persist on assistant message, then notify
@@ -272,7 +277,7 @@ export function useChatStream({
                 ? t("chat.error.retryNumberingChanged")
                 : event.message;
             setStreaming(false);
-            pendingAssistantIdRef.current = null;
+            setPendingAssistantId(null);
             setStreamError(errorMessage);
             setMessages((prev) =>
               prev.map((m) =>
@@ -309,13 +314,14 @@ export function useChatStream({
     },
     [
       streaming,
+      setPendingAssistantId,
       documentIds,
       requireApproval,
       deanonEnabled,
       onResponseComplete,
       onMessagePairComplete,
       outputMode,
-      language,
+      getApprovalData,
       onApprovalRequired,
       onApprovalRejected,
       t
@@ -364,8 +370,8 @@ export function useChatStream({
       abortRef.current = null;
     }
     setStreaming(false);
-    pendingAssistantIdRef.current = null;
-  }, []);
+    setPendingAssistantId(null);
+  }, [setPendingAssistantId]);
 
   const handleOpenDebug = useCallback(async (debugId: string, finalAnswer: string) => {
     try {
@@ -394,6 +400,6 @@ export function useChatStream({
     regenerate,
     stopStreaming,
     handleOpenDebug,
-    pendingAssistantIdRef
+    pendingAssistantId
   };
 }

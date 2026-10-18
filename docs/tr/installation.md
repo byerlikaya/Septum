@@ -45,12 +45,12 @@
 git clone https://github.com/byerlikaya/Septum.git && cd Septum
 cp .env.example .env
 # .env dosyasını editörünüzde açıp POSTGRES_PASSWORD ve REDIS_PASSWORD'ü doldurun
-docker compose up
+docker compose up --build
 ```
 
 Tarayıcınızda **http://localhost:3000** adresini açın; kurulum sihirbazı gerisini halleder.
 
-Compose yığını, tek bir makinede PostgreSQL, Redis, Ollama, FastAPI backend ve Next.js paneli birlikte ayağa kaldırır. İlk açılışta Docker Hub'dan image'lar ve Ollama'nın varsayılan modeli indirilir; sonraki açılışlar saniyeler içinde tamamlanır. Ham PII hiçbir zaman makineden dışarı çıkmaz — tespit, maskeleme ve LLM çıkarımının tamamı yerelde yürür.
+Compose yığını, tek bir makinede PostgreSQL, Redis, Ollama, FastAPI backend ve Next.js paneli birlikte ayağa kaldırır. Septum kaynaktan kurulur: ilk açılışta Septum image'ları yerelde derlenir (birkaç dakika sürer), temel servis image'ları ve Ollama'nın varsayılan modeli indirilir; sonraki açılışlar derleme önbelleğini kullanır. Ham PII hiçbir zaman makineden dışarı çıkmaz — tespit, maskeleme ve LLM çıkarımının tamamı yerelde yürür.
 
 ---
 
@@ -66,8 +66,8 @@ Compose yığını, tek bir makinede PostgreSQL, Redis, Ollama, FastAPI backend 
 
 **Platform notları.**
 
-- **Apple Silicon (M1/M2/M3/M4)** — tam destekli. Ollama Metal hızlandırmasını kendiliğinden devreye alır; ek bir bayrağa ihtiyacınız yoktur. Multi-arch Docker image'ları arm64 varyantıyla birlikte yayınlanır.
-- **NVIDIA GPU (Linux amd64)** — opsiyoneldir. `byerlikaya/septum` ve `byerlikaya/septum-api` image'larının `-gpu` tag'leri CUDA hızlandırmalı PyTorch ile gelir (OCR, Whisper ve embedding ölçülebilir biçimde hızlanır). Ollama, container'dan bir GPU gördüğünde bu cihazı otomatik kullanır.
+- **Apple Silicon (M1/M2/M3/M4)** — tam destekli. Ollama Metal hızlandırmasını kendiliğinden devreye alır; ek bir bayrağa ihtiyacınız yoktur. Image'lar arm64 için yerel olarak derlenir.
+- **NVIDIA GPU (Linux amd64)** — opsiyoneldir. CUDA hızlandırmalı PyTorch için (OCR, Whisper ve embedding ölçülebilir biçimde hızlanır) `docker/standalone.Dockerfile` veya `docker/api.Dockerfile` image'ını `TORCH_VARIANT=gpu` build argümanıyla derleyin (compose dosyasında servisin `build.args` bölümüne `TORCH_VARIANT: gpu` ekleyip `up --build` çalıştırın; ya da `docker build -f docker/api.Dockerfile --build-arg TORCH_VARIANT=gpu -t septum-api:local .` ile kendiniz derleyip yığını `--build` olmadan başlatın, böylece compose bu etiketi korur). Host'ta CUDA 13 desteği olan bir NVIDIA sürücüsü gerekir. Ollama, container'dan bir GPU gördüğünde bu cihazı otomatik kullanır.
 - **Windows** — WSL2 gereklidir; native Windows container'ları desteklenmez. Rehber boyunca görülen yollar ve volume örnekleri POSIX kabuğuna göredir; komutları WSL terminalinden çalıştırın.
 
 ---
@@ -85,9 +85,9 @@ git clone https://github.com/byerlikaya/Septum.git && cd Septum
 cp .env.example .env
 # .env dosyasını açın ve POSTGRES_PASSWORD + REDIS_PASSWORD değerlerini doldurun (zorunlu)
 
-docker compose up           # ön planda — ilk açılış loglarını izleyin
+docker compose up --build       # ön planda — ilk açılış loglarını izleyin
 # ya da
-docker compose up -d        # arka planda — terminali serbest bırakır
+docker compose up -d --build    # arka planda — terminali serbest bırakır
 
 # İlk açılışta paketli Ollama'ya varsayılan bir model çekin
 docker compose exec ollama ollama pull llama3.2:3b
@@ -98,7 +98,7 @@ docker compose exec ollama ollama pull llama3.2:3b
 Ollama olmaksızın çalıştırmak isterseniz (yalnız bulut sağlayıcı kullanılan dağıtımlar):
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up
+docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up --build
 ```
 
 ### 2. Tek container — **demo**
@@ -106,16 +106,8 @@ docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up
 Tek bir container, SQLite, harici servis yok. Bir dizüstü bilgisayarda Septum'u hızlıca denemenin en pratik yolu; satış demoları ve küçük ölçekli kurulumlar için idealdir.
 
 ```bash
-docker run --name septum \
-  --add-host=host.docker.internal:host-gateway \
-  -p 3000:3000 \
-  -v septum-data:/app/data \
-  -v septum-uploads:/app/uploads \
-  -v septum-anon-maps:/app/anon_maps \
-  -v septum-vector-indexes:/app/vector_indexes \
-  -v septum-bm25-indexes:/app/bm25_indexes \
-  -v septum-models:/app/models \
-  byerlikaya/septum
+git clone https://github.com/byerlikaya/Septum.git && cd Septum
+docker compose -f docker-compose.standalone.yml up -d --build
 ```
 
 Standalone varyantı Ollama'yı paketinde taşımaz. Ya host'a Ollama kurun (`brew install ollama && ollama serve`) ve sihirbaza `http://host.docker.internal:11434` adresini verin, ya da Ollama'yı atlayıp bulut sağlayıcısıyla (Anthropic / OpenAI / OpenRouter) ilerleyin.
@@ -132,7 +124,7 @@ Yalnızca air-gapped bölgeyi (api + web + PostgreSQL + Redis) internete çıkı
 cp .env.example .env
 # POSTGRES_PASSWORD ve REDIS_PASSWORD değerlerini doldurun
 
-docker compose -f docker-compose.airgap.yml up -d
+docker compose -f docker-compose.airgap.yml up -d --build
 ```
 
 Bu topoloji `USE_GATEWAY_DEFAULT=true` kullanır; her LLM çağrısı HTTP yerine `septum-queue` (Redis Streams) üzerinden yönlendirilir. Bölge sınırını yalnızca maskelenmiş metin aşar. İnternete açık hostu varyant 4 ile birlikte kurun.
@@ -146,7 +138,7 @@ cp .env.example .env
 # REDIS_PASSWORD'ü doldurun (air-gapped host ile aynı değer; VPN / özel ağ üzerinden paylaşın)
 # Sağlayıcı anahtarlarını girin: ANTHROPIC_API_KEY, OPENAI_API_KEY vb.
 
-docker compose -f docker-compose.gateway.yml up -d
+docker compose -f docker-compose.gateway.yml up -d --build
 ```
 
 Gateway image'ı güvenlik invariantı gereği `septum-core`'u içermez — yalnızca placeholder ile maskelenmiş metni görür ve maskelenmiş cevapları geri yayınlar. Audit sidecar'ı her isteği varlık tipi, sayı ve regülasyon id'leriyle loglar (ham PII asla yer almaz) ve `/api/audit/export` uç noktasını SIEM entegrasyonu için açar.
@@ -239,7 +231,7 @@ Sohbet için ve semantik tespit için kullanılacak modeller, sihirbazdan sonra 
 
 ## Veri kalıcılığı ve volume'lar
 
-Compose yığını, container yeniden başlatmaları ve image yükseltmeleri arasında veri kaybı yaşanmaması için isimlendirilmiş Docker volume'ları tanımlar:
+Compose dosyaları, container yeniden başlatmaları ve yeniden derlemeler arasında veri kaybı yaşanmaması için isimlendirilmiş Docker volume'ları tanımlar. Standalone dosyası aşağıdaki sabit adları kullanır; tam yığın (`docker-compose.yml`) ve air-gapped dosyası adların başına compose proje adını ekler (örneğin `septum_septum-data`).
 
 | Volume | Container içindeki yol | İçerik |
 |---|---|---|
@@ -249,22 +241,29 @@ Compose yığını, container yeniden başlatmaları ve image yükseltmeleri ara
 | `septum-vector-indexes` | `/app/vector_indexes` | FAISS embedding'leri |
 | `septum-bm25-indexes` | `/app/bm25_indexes` | BM25 kelime indeksleri |
 | `septum-models` | `/app/models` | Önbelleklenmiş HuggingFace ve Whisper modelleri |
-| `septum-postgres` | `/var/lib/postgresql/data` | PostgreSQL veri dizini (yalnızca compose) |
-| `septum-redis` | `/data` | Redis AOF/RDB (yalnızca compose) |
-| `septum-ollama` | `/root/.ollama` | İndirilmiş Ollama modelleri |
+| `septum-pgdata` | `/var/lib/postgresql/data` | PostgreSQL veri dizini (yalnızca compose) |
+| `septum-redis-data` | `/data` | Redis AOF/RDB (yalnızca compose) |
+| `ollama-data` | `/root/.ollama` | İndirilmiş Ollama modelleri (yalnızca tam yığın) |
+| `septum-audit-log` | `/var/log/septum` | Denetim log dosyaları (tam yığın ve gateway dosyası) |
+| `septum-mcp-scan` | `/data/scan` | MCP tarama dizini, salt okunur bağlanır (tam yığın ve air-gapped dosyası) |
 
 **Yedekleme.** Tutarlı bir yedek iki parçadan oluşur: bir PostgreSQL dump ve şifreli volume'lar (uploads + anon-maps + vector/BM25 indeksleri). Şifreleme anahtarı `septum-data/config.json` dosyasındadır — bu anahtarı kaybederseniz şifreli tüm volume'lar okunamaz hale gelir.
 
 ```bash
-# Postgres dump'ı al
+# Postgres dump'ı al (yalnızca tam yığın)
 docker compose exec -T postgres pg_dump -U septum septum > septum-$(date +%F).sql
 
-# İsimlendirilmiş volume'ları tar'la
+# İsimlendirilmiş volume'ları tar'la (standalone ve tam yığında çalışır)
 for v in data uploads anon-maps vector-indexes bm25-indexes models; do
-  docker run --rm -v septum-$v:/src -v "$PWD":/dst alpine \
+  name=$(docker volume ls -q --filter "label=com.docker.compose.volume=septum-$v" | head -n 1)
+  name=${name:-septum-$v}
+  docker volume inspect "$name" >/dev/null 2>&1 || { echo "volume $name not found, skipped" >&2; continue; }
+  docker run --rm -v "$name":/src -v "$PWD":/dst alpine \
     tar czf /dst/septum-$v-$(date +%F).tar.gz -C /src .
 done
 ```
+
+Döngü, gerçek volume adını compose'un volume'a koyduğu etiketten bulur; bu yüzden proje öneki fark etmez. Host'ta yalnızca tek bir Septum yığını çalışırken kullanın.
 
 **Geri yükleme** aynı akışın tersidir: yığını durdurun, mevcut volume'ları `docker volume rm` ile silin, arşivleri yeniden açıp yığını başlatın.
 
@@ -276,22 +275,36 @@ Septum semver'a uyar. Minor sürümler yapılandırmayı bozmaz; major sürümle
 
 ```bash
 git pull                                    # compose dosyası ara ara değişir
-docker compose pull                         # Docker Hub'dan yeni image tag'lerini çeker
-docker compose up -d                        # container'ları yeni image'larla yeniden yaratır
+docker compose up -d --build                # image'ları yeniden derler, container'ları yeniden yaratır
 docker compose logs -f api                  # migration'ı izleyin
 ```
 
-Alembic migration'ları api boot anında otomatik uygulanır. Bir migration başarısız olursa api container'ı açıklayıcı bir hata mesajıyla sonlanır; log'u inceleyip sebebi çözdükten sonra `up -d`'yi tekrarlayın.
+Alembic migration'ları api boot anında otomatik uygulanır. Bir migration başarısız olursa api container'ı açıklayıcı bir hata mesajıyla sonlanır; log'u inceleyip sebebi çözdükten sonra `up -d --build`'i tekrarlayın.
 
-Standalone image için:
+Standalone varyantı için aynı komutu kendi compose dosyasıyla çalıştırın:
 
 ```bash
-docker stop septum && docker rm septum
-docker pull byerlikaya/septum
-# Başlangıçta kullandığınız `docker run ...` komutunu aynen tekrarlayın
+git pull
+docker compose -f docker-compose.standalone.yml up -d --build
 ```
 
-Stop / rm / run döngüsü boyunca veriler korunur çünkü volume'lar isimlendirilmiş volume'lardır.
+Yeniden derleme boyunca veriler korunur çünkü volume'lar isimlendirilmiş volume'lardır.
+
+**Yayınlanmış `byerlikaya/septum` image'ından geliyorsanız.** Yalnızca eski container'ı kaldırın, ardından standalone compose dosyasını derleyip başlatın. Container'ı kaldırmak volume'ları silmez ve compose dosyası aynı volume adlarını kullanır (`septum-data`, `septum-uploads`, `septum-anon-maps`, `septum-vector-indexes`, `septum-bm25-indexes`, `septum-models`); böylece verileriniz, `config.json` ve şifreleme anahtarınız aynen kullanılır.
+
+```bash
+docker rm -f septum
+git clone https://github.com/byerlikaya/Septum.git && cd Septum
+docker compose -f docker-compose.standalone.yml up -d --build
+```
+
+Standalone compose dosyasını sabit volume adlarından önce çalıştırdıysanız verileriniz önekli volume'larda durur (örneğin `septum_septum-data`). Her birini bir kez sabit adlı volume'a kopyalayın; yukarıdaki tablodaki her volume için tekrarlayın:
+
+```bash
+docker run --rm -v septum_septum-data:/from -v septum-data:/to alpine cp -a /from/. /to/
+```
+
+Taşıma sırasında asla `docker volume prune` çalıştırmayın: hiçbir container'ın kullanmadığı tüm volume'ları, verilerinizi tutanlar dahil, siler.
 
 ---
 
@@ -328,18 +341,14 @@ Temiz kaldırma:
 
 ```bash
 docker compose down -v           # container'ları durdurur, isimlendirilmiş volume'ları siler
-docker rmi $(docker images 'byerlikaya/septum*' -q)
 ```
 
 Kritik bayrak `-v`'dir; bu olmadan volume'lar kalır ve sonraki `docker compose up` eski verilerinizi diriltir. "Her ihtimale karşı" tutmak istiyorsanız `-v` olmadan çalıştırın ve önce volume'ları yedekleyin ([Veri kalıcılığı](#veri-kalıcılığı-ve-volumelar) bölümüne bakın).
 
-Standalone image için:
+Standalone varyantı için:
 
 ```bash
-docker stop septum && docker rm septum
-docker volume rm septum-data septum-uploads septum-anon-maps \
-                 septum-vector-indexes septum-bm25-indexes septum-models
-docker rmi byerlikaya/septum
+docker compose -f docker-compose.standalone.yml down -v
 ```
 
 Kaynaktan kurulum için klonladığınız dizini ve Septum'un (varsa) `~/.cache/septum` altına yazdığı Python / npm önbelleklerini silmek yeterlidir.

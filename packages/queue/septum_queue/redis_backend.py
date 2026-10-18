@@ -26,10 +26,13 @@ envelope shape.
 from __future__ import annotations
 
 import json
+import logging
 from typing import TYPE_CHECKING, AsyncIterator, Mapping
 
 from .base import QueueBackend, QueueError
 from .models import Message
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
@@ -265,9 +268,7 @@ class RedisStreamsQueueBackend(QueueBackend):
             # consumer group forever. Logs the drop so operators can
             # spot a producer regression instead of seeing messages
             # silently disappear.
-            import logging
-
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "Dropping malformed entry %s from %s: missing data field",
                 raw_id,
                 self._stream,
@@ -280,8 +281,8 @@ class RedisStreamsQueueBackend(QueueBackend):
                 asyncio.get_event_loop().create_task(
                     self._redis.xack(self._stream, self._group, raw_id)
                 )
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:
+                logger.debug("Best-effort ack of malformed entry failed: %s", type(exc).__name__)
             return None
         text = data.decode() if isinstance(data, bytes) else str(data)
         payload = json.loads(text)

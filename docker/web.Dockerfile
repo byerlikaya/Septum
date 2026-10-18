@@ -22,12 +22,12 @@
 # -----------------------------------------------------------------------------
 
 # ── build ──
-FROM node:20-alpine AS builder
+FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS builder
 
 ARG NEXT_PUBLIC_API_BASE_URL=""
 ARG BACKEND_INTERNAL_URL=http://127.0.0.1:8000
-# Version is injected by the Docker Hub publish workflow from the git
-# tag; defaults to 0.0.0-dev for local builds that skip --build-arg.
+# Pass --build-arg VERSION=<x.y.z> to stamp a release version;
+# defaults to 0.0.0-dev when it is not given.
 ARG VERSION=0.0.0-dev
 
 WORKDIR /app
@@ -44,7 +44,7 @@ RUN mkdir -p public \
     && npm run build
 
 # ── runtime ──
-FROM node:20-alpine AS runtime
+FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS runtime
 
 ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
@@ -56,7 +56,7 @@ COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 COPY --from=builder --chown=node:node /app/public ./public
 
-# node:20-alpine ships a uid=1000 'node' user by default — reuse it instead
+# node:22-alpine ships a uid=1000 'node' user by default — reuse it instead
 # of creating a second one (the python images create 'septum' because they
 # do NOT have a pre-existing non-root user).
 USER node

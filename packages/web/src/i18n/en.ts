@@ -42,7 +42,6 @@ export const enMessages = {
   "sidebar.footer": "Privacy-first · Local-first",
   "sidebar.logout": "Log out",
   "sidebar.changePassword": "Change password",
-  "sidebar.updateAvailable": "available",
 
   "auth.login.title": "Sign In",
   "auth.login.subtitle": "Sign in to your Septum account",
@@ -61,6 +60,8 @@ export const enMessages = {
   "auth.changePassword.success": "Password updated.",
   "auth.changePassword.mismatch": "Passwords do not match.",
   "auth.changePassword.tooShort": "Password must be at least {min} characters.",
+  "auth.changePassword.tooLong":
+    "Password must be at most {max} bytes. Accented letters or emoji count as more than one byte.",
   "auth.changePassword.wrongCurrent": "Current password is incorrect.",
   "auth.changePassword.error": "Could not change password.",
 
@@ -326,6 +327,8 @@ export const enMessages = {
     "Failed to read ingestion health status.",
   "settings.ingestion.health.installFailed":
     "Failed to install or load the Whisper model.",
+  "settings.ingestion.health.installInProgress":
+    "A Whisper model install is already in progress. Please wait for it to finish.",
   "settings.ingestion.audioHealth.whisperPackageLabel": "Whisper package:",
   "settings.ingestion.audioHealth.whisperModelLabel": "Whisper model:",
   "settings.ingestion.whisperModel.label": "Whisper model",

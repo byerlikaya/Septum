@@ -66,10 +66,10 @@ class GatewayConsumer:
     async def _handle(self, message: Message) -> None:
         try:
             envelope = RequestEnvelope.from_dict(message.payload)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             # No correlation id → ack-and-drop; a missing reply surfaces
             # via the producer-side timeout.
-            logger.error("gateway dropping malformed request: %s", exc)
+            logger.error("gateway dropping malformed request: %s", type(exc).__name__)
             await self._request_queue.ack(message.id)
             return
 
@@ -100,7 +100,7 @@ class GatewayConsumer:
                 "gateway forwarder error: provider=%s correlation_id=%s error=%s",
                 envelope.provider,
                 envelope.correlation_id,
-                exc,
+                type(exc).__name__,
             )
             return ResponseEnvelope(
                 correlation_id=envelope.correlation_id,
@@ -108,11 +108,12 @@ class GatewayConsumer:
                 provider=envelope.provider,
                 model=envelope.model,
             )
-        except Exception as exc:  # noqa: BLE001
-            logger.exception(
-                "gateway unexpected error: provider=%s correlation_id=%s",
+        except Exception as exc:
+            logger.error(
+                "gateway unexpected error: provider=%s correlation_id=%s error=%s",
                 envelope.provider,
                 envelope.correlation_id,
+                type(exc).__name__,
             )
             # Never echo the inner exception text — provider/transport
             # exceptions historically include header values (api keys,
@@ -169,9 +170,9 @@ class GatewayConsumer:
         }
         try:
             await self._audit_queue.publish(payload)
-        except Exception:
+        except Exception as exc:
             logger.warning(
-                "gateway audit publish failed: correlation_id=%s",
+                "gateway audit publish failed: correlation_id=%s error=%s",
                 envelope.correlation_id,
-                exc_info=True,
+                type(exc).__name__,
             )

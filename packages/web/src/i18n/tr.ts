@@ -42,7 +42,6 @@ export const trMessages: Record<string, string> = {
   "sidebar.footer": "Gizlilik-öncelikli · Yerel-öncelikli",
   "sidebar.logout": "Çıkış Yap",
   "sidebar.changePassword": "Şifreyi değiştir",
-  "sidebar.updateAvailable": "mevcut",
 
   "auth.login.title": "Giriş Yap",
   "auth.login.subtitle": "Septum hesabınıza giriş yapın",
@@ -61,6 +60,8 @@ export const trMessages: Record<string, string> = {
   "auth.changePassword.success": "Şifre güncellendi.",
   "auth.changePassword.mismatch": "Şifreler eşleşmiyor.",
   "auth.changePassword.tooShort": "Şifre en az {min} karakter olmalı.",
+  "auth.changePassword.tooLong":
+    "Şifre en fazla {max} bayt olabilir. ş, ğ veya emoji gibi karakterler birden fazla bayt sayılır.",
   "auth.changePassword.wrongCurrent": "Mevcut şifre hatalı.",
   "auth.changePassword.error": "Şifre değiştirilemedi.",
 
@@ -332,6 +333,8 @@ export const trMessages: Record<string, string> = {
     "İçe aktarma sağlık durumu okunamadı.",
   "settings.ingestion.health.installFailed":
     "Whisper modeli yüklenirken veya okunurken hata oluştu.",
+  "settings.ingestion.health.installInProgress":
+    "Bir Whisper modeli kurulumu zaten devam ediyor. Lütfen bitmesini bekleyin.",
   "settings.ingestion.audioHealth.whisperPackageLabel": "Whisper paketi:",
   "settings.ingestion.audioHealth.whisperModelLabel": "Whisper modeli:",
   "settings.ingestion.whisperModel.label": "Whisper modeli",

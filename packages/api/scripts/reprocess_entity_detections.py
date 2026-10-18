@@ -35,7 +35,7 @@ from septum_api.services.sanitizer import PIISanitizer  # noqa: E402
 from septum_api.utils.crypto import encrypt  # noqa: E402
 
 
-DB_PATH = BACKEND_DIR / "septum.db"
+DB_PATH = PACKAGE_DIR / "septum.db"
 
 
 def _load_app_settings(conn: sqlite3.Connection) -> AppSettings:

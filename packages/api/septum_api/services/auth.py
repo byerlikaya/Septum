@@ -3,6 +3,7 @@ from __future__ import annotations
 """JWT token and password hashing utilities."""
 
 from datetime import datetime, timedelta, timezone
+from functools import cache
 
 import bcrypt
 import jwt
@@ -14,6 +15,8 @@ JWT_ALGORITHM = "HS256"
 # range while still being typeable. Combined with the per-route
 # rate-limit on /api/auth/login this is the practical defence.
 PASSWORD_MIN_LENGTH = 12
+# bcrypt only reads the first 72 bytes and bcrypt>=5 raises beyond that.
+PASSWORD_MAX_BYTES = 72
 
 
 class WeakPasswordError(ValueError):
@@ -21,10 +24,18 @@ class WeakPasswordError(ValueError):
 
 
 def validate_password_strength(password: str) -> None:
-    """Raise :class:`WeakPasswordError` if *password* is too short."""
+    """Raise :class:`WeakPasswordError` if *password* is too short, too long or not encodable."""
     if len(password) < PASSWORD_MIN_LENGTH:
         raise WeakPasswordError(
             f"Password must be at least {PASSWORD_MIN_LENGTH} characters long"
+        )
+    try:
+        encoded = password.encode()
+    except UnicodeEncodeError as exc:
+        raise WeakPasswordError("Password contains invalid characters") from exc
+    if len(encoded) > PASSWORD_MAX_BYTES:
+        raise WeakPasswordError(
+            f"Password must be at most {PASSWORD_MAX_BYTES} bytes long"
         )
 
 
@@ -42,8 +53,39 @@ def hash_password(plain: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    """Verify a plaintext password against a bcrypt hash."""
-    return bcrypt.checkpw(plain.encode(), hashed.encode())
+    """Verify a plaintext password against a bcrypt hash.
+
+    Input is cut to :data:`PASSWORD_MAX_BYTES` exactly as bcrypt<5 did
+    implicitly, so hashes created from longer passwords keep verifying
+    and an over-long login attempt fails cleanly instead of raising.
+    Input that cannot be UTF-8 encoded (lone surrogates) never matches.
+    """
+    try:
+        encoded = plain.encode()
+    except UnicodeEncodeError:
+        return False
+    return bcrypt.checkpw(encoded[:PASSWORD_MAX_BYTES], hashed.encode())
+
+
+# Same cost factor as real hashes, so a lookup miss costs one full bcrypt
+# check and login timing does not reveal whether an email is registered.
+@cache
+def _dummy_password_hash() -> str:
+    """Return the timing-equalizer hash, created on first use instead of at import."""
+    return bcrypt.hashpw(b"septum-timing-equalizer", bcrypt.gensalt()).decode()
+
+
+def warm_dummy_password_hash() -> None:
+    """Build the timing-equalizer hash now, so the first login miss costs the same as later ones."""
+    _dummy_password_hash()
+
+
+def verify_password_or_dummy(plain: str, hashed: str | None) -> bool:
+    """Verify against *hashed*, or burn an equal-cost check and return False when it is None."""
+    if hashed is None:
+        verify_password(plain, _dummy_password_hash())
+        return False
+    return verify_password(plain, hashed)
 
 
 def create_access_token(user_id: int, email: str) -> str:
@@ -62,4 +104,9 @@ def decode_access_token(token: str) -> dict:
 
     Raises ``jwt.InvalidTokenError`` on failure.
     """
-    return jwt.decode(token, _jwt_secret(), algorithms=[JWT_ALGORITHM])
+    return jwt.decode(
+        token,
+        _jwt_secret(),
+        algorithms=[JWT_ALGORITHM],
+        options={"require": ["exp", "sub"]},
+    )

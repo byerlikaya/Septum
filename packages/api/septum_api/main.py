@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """FastAPI application entrypoint for Septum."""
 
+import asyncio
 import logging
 import warnings
 
@@ -75,8 +76,8 @@ def _preload_models() -> None:
         from .services.vector_store import get_shared_sentence_transformer
         model = get_shared_sentence_transformer()
         model.encode(["warmup"], convert_to_numpy=True)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Model warmup skipped: %s", type(exc).__name__)
 
 
 async def _reset_orphaned_processing_docs() -> None:
@@ -111,6 +112,9 @@ async def _reset_orphaned_processing_docs() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan handler — initialise database if already configured."""
+    from .services.auth import warm_dummy_password_hash
+
+    await asyncio.to_thread(warm_dummy_password_hash)
     config = bootstrap.get_config()
     if not bootstrap.needs_setup():
         url = build_database_url(config.database_url, config.db_path)
@@ -235,7 +239,7 @@ app.add_middleware(
 app.add_route("/metrics", metrics_endpoint, methods=["GET"])
 
 
-# All API routers are mounted under both /api (legacy) and /api/v1 (versioned).
+# Every router carries its own /api/... prefix and is mounted once.
 _all_routers = [
     setup_router.router,
     auth_router.router,
@@ -303,9 +307,9 @@ async def http_exception_handler(
                             level="WARNING",
                             status_code=exc.status_code,
                         )
-        except Exception:  # noqa: BLE001
+        except Exception as log_exc:
             # Logging must never break the response.
-            pass
+            logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail},
@@ -328,8 +332,8 @@ async def global_exception_handler(
                     level="ERROR",
                     status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
-    except Exception:
-        pass
+    except Exception as log_exc:
+        logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
 
     return JSONResponse(
         status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -359,8 +363,8 @@ async def health() -> dict[str, Any]:
                 settings = row.scalar_one_or_none()
                 if settings:
                     result["llm_provider"] = settings.llm_provider
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Health check could not read llm_provider: %s", type(exc).__name__)
 
     from .services.llm_providers.health import get_all_statuses
     redis_ok = await redis_ping()

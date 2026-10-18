@@ -28,7 +28,7 @@ Hardening invariants:
   request reached the provider.
 * Retries are limited to 429 / 5xx / network errors and honor
   ``Retry-After`` when present. 4xx errors fail fast.
-* Backoff uses full-jitter (``random.uniform(0, base * 2**n)``) so
+* Backoff uses full-jitter (``_JITTER.uniform(0, base * 2**n)``) so
   multiple gateway replicas hitting the same provider 429 do not
   thunder-herd in lockstep.
 """
@@ -38,8 +38,8 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
-import random
 import re
+import secrets
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, List, Mapping, Protocol
 from urllib.parse import urlparse
@@ -62,6 +62,8 @@ class ForwarderLike(Protocol):
 
     async def complete(self, envelope: RequestEnvelope) -> str: ...
 
+
+_JITTER = secrets.SystemRandom()
 
 _RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
 
@@ -216,7 +218,7 @@ class BaseForwarder(ABC):
                         break
                     sleep_for = _retry_after_seconds(response)
                     if sleep_for is None:
-                        sleep_for = random.uniform(
+                        sleep_for = _JITTER.uniform(
                             0.0, self._base_backoff_seconds * (2 ** (attempt - 1))
                         )
                     await asyncio.sleep(sleep_for)
@@ -246,7 +248,7 @@ class BaseForwarder(ABC):
                 if attempt >= self._max_attempts:
                     break
                 await asyncio.sleep(
-                    random.uniform(
+                    _JITTER.uniform(
                         0.0, self._base_backoff_seconds * (2 ** (attempt - 1))
                     )
                 )

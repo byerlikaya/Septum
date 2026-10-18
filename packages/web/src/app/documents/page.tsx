@@ -30,22 +30,41 @@ export default function DocumentsPage() {
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
 
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  });
+
+  const loadDocuments = useCallback(
+    (isStale: () => boolean): Promise<void> =>
+      getDocuments()
+        .then((items) => {
+          if (isStale()) return;
+          setDocuments(items);
+          setError(null);
+        })
+        .catch(() => {
+          if (!isStale()) setError(tRef.current("errors.documents.load"));
+        })
+        .finally(() => {
+          if (!isStale()) setIsLoading(false);
+        }),
+    []
+  );
+
   const fetchDocuments = useCallback(async (): Promise<void> => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const items = await getDocuments();
-      setDocuments(items);
-    } catch {
-      setError(t("errors.documents.load"));
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+    setIsLoading(true);
+    setError(null);
+    await loadDocuments(() => false);
+  }, [loadDocuments]);
 
   useEffect(() => {
-    void fetchDocuments();
-  }, [fetchDocuments]);
+    let cancelled = false;
+    void loadDocuments(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [loadDocuments]);
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [processingProgress, setProcessingProgress] = useState<Record<number, number>>({});
@@ -108,7 +127,7 @@ export default function DocumentsPage() {
       setUploadProgress(0);
 
       try {
-        const { uniqueFiles, duplicateFiles } = await uploadDocuments({
+        const { duplicateFiles } = await uploadDocuments({
           files,
           existingDocuments: documents,
           onProgress: (completed, total, doc) => {
@@ -168,7 +187,6 @@ export default function DocumentsPage() {
   const handleDeleteDocument = useCallback(
     async (doc: Document): Promise<void> => {
       // Simple confirmation dialog; can be replaced with a custom modal later.
-      // eslint-disable-next-line no-alert
       const confirmed = window.confirm(
         t("documents.confirm.delete").replace(
           "{name}",
@@ -182,7 +200,7 @@ export default function DocumentsPage() {
       try {
         await api.delete(`/api/documents/${doc.id}`);
         setDocuments(prev => prev.filter(d => d.id !== doc.id));
-      } catch (err) {
+      } catch {
         setError(t("errors.documents.delete"));
       }
     },
@@ -191,7 +209,6 @@ export default function DocumentsPage() {
 
   const handleReprocessDocument = useCallback(
     async (doc: Document): Promise<void> => {
-      // eslint-disable-next-line no-alert
       const confirmed = window.confirm(
         t("documents.confirm.reprocess").replace(
           "{name}",
@@ -227,7 +244,6 @@ export default function DocumentsPage() {
       return;
     }
 
-    // eslint-disable-next-line no-alert
     const confirmed = window.confirm(t("documents.confirm.deleteAll"));
     if (!confirmed) {
       return;
@@ -252,7 +268,6 @@ export default function DocumentsPage() {
   const handleBulkDelete = useCallback(
     async (ids: number[]): Promise<void> => {
       if (!ids.length) return;
-      // eslint-disable-next-line no-alert
       if (!window.confirm(t("documents.bulk.confirmDelete").replace("{count}", String(ids.length)))) return;
       try {
         await poolMap(ids, 4, (id) => api.delete(`/api/documents/${id}`));
@@ -267,7 +282,6 @@ export default function DocumentsPage() {
   const handleBulkReprocess = useCallback(
     async (ids: number[]): Promise<void> => {
       if (!ids.length) return;
-      // eslint-disable-next-line no-alert
       if (!window.confirm(t("documents.bulk.confirmReprocess").replace("{count}", String(ids.length)))) return;
       setDocuments((prev) =>
         prev.map((d) =>
@@ -288,7 +302,6 @@ export default function DocumentsPage() {
   );
 
   const handleReprocessAll = useCallback(async () => {
-    // eslint-disable-next-line no-alert
     if (!window.confirm(t("documents.confirmReprocessAll"))) return;
     const ids = documents.map((d) => d.id);
     if (!ids.length) return;

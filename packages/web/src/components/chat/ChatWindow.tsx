@@ -18,7 +18,6 @@ export interface ChatWindowProps {
   documentIds: number[];
   requireApproval: boolean;
   deanonEnabled: boolean;
-  activeRegulations: string[];
   showJsonOutput: boolean;
   onResponseComplete?: (deanonApplied: boolean) => void;
   onMessagePairComplete?: (userText: string, assistantText: string, debugId?: string, approvalData?: ApprovalData, isRetry?: boolean, debugData?: DebugData) => void;
@@ -31,7 +30,6 @@ export function ChatWindow({
   documentIds,
   requireApproval,
   deanonEnabled,
-  activeRegulations,
   showJsonOutput,
   onResponseComplete,
   onMessagePairComplete,
@@ -42,7 +40,6 @@ export function ChatWindow({
   const t = useI18n();
   const [input, setInput] = useState("");
   const [outputMode, setOutputMode] = useState<OutputMode>("chat");
-  const [lastResponseDeanon, setLastResponseDeanon] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [reviewApprovalData, setReviewApprovalData] = useState<ApprovalData | null>(null);
@@ -51,26 +48,52 @@ export function ChatWindow({
 
   const handleResponseComplete = useCallback(
     (deanonApplied: boolean) => {
-      setLastResponseDeanon(deanonApplied);
       onResponseComplete?.(deanonApplied);
     },
     [onResponseComplete]
   );
 
-  const approvalRequiredRef = useRef<
+  const [restoredMessages] = useState<ChatMessage[] | undefined>(() =>
+    initialMessages?.length
+      ? initialMessages.map((m, i) => ({
+          id: `restored-${i}`,
+          role: m.role as "user" | "assistant",
+          content: m.content,
+          debugId: m.debugId,
+          approvalData: m.approvalData,
+          debugData: m.debugData,
+        }))
+      : undefined
+  );
+  const approvalRef = useRef<ReturnType<typeof useChatApproval> | null>(null);
+
+  const getApprovalData = useCallback(
+    () => approvalRef.current?.lastApprovalDataRef.current ?? null,
+    []
+  );
+  const onApprovalRequired = useCallback(
     (
       sessionId: string,
       maskedPrompt: string,
       chunks: ApprovalChunkPayload[],
-      activeRegulations: string[],
+      regs: string[],
       assembledPrompt: string,
       numberingToken?: string
-    ) => void
-  >(() => {});
-  const approvalRejectedRef = useRef<
-    (reason: string) => void
-  >(() => {});
-  const approvalDataRef = useRef<import("@/lib/types").ApprovalData | null>(null);
+    ) => {
+      approvalRef.current?.onApprovalRequired(
+        sessionId,
+        maskedPrompt,
+        chunks,
+        regs,
+        assembledPrompt,
+        numberingToken
+      );
+    },
+    []
+  );
+  const onApprovalRejected = useCallback((reason: string) => {
+    approvalRef.current?.onApprovalRejected(reason);
+  }, []);
 
   const {
     messages,
@@ -85,21 +108,18 @@ export function ChatWindow({
     regenerate,
     stopStreaming,
     handleOpenDebug,
-    pendingAssistantIdRef
+    pendingAssistantId
   } = useChatStream({
     documentIds,
     requireApproval,
     deanonEnabled,
     outputMode,
+    initialMessages: restoredMessages,
     onResponseComplete: handleResponseComplete,
     onMessagePairComplete,
-    getApprovalData: () => approvalDataRef.current,
-    onApprovalRequired: (sessionId, maskedPrompt, chunks, regs, assembledPrompt, numberingToken) => {
-      approvalRequiredRef.current(sessionId, maskedPrompt, chunks, regs, assembledPrompt, numberingToken);
-    },
-    onApprovalRejected: (reason) => {
-      approvalRejectedRef.current(reason);
-    }
+    getApprovalData,
+    onApprovalRequired,
+    onApprovalRejected
   });
 
   const approval = useChatApproval({
@@ -109,23 +129,9 @@ export function ChatWindow({
     onRejectedPersist,
   });
 
-  approvalRequiredRef.current = approval.onApprovalRequired;
-  approvalRejectedRef.current = approval.onApprovalRejected;
-  approvalDataRef.current = approval.lastApprovalDataRef.current;
-
   useEffect(() => {
-    if (initialMessages?.length) {
-      const restored: ChatMessage[] = initialMessages.map((m, i) => ({
-        id: `restored-${i}`,
-        role: m.role as "user" | "assistant",
-        content: m.content,
-        debugId: m.debugId,
-        approvalData: m.approvalData,
-        debugData: m.debugData,
-      }));
-      setMessages(restored);
-    }
-  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+    approvalRef.current = approval;
+  });
 
   useEffect(() => {
     if (streaming) {
@@ -155,7 +161,6 @@ export function ChatWindow({
     const text = input.trim();
     if (!text || streaming) return;
     setInput("");
-    setLastResponseDeanon(false);
 
     // Disambiguation runs fire-and-forget; awaiting it here delays the
     // user's message render by the analyze round-trip.
@@ -252,7 +257,7 @@ export function ChatWindow({
                     isThinking={
                       streaming &&
                       msg.role === "assistant" &&
-                      msg.id === pendingAssistantIdRef.current &&
+                      msg.id === pendingAssistantId &&
                       msg.content.length === 0
                     }
                     onDebugClick={() => {

@@ -47,8 +47,8 @@ async def _run(config: AuditConfig) -> None:
     finally:
         try:
             await queue.close()
-        except Exception:  # noqa: BLE001
-            logger.warning("queue close failed", exc_info=True)
+        except Exception as exc:
+            logger.warning("queue close failed: %s", type(exc).__name__)
         await sink.close()
 
 

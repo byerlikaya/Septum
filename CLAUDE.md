@@ -42,18 +42,19 @@ Set `NEXT_PUBLIC_API_BASE_URL` at build time to point the dashboard at a backend
 
 ### Docker
 ```bash
-# Published standalone image (SQLite, no external services)
-docker run --name septum --add-host=host.docker.internal:host-gateway -p 3000:3000 -v septum-data:/app/data -v septum-uploads:/app/uploads -v septum-anon-maps:/app/anon_maps -v septum-vector-indexes:/app/vector_indexes -v septum-bm25-indexes:/app/bm25_indexes -v septum-models:/app/models byerlikaya/septum
+# No images are published: every topology builds locally from the docker/ Dockerfiles.
+
+# Standalone (single container, SQLite, no external services)
+docker compose -f docker-compose.standalone.yml up --build
 
 # Full dev stack (all modules + Postgres + Redis + Ollama)
-docker compose up
+docker compose up --build
 docker compose exec ollama ollama pull llama3.2:3b         # first-time: pull a model
-docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up   # skip Ollama (cloud provider only)
+docker compose -f docker-compose.yml -f docker-compose.no-ollama.yml up --build   # skip Ollama (cloud provider only)
 
-# Modular topologies (build from docker/ Dockerfiles)
-docker compose -f docker-compose.standalone.yml up         # Single container, SQLite
-docker compose -f docker-compose.airgap.yml up             # Air-gapped zone (api + web + postgres + redis)
-docker compose -f docker-compose.gateway.yml up            # Internet-facing zone (gateway + audit + redis)
+# Modular topologies
+docker compose -f docker-compose.airgap.yml up --build     # Air-gapped zone (api + web + postgres + redis)
+docker compose -f docker-compose.gateway.yml up --build    # Internet-facing zone (gateway + audit + redis)
 ```
 
 ### Modular Packages (from `packages/<module>/`)
@@ -274,23 +275,27 @@ Apply these Septum-specific instructions on top of it:
 - Report format: `[SEVERITY] Title — file:LINE` with Issue/Impact/Fix
 - Rules: never auto-install tools, mask secrets, never auto-fix without confirmation
 
-## Pre-Commit Checks (manual)
+## Pre-Commit Checks
 
-No script runs these automatically. Local hooks only do a trace/secret scan and require a review record, so verify every item below by hand before each `git commit` and block the commit if any fails:
-- Zero-tolerance violations (country/language names in production code)
-- Language-specific if-branches detected
+**Enforced in CI** (`repo-policy` job in `tests.yml`, script `.github/scripts/policy_check.py`, unit-tested by `.github/scripts/test_policy_check.py`). Run it locally with `python .github/scripts/policy_check.py` before pushing:
+- Zero-tolerance violations: country/language names in class, function, argument or variable names of tracked `packages/**/*.py`. Exempt (this and the branch check): paths containing a `tests`, `test`, `national_ids`, `docs`, `node_modules` or `__pycache__` directory; files named `test_*.py`, `conftest.py` or `database.py`. Also exempt: dunder names and the `AUSTRALIA_PA` regulation id
+- Language-specific branches: `if`/`elif` comparing a `lang`/`language`/`locale`/`lang_code`/`language_code` variable to a two-letter code (`if language == "xx"`), and `match` on such a variable with a code in a `case`
+- README.md and README.tr.md heading structure (levels and order) must match
+- `database.py` `entity_types` changed without a `REGULATION_ENTITY_SOURCES.md` update (pull requests only)
+- Tracked `config.json`
+
+**Still manual** (no script runs these). Local hooks only do a trace/secret scan and require a review record, so verify by hand before each `git commit` and block the commit if any fails:
 - CHANGELOG.md has an entry for today's date (checked in the final push bundle, since CHANGELOG is only touched at push time)
-- Secrets files (`config.json`) staged for commit
-- README.md changed without README.tr.md (or vice versa)
-- `database.py` entity_types changed without REGULATION_ENTITY_SOURCES.md update
+- Secrets or `config.json` staged for commit
+- README.md and README.tr.md carry the same content, not only the same headings
 
 ## Environment Setup
 
-**Docker (recommended):** No `.env` needed. Run `docker run --add-host=host.docker.internal:host-gateway -p 3000:3000 byerlikaya/septum` and the setup wizard configures everything (database, cache, LLM provider). Everything is served on port 3000 (API proxied via Next.js rewrites).
+**Docker (recommended):** Clone the repo and build locally; no images are published. The standalone variant needs no `.env`: run `docker compose -f docker-compose.standalone.yml up --build` and the setup wizard configures everything (database, cache, LLM provider). Everything is served on port 3000 (API proxied via Next.js rewrites).
 
 **Local development:** Run `./dev.sh --setup` then `./dev.sh`. Bootstrap auto-generates `config.json` with encryption key and JWT secret. Set `SEPTUM_CONFIG_PATH` to override the default `/app/data/config.json` location. Environment variables (`DATABASE_URL`, `REDIS_URL`, `ENCRYPTION_KEY`, etc.) override `config.json` values.
 
-**docker-compose:** Copy `.env.example` to `.env` and set `POSTGRES_PASSWORD` and `REDIS_PASSWORD` — compose files require both and fail fast if either is missing. `docker compose up` then starts PostgreSQL + Redis + Septum. Database and Redis URLs are wired in `docker-compose.yml`.
+**docker-compose:** Copy `.env.example` to `.env` and set `POSTGRES_PASSWORD` and `REDIS_PASSWORD` — compose files require both and fail fast if either is missing. `docker compose up --build` then builds and starts PostgreSQL + Redis + Septum. Database and Redis URLs are wired in `docker-compose.yml`.
 
 **Modular docker-compose variants:**
 - `docker-compose.yml` — Full dev stack (api + web + gateway + audit + Postgres + Redis + optional Ollama)
@@ -302,7 +307,15 @@ No script runs these automatically. Local hooks only do a trace/secret scan and 
 
 ## CI/CD
 
-GitHub Actions (`.github/workflows/tests.yml`): runs backend pytest (Python 3.13) and frontend Jest (Node 22) in parallel on push to main and PRs. Both must pass.
+GitHub Actions (`.github/workflows/tests.yml`) runs on push to main and PRs. Python 3.13, Node 22. All jobs run in parallel and must pass:
+- `backend-tests` (api), `modular-tests` (queue, core, mcp, gateway, audit): pytest
+- `backend-lint`: ruff (`E,W,F,I`) and bandit, both failing
+- `backend-security`: `pip-audit -r packages/api/requirements.txt`, failing
+- `frontend-tests` (Jest, `--runInBand`), `frontend-typecheck` (`tsc --noEmit`), `frontend-lint` (`eslint .`)
+- `frontend-security`: `npm audit --omit=dev --audit-level=high`, failing; dev dependencies are excluded for now (an unpatched advisory in dev tooling), Dependabot still tracks them
+- `repo-policy`: policy check and its unit tests (see Pre-Commit Checks)
+
+Actions are pinned to commit SHAs. Dependabot (`.github/dependabot.yml`) opens weekly PRs for pip, npm, GitHub Actions, Docker and docker-compose, grouping minor/patch updates per ecosystem (majors come as separate PRs) with a 3-day cooldown.
 
 ## Release process
 
@@ -310,17 +323,17 @@ Releases are driven by **git tags** — there is no `VERSION` file to bump and n
 
 ```bash
 # 1. Update CHANGELOG.md with the release summary under today's date.
-# 2. Tag the release (semver; pre-releases get a -rc.N / -beta.N suffix):
+# 2. Tag the release (semver; pre-releases get a -rc.N / -beta.N suffix) and push the tag:
 git tag v0.2.0
-git push --tags
-
-# Manual re-run against an existing tag: Actions UI → Docker Hub Publish → Run workflow → enter version.
+git push origin v0.2.0
+# 3. Create the GitHub Release page with autogenerated notes (add --prerelease for -rc / -beta tags):
+gh release create v0.2.0 --generate-notes
 ```
 
-`.github/workflows/docker-publish.yml` fires on the tag, builds all six images (`byerlikaya/septum`, `byerlikaya/septum-{api,web,gateway,audit,mcp}`) multi-arch (linux/amd64 + linux/arm64), pushes them to Docker Hub with rolling tags (`v0.2.0`, `0.2`, `0`, `latest`), stamps OCI image labels (`org.opencontainers.image.{version,revision,source,title,…}`), and creates a GitHub Release page with autogenerated release notes + image pull links.
+Septum no longer publishes container images: there is no image-publishing workflow and no `release` GitHub environment. A release is the tag plus its GitHub Release page; users install by cloning the repo and building locally (see Docker above). Older `byerlikaya/septum*` images on Docker Hub stay up but are no longer updated.
 
-**CPU / GPU variants:** `byerlikaya/septum` and `byerlikaya/septum-api` additionally publish a `-gpu` variant (`byerlikaya/septum:0.2.0-gpu`, `byerlikaya/septum:gpu`) built with the standard PyTorch wheel (full CUDA runtime, ~6 GB overhead). GPU variants are **linux/amd64 only** — NVIDIA wheels are not published for arm64 and Apple Silicon hosts do not run CUDA. Other images (web, gateway, audit, mcp) stay CPU-only because they either do not import torch at all or handle short per-call requests where the GPU context start-up outweighs any inference speed-up. Selection via Dockerfile `ARG TORCH_VARIANT=cpu` (default) or `=gpu` when building locally.
+**CPU / GPU variants:** `docker/standalone.Dockerfile` and `docker/api.Dockerfile` take a local build arg `TORCH_VARIANT=cpu` (default) or `=gpu`; the GPU build uses the standard PyTorch wheel (torch 2.14.1 against CUDA 13.0, full CUDA runtime, ~6 GB overhead) and the host needs an NVIDIA driver with CUDA 13 support. GPU builds are **linux/amd64 only** — NVIDIA wheels are not published for arm64 and Apple Silicon hosts do not run CUDA. The other Dockerfiles (web, gateway, audit, mcp) stay CPU-only because they either do not import torch at all or handle short per-call requests where the GPU context start-up outweighs any inference speed-up. The compose files do not set the arg; pass `--build-arg` to `docker build` or add it under the service's `build.args`.
 
-**Local dev (`./dev.sh`) is GPU-native:** `packages/api/requirements.txt` pins `torch==2.10.0` without a CPU-only index override, so a local dev install picks up whatever torch variant PyPI serves for the host platform — CUDA on NVIDIA-equipped Linux, MPS on Apple Silicon, CPU everywhere else. The CPU-only constraint only applies to the published Docker images.
+**Base images** are pinned by digest (`python:3.13-slim@sha256:…`, `node:22-alpine@sha256:…`, `node:22-slim@sha256:…`); Dependabot's Docker ecosystem proposes the bumps.
 
-Pre-releases (`v0.2.0-rc.1`) skip the rolling tags and `latest`; they publish only the exact version.
+**Local dev (`./dev.sh`) is GPU-native:** `packages/api/requirements.txt` pins `torch==2.14.1` without a CPU-only index override, so a local dev install picks up whatever torch variant PyPI serves for the host platform — CUDA on NVIDIA-equipped Linux, MPS on Apple Silicon, CPU everywhere else. The CPU-only constraint only applies to the Docker images (built locally with `TORCH_VARIANT=cpu` by default).

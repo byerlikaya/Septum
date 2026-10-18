@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { PASSWORD_MIN_LENGTH } from "@/lib/api";
+import { exceedsPasswordByteLimit, passwordTooLongMessage } from "@/lib/password";
 import { useI18n } from "@/lib/i18n";
 import { Modal } from "@/components/common/Modal";
 
@@ -31,14 +32,16 @@ export function PasswordResetModal({
   const [localError, setLocalError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
 
-  useEffect(() => {
+  const [prevOpen, setPrevOpen] = useState<boolean>(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
     if (open) {
       setNewPassword("");
       setConfirmPassword("");
       setLocalError(null);
       setSubmitting(false);
     }
-  }, [open]);
+  }
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
@@ -53,6 +56,10 @@ export function PasswordResetModal({
           String(PASSWORD_MIN_LENGTH)
         )
       );
+      return;
+    }
+    if (exceedsPasswordByteLimit(newPassword)) {
+      setLocalError(passwordTooLongMessage(t));
       return;
     }
     setLocalError(null);

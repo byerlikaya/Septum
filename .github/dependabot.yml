@@ -1,0 +1,68 @@
+version: 2
+
+# cooldown holds back a release for a few days after it is published, so a
+# compromised version is more likely to be yanked before a PR proposes it.
+# Security updates are not delayed by it.
+updates:
+  - package-ecosystem: pip
+    directories:
+      - /packages/api
+      - /packages/core
+      - /packages/mcp
+      - /packages/queue
+      - /packages/gateway
+      - /packages/audit
+    schedule:
+      interval: weekly
+    groups:
+      pip-minor-patch:
+        update-types: [minor, patch]
+    cooldown:
+      default-days: 3
+
+  - package-ecosystem: npm
+    directories:
+      - /packages/web
+      - /docs
+    schedule:
+      interval: weekly
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+    cooldown:
+      default-days: 3
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
+    cooldown:
+      default-days: 3
+
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly
+    groups:
+      docker-minor-patch:
+        update-types: [minor, patch]
+    cooldown:
+      default-days: 3
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      compose-minor-patch:
+        update-types: [minor, patch]
+    cooldown:
+      default-days: 3
+    ignore:
+      # A Postgres major bump cannot open an existing data volume; it needs
+      # a planned dump/restore, not an automated PR.
+      - dependency-name: postgres
+        update-types: [version-update:semver-major]

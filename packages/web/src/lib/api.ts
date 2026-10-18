@@ -6,12 +6,10 @@ import type {
   DebugData,
   AuthTokenResponse,
   AuthUser,
-  AuditEvent,
   AuditListResponse,
   ChangePasswordPayload,
   ChatSessionDetail,
   ChatSessionSummary,
-  ComplianceReport,
   CreateUserPayload,
   Document,
   DocumentListResponse,
@@ -20,12 +18,11 @@ import type {
   RegulationRuleset,
   SetupStatus,
   SSEChatEvent,
-  SpreadsheetColumn,
-  SpreadsheetSchema,
   TestConnectionResponse,
   UpdateUserPayload,
   UserListItem,
 } from "./types";
+import { hardNavigate } from "./navigation";
 
 // Default ``""`` makes requests relative so Next.js rewrites in
 // ``next.config.mjs`` proxy ``/api/*`` to the backend on the same
@@ -43,6 +40,10 @@ export const baseURL = resolveBaseURL(process.env.NEXT_PUBLIC_API_BASE_URL);
 // here without bumping the backend yields a confusing UX where a
 // password the form accepts the server then rejects.
 export const PASSWORD_MIN_LENGTH = 12;
+
+// Mirrors the backend limit: bcrypt only accepts passwords up to 72 bytes of
+// UTF-8, and the server rejects anything longer.
+export const PASSWORD_MAX_BYTES = 72;
 
 export const api = axios.create({ baseURL });
 
@@ -91,7 +92,7 @@ api.interceptors.response.use(
             typeof window !== "undefined" &&
             !window.location.pathname.startsWith("/login")
           ) {
-            window.location.href = "/login";
+            hardNavigate("/login");
           }
         });
       }

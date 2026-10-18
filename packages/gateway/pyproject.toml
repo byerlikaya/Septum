@@ -38,8 +38,8 @@ dependencies = [
 
 [project.optional-dependencies]
 server = [
-    "fastapi>=0.135.1",
-    "uvicorn>=0.35.0",
+    "fastapi>=0.143.3",
+    "uvicorn>=0.54.0",
 ]
 test = [
     "pytest>=9.0",

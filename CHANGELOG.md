@@ -22,6 +22,21 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-10-18
+
+- **Breaking: container images are no longer published.** Septum is installed by cloning the repository and building with the provided compose files (`docker compose up --build`), and releases are a git tag plus a GitHub Release page. Older `byerlikaya/septum*` images on Docker Hub stay up but are no longer updated; the standalone compose file reuses the volume names of the old image, so existing data carries over. The Docker Hub update check was removed with them.
+- **Breaking: GPU builds need an NVIDIA driver with CUDA 13 support.** The GPU variant is now a local `TORCH_VARIANT=gpu` build of torch 2.14.1 against CUDA 13.0.
+- **Breaking: API keys can no longer manage credentials or the masking policy.** Keys now get `401`/`403` on API-key, user, password, provider-settings, infrastructure, regulation-write and text-normalization routes, which require an interactive login (JWT). Login timing no longer reveals whether an account exists, and tokens without `exp` and `sub` claims are rejected.
+- **Behaviour change: the respond-in-language instruction is now added for every query language,** English included, so English prompts also carry the language line.
+- Turned CI into enforced quality gates: ruff and bandit, `pip-audit` and `npm audit` (production dependencies), and frontend lint now fail the build, and a new repository-policy job checks naming and language-branch rules, README structure, entity-source docs and tracked `config.json`. Actions are pinned to commit SHAs with read-only permissions, Dependabot groups weekly updates with a cooldown, and the images move to Python 3.13 and Node 22 pinned by digest.
+- Moved the web app to the ESLint flat config and cleaned up the React hooks it flagged: derived chat stream state, an external store for the UI language, state reset during render, and guards against stale async responses. Login and session-expiry redirects now accept only same-origin paths.
+- Tightened log hygiene across api, core, gateway, audit and queue: failures are logged by exception class only, and error rows and client messages no longer carry exception text. Swallowed queue acknowledgement errors are now logged, and gateway retry jitter uses a system RNG.
+- Hardened Whisper model installation: files are verified, size-capped and installed atomically, and a conflicting concurrent install returns 409 with an explanation in the UI.
+- Updated Python, web and docs-site dependencies with known vulnerabilities, and enforced bcrypt's 72-byte password limit on the server and in the web form instead of silently truncating.
+- Fixed the Alembic migrations (016) to match the ORM models on PostgreSQL, with a CI check against a real PostgreSQL database and an entrypoint that fails fast on a migration error.
+- Fixed the duplicate-libomp crash on macOS.
+- Replaced a language branch in core NER span filtering with a mapping table and fixed the reprocess script's database path.
+
 ### 2026-10-17
 
 - Added one final PII gate in the chat path: every user-typed text (approval edits, retried chunks, chunk edits, spreadsheet labels, custom regulation names) is masked before it reaches the cloud LLM or storage. Filenames no longer reach the prompt, de-anonymization restores only placeholders that were actually sent, and debug records hold masked text only.

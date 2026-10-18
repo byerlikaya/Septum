@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   PASSWORD_MIN_LENGTH,
   authChangePassword,
@@ -8,6 +8,7 @@ import {
   setAuthToken,
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { exceedsPasswordByteLimit, passwordTooLongMessage } from "@/lib/password";
 import { Modal } from "@/components/common/Modal";
 
 export interface ChangePasswordModalProps {
@@ -33,7 +34,9 @@ export function ChangePasswordModal({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
 
-  useEffect(() => {
+  const [prevOpen, setPrevOpen] = useState<boolean>(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
     if (open) {
       setCurrent("");
       setNext("");
@@ -41,7 +44,7 @@ export function ChangePasswordModal({
       setError(null);
       setSubmitting(false);
     }
-  }, [open]);
+  }
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
@@ -56,6 +59,10 @@ export function ChangePasswordModal({
           String(PASSWORD_MIN_LENGTH)
         )
       );
+      return;
+    }
+    if (exceedsPasswordByteLimit(next)) {
+      setError(passwordTooLongMessage(t));
       return;
     }
     setError(null);

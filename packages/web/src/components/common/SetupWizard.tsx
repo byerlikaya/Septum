@@ -2,8 +2,9 @@
 
 import { useCallback, useState } from "react";
 import { Shield, Zap, Check, AlertCircle, Loader2, Globe, Database, HardDrive, Mic, UserPlus } from "lucide-react";
-import api, { initializeInfrastructure, setAuthToken, streamSSE, testDatabaseConnection, testRedisConnection } from "@/lib/api";
+import api, { PASSWORD_MIN_LENGTH, initializeInfrastructure, setAuthToken, streamSSE, testDatabaseConnection, testRedisConnection } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { exceedsPasswordByteLimit, passwordTooLongMessage } from "@/lib/password";
 import { useLanguage, type AppLanguage } from "@/lib/language";
 import { OllamaModelCombobox } from "./OllamaModelCombobox";
 
@@ -49,6 +50,17 @@ const WHISPER_MODELS = [
   { value: "medium", size: "~1.5 GB", speed: "~2x", accuracy: "high" },
   { value: "large", size: "~2.9 GB", speed: "1x", accuracy: "best" },
 ];
+
+const StatusBadge = ({ status, msg }: { status: TestStatus; msg: string }) => (<>
+  {status === "success" && <div className="mt-3 flex items-center gap-2 rounded-md bg-emerald-950/50 px-3 py-2 text-xs text-emerald-300"><Check className="h-4 w-4 shrink-0" />{msg}</div>}
+  {status === "error" && <div className="mt-3 flex items-center gap-2 rounded-md bg-red-950/50 px-3 py-2 text-xs text-red-300"><AlertCircle className="h-4 w-4 shrink-0" />{msg}</div>}
+</>);
+const OptionCard = ({ selected, onClick, title, desc }: { selected: boolean; onClick: () => void; title: string; desc: string }) => (
+    <button type="button" onClick={onClick} className={`w-full rounded-lg border p-4 text-left transition-colors ${selected ? "border-sky-500 bg-sky-600/10" : "border-slate-700 bg-slate-800/50 hover:border-slate-600"}`}><div className="text-sm font-medium text-slate-200">{title}</div><div className="mt-1 text-xs text-slate-400">{desc}</div></button>
+  );
+const StepHeader = ({ icon: Icon, title, desc }: { icon: React.ElementType; title: string; desc: string }) => (
+    <div className="mb-6 flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-sky-600/20"><Icon className="h-5 w-5 text-sky-400" /></div><div><h2 className="text-lg font-semibold text-slate-50">{title}</h2><p className="text-xs text-slate-400">{desc}</p></div></div>
+  );
 
 export function SetupWizard({ startPhase, initialProvider, initialModel, version, onComplete }: SetupWizardProps) {
   const t = useI18n();
@@ -279,6 +291,8 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
   // Register first user
   const handleRegister = useCallback(async () => {
     if (regPassword !== regConfirm) { setRegStatus("error"); setRegMessage(t("setup.step.register.mismatch")); return; }
+    if (regPassword.length < PASSWORD_MIN_LENGTH) { setRegStatus("error"); setRegMessage(t("auth.changePassword.tooShort", { min: PASSWORD_MIN_LENGTH })); return; }
+    if (exceedsPasswordByteLimit(regPassword)) { setRegStatus("error"); setRegMessage(passwordTooLongMessage(t)); return; }
     setRegStatus("pending"); setRegMessage("");
     try {
       const { data } = await api.post<{ access_token: string }>("/api/auth/register", { email: regEmail, password: regPassword });
@@ -294,16 +308,6 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
   }, [regEmail, regPassword, regConfirm, t]);
 
   // --- UI helpers ---
-  const StatusBadge = ({ status, msg }: { status: TestStatus; msg: string }) => (<>
-    {status === "success" && <div className="mt-3 flex items-center gap-2 rounded-md bg-emerald-950/50 px-3 py-2 text-xs text-emerald-300"><Check className="h-4 w-4 shrink-0" />{msg}</div>}
-    {status === "error" && <div className="mt-3 flex items-center gap-2 rounded-md bg-red-950/50 px-3 py-2 text-xs text-red-300"><AlertCircle className="h-4 w-4 shrink-0" />{msg}</div>}
-  </>);
-  const OptionCard = ({ selected, onClick, title, desc }: { selected: boolean; onClick: () => void; title: string; desc: string }) => (
-    <button type="button" onClick={onClick} className={`w-full rounded-lg border p-4 text-left transition-colors ${selected ? "border-sky-500 bg-sky-600/10" : "border-slate-700 bg-slate-800/50 hover:border-slate-600"}`}><div className="text-sm font-medium text-slate-200">{title}</div><div className="mt-1 text-xs text-slate-400">{desc}</div></button>
-  );
-  const StepHeader = ({ icon: Icon, title, desc }: { icon: React.ElementType; title: string; desc: string }) => (
-    <div className="mb-6 flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-sky-600/20"><Icon className="h-5 w-5 text-sky-400" /></div><div><h2 className="text-lg font-semibold text-slate-50">{title}</h2><p className="text-xs text-slate-400">{desc}</p></div></div>
-  );
   const inputCls = "w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500";
   const actionBtnCls = "w-full rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50 transition-colors";
   const backBtnCls = "rounded-md px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors";

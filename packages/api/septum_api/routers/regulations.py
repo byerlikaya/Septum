@@ -23,6 +23,7 @@ from ..services.recognizers.registry import RecognizerRegistry
 from ..utils.auth_dependency import (
     get_current_user,
     require_admin_or_bootstrap,
+    require_interactive_session,
     require_role,
     require_user_or_bootstrap,
 )
@@ -215,6 +216,7 @@ async def list_regulation_rulesets(
     "/{ruleset_id}/activate",
     response_model=RegulationRulesetResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_interactive_session)],
 )
 async def activate_regulation_ruleset(
     ruleset_id: str,
@@ -269,6 +271,7 @@ async def list_custom_recognizers(
     "/custom",
     response_model=CustomRecognizerResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_interactive_session)],
 )
 async def create_custom_recognizer(
     payload: CustomRecognizerCreatePayload,
@@ -313,6 +316,7 @@ async def create_custom_recognizer(
     "/custom/{recognizer_id}",
     response_model=CustomRecognizerResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_interactive_session)],
 )
 async def update_custom_recognizer(
     recognizer_id: int,
@@ -347,6 +351,7 @@ async def update_custom_recognizer(
     "/custom/{recognizer_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
+    dependencies=[Depends(require_interactive_session)],
 )
 async def delete_custom_recognizer(
     recognizer_id: int,
@@ -426,6 +431,7 @@ async def list_non_pii_rules(
     "/non-pii",
     response_model=NonPiiRuleResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_interactive_session)],
 )
 async def create_non_pii_rule(
     payload: NonPiiRuleCreatePayload,
@@ -460,6 +466,7 @@ async def create_non_pii_rule(
     "/non-pii/{rule_id}",
     response_model=NonPiiRuleResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_interactive_session)],
 )
 async def update_non_pii_rule(
     rule_id: int,
@@ -499,6 +506,7 @@ async def update_non_pii_rule(
     "/non-pii/{rule_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
+    dependencies=[Depends(require_interactive_session)],
 )
 async def delete_non_pii_rule(
     rule_id: int,

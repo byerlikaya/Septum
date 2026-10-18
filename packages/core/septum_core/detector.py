@@ -176,6 +176,17 @@ _NER_SINGLE_WORD_MIN_SCORE_PER_TYPE: Dict[str, float] = {
 # this floor — the transformer is the authoritative person source.
 _PRESIDIO_PERSON_MIN_SCORE_WHEN_NER_ENABLED = 0.7
 
+# Logographic / dense scripts where a 2-glyph span is often a full given
+# name. Every other language keeps the default floor, which suppresses
+# "Dr" / "Mr" style noise.
+_NER_DEFAULT_MIN_SPAN_LEN = 3
+_NER_MIN_SPAN_LEN_PER_LANGUAGE: Dict[str, int] = {
+    "zh": 2,
+    "ja": 2,
+    "ko": 2,
+    "th": 2,
+}
+
 _UPPER_WORD_RE = re.compile(r"\b\w{2,}\b")
 
 
@@ -1259,7 +1270,7 @@ class Detector:
             )
             for rec in recognizers:
                 supported.update(rec.supported_entities)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             # Surface the error so a Presidio API change does not
             # silently disable coverage warnings — privacy-first
             # over-detection is preferable to a silent miss.
@@ -1429,9 +1440,10 @@ class Detector:
                     len(validated_spans),
                 )
                 spans = validated_spans
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.warning(
-                    "Semantic validation layer failed, continuing with all candidates: %s", e
+                    "Semantic validation layer failed, continuing with all candidates: %s",
+                    type(e).__name__,
                 )
 
         if (
@@ -1448,8 +1460,10 @@ class Detector:
                     len(semantic_spans),
                 )
                 spans.extend(semantic_spans)
-            except Exception as e:  # noqa: BLE001
-                logger.warning("Semantic alias layer failed, continuing without it: %s", e)
+            except Exception as e:
+                logger.warning(
+                    "Semantic alias layer failed, continuing without it: %s", type(e).__name__
+                )
 
             if self._config.use_semantic_contextual_detection:
                 semantic_types = [
@@ -1467,8 +1481,8 @@ class Detector:
                             len(contextual_spans),
                         )
                         spans.extend(contextual_spans)
-                    except Exception as e:  # noqa: BLE001
-                        logger.warning("Semantic contextual layer failed: %s", e)
+                    except Exception as e:
+                        logger.warning("Semantic contextual layer failed: %s", type(e).__name__)
 
         if self._non_pii_filter is not None:
             span_views = [
@@ -1532,8 +1546,10 @@ class Detector:
                     anon_map=anon_map,
                     language=language,
                 )
-            except Exception as e:  # noqa: BLE001
-                logger.warning("Pronoun coreference resolution failed, continuing: %s", e)
+            except Exception as e:
+                logger.warning(
+                    "Pronoun coreference resolution failed, continuing: %s", type(e).__name__
+                )
 
         sanitized = anon_map.apply_blocklist(sanitized, language)
         self._log_low_confidence(spans)
@@ -1720,10 +1736,9 @@ class Detector:
         specific single-token mis-fires that motivated the earlier full
         suppression. See ``_map_ner_label`` for the rationale.
         """
-        # CJK languages + Thai use logographic or dense scripts where a
-        # 2-glyph span is often a full given name. Latin scripts keep
-        # the 3-character floor to suppress "Dr" / "Mr" style noise.
-        min_span_len = 2 if language in {"zh", "ja", "ko", "th"} else 3
+        min_span_len = _NER_MIN_SPAN_LEN_PER_LANGUAGE.get(
+            language, _NER_DEFAULT_MIN_SPAN_LEN
+        )
         spans: List[DetectedSpan] = []
         for item in raw_results:
             entity = item.get("entity_group") or item.get("entity")

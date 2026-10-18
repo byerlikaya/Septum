@@ -67,6 +67,23 @@ function getStatusBadgeClasses(status: string): string {
   }
 }
 
+function SortIcon({
+  field,
+  sortField,
+  sortDir,
+}: {
+  field: SortField;
+  sortField: SortField;
+  sortDir: SortDir;
+}) {
+  if (sortField !== field) return null;
+  return sortDir === "asc" ? (
+    <ArrowUp className="inline h-3 w-3" />
+  ) : (
+    <ArrowDown className="inline h-3 w-3" />
+  );
+}
+
 const FORMAT_OPTIONS = ["pdf", "docx", "xlsx", "ods", "audio", "image"] as const;
 
 export function DocumentList({
@@ -127,15 +144,6 @@ export function DocumentList({
       setSortField(field);
       setSortDir("asc");
     }
-  };
-
-  const SortIcon = ({ field }: { field: SortField }) => {
-    if (sortField !== field) return null;
-    return sortDir === "asc" ? (
-      <ArrowUp className="inline h-3 w-3" />
-    ) : (
-      <ArrowDown className="inline h-3 w-3" />
-    );
   };
 
   const toggleSelect = (id: number) => {
@@ -261,7 +269,7 @@ export function DocumentList({
                 className="px-4 py-2 font-medium cursor-pointer select-none hover:text-slate-200"
                 onClick={() => toggleSort("name")}
               >
-                {t("documents.table.column.document")} <SortIcon field="name" />
+                {t("documents.table.column.document")} <SortIcon field="name" sortField={sortField} sortDir={sortDir} />
               </th>
               <th className="px-4 py-2 font-medium">
                 {t("documents.table.column.type")}
@@ -270,7 +278,7 @@ export function DocumentList({
                 className="px-4 py-2 font-medium cursor-pointer select-none hover:text-slate-200"
                 onClick={() => toggleSort("size")}
               >
-                {t("documents.table.column.size")} <SortIcon field="size" />
+                {t("documents.table.column.size")} <SortIcon field="size" sortField={sortField} sortDir={sortDir} />
               </th>
               <th className="px-4 py-2 font-medium">
                 {t("documents.table.column.status")}

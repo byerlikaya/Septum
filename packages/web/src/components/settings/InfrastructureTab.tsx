@@ -17,6 +17,17 @@ interface InfrastructureConfig {
   log_level: string;
 }
 
+const StatusBadge = ({ test }: { test: TestStatus }) => (
+  <>
+    {test.status === "success" && test.message && (
+      <p className="mt-1 flex items-center gap-1 text-[11px] text-emerald-300"><Check className="h-3 w-3" />{test.message}</p>
+    )}
+    {test.status === "error" && test.message && (
+      <p className="mt-1 flex items-center gap-1 text-[11px] text-red-300"><AlertCircle className="h-3 w-3" />{test.message}</p>
+    )}
+  </>
+);
+
 export function InfrastructureTab() {
   const t = useI18n();
   const [infra, setInfra] = useState<InfrastructureConfig | null>(null);
@@ -92,17 +103,6 @@ export function InfrastructureTab() {
   if (loading || !infra) {
     return <div className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="h-4 w-4 animate-spin" />{t("settings.common.loading")}</div>;
   }
-
-  const StatusBadge = ({ test }: { test: TestStatus }) => (
-    <>
-      {test.status === "success" && test.message && (
-        <p className="mt-1 flex items-center gap-1 text-[11px] text-emerald-300"><Check className="h-3 w-3" />{test.message}</p>
-      )}
-      {test.status === "error" && test.message && (
-        <p className="mt-1 flex items-center gap-1 text-[11px] text-red-300"><AlertCircle className="h-3 w-3" />{test.message}</p>
-      )}
-    </>
-  );
 
   return (
     <div className="space-y-8">

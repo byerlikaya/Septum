@@ -60,8 +60,8 @@ async def _run(config: GatewayConfig) -> None:
                 continue
             try:
                 await q.close()
-            except Exception:  # noqa: BLE001
-                logger.warning("queue close failed", exc_info=True)
+            except Exception as exc:
+                logger.warning("queue close failed: %s", type(exc).__name__)
 
 
 def main() -> int:

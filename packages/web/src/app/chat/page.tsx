@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api, {
   getDocuments,
   getSettings,
@@ -114,8 +114,11 @@ export default function ChatPage() {
     };
   }, []);
 
-  const documentIds =
-    selectedIds.size > 0 ? Array.from(selectedIds).sort((a, b) => a - b) : [];
+  const documentIds = useMemo(
+    () =>
+      selectedIds.size > 0 ? Array.from(selectedIds).sort((a, b) => a - b) : [],
+    [selectedIds]
+  );
 
   const handleFilesSelected = useCallback(
     async (files: File[]): Promise<void> => {
@@ -287,7 +290,6 @@ export default function ChatPage() {
 
   const handleDeleteSession = useCallback(
     async (id: number) => {
-      // eslint-disable-next-line no-alert
       if (!window.confirm(t("chat.history.deleteConfirm"))) return;
       try {
         await deleteChatSession(id);
@@ -304,7 +306,6 @@ export default function ChatPage() {
 
   const handleDeleteAllSessions = useCallback(
     async () => {
-      // eslint-disable-next-line no-alert
       if (!window.confirm(t("chat.history.deleteAllConfirm"))) return;
       try {
         await poolMap(sessions, 4, (s) => deleteChatSession(s.id));
@@ -469,7 +470,6 @@ export default function ChatPage() {
                 documentIds={documentIds}
                 requireApproval={settings?.require_approval ?? false}
                 deanonEnabled={settings?.deanon_enabled ?? true}
-                activeRegulations={regulationPills.slice(0, 5).map((p) => p.name)}
                 showJsonOutput={settings?.show_json_output ?? false}
                 onUploadFiles={handleFilesSelected}
                 onResponseComplete={handleResponseComplete}
