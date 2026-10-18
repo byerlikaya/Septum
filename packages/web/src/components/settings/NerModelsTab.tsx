@@ -174,7 +174,7 @@ export function NerModelsTab({
                 <td className="px-3 py-2 align-top">
                   <input
                     type="text"
-                    className="w-full min-w-[200px] rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-[11px] text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none"
+                    className="w-full min-w-[200px] rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-[11px] text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-hidden"
                     value={getEffectiveModel(lang)}
                     onChange={(e) => handleOverrideChange(lang, e.target.value)}
                     placeholder={defaultModels.join(", ")}

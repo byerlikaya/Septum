@@ -108,7 +108,7 @@ export function IngestionTab({
             type="button"
             onClick={handleInstallWhisper}
             disabled={installingWhisper}
-            className="inline-flex items-center rounded-md bg-sky-600 px-3 py-1.5 text-[11px] font-medium text-white shadow-sm transition-colors hover:bg-sky-500 disabled:opacity-60"
+            className="inline-flex items-center rounded-md bg-sky-600 px-3 py-1.5 text-[11px] font-medium text-white shadow-xs transition-colors hover:bg-sky-500 disabled:opacity-60"
           >
             {installingWhisper
               ? t("settings.ingestion.audioHealth.installPending")
@@ -184,7 +184,7 @@ export function IngestionTab({
             {t("settings.ingestion.whisperModel.label")}
           </label>
           <select
-            className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
+            className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-hidden ring-0 transition focus:border-sky-500"
             value={settings.whisper_model || "base"}
             onChange={async (event) => {
               const value = event.target.value || "base";
@@ -215,7 +215,7 @@ export function IngestionTab({
             {t("settings.ingestion.defaultAudioLanguage.label")}
           </label>
           <select
-            className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
+            className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-hidden ring-0 transition focus:border-sky-500"
             value={settings.default_audio_language ?? ""}
             onChange={async (event) => {
               const value = event.target.value.trim() || null;
@@ -257,7 +257,7 @@ export function IngestionTab({
           </label>
           <input
             type="text"
-            className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
+            className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-hidden ring-0 transition focus:border-sky-500"
             defaultValue={settings.image_ocr_languages.join(", ")}
             onBlur={async (event) => {
               const raw = event.target.value;

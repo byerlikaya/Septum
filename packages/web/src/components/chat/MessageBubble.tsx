@@ -44,7 +44,7 @@ export function MessageBubble({
             </span>
           </div>
         ) : (
-          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          <p className="whitespace-pre-wrap wrap-break-word">{message.content}</p>
         )}
       </div>
       {!isUser && message.usedOllamaFallback && (

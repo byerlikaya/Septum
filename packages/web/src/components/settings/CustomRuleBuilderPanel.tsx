@@ -427,7 +427,7 @@ export function CustomRuleBuilderPanel({
             </label>
             <input
               type="text"
-              className="w-full rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
+              className="w-full rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-hidden ring-0 transition focus:border-sky-500"
               value={form.name}
               onChange={(event) => handleFieldChange("name", event.target.value)}
               placeholder={t("regulations.panel.field.ruleName.placeholder")}
@@ -441,7 +441,7 @@ export function CustomRuleBuilderPanel({
               </label>
               <input
                 type="text"
-                className="w-full rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
+                className="w-full rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-hidden ring-0 transition focus:border-sky-500"
                 value={form.entity_type}
                 onChange={(event) =>
                   handleFieldChange("entity_type", event.target.value)
@@ -461,7 +461,7 @@ export function CustomRuleBuilderPanel({
               </label>
               <input
                 type="text"
-                className="w-full rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
+                className="w-full rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-hidden ring-0 transition focus:border-sky-500"
                 value={form.placeholder_label}
                 onChange={(event) =>
                   handleFieldChange("placeholder_label", event.target.value)
@@ -514,7 +514,7 @@ export function CustomRuleBuilderPanel({
                 {t("regulations.panel.method.regex.title")}
               </label>
               <textarea
-                className="h-16 w-full resize-none rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
+                className="h-16 w-full resize-none rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-hidden ring-0 transition focus:border-sky-500"
                 value={form.pattern}
                 onChange={(event) => handleFieldChange("pattern", event.target.value)}
                 placeholder={t("regulations.panel.method.regex.placeholder")}
@@ -531,7 +531,7 @@ export function CustomRuleBuilderPanel({
                 {t("regulations.panel.field.contextWords")}
               </label>
               <textarea
-                className="h-16 w-full resize-none rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
+                className="h-16 w-full resize-none rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-hidden ring-0 transition focus:border-sky-500"
                 value={form.keywordsText}
                 onChange={(event) =>
                   handleFieldChange("keywordsText", event.target.value)
@@ -552,7 +552,7 @@ export function CustomRuleBuilderPanel({
                 {t("regulations.panel.method.llm.title")}
               </label>
               <textarea
-                className="h-24 w-full resize-none rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
+                className="h-24 w-full resize-none rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-hidden ring-0 transition focus:border-sky-500"
                 value={form.llm_prompt}
                 onChange={(event) =>
                   handleFieldChange("llm_prompt", event.target.value)
@@ -573,7 +573,7 @@ export function CustomRuleBuilderPanel({
             </label>
             <input
               type="text"
-              className="w-full rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
+              className="w-full rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-hidden ring-0 transition focus:border-sky-500"
               value={form.contextWordsText}
               onChange={(event) =>
                 handleFieldChange("contextWordsText", event.target.value)
@@ -592,7 +592,7 @@ export function CustomRuleBuilderPanel({
               {t("regulations.panel.field.sample")}
             </label>
             <textarea
-              className="h-24 w-full resize-none rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
+              className="h-24 w-full resize-none rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-hidden ring-0 transition focus:border-sky-500"
               value={form.sample_text}
               onChange={(event) =>
                 handleFieldChange("sample_text", event.target.value)
@@ -650,7 +650,7 @@ export function CustomRuleBuilderPanel({
                   void handleSave();
                 }}
                 disabled={saving}
-                className="rounded-md bg-sky-600 px-3 py-1 text-[11px] font-medium text-white shadow-sm hover:bg-sky-500 disabled:opacity-60"
+                className="rounded-md bg-sky-600 px-3 py-1 text-[11px] font-medium text-white shadow-xs hover:bg-sky-500 disabled:opacity-60"
               >
                 {saving
                   ? t("regulations.panel.button.savePending")

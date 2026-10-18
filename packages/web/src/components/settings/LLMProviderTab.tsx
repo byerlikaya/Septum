@@ -51,7 +51,7 @@ export function LLMProviderTab({
             type="button"
             onClick={onTest}
             disabled={testStatus.status === "pending"}
-            className="inline-flex items-center justify-center rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-sky-500 disabled:opacity-60"
+            className="inline-flex items-center justify-center rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white shadow-xs transition-colors hover:bg-sky-500 disabled:opacity-60"
           >
             {testStatus.status === "pending"
               ? t("settings.common.testing")
@@ -71,7 +71,7 @@ export function LLMProviderTab({
           {t("settings.llm.provider.label")}
         </label>
         <select
-          className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-none transition focus:border-sky-500"
+          className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-hidden transition focus:border-sky-500"
           value={settings.llm_provider}
           onChange={async (e) => {
             const next = e.target.value;
@@ -99,7 +99,7 @@ export function LLMProviderTab({
             </label>
             <input
               type="text"
-              className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-none transition focus:border-sky-500"
+              className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-hidden transition focus:border-sky-500"
               defaultValue={settings.llm_model}
               key={`model-${settings.llm_provider}`}
               onBlur={async (e) => {
@@ -119,7 +119,7 @@ export function LLMProviderTab({
               data-1p-ignore
               data-lpignore="true"
               style={{ WebkitTextSecurity: "disc" } as React.CSSProperties}
-              className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-none transition focus:border-sky-500"
+              className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-hidden transition focus:border-sky-500"
               placeholder={settings[`has_${settings.llm_provider === "openrouter" ? "openrouter" : settings.llm_provider}_key` as keyof typeof settings] ? "••••••••" : t("settings.llm.apiKey.placeholder")}
               onBlur={async (e) => {
                 const value = e.target.value.trim();
@@ -146,7 +146,7 @@ export function LLMProviderTab({
             </label>
             <input
               type="text"
-              className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-none transition focus:border-sky-500"
+              className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-hidden transition focus:border-sky-500"
               defaultValue={settings.ollama_base_url}
               onBlur={async (e) => {
                 const value = e.target.value.trim();

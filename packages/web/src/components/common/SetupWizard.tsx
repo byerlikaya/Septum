@@ -308,7 +308,7 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
   }, [regEmail, regPassword, regConfirm, t]);
 
   // --- UI helpers ---
-  const inputCls = "w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500";
+  const inputCls = "w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-sky-500 focus:outline-hidden focus:ring-1 focus:ring-sky-500";
   const actionBtnCls = "w-full rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50 transition-colors";
   const backBtnCls = "rounded-md px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors";
 

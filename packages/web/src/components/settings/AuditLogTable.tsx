@@ -322,7 +322,7 @@ export function AuditLogTable({ pageSize = 50, onViewDocument }: AuditLogTablePr
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <select
-            className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
+            className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-hidden"
             value={eventTypeFilter}
             onChange={(e) => changeEventTypeFilter(e.target.value)}
           >
@@ -333,7 +333,7 @@ export function AuditLogTable({ pageSize = 50, onViewDocument }: AuditLogTablePr
             })}
           </select>
           <select
-            className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
+            className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-hidden"
             value={entityTypeFilter}
             onChange={(e) => changeEntityTypeFilter(e.target.value)}
             title={t("audit.filter.entityTypeHint")}

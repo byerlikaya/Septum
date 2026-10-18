@@ -191,7 +191,7 @@ export function DocumentList({
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value as IngestionStatus | "all")}
-          className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 focus:border-sky-500 focus:outline-none"
+          className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 focus:border-sky-500 focus:outline-hidden"
         >
           <option value="all">{t("documents.filter.status")}: {t("documents.filter.all")}</option>
           <option value="completed">{t("documents.status.completed")}</option>
@@ -202,7 +202,7 @@ export function DocumentList({
         <select
           value={filterFormat}
           onChange={(e) => setFilterFormat(e.target.value)}
-          className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 focus:border-sky-500 focus:outline-none"
+          className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 focus:border-sky-500 focus:outline-hidden"
         >
           <option value="all">{t("documents.filter.format")}: {t("documents.filter.all")}</option>
           {FORMAT_OPTIONS.map((f) => (
@@ -382,7 +382,7 @@ export function DocumentList({
                     <div className="flex justify-end gap-2">
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-medium text-slate-100 shadow-sm hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-medium text-slate-100 shadow-xs hover:bg-slate-800 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                         onClick={() => onPreview(doc)}
                       >
                         <Eye className="h-3.5 w-3.5" />
@@ -391,7 +391,7 @@ export function DocumentList({
                       {(doc.ingestion_status === "completed" || doc.ingestion_status === "failed") && (
                         <button
                           type="button"
-                          className="inline-flex items-center gap-1 rounded-md border border-sky-700 bg-slate-950 px-2 py-1 text-xs font-medium text-sky-300 shadow-sm hover:bg-sky-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                          className="inline-flex items-center gap-1 rounded-md border border-sky-700 bg-slate-950 px-2 py-1 text-xs font-medium text-sky-300 shadow-xs hover:bg-sky-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                           onClick={() => onReprocess(doc)}
                         >
                           <RefreshCw className="h-3.5 w-3.5" />
@@ -400,7 +400,7 @@ export function DocumentList({
                       )}
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1 rounded-md border border-rose-700 bg-slate-950 px-2 py-1 text-xs font-medium text-rose-300 shadow-sm hover:bg-rose-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        className="inline-flex items-center gap-1 rounded-md border border-rose-700 bg-slate-950 px-2 py-1 text-xs font-medium text-rose-300 shadow-xs hover:bg-rose-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                         onClick={() => onDelete(doc)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />

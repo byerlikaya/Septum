@@ -50,7 +50,7 @@ export default function ErrorLogsPage() {
               value={logLevel}
               onChange={(e) => void handleLevelChange(e.target.value)}
               disabled={saving}
-              className="rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-none disabled:opacity-50"
+              className="rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-hidden disabled:opacity-50"
             >
               {LOG_LEVELS.map((level) => (
                 <option key={level} value={level}>{level}</option>

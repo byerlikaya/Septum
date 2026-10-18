@@ -360,7 +360,7 @@ export default function RelationshipGraph({ graph }: Props) {
   };
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr,320px]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
       <div className="relative overflow-hidden rounded-lg border border-slate-800 bg-slate-950/60">
         <div className="absolute right-3 top-3 z-10 flex flex-col gap-1">
           <button

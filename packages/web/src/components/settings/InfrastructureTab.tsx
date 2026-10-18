@@ -144,7 +144,7 @@ export function InfrastructureTab() {
                 value={databaseUrl}
                 onChange={(e) => setDatabaseUrl(e.target.value)}
                 placeholder={t("setup.step.database.url.placeholder")}
-                className="flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className="flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-sky-500 focus:outline-hidden focus:ring-1 focus:ring-sky-500"
               />
               <button
                 type="button"
@@ -176,7 +176,7 @@ export function InfrastructureTab() {
               value={redisUrl}
               onChange={(e) => setRedisUrl(e.target.value)}
               placeholder={t("setup.step.cache.url.placeholder")}
-              className="flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              className="flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-sky-500 focus:outline-hidden focus:ring-1 focus:ring-sky-500"
             />
             <button
               type="button"
