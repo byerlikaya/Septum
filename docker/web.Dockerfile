@@ -56,7 +56,7 @@ COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 COPY --from=builder --chown=node:node /app/public ./public
 
-# node:22-alpine ships a uid=1000 'node' user by default — reuse it instead
+# node:26-alpine ships a uid=1000 'node' user by default — reuse it instead
 # of creating a second one (the python images create 'septum' because they
 # do NOT have a pre-existing non-root user).
 USER node
