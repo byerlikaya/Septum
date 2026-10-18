@@ -364,7 +364,7 @@ export default function DocumentsPage() {
                 type="button"
                 onClick={handleReprocessAll}
                 disabled={isUploading || isReprocessingAll || isDeletingAll}
-                className="inline-flex items-center rounded-md border border-sky-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-sky-300 shadow-sm hover:bg-sky-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center rounded-md border border-sky-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-sky-300 shadow-xs hover:bg-sky-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isReprocessingAll
                   ? t("documents.actions.reprocessingAll")
@@ -374,7 +374,7 @@ export default function DocumentsPage() {
                 type="button"
                 onClick={handleDeleteAllDocuments}
                 disabled={isUploading || isDeletingAll || isReprocessingAll}
-                className="inline-flex items-center rounded-md border border-rose-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-rose-300 shadow-sm hover:bg-rose-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center rounded-md border border-rose-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-rose-300 shadow-xs hover:bg-rose-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isDeletingAll
                   ? t("documents.actions.deletingAll")

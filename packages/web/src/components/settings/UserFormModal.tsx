@@ -43,7 +43,7 @@ export type UserFormModalProps = CreateProps | EditProps;
 const ROLE_OPTIONS: UserRole[] = ["admin", "editor", "viewer"];
 
 const inputClass =
-  "w-full rounded border border-border/80 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500";
+  "w-full rounded border border-border/80 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-hidden focus:ring-1 focus:ring-sky-500";
 
 const labelClass = "mb-1.5 block text-xs font-medium text-slate-300";
 

@@ -9,7 +9,7 @@ All PII detection and masking runs behind the dashboard in `septum-api` + `septu
 ## Stack
 
 - **Next.js 16** (App Router) + **React 19** + **TypeScript 5**
-- **Tailwind CSS 3** for styling
+- **Tailwind CSS 4** for styling
 - **Axios** for REST, **fetch + ReadableStream** for SSE chat
 - **Jest + React Testing Library** for unit tests
 

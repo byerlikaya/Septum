@@ -60,7 +60,7 @@ function NavLink({
       <span className="flex w-full items-center justify-between gap-2">
         <span>{label}</span>
         <span
-          className="min-w-[1.25rem] rounded-full bg-red-600 px-2 py-0.5 text-center text-xs font-medium text-white"
+          className="min-w-5 rounded-full bg-red-600 px-2 py-0.5 text-center text-xs font-medium text-white"
           aria-label={t("errorLogs.badgeAriaLabel").replace("{count}", String(errorLogCount))}
         >
           {errorLogCount > 99 ? "99+" : errorLogCount}
@@ -200,7 +200,7 @@ export function Sidebar({ currentUser }: SidebarProps) {
           <button
             type="button"
             onClick={toggleNav}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 bg-slate-900 text-xs text-slate-100 transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-0"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 bg-slate-900 text-xs text-slate-100 transition-colors hover:bg-slate-800 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-0"
             aria-label="Toggle navigation"
             aria-expanded={isNavOpen}
           >

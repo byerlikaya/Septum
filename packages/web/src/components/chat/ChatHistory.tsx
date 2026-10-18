@@ -105,7 +105,7 @@ export function ChatHistory({
                     value={editTitle}
                     onChange={(e) => setEditTitle(e.target.value)}
                     autoFocus
-                    className="min-w-0 flex-1 rounded border border-slate-600 bg-slate-800 px-1 py-0.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500"
+                    className="min-w-0 flex-1 rounded border border-slate-600 bg-slate-800 px-1 py-0.5 text-xs text-slate-200 focus:outline-hidden focus:border-sky-500"
                     onKeyDown={(e) => { if (e.key === "Escape") setEditingId(null); }}
                   />
                   <button type="submit" className="rounded p-0.5 text-emerald-400 hover:text-emerald-300">

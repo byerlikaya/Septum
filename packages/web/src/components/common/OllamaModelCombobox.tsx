@@ -110,7 +110,7 @@ export function OllamaModelCombobox({
   };
 
   const baseCls =
-    "w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus-within:border-sky-500 focus-within:ring-1 focus-within:ring-sky-500";
+    "w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus-within:border-sky-500 focus-within:ring-1 focus-within:ring-sky-500";
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
@@ -123,7 +123,7 @@ export function OllamaModelCombobox({
           onFocus={() => setOpen(true)}
           onBlur={handleBlur}
           placeholder={placeholder}
-          className="flex-1 bg-transparent outline-none text-sm text-slate-200 placeholder-slate-500"
+          className="flex-1 bg-transparent outline-hidden text-sm text-slate-200 placeholder:text-slate-500"
         />
         {loading ? (
           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-slate-500" />

@@ -260,7 +260,7 @@ export function ApprovalModal({
                 <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
                   {t("chat.approval.maskedPrompt.title")}
                 </h3>
-                <div className="mt-1 rounded border border-slate-700 bg-slate-800/60 p-3 text-sm text-slate-200 whitespace-pre-wrap break-words leading-relaxed">
+                <div className="mt-1 rounded border border-slate-700 bg-slate-800/60 p-3 text-sm text-slate-200 whitespace-pre-wrap wrap-break-word leading-relaxed">
                   {renderWithPlaceholders(maskedPrompt || t("chat.approval.maskedPrompt.empty"))}
                 </div>
               </div>
@@ -351,7 +351,7 @@ export function ApprovalModal({
                         {isEditing ? (
                           <div className="space-y-2">
                             <textarea
-                              className="w-full rounded border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                              className="w-full rounded border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 focus:border-sky-500 focus:outline-hidden focus:ring-1 focus:ring-sky-500"
                               rows={5}
                               value={chunkText}
                               onChange={(e) => {
@@ -378,7 +378,7 @@ export function ApprovalModal({
                           </div>
                         ) : (
                           <div className="group relative">
-                            <div className="text-sm leading-relaxed text-slate-300 whitespace-pre-wrap break-words">
+                            <div className="text-sm leading-relaxed text-slate-300 whitespace-pre-wrap wrap-break-word">
                               {renderWithPlaceholders(chunkText)}
                             </div>
                             {!readOnly && (
@@ -434,7 +434,7 @@ export function ApprovalModal({
                   )}
                   <CopyButton
                     text={currentAssembledPrompt}
-                    className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-100 shadow-sm hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-100 shadow-xs hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
                     copiedLabel={t("chat.copied")}
                     copyLabel={t("chat.copy")}
                   />
@@ -448,7 +448,7 @@ export function ApprovalModal({
                   {previewError}
                 </div>
               )}
-              <pre className="mt-1.5 min-h-0 flex-1 overflow-auto rounded border border-slate-700 bg-slate-950 p-3 text-xs leading-relaxed text-slate-200 whitespace-pre-wrap break-words">
+              <pre className="mt-1.5 min-h-0 flex-1 overflow-auto rounded border border-slate-700 bg-slate-950 p-3 text-xs leading-relaxed text-slate-200 whitespace-pre-wrap wrap-break-word">
                 {currentAssembledPrompt || t("chat.approval.assembledPrompt.empty")}
               </pre>
             </section>

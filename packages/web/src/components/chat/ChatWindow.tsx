@@ -320,7 +320,7 @@ export function ChatWindow({
             }}
             placeholder={t("chat.input.placeholder")}
             disabled={streaming}
-            className="min-w-0 flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-50"
+            className="min-w-0 flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-sky-500 focus:outline-hidden focus:ring-1 focus:ring-sky-500 disabled:opacity-50"
           />
           <button
             type="button"
@@ -421,7 +421,7 @@ export function ChatWindow({
                 <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {t("chat.debug.maskedPrompt")}
                 </h3>
-                <div className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-700 bg-slate-800/60 p-3 text-sm leading-relaxed text-slate-300">
+                <div className="max-h-48 overflow-auto whitespace-pre-wrap wrap-break-word rounded-lg border border-slate-700 bg-slate-800/60 p-3 text-sm leading-relaxed text-slate-300">
                   {renderWithPlaceholders(debugData.masked_prompt)}
                 </div>
               </div>
@@ -429,7 +429,7 @@ export function ChatWindow({
                 <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {t("chat.debug.maskedAnswer")}
                 </h3>
-                <div className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-700 bg-slate-800/60 p-3 text-sm leading-relaxed text-slate-300">
+                <div className="max-h-48 overflow-auto whitespace-pre-wrap wrap-break-word rounded-lg border border-slate-700 bg-slate-800/60 p-3 text-sm leading-relaxed text-slate-300">
                   {renderWithPlaceholders(debugData.masked_answer)}
                 </div>
               </div>
@@ -437,7 +437,7 @@ export function ChatWindow({
                 <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {t("chat.debug.finalAnswer")}
                 </h3>
-                <div className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-sky-800/40 bg-sky-950/20 p-3 text-sm leading-relaxed text-slate-200">
+                <div className="max-h-48 overflow-auto whitespace-pre-wrap wrap-break-word rounded-lg border border-sky-800/40 bg-sky-950/20 p-3 text-sm leading-relaxed text-slate-200">
                   {debugData.final_answer}
                 </div>
               </div>

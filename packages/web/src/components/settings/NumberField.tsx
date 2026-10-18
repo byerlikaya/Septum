@@ -23,7 +23,7 @@ export function NumberField({
       </label>
       <input
         type="number"
-        className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-none ring-0 transition focus:border-sky-500"
+        className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-hidden ring-0 transition focus:border-sky-500"
         defaultValue={value}
         onBlur={async (event) => {
           await onBlur(event.target.value);

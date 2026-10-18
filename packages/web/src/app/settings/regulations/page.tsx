@@ -405,7 +405,7 @@ export default function RegulationsPage() {
               <button
                 type="button"
                 onClick={handleOpenCreatePanel}
-                className="inline-flex items-center rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-sky-500"
+                className="inline-flex items-center rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white shadow-xs transition-colors hover:bg-sky-500"
               >
                 {t("regulations.custom.addButton")}
               </button>

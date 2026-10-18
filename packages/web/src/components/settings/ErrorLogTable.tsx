@@ -257,12 +257,12 @@ export function ErrorLogTable({
                           </div>
                           <CopyButton
                             text={detail.stack_trace}
-                            className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-100 shadow-sm hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                            className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-100 shadow-xs hover:bg-slate-900 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
                             copiedLabel={t("chat.copied")}
                             copyLabel={t("chat.copy")}
                           />
                         </div>
-                        <pre className="max-h-64 overflow-auto rounded bg-slate-950 p-3 text-xs whitespace-pre-wrap break-words">
+                        <pre className="max-h-64 overflow-auto rounded bg-slate-950 p-3 text-xs whitespace-pre-wrap wrap-break-word">
                           {detail.stack_trace}
                         </pre>
                       </div>
@@ -273,7 +273,7 @@ export function ErrorLogTable({
                           <div className="mb-1 text-xs font-medium text-slate-400">
                             {t("errorLogs.extra")}
                           </div>
-                          <pre className="rounded bg-slate-950 p-2 text-xs whitespace-pre-wrap break-words">
+                          <pre className="rounded bg-slate-950 p-2 text-xs whitespace-pre-wrap wrap-break-word">
                             {JSON.stringify(detail.extra, null, 2)}
                           </pre>
                         </div>

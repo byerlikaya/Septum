@@ -511,7 +511,7 @@ export function DocumentPreview({
                     data-entity-row-id={det.id}
                     onClick={() => navigateToDetection(det.id)}
                     title={`${entityText} → ${det.placeholder} (${scorePct}%)`}
-                    className={`flex w-full items-start justify-between gap-2 px-2 py-1.5 text-left transition-colors hover:bg-slate-900/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500 ${
+                    className={`flex w-full items-start justify-between gap-2 px-2 py-1.5 text-left transition-colors hover:bg-slate-900/60 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-sky-500 ${
                       isFocused ? "bg-slate-900/80" : ""
                     }`}
                   >
@@ -546,7 +546,7 @@ export function DocumentPreview({
         </div>
         <CopyButton
           text={combinedText}
-          className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-100 shadow-sm hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-100 shadow-xs hover:bg-slate-900 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
           copiedLabel={t("chat.copied")}
           copyLabel={t("chat.copy")}
         />
@@ -610,7 +610,7 @@ export function DocumentPreview({
           </div>
           <button
             type="button"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-slate-400 hover:bg-slate-800 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-slate-400 hover:bg-slate-800 hover:text-slate-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
             onClick={() => onOpenChange(false)}
           >
             <X className="h-4 w-4" />
@@ -824,7 +824,7 @@ export function DocumentPreview({
                                       <td className="px-1 py-1 align-top">
                                         <input
                                           type="text"
-                                          className="w-full rounded-md border border-slate-800 bg-slate-950 px-1 py-0.5 text-[11px] text-slate-100 outline-none focus:border-sky-500"
+                                          className="w-full rounded-md border border-slate-800 bg-slate-950 px-1 py-0.5 text-[11px] text-slate-100 outline-hidden focus:border-sky-500"
                                           placeholder="e.g. SALARY_MEASURE"
                                           value={column.semantic_label ?? ""}
                                           onChange={event =>
@@ -872,7 +872,7 @@ export function DocumentPreview({
                               )}
                               <button
                                 type="button"
-                                className="inline-flex items-center rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-100 shadow-sm hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                                className="inline-flex items-center rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-100 shadow-xs hover:bg-slate-800 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
                                 onClick={handleSaveSchema}
                                 disabled={isSchemaSaving || !schemaDirty}
                               >
@@ -892,7 +892,7 @@ export function DocumentPreview({
         <div className="flex items-center justify-end gap-2 border-t border-slate-800 bg-slate-900/70 px-4 py-3">
           <button
             type="button"
-            className="inline-flex items-center rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-slate-100 shadow-sm hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            className="inline-flex items-center rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-slate-100 shadow-xs hover:bg-slate-800 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
             onClick={() => onOpenChange(false)}
           >
             {t("preview.close")}

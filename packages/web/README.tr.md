@@ -9,7 +9,7 @@ PII tespiti ve maskeleme panelin arkasında, `septum-api` + `septum-core` ikilis
 ## Teknoloji yığını
 
 - **Next.js 16** (App Router) + **React 19** + **TypeScript 5**
-- **Tailwind CSS 3** — stil sayfası
+- **Tailwind CSS 4** — stil sayfası
 - **Axios** — REST, **fetch + ReadableStream** — SSE sohbet
 - **Jest + React Testing Library** — birim testleri
 
