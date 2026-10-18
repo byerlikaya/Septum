@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 MCP server that exposes the septum-core PII masking pipeline.
 
-The server uses the official ``mcp`` Python SDK's :class:`FastMCP`
+The server uses the official ``mcp`` Python SDK's :class:`MCPServer`
 helper so tool schemas are generated from type-annotated handler
 signatures at registration time. Each handler delegates to a pure
 function in :mod:`septum_mcp.tools`, which is also what the unit
@@ -38,8 +38,8 @@ import logging
 import threading
 from typing import List, Optional
 
-from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from septum_core import SeptumCoreConfig, SeptumEngine
 
 from . import tools as tool_impls
@@ -79,7 +79,7 @@ class _EngineHolder:
     Claude Code launches the server. Deferring construction to the
     first tool call keeps idle cost near zero.
 
-    The lazy initialisation is guarded by a ``threading.Lock``: FastMCP
+    The lazy initialisation is guarded by a ``threading.Lock``: the SDK
     runs sync tools on a thread pool, so two concurrent first-call
     requests over the streamable-http transport could each see
     ``self._engine is None`` and call ``_build_engine`` twice. The
@@ -117,8 +117,8 @@ def create_server(
     config: Optional[MCPConfig] = None,
     *,
     expose_session_map: Optional[bool] = None,
-) -> FastMCP:
-    """Build a :class:`FastMCP` instance with the septum-mcp tools registered.
+) -> MCPServer:
+    """Build a :class:`MCPServer` instance with the septum-mcp tools registered.
 
     ``get_session_map`` returns raw PII, so it is registered only when
     ``expose_session_map`` is true. ``None`` (the default) defers to
@@ -141,7 +141,7 @@ def create_server(
         expose_session_map = cfg.expose_session_map
     expose_session_map = expose_session_map and cfg.transport == "stdio"
     require_file_root = cfg.transport != "stdio"
-    mcp = FastMCP(name="septum-mcp", instructions=SERVER_INSTRUCTIONS)
+    mcp = MCPServer(name="septum-mcp", instructions=SERVER_INSTRUCTIONS)
     holder = _EngineHolder(cfg)
 
     def _unwrap(envelope: dict) -> dict:
@@ -149,7 +149,7 @@ def create_server(
 
         Successful envelopes return their ``data`` payload so MCP
         clients see a clean JSON object instead of an extra ``ok``
-        wrapper. Failures raise ``ToolError``, which FastMCP maps to
+        wrapper. Failures raise ``ToolError``, which the SDK maps to
         ``isError=True`` on the outgoing tool result.
         """
         if not envelope.get("ok", False):
@@ -290,25 +290,22 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _run_http(mcp: FastMCP, *, transport: str, host: str, port: int, token: str | None, mount_path: str | None) -> None:
-    """Serve the FastMCP ASGI app via uvicorn with a bearer-token gate."""
+def _run_http(mcp: MCPServer, *, transport: str, host: str, port: int, token: str | None, mount_path: str | None) -> None:
+    """Serve the MCPServer ASGI app via uvicorn with a bearer-token gate."""
     # Import uvicorn lazily so stdio-only deployments don't pay the cost
     # of loading the HTTP stack at import time.
     import uvicorn  # type: ignore[import-not-found]
 
-    mcp.settings.host = host
-    mcp.settings.port = port
-    if mount_path:
-        if transport == "streamable-http":
-            mcp.settings.streamable_http_path = mount_path
-        else:
-            mcp.settings.sse_path = mount_path
-
-    app = (
-        mcp.streamable_http_app()
-        if transport == "streamable-http"
-        else mcp.sse_app()
-    )
+    if transport == "streamable-http":
+        app_kwargs = {"host": host}
+        if mount_path:
+            app_kwargs["streamable_http_path"] = mount_path
+        app = mcp.streamable_http_app(**app_kwargs)
+    else:
+        app_kwargs = {"host": host}
+        if mount_path:
+            app_kwargs["sse_path"] = mount_path
+        app = mcp.sse_app(**app_kwargs)
     app = BearerTokenMiddleware(app, token=token)
 
     logger.info(

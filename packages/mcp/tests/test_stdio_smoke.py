@@ -36,12 +36,12 @@ def _server_parameters(extra_env: dict[str, str] | None = None) -> StdioServerPa
 def _extract_json_payload(result) -> dict:
     """Return the structured data block from a ``CallToolResult``.
 
-    FastMCP serialises structured tool output into a JSON text block
+    the SDK serialises structured tool output into a JSON text block
     inside ``content``. Tests that care about the actual payload
     parse that block so they can assert on individual fields.
     """
-    if getattr(result, "structuredContent", None):
-        return dict(result.structuredContent)
+    if getattr(result, "structured_content", None):
+        return dict(result.structured_content)
     for block in result.content:
         text = getattr(block, "text", None)
         if text:
@@ -85,7 +85,7 @@ async def test_stdio_mask_and_unmask_round_trip() -> None:
                 "mask_text",
                 {"text": "Email jane@example.com today.", "language": "en"},
             )
-            assert not mask_result.isError
+            assert not mask_result.is_error
             mask_payload = _extract_json_payload(mask_result)
             assert "[EMAIL_ADDRESS_1]" in mask_payload["masked_text"]
             session_id = mask_payload["session_id"]
@@ -98,7 +98,7 @@ async def test_stdio_mask_and_unmask_round_trip() -> None:
                     "session_id": session_id,
                 },
             )
-            assert not unmask_result.isError
+            assert not unmask_result.is_error
             unmask_payload = _extract_json_payload(unmask_result)
             assert unmask_payload["text"] == "Reply to jane@example.com was sent."
 
@@ -109,7 +109,7 @@ async def test_stdio_list_regulations_reports_gdpr_active() -> None:
             await session.initialize()
             result = await session.call_tool("list_regulations", {})
 
-    assert not result.isError
+    assert not result.is_error
     payload = _extract_json_payload(result)
     by_id = {pack["id"]: pack for pack in payload["regulations"]}
     assert by_id["gdpr"]["is_active"] is True
@@ -125,7 +125,7 @@ async def test_stdio_unknown_session_returns_tool_error() -> None:
                 {"text": "[EMAIL_ADDRESS_1]", "session_id": "missing"},
             )
 
-    assert result.isError
+    assert result.is_error
     joined_text = " ".join(
         getattr(block, "text", "") for block in result.content
     ).lower()

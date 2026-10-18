@@ -1,6 +1,6 @@
 """Septum MCP server package.
 
-Exposes a :class:`FastMCP` server that wraps :mod:`septum_core` and
+Exposes a :class:`MCPServer` server that wraps :mod:`septum_core` and
 surfaces five tools (``mask_text``, ``unmask_response``, ``detect_pii``,
 ``scan_file``, ``list_regulations``) to any MCP client, plus the opt-in
 ``get_session_map`` debugging tool. The server runs over stdio and is intended to be launched
