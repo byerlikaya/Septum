@@ -39,7 +39,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 - Updated the GitHub Actions, Docker base images (Node 26 for web and standalone, with CI moved to Node 26 to match; Redis 8 in compose), npm minor and patch dependencies, ESLint 10, lucide-react 1.x, @types/jest 30, and the Python pandas 3, langchain-community and -experimental 0.4.2 and paddlepaddle 3.3.1 releases. Python 3.14 images, OpenCV 5, a newer presidio (it needs an older cryptography) and PyYAML 6.0.3 are held back because the presidio and OCR stacks do not support them yet, and TypeScript 7 because typescript-eslint does not support it yet.
 - Migrated the web app to Tailwind CSS 4 with CSS-first configuration, keeping the Tailwind 3 visual defaults so the interface looks the same.
 - Anchored the `.gitignore` runtime-directory rules to the repository root and `packages/api/`, so source folders that share those names (such as `septum_api/models/` and the web `documents` components) are no longer silently ignored.
-- Moved septum-mcp to the MCP Python SDK 2.x. Unexpected tool crashes no longer echo the exception text to the client; on non-loopback HTTP binds (Docker) the SDK no longer applies its localhost-only Host-header allowlist, and the bearer token remains required.
+- Moved septum-mcp to the MCP Python SDK 2.x. Unexpected tool crashes no longer echo the exception text to the client; on non-loopback HTTP binds (Docker) the SDK no longer applies its localhost-only Host-header allowlist, and the bearer token remains required. The server now reports its package version to clients, and a new opt-in `SEPTUM_MCP_HTTP_ALLOWED_HOSTS` (or `--allowed-hosts`) restores DNS-rebinding protection on those binds by pinning the accepted Host values.
 
 ### 2026-10-17
 

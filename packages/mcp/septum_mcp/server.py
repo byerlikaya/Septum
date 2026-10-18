@@ -36,17 +36,28 @@ import argparse
 import dataclasses
 import logging
 import threading
+from collections.abc import Sequence
+from importlib import metadata
 from typing import List, Optional
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.transport_security import TransportSecuritySettings
 from septum_core import SeptumCoreConfig, SeptumEngine
 
 from . import tools as tool_impls
 from .auth import BearerTokenMiddleware
-from .config import VALID_TRANSPORTS, MCPConfig, file_root_from_env
+from .config import (
+    VALID_TRANSPORTS,
+    AllowedHostsError,
+    MCPConfig,
+    file_root_from_env,
+    parse_allowed_hosts,
+)
 
 logger = logging.getLogger("septum_mcp.server")
+
+DISTRIBUTION_NAME = "septum-mcp"
 
 SERVER_INSTRUCTIONS = (
     "Septum MCP server. Exposes privacy-first PII masking tools backed by "
@@ -134,6 +145,9 @@ def create_server(
     directory, otherwise :class:`~septum_mcp.tools.FileRootError` is raised.
     A config whose ``file_root`` is ``None`` falls back to the environment
     value, so hand-built configs stay confined too.
+
+    ``serverInfo.version`` is the installed ``septum-mcp`` distribution
+    version, read from package metadata.
     """
     cfg = config or MCPConfig.from_env()
     file_root = tool_impls.load_file_root(cfg.file_root or file_root_from_env())
@@ -141,7 +155,11 @@ def create_server(
         expose_session_map = cfg.expose_session_map
     expose_session_map = expose_session_map and cfg.transport == "stdio"
     require_file_root = cfg.transport != "stdio"
-    mcp = MCPServer(name="septum-mcp", instructions=SERVER_INSTRUCTIONS)
+    mcp = MCPServer(
+        name="septum-mcp",
+        instructions=SERVER_INSTRUCTIONS,
+        version=metadata.version(DISTRIBUTION_NAME),
+    )
     holder = _EngineHolder(cfg)
 
     def _unwrap(envelope: dict) -> dict:
@@ -287,33 +305,84 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="URL path prefix for the MCP endpoint (streamable-http / sse only). Defaults to the SDK default.",
     )
+    parser.add_argument(
+        "--allowed-hosts",
+        default=None,
+        help="Comma-separated Host header allowlist (host, host:port or host:*) that enables DNS-rebinding protection (streamable-http / sse only). Defaults to SEPTUM_MCP_HTTP_ALLOWED_HOSTS. When unset, loopback binds keep the SDK localhost-only check and other binds accept any Host.",
+    )
     return parser
 
 
-def _run_http(mcp: MCPServer, *, transport: str, host: str, port: int, token: str | None, mount_path: str | None) -> None:
-    """Serve the MCPServer ASGI app via uvicorn with a bearer-token gate."""
-    # Import uvicorn lazily so stdio-only deployments don't pay the cost
-    # of loading the HTTP stack at import time.
-    import uvicorn  # type: ignore[import-not-found]
+def _transport_security(allowed_hosts: Sequence[str]) -> TransportSecuritySettings | None:
+    """Return DNS-rebinding settings for ``allowed_hosts``, or ``None`` when empty.
 
+    ``None`` leaves the SDK default in place: localhost-only checks on a
+    loopback bind, no Host check on any other bind. Allowed origins are
+    the ``http://`` and ``https://`` forms of each host entry, so a
+    browser client served from a listed host keeps working.
+    """
+    if not allowed_hosts:
+        return None
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=list(allowed_hosts),
+        allowed_origins=[f"{scheme}://{entry}" for entry in allowed_hosts for scheme in ("http", "https")],
+    )
+
+
+def build_http_app(
+    mcp: MCPServer,
+    *,
+    transport: str,
+    host: str,
+    token: str | None,
+    mount_path: str | None,
+    allowed_hosts: Sequence[str] = (),
+) -> BearerTokenMiddleware:
+    """Build the ASGI app for an HTTP transport, wrapped in the bearer-token gate."""
+    app_kwargs = {"host": host, "transport_security": _transport_security(allowed_hosts)}
     if transport == "streamable-http":
-        app_kwargs = {"host": host}
         if mount_path:
             app_kwargs["streamable_http_path"] = mount_path
         app = mcp.streamable_http_app(**app_kwargs)
     else:
-        app_kwargs = {"host": host}
         if mount_path:
             app_kwargs["sse_path"] = mount_path
         app = mcp.sse_app(**app_kwargs)
-    app = BearerTokenMiddleware(app, token=token)
+    return BearerTokenMiddleware(app, token=token)
+
+
+def _run_http(
+    mcp: MCPServer,
+    *,
+    transport: str,
+    host: str,
+    port: int,
+    token: str | None,
+    mount_path: str | None,
+    allowed_hosts: Sequence[str] = (),
+) -> None:
+    """Serve the MCPServer ASGI app via uvicorn with a bearer-token gate."""
+    # Import uvicorn lazily so stdio-only deployments don't pay the cost
+    # of loading the HTTP stack at import time.
+    import uvicorn
+
+    app = build_http_app(
+        mcp,
+        transport=transport,
+        host=host,
+        token=token,
+        mount_path=mount_path,
+        allowed_hosts=allowed_hosts,
+    )
 
     logger.info(
-        "Starting septum-mcp transport=%s host=%s port=%s auth=%s",
+        "Starting septum-mcp transport=%s host=%s port=%s auth=%s allowed_hosts=%s",
         transport,
         host,
         port,
         "enabled" if token else "disabled",
+        f"{len(allowed_hosts)} entries" if allowed_hosts else "sdk-default",
     )
     if token is None and host not in {"127.0.0.1", "localhost", "::1"}:
         raise RuntimeError(
@@ -340,7 +409,15 @@ def main(argv: Optional[List[str]] = None) -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    cfg = MCPConfig.from_env()
+    try:
+        cfg = MCPConfig.from_env()
+        allowed_hosts = (
+            parse_allowed_hosts(args.allowed_hosts)
+            if args.allowed_hosts is not None
+            else cfg.http_allowed_hosts
+        )
+    except AllowedHostsError as exc:
+        raise SystemExit(f"septum-mcp: {exc}") from exc
     transport = args.transport or cfg.transport
     host = args.host or cfg.http_host
     port = args.port if args.port is not None else cfg.http_port
@@ -381,6 +458,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         port=port,
         token=token,
         mount_path=mount_path,
+        allowed_hosts=allowed_hosts,
     )
 
 

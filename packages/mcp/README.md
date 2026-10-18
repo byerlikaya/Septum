@@ -214,6 +214,7 @@ SEPTUM_MCP_HTTP_TOKEN=<random-token> \
 | `SEPTUM_MCP_HTTP_PORT` | `8765` | TCP port. |
 | `SEPTUM_MCP_HTTP_TOKEN` | unset | Bearer token for `Authorization: Bearer <token>`. When unset, HTTP runs without auth (localhost only). |
 | `SEPTUM_MCP_HTTP_MOUNT_PATH` | SDK default | URL path prefix (`/mcp` for streamable-http, `/sse` for sse). |
+| `SEPTUM_MCP_HTTP_ALLOWED_HOSTS` | unset | Comma-separated `Host` header allowlist (`host`, `host:port` or `host:*`; IPv6 in brackets), also settable with `--allowed-hosts`. When set, DNS-rebinding protection is on: an unlisted `Host` gets 421, and a browser `Origin` must be `http://` or `https://` plus a listed entry (else 403). When unset, a loopback bind keeps the SDK's localhost-only check and any other bind accepts every `Host`. A malformed entry stops startup. |
 
 Supported regulation pack ids: `gdpr`, `kvkk`, `ccpa`, `cpra`,
 `hipaa`, `pipeda`, `lgpd`, `pdpa_th`, `pdpa_sg`, `appi`, `pipl`,
@@ -318,9 +319,15 @@ in the full Septum API/pipeline instead.
   same error, which names neither the path nor the root.
 - **HTTP mode requires a bearer token** for any non-loopback bind.
   `SEPTUM_MCP_HTTP_TOKEN` gates every request except `/health`; a
-  non-loopback host with no token logs a loud startup warning.
+  non-loopback host with no token refuses to start.
   Always terminate TLS in front of the server (reverse proxy) so
   the token is not sent in cleartext.
+- **Pin the `Host` header on non-loopback binds.** On `0.0.0.0` the
+  SDK does not check `Host` / `Origin`, so set
+  `SEPTUM_MCP_HTTP_ALLOWED_HOSTS` to the names clients use (for
+  example `mcp.internal:*`) to turn DNS-rebinding protection back on.
+  Behind a reverse proxy the server sees the `Host` the proxy forwards,
+  so configure the proxy to pass the original `Host` header through.
 - **HTTP mode is single-tenant today.** All connected clients share
   one `SeptumEngine` and therefore one anonymization-session
   registry. Run separate instances per tenant if isolation matters.
