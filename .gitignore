@@ -62,15 +62,19 @@ out/
 .claude/settings.local.json
 .claude/launch.json
 
-# Project-specific runtime state
-bm25_indexes/
-documents/
-anon_maps/
-vector_indexes/
-uploads/
-data/
-models/
+# Project-specific runtime state (anchored: these names also exist as tracked source dirs)
+/bm25_indexes/
+/documents/
+/anon_maps/
+/vector_indexes/
+/uploads/
+/data/
+/models/
 /storage/
+/packages/api/bm25_indexes/
+/packages/api/documents/
+/packages/api/anon_maps/
+/packages/api/vector_indexes/
 
 # Test fixtures (do not commit local sample files)
 packages/api/tests/fixtures/
