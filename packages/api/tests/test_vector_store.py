@@ -3,8 +3,12 @@ from __future__ import annotations
 """Tests for vector store RRF merge and retrieval-related helpers."""
 
 
+import numpy as np
 from septum_api.routers.chat import _effective_top_k
-from septum_api.services.vector_store import merge_rrf_result_lists
+from septum_api.services.vector_store import (
+    _normalize_embeddings,
+    merge_rrf_result_lists,
+)
 
 
 class TestMergeRrfResultLists:
@@ -75,3 +79,11 @@ class TestEffectiveTopK:
     def test_bonus_never_exceeds_10(self) -> None:
         assert _effective_top_k(5, 60) == 15
         assert _effective_top_k(10, 40) == 20
+
+
+def test_normalize_embeddings_scales_rows_and_keeps_zero_vectors() -> None:
+    """Non-zero rows get unit length; an all-zero row is left as zeros, not NaN."""
+    result = _normalize_embeddings(np.array([[3.0, 4.0], [0.0, 0.0]], dtype=np.float32))
+
+    np.testing.assert_allclose(result[0], [0.6, 0.8], rtol=1e-6)
+    np.testing.assert_array_equal(result[1], [0.0, 0.0])

@@ -17,6 +17,24 @@ from .sink import JsonlFileSink
 logger = logging.getLogger(__name__)
 
 
+async def _await_stopped(worker: asyncio.Task[None]) -> None:
+    """Wait for a worker we cancelled ourselves; propagate any other exception.
+
+    ``asyncio.wait`` never raises the worker's own cancellation, so only a
+    cancellation of the caller (or a real worker failure) leaves this function.
+    A cancelled caller still waits for the worker to finish before re-raising,
+    so cleanup never runs while the worker is unwinding.
+    """
+    try:
+        await asyncio.wait({worker})
+    except asyncio.CancelledError:
+        worker.cancel()
+        await asyncio.wait({worker})
+        raise
+    if not worker.cancelled():
+        worker.result()
+
+
 async def _run(config: AuditConfig) -> None:
     queue = backend_from_env(config.audit_topic)
     sink = JsonlFileSink(config.sink_path)
@@ -41,9 +59,7 @@ async def _run(config: AuditConfig) -> None:
     await stop_event.wait()
     worker.cancel()
     try:
-        await worker
-    except asyncio.CancelledError:
-        pass
+        await _await_stopped(worker)
     finally:
         try:
             await queue.close()

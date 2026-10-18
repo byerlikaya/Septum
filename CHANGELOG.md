@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-10-19
+
+- Fixed the bugs and vulnerabilities a SonarQube analysis reported: stream and worker shutdowns now propagate task cancellation (the audit and gateway workers still finish before their queues close), login timing uses a random dummy password, downloaded Whisper models are owner-only, and the standalone image's start script is root-owned. In the web app, regulation rows are now keyboard-accessible, the modal backdrop and upload area use native click targets, and chat message ids come from the Web Crypto API.
+
 ### 2026-10-18
 
 - **Breaking: container images are no longer published.** Septum is installed by cloning the repository and building with the provided compose files (`docker compose up --build`), and releases are a git tag plus a GitHub Release page. Older `byerlikaya/septum*` images on Docker Hub stay up but are no longer updated; the standalone compose file reuses the volume names of the old image, so existing data carries over. The Docker Hub update check was removed with them.

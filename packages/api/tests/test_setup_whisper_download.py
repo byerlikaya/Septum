@@ -594,7 +594,7 @@ def test_sse_waits_for_a_concurrent_install_then_finishes(
     assert http_calls == [url]
 
 
-def test_stale_temp_files_are_swept_and_model_is_world_readable(
+def test_stale_temp_files_are_swept_and_model_is_owner_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, http_calls: list[str]
 ):
     import os
@@ -612,7 +612,7 @@ def test_stale_temp_files_are_swept_and_model_is_world_readable(
 
     assert _events(resp)[-1].get("done") is True
     assert not stale.exists()
-    assert ((cache / "base.pt").stat().st_mode & 0o777) == 0o644
+    assert ((cache / "base.pt").stat().st_mode & 0o777) == 0o600
 
 
 def test_unknown_model_error_does_not_echo_the_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, http_calls: list[str]):

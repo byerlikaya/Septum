@@ -17,6 +17,24 @@ from .response_handler import GatewayConsumer
 logger = logging.getLogger(__name__)
 
 
+async def _await_stopped(worker: asyncio.Task[None]) -> None:
+    """Wait for a worker we cancelled ourselves; propagate any other exception.
+
+    ``asyncio.wait`` never raises the worker's own cancellation, so only a
+    cancellation of the caller (or a real worker failure) leaves this function.
+    A cancelled caller still waits for the worker to finish before re-raising,
+    so cleanup never runs while the worker is unwinding.
+    """
+    try:
+        await asyncio.wait({worker})
+    except asyncio.CancelledError:
+        worker.cancel()
+        await asyncio.wait({worker})
+        raise
+    if not worker.cancelled():
+        worker.result()
+
+
 async def _run(config: GatewayConfig) -> None:
     request_queue = backend_from_env(config.request_topic)
     response_queue = backend_from_env(config.response_topic)
@@ -51,9 +69,7 @@ async def _run(config: GatewayConfig) -> None:
     await stop_event.wait()
     worker.cancel()
     try:
-        await worker
-    except asyncio.CancelledError:
-        pass
+        await _await_stopped(worker)
     finally:
         for q in (request_queue, response_queue, audit_queue):
             if q is None:

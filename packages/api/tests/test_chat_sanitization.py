@@ -2,8 +2,12 @@ from __future__ import annotations
 
 """Tests for chat query sanitization and regulation-aware behaviour."""
 
+import asyncio
+from types import SimpleNamespace
 
+import pytest
 from septum_api.models.settings import AppSettings
+from septum_api.routers import chat as chat_module
 from septum_api.routers.chat import (
     _apply_chunk_placeholder_remap,
     _build_unified_placeholder_space,
@@ -288,3 +292,26 @@ def test_remap_handles_swap_shaped_renames_without_chaining() -> None:
     assert out.count("[PERSON_NAME_1]") == 1
     assert out.count("[PERSON_NAME_2]") == 1
 
+
+@pytest.mark.asyncio
+async def test_chat_stream_propagates_client_disconnect_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cancelled SSE stream re-raises CancelledError instead of ending quietly."""
+    from starlette.requests import Request
+
+    async def _cancelled(db):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(chat_module, "load_settings", _cancelled)
+    http_request = Request({"type": "http", "method": "POST", "path": "/api/chat/ask", "headers": []})
+    response = await chat_module.chat_ask(
+        chat_module.ChatRequest(message="hello"),
+        http_request,
+        db=None,
+        current_user=SimpleNamespace(id=1),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        async for _ in response.body_iterator:
+            pass

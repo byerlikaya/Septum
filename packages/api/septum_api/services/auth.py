@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """JWT token and password hashing utilities."""
 
+import secrets
 from datetime import datetime, timedelta, timezone
 from functools import cache
 
@@ -72,7 +73,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 @cache
 def _dummy_password_hash() -> str:
     """Return the timing-equalizer hash, created on first use instead of at import."""
-    return bcrypt.hashpw(b"septum-timing-equalizer", bcrypt.gensalt()).decode()
+    return bcrypt.hashpw(secrets.token_bytes(32), bcrypt.gensalt()).decode()
 
 
 def warm_dummy_password_hash() -> None:
