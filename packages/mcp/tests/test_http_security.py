@@ -126,7 +126,7 @@ def _scan_file_tool(server):
 def test_network_transport_without_root_refuses_scan_file(
     tmp_path, monkeypatch, transport
 ) -> None:
-    from mcp.server.fastmcp.exceptions import ToolError
+    from mcp.server.mcpserver.exceptions import ToolError
 
     monkeypatch.delenv("SEPTUM_MCP_FILE_ROOT", raising=False)
     target = tmp_path / "ok.txt"
@@ -165,7 +165,7 @@ def _pinned_root_fixture(tmp_path):
 
 
 def test_hand_built_config_without_root_falls_back_to_env(tmp_path, monkeypatch) -> None:
-    from mcp.server.fastmcp.exceptions import ToolError
+    from mcp.server.mcpserver.exceptions import ToolError
 
     root = tmp_path / "root"
     root.mkdir()
@@ -187,7 +187,7 @@ def test_pinned_root_serves_reads_inside_it(tmp_path) -> None:
 
 
 def test_root_swapped_for_symlink_after_startup_is_refused(tmp_path) -> None:
-    from mcp.server.fastmcp.exceptions import ToolError
+    from mcp.server.mcpserver.exceptions import ToolError
     from septum_mcp import tools
 
     server, root, outside = _pinned_root_fixture(tmp_path)
