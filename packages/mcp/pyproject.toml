@@ -33,7 +33,7 @@ classifiers = [
 dependencies = [
     "septum-core>=0.1.0",
     # mcp 2.x renamed FastMCP to MCPServer; the migration is pending, so stay on 1.x.
-    "mcp>=1.27.0,<2",
+    "mcp>=1.27.0,<3",
     "pypdf>=6.10.2",
     "python-docx>=1.2.0",
     # uvicorn powers the optional --transport streamable-http / sse modes.
