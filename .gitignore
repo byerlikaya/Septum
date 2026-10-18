@@ -84,6 +84,7 @@ packages/api/tests/fixtures/
 .crewforth/
 .private-terms.txt
 packages/web/next-env.d.ts
+packages/web/AGENTS.md
 docs/HANDOVER.md
 docs/PLAN.md
 docs/SESSION_STATE.md

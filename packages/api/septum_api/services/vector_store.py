@@ -109,7 +109,7 @@ def _normalize_embeddings(embeddings: np.ndarray) -> np.ndarray:
     if embeddings.ndim != 2:
         raise ValueError("embeddings must be a 2D array of shape (n_samples, dim).")
     norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-    norms[norms == 0.0] = 1.0
+    norms[norms <= 0.0] = 1.0
     return embeddings / norms
 
 

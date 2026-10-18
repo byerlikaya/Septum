@@ -43,7 +43,6 @@ export function DocumentUploader({
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop: handleDrop,
     multiple: true,
-    noClick: true,
     disabled,
     maxSize: MAX_UPLOAD_BYTES,
   });
@@ -56,11 +55,6 @@ export function DocumentUploader({
           ? "border-sky-500/80 bg-slate-900/70"
           : "border-slate-700 bg-slate-950/40 hover:border-sky-500/70 hover:bg-slate-900/60"
       } ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
-      onClick={() => {
-        if (!disabled) {
-          open();
-        }
-      }}
     >
       <input {...getInputProps()} />
       <UploadCloud className="mb-3 h-8 w-8 text-slate-300" />

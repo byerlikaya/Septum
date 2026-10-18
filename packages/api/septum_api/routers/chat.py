@@ -1922,7 +1922,7 @@ async def chat_ask(
             })
         except asyncio.CancelledError:
             logger.debug("Client disconnected from chat SSE stream")
-            return
+            raise
         except LLMRouterError as exc:
             try:
                 await log_backend_error(

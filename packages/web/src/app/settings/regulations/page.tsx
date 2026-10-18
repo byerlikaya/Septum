@@ -307,16 +307,20 @@ export default function RegulationsPage() {
                       }`}
                     >
                       {/* Main row — clickable to expand */}
-                      <div
-                        className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-slate-800/30 transition-colors"
-                        onClick={() => handleToggleExpand(ruleset.id)}
-                      >
-                        <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                      <div className="relative flex items-center gap-3 px-4 py-3 hover:bg-slate-800/30 transition-colors">
+                        <ChevronDown aria-hidden="true" className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
 
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-medium text-slate-100">
-                              {ruleset.display_name}
+                            <h3 className="min-w-0">
+                              <button
+                                type="button"
+                                aria-expanded={isExpanded}
+                                onClick={() => handleToggleExpand(ruleset.id)}
+                                className="block text-left text-sm font-medium text-slate-100 cursor-pointer after:absolute after:inset-0 after:content-['']"
+                              >
+                                {ruleset.display_name}
+                              </button>
                             </h3>
                             <span className="inline-flex items-center gap-1 rounded-full bg-slate-800/80 px-1.5 py-0.5 text-[10px] text-slate-400">
                               {REGION_FLAGS[ruleset.region] ? (
@@ -334,7 +338,7 @@ export default function RegulationsPage() {
                           )}
                         </div>
 
-                        <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="relative z-10 flex items-center gap-3">
                           <span className="text-[11px] text-slate-500">
                             {entityCount} {t("regulations.builtin.entityCountSuffix")}
                           </span>

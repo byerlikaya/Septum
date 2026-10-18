@@ -116,8 +116,8 @@ RUN mkdir -p /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25
 
 VOLUME ["/app/data", "/app/uploads", "/app/anon_maps", "/app/vector_indexes", "/app/bm25_indexes", "/app/models"]
 
-# Startup script
-COPY --chown=septum:septum <<'STARTUP' /app/start.sh
+# Startup script — root-owned so the runtime user cannot modify it
+COPY <<'STARTUP' /app/start.sh
 #!/bin/bash
 set -e
 

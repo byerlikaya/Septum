@@ -11,8 +11,12 @@ import type {
 } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 
-function generateId(): string {
-  return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+export function generateId(): string {
+  if (typeof crypto.randomUUID === "function") {
+    return `msg-${crypto.randomUUID()}`;
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return `msg-${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
 export interface UseChatStreamOptions {

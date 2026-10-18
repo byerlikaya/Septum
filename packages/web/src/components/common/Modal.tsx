@@ -40,27 +40,29 @@ export function Modal({
 
   if (!open) return null;
 
-  // Backdrop click dismisses the modal — matches the standard
-  // dialog UX pattern. Inner ``stopPropagation`` keeps clicks on
-  // the form itself from bubbling out and triggering close.
+  // Backdrop click dismisses the modal. The backdrop is a real button
+  // stacked behind the dialog (keyboard users dismiss with Escape via
+  // useEscapeToClose), so the dialog needs no click interception.
   const handleBackdropClick = (): void => {
     if (!submitting) onClose();
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4"
-      onClick={handleBackdropClick}
-      role="presentation"
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-hidden="true"
+        onClick={handleBackdropClick}
+        className="absolute inset-0 cursor-default"
+      />
       <form
         ref={containerRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         onSubmit={onSubmit}
-        onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-md space-y-4 rounded-lg border border-border/80 bg-slate-900 p-6 shadow-xl"
+        className="relative w-full max-w-md space-y-4 rounded-lg border border-border/80 bg-slate-900 p-6 shadow-xl"
       >
         <div className="flex items-start justify-between">
           <div>
