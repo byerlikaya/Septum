@@ -1,7 +1,7 @@
 # Septum — Features & Detection Reference
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Home</strong></a>
+  <a href="./index.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
@@ -23,6 +23,7 @@
 - [Detection Pipeline](#detection-pipeline)
 - [Regulation Packs](#regulation-packs)
 - [Auto-RAG Routing](#auto-rag-routing)
+- [Documents, approval and sources](#documents-approval-and-sources)
 - [Why Septum](#why-septum)
 - [MCP Integration](#mcp-integration)
 - [REST API & Authentication](#rest-api--authentication)
@@ -33,7 +34,7 @@
 
 Septum runs a three-layer detection pipeline, entirely locally. Each layer
 is additive — layers are merged through a coreference resolver so the same
-person shows up as a single `[PERSON_1]` placeholder regardless of how they
+person shows up as a single `[PERSON_NAME_1]` placeholder regardless of how they
 were named.
 
 <p align="center">
@@ -49,8 +50,8 @@ were named.
 **NER models.** Settings → NER Models sets the model for each language. Several comma-separated ids run as an ensemble and their results are combined. A custom model is entered as `org/name@<40-character commit SHA>` and must provide safetensors weights; a bare id is refused with `ner_model_unpinned`. On first use, which must be online, its files are checked against the Hub's metadata for that commit. Installs that saved a bare custom id must update the setting, or that language's documents and chats fail with the same code.
 
 **Coreference resolution.** After all three layers have produced spans, the
-sanitiser collapses co-referring mentions: `"John"`, `"J. Doe"`, and
-`"Mr. Doe"` in the same document all map to `[PERSON_1]`. This works
+sanitiser collapses co-referring mentions: `"Elif"`, `"E. Demir"`, and
+`"Ms. Demir"` in the same document all map to `[PERSON_NAME_1]`. This works
 across sentences and across chunks of the same document.
 
 **Layer 3 is optional.** Set `use_ollama_semantic_layer=false` in settings
@@ -87,7 +88,7 @@ restrictive rule wins.
 | 🇳🇿 New Zealand | `nzpa` | Privacy Act 2020 |
 | 🇦🇺 Australia | `australia_pa` | Privacy Act 1988 |
 
-Each row is a loadable pack under `packages/core/septum_core/recognizers/`. Legal sources for every entity type live in the [regulation entity sources doc](../packages/core/docs/regulation-entity-sources.md).
+Each row is a loadable pack under `packages/core/septum_core/recognizers/`. Legal sources for every entity type live in the [regulation entity sources doc](../packages/core/docs/REGULATION_ENTITY_SOURCES.md).
 
 **Region-specific national ID validators** are algorithmic, not
 pattern-only: TCKN (Turkey, mod-10 + mod-11 checksum), Aadhaar (India,
@@ -108,6 +109,9 @@ method, the test loop, and audit-trail behavior.
 
 When no documents are selected in the chat sidebar, Septum decides
 automatically whether to search documents or answer as a plain chatbot.
+Search is entity-aware: retrieval is narrowed to the documents that contain
+the personal data the question refers to (see Documents, approval and
+sources below).
 
 <p align="center">
   <a href="#auto-rag-routing"><img src="../assets/auto-rag-routing.svg" alt="Auto-RAG routing — SEARCH/CHAT classifier, relevance threshold, pure LLM and approval gate" width="820" /></a>
@@ -126,6 +130,19 @@ The SSE meta event gained a `rag_mode: "manual" | "auto" | "none"` field
 plus `matched_document_ids` so the dashboard can show a badge on each
 assistant message. Threshold lives in the RAG settings tab as
 `rag_relevance_threshold` (default 0.35).
+
+---
+
+## Documents, approval and sources
+
+- **Approval gate.** Before any cloud call, the dashboard shows the masked prompt, the retrieved chunks and the assembled request side by side; you approve or reject. A new install starts with the gate on (`require_approval`, changeable in settings).
+- **Hybrid retrieval.** Chunks are found by FAISS semantic search and BM25 keyword search, merged with Reciprocal Rank Fusion.
+- **Entity-aware Auto-RAG.** When several documents match, Auto-RAG narrows retrieval to documents that contain the queried personal data. If the matches are ambiguous, a disambiguation picker asks you which group to use.
+- **Source citation.** Under each grounded answer, a collapsible summary shows how many documents and chunks fed it; expanding it lists each document with its chunk count.
+- **Document relationship graph.** A cytoscape map shows which documents share entities. Shared identifiers (IBAN, national ID, passport and similar) count fully; common signals such as locations and dates count very little, so they do not dominate the graph.
+- **Rich formats.** PDFs, Office files, spreadsheets, images (OCR), audio (Whisper) and e-mails; see [Document ingestion](document-ingestion.md).
+- **Access control.** JWT sessions with the `admin`, `editor` and `viewer` roles, plus API keys (see REST API & Authentication below).
+- **Audit trail.** An append-only log of detection and document events, with entity counts and no raw personal data; see [Architecture](architecture.md).
 
 ---
 
@@ -220,7 +237,9 @@ SEPTUM_MCP_HTTP_TOKEN=$(openssl rand -hex 32) \
   septum-mcp --transport streamable-http --host 0.0.0.0 --port 8765
 ```
 
-See the [MCP server guide](../packages/mcp/readme.md) for the
+The server is built on the MCP Python SDK 2.x. For a non-loopback HTTP bind, set `SEPTUM_MCP_HTTP_ALLOWED_HOSTS` (or `--allowed-hosts`) to the host names clients use; it enables DNS-rebinding protection.
+
+See the [MCP server guide](../packages/mcp/README.md) for the
 complete HTTP deployment guide (Docker, compose profiles, TLS
 reverse-proxy pattern), environment variable reference, and
 end-to-end tool examples.
@@ -307,7 +326,7 @@ topologies, see the [Architecture](architecture.md) doc.
 ---
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Home</strong></a>
+  <a href="./index.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;

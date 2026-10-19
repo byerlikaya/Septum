@@ -190,17 +190,17 @@ Desteklenen regülasyon paket id'leri: `gdpr`, `kvkk`, `ccpa`, `cpra`, `hipaa`, 
 {
   "name": "mask_text",
   "arguments": {
-    "text": "1234 numaralı fatura hakkında Ayşe Yılmaz'a ayse@ornek.com adresinden ulaşın.",
+    "text": "Elif Demir'e e.demir@example.com adresinden taburculuk özeti hakkında ulaşın.",
     "language": "tr"
   }
 }
 
 // Cevap
 {
-  "masked_text": "1234 numaralı fatura hakkında [PERSON_1]'a [EMAIL_ADDRESS_1] adresinden ulaşın.",
+  "masked_text": "[PERSON_NAME_1]'e [EMAIL_ADDRESS_1] adresinden taburculuk özeti hakkında ulaşın.",
   "session_id": "e8f1...",
   "entity_count": 2,
-  "entity_type_counts": { "PERSON": 1, "EMAIL_ADDRESS": 1 }
+  "entity_type_counts": { "PERSON_NAME": 1, "EMAIL_ADDRESS": 1 }
 }
 ```
 
@@ -210,7 +210,7 @@ Desteklenen regülasyon paket id'leri: `gdpr`, `kvkk`, `ccpa`, `cpra`, `hipaa`, 
 {
   "name": "unmask_response",
   "arguments": {
-    "text": "[PERSON_1]'a [EMAIL_ADDRESS_1] adresinden bir takip mesajı hazırladım.",
+    "text": "[PERSON_NAME_1]'e [EMAIL_ADDRESS_1] adresinden bir takip mesajı hazırladım.",
     "session_id": "e8f1..."
   }
 }
@@ -222,7 +222,7 @@ Desteklenen regülasyon paket id'leri: `gdpr`, `kvkk`, `ccpa`, `cpra`, `hipaa`, 
 {
   "name": "scan_file",
   "arguments": {
-    "file_path": "/Users/ayse/notlar/musteri.pdf",
+    "file_path": "/Users/ayse/kayitlar/taburculuk-ozeti.pdf",
     "mask": true
   }
 }

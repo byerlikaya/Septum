@@ -21,7 +21,23 @@ Adım adım:
 7. **Yerel de-anonimleştirme.** Cevap placeholder'larla geri döner; air-gapped bölgedeki `septum-core`, doküman başına tutulan anonimleştirme haritasından gerçek değerleri yerine koyar. Düz PII yalnızca bellekte yeniden oluşturulur — ne kuyruğa ne gateway sürecine değer.
 8. **Denetim kaydı.** Bir uyumluluk olayı yazılır: kim sordu, hangi dokümanlara dokunuldu, hangi tipten kaç varlık maskelendi. Olay kaydı ham PII içermez.
 
-Aynı maskeleme hattı sadece getirilen parçalar üzerinde değil, kullanıcının yazdığı mesaj üzerinde de çalışır. Yazdığınız `"Ahmet'e ahmet@firma.com adresinden ulaşalım"` ifadesi, retrieval başlamadan önce `"[PERSON_1]'e [EMAIL_ADDRESS_1] adresinden ulaşalım"` haline gelir. Bulut sağlayıcılarının orijinali görmemesi gerçek anlamıyla bir garantidir.
+Aynı maskeleme hattı sadece getirilen parçalar üzerinde değil, kullanıcının yazdığı mesaj üzerinde de çalışır. Yazdığınız `"Taburculuk planını Elif Demir'e e.demir@example.com adresinden iletelim"` ifadesi, retrieval başlamadan önce `"Taburculuk planını [PERSON_NAME_1]'e [EMAIL_ADDRESS_1] adresinden iletelim"` haline gelir. Bulut sağlayıcılarının orijinali görmemesi gerçek anlamıyla bir garantidir.
+
+### LLM'in gerçekte gördükleri
+
+**Önce ve sonra.** Bir doküman parçası ve bu parça hakkındaki bir soru, bulut LLM'in aldığı haliyle. Aynı kişi dokümanda ve soruda aynı placeholder'ı alır; çünkü anonimleştirme haritası oturum bazında tutulur.
+
+```
+Doküman parçası:  "Taburculuk özeti: Elif Demir (TCKN 10000000146, MRN 0000042). Atriyal fibrilasyon ile yatırıldı; 6 Mart 2026'da apiksaban 5 mg günde iki kez."
+Maskeli:          "Taburculuk özeti: [PERSON_NAME_1] (TCKN [NATIONAL_ID_1], [MEDICAL_RECORD_NUMBER_1]). [DIAGNOSIS_1] ile yatırıldı; 6 Mart 2026'da [MEDICATION_1] 5 mg günde iki kez."
+
+Kullanıcı sorusu: "Elif Demir'in taburculuk planını özetle ve takip ilaçlarını listele."
+Maskeli:          "[PERSON_NAME_1]'in taburculuk planını özetle ve takip ilaçlarını listele."
+```
+
+`[DIAGNOSIS_1]` ve `[MEDICATION_1]` isteğe bağlı Ollama semantik katmanından gelir. Bu katman kapalıysa tanılar ve ilaçlar maskelenmez.
+
+LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerçek değerleri yerelde geri yazar.
 
 ## Onay mekanizması
 
@@ -50,7 +66,7 @@ Mekanizmayı istek bazında, oturum bazında ya da küresel olarak Ayarlar'dan k
 
 ## Özel kurallar
 
-Hazır regülasyon paketleri yaygın PII şekillerini (GDPR, KVKK, HIPAA gibi mevzuatların tanımladığı kategoriler) zaten kapsar; ne var ki her kurumun ders kitabı regex'ine uymayan en az bir tanımlayıcısı vardır — `EMP-2024-00041`, `PROJ-X-gizli`, dahili kod adları gibi. Özel kurallar, Septum'a bunları öğretmek için üç araç sunar.
+Hazır regülasyon paketleri yaygın PII şekillerini (GDPR, KVKK, HIPAA gibi mevzuatların tanımladığı kategoriler) zaten kapsar; ne var ki her kurumun ders kitabı regex'ine uymayan en az bir tanımlayıcısı vardır — `STUDY-2026-00417` protokol kodları, `Project Bluebird`, dahili kod adları gibi. Özel kurallar, Septum'a bunları öğretmek için üç araç sunar.
 
 <p align="center">
   <a href="#özel-kurallar"><img src="../assets/custom-rules-flow.tr.svg" alt="Özel kurallar — üç tespit tipi (regex, anahtar kelime, LLM promptu), her biri policy composer'a entegre" width="880" /></a>
@@ -58,7 +74,7 @@ Hazır regülasyon paketleri yaygın PII şekillerini (GDPR, KVKK, HIPAA gibi me
 
 | Tip | En uygun durum | Maliyet | Örnek |
 |---|---|---|---|
-| **Regex** | Sabit şekilli yapısal tanımlayıcılar | Çok düşük | Dahili çalışan kimlikleri `EMP-\d{4}-\d{5}`, talep numaraları, proje kodları |
+| **Regex** | Sabit şekilli yapısal tanımlayıcılar | Çok düşük | Klinik çalışma protokol kodları `STUDY-\d{4}-\d{5}`, personel rozet numaraları, dahili referans kodları |
 | **Anahtar kelime** | Bire bir maskelenmesi istenen kapalı sözlük | Çok düşük | Kod adları, dahili müşteri rumuzları, hassas ürün isimleri |
 | **LLM promptu** | Hiçbir regex'in ifade edemeyeceği semantik kategoriler | Parça başına bir Ollama çağrısı | "Bu paragrafta duyurulmamış bir ürün geçiyor mu?", "Klinik bir teşhis var mı?" |
 

@@ -29,7 +29,7 @@ cd Septum
 
 Requirements:
 - Python 3.11+ (tested up to 3.13)
-- Node.js 20+
+- Node.js 22+
 - ffmpeg (for Whisper audio ingestion)
 
 First visit opens the setup wizard. No manual `.env` editing.
@@ -107,6 +107,14 @@ The CHANGELOG pre-commit hook enforces this pairing.
 Please don't file security issues publicly. Email the maintainer at
 the address listed on the [GitHub profile](https://github.com/byerlikaya)
 and we'll coordinate a fix + advisory.
+
+## Support the project
+
+Septum is open source (MIT) and maintained in the open. If it saves you from a privacy incident, helps your team ship faster, or just makes your LLM workflow safer:
+
+- ⭐ **Star the repo on [GitHub](https://github.com/byerlikaya/Septum)** — the biggest signal that this project is worth continued investment.
+- **Open an issue** for bugs or features you need — every report shapes the roadmap.
+- **Tell your team** — privacy-first AI tooling is still rare, and word of mouth matters more than any ad.
 
 ## License
 

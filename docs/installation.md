@@ -1,7 +1,7 @@
 # Septum — Installation Guide
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Home</strong></a>
+  <a href="./index.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
   <strong>🚀 Installation</strong>
   &nbsp;·&nbsp;
@@ -192,7 +192,7 @@ git clone https://github.com/byerlikaya/Septum.git && cd Septum
 ./dev.sh                # starts api + web on port 3000
 ```
 
-Requirements: Python 3.11+ (3.13 tested), Node.js 20+, ffmpeg (for Whisper audio ingestion). The bootstrap script writes `config.json` with a freshly generated encryption key and JWT secret on first run; override with `SEPTUM_CONFIG_PATH`. Set `SEPTUM_DISABLE_MODEL_WARMUP=1` to skip the background model preload at startup; by default the NER, spaCy and embedding models are preloaded. With warmup disabled, the startup warning about stored model settings is skipped as well. `SEPTUM_USER_PINS_PATH` sets where the hashes of custom NER models are recorded; by default it is `septum-user-pins.json` next to `config.json` (`/app/data` in Docker). The `mcp` service does not mount the app data volume, because that volume holds `config.json` and the encryption key. So `mcp` cannot read a user-pins file from there and cannot use custom user-pinned NER models out of the box. To use one in `mcp`, give it a copy of the user-pins file in a read-only mount and point `SEPTUM_USER_PINS_PATH` at that copy.
+Requirements: Python 3.11+ (3.13 tested), Node.js 22+ (the Docker images and CI build with Node 26), ffmpeg (for Whisper audio ingestion). The bootstrap script writes `config.json` with a freshly generated encryption key and JWT secret on first run; override with `SEPTUM_CONFIG_PATH`. Set `SEPTUM_DISABLE_MODEL_WARMUP=1` to skip the background model preload at startup; by default the NER, spaCy and embedding models are preloaded. With warmup disabled, the startup warning about stored model settings is skipped as well. `SEPTUM_USER_PINS_PATH` sets where the hashes of custom NER models are recorded; by default it is `septum-user-pins.json` next to `config.json` (`/app/data` in Docker). The `mcp` service does not mount the app data volume, because that volume holds `config.json` and the encryption key. So `mcp` cannot read a user-pins file from there and cannot use custom user-pinned NER models out of the box. To use one in `mcp`, give it a copy of the user-pins file in a read-only mount and point `SEPTUM_USER_PINS_PATH` at that copy.
 
 **Bumping the model pins (maintainers).** `python packages/api/scripts/pin_models.py --write-manifest` reads the `main` commit of every default model from the Hugging Face Hub and regenerates `packages/core/septum_core/model_pins.py`; review the diff before committing it. `--check` re-reads each pinned commit and exits with status 1 on any drift. Both need network access.
 
@@ -331,9 +331,9 @@ docker compose -f docker-compose.standalone.yml up -d --build
 
 Volumes are preserved across the rebuild because they are named volumes.
 
-**Model caches after an upgrade.** Model caches from an earlier version may not match the pinned revisions. On the next online start, a pinned snapshot that holds leftover unpinned files is purged and fetched once; offline, it is refused until it is fetched again. An air-gapped install must run the `fetch` command again on a connected host and copy the models volume and the user-pins file, as described in [variant 3](#3-air-gapped-zone-only). A stored bare custom NER id, or a Whisper model name outside the registry (such as a local checkpoint path), is refused and must be changed in Settings. Unless warmup is disabled, the startup log then warns, with error codes only, about each stored custom NER model or Whisper model that would be refused.
+**Model caches after an upgrade.** Model caches from an earlier version may not match the pinned revisions. On the next online start, a pinned snapshot that holds leftover unpinned files is purged and fetched once; offline, it is refused until it is fetched again. An air-gapped install must run the `fetch` command again on a connected host and copy the models volume and the user-pins file, as described in [variant 3](#3-air-gapped-zone-only). A stored bare custom NER id is refused with `ner_model_unpinned`. A stored Whisper model name outside the openai-whisper registry (such as a local checkpoint path) is refused with `whisper_model_not_allowed`. Both must be changed in Settings. Unless warmup is disabled, the startup log then warns, with error codes only, about each stored custom NER model or Whisper model that would be refused.
 
-**Coming from the published `byerlikaya/septum` image.** Remove the old container only, then build and start the standalone compose file. The container removal keeps the volumes, and the compose file uses the same volume names (`septum-data`, `septum-uploads`, `septum-anon-maps`, `septum-vector-indexes`, `septum-bm25-indexes`, `septum-models`), so your data, `config.json` and encryption key are reused.
+**Coming from the published `byerlikaya/septum` image.** Septum no longer publishes container images; the older images on Docker Hub remain available but are not updated. Remove the old container only, then build and start the standalone compose file. The container removal keeps the volumes, and the compose file uses the same volume names (`septum-data`, `septum-uploads`, `septum-anon-maps`, `septum-vector-indexes`, `septum-bm25-indexes`, `septum-models`), so your data, `config.json` and encryption key are reused.
 
 ```bash
 docker rm -f septum
@@ -399,7 +399,7 @@ For the native install, remove the cloned directory and the Python / npm caches 
 ---
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Home</strong></a>
+  <a href="./index.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
   <strong>🚀 Installation</strong>
   &nbsp;·&nbsp;

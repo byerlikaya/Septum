@@ -229,17 +229,17 @@ Supported regulation pack ids: `gdpr`, `kvkk`, `ccpa`, `cpra`,
 {
   "name": "mask_text",
   "arguments": {
-    "text": "Contact Jane Doe at jane@example.com about invoice 1234.",
+    "text": "Contact Elif Demir at e.demir@example.com about the discharge summary.",
     "language": "en"
   }
 }
 
 // Response
 {
-  "masked_text": "Contact [PERSON_1] at [EMAIL_ADDRESS_1] about invoice 1234.",
+  "masked_text": "Contact [PERSON_NAME_1] at [EMAIL_ADDRESS_1] about the discharge summary.",
   "session_id": "e8f1...",
   "entity_count": 2,
-  "entity_type_counts": { "PERSON": 1, "EMAIL_ADDRESS": 1 }
+  "entity_type_counts": { "PERSON_NAME": 1, "EMAIL_ADDRESS": 1 }
 }
 ```
 
@@ -249,7 +249,7 @@ Supported regulation pack ids: `gdpr`, `kvkk`, `ccpa`, `cpra`,
 {
   "name": "unmask_response",
   "arguments": {
-    "text": "I've drafted a follow-up to [PERSON_1] at [EMAIL_ADDRESS_1].",
+    "text": "I've drafted a follow-up to [PERSON_NAME_1] at [EMAIL_ADDRESS_1].",
     "session_id": "e8f1..."
   }
 }
@@ -261,7 +261,7 @@ Supported regulation pack ids: `gdpr`, `kvkk`, `ccpa`, `cpra`,
 {
   "name": "scan_file",
   "arguments": {
-    "file_path": "/Users/alice/notes/client.pdf",
+    "file_path": "/Users/alice/records/discharge-summary.pdf",
     "mask": true
   }
 }

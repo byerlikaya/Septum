@@ -1,7 +1,7 @@
 # Septum — Custom Recognizer Rules
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Home</strong></a>
+  <a href="./index.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
@@ -41,7 +41,7 @@ the data:
 Every rule has these common fields:
 
 - **Name** — short label that appears in the audit log and detection list.
-- **Entity type** — e.g. `INTERNAL_PROJECT_CODE`, `EMPLOYEE_BADGE`. Free-form;
+- **Entity type** — e.g. `STUDY_PROTOCOL_CODE`, `STAFF_BADGE`. Free-form;
   the placeholder format becomes `[<ENTITY_TYPE>_N]`.
 - **Placeholder label** *(optional)* — overrides the placeholder shown in the
   masked text (default is the entity type).
@@ -53,30 +53,31 @@ Every rule has these common fields:
 A regex rule scans the chunk text and emits a span for every match. This is the
 fastest detection method and the one you should reach for first.
 
-### Example: internal project code
+### Example: clinical study protocol code
 
-A company tags every internal project with `PRJ-<year>-<5 digit code>`, e.g.
-`PRJ-2024-04829`. These appear in HR letters, invoices, and Slack exports.
+A research site tags every study protocol with `STUDY-<year>-<5 digit code>`,
+e.g. `STUDY-2026-00417`. These appear in discharge follow-up letters, trial
+enrolment forms and invoices.
 
-| Field             | Value                              |
-|:------------------|:-----------------------------------|
-| Name              | `Internal project code`            |
-| Entity type       | `INTERNAL_PROJECT_CODE`            |
-| Detection method  | `regex`                            |
-| Pattern           | `\bPRJ-\d{4}-\d{5}\b`              |
-| Placeholder label | `INTERNAL_PROJECT_CODE`            |
-| Sample text       | `Bütçe PRJ-2024-04829 onaylandı.` |
+| Field             | Value                                  |
+|:------------------|:---------------------------------------|
+| Name              | `Clinical study protocol code`         |
+| Entity type       | `STUDY_PROTOCOL_CODE`                  |
+| Detection method  | `regex`                                |
+| Pattern           | `\bSTUDY-\d{4}-\d{5}\b`                |
+| Placeholder label | `STUDY_PROTOCOL_CODE`                  |
+| Sample text       | `Enrolment confirmed for STUDY-2026-00417.` |
 
 After saving, click **Test**. The **Test** button calls
-`POST /api/regulations/recognizers/{id}/test` with the sample, and a passing
-test reports `1 match — PRJ-2024-04829 (score 0.85)`.
+`POST /api/regulations/custom/{recognizer_id}/test` with the sample, and a
+passing test reports `1 match — STUDY-2026-00417`.
 
 > **Tip — context anchoring**
 > Wrap the pattern in `\b...\b` (word boundaries) and put any keyword in front
-> of the actual ID (`(?:Project|PRJ)[-\s:]*(\d{4}-\d{5})`). Boundary anchors
+> of the actual ID (`(?:Study|STUDY)[-\s:]*(\d{4}-\d{5})`). Boundary anchors
 > stop the regex from matching inside larger strings.
 
-### Example: HR badge with checksum
+### Example: staff badge with checksum
 
 If your IDs include a checksum, the regex still does the matching but you can
 add the checksum check via a follow-up keyword rule that filters by context, or
@@ -131,8 +132,11 @@ generic names, dose forms) that no Presidio recognizer covers.
 | Placeholder label | `MEDICATION`                                                                                 |
 | Sample text       | `Patient has been on Coumadin 5 mg daily and ibuprofen as needed.`                          |
 
-The **Test** button executes the prompt against the sample and reports
-`2 matches — Coumadin 5 mg, ibuprofen` if the local model is healthy.
+The **Test** button sends the prompt and the sample to the local Ollama model
+and lists the matches the model returns, for example
+`2 matches — Coumadin 5 mg, ibuprofen`. If Ollama cannot be reached, or the
+model does not return a parseable JSON list, the test shows no matches. The
+endpoint returns an empty match list in that case and gives no error.
 
 > **Tip — keep the JSON contract minimal**
 > Prompts that ask for many fields (severity, dose, etc.) get less reliable
@@ -151,7 +155,7 @@ Every custom rule shares this set of secondary controls:
 - **Context words** *(optional)* — additional words that must appear within the
   same chunk for the rule to fire. Use this to suppress a regex that otherwise
   produces too many false positives. Example: a rule for 11-digit
-  identifiers can require `Müşteri` or `Customer` in context.
+  identifiers can require `Patient` in context.
 - **Active** — toggles without deleting.
 - **Sample text** + **Test** — the inline regression check. Use this for every
   edit; it persists no data and is a fast way to verify both positive and

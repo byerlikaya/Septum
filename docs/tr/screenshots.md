@@ -1,7 +1,7 @@
 # Septum — Ekran Görüntüleri
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Ana Sayfa</strong></a>
+  <a href="./index.md"><strong>🏠 Ana Sayfa</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;
@@ -22,7 +22,7 @@ Septum'un her ekranının görsel turu — kurulum sihirbazı, sohbet onay
 akışı, varlık renklendirmeli doküman önizlemesi, ayarlar sekmeleri,
 özel regülasyon kuralları ve denetim kaydı.
 
-Yüksek seviyeli açıklamalar için [ana README](../readme.md);
+Yüksek seviyeli açıklamalar için [ana sayfa](./index.md);
 ayrıntılı özellik ve API referansı için [Özellikler](features.md)
 dokümanına bakın.
 
@@ -128,7 +128,7 @@ Splunk HEC export alabilirsiniz.
 ---
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Ana Sayfa</strong></a>
+  <a href="./index.md"><strong>🏠 Ana Sayfa</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;

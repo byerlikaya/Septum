@@ -30,7 +30,8 @@ pip install -r packages/api/requirements.txt
 | `septum_api.database` | Lazy async SQLAlchemy engine, SQLite WAL tuning, seed defaults. |
 | `septum_api.main` | FastAPI app factory + lifespan + middleware wiring + OpenAPI customization. |
 | `septum_api.models` | ORM base plus `AppSettings`, `User`, `Document`, `ChatSession`, `RegulationRuleset`, `ApiKey`, `AuditEvent`, `EntityDetection`, `ErrorLog`. |
-| `septum_api.routers` | 14 APIRouter modules (`auth`, `api_keys`, `chat`, `chat_sessions`, `chunks`, `documents`, `regulations`, `settings`, `setup`, `users`, `approval`, `audit`, `error_logs`, `text_normalization`). |
+| `septum_api.routers` | 15 APIRouter modules (`auth`, `api_keys`, `chat`, `chat_sessions`, `chunks`, `documents`, `regulations`, `relationships`, `settings`, `setup`, `users`, `approval`, `audit`, `error_logs`, `text_normalization`). |
+| `septum_api.cli` | `python -m septum_api.cli.models fetch` pre-populates the model caches on a connected host (see below). |
 | `septum_api.services` | Document pipeline, sanitizer wrapper, `llm_router`, `vector_store`, `bm25_retriever`, `deanonymizer`, `prompts`, `approval_gate`, `gateway_client` (queue producer), `ingestion/`, `llm_providers/`. |
 | `septum_api.middleware` | `auth.py` (JWT + API key resolution) and `rate_limit.py` (slowapi + per-route limits). |
 | `septum_api.utils` | Crypto (AES-256-GCM), `auth_dependency`, Prometheus metrics, structured logging. |
@@ -50,6 +51,10 @@ config = bootstrap.get_config()
 initialize_engine(build_database_url(config.database_url, config.db_path))
 # uvicorn septum_api.main:app
 ```
+
+## Model fetch (air-gapped hosts)
+
+Default models are pinned to a Hugging Face commit and checked file by file (see [architecture](../../docs/architecture.md#model-integrity)). On a connected host, run `python -m septum_api.cli.models fetch` with `HF_HUB_OFFLINE=0`; `--offline-check` verifies a copied cache without network access. Set `HF_HUB_OFFLINE=1` on air-gapped hosts so nothing downloads at runtime.
 
 ## Zone rules
 

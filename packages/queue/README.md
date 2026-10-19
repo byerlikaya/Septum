@@ -43,7 +43,7 @@ async with QueueSession(FileQueueBackend("/var/septum/queue", topic="llm-request
     envelope = RequestEnvelope.new(
         provider="anthropic",
         model="claude-sonnet-4",
-        messages=[{"role": "user", "content": "[PERSON_1]'s mailing address?"}],
+        messages=[{"role": "user", "content": "Summarise the discharge plan for [PERSON_NAME_1]."}],
     )
     await q.backend.publish(envelope.__dict__)
 

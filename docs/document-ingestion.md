@@ -1,7 +1,7 @@
 # Document Ingestion Pipeline
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Home</strong></a>
+  <a href="./index.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
@@ -32,16 +32,16 @@ How Septum turns an uploaded file into searchable, anonymised content. Every ste
 4. **Three-layer PII detection** — three detectors run in series and their outputs are merged:
    - **Presidio** — regex patterns + algorithmic validators (TCKN checksum, Aadhaar Verhoeff, NRIC/FIN, CPF, NINO, CNPJ, My Number, and more).
    - **NER** — XLM-RoBERTa transformer for `PERSON_NAME`, `LOCATION`, `ORGANIZATION_NAME`.
-   - **Ollama** — optional semantic layer for context-dependent PII that patterns cannot catch (off by default; set `SEPTUM_USE_OLLAMA=true` to enable).
-   Overlapping spans are merged; coreferences are resolved so "Ahmet" and "Mr. Yılmaz" collapse to the same placeholder index.
-5. **Masking + anonymisation map** — every detected entity is replaced with a stable, type-indexed placeholder (`[PERSON_1]`, `[EMAIL_ADDRESS_3]`). The `original → placeholder` map is persisted per-document, encrypted at rest, and never leaves the air-gapped zone.
+   - **Ollama** — optional semantic layer for context-dependent PII that patterns cannot catch (off by default; enable it under Settings → Privacy & Sanitization → *Ollama semantic detection*). Its default for a new installation comes from `USE_OLLAMA_SEMANTIC_LAYER_DEFAULT`, read once when the settings row is created.
+   Overlapping spans are merged; coreferences are resolved so "Elif" and "Ms. Demir" collapse to the same placeholder index.
+5. **Masking + anonymisation map** — every detected entity is replaced with a stable, type-indexed placeholder (`[PERSON_NAME_1]`, `[EMAIL_ADDRESS_3]`). The `original → placeholder` map is persisted per-document, encrypted at rest, and never leaves the air-gapped zone.
 6. **Parallel processing** — two tracks run concurrently on the masked output:
    - **Chunking → Embedding → FAISS + BM25** — the masked text is split semantically (paragraph-aware with overlap), each chunk is embedded with sentence-transformers, and written to both the FAISS vector index and the BM25 keyword index.
    - **Encrypted storage** — the original file is sealed with AES-256-GCM on disk. It is never decrypted outside the air-gapped zone.
 7. **Ready for search** — when all three tracks (FAISS, BM25, encrypted blob) complete, the document is flagged `ingestion_status="completed"` and becomes queryable from chat.
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Home</strong></a>
+  <a href="./index.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;

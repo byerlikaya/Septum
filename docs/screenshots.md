@@ -1,7 +1,7 @@
 # Septum — Screenshots
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Home</strong></a>
+  <a href="./index.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
@@ -22,7 +22,7 @@ A visual tour of every Septum screen — the setup wizard, chat approval
 flow, document preview with entity highlights, settings tabs, custom
 regulation rules, and the audit trail.
 
-For high-level explanations see the [main README](../readme.md); for deep
+For high-level explanations see the [home page](./index.md); for deep
 feature and API references see the [Features](features.md) doc.
 
 ---
@@ -126,7 +126,7 @@ timestamps. JSON / CSV / Splunk HEC export available via
 ---
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Home</strong></a>
+  <a href="./index.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;

@@ -49,9 +49,25 @@ Step by step:
    masked. The event itself contains zero raw PII.
 
 The same masking pipeline runs on the user's message, not just the
-retrieved chunks. A typed `"Email Ahmet at ahmet@firma.com"` becomes
-`"Email [PERSON_1] at [EMAIL_ADDRESS_1]"` before retrieval. Cloud
-providers genuinely never see the original.
+retrieved chunks. A typed `"Send the discharge plan to Elif Demir at e.demir@example.com"`
+becomes `"Send the discharge plan to [PERSON_NAME_1] at [EMAIL_ADDRESS_1]"` before
+retrieval. Cloud providers genuinely never see the original.
+
+### What the LLM actually sees
+
+**Before and after.** A document chunk and a question about it, as the cloud LLM receives them. The same person keeps the same placeholder in the document and in the question, because the anonymization map is kept per session.
+
+```
+Document chunk: "Discharge summary: Elif Demir (TCKN 10000000146, MRN 0000042). Admitted with atrial fibrillation; discharged on 6 March 2026 on apixaban 5 mg twice daily."
+Masked:         "Discharge summary: [PERSON_NAME_1] (TCKN [NATIONAL_ID_1], [MEDICAL_RECORD_NUMBER_1]). Admitted with [DIAGNOSIS_1]; discharged on 6 March 2026 on [MEDICATION_1] 5 mg twice daily."
+
+User question:  "Summarise the discharge plan for Elif Demir and list her follow-up medications."
+Masked:         "Summarise the discharge plan for [PERSON_NAME_1] and list her follow-up medications."
+```
+
+`[DIAGNOSIS_1]` and `[MEDICATION_1]` come from the optional Ollama semantic layer. Without that layer, diagnoses and medications are not masked.
+
+The LLM answers using placeholders. Septum restores real values locally before showing you the response.
 
 ## Approval gate
 
@@ -92,7 +108,7 @@ unintended leak dwarfs the cost of one extra click.
 Built-in regulation packs cover the common shapes (PII categories
 declared by GDPR, KVKK, HIPAA, …), but every organisation has at
 least one identifier that doesn't match a textbook regex —
-`EMP-2024-00041`, `PROJ-X-classified`, internal codenames. Custom
+`STUDY-2026-00417` protocol codes, `Project Bluebird`, internal codenames. Custom
 rules give you three tools to teach Septum about them.
 
 <p align="center">
@@ -101,7 +117,7 @@ rules give you three tools to teach Septum about them.
 
 | Type | Best for | Cost | Example |
 |---|---|---|---|
-| **Regex** | Structured identifiers with a fixed shape | Negligible | Internal employee IDs `EMP-\d{4}-\d{5}`, ticket numbers, project codes |
+| **Regex** | Structured identifiers with a fixed shape | Negligible | Study protocol codes `STUDY-\d{4}-\d{5}`, staff badge numbers, internal reference codes |
 | **Keyword list** | Closed vocabulary you want masked literally | Negligible | Codenames, internal client aliases, sensitive product names |
 | **LLM prompt** | Semantic categories no regex can express | One Ollama call per chunk | "Does this paragraph mention an unannounced product?", "Is there a clinical diagnosis?" |
 
