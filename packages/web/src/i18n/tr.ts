@@ -235,7 +235,11 @@ export const trMessages: Record<string, string> = {
     "Lokal olarak saklanır, seçilen provider dışında hiçbir yere gönderilmez.",
   "settings.llm.ollama.baseUrl.label": "Ollama URL",
   "settings.llm.ollama.baseUrl.hint":
-    "Lokal Ollama instance'ınızın base URL'i.",
+    "Ollama maskelenmemiş metin aldığı için Ollama'yı bu makinede (loopback, localhost, host.docker.internal, host.containers.internal) ya da kendi özel compose yığınınızda (birlikte gelen ollama servisi) çalıştırın.",
+  "settings.llm.ollama.baseUrl.rejected":
+    "Bu adrese izin verilmiyor. Ollama maskelenmemiş metin aldığı için Ollama'yı bu makinede (loopback, localhost, host.docker.internal, host.containers.internal) ya da kendi özel compose yığınınızda (birlikte gelen ollama servisi) çalıştırın.",
+  "settings.llm.ollama.baseUrl.storedRejected":
+    "Kayıtlı Ollama adresi kabul edilmiyor; bu adres değiştirilene kadar PII tespit katmanları dahil Ollama tabanlı tüm özellikler kapalı kalır. Ollama'yı bu makinede (loopback, localhost, host.docker.internal, host.containers.internal) ya da kendi özel compose yığınınızda (birlikte gelen ollama servisi) çalıştırın.",
   "settings.llm.ollama.chatModel.label": "Chat model",
   "settings.llm.ollama.chatModel.hint":
     "Chat completion'lar için kullanılan Ollama modeli.",
@@ -490,6 +494,8 @@ export const trMessages: Record<string, string> = {
   "chat.approval.rejectedDefault": "Reddedildi.",
   "chat.error.retryNumberingChanged":
     "Bu yanıt hazırlandıktan sonra belgeler değişti; lütfen soruyu yeniden sorun.",
+  "chat.error.ollamaUrlNotAllowed":
+    "Yapılandırılmış Ollama adresine izin verilmiyor. Ayarlar → LLM Provider bölümünden adresi değiştirin.",
   "chat.debug.fetchError": "Hata ayıklama bilgisi alınırken bir hata oluştu.",
   "chat.morePills": "+{count} daha",
 
@@ -789,6 +795,7 @@ export const trMessages: Record<string, string> = {
   "setup.step.provider.description": "Bulut LLM sağlayıcınızı seçin, API anahtarınızı girin ve model belirleyin.",
   "setup.step.provider.label": "Sağlayıcı",
   "setup.step.provider.apiKeyHint": "API anahtarınız yerel olarak saklanır, sağlayıcı dışında hiçbir yere gönderilmez.",
+  "setup.step.provider.saveFailed": "Ayarlar kaydedilemedi. Değerleri kontrol edip tekrar deneyin.",
   "setup.step.provider.ollamaHint": "Ollama'nın bu adreste çalıştığından emin olun. API anahtarı gerekmez.",
   "setup.step.provider.ollamaNotFound": "Ollama otomatik olarak bulunamadı. Çalıştığından emin olun:",
   "setup.step.provider.ollamaNotFound.install": "Ollama'yı makinenize kurun",
@@ -801,7 +808,7 @@ export const trMessages: Record<string, string> = {
   "setup.step.provider.ollamaPrivacy.compose": "Docker Compose Ollama",
   "setup.step.provider.ollamaPrivacy.compose.description": "docker compose --profile ollama ile başlatılan Ollama instance'ı.",
   "setup.step.provider.ollamaPrivacy.external": "Harici Ollama Server",
-  "setup.step.provider.ollamaPrivacy.external.description": "Özel adreste çalışan Ollama (lokal makine veya uzak sunucu).",
+  "setup.step.provider.ollamaPrivacy.external.description": "Bu makinede (loopback, localhost, host.docker.internal, host.containers.internal) ya da kendi özel compose yığınınızda (birlikte gelen ollama servisi) çalışan Ollama. Maskelenmemiş metin aldığı için uzak sunucu kullanılamaz.",
   "setup.step.provider.ollamaPrivacy.none": "Atla — Ollama Yok",
   "setup.step.provider.ollamaPrivacy.none.description": "PII tespiti sadece Presidio + NER ile çalışır. Ollama layer'ları devre dışı kalır.",
   "setup.step.test": "Bağlantıyı Test Et",

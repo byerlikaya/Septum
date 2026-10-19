@@ -11,14 +11,17 @@ from typing import Sequence
 
 from .. import ollama_client
 from ..llm_errors import LLMRouterError
-from .base import ChatMessage, LLMProviderConfig
+from .base import ChatMessage, LLMProvider, LLMProviderConfig
 
 
-class OllamaProvider:
+class OllamaProvider(LLMProvider):
     """Provider that delegates chat completions to a local Ollama instance."""
 
     def __init__(self, config: LLMProviderConfig) -> None:
         self._config = config
+
+    def validate_config(self) -> None:
+        ollama_client.require_allowed_ollama_url(self._config.settings.ollama_base_url)
 
     async def complete(
         self,
@@ -44,10 +47,10 @@ class OllamaProvider:
         if not prompt:
             raise LLMRouterError("Ollama provider received an empty prompt.")
 
-        settings = self._config._settings  # noqa: SLF001 — provider needs URL/model
+        settings = self._config.settings
         response = await ollama_client.call_ollama_async(
             prompt=prompt,
-            base_url=settings.ollama_base_url,
+            base_url=ollama_client.effective_ollama_base_url(settings.ollama_base_url),
             model=settings.ollama_chat_model or settings.llm_model,
             timeout=120.0,
         )

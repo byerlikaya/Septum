@@ -18,6 +18,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from .llm_errors import OLLAMA_URL_NOT_ALLOWED_CODE, LLMRouterError
+
 logger = logging.getLogger(__name__)
 
 _ALLOWED_OLLAMA_HOSTS = frozenset(
@@ -88,6 +90,39 @@ def ollama_url_problem(url: str) -> Optional[str]:
     return None
 
 
+def effective_ollama_base_url(base_url: str | None) -> str:
+    """Return the base URL Ollama calls actually use (stored value, else default)."""
+    return (base_url or _default_base_url()).rstrip("/")
+
+
+OLLAMA_URL_REFUSED_MESSAGE = (
+    "The configured Ollama URL is not allowed. Update the Ollama base URL in settings."
+)
+
+
+def ollama_url_refused(base_url: str | None) -> bool:
+    """Return True when the effective Ollama base URL is refused by :func:`ollama_url_problem`."""
+    return ollama_url_problem(effective_ollama_base_url(base_url)) is not None
+
+
+def require_allowed_ollama_url(base_url: str | None) -> str:
+    """Return the effective Ollama base URL, or raise the coded, host-free refusal."""
+    base = effective_ollama_base_url(base_url)
+    if ollama_url_problem(base) is not None:
+        raise LLMRouterError(OLLAMA_URL_REFUSED_MESSAGE, code=OLLAMA_URL_NOT_ALLOWED_CODE)
+    return base
+
+
+def ollama_http_client(timeout: float | httpx.Timeout) -> httpx.Client:
+    """Sync HTTP client for Ollama; ignores proxy env vars so prompts never reach a proxy."""
+    return httpx.Client(timeout=timeout, trust_env=False)
+
+
+def ollama_async_http_client(timeout: float | httpx.Timeout) -> httpx.AsyncClient:
+    """Async HTTP client for Ollama; ignores proxy env vars so prompts never reach a proxy."""
+    return httpx.AsyncClient(timeout=timeout, trust_env=False)
+
+
 def _checked_generate_url(base_url: str | None) -> Optional[str]:
     """Return the ``/api/generate`` URL, or ``None`` if the base URL is refused.
 
@@ -95,7 +130,7 @@ def _checked_generate_url(base_url: str | None) -> Optional[str]:
     validator existed (or set through the environment) cannot reach a
     public or metadata host.
     """
-    base = (base_url or _default_base_url()).rstrip("/")
+    base = effective_ollama_base_url(base_url)
     if ollama_url_problem(base) is not None:
         logger.warning("Refusing Ollama call: configured base URL is not a local host")
         return None
@@ -145,7 +180,7 @@ def call_ollama_sync(
         },
     }
     try:
-        with httpx.Client(timeout=timeout) as client:
+        with ollama_http_client(timeout) as client:
             response = client.post(url, json=payload)
             response.raise_for_status()
             data = response.json()
@@ -179,7 +214,7 @@ async def call_ollama_async(
     if options:
         payload["options"] = options
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with ollama_async_http_client(timeout) as client:
             response = await client.post(url, json=payload)
             response.raise_for_status()
             data = response.json()

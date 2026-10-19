@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check } from "lucide-react";
-import api from "@/lib/api";
+import api, { extractErrorCode } from "@/lib/api";
+import { localizeApiError, translateErrorCode } from "@/lib/apiErrors";
 import type { AppSettingsResponse } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { ErrorWithRetry } from "@/components/common/ErrorWithRetry";
@@ -79,7 +80,7 @@ export default function SettingsPage() {
   const updateField = async <K extends keyof SettingsUpdatePayload>(
     key: K,
     value: SettingsUpdatePayload[K]
-  ): Promise<void> => {
+  ): Promise<unknown> => {
     if (!settings) return;
 
     setSettings({ ...settings, [key]: value } as SettingsResponse);
@@ -91,9 +92,11 @@ export default function SettingsPage() {
       setSettings(response.data);
       setError(null);
       flashSaved();
+      return null;
     } catch (err) {
       console.error(err);
       setError(t("errors.settings.update"));
+      return err;
     } finally {
       setSaving((prev) => ({ ...prev, [key as string]: false }));
     }
@@ -128,6 +131,7 @@ export default function SettingsPage() {
       if (typeof detail === "string" && detail.trim().length > 0) {
         message = detail;
       }
+      message = translateErrorCode(extractErrorCode(err), t) ?? message;
       setCloudTest({ status: "error", message });
     }
   };
@@ -154,16 +158,9 @@ export default function SettingsPage() {
       });
     } catch (err: unknown) {
       console.error(err);
-      let message = t("settings.llm.test.failed");
-      const anyErr = err as {
-        response?: { data?: { detail?: string; message?: string } };
-      };
-      const detail =
-        anyErr.response?.data?.detail ?? anyErr.response?.data?.message;
-      if (typeof detail === "string" && detail.trim().length > 0) {
-        message = detail;
-      }
-      setLocalTest({ status: "error", message });
+      const code = extractErrorCode(err) ?? undefined;
+      const message = localizeApiError(err, t, "settings.llm.test.failed");
+      setLocalTest({ status: "error", message, code });
     }
   };
 

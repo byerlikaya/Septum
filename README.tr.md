@@ -104,7 +104,7 @@ Modül kontratları ve bölge kuralları [Mimari](docs/tr/architecture.md) dokü
 - **Özel Kurallar** — regex, anahtar kelime listesi ya da LLM-prompt tabanlı kendi tanıyıcılarınızı tanımlayın.
 - **Zengin Format Desteği** — PDF, Office, hesap tabloları, görseller (OCR), ses (Whisper), e-postalar.
 - **Hibrit Retrieval** — BM25 kelime eşleme + FAISS semantik arama, Reciprocal Rank Fusion ile birleştirilir.
-- **Çoklu Sağlayıcı** — Anthropic, OpenAI, OpenRouter veya yerel Ollama. Arayüzden değiştirin.
+- **Çoklu Sağlayıcı** — Anthropic, OpenAI, OpenRouter veya yerel Ollama. Arayüzden değiştirin. Ollama URL'i bu makineyi (localhost veya loopback, `host.docker.internal`, `host.containers.internal`) ya da kendi compose yığınınızdaki paketli `ollama` servisini göstermelidir; uzak Ollama sunucuları reddedilir.
 - **JWT + RBAC + API Anahtarları** — ilk kullanıcı kurulum sihirbazında otomatik olarak admin yapılır; admin arayüzünden rol yönetimi (admin / editor / viewer) sağlanır. Programatik API anahtarları SHA-256 hash'li saklanır, rate limit anahtarın önekine göre uygulanır.
 - **MCP Sunucusu** — bağımsız `septum-mcp`, aynı yerel maskeleme hattını MCP uyumlu her istemciye açar: stdio üzerinden lokal istemciler (Claude Desktop, Cursor, Windsurf) ya da streamable-http / sse üzerinden uzak, tarayıcı ve container istemciler için bearer-token auth'lu.
 - **Doküman İlişki Grafiği** — hangi dokümanların aynı varlıkları (kişi, IBAN, kimlik, organizasyon) paylaştığını cytoscape tabanlı görsel haritada gösterir. Her düğümün içinde benzersiz varlık sayısı; kenar kalınlığı varlık benzersizliğine göre ölçeklenir, paylaşılan bir NATIONAL_ID paylaşılan bir şehir adından ağır basar.

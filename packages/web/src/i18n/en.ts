@@ -235,7 +235,11 @@ export const enMessages = {
     "Stored locally and never sent anywhere except the selected provider.",
   "settings.llm.ollama.baseUrl.label": "Ollama URL",
   "settings.llm.ollama.baseUrl.hint":
-    "Base URL for your local Ollama instance.",
+    "Ollama receives unmasked text, so use Ollama on this machine (loopback, localhost, host.docker.internal, host.containers.internal) or in your own private compose stack (the bundled ollama service).",
+  "settings.llm.ollama.baseUrl.rejected":
+    "This address is not allowed. Ollama receives unmasked text, so use Ollama on this machine (loopback, localhost, host.docker.internal, host.containers.internal) or in your own private compose stack (the bundled ollama service).",
+  "settings.llm.ollama.baseUrl.storedRejected":
+    "The saved Ollama address is refused, so Ollama-based features, including the PII detection layers, stay off until you change it. Use Ollama on this machine (loopback, localhost, host.docker.internal, host.containers.internal) or in your own private compose stack (the bundled ollama service).",
   "settings.llm.ollama.chatModel.label": "Chat model",
   "settings.llm.ollama.chatModel.hint":
     "Ollama model used for chat completions.",
@@ -473,6 +477,8 @@ export const enMessages = {
   "chat.approval.rejectedDefault": "Rejected.",
   "chat.error.retryNumberingChanged":
     "The documents changed since this answer was prepared; please ask again.",
+  "chat.error.ollamaUrlNotAllowed":
+    "The configured Ollama URL is not allowed. Change it in Settings → LLM Provider.",
   "chat.debug.fetchError": "An error occurred while fetching debug information.",
   "chat.morePills": "+{count} more",
 
@@ -774,6 +780,7 @@ export const enMessages = {
   "setup.step.provider.description": "Choose your cloud LLM provider, enter your API key, and select a model.",
   "setup.step.provider.label": "Provider",
   "setup.step.provider.apiKeyHint": "Your API key is stored locally and never sent anywhere except the provider.",
+  "setup.step.provider.saveFailed": "Settings could not be saved. Check the values and try again.",
   "setup.step.provider.ollamaHint": "Make sure Ollama is running on this address. No API key needed.",
   "setup.step.provider.ollamaNotFound": "Ollama was not detected automatically. Make sure it is running:",
   "setup.step.provider.ollamaNotFound.install": "Install Ollama on your machine",
@@ -786,7 +793,7 @@ export const enMessages = {
   "setup.step.provider.ollamaPrivacy.compose": "Docker Compose Ollama",
   "setup.step.provider.ollamaPrivacy.compose.description": "Using Ollama started with docker compose --profile ollama.",
   "setup.step.provider.ollamaPrivacy.external": "External Ollama Server",
-  "setup.step.provider.ollamaPrivacy.external.description": "Ollama running on a custom address (local machine or remote server).",
+  "setup.step.provider.ollamaPrivacy.external.description": "Ollama running on this machine (loopback, localhost, host.docker.internal, host.containers.internal) or in your own private compose stack (the bundled ollama service). It receives unmasked text.",
   "setup.step.provider.ollamaPrivacy.none": "Skip — No Ollama",
   "setup.step.provider.ollamaPrivacy.none.description": "PII detection works with Presidio + NER only. Ollama layers will be disabled.",
   "setup.step.test": "Test Connection",

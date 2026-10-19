@@ -22,11 +22,18 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..errors import public_error_text
+from ..errors import CodedHTTPError, public_error_text
 from ..models.user import User
 from ..services.error_logger import log_backend_error, log_backend_message
+from ..services.llm_errors import OLLAMA_URL_NOT_ALLOWED_CODE
 from ..services.llm_router import LLMRouter, LLMRouterError
-from ..services.ollama_client import ollama_url_problem
+from ..services.ollama_client import (
+    OLLAMA_URL_REFUSED_MESSAGE,
+    effective_ollama_base_url,
+    ollama_async_http_client,
+    ollama_url_problem,
+    ollama_url_refused,
+)
 from ..services.whisper_models import WhisperInstallBusy, ensure_whisper_model
 from ..utils.auth_dependency import (
     get_current_user,
@@ -71,7 +78,7 @@ async def _validate_regulation_ids(
     still_unknown = sorted(set(candidate) - known)
     if still_unknown:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown regulation id(s): {still_unknown}",
         )
 
@@ -79,11 +86,18 @@ async def _validate_regulation_ids(
 def _validate_ollama_url(url: str) -> str:
     """Validate an Ollama URL against :func:`ollama_url_problem`.
 
-    Raises HTTPException 400 with the reason when the URL is refused.
+    Raises :class:`CodedHTTPError` (HTTP 400, ``ollama_url_not_allowed``)
+    with the reason when the URL is refused. The detail may echo the host,
+    so the persisted log message is the host-free refusal text.
     """
     problem = ollama_url_problem(url)
     if problem is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=problem)
+        raise CodedHTTPError(
+            status.HTTP_400_BAD_REQUEST,
+            problem,
+            OLLAMA_URL_NOT_ALLOWED_CODE,
+            log_message=OLLAMA_URL_REFUSED_MESSAGE,
+        )
     return url
 
 
@@ -131,6 +145,7 @@ class SettingsResponse(BaseModel):
     has_anthropic_key: bool = False
     has_openai_key: bool = False
     has_openrouter_key: bool = False
+    ollama_url_not_allowed: bool
 
     setup_completed: bool
 
@@ -230,6 +245,7 @@ async def get_settings_endpoint(
     data["has_anthropic_key"] = bool(settings.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY"))
     data["has_openai_key"] = bool(settings.openai_api_key or os.getenv("OPENAI_API_KEY"))
     data["has_openrouter_key"] = bool(settings.openrouter_api_key or os.getenv("OPENROUTER_API_KEY"))
+    data["ollama_url_not_allowed"] = ollama_url_refused(settings.ollama_base_url)
     return SettingsResponse(**data)
 
 
@@ -271,6 +287,7 @@ async def update_settings_endpoint(
     data["has_anthropic_key"] = bool(settings.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY"))
     data["has_openai_key"] = bool(settings.openai_api_key or os.getenv("OPENAI_API_KEY"))
     data["has_openrouter_key"] = bool(settings.openrouter_api_key or os.getenv("OPENROUTER_API_KEY"))
+    data["ollama_url_not_allowed"] = ollama_url_refused(settings.ollama_base_url)
     return SettingsResponse(**data)
 
 
@@ -321,6 +338,10 @@ async def test_llm_connection_endpoint(
             await log_backend_error(db, request, exc, status_code=400)
         except Exception as log_exc:
             logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
+        if exc.code is not None:
+            raise CodedHTTPError(
+                status.HTTP_400_BAD_REQUEST, str(exc), exc.code
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
@@ -368,18 +389,19 @@ async def test_local_models_endpoint(
     """
     settings = await load_settings(db)
 
-    base_url = (payload.base_url or settings.ollama_base_url or "").rstrip("/")
-    if not base_url:
+    configured = payload.base_url or settings.ollama_base_url
+    if not configured:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="OLLAMA_BASE_URL is not configured.",
         )
+    base_url = effective_ollama_base_url(configured)
     _validate_ollama_url(base_url)
 
     url = f"{base_url}/api/tags"
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with ollama_async_http_client(5.0) as client:
             response = await client.get(url)
         response.raise_for_status()
     except httpx.HTTPError as exc:
@@ -438,7 +460,7 @@ async def ollama_probe_endpoint(
     service), and ``localhost`` in order. Returns the first URL that
     responds to ``/api/tags`` along with the available model names.
     """
-    async with httpx.AsyncClient(timeout=2.0) as client:
+    async with ollama_async_http_client(2.0) as client:
         for base in _OLLAMA_PROBE_URLS:
             try:
                 resp = await client.get(f"{base}/api/tags")
@@ -491,13 +513,14 @@ async def list_ollama_models_endpoint(
     Returns an empty list when Ollama is unreachable.
     """
     settings = await load_settings(db)
-    url = (base_url or settings.ollama_base_url or "").rstrip("/")
-    if not url:
+    configured = base_url or settings.ollama_base_url
+    if not configured:
         return OllamaModelsResponse(models=[])
+    url = effective_ollama_base_url(configured)
     _validate_ollama_url(url)
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with ollama_async_http_client(5.0) as client:
             response = await client.get(f"{url}/api/tags")
         response.raise_for_status()
     except httpx.HTTPError:
@@ -583,9 +606,10 @@ async def ollama_pull_endpoint(
 ) -> StreamingResponse:
     """Pull an Ollama model and stream download progress via SSE."""
     settings = await load_settings(db)
-    base_url = (payload.base_url or settings.ollama_base_url or "").rstrip("/")
-    if not base_url:
+    configured = payload.base_url or settings.ollama_base_url
+    if not configured:
         raise HTTPException(status_code=400, detail="Ollama base URL not configured.")
+    base_url = effective_ollama_base_url(configured)
     _validate_ollama_url(base_url)
 
     import json as _json
@@ -601,7 +625,9 @@ async def ollama_pull_endpoint(
     async def event_stream():
         # Upstream status text and exception messages are never echoed to
         # the client: only fixed status strings and the progress percent.
-        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)) as client:
+        async with ollama_async_http_client(
+            httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
+        ) as client:
             try:
                 async with client.stream(
                     "POST",
