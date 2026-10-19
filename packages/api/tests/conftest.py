@@ -79,11 +79,6 @@ def _no_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(socket.socket, "connect", _guarded(_real_connect))
     monkeypatch.setattr(socket.socket, "connect_ex", _guarded(_real_connect_ex))
 
-# Set TLDEXTRACT_CACHE before any import that may use tldextract (e.g. Presidio,
-# langdetect), so tests do not touch the user cache and avoid permission errors.
-if "TLDEXTRACT_CACHE" not in os.environ:
-    os.environ["TLDEXTRACT_CACHE"] = tempfile.mkdtemp(prefix="tldextract_cache_")
-
 # Point bootstrap config to a temp directory so tests don't try to write to /app/data/.
 if "SEPTUM_CONFIG_PATH" not in os.environ:
     _test_config_dir = tempfile.mkdtemp(prefix="septum_test_config_")
