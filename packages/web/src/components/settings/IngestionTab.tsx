@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import axios from "axios";
-import api from "@/lib/api";
+import api, { extractErrorCode } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { WHISPER_MODEL_NOT_ALLOWED, localizeApiError } from "@/lib/apiErrors";
 import type { SettingsTabProps } from "./types";
 import { FieldHint } from "./FieldHint";
 import { SavingIndicator } from "./SavingIndicator";
@@ -23,13 +24,21 @@ const WHISPER_MODELS: Record<string, string> = {
   large: "large (\u22482.9 GB)"
 };
 
-type AudioHealthError = "readFailed" | "installFailed" | "installInProgress";
+type AudioHealthError = "readFailed" | "installFailed" | "installInProgress" | "modelNotAllowed";
 
 const AUDIO_HEALTH_ERROR_KEYS = {
   readFailed: "settings.ingestion.health.readFailed",
   installFailed: "settings.ingestion.health.installFailed",
   installInProgress: "settings.ingestion.health.installInProgress",
+  modelNotAllowed: "errors.model.whisperNotAllowed",
 } as const;
+
+function installFailureKind(err: unknown): AudioHealthError {
+  if (extractErrorCode(err) === WHISPER_MODEL_NOT_ALLOWED) return "modelNotAllowed";
+  return axios.isAxiosError(err) && err.response?.status === 409
+    ? "installInProgress"
+    : "installFailed";
+}
 
 export function IngestionTab({
   settings,
@@ -42,7 +51,18 @@ export function IngestionTab({
   >("idle");
   const [audioHealthError, setAudioHealthError] = useState<AudioHealthError | null>(null);
   const [installingWhisper, setInstallingWhisper] = useState(false);
+  const [whisperError, setWhisperError] = useState<string | null>(null);
   const t = useI18n();
+  const whisperUnsupported =
+    Boolean(settings.whisper_model) &&
+    !Object.prototype.hasOwnProperty.call(WHISPER_MODELS, settings.whisper_model);
+  const whisperDescribedBy =
+    [
+      whisperUnsupported ? "whisper-unsupported-message" : null,
+      whisperError ? "whisper-model-message" : null,
+    ]
+      .filter(Boolean)
+      .join(" ") || undefined;
 
   useEffect(() => {
     const fetchHealth = async (): Promise<void> => {
@@ -73,11 +93,7 @@ export function IngestionTab({
     } catch (err) {
       console.error(err);
       setAudioHealthStatus("error");
-      setAudioHealthError(
-        axios.isAxiosError(err) && err.response?.status === 409
-          ? "installInProgress"
-          : "installFailed"
-      );
+      setAudioHealthError(installFailureKind(err));
     } finally {
       setInstallingWhisper(false);
     }
@@ -185,27 +201,37 @@ export function IngestionTab({
           </label>
           <select
             className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-hidden ring-0 transition focus:border-sky-500"
-            value={settings.whisper_model || "base"}
+            value={whisperUnsupported ? "" : settings.whisper_model || "base"}
+            aria-invalid={whisperError ? true : undefined}
+            aria-describedby={whisperDescribedBy}
             onChange={async (event) => {
               const value = event.target.value || "base";
-              await onChange("whisper_model", value);
+              setWhisperError(null);
+              const err = await onChange("whisper_model", value);
+              if (err) setWhisperError(localizeApiError(err, t, "errors.settings.update"));
             }}
           >
+            {whisperUnsupported && (
+              <option value="" disabled>
+                {t("settings.ingestion.whisperModel.unsupportedPlaceholder")}
+              </option>
+            )}
             {Object.entries(WHISPER_MODELS).map(([model, label]) => (
               <option key={model} value={model}>
                 {label}
               </option>
             ))}
-            {!Object.prototype.hasOwnProperty.call(
-              WHISPER_MODELS,
-              settings.whisper_model
-            ) &&
-              settings.whisper_model && (
-                <option value={settings.whisper_model}>
-                  {settings.whisper_model}
-                </option>
-              )}
           </select>
+          {whisperUnsupported && (
+            <p id="whisper-unsupported-message" className="text-[11px] text-amber-300">
+              {t("settings.ingestion.whisperModel.unsupportedWarning")}
+            </p>
+          )}
+          {whisperError && (
+            <p id="whisper-model-message" role="alert" className="text-[11px] text-red-300">
+              {whisperError}
+            </p>
+          )}
           <FieldHint text={t("settings.ingestion.whisperModel.hint")} />
           {isSaving("whisper_model") && <SavingIndicator />}
         </div>

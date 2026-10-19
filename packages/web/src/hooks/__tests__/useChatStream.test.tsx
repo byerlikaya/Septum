@@ -209,6 +209,32 @@ it("shows the translated message when the Ollama URL is refused", async () => {
   await waitFor(() => expect(result.current.streamError).toBe("chat.error.ollamaUrlNotAllowed"));
 });
 
+it("shows the translated message when a model fails its integrity check", async () => {
+  const { result } = renderStream();
+
+  act(() => result.current.sendMessage("Q"));
+  await waitFor(() => expect(mockStreamChatAsk).toHaveBeenCalledTimes(1));
+  act(() => {
+    lastOnEvent()({ type: "error", code: "model_integrity_failed", message: "server text" });
+  });
+
+  await waitFor(() => expect(result.current.streamError).toBe("errors.model.integrityFailed"));
+  const assistant = result.current.messages.find((m) => m.role === "assistant");
+  expect(assistant?.content).toBe("Error: errors.model.integrityFailed");
+});
+
+it("shows the translated message when the custom NER model is not pinned", async () => {
+  const { result } = renderStream();
+
+  act(() => result.current.sendMessage("Q"));
+  await waitFor(() => expect(mockStreamChatAsk).toHaveBeenCalledTimes(1));
+  act(() => {
+    lastOnEvent()({ type: "error", code: "ner_model_unpinned", message: "server text" });
+  });
+
+  await waitFor(() => expect(result.current.streamError).toBe("errors.model.nerUnpinned"));
+});
+
 it("keeps the server message for an unrecognised error code", async () => {
   const { result } = renderStream();
 

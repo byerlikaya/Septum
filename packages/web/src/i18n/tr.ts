@@ -215,6 +215,9 @@ export const trMessages: Record<string, string> = {
   "settings.ner.defaultsLoadError":
     "Varsayılan NER model eşlemesi arka uçtan yüklenemedi.",
   "settings.ner.defaultsEmpty": "Kayıtlı varsayılan NER modeli bulunmuyor.",
+  "settings.ner.customFormatHint":
+    "Özel modeller org/name@<40 karakterlik commit SHA> biçiminde girilmeli ve yalnızca safetensors ağırlıkları içermelidir. Hazır ön ayarlar SHA gerektirmez. Özel modelin ilk kullanımı çevrimiçi olmalıdır, çünkü dosyaları Hub ile doğrulanır. Hava boşluklu sistemlerde modeli önce internete bağlı bir makinede indirin.",
+  "settings.ner.customPinnedLabel": "özel, kullanıcı tarafından sabitlenmiş",
   "settings.common.saving": "Kaydediliyor…",
   "settings.common.saved": "Kaydedildi",
 
@@ -344,6 +347,9 @@ export const trMessages: Record<string, string> = {
   "settings.ingestion.whisperModel.label": "Whisper modeli",
   "settings.ingestion.whisperModel.hint":
     "Ses transkripsiyonu için yerel Whisper model boyutu.",
+  "settings.ingestion.whisperModel.unsupportedPlaceholder": "Desteklenmeyen model kayıtlı — birini seçin",
+  "settings.ingestion.whisperModel.unsupportedWarning":
+    "Kayıtlı Whisper modeli desteklenmiyor; desteklenen bir model seçene kadar ses içe aktarma başarısız olur.",
   "settings.ingestion.defaultAudioLanguage.label": "Varsayılan ses dili",
   "settings.ingestion.defaultAudioLanguage.auto": "Otomatik algıla",
   "settings.ingestion.defaultAudioLanguage.hint":
@@ -395,6 +401,12 @@ export const trMessages: Record<string, string> = {
   "errors.documents.deleteAll": "Tüm dokümanlar silinirken bir hata oluştu.",
   "errors.settings.load": "Ayarlar yüklenirken bir hata oluştu.",
   "errors.settings.update": "Ayar güncellenirken bir hata oluştu.",
+  "errors.model.integrityFailed":
+    "Bir model dosyası eksik ya da checksum doğrulamasından geçemedi, bu yüzden yüklenmedi. Bir yönetici dosyayı doğrulanmış bir kopyadan geri yüklemeli: internete bağlı bir makinede model fetch komutunu (python -m septum_api.cli.models fetch) çalıştırın; hava boşluklu bir makinede doğrulanmış bir models volume'unu yerine kopyalayın. Özel NER modelleri için kullanıcı sabitleme (user-pins) dosyası da kopyalanmalıdır. Ardından tekrar deneyin.",
+  "errors.model.nerUnpinned":
+    "Özel NER modeli sabitlenmemiş. Ayarlar → NER Modelleri bölümünde org/name@<40 karakterlik commit SHA> biçiminde girin. Yalnızca safetensors modelleri kabul edilir.",
+  "errors.model.whisperNotAllowed":
+    "Bu Whisper modeli desteklenmiyor. Ayarlar bölümündeki desteklenen model listesinden bir model seçin.",
   "errors.regulations.load":
     "Regülasyon ayarları yüklenirken bir hata oluştu.",
   "errors.regulations.update":

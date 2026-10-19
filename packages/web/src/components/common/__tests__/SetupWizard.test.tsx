@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { SetupWizard } from "../SetupWizard";
+import { streamSSE } from "../../../lib/api";
 
 const mockGet = jest.fn();
 const mockPost = jest.fn();
@@ -208,4 +209,59 @@ it("maps a coded cloud test-llm refusal to the translated rejection", async () =
 
   expect(await screen.findByText("settings.llm.ollama.baseUrl.rejected")).toBeInTheDocument();
   expect(screen.queryByText("setup.step.test.failed")).not.toBeInTheDocument();
+});
+
+async function reachWhisperStep() {
+  render(
+    <SetupWizard
+      startPhase="needs_application_setup"
+      initialProvider="anthropic"
+      initialModel="m"
+      version="1"
+      onComplete={jest.fn()}
+    />
+  );
+  fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
+  fireEvent.click(await screen.findByText("setup.nav.next"));
+  return screen.findByText("setup.step.whisper.installAndContinue");
+}
+
+it("shows the translated refusal when the saved Whisper model is refused", async () => {
+  const installButton = await reachWhisperStep();
+  mockPatch.mockRejectedValueOnce({
+    response: { data: { detail: "English detail", code: "whisper_model_not_allowed" } }
+  });
+  fireEvent.click(installButton);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("errors.model.whisperNotAllowed");
+});
+
+it("shows the generic save failure and stays on the Whisper step when the save fails without a code", async () => {
+  const installButton = await reachWhisperStep();
+  mockPatch.mockRejectedValueOnce({ response: { data: { detail: "server text" } } });
+  fireEvent.click(installButton);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("setup.step.provider.saveFailed");
+  expect(streamSSE).not.toHaveBeenCalled();
+  expect(screen.queryByText("setup.step.register.createAndFinish")).not.toBeInTheDocument();
+  expect(screen.getByText("setup.step.whisper.installAndContinue")).toBeInTheDocument();
+});
+
+it("shows the translated refusal when the install stream answers with an HTTP error", async () => {
+  const baseGet = mockGet.getMockImplementation();
+  mockGet.mockImplementation((url: string) =>
+    url.startsWith("/api/setup/whisper-status")
+      ? Promise.resolve({ data: { installed: false } })
+      : baseGet!(url)
+  );
+  (streamSSE as jest.Mock).mockImplementation(
+    (_url: string, _body: unknown, _onLine: unknown, options: { onHttpError: (code: string) => void }) => {
+      options.onHttpError("whisper_model_not_allowed");
+      return { abort: jest.fn() };
+    }
+  );
+  const installButton = await reachWhisperStep();
+  fireEvent.click(installButton);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("errors.model.whisperNotAllowed");
 });

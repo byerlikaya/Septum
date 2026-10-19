@@ -73,6 +73,7 @@ export interface Document {
   entity_count: number;
   ingestion_status: IngestionStatus;
   ingestion_error: string | null;
+  ingestion_error_code: string | null;
   file_size_bytes: number;
   transcription_text: string | null;
   ocr_confidence: number | null;

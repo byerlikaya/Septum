@@ -130,7 +130,10 @@ export function streamSSE(
   url: string,
   body: Record<string, unknown> | undefined,
   onLine: (raw: string) => void,
-  options?: { method?: "GET" | "POST" }
+  options?: {
+    method?: "GET" | "POST";
+    onHttpError?: (code: string | null) => void;
+  }
 ): StreamSSEHandle {
   const controller = new AbortController();
   (async () => {
@@ -148,7 +151,12 @@ export function streamSSE(
         };
       }
       const res = await fetch(`${baseURL}${url}`, init);
-      if (!res.ok || !res.body) return;
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => null)) as { code?: string } | null;
+        options?.onHttpError?.(payload?.code ?? null);
+        return;
+      }
+      if (!res.body) return;
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";

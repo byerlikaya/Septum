@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import type { Document, IngestionStatus } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
+import { INGESTION_ERROR_KEYS, translateErrorCode } from "@/lib/apiErrors";
 import { getDocumentDisplayName } from "@/lib/utils";
 import { SkeletonTableRows } from "@/components/common/Skeleton";
 
@@ -296,6 +297,11 @@ export function DocumentList({
           </thead>
           <tbody className="divide-y divide-slate-800/80">
             {filtered.map((doc) => {
+              const failureMessage =
+                doc.ingestion_status === "failed"
+                  ? (translateErrorCode(doc.ingestion_error_code, t, INGESTION_ERROR_KEYS) ??
+                    doc.ingestion_error)
+                  : null;
               return (
                 <tr
                   key={doc.id}
@@ -407,9 +413,9 @@ export function DocumentList({
                         <span>{t("documents.actions.delete")}</span>
                       </button>
                     </div>
-                    {doc.ingestion_status === "failed" && doc.ingestion_error && (
+                    {failureMessage && (
                       <p className="mt-1 max-w-xs text-xs text-rose-300">
-                        {doc.ingestion_error}
+                        {failureMessage}
                       </p>
                     )}
                   </td>
