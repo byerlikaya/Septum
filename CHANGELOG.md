@@ -24,6 +24,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ### 2026-10-19
 
+- Model weights are now pinned and verified before they load: built-in NER, embedding and PaddleOCR models are pinned to a Hub commit with per-file SHA256, custom NER models must be given as `org/name@<commit>` and are recorded on first use, and a mismatched or incomplete download is refused with a coded `model_integrity_failed` error shown in the UI. Air-gapped installs fetch models on a connected host with `python -m septum_api.cli.models fetch`.
 - Regulation descriptions no longer show raw translation keys: every built-in regulation has an English and Turkish description, custom rulesets fall back to their own description, and every toggle switch now has a translated accessible label.
 - Refused Ollama base URLs are now reported instead of failing silently: the setup wizard and settings show a coded `ollama_url_not_allowed` message at the URL field, chat errors are translated, and a saved URL that is now refused is flagged under any provider. Ollama clients ignore proxy environment variables, so unmasked text cannot leave through a proxy, and the refused host is kept out of the error log.
 - Fixed OCR in the Docker images: PaddlePaddle 3.3 has a oneDNN regression that makes PaddleOCR inference fail on x86-64 CPUs, so PaddlePaddle is pinned back to 3.2.2 and Dependabot skips 3.3.x. A new test runs real OCR inference in CI to catch this kind of break.

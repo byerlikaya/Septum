@@ -46,6 +46,8 @@ were named.
 | 2 | **NER** — HuggingFace XLM-RoBERTa with per-language model selection (20+ languages). ALL CAPS input auto-normalised to title case. LOCATION + ORGANIZATION_NAME pass through a multi-word-or-high-score gate to drop common-noun mis-fires. | PERSON_NAME, LOCATION, ORGANIZATION_NAME |
 | 3 | **Ollama** — local LLM for context validation, alias detection, and semantic entities. | PERSON_NAME aliases/nicknames; DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE |
 
+**NER models.** Settings → NER Models sets the model for each language. Several comma-separated ids run as an ensemble and their results are combined. A custom model is entered as `org/name@<40-character commit SHA>` and must provide safetensors weights; a bare id is refused with `ner_model_unpinned`. On first use, which must be online, its files are checked against the Hub's metadata for that commit. Installs that saved a bare custom id must update the setting, or that language's documents and chats fail with the same code.
+
 **Coreference resolution.** After all three layers have produced spans, the
 sanitiser collapses co-referring mentions: `"John"`, `"J. Doe"`, and
 `"Mr. Doe"` in the same document all map to `[PERSON_1]`. This works

@@ -95,6 +95,8 @@ docker compose exec ollama ollama pull llama3.2:3b
 
 Navigate to **http://localhost:3000**. See the [First launch](#first-launch--setup-wizard) section for the wizard walkthrough.
 
+The optional `mcp` service (profile `mcp`) mounts the models volume read-only, so it only loads models that are already in the volume and pass the hash check. Warm `api` or run the fetch command first (`docker compose run --rm api python -m septum_api.cli.models fetch`) before relying on `mcp` for languages that `api` has not loaded yet.
+
 To run without Ollama (cloud-provider-only deployments):
 
 ```bash
@@ -129,6 +131,41 @@ docker compose -f docker-compose.airgap.yml up -d --build
 
 This topology sets `USE_GATEWAY_DEFAULT=true` so every LLM call is routed through `septum-queue` (Redis Streams) instead of HTTP. Only masked text crosses the zone boundary. Pair with variant 4 on the internet-facing host.
 
+**Fetching the models for an offline host.** The air-gapped host has no internet access, so its model cache is filled on a connected machine and copied over. The pins live in the code, so both machines must run the same Septum checkout. On the connected machine, with the same `.env`:
+
+```bash
+docker compose -f docker-compose.airgap.yml build api
+docker compose -f docker-compose.airgap.yml run --rm -e HF_HUB_OFFLINE=0 api python -m septum_api.cli.models fetch --whisper base
+docker run --rm -v septum_septum-models:/src -v "$PWD":/dst alpine tar czf /dst/septum-models.tar.gz -C /src .
+```
+
+The `fetch` command downloads and verifies every default model at its pinned commit, then the Whisper model named by `--whisper` (repeat the option for each size you use). Without `--whisper` it fetches the `WHISPER_MODEL` setting, which defaults to `base`. The last command archives the models volume; the volume name carries the Compose project prefix (`septum_` for a checkout in a directory named `Septum`). The air-gapped compose file sets `HF_HUB_OFFLINE=1`, so the fetch commands override it with `-e HF_HUB_OFFLINE=0`; this is the only step that downloads, and it runs on the connected host. Copy `septum-models.tar.gz` to the air-gapped host, then:
+
+```bash
+docker compose -f docker-compose.airgap.yml build api
+docker compose -f docker-compose.airgap.yml create
+docker run --rm -v septum_septum-models:/dst -v "$PWD":/src alpine tar xzf /src/septum-models.tar.gz -C /dst
+docker compose -f docker-compose.airgap.yml up -d
+docker compose -f docker-compose.airgap.yml run --rm api python -m septum_api.cli.models fetch --whisper base --offline-check
+```
+
+`--offline-check` verifies the copied files without touching the network. It prints one line per model and exits with status 1 if any file is missing or does not match its pin.
+
+Both hosts need the `alpine` image locally: pull it on the connected machine and transfer it with `docker save` and `docker load`. Any image that contains `tar` can replace it in the commands above. The air-gapped compose file sets `HF_HUB_OFFLINE=1` on the `api` and `mcp` services, so those containers do not download models. The `mcp` service, when its profile is enabled, mounts the models volume read-only, so it only loads models that are already in the volume and pass the hash check. Pre-populate the volume with the `fetch` command (all default pins) before relying on `mcp` for languages that `api` has not loaded yet.
+
+**Custom NER models.** A custom model is fetched on the connected host with `--user-pin`, using the same `.env`. As above, `-e HF_HUB_OFFLINE=0` overrides the offline setting for this download. Repeat the option for each custom model:
+
+```bash
+docker compose -f docker-compose.airgap.yml run --rm -e HF_HUB_OFFLINE=0 api python -m septum_api.cli.models fetch --user-pin org/name@<40-character commit SHA>
+docker run --rm -v septum_septum-data:/src -v "$PWD":/dst alpine cp /src/septum-user-pins.json /dst/
+```
+
+The user-pins file is `septum-user-pins.json` next to `config.json`, so it lives in the `septum-data` volume and not in the models volume. Copy it to the air-gapped host with the models archive. After the `create` step described above, and before `up -d`, restore it into the data volume:
+
+```bash
+docker run --rm -v septum_septum-data:/dst -v "$PWD":/src alpine cp /src/septum-user-pins.json /dst/
+```
+
 ### 4. Internet-facing zone only
 
 Runs only the gateway + audit modules on a host that *can* reach the cloud LLM providers. Consumes masked requests from Redis and forwards them to Anthropic / OpenAI / OpenRouter.
@@ -155,7 +192,9 @@ git clone https://github.com/byerlikaya/Septum.git && cd Septum
 ./dev.sh                # starts api + web on port 3000
 ```
 
-Requirements: Python 3.11+ (3.13 tested), Node.js 20+, ffmpeg (for Whisper audio ingestion). The bootstrap script writes `config.json` with a freshly generated encryption key and JWT secret on first run; override with `SEPTUM_CONFIG_PATH`.
+Requirements: Python 3.11+ (3.13 tested), Node.js 20+, ffmpeg (for Whisper audio ingestion). The bootstrap script writes `config.json` with a freshly generated encryption key and JWT secret on first run; override with `SEPTUM_CONFIG_PATH`. Set `SEPTUM_DISABLE_MODEL_WARMUP=1` to skip the background model preload at startup; by default the NER, spaCy and embedding models are preloaded. With warmup disabled, the startup warning about stored model settings is skipped as well. `SEPTUM_USER_PINS_PATH` sets where the hashes of custom NER models are recorded; by default it is `septum-user-pins.json` next to `config.json` (`/app/data` in Docker). The `mcp` service does not mount the app data volume, because that volume holds `config.json` and the encryption key. So `mcp` cannot read a user-pins file from there and cannot use custom user-pinned NER models out of the box. To use one in `mcp`, give it a copy of the user-pins file in a read-only mount and point `SEPTUM_USER_PINS_PATH` at that copy.
+
+**Bumping the model pins (maintainers).** `python packages/api/scripts/pin_models.py --write-manifest` reads the `main` commit of every default model from the Hugging Face Hub and regenerates `packages/core/septum_core/model_pins.py`; review the diff before committing it. `--check` re-reads each pinned commit and exits with status 1 on any drift. Both need network access.
 
 Run the test suites:
 
@@ -242,7 +281,7 @@ The compose files declare named Docker volumes so your data survives container r
 | `septum-anon-maps` | `/app/anon_maps` | Per-document PII placeholder mappings, encrypted |
 | `septum-vector-indexes` | `/app/vector_indexes` | FAISS embeddings |
 | `septum-bm25-indexes` | `/app/bm25_indexes` | BM25 keyword indexes |
-| `septum-models` | `/app/models` | Cached HuggingFace / Whisper models |
+| `septum-models` | `/app/models` | Cached HuggingFace, Whisper and PaddleOCR models |
 | `septum-pgdata` | `/var/lib/postgresql/data` | PostgreSQL cluster (compose only) |
 | `septum-redis-data` | `/data` | Redis AOF/RDB (compose only) |
 | `ollama-data` | `/root/.ollama` | Downloaded Ollama models (full stack only) |
@@ -291,6 +330,8 @@ docker compose -f docker-compose.standalone.yml up -d --build
 ```
 
 Volumes are preserved across the rebuild because they are named volumes.
+
+**Model caches after an upgrade.** Model caches from an earlier version may not match the pinned revisions. On the next online start, a pinned snapshot that holds leftover unpinned files is purged and fetched once; offline, it is refused until it is fetched again. An air-gapped install must run the `fetch` command again on a connected host and copy the models volume and the user-pins file, as described in [variant 3](#3-air-gapped-zone-only). A stored bare custom NER id, or a Whisper model name outside the registry (such as a local checkpoint path), is refused and must be changed in Settings. Unless warmup is disabled, the startup log then warns, with error codes only, about each stored custom NER model or Whisper model that would be refused.
 
 **Coming from the published `byerlikaya/septum` image.** Remove the old container only, then build and start the standalone compose file. The container removal keeps the volumes, and the compose file uses the same volume names (`septum-data`, `septum-uploads`, `septum-anon-maps`, `septum-vector-indexes`, `septum-bm25-indexes`, `septum-models`), so your data, `config.json` and encryption key are reused.
 

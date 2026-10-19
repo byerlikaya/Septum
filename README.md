@@ -134,6 +134,20 @@ Looking for a simpler single-container demo, an air-gapped two-host split, a clo
 
 ---
 
+## Model integrity
+
+Septum does not load a model just because its name resolves on Hugging Face. Each default model is pinned to a commit and checked before it runs.
+
+- **Pinned, checked files.** The default NER models and presets, the multilingual sentence-transformers embedding model, and the five PaddleOCR models are pinned to a Hugging Face commit. Every file is checked against its SHA256 before it is loaded. Transformer models load safetensors weights only, with remote code disabled. The spaCy English model is installed from a hash-pinned wheel. Whisper downloads are checked against the openai-whisper registry, and only names from that registry are accepted.
+- **Mismatch.** A file that fails its check is downloaded once more at the pinned commit, but only on a connected host. If it still fails, or the host is offline (the air-gapped compose file sets `HF_HUB_OFFLINE=1`), the operation that needs the model is refused with the code `model_integrity_failed` until a verified copy is in place. Document ingestion marks the document as failed with that code, and chat stops with the same code instead of answering.
+- **Custom NER models.** Enter them as `org/name@<40-character commit SHA>`, with safetensors weights only. A bare model id is refused with `ner_model_unpinned`. On first use, which must be online, each downloaded file is checked against the Hub's own hash for that commit (SHA256 for LFS files, git blob SHA-1 for the others). The file hashes are then recorded in a user-pins file outside the model volume, and every later load checks against that record. Offline first use is refused, so fetch a custom model on a connected host first.
+
+For air-gapped hosts, the models are fetched on a connected machine and copied over. See the [Installation Guide](docs/installation.md#3-air-gapped-zone-only).
+
+**After an upgrade.** Model caches from an earlier version may not match the pinned revisions. On the next online start, a pinned snapshot that holds leftover unpinned files is purged and fetched once; offline, it is refused until it is fetched again. An air-gapped install must run the fetch again on a connected host and copy the models volume and the user-pins file. A stored bare custom NER id, or a Whisper model name outside the registry (such as a local checkpoint path), is refused and must be changed in Settings. Unless warmup is disabled, the startup log then warns, with error codes only, about each stored custom NER model or Whisper model that would be refused.
+
+---
+
 ## Support the Project
 
 Septum is open source (MIT) and maintained in the open. If it saves you from a privacy incident, helps your team ship faster, or just makes your LLM workflow safer:
