@@ -268,8 +268,11 @@ def test_worker_integrity_failure_reaches_the_caller_unchanged(
 
     monkeypatch.setattr(paddle_provider, "_get_ocr_pool", lambda: _Pool())
 
+    provider = paddle_provider.PaddleOcrProvider()
+    image = np.zeros((2, 2, 3), np.uint8)
+
     with pytest.raises(ModelIntegrityError) as exc:
-        paddle_provider.PaddleOcrProvider()._predict_in_subprocess(np.zeros((2, 2, 3), np.uint8))
+        provider._predict_in_subprocess(image)
 
     assert (exc.value.code, exc.value.model_id) == ("model_integrity_failed", "PaddlePaddle/UVDoc")
 
@@ -309,8 +312,10 @@ def test_pdf_image_ocr_does_not_swallow_a_model_refusal(
     monkeypatch.setattr(pdf_ingester_module, "run_ocr", _refuse)
     doc, page = _pdf_with_image()
 
+    ingester = PdfIngester()
+
     with pytest.raises(type(exc)):
-        PdfIngester()._ocr_page_images(page, doc)
+        ingester._ocr_page_images(page, doc)
 
 
 def test_pdf_image_ocr_still_skips_ordinary_failures(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -644,7 +649,8 @@ def test_cli_exits_1_with_the_code_when_a_fetch_fails(
 
     out = capsys.readouterr().out
     assert code == 1
-    assert "failed" in out and "model_integrity_failed" in out
+    assert "failed" in out
+    assert "model_integrity_failed" in out
 
 
 def test_cli_offline_check_fetches_with_offline_mode_on(cli_env) -> None:
@@ -884,9 +890,10 @@ def test_chunking_does_not_fall_back_past_a_model_refusal(
     monkeypatch.setattr(StructuredDocumentChunker, "_get_semantic_splitter", _refuse)
     chunker = StructuredDocumentChunker()
     args = ("para one\n\npara two", None) if method.startswith("_split") else ("para one\n\npara two",)
+    chunk = getattr(chunker, method)
 
     with pytest.raises(ModelIntegrityError):
-        getattr(chunker, method)(*args)
+        chunk(*args)
 
 
 @pytest.mark.parametrize(
@@ -941,8 +948,10 @@ def test_warmup_warns_once_with_codes_for_refused_stored_settings(
     [record] = [r for r in caplog.records if r.name == main_module.logger.name]
     message = record.getMessage()
     assert record.levelno == logging.WARNING
-    assert "ner_model_unpinned" in message and "whisper_model_not_allowed" in message
-    assert UNPINNED not in message and "probe-checkpoint" not in message
+    assert "ner_model_unpinned" in message
+    assert "whisper_model_not_allowed" in message
+    assert UNPINNED not in message
+    assert "probe-checkpoint" not in message
 
 
 def test_warmup_is_silent_for_accepted_stored_settings(

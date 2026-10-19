@@ -29,6 +29,8 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from collections.abc import Callable
+from functools import partial
 
 OK = "ok"
 FETCHED = "fetched"
@@ -108,47 +110,56 @@ def _fetch_user_pin(spec: str) -> str:
     return FETCHED if fetched else OK
 
 
-def _run_fetch(args: argparse.Namespace) -> int:
+def _fetch_pin_entry(pin) -> tuple[str, str]:
+    return _fetch_pin(pin), f"revision {pin.revision[:12]}"
+
+
+def _fetch_user_pin_entry(spec: str) -> tuple[str, str]:
     from septum_core.model_integrity import user_pins_path
+
+    return _fetch_user_pin(spec), f"user-pinned, recorded in {user_pins_path()}"
+
+
+def _fetch_whisper_entry(name: str, offline: bool) -> tuple[str, str]:
+    return _fetch_whisper(name, offline), "verified against whisper registry"
+
+
+def _report(kind: str, name: str, fetch: Callable[[], tuple[str, str]]) -> int:
+    """Run one fetch, print its result line, and return 1 when it failed."""
+    try:
+        status, detail = fetch()
+    except Exception as exc:
+        status, detail = FAILED, _describe(exc)
+    print(f"{status:<8} {kind:<22} {name}  {detail}")
+    return int(status == FAILED)
+
+
+def _whisper_names(args: argparse.Namespace, selective: bool) -> list[str]:
+    if args.whisper:
+        return args.whisper
+    if selective:
+        return []
+    return [(os.getenv("WHISPER_MODEL") or "base").strip()]
+
+
+def _run_fetch(args: argparse.Namespace) -> int:
     from septum_core.model_pins import MODEL_PINS
 
     _print_cache_roots()
     selective = bool(args.only or args.user_pin)
     pins = [MODEL_PINS[repo] for repo in args.only] if selective else list(MODEL_PINS.values())
-    if args.whisper:
-        whisper_names = args.whisper
-    elif selective:
-        whisper_names = []
-    else:
-        whisper_names = [(os.getenv("WHISPER_MODEL") or "base").strip()]
 
-    failures = 0
-    for pin in pins:
-        try:
-            status = _fetch_pin(pin)
-            detail = f"revision {pin.revision[:12]}"
-        except Exception as exc:
-            status, detail = FAILED, _describe(exc)
-            failures += 1
-        print(f"{status:<8} {pin.kind:<22} {pin.repo_id}  {detail}")
-
-    for spec in args.user_pin:
-        try:
-            status = _fetch_user_pin(spec)
-            detail = f"user-pinned, recorded in {user_pins_path()}"
-        except Exception as exc:
-            status, detail = FAILED, _describe(exc)
-            failures += 1
-        print(f"{status:<8} {'user-pin':<22} {spec}  {detail}")
-
-    for name in whisper_names:
-        try:
-            status = _fetch_whisper(name, args.offline_check)
-            detail = "verified against whisper registry"
-        except Exception as exc:
-            status, detail = FAILED, _describe(exc)
-            failures += 1
-        print(f"{status:<8} {'whisper':<22} {name}  {detail}")
+    failures = sum(
+        _report(pin.kind, pin.repo_id, partial(_fetch_pin_entry, pin)) for pin in pins
+    )
+    failures += sum(
+        _report("user-pin", spec, partial(_fetch_user_pin_entry, spec))
+        for spec in args.user_pin
+    )
+    failures += sum(
+        _report("whisper", name, partial(_fetch_whisper_entry, name, args.offline_check))
+        for name in _whisper_names(args, selective)
+    )
 
     if failures:
         print(f"{failures} model(s) failed", file=sys.stderr)

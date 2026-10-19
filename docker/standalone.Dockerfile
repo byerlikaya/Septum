@@ -125,7 +125,9 @@ RUN mkdir -p /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25
         /app/frontend/.next/cache /home/septum/.cache \
     && chown -R root:root /home/septum \
     && chmod 755 /home/septum \
-    && chown -R septum:septum /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models /app/frontend/.next/cache /home/septum/.cache
+    && chown -R septum:septum /app/data /app/uploads /app/anon_maps \
+        /app/vector_indexes /app/bm25_indexes /app/models \
+        /app/frontend/.next/cache /home/septum/.cache
 
 VOLUME ["/app/data", "/app/uploads", "/app/anon_maps", "/app/vector_indexes", "/app/bm25_indexes", "/app/models"]
 

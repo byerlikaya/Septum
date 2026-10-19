@@ -64,8 +64,10 @@ def test_ensure_error_message_leaks_no_host() -> None:
 
 
 def test_validate_provider_config_raises_coded_error_for_refused_ollama_url() -> None:
+    settings = _ollama_settings(REFUSED_URL)
+
     with pytest.raises(LLMRouterError) as exc:
-        validate_provider_config(_ollama_settings(REFUSED_URL))
+        validate_provider_config(settings)
 
     assert exc.value.code == CODE
 

@@ -269,7 +269,8 @@ def _assert_coded_400(resp: httpx.Response) -> None:
     assert resp.status_code == 400, resp.text
     body = resp.json()
     assert body["code"] == CODE
-    assert isinstance(body["detail"], str) and body["detail"]
+    assert isinstance(body["detail"], str)
+    assert body["detail"]
 
 
 @pytest.mark.parametrize("url", REFUSED_EXTRA)

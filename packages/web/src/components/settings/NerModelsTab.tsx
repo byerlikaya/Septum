@@ -294,7 +294,7 @@ export function NerModelsTab({
           )}
         </DataTable>
       </div>
-      {saveError && saveError.langs.length === 0 && (
+      {saveError?.langs.length === 0 && (
         <p id={SAVE_ERROR_ID} role="alert" className="text-[11px] text-red-300">
           {saveError.message}
         </p>
