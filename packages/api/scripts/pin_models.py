@@ -17,13 +17,15 @@ Run from the repository root:
     python packages/api/scripts/pin_models.py --json out.json # + JSON
     python packages/api/scripts/pin_models.py --write-manifest
     python packages/api/scripts/pin_models.py --from-json out.json --write-manifest
+    python packages/api/scripts/pin_models.py --from-manifest --write-manifest
     python packages/api/scripts/pin_models.py --check         # drift check
 
 ``--write-manifest`` regenerates ``septum_core/model_pins.py`` from the
-``main`` commit of every default model (from a fresh survey, or from a
-saved one with ``--from-json``); everything above ``MODEL_PINS`` in that file
-(the ``ModelPin`` definition) is kept as is. Review the diff before
-committing a bump.
+``main`` commit of every default model (from a fresh survey, from a saved one
+with ``--from-json``, or from the pins already in the manifest with
+``--from-manifest``, which needs no network); everything above the generated
+file-name constants and ``MODEL_PINS`` in that file (the ``ModelPin``
+definition) is kept as is. Review the diff before committing a bump.
 
 ``--check`` skips the survey: it re-reads every pin's revision from the Hub
 and exits 1 when a pinned commit, file list or hash differs, or when a
@@ -42,6 +44,8 @@ import json
 import re
 import sys
 import tempfile
+from collections import Counter
+from collections.abc import Iterable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -112,27 +116,46 @@ def _string_constant(path: Path, name: str) -> str:
     return value.value
 
 
+def _list_constants(node: ast.AST) -> list[str]:
+    """Return the constants of every list literal under ``node``, in source order."""
+    return [
+        elt.value
+        for sub in ast.walk(node)
+        if isinstance(sub, ast.List)
+        for elt in sub.elts
+        if isinstance(elt, ast.Constant)
+    ]
+
+
+def _model_id_values(node: ast.AST) -> list[str]:
+    """Return the ``model_id`` value of every dict literal under ``node``, in source order."""
+    return [
+        val.value
+        for sub in ast.walk(node)
+        if isinstance(sub, ast.Dict)
+        for key, val in zip(sub.keys, sub.values)
+        if isinstance(key, ast.Constant)
+        and key.value == "model_id"
+        and isinstance(val, ast.Constant)
+    ]
+
+
+def _unique(values: Iterable[str], exclude: Sequence[str] = ()) -> list[str]:
+    unique: list[str] = []
+    for value in values:
+        if value not in exclude and value not in unique:
+            unique.append(value)
+    return unique
+
+
 def _ner_models() -> tuple[list[str], list[str]]:
     """Return (default ensemble models, dashboard preset models) from the registry."""
     tree = _module_ast(NER_REGISTRY)
-    defaults: list[str] = []
-    for node in ast.walk(_class_field_value(tree, "DEFAULT_MODEL_MAP")):
-        if isinstance(node, ast.List):
-            for elt in node.elts:
-                if isinstance(elt, ast.Constant) and elt.value not in defaults:
-                    defaults.append(elt.value)
-    presets: list[str] = []
-    for node in ast.walk(_class_field_value(tree, "SUGGESTED_MODELS")):
-        if isinstance(node, ast.Dict):
-            for key, val in zip(node.keys, node.values):
-                if (
-                    isinstance(key, ast.Constant)
-                    and key.value == "model_id"
-                    and isinstance(val, ast.Constant)
-                    and val.value not in defaults
-                    and val.value not in presets
-                ):
-                    presets.append(val.value)
+    defaults = _unique(_list_constants(_class_field_value(tree, "DEFAULT_MODEL_MAP")))
+    presets = _unique(
+        _model_id_values(_class_field_value(tree, "SUGGESTED_MODELS")),
+        exclude=defaults,
+    )
     if not defaults:
         raise LookupError(f"No default NER models found in {NER_REGISTRY}")
     return defaults, presets
@@ -377,46 +400,61 @@ def print_summary(data: dict[str, Any]) -> None:
 
 
 PINS_MARKER = "MODEL_PINS: Mapping[str, ModelPin] = MappingProxyType("
+FILE_NAMES_MARKER = "# --- file names repeated across the pins (generated) ---"
+REPEATED_FILE_MIN_USES = 3
 
 
 def _manifest_preamble() -> str:
-    """Return the manifest's hand-kept part: everything above ``MODEL_PINS``."""
+    """Return the manifest's hand-kept part: everything above the generated file names."""
     head, marker, _ = MANIFEST.read_text(encoding="utf-8").partition(PINS_MARKER)
     if not marker:
         raise RuntimeError(f"{MANIFEST.name}: no {PINS_MARKER!r} line to regenerate")
-    return head
+    return head.partition(FILE_NAMES_MARKER)[0]
+
+
+def _file_constants(models: list[dict[str, Any]]) -> dict[str, str]:
+    """Name every file path that several pins list: path -> module constant."""
+    uses = Counter(f["path"] for m in models for f in m["main"]["files"])
+    names: dict[str, str] = {}
+    for path in sorted(p for p, n in uses.items() if n >= REPEATED_FILE_MIN_USES):
+        name = "_" + re.sub(r"\W", "_", path).upper()
+        if name in names.values():
+            raise RuntimeError(f"{path}: constant name {name} is already taken")
+        names[path] = name
+    return names
+
+
+def _render_pin(m: dict[str, Any], names: dict[str, str]) -> list[str]:
+    """Render one ``_pin(...)`` entry; file paths that have a constant reference it."""
+    main = m["main"]
+    if not COMMIT_RE.match(main["commit"]):
+        raise RuntimeError(f"{m['repo_id']}: unexpected commit id {main['commit']!r}")
+    pickles = [
+        f["path"] for f in main["files"] if Path(f["path"]).suffix in PICKLE_SUFFIXES
+    ]
+    if pickles:
+        raise RuntimeError(f"{m['repo_id']}: refusing to pin pickle weights {pickles}")
+    lines = [
+        f"        {json.dumps(m['repo_id'])}: _pin(",
+        f"            {json.dumps(m['repo_id'])},",
+        f"            {json.dumps(main['commit'])},",
+        f"            {json.dumps(m['kind'])},",
+        "            {",
+    ]
+    for f in main["files"]:
+        key = names[f["path"]] if f["path"] in names else json.dumps(f["path"])
+        lines.append(f"                {key}: {json.dumps(f['sha256'])},")
+    return lines + ["            },", "        ),"]
 
 
 def _render_manifest(models: list[dict[str, Any]]) -> str:
     """Render ``model_pins.py`` source from surveyed ``main`` snapshots."""
-    lines = [_manifest_preamble().rstrip("\n"), "", "", PINS_MARKER, "    {"]
+    names = _file_constants(models)
+    lines = [_manifest_preamble().rstrip("\n"), "", "", FILE_NAMES_MARKER]
+    lines += [f"{name} = {json.dumps(path)}" for path, name in names.items()]
+    lines += ["", "", PINS_MARKER, "    {"]
     for m in models:
-        main = m["main"]
-        if not COMMIT_RE.match(main["commit"]):
-            raise RuntimeError(
-                f"{m['repo_id']}: unexpected commit id {main['commit']!r}"
-            )
-        pickles = [
-            f["path"]
-            for f in main["files"]
-            if Path(f["path"]).suffix in PICKLE_SUFFIXES
-        ]
-        if pickles:
-            raise RuntimeError(
-                f"{m['repo_id']}: refusing to pin pickle weights {pickles}"
-            )
-        lines += [
-            f"        {json.dumps(m['repo_id'])}: _pin(",
-            f"            {json.dumps(m['repo_id'])},",
-            f"            {json.dumps(main['commit'])},",
-            f"            {json.dumps(m['kind'])},",
-            "            {",
-        ]
-        lines += [
-            f"                {json.dumps(f['path'])}: {json.dumps(f['sha256'])},"
-            for f in main["files"]
-        ]
-        lines += ["            },", "        ),"]
+        lines += _render_pin(m, names)
     lines += ["    }", ")", ""]
     return "\n".join(lines)
 
@@ -435,6 +473,56 @@ def _load_pins() -> dict[str, Any] | None:
     return dict(module.MODEL_PINS)
 
 
+def _models_from_manifest() -> list[dict[str, Any]]:
+    """Rebuild the ``main`` snapshots from the pins already in the manifest (no network)."""
+    pins = _load_pins()
+    if pins is None:
+        raise RuntimeError(f"{MANIFEST.name} is missing; nothing to regenerate from")
+    return [
+        {
+            "repo_id": repo_id,
+            "kind": pin.kind,
+            "main": {
+                "commit": pin.revision,
+                "files": [
+                    {"path": path, "sha256": sha256}
+                    for path, sha256 in sorted(pin.files.items())
+                ],
+            },
+        }
+        for repo_id, pin in pins.items()
+    ]
+
+
+def _file_drift(tag: str, pin: Any, live: dict[str, str]) -> list[str]:
+    """Compare the hashes the Hub serves for a pin's files against the pinned ones."""
+    drift: list[str] = []
+    for path in sorted(set(live) | set(pin.files)):
+        if path not in pin.files:
+            drift.append(f"{tag}: {path} is needed but not pinned")
+        elif path not in live:
+            drift.append(f"{tag}: {path} is pinned but absent upstream")
+        elif live[path] != pin.files[path]:
+            drift.append(f"{tag}: {path} hash mismatch")
+    return drift
+
+
+def _pin_drift(
+    api: HfApi, repo_id: str, pin: Any, expected_kind: str | None, workdir: Path
+) -> list[str]:
+    """Re-read one pin's revision from the Hub and list everything that drifted."""
+    tag = f"{repo_id}@{pin.revision[:12]}"
+    drift: list[str] = []
+    if expected_kind is not None and expected_kind != pin.kind:
+        drift.append(f"{tag}: kind {pin.kind!r}, loader expects {expected_kind!r}")
+    print(f"  checking {tag} ...", file=sys.stderr)
+    snap = _snapshot(api, repo_id, pin.revision, pin.kind, workdir)
+    if snap["commit"] != pin.revision:
+        drift.append(f"{tag}: revision resolves to {snap['commit'][:12]}")
+    live = {f["path"]: f["sha256"] for f in snap["files"]}
+    return drift + _file_drift(tag, pin, live)
+
+
 def check() -> int:
     """Compare the pinned manifest against the Hub; return a process exit code."""
     pins = _load_pins()
@@ -448,23 +536,7 @@ def check() -> int:
     ]
     with tempfile.TemporaryDirectory(prefix="pin_models_check_") as tmp:
         for repo_id, pin in pins.items():
-            tag = f"{repo_id}@{pin.revision[:12]}"
-            if repo_id in kinds and kinds[repo_id] != pin.kind:
-                drift.append(
-                    f"{tag}: kind {pin.kind!r}, loader expects {kinds[repo_id]!r}"
-                )
-            print(f"  checking {tag} ...", file=sys.stderr)
-            snap = _snapshot(api, repo_id, pin.revision, pin.kind, Path(tmp))
-            if snap["commit"] != pin.revision:
-                drift.append(f"{tag}: revision resolves to {snap['commit'][:12]}")
-            live = {f["path"]: f["sha256"] for f in snap["files"]}
-            for path in sorted(set(live) | set(pin.files)):
-                if path not in pin.files:
-                    drift.append(f"{tag}: {path} is needed but not pinned")
-                elif path not in live:
-                    drift.append(f"{tag}: {path} is pinned but absent upstream")
-                elif live[path] != pin.files[path]:
-                    drift.append(f"{tag}: {path} hash mismatch")
+            drift += _pin_drift(api, repo_id, pin, kinds.get(repo_id), Path(tmp))
     for line in drift:
         print(f"DRIFT {line}")
     print(
@@ -478,8 +550,14 @@ def main() -> int:
     parser.add_argument(
         "--json", type=Path, help="write the machine-readable survey here"
     )
-    parser.add_argument(
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument(
         "--from-json", type=Path, help="read a saved survey instead of surveying"
+    )
+    source.add_argument(
+        "--from-manifest",
+        action="store_true",
+        help="rebuild from the pins already in septum_core/model_pins.py (no network)",
     )
     parser.add_argument(
         "--write-manifest",
@@ -494,7 +572,9 @@ def main() -> int:
     args = parser.parse_args()
     if args.check:
         return check()
-    if args.from_json:
+    if args.from_manifest:
+        data = {"models": _models_from_manifest()}
+    elif args.from_json:
         data = json.loads(args.from_json.read_text(encoding="utf-8"))
     else:
         data = survey()
@@ -504,7 +584,8 @@ def main() -> int:
     if args.write_manifest:
         MANIFEST.write_text(_render_manifest(data["models"]), encoding="utf-8")
         print(f"wrote {MANIFEST.relative_to(REPO_ROOT)}", file=sys.stderr)
-    print_summary(data)
+    if not args.from_manifest:
+        print_summary(data)
     return 0
 
 

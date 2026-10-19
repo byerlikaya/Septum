@@ -67,6 +67,7 @@ from .services.error_logger import log_backend_error, log_backend_message
 from .utils.device import get_device
 
 MODEL_WARMUP_OPT_OUT_ENV = "SEPTUM_DISABLE_MODEL_WARMUP"
+_ERROR_LOG_FAILED_MESSAGE = "Error-log persistence failed: %s"
 
 
 def _warn_on_refused_model_settings(
@@ -379,7 +380,7 @@ async def http_exception_handler(
                         )
         except Exception as log_exc:
             # Logging must never break the response.
-            logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
+            logger.warning(_ERROR_LOG_FAILED_MESSAGE, type(log_exc).__name__)
     content: dict[str, Any] = {"detail": exc.detail}
     if code is not None:
         content["code"] = code
@@ -404,7 +405,7 @@ async def model_refusal_handler(request: Request, exc: ModelRefusal) -> JSONResp
                     status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
     except Exception as log_exc:
-        logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
+        logger.warning(_ERROR_LOG_FAILED_MESSAGE, type(log_exc).__name__)
     return JSONResponse(
         status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
         content={"detail": MODEL_REFUSED_DETAIL, "code": exc.code},
@@ -428,7 +429,7 @@ async def global_exception_handler(
                     status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
     except Exception as log_exc:
-        logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
+        logger.warning(_ERROR_LOG_FAILED_MESSAGE, type(log_exc).__name__)
 
     return JSONResponse(
         status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,

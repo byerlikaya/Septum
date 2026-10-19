@@ -193,6 +193,18 @@ class ChatDebugResponse(BaseModel):
     masked_answer: str
 
 
+def _log_stream_failure(exc: Exception) -> None:
+    """Log a failed chat stream by refusal code or exception class only.
+
+    The message and traceback are left out on purpose: they can carry text
+    from the user's documents or the model response.
+    """
+    if isinstance(exc, ModelRefusal):
+        logger.error("Chat refused, a model was refused (code: %s)", exc.code)
+    else:
+        logger.error("Unhandled exception in chat event stream: %s", type(exc).__name__)
+
+
 async def _active_regulations(db: AsyncSession) -> List[Tuple[str, bool]]:
     """Return ``(display_name, is_builtin)`` for every active ruleset."""
     result = await db.execute(
@@ -1941,10 +1953,7 @@ async def chat_ask(
             )
         except Exception as exc:
             refused = isinstance(exc, ModelRefusal)
-            if refused:
-                logger.error("Chat refused, a model was refused (code: %s)", exc.code)
-            else:
-                logger.error("Unhandled exception in chat event stream: %s", type(exc).__name__)
+            _log_stream_failure(exc)
             try:
                 await log_backend_error(
                     db, http_request, exc, status_code=503 if refused else 500
