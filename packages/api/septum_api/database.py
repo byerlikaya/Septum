@@ -342,6 +342,10 @@ async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:
             "chunks",
             "ALTER TABLE chunks ADD COLUMN raw_text TEXT",
         ),
+        (
+            "documents",
+            "ALTER TABLE documents ADD COLUMN ingestion_error_code VARCHAR(64)",
+        ),
     ]
 
     async with eng.begin() as conn:

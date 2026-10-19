@@ -33,6 +33,7 @@ from ..services.whisper_models import (
     WhisperDownloadError,
     WhisperInstallBusy,
     install_whisper_file,
+    require_registry_model_http,
     resolve_whisper_target,
     whisper_file_plausible,
 )
@@ -412,6 +413,7 @@ async def install_whisper(
     except ImportError:
         return TestConnectionResponse(ok=False, message="openai-whisper package not installed")
 
+    await require_registry_model_http(model_name)
     try:
         target = resolve_whisper_target(getattr(whisper, "_MODELS", {}), model_name)
     except WhisperDownloadError as exc:

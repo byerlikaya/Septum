@@ -45,6 +45,7 @@ class Document(Base):
     entity_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     ingestion_status: Mapped[str] = mapped_column(String, default="pending", nullable=False)
     ingestion_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ingestion_error_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     file_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     transcription_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     ocr_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)

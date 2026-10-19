@@ -15,6 +15,7 @@ POSIX-only.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -27,10 +28,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
+from septum_core.model_integrity import ModelRefusal
 
-from ..errors import ContentFreeError
+from ..errors import CodedHTTPError, ContentFreeError
 
 logger = logging.getLogger(__name__)
+
+WHISPER_MODEL_NOT_ALLOWED_CODE = "whisper_model_not_allowed"
+_MODEL_NOT_ALLOWED_DETAIL = "Whisper model is not in the supported model registry"
 
 # Approximate download size per model family, used for progress, for the
 # cheap status check and as the basis of the hard size cap.
@@ -70,6 +75,12 @@ class WhisperDownloadError(ContentFreeError, RuntimeError):
 
 class WhisperInstallBusy(ContentFreeError, RuntimeError):
     """Another thread or process is installing the same model file right now."""
+
+
+class WhisperModelNotAllowed(ModelRefusal, ContentFreeError):
+    """A Whisper model name is outside whisper's registry; it is never loaded as a local path."""
+
+    code = WHISPER_MODEL_NOT_ALLOWED_CODE
 
 
 @dataclass(frozen=True)
@@ -326,16 +337,49 @@ def install_whisper_file(
             _download_slot.release()
 
 
+def registry_models() -> dict:
+    """Return whisper's model registry (``whisper._MODELS``)."""
+    import whisper
+
+    return getattr(whisper, "_MODELS", {})
+
+
+def require_registry_model(model_name: str) -> str:
+    """Return ``model_name`` if whisper's registry lists it, else raise :class:`WhisperModelNotAllowed`.
+
+    When the whisper package cannot be imported the registry is unknown, so
+    every name is refused. The message is fixed text: the name is never echoed.
+    """
+    try:
+        registered = model_name in registry_models()
+    except ImportError:
+        registered = False
+    if not registered:
+        raise WhisperModelNotAllowed(_MODEL_NOT_ALLOWED_DETAIL)
+    return model_name
+
+
+async def require_registry_model_http(model_name: str) -> str:
+    """Endpoint form of :func:`require_registry_model`: refuse with HTTP 400 and the refusal code.
+
+    Used by every endpoint that saves or installs a Whisper model name; the
+    registry lookup imports whisper, so it runs off the event loop.
+    """
+    try:
+        return await asyncio.to_thread(require_registry_model, model_name)
+    except WhisperModelNotAllowed as exc:
+        raise CodedHTTPError(400, str(exc), code=exc.code) from None
+
+
 def ensure_whisper_model(model_name: str, *, wait: bool = True) -> None:
     """Make sure a registry model is cached and verified before ``load_model`` runs.
 
-    Names outside whisper's registry are local checkpoint paths, which
-    ``whisper.load_model`` opens without any network access, so they are
-    left untouched. ``wait`` is passed to :func:`install_whisper_file`.
+    A name outside whisper's registry raises :class:`WhisperModelNotAllowed`.
+    ``whisper.load_model`` would open it as a local checkpoint path with no
+    hash check, so it is never passed on. ``wait`` is passed to
+    :func:`install_whisper_file`.
     """
-    import whisper
-
-    models_map = getattr(whisper, "_MODELS", {})
+    models_map = registry_models()
     if model_name not in models_map:
-        return
+        raise WhisperModelNotAllowed(_MODEL_NOT_ALLOWED_DETAIL)
     install_whisper_file(resolve_whisper_target(models_map, model_name), wait=wait)

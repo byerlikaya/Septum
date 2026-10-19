@@ -3,7 +3,8 @@
 paddlepaddle 3.3.x raises inside ``predict()`` on linux/amd64 (oneDNN PIR
 regression, Paddle issue #77340), while every mocked test still passes. This
 test runs the PP-OCRv5 models on a synthetic image. The first run downloads the
-models into the PaddleX cache (``~/.paddlex``), which CI caches.
+five pipeline models at their pinned revisions into the Hugging Face hub cache
+and verifies their hashes before PaddleOCR loads them.
 """
 
 from __future__ import annotations
@@ -13,10 +14,15 @@ from typing import Iterator
 import numpy as np
 import pytest
 from PIL import Image, ImageDraw, ImageFont
+
 from septum_api.services.ingestion.ocr.paddle_provider import (
     PaddleOcrProvider,
     shutdown_ocr_pool,
 )
+
+# The one intentional real-download test: the OCR worker fetches the pinned
+# models from the Hub on a cold cache (CI caches them).
+pytestmark = pytest.mark.real_network
 
 EXPECTED_TEXT = "Hello 12345"
 
@@ -31,6 +37,7 @@ def synthetic_text_image() -> np.ndarray:
 
 @pytest.fixture(scope="module")
 def release_ocr_worker() -> Iterator[None]:
+    shutdown_ocr_pool()
     yield
     shutdown_ocr_pool()
 

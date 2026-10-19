@@ -80,6 +80,12 @@ def get_shared_sentence_transformer(
     The model (~500 MB) is loaded once and shared between VectorStore
     and StructuredDocumentChunker to avoid duplicate memory usage.
     Thread-safe with double-checked locking.
+
+    The model must have a manifest pin: it is loaded on CPU from the
+    pinned, hash-verified local snapshot (safetensors only, no remote
+    code). Raises :class:`~septum_core.model_integrity.ModelIntegrityError`
+    (``model_integrity_failed``) for an unpinned model or files that fail
+    verification; load errors propagate unchanged.
     """
     global _shared_st_model
     if _shared_st_model is not None:
@@ -88,19 +94,15 @@ def get_shared_sentence_transformer(
         if _shared_st_model is not None:
             return _shared_st_model
         from sentence_transformers import SentenceTransformer
+        from septum_core.model_integrity import ensure_pinned_snapshot, require_pin
 
-        try:
-            _shared_st_model = SentenceTransformer(
-                model_name,
-                device="cpu",
-            )
-        except Exception:
-            _shared_st_model = SentenceTransformer(model_name)
-            try:
-                if hasattr(_shared_st_model, "to"):
-                    _shared_st_model = _shared_st_model.to("cpu")
-            except Exception as exc:
-                _log.debug("Moving shared model to CPU failed: %s", type(exc).__name__)
+        _shared_st_model = SentenceTransformer(
+            str(ensure_pinned_snapshot(require_pin(model_name))),
+            device="cpu",
+            local_files_only=True,
+            trust_remote_code=False,
+            model_kwargs={"use_safetensors": True},
+        )
         return _shared_st_model
 
 
@@ -168,7 +170,7 @@ class VectorStore:
             os.getenv("VECTOR_INDEX_DIR", "./vector_indexes")
         )
     )
-    model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    model_name: str = _DEFAULT_ST_MODEL
     _model: SentenceTransformer | None = field(default=None, init=False, repr=False)
     _model_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 

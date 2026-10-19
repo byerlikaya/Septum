@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import fitz  # type: ignore[import]
 import numpy as np  # type: ignore[import]
 from PIL import Image  # type: ignore[import]
+from septum_core.model_integrity import ModelRefusal
 
 from ...utils.crypto import decrypt
 from ...utils.text_utils import strip_control_characters
@@ -251,6 +252,8 @@ class PdfIngester(BaseIngester):
                 if ocr_texts:
                     image_texts.append("\n".join(ocr_texts))
                     image_confs.extend(confs)
+            except ModelRefusal:
+                raise
             except Exception as exc:
                 logger.debug("Embedded image OCR failed, skipping image: %s", type(exc).__name__)
                 continue

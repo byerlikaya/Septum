@@ -28,6 +28,7 @@ from fastapi import (
 )
 from langdetect import DetectorFactory
 from pydantic import BaseModel, ConfigDict
+from septum_core.model_integrity import ModelRefusal
 from sqlalchemy import select, update
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -158,6 +159,7 @@ class DocumentResponse(BaseModel):
     entity_count: int
     ingestion_status: str
     ingestion_error: Optional[str]
+    ingestion_error_code: Optional[str] = None
     file_size_bytes: int
     transcription_text: Optional[str]
     ocr_confidence: Optional[float]
@@ -525,6 +527,7 @@ async def _record_background_failure(
             .values(
                 ingestion_status="failed",
                 ingestion_error=public_error_text(exc, "Ingestion failed"),
+                ingestion_error_code=exc.code if isinstance(exc, ModelRefusal) else None,
             )
         )
         await bg_db.commit()
@@ -1061,6 +1064,7 @@ async def reprocess_document(
         .values(
             ingestion_status="processing",
             ingestion_error=None,
+            ingestion_error_code=None,
             chunk_count=0,
             entity_count=0,
         )
