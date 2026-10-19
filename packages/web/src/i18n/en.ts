@@ -583,6 +583,32 @@ export const enMessages = {
     "Brazilian General Data Protection Law (LGPD).",
   "regulations.desc.kvkk":
     "Turkish Personal Data Protection Law (KVKK).",
+  "regulations.desc.cpra":
+    "California Privacy Rights Act (CPRA), amending the CCPA to add protection for sensitive personal information.",
+  "regulations.desc.pipeda":
+    "Canadian federal privacy law for personal information used in commercial activities (PIPEDA).",
+  "regulations.desc.pdpa_th":
+    "Thailand Personal Data Protection Act (PDPA), B.E. 2562 (2019), covering personal and sensitive data.",
+  "regulations.desc.pdpa_sg":
+    "Singapore Personal Data Protection Act (PDPA), governing collection, use and disclosure of personal data.",
+  "regulations.desc.appi":
+    "Japanese Act on the Protection of Personal Information (APPI), including special care-required data.",
+  "regulations.desc.pipl":
+    "Chinese Personal Information Protection Law (PIPL), covering personal and sensitive personal information.",
+  "regulations.desc.popia":
+    "South African Protection of Personal Information Act (POPIA), including special personal information.",
+  "regulations.desc.dpdp":
+    "Indian Digital Personal Data Protection Act 2023 (DPDP), governing digital personal data.",
+  "regulations.desc.uk_gdpr":
+    "UK GDPR and Data Protection Act 2018, covering personal data and special category data.",
+  "regulations.desc.pdpl_sa":
+    "Saudi Arabian Personal Data Protection Law (PDPL), covering personal and sensitive data.",
+  "regulations.desc.nzpa":
+    "New Zealand Privacy Act 2020, governing personal information about identifiable individuals.",
+  "regulations.desc.australia_pa":
+    "Australian Privacy Act 1988, covering personal and sensitive information.",
+  "regulations.builtin.toggle.activate": "Activate {name}",
+  "regulations.builtin.toggle.deactivate": "Deactivate {name}",
 
   "regulations.custom.title": "Custom Rules",
   "regulations.custom.subtitle":

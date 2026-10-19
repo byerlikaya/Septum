@@ -9,7 +9,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import { useI18n } from "@/lib/i18n";
+import { hasMessage, useI18n } from "@/lib/i18n";
 import type {
   CustomRecognizer,
   NonPiiRule,
@@ -74,6 +74,18 @@ function RuleHelpBanner({ tone, intro, bullets, footer, docsLabel }: RuleHelpBan
       </p>
     </div>
   );
+}
+
+type Translate = ReturnType<typeof useI18n>;
+
+/** Translated description when the built-in id has a key; otherwise the API description, or null. */
+function regulationDescription(ruleset: RegulationRuleset, t: Translate): string | null {
+  const key = `regulations.desc.${ruleset.id}`;
+  if (hasMessage(key)) {
+    return t(key);
+  }
+  const apiDescription = ruleset.description?.trim();
+  return apiDescription ? apiDescription : null;
 }
 
 const REGION_FLAGS: Record<string, string> = {
@@ -296,6 +308,7 @@ export default function RegulationsPage() {
                 {sortedRulesets.map((ruleset) => {
                   const isExpanded = expandedRulesetIds.has(ruleset.id);
                   const entityCount = ruleset.entity_types?.length ?? 0;
+                  const description = regulationDescription(ruleset, t);
 
                   return (
                     <div
@@ -331,9 +344,9 @@ export default function RegulationsPage() {
                               {ruleset.region}
                             </span>
                           </div>
-                          {ruleset.is_builtin && (
+                          {description && (
                             <p className="mt-0.5 text-[11px] text-slate-500 line-clamp-1">
-                              {t(`regulations.desc.${ruleset.id}` as never)}
+                              {description}
                             </p>
                           )}
                         </div>
@@ -359,7 +372,12 @@ export default function RegulationsPage() {
                             enabled={ruleset.is_active}
                             disabled={togglingId === ruleset.id}
                             onChange={() => { void handleToggleRuleset(ruleset); }}
-                            ariaLabel={ruleset.is_active ? "Deactivate regulation" : "Activate regulation"}
+                            ariaLabel={t(
+                              ruleset.is_active
+                                ? "regulations.builtin.toggle.deactivate"
+                                : "regulations.builtin.toggle.activate",
+                              { name: ruleset.display_name }
+                            )}
                           />
                         </div>
                       </div>

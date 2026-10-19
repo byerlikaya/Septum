@@ -25,6 +25,7 @@ export function ToggleField({
         </div>
         <ToggleSwitch
           enabled={checked}
+          ariaLabel={label}
           onChange={(value) => {
             void onToggle(value);
           }}

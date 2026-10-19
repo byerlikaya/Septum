@@ -601,6 +601,32 @@ export const trMessages: Record<string, string> = {
     "Brezilya Genel Veri Koruma Kanunu (LGPD).",
   "regulations.desc.kvkk":
     "Türkiye Kişisel Verilerin Korunması Kanunu (KVKK).",
+  "regulations.desc.cpra":
+    "Kaliforniya Gizlilik Haklarının Korunması Kanunu (CPRA); CCPA'yı değiştirir ve hassas kişisel bilgileri de kapsar.",
+  "regulations.desc.pipeda":
+    "Kanada'nın ticari faaliyetlerde kullanılan kişisel bilgileri düzenleyen federal gizlilik kanunu (PIPEDA).",
+  "regulations.desc.pdpa_th":
+    "Tayland Kişisel Veri Koruma Kanunu (PDPA), B.E. 2562 (2019); kişisel ve hassas verileri kapsar.",
+  "regulations.desc.pdpa_sg":
+    "Singapur Kişisel Veri Koruma Kanunu (PDPA); kişisel verilerin toplanmasını, kullanımını ve ifşasını düzenler.",
+  "regulations.desc.appi":
+    "Japonya Kişisel Bilgilerin Korunması Kanunu (APPI); özel dikkat gerektiren bilgileri de kapsar.",
+  "regulations.desc.pipl":
+    "Çin Kişisel Bilgilerin Korunması Kanunu (PIPL); kişisel ve hassas kişisel bilgileri kapsar.",
+  "regulations.desc.popia":
+    "Güney Afrika Kişisel Bilgilerin Korunması Kanunu (POPIA); özel nitelikli kişisel bilgileri de kapsar.",
+  "regulations.desc.dpdp":
+    "Hindistan Dijital Kişisel Veri Koruma Kanunu 2023 (DPDP); dijital ortamdaki kişisel verileri düzenler.",
+  "regulations.desc.uk_gdpr":
+    "Birleşik Krallık GDPR ve 2018 Veri Koruma Kanunu; kişisel verileri ve özel nitelikli verileri kapsar.",
+  "regulations.desc.pdpl_sa":
+    "Suudi Arabistan Kişisel Veri Koruma Kanunu (PDPL); kişisel ve hassas verileri kapsar.",
+  "regulations.desc.nzpa":
+    "Yeni Zelanda Gizlilik Kanunu 2020; belirlenebilir kişilere ait kişisel bilgileri düzenler.",
+  "regulations.desc.australia_pa":
+    "Avustralya Gizlilik Kanunu 1988; kişisel ve hassas bilgileri kapsar.",
+  "regulations.builtin.toggle.activate": "{name} etkinleştir",
+  "regulations.builtin.toggle.deactivate": "{name} devre dışı bırak",
 
   "regulations.custom.title": "Özel Kurallar",
   "regulations.custom.subtitle":
