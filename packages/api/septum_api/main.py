@@ -282,6 +282,10 @@ async def http_exception_handler(
     they are typically handled validation failures where the stack is
     noise rather than signal.
     """
+    code = getattr(exc, "code", None)
+    log_message = getattr(exc, "log_message", None) or (
+        str(exc.detail) if exc.detail else exc.__class__.__name__
+    )
     if exc.status_code >= 400 and exc.status_code != http_status.HTTP_404_NOT_FOUND:
         try:
             if engine_is_ready():
@@ -299,21 +303,17 @@ async def http_exception_handler(
                         await log_backend_message(
                             db=db,
                             request=request,
-                            message=(
-                                str(exc.detail)
-                                if exc.detail
-                                else exc.__class__.__name__
-                            ),
+                            message=log_message,
                             level="WARNING",
                             status_code=exc.status_code,
                         )
         except Exception as log_exc:
             # Logging must never break the response.
             logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"detail": exc.detail},
-    )
+    content: dict[str, Any] = {"detail": exc.detail}
+    if code is not None:
+        content["code"] = code
+    return JSONResponse(status_code=exc.status_code, content=content)
 
 
 @app.exception_handler(Exception)

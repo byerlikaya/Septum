@@ -22,7 +22,7 @@ from septum_api.models.user import User
 from septum_api.routers import chat as chat_module
 from septum_api.services import chat_debug_store, pii_gate
 from septum_api.services.approval_gate import ApprovalDecision, ApprovalGate
-from septum_api.services.llm_router import LLMRouter
+from septum_api.services.llm_router import LLMRouter, LLMRouterError
 from septum_api.utils.auth_dependency import get_current_user
 from septum_core.spans import SanitizeResult
 from sqlalchemy import select
@@ -747,3 +747,35 @@ class TestApprovalSessionCleanup:
 
         assert gate._sessions == {}
         assert session.anon_map is None
+
+
+class TestLlmErrorEvent:
+    async def _ask_with_failure(
+        self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch, error: LLMRouterError
+    ) -> dict[str, Any]:
+        await chat_env.set_require_approval(False)
+        doc = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha"])
+
+        async def _fail(self, messages, **kwargs):
+            raise error
+
+        monkeypatch.setattr(LLMRouter, "complete", _fail)
+        chat_env.act_as("alice")
+        _, events, _ = await chat_env.ask({"message": "who?", "document_ids": [doc]})
+        return next(e for e in events if e["type"] == "error")
+
+    async def test_error_event_carries_the_machine_code(
+        self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        event = await self._ask_with_failure(
+            chat_env, monkeypatch, LLMRouterError("refused", code="ollama_url_not_allowed")
+        )
+
+        assert event["code"] == "ollama_url_not_allowed"
+
+    async def test_uncoded_error_event_has_null_code(
+        self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        event = await self._ask_with_failure(chat_env, monkeypatch, LLMRouterError("boom"))
+
+        assert event["code"] is None

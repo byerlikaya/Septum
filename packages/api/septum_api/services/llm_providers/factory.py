@@ -25,9 +25,24 @@ _API_KEY_FIELDS: Mapping[str, str] = {
 }
 
 
+def _provider_key(settings: AppSettings) -> str:
+    return (settings.llm_provider or "anthropic").strip().lower()
+
+
+def validate_provider_config(settings: AppSettings) -> None:
+    """Run the configured provider's ``validate_config`` before any dispatch.
+
+    Unknown providers are left to :func:`build_provider`, which reports them
+    on the dispatch path.
+    """
+    provider_cls = _PROVIDER_MAP.get(_provider_key(settings))
+    if provider_cls is not None:
+        provider_cls(LLMProviderConfig(settings)).validate_config()
+
+
 def build_provider(settings: AppSettings) -> LLMProvider:
     """Construct a concrete provider instance from application settings."""
-    provider_key = (settings.llm_provider or "anthropic").strip().lower()
+    provider_key = _provider_key(settings)
     provider_cls = _PROVIDER_MAP.get(provider_key)
     if provider_cls is None:
         raise LLMRouterError(f"Unsupported LLM provider: {provider_key}")

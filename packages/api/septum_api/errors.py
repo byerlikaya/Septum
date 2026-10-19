@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from fastapi import HTTPException
+
 
 class ContentFreeError(Exception):
     """Base for errors whose message is authored by Septum and carries no user content.
@@ -9,6 +11,28 @@ class ContentFreeError(Exception):
     Only these messages may be persisted or shown verbatim; every other
     exception is reduced to its class name.
     """
+
+
+class CodedHTTPError(HTTPException):
+    """HTTP error with a machine-readable ``code`` in the response body.
+
+    ``log_message`` is what the error log persists. It defaults to the code
+    only, so detail text (which can echo a host, URL or user input) is never
+    persisted unless the caller passes ``log_message`` explicitly.
+    """
+
+    def __init__(
+        self,
+        status_code: int,
+        detail: str,
+        code: str,
+        log_message: str | None = None,
+    ) -> None:
+        super().__init__(status_code=status_code, detail=detail)
+        self.code = code
+        self.log_message = (
+            f"Request refused (code: {code})" if log_message is None else log_message
+        )
 
 
 def public_error_text(exc: BaseException, summary: str | None = None) -> str:

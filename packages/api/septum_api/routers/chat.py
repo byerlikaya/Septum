@@ -1193,7 +1193,7 @@ async def chat_ask(
     message_text = request.message or request.query
     if not message_text:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Either 'message' or 'query' must be provided.",
         )
 
@@ -1933,6 +1933,7 @@ async def chat_ask(
             yield _encode_sse(
                 {
                     "type": "error",
+                    "code": exc.code,
                     "message": str(exc),
                 }
             )

@@ -7,11 +7,11 @@ from abc import ABC, abstractmethod
 from typing import Any, Mapping, Sequence
 
 from ..llm_errors import LLMRouterError
-from .base import ChatMessage, LLMProviderConfig
+from .base import ChatMessage, LLMProvider, LLMProviderConfig
 from .http_client import post_with_retries
 
 
-class OpenAICompatibleProvider(ABC):
+class OpenAICompatibleProvider(LLMProvider, ABC):
     """Base for providers that follow the OpenAI Chat Completions API contract.
 
     Subclasses override :meth:`_api_url`, :meth:`_api_key_env_var`, and

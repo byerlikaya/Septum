@@ -39,7 +39,7 @@ from ..errors import public_error_text
 from ..models.settings import AppSettings
 from . import ollama_client
 from .llm_errors import LLMRouterError  # noqa: F401 — re-exported
-from .llm_providers.factory import build_provider
+from .llm_providers.factory import build_provider, validate_provider_config
 from .llm_providers.health import is_available, record_failure, record_success
 
 logger = logging.getLogger(__name__)
@@ -127,6 +127,8 @@ class LLMRouter:
         """
         if not messages:
             return
+
+        validate_provider_config(self._settings)
 
         provider_key = f"{self._provider}:{self._model}"
 
