@@ -1,7 +1,7 @@
 # Septum — Mimari ve Teknik Referans
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Ana Sayfa</strong></a>
+  <a href="./index.md"><strong>🏠 Ana Sayfa</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;
@@ -27,6 +27,7 @@
 - [Frontend (Next.js App Router) Yapısı](#frontend-nextjs-app-router-yapısı)
 - [Teknoloji Yığını](#teknoloji-yığını)
 - [Güvenlik ve Gizlilik](#güvenlik-ve-gizlilik)
+- [Model bütünlüğü](#model-bütünlüğü)
 - [Denetim Kaydı ve Uyumluluk Raporlama](#denetim-kaydı-ve-uyumluluk-raporlama)
 - [LLM Dayanıklılığı ve İzlenebilirlik](#llm-dayanıklılığı-ve-i̇zlenebilirlik)
 - [API Referansı](#api-referansı)
@@ -44,7 +45,7 @@ Septum, `packages/` dizini altında yer alan **bağımsız olarak kurulabilir ye
 | Bölge | Paket | Rol |
 |:---|:---|:---|
 | Air-gapped | `septum-core` | PII tespit, maskeleme, geri yazma, regülasyon motoru. Ağ bağımlılığı yoktur. |
-| Air-gapped | `septum-mcp` | Claude Code / Desktop / Cursor'a stdio üzerinden core araçlarını açan MCP sunucusu. |
+| Air-gapped | `septum-mcp` | Claude Code / Desktop / Cursor'a stdio (ve streamable-http / sse) üzerinden core araçlarını açan MCP sunucusu. MCP Python SDK 2.x üzerine kuruludur. |
 | Air-gapped | `septum-api` | FastAPI REST uç noktaları, doküman pipeline'ı, kimlik doğrulama, hız sınırlama. |
 | Air-gapped | `septum-web` | Next.js 16 panel (App Router + React 19). |
 | Köprü | `septum-queue` | Soyut `QueueBackend` Protocol + envelope dataclass'ları; dosya / Redis Streams somut backend'leri. |
@@ -67,7 +68,7 @@ Genel akış:
    - Frontend, `/api/chat/ask` uç noktasına SSE üzerinden mesaj yollar.
    - Backend sırasıyla:
      1. Kullanıcı sorgusunu aynı sanitizer hattından geçirir (aktif regülasyonlar + custom kurallar).
-     2. FAISS üzerinden bağlamsal chunk'ları çeker.
+     2. Bağlamsal chunk'ları hibrit aramayla çeker: FAISS (semantik) ve BM25 (anahtar kelime) sonuçları Reciprocal Rank Fusion ile birleştirilir.
      3. **Approval Gate** ile kullanıcıya hangi bilgilerin buluta gideceğini gösterir.
      4. Kullanıcı onaylarsa yalnızca **placeholder içeren metni** bulut LLM'e iletir.
      5. Gelen cevabı yerelde **de-anonymizer** üzerinden geçirerek placeholder'ları gerçek değerlere çevirir.
@@ -101,20 +102,17 @@ Basitleştirilmiş bir örnek:
    ```json
    POST /api/chat/ask
    {
-     "messages": [
-       { "role": "user", "content": "ACME Corp için son 3 sözleşmeyi özetle ve Ahmet Yılmaz ile ilgili kritik maddeleri çıkar." }
-     ],
-     "document_ids": [123, 124, 125],
-     "metadata": {
-       "regulations": ["gdpr", "kvkk"],
-       "require_approval": true
-     }
+     "message": "Elif Demir'in taburculuk planını özetle ve takip ilaçlarını listele.",
+     "document_ids": [123],
+     "require_approval": true
    }
    ```
 
+   İstek regülasyon paketi seçmez; aktif paketler Ayarlar'da belirlenir.
+
 2. **Septum**:
    - Sorgunun ve ilgili dokümanların dilini ve PII içeriğini tespit eder.
-   - Kimlik bilgilerini placeholder'larla değiştirir (`[PERSON_1]`, `[ORG_1]` gibi).
+   - Kimlik bilgilerini placeholder'larla değiştirir (`[PERSON_NAME_1]` gibi). `[DIAGNOSIS_1]` gibi teşhis ve ilaç placeholder'ları isteğe bağlı Ollama semantik katmanını gerektirir.
    - Gerekirse anonimleştirilmiş chunk'ları vektör veritabanından çeker.
    - Buluta ne gideceğini gösteren bir **onay ekranı** sunabilir.
    - Yalnızca maskelenmiş içeriği, yapılandırılmış LLM sağlayıcısına iletir.
@@ -244,6 +242,10 @@ PII motoru: tespit, maskeleme, geri yazma, regülasyon bileşimi. Kod sözleşme
 - `regulations/` — `PolicyComposer` aktif regülasyon ruleset'lerini birleştirir; paket-arası tekrarlayan tanıyıcılar build sırasında deduplicate edilir (~46 → 29 recognizer / mask çağrısı).
 - `recognizers/` — 17 regülasyon paketi (GDPR, KVKK, HIPAA, CCPA, LGPD, PIPEDA, PDPA_TH, PDPA_SG, APPI, PIPL, POPIA, DPDP, UK_GDPR, PDPL_SA, NZPA, Australia_PA, CPRA). Her paket kendi `ENTITY_TYPES` sabitini tanımlar; böylece bağımsız motor, API seed'inin gördüğü aynı varlık listesini görür. `recognizers/__init__.py` kanonik `RegulationId` StrEnum'ını, `BUILTIN_REGULATION_IDS` tuple'ını ve api / mcp / standalone giriş noktalarındaki üç tekrarlanan env parser'ın yerini alan `parse_active_regulations_env(value)` helper'ını export eder.
 - `national_ids/` — algoritmik checksum'lı ülkeye özgü kimlik doğrulayıcıları (TCKN, SSN, CPF, Aadhaar, IBAN, …).
+- `model_pins.py` — yalnızca veri: her varsayılan model için sabitlenmiş Hugging Face commit'i ve dosya SHA256 tablosu. `packages/api/scripts/pin_models.py` ile yeniden üretilir.
+- `model_integrity.py` — model dizinini yüklemeden önce pin'lerine göre doğrular; pin'siz ya da fazla dosyaları reddeder, kullanıcı pin'li özel NER modellerini kaydeder ve denetler.
+- `ner_model_registry.py` — doküman dillerini NER model kimliklerine eşler ve pipeline'ları `trust_remote_code=False` ile yükler.
+- `suffix_list.py` — e-posta doğrulaması için public-suffix sorguları; `tldextract` ile birlikte gelen snapshot'a zorlanır, Public Suffix List'i asla çekmez. Kurulu `tldextract` bu snapshot'a zorlanamıyorsa `septum_core`'un import'u ağ çekimine düşmek yerine hata verir.
 
 ### septum-mcp
 
@@ -253,7 +255,7 @@ MCP'nin üç standart taşımasından biri üzerinden altı aracı (`mask_text`,
 - **streamable-http** — uzak, container içi ve tarayıcı istemciler için modern HTTP taşıması. Statik bir bearer token ile `septum_mcp.auth.BearerTokenMiddleware` ASGI middleware'i tarafından korunur (sabit-zaman karşılaştırma için `hmac.compare_digest`).
 - **sse** — streamable-http'ye henüz geçmemiş eski istemciler için tutulan legacy HTTP + Server-Sent Events taşıması.
 
-Taşıma `--transport` CLI bayrağı ya da `SEPTUM_MCP_TRANSPORT` env değişkeni ile seçilir. HTTP modu ayrıca `--host` / `--port` / `--token` / `--mount-path` bayraklarını ve `SEPTUM_MCP_HTTP_*` env karşılıklarını destekler. `/health` uç noktası koşulsuz 200 OK döner ve bearer kontrolünü atlar; böylece Docker `HEALTHCHECK` ve reverse-proxy probe'ları token olmadan çalışır.
+Taşıma `--transport` CLI bayrağı ya da `SEPTUM_MCP_TRANSPORT` env değişkeni ile seçilir. HTTP modu ayrıca `--host` / `--port` / `--token` / `--mount-path` bayraklarını ve `SEPTUM_MCP_HTTP_*` env karşılıklarını destekler. `/health` uç noktası koşulsuz 200 OK döner ve bearer kontrolünü atlar; böylece Docker `HEALTHCHECK` ve reverse-proxy probe'ları token olmadan çalışır. Loopback olmayan bir bağlanmada `SEPTUM_MCP_HTTP_ALLOWED_HOSTS` (ya da `--allowed-hosts`) değerini istemcilerin kullandığı host adlarıyla ayarlayın: bu DNS-rebinding korumasını açar ve listede olmayan `Host` başlıklarını reddeder. Ayarlanmadığında loopback olmayan bağlanma her `Host`'u kabul eder.
 
 `septum-core`'a bağlıdır; engine ilk araç çağrısında kurulur — boşta dururken neredeyse hiç maliyet üretmez. HTTP modu etkinse `uvicorn` ASGI sunucusu olarak başlatılır; stdio kullanıcıları HTTP stack'ine hiç dokunmaz. Hâlen tek kiracılı — tüm HTTP istemcileri aynı `SeptumEngine`'i ve dolayısıyla aynı anonimleştirme-oturum kayıt defterini paylaşır.
 
@@ -264,7 +266,8 @@ Taşıma `--transport` CLI bayrağı ya da `SEPTUM_MCP_TRANSPORT` env değişken
 - `main.py` — app factory + lifespan + middleware yığını (CORS, auth, rate limit, Prometheus).
 - `bootstrap.py`, `config.py`, `database.py` — altyapı yapılandırması (`config.json`), tembel async engine, ayarlar.
 - `models/` — SQLAlchemy ORM modelleri (`AppSettings`, `Document`, `Chunk`, `User`, `ApiKey`, `AuditEvent`, …).
-- `routers/` — 14 APIRouter modülü (auth, api_keys, chat, chat_sessions, chunks, documents, regulations, settings, setup, users, approval, audit, error_logs, text_normalization).
+- `routers/` — 15 APIRouter modülü (auth, api_keys, chat, chat_sessions, chunks, documents, regulations, relationships, settings, setup, users, approval, audit, error_logs, text_normalization).
+- `cli/models.py` — `python -m septum_api.cli.models fetch` ile bağlantılı bir host üzerinde model önbelleklerini önceden doldurur (aşağıdaki Model bütünlüğü bölümüne bakın).
 - `services/` — iş mantığı: `document_pipeline`, `sanitizer` (core wrapper), `llm_router`, `vector_store`, `bm25_retriever`, `deanonymizer`, `prompts`, `approval_gate`, `gateway_client` (queue producer), `ingestion/`, `llm_providers/`, `recognizers/` (core üzerinde adaptör), `national_ids/` (core üzerinde adaptör).
 - `middleware/` — `auth.py` (JWT + API key), `rate_limit.py`.
 - `utils/` — `crypto.py` (AES-256-GCM), `auth_dependency.py`, `device.py`, `logging_config.py`, `metrics.py`, `text_utils.py`.
@@ -331,7 +334,7 @@ Next.js tarafında modern en iyi uygulamalar takip edilir:
 
 - App Router (segment tabanlı routing) kullanılır.
 - SSE ve streaming cevaplar için `EventSource` ya da `fetch` + `ReadableStream` kullanılır.
-- Tailwind CSS; `app`, `components` ve ilgili dizinleri tarayacak şekilde yapılandırılmıştır.
+- Tailwind CSS 4, CSS öncelikli yapılandırmayla: `src/app/globals.css` `tailwindcss` import eder ve temayı bir `@theme` bloğunda tanımlar; PostCSS `@tailwindcss/postcss` çalıştırır; `tailwind.config` dosyası yoktur.
 
 ---
 
@@ -354,11 +357,11 @@ Next.js tarafında modern en iyi uygulamalar takip edilir:
 - Next.js 16 (App Router)
 - React 19
 - TypeScript
-- Tailwind CSS
+- Tailwind CSS 4 (CSS öncelikli yapılandırma)
 - axios, react-dropzone, lucide-react
 
 **Altyapı**
-- Docker Compose (PostgreSQL 16 + Redis 7 + api + web + gateway + audit); `docker-compose*.yml` altında 4 topoloji varyantı
+- Docker Compose (PostgreSQL 16 + Redis 8 + api + web + gateway + audit); `docker-compose*.yml` altında 4 topoloji varyantı
 - Ollama (opsiyonel yerel LLM fallback)
 
 ---
@@ -375,6 +378,23 @@ Next.js tarafında modern en iyi uygulamalar takip edilir:
 - Yüklenen dosyalar diskte AES-256-GCM ile şifreli saklanır; çözme işlemi yalnızca önizleme sırasında ve bellek içinde yapılır.
 - Birden fazla regülasyon aynı anda aktifken her zaman **en kısıtlayıcı maskeleme** politikası uygulanır.
 - İsteğe bağlı **JWT kimlik doğrulama** (`POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`): her kullanıcının bir **rolü** vardır (`admin`, `editor`, `viewer`); oturum açıldığında dokümanlar ve sohbet oturumları ilgili kullanıcıya göre filtrelenir; hassas ayar güncellemeleri `admin` rolü gerektirir.
+
+### Bilinen sınırlamalar
+
+- **Coreference, token çakışmasına dayanır.** Adların token'ları çakıştığında anmalar aynı placeholder'ı paylaşır; örneğin "Elif" ile "Elif Demir", ya da "Demir" ile "Elif Demir". Aynı dokümanda aynı soyadı taşıyan iki farklı kişi, aynı placeholder'ı alabilir. Bir doküman aynı soyadlı birkaç kişiden söz ettiğinde, onay mekanizmasındaki maskeli prompt'u kontrol edin.
+
+---
+
+## Model bütünlüğü
+
+Septum, bir modelin adı Hugging Face'te çözülüyor diye o modeli yüklemez. Varsayılan her model bir commit'e sabitlenir ve çalışmadan önce kontrol edilir.
+
+- **Sabitlenmiş ve denetlenen dosyalar.** Varsayılan NER modelleri ve önerilen ön ayarlar, çok dilli sentence-transformers embedding modeli ve beş PaddleOCR modeli bir Hugging Face commit'ine sabitlenmiştir (`septum_core/model_pins.py`). Her dosya yüklenmeden önce SHA256 değeriyle denetlenir. Transformer modelleri yalnızca safetensors ağırlıklarını yükler ve uzak kod (remote code) kapalıdır. spaCy İngilizce modeli, hash'i sabitlenmiş bir wheel dosyasından kurulur. Whisper indirmeleri openai-whisper kayıt defterine göre doğrulanır ve yalnızca bu kayıt defterindeki model adları kabul edilir; yerel bir checkpoint yolu gibi diğer adlar `whisper_model_not_allowed` koduyla reddedilir.
+- **Uyuşmazlık.** Denetimi geçemeyen bir dosya, sabitlenmiş commit'ten yalnızca bağlantılı bir host'ta bir kez daha indirilir. Hâlâ geçemezse ya da host çevrimdışıysa (air-gapped compose dosyası `HF_HUB_OFFLINE=1` ayarlar), modele ihtiyaç duyan işlem doğrulanmış bir kopya yerine konana kadar `model_integrity_failed` koduyla reddedilir. Doküman yüklemesi dokümanı başarısız olarak işaretler ve reddetme kodunu `ingestion_error_code` alanına yazar (örneğin `model_integrity_failed`, özel bir model için `ner_model_unpinned`). Sohbette akış, kodsuz genel bir mesajla durur: "A model failed its integrity check; the request was refused." (Türkçe karşılığı: bir model bütünlük denetimini geçemedi; istek reddedildi.); kod yalnızca sunucu log'una yazılır.
+- **Özel NER modelleri.** `org/name@<40 karakterlik commit SHA>` biçiminde girilir ve yalnızca safetensors ağırlıkları kabul edilir. Commit'siz bir model kimliği `ner_model_unpinned` koduyla reddedilir. İlk kullanımda (yalnızca çevrimiçi) indirilen her dosya, o commit için Hub'ın kendi hash'iyle karşılaştırılır (LFS dosyalarında SHA256, diğerlerinde git blob SHA-1). Dosya hash'leri bunun ardından model volume'unun dışındaki bir user-pins dosyasına kaydedilir ve sonraki her yükleme bu kayda göre denetlenir. Çevrimdışı ilk kullanıma izin verilmez; bu yüzden özel model önce bağlantılı bir host'ta çekilmelidir.
+- **Air-gapped hostlar.** Modeller bağlantılı bir makinede `python -m septum_api.cli.models fetch` ile indirilip kopyalanır; `fetch --offline-check` kopyalanan dosyaları ağa çıkmadan doğrular. Ayrıntılar için [Kurulum Rehberi](installation.md#3-yalnız-air-gapped-bölge) bölümüne bakın.
+- **Bakımcılar.** `packages/api/scripts/pin_models.py` `model_pins.py` dosyasını Hub'dan yeniden üretir (`--write-manifest`) ve sabitlenmiş commit'lerden sapmayı raporlar (`--check`; sapma varsa çıkış durumu 1). İkisi de ağ erişimi gerektirir. `--from-manifest` çıktıları saklı manifest'ten, ağ olmadan yeniden üretir.
+- **E-posta doğrulaması** `tldextract` ile gelen public-suffix snapshot'ını kullanır; ağdan asla çekilmez (yukarıdaki `suffix_list.py`ye bakın).
 
 ---
 
@@ -425,7 +445,7 @@ Tam OpenAPI şeması, uygulama çalışırken `http://localhost:3000/docs` adres
 ---
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Ana Sayfa</strong></a>
+  <a href="./index.md"><strong>🏠 Ana Sayfa</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;

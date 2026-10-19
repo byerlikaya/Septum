@@ -23,7 +23,8 @@ pip install -r packages/api/requirements.txt
 | `septum_api.database` | Tembel başlatılan async SQLAlchemy engine, SQLite WAL ayarları, seed varsayılanları. |
 | `septum_api.main` | FastAPI app factory + lifespan + middleware bağlantıları + OpenAPI özelleştirmesi. |
 | `septum_api.models` | ORM taban sınıfı ve `AppSettings`, `User`, `Document`, `ChatSession`, `RegulationRuleset`, `ApiKey`, `AuditEvent`, `EntityDetection`, `ErrorLog`. |
-| `septum_api.routers` | 14 APIRouter modülü (`auth`, `api_keys`, `chat`, `chat_sessions`, `chunks`, `documents`, `regulations`, `settings`, `setup`, `users`, `approval`, `audit`, `error_logs`, `text_normalization`). |
+| `septum_api.routers` | 15 APIRouter modülü (`auth`, `api_keys`, `chat`, `chat_sessions`, `chunks`, `documents`, `regulations`, `relationships`, `settings`, `setup`, `users`, `approval`, `audit`, `error_logs`, `text_normalization`). |
+| `septum_api.cli` | `python -m septum_api.cli.models fetch` bağlantılı bir host'ta model önbelleklerini önceden doldurur (aşağıya bakın). |
 | `septum_api.services` | Doküman hattı, sanitizer sarmalayıcı, `llm_router`, `vector_store`, `bm25_retriever`, `deanonymizer`, `prompts`, `approval_gate`, `gateway_client` (kuyruk üreticisi), `ingestion/`, `llm_providers/`. |
 | `septum_api.middleware` | `auth.py` (JWT + API anahtarı çözümü) ve `rate_limit.py` (slowapi + route bazlı limitler). |
 | `septum_api.utils` | Crypto (AES-256-GCM), `auth_dependency`, Prometheus metrikleri, yapılandırılmış loglama. |
@@ -43,6 +44,10 @@ config = bootstrap.get_config()
 initialize_engine(build_database_url(config.database_url, config.db_path))
 # uvicorn septum_api.main:app
 ```
+
+## Model çekme (air-gapped hostlar)
+
+Varsayılan modeller bir Hugging Face commit'ine sabitlenmiş ve dosya dosya denetlenir (bkz. [mimari](../../docs/tr/architecture.md#model-bütünlüğü)). Bağlantılı bir host'ta `HF_HUB_OFFLINE=0` ile `python -m septum_api.cli.models fetch` çalıştırın; kopyalanan bir önbelleği ağa çıkmadan doğrulamak için `--offline-check` kullanın. Air-gapped hostlarda çalışma anında hiçbir şeyin indirilmemesi için `HF_HUB_OFFLINE=1` ayarlayın.
 
 ## Bölge kuralları
 

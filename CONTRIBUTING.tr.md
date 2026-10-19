@@ -30,7 +30,7 @@ cd Septum
 
 Gereksinimler:
 - Python 3.11+ (3.13'e kadar test edilmiş)
-- Node.js 20+
+- Node.js 22+
 - ffmpeg (Whisper ses ingest'i için)
 
 İlk ziyarette kurulum sihirbazı açılır. Manuel `.env` düzenlemesi yok.
@@ -112,6 +112,14 @@ Güvenlik issue'larını lütfen açık şekilde yazmayın.
 [GitHub profilinde](https://github.com/byerlikaya) listelenen
 adresten bakımcıya e-posta atın; düzeltme ve duyuruyu birlikte
 planlarız.
+
+## Projeye destek olun
+
+Septum açık kaynak bir projedir (MIT lisanslı) ve geliştirme süreci herkese açık yürütülür. Bir gizlilik ihlalinin önüne geçmenize, ekibinizin hızlanmasına ya da LLM akışınızın güvenli kalmasına yardımcı olduysa:
+
+- ⭐ **[GitHub'da repoyu yıldızlayın](https://github.com/byerlikaya/Septum)** — bu projenin sürdürülmeye değer olduğunu gösteren en güçlü sinyal.
+- **Issue açın** — bildirdiğiniz her hata ve eksik özellik yol haritasını şekillendirir.
+- **Ekibinize anlatın** — gizlilik öncelikli AI araçları hâlâ nadir; kulaktan kulağa yayılma her reklamdan daha etkili.
 
 ## Lisans
 

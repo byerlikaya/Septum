@@ -1,4 +1,4 @@
-<p align="center" class="home-logo">
+<p align="center">
   <img src="assets/septum_logo.svg" alt="Septum logosu" width="320" />
 </p>
 
@@ -7,9 +7,6 @@
 <p align="center">
   <a href="https://github.com/byerlikaya/Septum/actions/workflows/tests.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/byerlikaya/Septum/tests.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=tests&color=43A047" alt="CI Testler" />
-  </a>
-  <a href="https://github.com/byerlikaya/Septum/stargazers">
-    <img src="https://img.shields.io/github/stars/byerlikaya/Septum?style=for-the-badge&logo=github&logoColor=white&label=stars&color=F59E0B" alt="GitHub Yıldızları" />
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/github/license/byerlikaya/Septum?style=for-the-badge&logo=opensourceinitiative&logoColor=white&label=license&color=607D8B" alt="Lisans: MIT" />
@@ -20,163 +17,56 @@
 </p>
 
 <p align="center">
-  <strong>🏠 Ana Sayfa</strong>
+  <a href="https://byerlikaya.github.io/Septum/tr/"><strong>🏠 Dokümantasyon</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/tr/installation.md"><strong>🚀 Kurulum</strong></a>
+  <a href="https://byerlikaya.github.io/Septum/tr/installation"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/tr/benchmark.md"><strong>📈 Benchmark</strong></a>
+  <a href="https://byerlikaya.github.io/Septum/tr/features"><strong>✨ Özellikler</strong></a>
   &nbsp;·&nbsp;
-  <a href="docs/tr/features.md"><strong>✨ Özellikler</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/tr/architecture.md"><strong>🏗️ Mimari</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/tr/document-ingestion.md"><strong>📊 Doküman İşleme</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/tr/screenshots.md"><strong>📸 Ekran Görüntüleri</strong></a>
+  <a href="https://byerlikaya.github.io/Septum/tr/architecture"><strong>🏗️ Mimari</strong></a>
 </p>
 
 ---
 
 ## Septum Nedir?
 
-Septum, sizinle bulut LLM'leri arasında duran **gizlilik öncelikli bir AI ara katmanıdır**. ChatGPT, Claude, Gemini ya da başka bir LLM'e hassas şirket verilerinizle sorular sorabilir, rahatça sohbet edebilirsiniz; Septum kişisel bilgileri **buluta çıkmadan önce** yerelde tespit edip maskeler.
+Septum, gizlilik öncelikli bir AI ara katmanıdır. Kendi dokümanlarınızı yükleyip bu dokümanlar hakkında, ya da sohbet ederek ChatGPT, Claude, Gemini ya da başka bir bulut LLM'ine soru sorarsınız. Makinenizden hiçbir şey çıkmadan önce Septum kişisel bilgileri tespit eder ve yerine placeholder koyar.
 
+Bulut LLM'leri şirket bilgisinde çok işe yarar; ama bu bilginin içinde isimler, kimlik numaraları, telefonlar ve adresler vardır. Septum bu değerleri bulut isteğinin dışında tutar, sizin okuduğunuz cevapta ise gerçek değerleri geri yazar. Bulut modeli işi yapar, kişisel veriyi görmez.
 
+Septum aynı anda birden çok gizlilik regülasyonunu uygular (17 hazır paket; en kısıtlayıcı kural geçerli olur) ve ham kişisel veri içermeyen bir denetim kaydı tutar.
 
-> **Tek cümleyle:** Septum, LLM gücünden faydalanıp kişisel veri sızdırmak istemeyen ekipler için bir güvenlik katmanıdır — veri ister bir dokümanda, ister yazdığınız bir cümlede olsun.
+## Nasıl çalışır?
 
-**Önce ve sonra — LLM'in gerçekte gördüğü:**
+1. **Yerelde maskele.** Dokümanlarınız ve yazdığınız sorular yerel tespitten geçer. Her kişisel değer `[PERSON_NAME_1]` gibi bir placeholder'a dönüşür.
+2. **İncele.** Onay kapısı açıkken, göndermeden önce maskeli soruyu, getirilen parçaları ve tam isteği görürsünüz.
+3. **Bulut LLM'ine sor.** Yalnızca maskeli metin gönderilir.
+4. **Yerelde geri yaz.** Cevaptaki placeholder'lar makinenizde gerçek değerlerle değiştirilir.
 
 ```
-Doküman parçası:  "Ahmet Yılmaz 1985'te İstanbul'da doğdu. Annesi Ayşe, babası Ali'dir."
-Maskeli:          "[PERSON_1] 1985'te [LOCATION_1]'da doğdu. Annesi [PERSON_2], babası [PERSON_3]'dir."
-
-Kullanıcı sorusu: "Anne adı Ayşe, baba adı Ali olan Ahmet Yılmaz'ın doğum yeri neresidir?"
-Maskeli:          "Anne adı [PERSON_1], baba adı [PERSON_2] olan [PERSON_3]'ın doğum yeri neresidir?"
+Doküman parçası:  Elif Demir (TCKN 10000000146) taburcu edildi.
+Buluta giden:     [PERSON_NAME_1] (TCKN [NATIONAL_ID_1]) taburcu edildi.
 ```
 
-LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerçek değerleri yerelde geri yazar.
-
----
-
-## Nasıl Çalışır?
-
-<p align="center">
-  <a href="#nasıl-çalışır"><img src="assets/how-it-works.tr.svg" alt="Septum sohbet akışı — kullanıcıdan ham soru, yerelde PII maskeleme, buluta maskeli soru, maskeli cevap, yerelde placeholder geri yazma, gerçek cevap kullanıcıya" width="820" /></a>
-</p>
-
-1. **Dokümanlarınızı yükleyin** — Septum dosya tipini ve dili otomatik algılar, tüm kişisel verileri maskeler ve içeriği anonimleştirilmiş haliyle aramaya hazırlar. *([📊 Akış diyagramı](docs/tr/document-ingestion.md))*
-2. **Sohbette soru sorun** — dilerseniz belirli dokümanları seçin, dilerseniz boş bırakıp kararı Septum'a bırakın. Seçim yoksa yerel Ollama sınıflandırıcısı soruyu ya Otomatik RAG'a (tüm indekslenmiş dokümanları arayıp ilgili parçaları çıkarır) ya da doğrudan sohbet yoluna yönlendirir.
-3. **Sorunuz da maskelenir** — aynı üç katmanlı hat yalnızca dokümanlarda değil, sizin yazdığınız mesajda da çalışır. İsim, telefon, e-posta, kimlik numarası — hepsi retrieval öncesinde placeholder'a dönüşür.
-4. **Göndermeden önce onaylayın** — maskeli sorunuz, getirilen parçalar ve buluta gidecek birleşik istek yan yana gösterilir. Onaylarsınız ya da reddedersiniz.
-5. **Cevap gerçek değerlerle gelir** — placeholder'lar yerelde geri yazılır; siz doğal, okunabilir bir cevap görürsünüz.
-
----
-
-## Mimari
-
-Septum, üç güvenlik bölgesine ayrılmış 7 bağımsız modülden oluşur. Air-gapped modüller ham PII'yi işler ve internete çıkmaz. Köprü yalnızca maskeli placeholder taşır. Internet-facing modüller ham PII'yi asla görmez.
-
-<p align="center">
-  <a href="#mimari"><img src="assets/architecture.tr.svg" alt="Septum mimarisi — 3 güvenlik bölgesine dağıtılmış 7 modül (air-gapped, köprü, internet-facing)" width="800" /></a>
-</p>
-
-| Paket | Bölge | Görevi |
-|:---|:---|:---|
-| [`septum-core`](packages/core/) | Air-gapped | PII tespit, maskeleme, geri alma, regülasyon motoru |
-| [`septum-mcp`](packages/mcp/) | Air-gapped | Claude Desktop, ChatGPT, Cursor için MCP sunucusu |
-| [`septum-api`](packages/api/) | Air-gapped | FastAPI REST katmanı + model, servis, auth |
-| [`septum-web`](packages/web/) | Air-gapped | Next.js 16 dashboard |
-| [`septum-queue`](packages/queue/) | Gateway | Bölgeler arası broker (dosya / Redis Streams) |
-| [`septum-gateway`](packages/gateway/) | Internet-facing | Bulut LLM yönlendirici — `septum-core`'u asla içe aktarmaz |
-| [`septum-audit`](packages/audit/) | Internet-facing | Uyumluluk kaydı + SIEM export — `septum-core`'u asla içe aktarmaz |
-
-Modül kontratları ve bölge kuralları [Mimari](docs/tr/architecture.md) dokümanında.
-
----
-
-## Öne Çıkan Özellikler
-
-- **Yerel PII Koruması** — üç katmanlı tespit (Presidio + NER + isteğe bağlı Ollama), hem yüklenen dokümanlarda hem de yazdığınız mesajlarda çalışır. Dokümanlar şifreli saklanır (AES-256-GCM).
-- **Onay Kapısı** — her LLM çağrısından önce maskeli prompt, getirilen parçalar ve buluta gidecek hazır istek yan yana görünür. Siz onaylamadan hiçbir şey gönderilmez.
-- **17 Regülasyon Paketi** — GDPR, KVKK, CCPA, HIPAA, LGPD, PIPEDA, PDPA, APPI, PIPL, POPIA, DPDP, UK GDPR ve daha fazlası. Aynı anda birden çoğu aktif olabilir; en kısıtlayıcı kural kazanır. Bölgeye özgü kimlik doğrulayıcıları (TCKN, Aadhaar Verhoeff, NRIC/FIN, CPF, NINO, CNPJ, My Number ve fazlası) algoritmiktir.
-- **Otomatik RAG Yönlendirme** — doküman seçilmediğinde yerel Ollama sınıflandırıcısı soruyu ya Otomatik RAG'a (tüm dokümanları arar) ya da doğrudan sohbet yoluna yönlendirir. Otomatik RAG varlık-farkındalıdır: retrieval'ı yalnızca sorgulanan PII'yi gerçekten içeren dokümanlara daraltır; belirsiz eşleşmeler için bir doküman seçici çıkar.
-- **Özel Kurallar** — regex, anahtar kelime listesi ya da LLM-prompt tabanlı kendi tanıyıcılarınızı tanımlayın.
-- **Zengin Format Desteği** — PDF, Office, hesap tabloları, görseller (OCR), ses (Whisper), e-postalar.
-- **Hibrit Retrieval** — BM25 kelime eşleme + FAISS semantik arama, Reciprocal Rank Fusion ile birleştirilir.
-- **Çoklu Sağlayıcı** — Anthropic, OpenAI, OpenRouter veya yerel Ollama. Arayüzden değiştirin. Ollama URL'i bu makineyi (localhost veya loopback, `host.docker.internal`, `host.containers.internal`) ya da kendi compose yığınınızdaki paketli `ollama` servisini göstermelidir; uzak Ollama sunucuları reddedilir.
-- **JWT + RBAC + API Anahtarları** — ilk kullanıcı kurulum sihirbazında otomatik olarak admin yapılır; admin arayüzünden rol yönetimi (admin / editor / viewer) sağlanır. Programatik API anahtarları SHA-256 hash'li saklanır, rate limit anahtarın önekine göre uygulanır.
-- **MCP Sunucusu** — bağımsız `septum-mcp`, aynı yerel maskeleme hattını MCP uyumlu her istemciye açar: stdio üzerinden lokal istemciler (Claude Desktop, Cursor, Windsurf) ya da streamable-http / sse üzerinden uzak, tarayıcı ve container istemciler için bearer-token auth'lu.
-- **Doküman İlişki Grafiği** — hangi dokümanların aynı varlıkları (kişi, IBAN, kimlik, organizasyon) paylaştığını cytoscape tabanlı görsel haritada gösterir. Her düğümün içinde benzersiz varlık sayısı; kenar kalınlığı varlık benzersizliğine göre ölçeklenir, paylaşılan bir NATIONAL_ID paylaşılan bir şehir adından ağır basar.
-- **Kaynak Atıfı** — belgeye dayalı her sohbet yanıtının altında hangi dokümanlardan ne kadar parça kullanıldığı görünür; doküman başına genişleyebilir liste her cevabın altında durur.
-- **Denetim Kaydı** — salt-ekleme uyumluluk günlüğü ve varlık tespit metrikleri. Denetim olaylarında ham PII yoktur.
-
-Tam tespit benchmark'ı, regülasyon paket tablosu, MCP entegrasyon kılavuzu, REST API + kimlik doğrulama referansı ve "neden Septum" karşılaştırması için [Özellikler](docs/tr/features.md) dokümanına bakın. Her Septum ekranının görsel turu — kurulum sihirbazı, onay kapısı, doküman önizleme, ayarlar sekmeleri, özel regülasyon kuralları, denetim kaydı — için [Ekran Görüntüleri](docs/tr/screenshots.md) sayfasına bakın.
-
----
-
-## Hızlı Başlangıç
-
-Septum kaynaktan kurulur: depoyu klonlayın ve image'ları birlikte gelen compose dosyalarıyla yerelde derleyin. Önerilen kurulum, PostgreSQL, Redis, Ollama ve Septum'u tek komutla derleyip birlikte ayağa kaldırır:
+## Hızlı başlangıç
 
 ```bash
 git clone https://github.com/byerlikaya/Septum.git && cd Septum
-cp .env.example .env
-# .env dosyasını editörünüzde açıp POSTGRES_PASSWORD ve REDIS_PASSWORD'ü doldurun
-docker compose up --build
+docker compose -f docker-compose.standalone.yml up --build
 ```
 
-**http://localhost:3000** adresini açın — sihirbaz veritabanı, cache, LLM sağlayıcı, regülasyonlar ve ilk admin hesabını sırayla yapılandırır.
+**http://localhost:3000** adresini açın. Kurulum sihirbazı veritabanı, cache, LLM sağlayıcısı, regülasyonlar ve yönetici hesabını yapılandırır. Tam yığın, air-gapped ve internete açık bölgelerin ayrımı ya da kaynaktan kurulum için [Kurulum Rehberi](https://byerlikaya.github.io/Septum/tr/installation) sayfasına bakın.
 
-Septum artık container image'ı yayınlamıyor; Docker Hub'daki eski `byerlikaya/septum*` image'ları duruyor ancak güncellenmiyor.
+## Dokümantasyon
 
-Daha sade bir tek container demosu, iki makineli air-gapped ayrım, Ollama'sız yalnız bulut kurulumu ya da katkı sağlayanlar için kaynaktan geliştirici kurulumu mu arıyorsunuz? **[Kurulum Rehberi](docs/tr/installation.md)** desteklenen beş topolojiyi, sistem gereksinimlerini, ilk açılış sihirbazını, güncelleme akışını ve sorun gidermeyi tek sayfada toplar.
+- [Kurulum](https://byerlikaya.github.io/Septum/tr/installation): topolojiler, kurulum sihirbazı, güncelleme, sorun giderme
+- [Özellikler](https://byerlikaya.github.io/Septum/tr/features): tespit hattı, regülasyon paketleri, MCP sunucusu, REST API
+- [Mimari](https://byerlikaya.github.io/Septum/tr/architecture): modüller, güvenlik bölgeleri, model bütünlüğü, denetim kaydı
+- [İş akışları](https://byerlikaya.github.io/Septum/tr/workflows) ve [Kullanım senaryoları](https://byerlikaya.github.io/Septum/tr/use-cases)
+- [Benchmark](https://byerlikaya.github.io/Septum/tr/benchmark): regülasyon ve veri kaynağı bazında tespit sonuçları
+- [Değişiklik günlüğü](https://byerlikaya.github.io/Septum/tr/changelog)
+- [Katkıda bulunma](CONTRIBUTING.tr.md)
 
----
+## Destek ve lisans
 
-## Model bütünlüğü
-
-Septum, bir modelin adı Hugging Face'te çözülüyor diye o modeli yüklemez. Varsayılan her model bir commit'e sabitlenir ve çalışmadan önce kontrol edilir.
-
-- **Sabitlenmiş ve denetlenen dosyalar.** Varsayılan NER modelleri ve önerilen ön ayarlar, çok dilli sentence-transformers embedding modeli ve beş PaddleOCR modeli bir Hugging Face commit'ine sabitlenmiştir. Her dosya yüklenmeden önce SHA256 değeriyle denetlenir. Transformer modelleri yalnızca safetensors ağırlıklarını yükler ve uzak kod (remote code) kapalıdır. spaCy İngilizce modeli, hash'i sabitlenmiş bir wheel dosyasından kurulur. Whisper indirmeleri openai-whisper kayıt defterine göre doğrulanır ve yalnızca bu kayıt defterindeki model adları kabul edilir.
-- **Uyuşmazlık.** Denetimi geçemeyen bir dosya, sabitlenmiş commit'ten yalnızca bağlantılı bir host'ta bir kez daha indirilir. Hâlâ geçemezse ya da host çevrimdışıysa (air-gapped compose dosyası `HF_HUB_OFFLINE=1` ayarlar), modele ihtiyaç duyan işlem doğrulanmış bir kopya yerine konana kadar `model_integrity_failed` koduyla reddedilir. Doküman yüklemesi dokümanı bu kodla başarısız olarak işaretler; sohbet cevap yerine aynı kodu döndürür.
-- **Özel NER modelleri.** `org/name@<40 karakterlik commit SHA>` biçiminde girilir ve yalnızca safetensors ağırlıkları kabul edilir. Commit'siz bir model kimliği `ner_model_unpinned` koduyla reddedilir. İlk kullanımda (yalnızca çevrimiçi) indirilen her dosya, o commit için Hub'ın kendi hash'iyle karşılaştırılır (LFS dosyalarında SHA256, diğerlerinde git blob SHA-1). Dosya hash'leri bunun ardından model volume'unun dışındaki bir user-pins dosyasına kaydedilir ve sonraki her yükleme bu kayda göre denetlenir. Çevrimdışı ilk kullanıma izin verilmez; bu yüzden özel model önce bağlantılı bir host'ta çekilmelidir.
-
-Air-gapped (internetsiz) hostlarda modeller bağlantılı bir makinede indirilip kopyalanır. Ayrıntılar için [Kurulum Rehberi](docs/tr/installation.md#3-yalnız-air-gapped-bölge) bölümüne bakın.
-
-**Yükseltme sonrası.** Önceki sürümden kalan model önbellekleri sabitlenmiş commit'lerle eşleşmeyebilir. Bir sonraki çevrimiçi açılışta, bekleyen denetlenmemiş dosyalar içeren sabitlenmiş bir snapshot temizlenir ve bir kez yeniden indirilir; çevrimdışıysa, yeniden çekilene kadar reddedilir. Air-gapped bir kurulum, fetch komutunu bağlantılı bir host'ta yeniden çalıştırıp models volume'unu ve user-pins dosyasını kopyalamalıdır. Kayıtlı commit'siz özel NER kimliği ya da kayıt defteri dışındaki bir Whisper modeli adı (yerel bir checkpoint yolu gibi) reddedilir ve Ayarlar'dan değiştirilmelidir. Ön yükleme kapalı değilse, başlangıç günlüğü reddedilecek her saklı özel NER modeli veya Whisper modeli için yalnızca hata kodlarıyla uyarı verir.
-
----
-
-## Projeye Destek Olun
-
-Septum açık kaynak bir projedir (MIT lisanslı) ve geliştirme süreci herkese açık yürütülür. Bir gizlilik ihlalinin önüne geçmenize, ekibinizin hızlanmasına ya da LLM akışınızın güvenli kalmasına yardımcı olduysa:
-
-- ⭐ **[GitHub'da repoyu yıldızlayın](https://github.com/byerlikaya/Septum)** — bu projenin sürdürülmeye değer olduğunu gösteren en güçlü sinyal.
-- **Issue açın** — bildirdiğiniz her hata ve eksik özellik yol haritasını şekillendirir.
-- **Ekibinize anlatın** — gizlilik öncelikli AI araçları hâlâ nadir; kulaktan kulağa yayılma her reklamdan daha etkili.
-
-
----
-
-## Lisans
-
-Ayrıntılar için [LICENSE](LICENSE) dosyasına bakın.
-
----
-
-<p align="center">
-  <strong>🏠 Ana Sayfa</strong>
-  &nbsp;·&nbsp;
-  <a href="docs/tr/installation.md"><strong>🚀 Kurulum</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/tr/benchmark.md"><strong>📈 Benchmark</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/tr/features.md"><strong>✨ Özellikler</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/tr/architecture.md"><strong>🏗️ Mimari</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/tr/document-ingestion.md"><strong>📊 Doküman İşleme</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/tr/screenshots.md"><strong>📸 Ekran Görüntüleri</strong></a>
-</p>
+Septum, MIT lisansıyla açık kaynak bir projedir; ayrıntılar için [LICENSE](LICENSE) dosyasına bakın. Size faydalı olduysa [GitHub'da](https://github.com/byerlikaya/Septum) repoyu yıldızlayın ve ihtiyacınız olan bir hata ya da eksik özellik için issue açın.

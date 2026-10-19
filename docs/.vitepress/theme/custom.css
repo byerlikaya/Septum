@@ -1,3 +1,40 @@
+/* Brand tokens. The logo is steel blue with a silver wordmark, so the
+ * accent follows the logo instead of the default indigo. Values are
+ * chosen to hold WCAG AA (4.5:1 text) on both page backgrounds. */
+:root {
+  --vp-c-brand-1: #2a6aa8;
+  --vp-c-brand-2: #3a7cbb;
+  --vp-c-brand-3: #1f5688;
+  --vp-c-brand-soft: rgba(42, 106, 168, 0.12);
+
+  --septum-accent-line: rgba(42, 106, 168, 0.4);
+  --septum-card-shadow: 0 14px 32px -18px rgba(15, 23, 42, 0.32);
+  --septum-media-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 12px 28px -18px rgba(15, 23, 42, 0.3);
+  --septum-icon-bg: rgba(42, 106, 168, 0.1);
+  --septum-icon-line: rgba(42, 106, 168, 0.22);
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(115deg, #1f5688 0%, #2a6aa8 45%, #4b6f96 100%);
+  --vp-home-hero-image-background-image: radial-gradient(circle, rgba(42, 106, 168, 0.32) 0%, rgba(42, 106, 168, 0) 68%);
+  --vp-home-hero-image-filter: blur(36px);
+}
+
+.dark {
+  --vp-c-brand-1: #7dafda;
+  --vp-c-brand-2: #9cc4ea;
+  --vp-c-brand-3: #579cd4;
+  --vp-c-brand-soft: rgba(125, 175, 218, 0.16);
+
+  --septum-accent-line: rgba(125, 175, 218, 0.45);
+  --septum-card-shadow: 0 16px 36px -20px rgba(0, 0, 0, 0.7);
+  --septum-media-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 14px 32px -20px rgba(0, 0, 0, 0.7);
+  --septum-icon-bg: rgba(125, 175, 218, 0.12);
+  --septum-icon-line: rgba(125, 175, 218, 0.24);
+
+  --vp-home-hero-name-background: linear-gradient(115deg, #7dafda 0%, #b9d3ea 55%, #dbe5ef 100%);
+  --vp-home-hero-image-background-image: radial-gradient(circle, rgba(125, 175, 218, 0.26) 0%, rgba(125, 175, 218, 0) 68%);
+}
+
 /* Align body content with the header rail (logo … GitHub). VitePress
  * applies three nested width caps to the body — the outer .container,
  * the inner .content, and an extra .content-container cap of 688px.
@@ -173,3 +210,482 @@ html:not(.dark) .vp-doc p.home-logo {
   cursor: pointer;
 }
 
+
+/* Landing hero logo: same dark card as the header wordmark in light mode,
+ * so the near-white wordmark stays legible on a light page. */
+html:not(.dark) .VPHero .image-src {
+  background: #0f172a;
+  border-radius: 18px;
+  padding: 16px;
+  box-sizing: content-box;
+}
+
+/* ---------------------------------------------------------------------
+ * Premium layer: typography, hero, feature cards, content media,
+ * code, tables, custom blocks, focus. Scoped to VitePress' own class
+ * names; the rules above are untouched.
+ * ------------------------------------------------------------------- */
+
+/* Hero */
+.VPHero .name {
+  letter-spacing: -0.035em;
+  font-weight: 700;
+}
+.VPHero .text {
+  letter-spacing: -0.025em;
+  font-weight: 600;
+}
+.VPHero .tagline {
+  color: var(--vp-c-text-2);
+  line-height: 1.65;
+}
+.VPHero .image-bg {
+  opacity: 0.9;
+}
+html:not(.dark) .VPHero .image-src {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 28px 56px -30px rgba(15, 23, 42, 0.6);
+}
+.VPHero .actions .VPButton.brand {
+  box-shadow: 0 10px 24px -14px var(--vp-c-brand-1);
+}
+
+/* Feature cards */
+.VPFeatures .item .VPFeature {
+  border-radius: 16px;
+  border-color: var(--vp-c-divider);
+  background-color: var(--vp-c-bg-soft);
+  transition:
+    transform 0.25s ease,
+    border-color 0.25s ease,
+    box-shadow 0.25s ease,
+    background-color 0.25s ease;
+}
+.VPFeatures .item .VPFeature.link:hover {
+  transform: translateY(-2px);
+  border-color: var(--septum-accent-line);
+  box-shadow: var(--septum-card-shadow);
+}
+.VPFeatures .item .VPFeature .box {
+  padding: 26px 24px 24px;
+}
+.VPFeatures .item .VPFeature .icon {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 18px;
+  border-radius: 10px;
+  color: var(--vp-c-brand-1);
+  background-color: var(--septum-icon-bg);
+  box-shadow: inset 0 0 0 1px var(--septum-icon-line);
+}
+.VPFeatures .item .VPFeature .icon svg {
+  width: 22px;
+  height: 22px;
+}
+.VPFeatures .item .VPFeature .title {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 1.35;
+  border-top: 0;
+  padding-top: 0;
+}
+.VPFeatures .item .VPFeature .details {
+  font-size: 0.925rem;
+  line-height: 1.65;
+  color: var(--vp-c-text-2);
+}
+
+/* Doc typography */
+.vp-doc h1 {
+  letter-spacing: -0.03em;
+  font-weight: 700;
+}
+.vp-doc h2 {
+  letter-spacing: -0.022em;
+  font-weight: 650;
+  margin-top: 52px;
+}
+.vp-doc h3 {
+  letter-spacing: -0.014em;
+  font-weight: 600;
+}
+.vp-doc p,
+.vp-doc li {
+  line-height: 1.75;
+}
+.vp-doc li + li {
+  margin-top: 0.3em;
+}
+.vp-doc code {
+  border-radius: 6px;
+}
+
+/* Screenshots and diagrams: framed, rounded, lifted. Badges and
+ * navigation images are excluded (they sit inside links or centred
+ * rows), as is the home logo. */
+.vp-doc :not(a, .home-logo, [align="center"]) > img:not(.no-zoom) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid var(--vp-c-divider);
+  box-shadow: var(--septum-media-shadow);
+  background-color: var(--vp-c-bg-soft);
+}
+.vp-doc :not(a, .home-logo, [align="center"]) > img:not(.no-zoom)[src$=".svg"] {
+  padding: 16px;
+  box-sizing: border-box;
+  background-color: var(--vp-c-bg);
+}
+
+/* Code blocks */
+.vp-doc div[class*="language-"] {
+  border-radius: 12px;
+  border: 1px solid var(--vp-c-divider);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.vp-doc div[class*="language-"] pre,
+.vp-doc div[class*="language-"] code {
+  font-size: 0.8125rem;
+  line-height: 1.7;
+}
+.vp-doc .vp-code-group {
+  border-radius: 12px;
+  border: 1px solid var(--vp-c-divider);
+  overflow: hidden;
+}
+.vp-doc .vp-code-group div[class*="language-"] {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Tables */
+.vp-doc th {
+  font-weight: 600;
+  background-color: var(--vp-c-bg-soft);
+}
+.vp-doc td,
+.vp-doc th {
+  padding: 10px 14px;
+}
+
+/* Custom blocks (tip / warning / info) */
+.custom-block {
+  border-radius: 12px;
+}
+.custom-block-title {
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+/* Navigation and outline active states */
+.VPNavBarMenuLink.active {
+  font-weight: 600;
+}
+.VPDocAsideOutline .outline-link.active {
+  font-weight: 600;
+}
+
+/* Keyboard focus: visible, brand-coloured, never removed. */
+.VPFeature:focus-visible,
+.VPButton:focus-visible,
+.VPLink:focus-visible,
+.vp-doc a:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* Reduced motion: no lift, no colour transitions on the cards. */
+@media (prefers-reduced-motion: reduce) {
+  .VPFeatures .item .VPFeature,
+  .VPFeatures .item .VPFeature .icon {
+    transition: none;
+  }
+  .VPFeatures .item .VPFeature.link:hover {
+    transform: none;
+  }
+}
+
+/* ---------------------------------------------------------------------
+ * Premium layer 2: doc pages. Header rule, outline, pager, footer,
+ * screenshot frames, chart cards and data tables. Scoped to `.doc-page`
+ * and `.page-<slug>`, which config.mjs sets on every non-home Layout.
+ * Selectors carry enough specificity to beat the base media rules above
+ * (ties resolve in favour of this later block).
+ * ------------------------------------------------------------------- */
+
+:root {
+  --septum-chrome: #eef2f6;
+  --septum-chrome-line: rgba(15, 23, 42, 0.1);
+  --septum-chrome-dot: rgba(15, 23, 42, 0.24);
+  --septum-chart-card: #ffffff;
+  --septum-chart-line: #d5dde7;
+  --septum-zebra: rgba(15, 23, 42, 0.03);
+}
+
+.dark {
+  --septum-chrome: #1d2632;
+  --septum-chrome-line: rgba(255, 255, 255, 0.08);
+  --septum-chrome-dot: rgba(255, 255, 255, 0.26);
+  --septum-chart-line: rgba(255, 255, 255, 0.16);
+  --septum-zebra: rgba(255, 255, 255, 0.03);
+}
+
+/* Page header: the first h1 sits on a short brand rule. */
+.doc-page .vp-doc > h1:first-child {
+  font-size: clamp(1.875rem, 1.45rem + 1.1vw, 2.25rem);
+  line-height: 1.18;
+  text-wrap: balance;
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+.doc-page .vp-doc > h1:first-child::after {
+  content: "";
+  display: block;
+  width: 56px;
+  height: 3px;
+  margin-top: 16px;
+  margin-bottom: 24px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--vp-c-brand-1), var(--vp-c-brand-2) 60%, transparent);
+}
+
+/* "On this page" outline: quieter labels, brand active state. */
+@media (min-width: 960px) {
+  .doc-page .VPDocAsideOutline .outline-title {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--vp-c-text-2);
+  }
+  .doc-page .VPDocAsideOutline .outline-link {
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    padding-block: 3px;
+    color: var(--vp-c-text-2);
+  }
+  .doc-page .VPDocAsideOutline .outline-link:hover,
+  .doc-page .VPDocAsideOutline .outline-link.active {
+    color: var(--vp-c-brand-1);
+  }
+  .doc-page .VPDocAsideOutline .outline-marker {
+    border-radius: 2px;
+  }
+}
+
+/* Prev / next pager: cards that match the home feature cards. */
+.doc-page .VPDocFooter {
+  margin-top: 56px;
+  padding-top: 8px;
+  border-top: 1px solid var(--vp-c-divider);
+}
+.doc-page .VPDocFooter .prev-next {
+  gap: 12px;
+}
+.doc-page .pager-link {
+  border-radius: 14px;
+  border-color: var(--vp-c-divider);
+  background-color: var(--vp-c-bg-soft);
+  padding: 16px 20px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.doc-page .pager-link:hover {
+  border-color: var(--septum-accent-line);
+  box-shadow: var(--septum-card-shadow);
+}
+.doc-page .pager-link .desc {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vp-c-text-2);
+}
+.doc-page .pager-link .title {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--vp-c-brand-1);
+}
+.doc-page .VPDocFooter .edit-info,
+.doc-page .VPDocFooter .last-updated {
+  font-size: 0.8125rem;
+  color: var(--vp-c-text-2);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .doc-page .pager-link {
+    transition:
+      transform 0.25s ease,
+      border-color 0.25s ease,
+      box-shadow 0.25s ease;
+  }
+  .doc-page .pager-link:hover {
+    transform: translateY(-2px);
+  }
+}
+
+/* Footer: a hairline and quieter copy, links brand on hover. */
+.VPFooter {
+  border-top: 1px solid var(--vp-c-divider);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--vp-c-text-2);
+}
+.VPFooter .message a,
+.VPFooter .copyright a {
+  color: var(--vp-c-text-2);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+.VPFooter .message a:hover,
+.VPFooter .copyright a:hover {
+  color: var(--vp-c-brand-1);
+}
+
+/* Screenshots: app captures sit in a browser window frame. The frame
+ * is the image's own top padding painted with a background, so the
+ * image remains a single element and medium-zoom still zooms it. */
+.page-screenshots .vp-doc img:not(.no-zoom)[src$=".png"],
+.page-screenshots .vp-doc img:not(.no-zoom)[src$=".gif"] {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+  box-sizing: border-box;
+  padding-top: 34px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background-color: var(--vp-c-bg-soft);
+  background-image:
+    radial-gradient(circle at 16px 17px, var(--septum-chrome-dot) 4px, transparent 4.5px),
+    radial-gradient(circle at 30px 17px, var(--septum-chrome-dot) 4px, transparent 4.5px),
+    radial-gradient(circle at 44px 17px, var(--septum-chrome-dot) 4px, transparent 4.5px),
+    linear-gradient(var(--septum-chrome-line), var(--septum-chrome-line)),
+    linear-gradient(var(--septum-chrome), var(--septum-chrome));
+  background-size:
+    100% 34px,
+    100% 34px,
+    100% 34px,
+    100% 1px,
+    100% 34px;
+  background-position:
+    0 0,
+    0 0,
+    0 0,
+    0 33px,
+    0 0;
+  background-repeat: no-repeat;
+  box-shadow: var(--septum-media-shadow);
+}
+.page-screenshots .vp-doc p[align="center"] > a {
+  max-width: 100%;
+}
+
+/* Screenshot grid tables are layout, not data: drop their borders and
+ * zebra, keep the spacing, and style each cell's <b> as a caption. */
+.page-screenshots .vp-doc table {
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  margin-block: 24px;
+  border-spacing: 12px;
+}
+.page-screenshots .vp-doc table tr,
+.page-screenshots .vp-doc table td {
+  border: 0;
+  background-color: transparent;
+}
+.page-screenshots .vp-doc table td {
+  padding: 0 0 8px;
+  vertical-align: top;
+}
+.page-screenshots .vp-doc table td > br {
+  display: none;
+}
+.page-screenshots .vp-doc table td > b:first-child {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--vp-c-brand-1);
+}
+
+/* Benchmark charts: always on a light card, because the chart SVGs
+ * carry dark ink on white. The card keeps them readable in dark mode. */
+.page-benchmark .vp-doc img:not(.no-zoom)[src*="benchmark-"] {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+  box-sizing: border-box;
+  padding: 18px;
+  border-radius: 14px;
+  border: 1px solid var(--septum-chart-line);
+  background-color: var(--septum-chart-card);
+  box-shadow: var(--septum-media-shadow);
+}
+.page-benchmark .vp-doc p[align="center"] > a {
+  max-width: 100%;
+}
+
+/* Diagrams: a surface card that suits both a white-background SVG and
+ * a transparent one, so it works before and after the redraw. */
+.doc-page .vp-doc img:not(.no-zoom)[src$=".svg"]:not([src*="benchmark-"]) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+  box-sizing: border-box;
+  padding: 20px;
+  border-radius: 14px;
+  border: 1px solid var(--vp-c-divider);
+  background-color: var(--vp-c-bg-soft);
+  box-shadow: var(--septum-media-shadow);
+}
+
+/* Data tables: framed, tabular figures, zebra rows, hover row. Applied
+ * to every doc table; the benchmark page gets the metric-table extras. */
+.doc-page .vp-doc table {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+}
+.doc-page .vp-doc thead th {
+  font-size: 0.8125rem;
+  color: var(--vp-c-text-2);
+}
+.doc-page .vp-doc tbody td {
+  font-variant-numeric: tabular-nums;
+}
+.page-benchmark .vp-doc tbody tr:nth-child(even) {
+  background-color: var(--septum-zebra);
+}
+.page-benchmark .vp-doc tbody tr:hover td {
+  background-color: var(--vp-c-brand-soft);
+}
+.page-benchmark .vp-doc td:not(:first-child) strong {
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
+}
+@media (max-width: 640px) {
+  .doc-page .vp-doc td,
+  .doc-page .vp-doc th {
+    padding: 8px 10px;
+  }
+}
+
+/* Keyboard focus on the chrome that sits outside .vp-doc. */
+.doc-page .pager-link:focus-visible,
+.doc-page .VPDocAsideOutline a:focus-visible,
+.VPFooter a:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 3px;
+  border-radius: 6px;
+}

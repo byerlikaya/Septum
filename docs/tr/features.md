@@ -1,7 +1,7 @@
 # Septum — Özellik ve Tespit Referansı
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Ana Sayfa</strong></a>
+  <a href="./index.md"><strong>🏠 Ana Sayfa</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;
@@ -23,6 +23,7 @@
 - [Tespit Hattı](#tespit-hattı)
 - [Regülasyon Paketleri](#regülasyon-paketleri)
 - [Otomatik RAG Yönlendirme](#otomatik-rag-yönlendirme)
+- [Dokümanlar, onay ve kaynaklar](#dokümanlar-onay-ve-kaynaklar)
 - [Neden Septum](#neden-septum)
 - [MCP Entegrasyonu](#mcp-entegrasyonu)
 - [REST API ve Kimlik Doğrulama](#rest-api-ve-kimlik-doğrulama)
@@ -31,7 +32,7 @@
 
 ## Tespit Hattı
 
-Septum'un üç katmanlı tespit hattı baştan sona yerelde çalışır. Katmanlar birbirinin üzerine bilgi yığar; üretilen bulguların tümü son aşamada coreference çözümleyicisinden geçer. Bunun pratik sonucu şudur: aynı kişi bir metinde farklı biçimlerde anılsa bile tek bir `[PERSON_1]` placeholder'ı altında toplanır.
+Septum'un üç katmanlı tespit hattı baştan sona yerelde çalışır. Katmanlar birbirinin üzerine bilgi yığar; üretilen bulguların tümü son aşamada coreference çözümleyicisinden geçer. Bunun pratik sonucu şudur: aynı kişi bir metinde farklı biçimlerde anılsa bile tek bir `[PERSON_NAME_1]` placeholder'ı altında toplanır.
 
 <p align="center">
   <a href="#tespit-hattı"><img src="../assets/detection-pipeline.tr.svg" alt="Septum üç katmanlı tespit hattı — Presidio, NER, Ollama ve coreference birleşimi" width="1100" /></a>
@@ -45,7 +46,7 @@ Septum'un üç katmanlı tespit hattı baştan sona yerelde çalışır. Katmanl
 
 **NER modelleri.** Ayarlar → NER Modelleri bölümü her dil için modeli belirler. Virgülle ayrılmış birden çok kimlik bir ensemble olarak çalışır ve sonuçları birleştirilir. Özel bir model `org/name@<40 karakterlik commit SHA>` biçiminde girilir ve safetensors ağırlıkları sunmalıdır; commit'siz bir kimlik `ner_model_unpinned` koduyla reddedilir. İlk kullanımda (yalnızca çevrimiçi) dosyaları o commit için Hub'ın metadata'sıyla karşılaştırılır. Özel model kimliğini commit'siz olarak kaydetmiş kurulumlar ayarı güncellemelidir; aksi halde o dildeki dokümanlar ve sohbetler aynı kodla başarısız olur.
 
-**Coreference çözümleme.** Üç katmanın ürettiği tüm span'ler toplandıktan sonra sanitizer, aynı kişiye yapılmış tüm atıfları tek bir placeholder altında birleştirir. Bir dokümandaki `"John"`, `"J. Doe"` ve `"Mr. Doe"` ifadelerinin üçü birden tek bir `[PERSON_1]` olur. Çözümleme yalnızca cümleler arasında değil, aynı dokümanın farklı parçaları arasında da geçerlidir.
+**Coreference çözümleme.** Üç katmanın ürettiği tüm span'ler toplandıktan sonra sanitizer, aynı kişiye yapılmış tüm atıfları tek bir placeholder altında birleştirir. Bir dokümandaki `"Elif"`, `"E. Demir"` ve `"Hanım Demir"` ifadelerinin üçü birden tek bir `[PERSON_NAME_1]` olur. Çözümleme yalnızca cümleler arasında değil, aynı dokümanın farklı parçaları arasında da geçerlidir.
 
 **3. katman isteğe bağlıdır.** Ayarlardan `use_ollama_semantic_layer=false` yaparak katmanı tümüyle kapatabilirsiniz. 1. ve 2. katmanlar yapısal kimlikleri ve isimleri yakalar; 3. katman ise regex ile NER'in göremediği hassas kategorilerin (sağlık, din, siyasi görüş vb.) tespitinden sorumludur. Doğruluk, seçilen Ollama modeline göre değişir; Septum varsayılan olarak `aya-expanse:8b` kullanır.
 
@@ -75,7 +76,7 @@ Septum, 17 hazır regülasyon paketiyle birlikte gelir. Bu paketlerden birden fa
 | 🇳🇿 Yeni Zelanda | `nzpa` | Privacy Act 2020 |
 | 🇦🇺 Avustralya | `australia_pa` | Privacy Act 1988 |
 
-Tablodaki her satır, `packages/core/septum_core/recognizers/` altında yüklenebilir bir pakete karşılık gelir. Her varlık tipinin hukuki dayanağı [hukuki kaynaklar belgesinde](../packages/core/docs/regulation-entity-sources.md) yer alır.
+Tablodaki her satır, `packages/core/septum_core/recognizers/` altında yüklenebilir bir pakete karşılık gelir. Her varlık tipinin hukuki dayanağı [hukuki kaynaklar belgesinde](../packages/core/docs/REGULATION_ENTITY_SOURCES.md) yer alır.
 
 **Bölgeye özgü kimlik numarası doğrulayıcıları** yalnızca örüntüye değil, algoritmaya dayanır: TCKN (Türkiye, mod-10 + mod-11 checksum), Aadhaar (Hindistan, Verhoeff), CPF (Brezilya, iki basamaklı checksum), NRIC/FIN (Singapur, harf checksum'ı), Resident ID (Çin, ISO 7064 MOD 11-2), NINO (Birleşik Krallık), CNPJ (Brezilya), My Number (Japonya) ve diğerleri. Geçersiz checksum doğrudan reddedilir; rastgele 11 haneli bir dize yalancı pozitif üretmez.
 
@@ -97,7 +98,20 @@ Sohbet kenar çubuğunda herhangi bir doküman seçilmediğinde Septum, doküman
 2. **Otomatik RAG** — seçim yoktur, sınıflandırıcı `SEARCH` der ve bulunan parçaların relevans skoru eşiği aşar. Kullanıcının tüm dokümanlarından ilgili parçalar çekilir.
 3. **Düz LLM** — seçim yoktur, sınıflandırıcı `CHAT` der ya da hiçbir parça eşiği geçemez. Doküman bağlamı eklenmez; LLM soruya serbest biçimde yanıt verir.
 
-SSE meta event'i, `rag_mode: "manual" | "auto" | "none"` ve `matched_document_ids` alanlarını taşır; panel her asistan mesajında hangi yolun seçildiğini bir rozetle görünür kılar. Eşik değeri, RAG ayarları sekmesinde `rag_relevance_threshold` olarak tutulur (varsayılan 0,35).
+SSE meta event'i, `rag_mode: "manual" | "auto" | "none"` ve `matched_document_ids` alanlarını taşır; panel her asistan mesajında hangi yolun seçildiğini bir rozetle görünür kılar. Eşik değeri, RAG ayarları sekmesinde `rag_relevance_threshold` olarak tutulur (varsayılan 0,35). Arama varlık farkındalıklıdır: sorunun işaret ettiği kişisel veriyi içeren dokümanlara daraltılır (bkz. aşağıdaki Dokümanlar, onay ve kaynaklar bölümü).
+
+---
+
+## Dokümanlar, onay ve kaynaklar
+
+- **Onay kapısı.** Bulut çağrısından önce panel maskeli prompt'u, getirilen parçaları ve oluşturulan isteği yan yana gösterir; onaylar ya da reddedersiniz. Yeni kurulum onay kapısı açık başlar (`require_approval`, ayarlardan değiştirilebilir).
+- **Hibrit retrieval.** Parçalar FAISS semantik arama ve BM25 anahtar kelime aramasıyla bulunur; sonuçlar Reciprocal Rank Fusion ile birleştirilir.
+- **Varlık farkındalıklı Otomatik RAG.** Birden fazla doküman eşleşirse Otomatik RAG retrieval'ı, sorgulanan kişisel veriyi içeren dokümanlara daraltır. Eşleşmeler belirsizse, hangi grubun kullanılacağını soran bir seçici açılır.
+- **Kaynak atıfı.** Belgeye dayalı her cevabın altında, kaç doküman ve parçanın kullanıldığını gösteren daraltılabilir bir özet bulunur; açıldığında her doküman parça sayısıyla birlikte listelenir.
+- **Doküman ilişki grafiği.** Cytoscape tabanlı bir harita, hangi dokümanların aynı varlıkları paylaştığını gösterir. Paylaşılan tanımlayıcılar (IBAN, kimlik numarası, pasaport ve benzeri) tam ağırlıkla sayılır; konum ve tarih gibi yaygın sinyaller çok az ağırlıkla sayılır, böylece grafiğe hâkim olmazlar.
+- **Zengin formatlar.** PDF, Office dosyaları, hesap tabloları, görseller (OCR), ses (Whisper) ve e-postalar; bkz. [Doküman işleme](document-ingestion.md).
+- **Erişim denetimi.** `admin`, `editor` ve `viewer` rolleriyle JWT oturumları ve API anahtarları (aşağıdaki REST API ve Kimlik Doğrulama bölümüne bakın).
+- **Denetim kaydı.** Tespit ve doküman olayları için salt-ekleme bir günlük; varlık sayıları tutulur, ham kişisel veri tutulmaz. Ayrıntı için [Mimari](architecture.md).
 
 ---
 
@@ -128,6 +142,8 @@ Septum, aynı yerel PII maskeleme hattını MCP uyumlu her istemciye bağlayan b
 - **stdio** (varsayılan) — alt süreç olarak başlatılan istemciler için: Claude Desktop, Cursor, Windsurf, ChatGPT Desktop, Zed ve Python / TypeScript / Rust / Go / C# / Java SDK'leriyle yazılmış her araç.
 - **streamable-http** — uzak ajanlar, tarayıcı eklentileri ve container içindeki istemciler için modern HTTP taşıması. `Authorization: Bearer <SEPTUM_MCP_HTTP_TOKEN>` başlığıyla bearer token kimlik doğrulaması.
 - **sse** — streamable-http'ye henüz geçmemiş istemciler için geriye dönük uyumluluk amacıyla tutulan eski HTTP + Server-Sent Events taşıması.
+
+Sunucu MCP Python SDK 2.x üzerine kuruludur. Loopback olmayan bir HTTP bağlanması için `SEPTUM_MCP_HTTP_ALLOWED_HOSTS` (ya da `--allowed-hosts`) değerini istemcilerin kullandığı host adlarıyla ayarlayın; bu DNS-rebinding korumasını açar.
 
 `septum-core` sunucu süreciyle aynı bellek içinde çalışır; ham PII ağa hiçbir aşamada erişmez.
 
@@ -180,7 +196,7 @@ SEPTUM_MCP_HTTP_TOKEN=$(openssl rand -hex 32) \
   septum-mcp --transport streamable-http --host 0.0.0.0 --port 8765
 ```
 
-Eksiksiz HTTP dağıtım kılavuzu (Docker, compose profilleri, TLS reverse-proxy şablonu), ortam değişkeni referansı ve uçtan uca kullanım örnekleri için [MCP sunucu kılavuzuna](../packages/mcp/readme.md) göz atabilirsiniz.
+Eksiksiz HTTP dağıtım kılavuzu (Docker, compose profilleri, TLS reverse-proxy şablonu), ortam değişkeni referansı ve uçtan uca kullanım örnekleri için [MCP sunucu kılavuzuna](../packages/mcp/README.tr.md) göz atabilirsiniz.
 
 ---
 
@@ -256,7 +272,7 @@ Eksiksiz API referansı, hat detayları ve dağıtım topolojileri için [Mimari
 ---
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Ana Sayfa</strong></a>
+  <a href="./index.md"><strong>🏠 Ana Sayfa</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;

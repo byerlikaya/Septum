@@ -24,6 +24,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ### 2026-10-19
 
+- Reworked the documentation site: it has its own landing page and a refreshed theme, every diagram and benchmark chart is redrawn, and the README is now a short overview that points to the site. The docs were checked against the code and corrected (versions, routers, model integrity, MCP settings, known limitations), and all examples now use one clinical scenario with Septum's real placeholder format.
 - Email detection no longer reaches the internet: the public-suffix lookup Presidio uses now reads only the list bundled with tldextract, so an empty cache in the air-gapped zone no longer triggers a download from publicsuffix.org, and nothing is written to the home directory. tldextract is pinned, and startup stops with an error if the lookup cannot be forced offline.
 - Model weights are now pinned and verified before they load: built-in NER, embedding and PaddleOCR models are pinned to a Hub commit with per-file SHA256, custom NER models must be given as `org/name@<commit>` and are recorded on first use, and a mismatched or incomplete download is refused with a coded `model_integrity_failed` error shown in the UI. Air-gapped installs fetch models on a connected host with `python -m septum_api.cli.models fetch`.
 - Regulation descriptions no longer show raw translation keys: every built-in regulation has an English and Turkish description, custom rulesets fall back to their own description, and every toggle switch now has a translated accessible label.

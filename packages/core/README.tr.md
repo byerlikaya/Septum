@@ -7,7 +7,7 @@ Gizlilik öncelikli PII tespit, maskeleme ve geri yazma motoru. [Septum](https:/
 ## Ne yapar?
 
 - **Tespit eder** — metindeki kişisel verileri Presidio, spaCy/Transformers NER ve regülasyona özgü tanıyıcı paketleri üzerinden bulur.
-- **Maskeler** — tespit edilen her varlığı deterministik placeholder'lara (`[PERSON_1]`, `[EMAIL_2]` vb.) çevirir, eşlemeyi bellekte taşır.
+- **Maskeler** — tespit edilen her varlığı deterministik placeholder'lara (`[PERSON_NAME_1]`, `[EMAIL_ADDRESS_2]` vb.) çevirir, eşlemeyi bellekte taşır.
 - **Geri yazar** — LLM cevabı geldiğinde placeholder'ları eşleme üzerinden gerçek değerlere yeniden döner.
 - **Birleştirir** — birden fazla gizlilik regülasyonunu (GDPR, KVKK, HIPAA, CCPA, LGPD, …) tek bir tespit hattı altında toplar; çakışmada en kısıtlayıcı kural geçerli olur.
 
@@ -29,6 +29,10 @@ HuggingFace NER katmanı için:
 pip install -e "packages/core[transformers]"
 ```
 
+## Model sabitleme
+
+Varsayılan NER, embedding ve OCR modelleri Hugging Face commit'lerine sabitlenmiştir; yüklenmeden önce her dosya SHA256 ile denetlenir. Çevrimdışı çalışmada `HF_HUB_OFFLINE=1` kullanılır; bu, önbellekte olmayan ya da doğrulanmamış hiçbir şeyi kabul etmez. Fetch CLI'si (`python -m septum_api.cli.models fetch`) `septum-api` içindedir; bkz. [mimari](../../docs/tr/architecture.md#model-bütünlüğü).
+
 ## Kullanım
 
 ```python
@@ -36,16 +40,16 @@ from septum_core import SeptumEngine
 
 engine = SeptumEngine(regulations=["gdpr", "kvkk"])
 
-result = engine.mask("Ahmet Yılmaz'ın TC numarası 12345678901.")
-# result.masked_text → "[PERSON_1]'ın TC numarası [TCKN_1]."
-# result.session_id  → "sess_abc123"
-# result.entities    → [{"type": "PERSON", "original": "Ahmet Yılmaz", ...}, ...]
+result = engine.mask("Elif Demir'in TC kimlik numarası 10000000146.")
+# result.masked_text        → "[PERSON_NAME_1]'in TC kimlik numarası [NATIONAL_ID_1]."
+# result.session_id         → "sess_abc123"
+# result.entity_type_counts → {"PERSON_NAME": 1, "NATIONAL_ID": 1}
 
 restored = engine.unmask(
-    "[PERSON_1] paketin tesliminin tamamlandığını onayladı.",
+    "[PERSON_NAME_1] kontrol randevusunu onayladı.",
     session_id=result.session_id,
 )
-# restored → "Ahmet Yılmaz paketin tesliminin tamamlandığını onayladı."
+# restored → "Elif Demir kontrol randevusunu onayladı."
 ```
 
 ## Lisans

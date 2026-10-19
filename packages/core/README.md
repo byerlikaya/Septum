@@ -7,7 +7,7 @@ Privacy-first PII detection, masking, and unmasking engine. The beating heart of
 ## What it does
 
 - **Detect** personally identifiable information (PII) in text using Presidio, spaCy/Transformers NER, and regulation-specific recognizer packs.
-- **Mask** detected PII with deterministic placeholders (`[PERSON_1]`, `[EMAIL_2]`, …) while keeping an in-memory anonymization map.
+- **Mask** detected PII with deterministic placeholders (`[PERSON_NAME_1]`, `[EMAIL_ADDRESS_2]`, …) while keeping an in-memory anonymization map.
 - **Unmask** LLM responses by restoring original values from that map.
 - **Compose** multiple privacy regulations (GDPR, KVKK, HIPAA, CCPA, LGPD, …) into a single detection pipeline, applying the most restrictive rule.
 
@@ -29,6 +29,10 @@ For the HuggingFace NER layer:
 pip install -e "packages/core[transformers]"
 ```
 
+## Model pinning
+
+The default NER, embedding and OCR models are pinned to Hugging Face commits, and every file is checked against its SHA256 before it loads. Offline runs use `HF_HUB_OFFLINE=1`, which refuses anything not already cached and verified. The fetch CLI (`python -m septum_api.cli.models fetch`) lives in `septum-api`; see [architecture](../../docs/architecture.md#model-integrity).
+
 ## Usage
 
 ```python
@@ -36,16 +40,16 @@ from septum_core import SeptumEngine
 
 engine = SeptumEngine(regulations=["gdpr", "kvkk"])
 
-result = engine.mask("Ahmet Yılmaz's TC number is 12345678901.")
-# result.masked_text → "[PERSON_1]'s TC number is [TCKN_1]."
-# result.session_id  → "sess_abc123"
-# result.entities    → [{"type": "PERSON", "original": "Ahmet Yılmaz", ...}, ...]
+result = engine.mask("Elif Demir's TCKN is 10000000146.")
+# result.masked_text       → "[PERSON_NAME_1]'s TCKN is [NATIONAL_ID_1]."
+# result.session_id        → "sess_abc123"
+# result.entity_type_counts → {"PERSON_NAME": 1, "NATIONAL_ID": 1}
 
 restored = engine.unmask(
-    "[PERSON_1] confirmed receipt of the package.",
+    "[PERSON_NAME_1] confirmed the follow-up appointment.",
     session_id=result.session_id,
 )
-# restored → "Ahmet Yılmaz confirmed receipt of the package."
+# restored → "Elif Demir confirmed the follow-up appointment."
 ```
 
 ## License

@@ -1,7 +1,7 @@
 # Septum — Benchmark Sonuçları
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Ana Sayfa</strong></a>
+  <a href="./index.md"><strong>🏠 Ana Sayfa</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;
@@ -130,7 +130,7 @@ fakat ~3× artan çağrı maliyeti ingest pipeline'ında baskın olur.
 - Benchmark test dosyası: [`packages/api/tests/benchmark_detection.py`](../packages/api/tests/benchmark_detection.py)
 - Regülasyon bazlı tanıyıcı paketleri: [`packages/core/septum_core/recognizers/`](../packages/core/septum_core/recognizers/)
 - Ulusal kimlik doğrulayıcıları (Luhn, Verhoeff, ISO 7064, TCKN mod-10/mod-11, CPF, NRIC): [`packages/core/septum_core/national_ids/`](../packages/core/septum_core/national_ids/)
-- Her varlık tipinin hukuki dayanağı: [`regulation-entity-sources.md`](../packages/core/docs/regulation-entity-sources.md)
+- Her varlık tipinin hukuki dayanağı: [`REGULATION_ENTITY_SOURCES.md`](../packages/core/docs/REGULATION_ENTITY_SOURCES.md)
 - Microsoft Presidio: [microsoft/presidio](https://github.com/microsoft/presidio) · değerlendirme çerçevesi: [microsoft/presidio-research](https://github.com/microsoft/presidio-research)
 - XLM-RoBERTa makalesi: [Conneau vd., *Unsupervised Cross-lingual Representation Learning at Scale* (ACL 2020)](https://aclanthology.org/2020.acl-main.747/)
 - CoNLL-2003 shared task makalesi: [Tjong Kim Sang & De Meulder, 2003](https://aclanthology.org/W03-0419/)
@@ -141,7 +141,7 @@ fakat ~3× artan çağrı maliyeti ingest pipeline'ında baskın olur.
 ---
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Ana Sayfa</strong></a>
+  <a href="./index.md"><strong>🏠 Ana Sayfa</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;

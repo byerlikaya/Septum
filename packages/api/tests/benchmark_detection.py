@@ -3047,6 +3047,78 @@ def test_benchmark_combined_summary(
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
+_CHART_INK = "#1f2d3d"
+_CHART_MUTED = "#5b6b7c"
+_CHART_GRID = "#e4e9ef"
+_CHART_RULE = "#b8c2cc"
+_CHART_HIGHLIGHT = "#eef4fb"
+_CHART_BRAND = "#2a6aa8"
+_CHART_PRECISION = "#009e73"
+_CHART_RECALL = "#e69f00"
+_CHART_F1 = "#2a6aa8"
+_CHART_NER = "#e69f00"
+_CHART_RC = {
+    "font.family": "DejaVu Sans",
+    "svg.fonttype": "path",
+    "svg.hashsalt": "septum-benchmark",
+    "text.color": _CHART_INK,
+    "axes.labelcolor": _CHART_MUTED,
+    "xtick.color": _CHART_MUTED,
+    "ytick.color": _CHART_MUTED,
+    "figure.facecolor": "white",
+    "axes.facecolor": "white",
+    "savefig.facecolor": "white",
+}
+
+
+def _style_bar_axes(ax, title: str) -> None:
+    ax.set_title(title, loc="left", fontsize=13, fontweight="bold",
+                 color=_CHART_INK, pad=30)
+    ax.set_ylabel("Score (%)", fontsize=10, labelpad=10)
+    ax.set_ylim(0, 110)
+    ax.set_yticks(range(0, 101, 20))
+    ax.set_axisbelow(True)
+    ax.grid(axis="y", color=_CHART_GRID, linewidth=0.8)
+    for side in ("top", "right", "left"):
+        ax.spines[side].set_visible(False)
+    ax.spines["bottom"].set_color(_CHART_RULE)
+    ax.tick_params(length=0, labelsize=10)
+
+
+def _place_legend(ax, handles: list, ncol: int) -> None:
+    ax.legend(handles=handles, loc="lower right", bbox_to_anchor=(1.0, 1.0),
+              ncol=ncol, frameon=False, fontsize=10, borderaxespad=0)
+
+
+def _grouped_metric_bars(ax, centers: list, series: list, width: float,
+                         label_size: float, fmt) -> None:
+    """Draw one bar per (group, series); ``series`` is ``[(name, color, values)]``."""
+    offset_span = (len(series) - 1) / 2
+    for i, (name, color, values) in enumerate(series):
+        offset = (i - offset_span) * width
+        bars = ax.bar([c + offset for c in centers], values, width,
+                      color=color, linewidth=0)
+        ax.bar_label(bars, labels=[fmt(v) for v in values], padding=3,
+                     fontsize=label_size, color=_CHART_INK)
+    ax.set_xlim(-0.6, len(centers) - 0.4)
+
+
+def _metric_handles(series: list) -> list:
+    from matplotlib.patches import Patch
+    return [Patch(facecolor=color, label=name) for name, color, _ in series]
+
+
+def _embed_svg_text(path: Path, title: str, description: str) -> None:
+    """Add <title>/<desc> and role="img" right after the root <svg> tag."""
+    text = path.read_text("utf-8")
+    root = re.search(r"<svg\b[^>]*>", text)
+    labelled = ' role="img" aria-labelledby="septum-chart-title septum-chart-desc">'
+    opening = root.group(0)[:-1] + labelled
+    inserted = (f'{opening}\n<title id="septum-chart-title">{title}</title>'
+                f'\n<desc id="septum-chart-desc">{description}</desc>')
+    path.write_text(text[:root.start()] + inserted + text[root.end():], "utf-8")
+
+
 def _generate_charts(
     data: dict,
     external: Optional[dict] = None,
@@ -3062,198 +3134,144 @@ def _generate_charts(
         non-empty)
       - ``benchmark-per-language.svg``        — F1 per language under the
         full Ollama pipeline (only when ``per_language`` is non-empty)
+
+    Output is deterministic for a given input: the SVG carries no timestamp
+    and its element ids are derived from a fixed salt.
     """
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        import numpy as np
+        from matplotlib.patches import Patch
     except ImportError:
         logger.warning("matplotlib not available — skipping chart generation")
         return
 
     out_dir = _PROJECT_ROOT / "assets"
     out_dir.mkdir(exist_ok=True)
+    save_kwargs = dict(facecolor="white", edgecolor="none", bbox_inches="tight",
+                       pad_inches=0.25, metadata={"Date": None})
 
-    # --- Chart 1: F1 by entity type ---
-    presidio_types = sorted(data["presidio"]["per_type"].keys())
-    ner_types = sorted(data["ner"]["per_type"].keys())
+    with plt.rc_context(_CHART_RC):
+        # --- Chart 1: F1 by entity type ---
+        presidio_types = sorted(data["presidio"]["per_type"].keys())
+        ner_types = sorted(data["ner"]["per_type"].keys())
 
-    labels, scores, colors = [], [], []
-    short = {"EMAIL_ADDRESS": "Email", "PHONE_NUMBER": "Phone", "IP_ADDRESS": "IP",
-             "CREDIT_CARD_NUMBER": "Credit Card", "IBAN": "IBAN", "NATIONAL_ID": "National ID",
-             "MEDICAL_RECORD_NUMBER": "MRN", "HEALTH_INSURANCE_ID": "Health Ins.",
-             "PERSON_NAME": "Person Name", "LOCATION": "Location",
-             "ORGANIZATION_NAME": "Organization",
-             "DATE_OF_BIRTH": "DOB", "MAC_ADDRESS": "MAC", "URL": "URL",
-             "COORDINATES": "Coords", "COOKIE_ID": "Cookie ID",
-             "DEVICE_ID": "Device ID", "SOCIAL_SECURITY_NUMBER": "SSN",
-             "CPF": "CPF", "PASSPORT_NUMBER": "Passport",
-             "DRIVERS_LICENSE": "DL", "TAX_ID": "Tax ID",
-             "LICENSE_PLATE": "Plate"}
-    for et in presidio_types:
-        m = data["presidio"]["per_type"][et]
-        labels.append(short.get(et, et))
-        scores.append(m.f1 * 100)
-        colors.append("#6C8EBF")
-    for et in ner_types:
-        m = data["ner"]["per_type"][et]
-        labels.append(short.get(et, et))
-        scores.append(m.f1 * 100)
-        colors.append("#9B7ED8")
+        labels, scores, colors = [], [], []
+        short = {"EMAIL_ADDRESS": "Email", "PHONE_NUMBER": "Phone", "IP_ADDRESS": "IP",
+                 "CREDIT_CARD_NUMBER": "Credit Card", "IBAN": "IBAN", "NATIONAL_ID": "National ID",
+                 "MEDICAL_RECORD_NUMBER": "MRN", "HEALTH_INSURANCE_ID": "Health Ins.",
+                 "PERSON_NAME": "Person Name", "LOCATION": "Location",
+                 "ORGANIZATION_NAME": "Organization",
+                 "DATE_OF_BIRTH": "DOB", "MAC_ADDRESS": "MAC", "URL": "URL",
+                 "COORDINATES": "Coords", "COOKIE_ID": "Cookie ID",
+                 "DEVICE_ID": "Device ID", "SOCIAL_SECURITY_NUMBER": "SSN",
+                 "CPF": "CPF", "PASSPORT_NUMBER": "Passport",
+                 "DRIVERS_LICENSE": "DL", "TAX_ID": "Tax ID",
+                 "LICENSE_PLATE": "Plate"}
+        for et in presidio_types:
+            labels.append(short.get(et, et))
+            scores.append(data["presidio"]["per_type"][et].f1 * 100)
+            colors.append(_CHART_BRAND)
+        for et in ner_types:
+            labels.append(short.get(et, et))
+            scores.append(data["ner"]["per_type"][et].f1 * 100)
+            colors.append(_CHART_NER)
 
-    fig, ax = plt.subplots(figsize=(max(16, len(labels) * 0.8), 5.5))
-    bars = ax.bar(labels, scores, color=colors, width=0.65, edgecolor="white", linewidth=0.5)
-    for bar, val in zip(bars, scores):
-        ax.text(bar.get_x() + bar.get_width() / 2, val + 1,
-                f"{val:.1f}%" if val < 100 else "100%",
-                ha="center", va="bottom", fontsize=8, fontweight="bold", color="#333")
-    ax.set_ylim(0, 115)
-    ax.set_ylabel("F1 Score (%)", fontsize=11)
-    ax.set_title("PII Detection F1 Score by Entity Type", fontsize=13, fontweight="bold", pad=12)
-    ax.tick_params(axis="x", labelsize=8)
-    plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
-    ax.tick_params(axis="y", labelsize=9)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.grid(axis="y", alpha=0.3, linestyle="--")
-    from matplotlib.patches import Patch
-    ax.legend(handles=[Patch(facecolor="#6C8EBF", label="Presidio (Layer 1)"),
-                       Patch(facecolor="#9B7ED8", label="NER (Layer 2)")],
-              loc="lower right", fontsize=9)
-    plt.tight_layout()
-    plt.savefig(str(out_dir / "benchmark-f1-by-type.svg"),
-                facecolor="white", edgecolor="none")
-    plt.close()
+        xs = list(range(len(labels)))
+        fig, ax = plt.subplots(figsize=(max(16, len(labels) * 0.8), 5.5))
+        bars = ax.bar(xs, scores, width=0.66, color=colors, linewidth=0)
+        ax.bar_label(bars, labels=[f"{v:.1f}%" if v < 100 else "100%" for v in scores],
+                     padding=3, fontsize=8.5, color=_CHART_INK)
+        _style_bar_axes(ax, "PII Detection F1 Score by Entity Type")
+        ax.set_xlim(-0.6, len(labels) - 0.4)
+        ax.set_xticks(xs)
+        ax.set_xticklabels(labels, rotation=45, ha="right",
+                           rotation_mode="anchor", fontsize=9)
+        _place_legend(ax, [Patch(facecolor=_CHART_BRAND, label="Presidio (Layer 1)"),
+                           Patch(facecolor=_CHART_NER, label="NER (Layer 2)")], ncol=2)
+        fig.savefig(str(out_dir / "benchmark-f1-by-type.svg"), **save_kwargs)
+        _embed_svg_text(out_dir / "benchmark-f1-by-type.svg", "PII detection F1 score by entity type",
+                                "Bar chart of the F1 score for each entity type, with the Presidio layer in blue and the NER layer in orange.")
+        plt.close(fig)
 
-    # --- Chart 2: Accuracy by layer ---
-    layers_labels = ["Presidio\n(Layer 1)", "NER\n(Layer 2)", "Ollama\n(Layer 3)", "Combined\n(All Layers)"]
-    precision = [data[k]["precision"] * 100 for k in ("presidio", "ner", "ollama", "combined")]
-    recall = [data[k]["recall"] * 100 for k in ("presidio", "ner", "ollama", "combined")]
-    f1 = [data[k]["f1"] * 100 for k in ("presidio", "ner", "ollama", "combined")]
-
-    x = np.arange(len(layers_labels))
-    w = 0.22
-    fig, ax = plt.subplots(figsize=(10, 5.5))
-    b1 = ax.bar(x - w, precision, w, label="Precision", color="#4CAF88", edgecolor="white", linewidth=0.5)
-    b2 = ax.bar(x, recall, w, label="Recall", color="#5B9BD5", edgecolor="white", linewidth=0.5)
-    b3 = ax.bar(x + w, f1, w, label="F1", color="#F0A030", edgecolor="white", linewidth=0.5)
-    for bars_group in [b1, b2, b3]:
-        for bar in bars_group:
-            val = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width() / 2, val + 0.2,
-                    f"{val:.1f}", ha="center", va="bottom", fontsize=9, fontweight="bold", color="#333")
-    ax.set_ylim(0, 115)
-    ax.set_ylabel("Score (%)", fontsize=11)
-    ax.set_title("Detection Accuracy by Pipeline Layer", fontsize=13, fontweight="bold", pad=12)
-    ax.set_xticks(x)
-    ax.set_xticklabels(layers_labels, fontsize=10)
-    ax.tick_params(axis="y", labelsize=9)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.grid(axis="y", alpha=0.3, linestyle="--")
-    ax.legend(loc="lower right", fontsize=10)
-    plt.tight_layout()
-    plt.savefig(str(out_dir / "benchmark-layer-comparison.svg"),
-                facecolor="white", edgecolor="none")
-    plt.close()
-
-    # --- Chart 3: External validation (Septum-combined vs public datasets) ---
-    if external:
-        groups: list[dict] = [{
-            "label": "Septum synthetic\n(combined, 16 langs)",
-            "precision": data["combined"]["precision"],
-            "recall": data["combined"]["recall"],
-            "f1": data["combined"]["f1"],
-        }]
-        for source_key in (
-            "presidio_evaluator", "wikineural", "ai4privacy",
-            "conll2003", "few_nerd", "adversarial",
-        ):
-            if source_key in external:
-                groups.append(external[source_key])
-
-        labels3 = [g["label"] for g in groups]
-        precision3 = [g["precision"] * 100 for g in groups]
-        recall3 = [g["recall"] * 100 for g in groups]
-        f13 = [g["f1"] * 100 for g in groups]
-
-        x3 = np.arange(len(labels3))
+        # --- Chart 2: Accuracy by layer ---
+        layer_keys = ("presidio", "ner", "ollama", "combined")
+        layers_labels = ["Presidio\n(Layer 1)", "NER\n(Layer 2)", "Ollama\n(Layer 3)", "Combined\n(All Layers)"]
+        series2 = [
+            ("Precision", _CHART_PRECISION, [data[k]["precision"] * 100 for k in layer_keys]),
+            ("Recall", _CHART_RECALL, [data[k]["recall"] * 100 for k in layer_keys]),
+            ("F1", _CHART_F1, [data[k]["f1"] * 100 for k in layer_keys]),
+        ]
         fig, ax = plt.subplots(figsize=(10, 5.5))
-        b1 = ax.bar(x3 - w, precision3, w, label="Precision",
-                    color="#4CAF88", edgecolor="white", linewidth=0.5)
-        b2 = ax.bar(x3, recall3, w, label="Recall",
-                    color="#5B9BD5", edgecolor="white", linewidth=0.5)
-        b3 = ax.bar(x3 + w, f13, w, label="F1",
-                    color="#F0A030", edgecolor="white", linewidth=0.5)
-        for bars_group in (b1, b2, b3):
-            for bar in bars_group:
-                val = bar.get_height()
-                ax.text(bar.get_x() + bar.get_width() / 2, val + 0.5,
-                        f"{val:.1f}", ha="center", va="bottom",
-                        fontsize=9, fontweight="bold", color="#333")
-        ax.set_ylim(0, 115)
-        ax.set_ylabel("Score (%)", fontsize=11)
-        ax.set_title("External Validation — Septum vs Public Reference Datasets",
-                     fontsize=13, fontweight="bold", pad=12)
-        ax.set_xticks(x3)
-        ax.set_xticklabels(labels3, fontsize=10)
-        ax.tick_params(axis="y", labelsize=9)
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.grid(axis="y", alpha=0.3, linestyle="--")
-        ax.legend(loc="lower right", fontsize=10)
-        plt.tight_layout()
-        plt.savefig(str(out_dir / "benchmark-external-validation.svg"),
-                    facecolor="white", edgecolor="none")
-        plt.close()
+        _grouped_metric_bars(ax, list(range(len(layers_labels))), series2, 0.24, 9.5,
+                             lambda v: f"{v:.1f}")
+        _style_bar_axes(ax, "Detection Accuracy by Pipeline Layer")
+        ax.set_xticks(range(len(layers_labels)))
+        ax.set_xticklabels(layers_labels, fontsize=10)
+        _place_legend(ax, _metric_handles(series2), ncol=3)
+        fig.savefig(str(out_dir / "benchmark-layer-comparison.svg"), **save_kwargs)
+        _embed_svg_text(out_dir / "benchmark-layer-comparison.svg", "Detection accuracy by pipeline layer",
+                                "Grouped bar chart of precision, recall and F1 for the Presidio, NER, Ollama and combined pipeline layers.")
+        plt.close(fig)
 
-    # --- Chart 4: Per-language F1 breakdown ---
-    if per_language:
-        langs = sorted(per_language.keys())
-        precision_pct = [per_language[l].precision * 100 for l in langs]
-        recall_pct = [per_language[l].recall * 100 for l in langs]
-        f1_pct = [per_language[l].f1 * 100 for l in langs]
+        # --- Chart 3: External validation (Septum-combined vs public datasets) ---
+        if external:
+            groups: list[dict] = [{
+                "label": "Septum synthetic\n(combined, 16 langs)",
+                "precision": data["combined"]["precision"],
+                "recall": data["combined"]["recall"],
+                "f1": data["combined"]["f1"],
+            }]
+            for source_key in (
+                "presidio_evaluator", "wikineural", "ai4privacy",
+                "conll2003", "few_nerd", "adversarial",
+            ):
+                if source_key in external:
+                    groups.append(external[source_key])
 
-        # Give each language group ~1.4 inches so three values ("100.0"
-        # / "96.7" / "98.3") plus the bar width can fit without the
-        # numeric labels overlapping. With 16 langs this lands at
-        # ~22 inches wide, which renders comfortably at any width in
-        # the README. Value labels use a shorter format when the bar
-        # hits exactly 100 — "100" is three glyphs instead of five.
-        x4 = np.arange(len(langs))
-        width = 0.28
-        fig, ax = plt.subplots(figsize=(max(12, len(langs) * 1.4), 5.5))
-        b1 = ax.bar(x4 - width, precision_pct, width, label="Precision",
-                    color="#4CAF88", edgecolor="white", linewidth=0.5)
-        b2 = ax.bar(x4, recall_pct, width, label="Recall",
-                    color="#5B9BD5", edgecolor="white", linewidth=0.5)
-        b3 = ax.bar(x4 + width, f1_pct, width, label="F1",
-                    color="#F0A030", edgecolor="white", linewidth=0.5)
-        for bars_group in (b1, b2, b3):
-            for bar in bars_group:
-                val = bar.get_height()
-                label = f"{val:.0f}" if val >= 99.95 else f"{val:.1f}"
-                ax.text(bar.get_x() + bar.get_width() / 2, val + 1.2,
-                        label, ha="center", va="bottom",
-                        fontsize=7, fontweight="bold", color="#333")
-        ax.set_ylim(0, 115)
-        ax.set_ylabel("Score (%)", fontsize=11)
-        ax.set_title(
-            "Per-Language Detection Accuracy — Ollama pipeline",
-            fontsize=13, fontweight="bold", pad=12,
-        )
-        ax.set_xticks(x4)
-        ax.set_xticklabels([l.upper() for l in langs], fontsize=10)
-        ax.tick_params(axis="y", labelsize=9)
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.grid(axis="y", alpha=0.3, linestyle="--")
-        ax.legend(loc="lower right", fontsize=10)
-        plt.tight_layout()
-        plt.savefig(str(out_dir / "benchmark-per-language.svg"),
-                    facecolor="white", edgecolor="none")
-        plt.close()
+            labels3 = [g["label"] for g in groups]
+            series3 = [
+                ("Precision", _CHART_PRECISION, [g["precision"] * 100 for g in groups]),
+                ("Recall", _CHART_RECALL, [g["recall"] * 100 for g in groups]),
+                ("F1", _CHART_F1, [g["f1"] * 100 for g in groups]),
+            ]
+            fig, ax = plt.subplots(figsize=(13.5, 5.5))
+            _grouped_metric_bars(ax, list(range(len(labels3))), series3, 0.24, 9.5,
+                                 lambda v: f"{v:.1f}")
+            ax.axvspan(-0.5, 0.5, color=_CHART_HIGHLIGHT, linewidth=0, zorder=0)
+            _style_bar_axes(ax, "External Validation — Septum vs Public Reference Datasets")
+            ax.set_xticks(range(len(labels3)))
+            ax.set_xticklabels(labels3, fontsize=9)
+            ax.get_xticklabels()[0].set_fontweight("bold")
+            ax.get_xticklabels()[0].set_color(_CHART_BRAND)
+            _place_legend(ax, _metric_handles(series3), ncol=3)
+            fig.savefig(str(out_dir / "benchmark-external-validation.svg"), **save_kwargs)
+            _embed_svg_text(out_dir / "benchmark-external-validation.svg", "External validation against public reference datasets",
+                                    "Grouped bar chart of precision, recall and F1 for the combined Septum synthetic corpus, public reference datasets and an adversarial pack.")
+            plt.close(fig)
+
+        # --- Chart 4: Per-language F1 breakdown ---
+        if per_language:
+            langs = sorted(per_language.keys())
+            series4 = [
+                ("Precision", _CHART_PRECISION, [per_language[l].precision * 100 for l in langs]),
+                ("Recall", _CHART_RECALL, [per_language[l].recall * 100 for l in langs]),
+                ("F1", _CHART_F1, [per_language[l].f1 * 100 for l in langs]),
+            ]
+            fig, ax = plt.subplots(figsize=(max(12, len(langs) * 1.4), 5.5))
+            _grouped_metric_bars(
+                ax, list(range(len(langs))), series4, 0.28, 7.5,
+                lambda v: f"{v:.0f}" if v >= 99.95 else f"{v:.1f}",
+            )
+            _style_bar_axes(ax, "Per-Language Detection Accuracy — Ollama pipeline")
+            ax.set_xticks(range(len(langs)))
+            ax.set_xticklabels([l.upper() for l in langs], fontsize=10)
+            _place_legend(ax, _metric_handles(series4), ncol=3)
+            fig.savefig(str(out_dir / "benchmark-per-language.svg"), **save_kwargs)
+            _embed_svg_text(out_dir / "benchmark-per-language.svg", "Per-language detection accuracy with the Ollama pipeline",
+                                    "Grouped bar chart of precision, recall and F1 for each tested language.")
+            plt.close(fig)
 
     logger.info("Benchmark charts regenerated in %s", out_dir)
 

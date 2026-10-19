@@ -1,7 +1,7 @@
 # Septum — Benchmark Results
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Home</strong></a>
+  <a href="./index.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;
@@ -163,7 +163,7 @@ ingestion pipeline.
 - Benchmark harness: [`packages/api/tests/benchmark_detection.py`](../packages/api/tests/benchmark_detection.py)
 - Recognizer packs (per regulation): [`packages/core/septum_core/recognizers/`](../packages/core/septum_core/recognizers/)
 - National ID validators (Luhn, Verhoeff, ISO 7064, TCKN mod-10/mod-11, CPF, NRIC): [`packages/core/septum_core/national_ids/`](../packages/core/septum_core/national_ids/)
-- Per-regulation legal sources for every entity type: [`regulation-entity-sources.md`](../packages/core/docs/regulation-entity-sources.md)
+- Per-regulation legal sources for every entity type: [`REGULATION_ENTITY_SOURCES.md`](../packages/core/docs/REGULATION_ENTITY_SOURCES.md)
 - Microsoft Presidio: [microsoft/presidio](https://github.com/microsoft/presidio) · evaluator: [microsoft/presidio-research](https://github.com/microsoft/presidio-research)
 - XLM-RoBERTa paper: [Conneau et al., *Unsupervised Cross-lingual Representation Learning at Scale* (ACL 2020)](https://aclanthology.org/2020.acl-main.747/)
 - CoNLL-2003 shared task paper: [Tjong Kim Sang & De Meulder, 2003](https://aclanthology.org/W03-0419/)
@@ -174,7 +174,7 @@ ingestion pipeline.
 ---
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Home</strong></a>
+  <a href="./index.md"><strong>🏠 Home</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Installation</strong></a>
   &nbsp;·&nbsp;

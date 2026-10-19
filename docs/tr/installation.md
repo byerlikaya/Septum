@@ -1,7 +1,7 @@
 # Septum — Kurulum Rehberi
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Ana Sayfa</strong></a>
+  <a href="./index.md"><strong>🏠 Ana Sayfa</strong></a>
   &nbsp;·&nbsp;
   <strong>🚀 Kurulum</strong>
   &nbsp;·&nbsp;
@@ -192,7 +192,7 @@ git clone https://github.com/byerlikaya/Septum.git && cd Septum
 ./dev.sh                # api ile web'i port 3000 üzerinde başlatır
 ```
 
-Gereksinimler: Python 3.11+ (3.13 üzerinde doğrulandı), Node.js 20+, ffmpeg (Whisper ses akışı için). Bootstrap script'i ilk açılışta yeni bir şifreleme anahtarı ve JWT gizli anahtarıyla `config.json` üretir; yolu değiştirmek için `SEPTUM_CONFIG_PATH` ortam değişkenini kullanabilirsiniz. Açılışta arka planda yapılan model ön yüklemesini atlamak için `SEPTUM_DISABLE_MODEL_WARMUP=1` ayarlayın; varsayılanda NER, spaCy ve embedding modelleri ön yüklenir. Ön yükleme kapalıyken, saklı model ayarlarıyla ilgili başlangıç uyarısı da atlanır. `SEPTUM_USER_PINS_PATH`, özel NER modellerinin hash'lerinin kaydedileceği yeri belirler; varsayılanı `config.json` yanındaki `septum-user-pins.json` dosyasıdır (Docker'da `/app/data`). `mcp` servisi uygulama veri volume'unu bağlamaz; çünkü bu volume `config.json` dosyasını ve şifreleme anahtarını tutar. Bu yüzden `mcp` user-pins dosyasını oradan okuyamaz ve kullanıcı sabitlemeli özel NER modellerini kutudan çıktığı gibi kullanamaz. `mcp`'de birini kullanmak için user-pins dosyasının bir kopyasını salt okunur bir bağlama koyun ve `SEPTUM_USER_PINS_PATH` değişkenini bu kopyaya yöneltin.
+Gereksinimler: Python 3.11+ (3.13 üzerinde doğrulandı), Node.js 22+ (Docker image'ları ve CI Node 26 ile derlenir), ffmpeg (Whisper ses akışı için). Bootstrap script'i ilk açılışta yeni bir şifreleme anahtarı ve JWT gizli anahtarıyla `config.json` üretir; yolu değiştirmek için `SEPTUM_CONFIG_PATH` ortam değişkenini kullanabilirsiniz. Açılışta arka planda yapılan model ön yüklemesini atlamak için `SEPTUM_DISABLE_MODEL_WARMUP=1` ayarlayın; varsayılanda NER, spaCy ve embedding modelleri ön yüklenir. Ön yükleme kapalıyken, saklı model ayarlarıyla ilgili başlangıç uyarısı da atlanır. `SEPTUM_USER_PINS_PATH`, özel NER modellerinin hash'lerinin kaydedileceği yeri belirler; varsayılanı `config.json` yanındaki `septum-user-pins.json` dosyasıdır (Docker'da `/app/data`). `mcp` servisi uygulama veri volume'unu bağlamaz; çünkü bu volume `config.json` dosyasını ve şifreleme anahtarını tutar. Bu yüzden `mcp` user-pins dosyasını oradan okuyamaz ve kullanıcı sabitlemeli özel NER modellerini kutudan çıktığı gibi kullanamaz. `mcp`'de birini kullanmak için user-pins dosyasının bir kopyasını salt okunur bir bağlama koyun ve `SEPTUM_USER_PINS_PATH` değişkenini bu kopyaya yöneltin.
 
 **Model sabitlemelerini güncelleme (bakımcılar).** `python packages/api/scripts/pin_models.py --write-manifest` her varsayılan modelin Hugging Face Hub üzerindeki `main` commit'ini okur ve `packages/core/septum_core/model_pins.py` dosyasını yeniden üretir; commit'lemeden önce farkı gözden geçirin. `--check` her sabitlenmiş commit'i yeniden okur ve sapma olursa çıkış durumu 1 ile sonlanır. İkisi de ağ erişimi gerektirir.
 
@@ -331,9 +331,9 @@ docker compose -f docker-compose.standalone.yml up -d --build
 
 Yeniden derleme boyunca veriler korunur çünkü volume'lar isimlendirilmiş volume'lardır.
 
-**Yükseltme sonrası model önbellekleri.** Önceki sürümden kalan model önbellekleri sabitlenmiş commit'lerle eşleşmeyebilir. Bir sonraki çevrimiçi açılışta, bekleyen denetlenmemiş dosyalar içeren sabitlenmiş bir snapshot temizlenir ve bir kez yeniden indirilir; çevrimdışıysa, yeniden çekilene kadar reddedilir. Air-gapped bir kurulum, `fetch` komutunu bağlantılı bir host'ta yeniden çalıştırıp models volume'unu ve user-pins dosyasını kopyalamalıdır; ayrıntılar [3. varyant](#3-yalnız-air-gapped-bölge) bölümündedir. Kayıtlı commit'siz özel NER kimliği ya da kayıt defteri dışındaki bir Whisper modeli adı (yerel bir checkpoint yolu gibi) reddedilir ve Ayarlar'dan değiştirilmelidir. Ön yükleme kapalı değilse, başlangıç günlüğü reddedilecek her saklı özel NER modeli veya Whisper modeli için yalnızca hata kodlarıyla uyarı verir.
+**Yükseltme sonrası model önbellekleri.** Önceki sürümden kalan model önbellekleri sabitlenmiş commit'lerle eşleşmeyebilir. Bir sonraki çevrimiçi açılışta, bekleyen denetlenmemiş dosyalar içeren sabitlenmiş bir snapshot temizlenir ve bir kez yeniden indirilir; çevrimdışıysa, yeniden çekilene kadar reddedilir. Air-gapped bir kurulum, `fetch` komutunu bağlantılı bir host'ta yeniden çalıştırıp models volume'unu ve user-pins dosyasını kopyalamalıdır; ayrıntılar [3. varyant](#3-yalnız-air-gapped-bölge) bölümündedir. Kayıtlı commit'siz özel NER kimliği `ner_model_unpinned` koduyla, openai-whisper kayıt defteri dışındaki bir Whisper model adı (yerel bir checkpoint yolu gibi) ise `whisper_model_not_allowed` koduyla reddedilir; ikisi de Ayarlar'dan değiştirilmelidir. Ön yükleme kapalı değilse, başlangıç günlüğü reddedilecek her saklı özel NER modeli veya Whisper modeli için yalnızca hata kodlarıyla uyarı verir.
 
-**Yayınlanmış `byerlikaya/septum` image'ından geliyorsanız.** Yalnızca eski container'ı kaldırın, ardından standalone compose dosyasını derleyip başlatın. Container'ı kaldırmak volume'ları silmez ve compose dosyası aynı volume adlarını kullanır (`septum-data`, `septum-uploads`, `septum-anon-maps`, `septum-vector-indexes`, `septum-bm25-indexes`, `septum-models`); böylece verileriniz, `config.json` ve şifreleme anahtarınız aynen kullanılır.
+**Yayınlanmış `byerlikaya/septum` image'ından geliyorsanız.** Septum artık container image'ı yayınlamıyor; Docker Hub'daki eski image'lar duruyor ancak güncellenmiyor. Yalnızca eski container'ı kaldırın, ardından standalone compose dosyasını derleyip başlatın. Container'ı kaldırmak volume'ları silmez ve compose dosyası aynı volume adlarını kullanır (`septum-data`, `septum-uploads`, `septum-anon-maps`, `septum-vector-indexes`, `septum-bm25-indexes`, `septum-models`); böylece verileriniz, `config.json` ve şifreleme anahtarınız aynen kullanılır.
 
 ```bash
 docker rm -f septum
@@ -399,7 +399,7 @@ Kaynaktan kurulum için klonladığınız dizini ve Septum'un (varsa) `~/.cache/
 ---
 
 <p align="center">
-  <a href="../readme.md"><strong>🏠 Ana Sayfa</strong></a>
+  <a href="./index.md"><strong>🏠 Ana Sayfa</strong></a>
   &nbsp;·&nbsp;
   <strong>🚀 Kurulum</strong>
   &nbsp;·&nbsp;

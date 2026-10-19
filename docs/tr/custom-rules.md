@@ -1,7 +1,7 @@
 # Septum — Özel Tanıyıcı Kuralları
 
 <p align="center">
-  <a href="../../readme.tr.md"><strong>🏠 Anasayfa</strong></a>
+  <a href="./index.md"><strong>🏠 Anasayfa</strong></a>
   &nbsp;·&nbsp;
   <a href="installation.md"><strong>🚀 Kurulum</strong></a>
   &nbsp;·&nbsp;
@@ -38,7 +38,7 @@ adımları var.
 Her kuralda ortak alanlar:
 
 - **İsim** — denetim kaydında ve tespit listesinde görünen kısa etiket.
-- **Varlık tipi** — örn. `INTERNAL_PROJECT_CODE`, `EMPLOYEE_BADGE`. Serbest;
+- **Varlık tipi** — örn. `STUDY_PROTOCOL_CODE`, `STAFF_BADGE`. Serbest;
   placeholder formatı `[<VARLIK_TIPI>_N]` olur.
 - **Placeholder etiketi** *(opsiyonel)* — maskelenmiş metinde görünecek
   placeholder'ı override eder (varsayılan: varlık tipi).
@@ -50,30 +50,31 @@ Her kuralda ortak alanlar:
 Regex kuralı chunk metnini tarar ve her eşleşme için bir span üretir. En hızlı
 tespit yolu; ilk başvurmanız gereken yöntem.
 
-### Örnek: dahili proje kodu
+### Örnek: klinik çalışma protokol kodu
 
-Şirket her dahili projeyi `PRJ-<yıl>-<5 hane>` ile etiketliyor (örn.
-`PRJ-2024-04829`). HR mektupları, faturalar, Slack export'larında geçer.
+Bir araştırma merkezi her çalışma protokolünü `STUDY-<yıl>-<5 hane>` ile
+etiketliyor (örn. `STUDY-2026-00417`). Taburculuk takip mektuplarında,
+çalışmaya kayıt formlarında ve faturalarda geçer.
 
-| Alan              | Değer                              |
-|:------------------|:-----------------------------------|
-| İsim              | `Dahili proje kodu`                |
-| Varlık tipi       | `INTERNAL_PROJECT_CODE`            |
-| Tespit yöntemi    | `regex`                            |
-| Desen             | `\bPRJ-\d{4}-\d{5}\b`              |
-| Placeholder etiketi | `INTERNAL_PROJECT_CODE`          |
-| Örnek metin       | `Bütçe PRJ-2024-04829 onaylandı.` |
+| Alan              | Değer                                       |
+|:------------------|:--------------------------------------------|
+| İsim              | `Klinik çalışma protokol kodu`              |
+| Varlık tipi       | `STUDY_PROTOCOL_CODE`                       |
+| Tespit yöntemi    | `regex`                                     |
+| Desen             | `\bSTUDY-\d{4}-\d{5}\b`                     |
+| Placeholder etiketi | `STUDY_PROTOCOL_CODE`                     |
+| Örnek metin       | `Çalışmaya kayıt onaylandı: STUDY-2026-00417.` |
 
 Kaydet sonrası **Test** tuşu
-`POST /api/regulations/recognizers/{id}/test` çağırır; başarılı bir test
-`1 eşleşme — PRJ-2024-04829 (skor 0.85)` raporlar.
+`POST /api/regulations/custom/{recognizer_id}/test` çağırır; başarılı bir test
+`1 eşleşme — STUDY-2026-00417` raporlar.
 
 > **İpucu — bağlam çapası**
 > Deseni `\b...\b` (kelime sınırları) içine sarın ve gerçek ID'nin önüne
-> bir anahtar kelime koyun (`(?:Proje|PRJ)[-\s:]*(\d{4}-\d{5})`). Sınır
+> bir anahtar kelime koyun (`(?:Study|STUDY)[-\s:]*(\d{4}-\d{5})`). Sınır
 > çapaları regex'in daha büyük string'ler içinde patlamasını engeller.
 
-### Örnek: checksum'lı HR rozeti
+### Örnek: checksum'lı personel rozeti
 
 ID'leriniz checksum içeriyorsa regex eşleştirmeyi yapar fakat checksum
 doğrulamasını yapamaz. Saf regex kuralları checksum kontrolü yapmaz; bunun
@@ -128,8 +129,11 @@ referansları geçiyor (marka, jenerik, doz formları).
 | Placeholder etiketi | `MEDICATION`                                                                                   |
 | Örnek metin       | `Hasta günlük 5 mg Coumadin ve ihtiyaç halinde ibuprofen alıyor.`                              |
 
-**Test** prompt'u örnek üzerinde çalıştırır; yerel model sağlıklıysa
-`2 eşleşme — Coumadin 5 mg, ibuprofen` rapor eder.
+**Test**, prompt'u ve örneği yerel Ollama modeline gönderir ve modelin döndürdüğü
+eşleşmeleri listeler; örneğin `2 eşleşme — Coumadin 5 mg, ibuprofen`. Ollama'ya
+ulaşılamazsa ya da model ayrıştırılabilir bir JSON listesi döndürmezse test
+eşleşme göstermez. Endpoint bu durumda boş bir eşleşme listesi döner ve hata
+vermez.
 
 > **İpucu — JSON sözleşmesini minimum tutun**
 > Çok alanlı (severity, doz, vb.) sorulan prompt'lar daha az güvenilir JSON
@@ -147,8 +151,8 @@ Her özel kural şu ek kontrolleri paylaşır:
 
 - **Bağlam kelimeleri** *(opsiyonel)* — kuralın tetiklenmesi için aynı chunk
   içinde geçmesi gereken ek kelimeler. Aşırı false-positive üreten regex'leri
-  bastırmak için kullanın. Örnek: 11 haneli ID'lere ait bir kural `Müşteri`
-  veya `Customer` bağlam kelimesi gerektirebilir.
+  bastırmak için kullanın. Örnek: 11 haneli ID'lere ait bir kural `Hasta`
+  veya `Patient` bağlam kelimesi gerektirebilir.
 - **Aktif** — silmeden devre dışı.
 - **Örnek metin** + **Test** — inline regresyon kontrolü. Her düzenlemeden
   sonra kullanın; veri kalıcılaştırmaz, hem pozitif hem negatif vakaları

@@ -23,7 +23,7 @@ to a public model under client-privilege and GDPR / KVKK obligations.
    across these contracts?"*
 3. Septum masks the question (no PII here) and runs hybrid retrieval
    over the masked chunk index. The matched paragraphs already carry
-   `[PERSON_1]`, `[ORGANIZATION_NAME_3]`, `[ADDRESS_2]` placeholders.
+   `[PERSON_NAME_1]`, `[ORGANIZATION_NAME_3]`, `[POSTAL_ADDRESS_2]` placeholders.
 4. The approval gate shows the masked prompt and the chunks that will
    leave. The reviewer accepts.
 5. The cloud LLM returns an answer using placeholders. Septum
@@ -54,7 +54,7 @@ without exposing any single person.
 
 A typical query: *"Across the engineering org's H1 reviews, which
 behavioural themes show up most for high performers?"* The LLM sees
-`[PERSON_*]` placeholders, never the actual names; the answer comes
+`[PERSON_NAME_*]` placeholders, never the actual names; the answer comes
 back with real names restored locally.
 
 **Why it lands.** HR analytics has been stuck behind the
@@ -74,15 +74,17 @@ summarisation in this context is undeniable.
 
 1. Upload patient records — including OCR'd scans of paper forms.
 2. Activate Layer 3 (Ollama semantic detection) so the pipeline picks
-   up not just structured PHI (names, MRNs, dates) but also semantic
+   up not just structured PHI (names, MRNs, dates of birth) but also semantic
    categories that pattern matching can't express: `DIAGNOSIS`,
    `MEDICATION`, `BIOMETRIC_ID`, `CLINICAL_NOTE`.
-3. The attending asks: *"Summarise this patient's diabetes management
-   over the last three years."*
+3. The attending asks: *"Summarise the discharge plan for Elif Demir
+   and list her follow-up medications."*
 4. The masked prompt + chunks travel to the cloud LLM. The model sees
-   `"[PERSON_1] was first diagnosed with [DIAGNOSIS_1] in [DATE_1]
-   and started [MEDICATION_2]…"` — clinically meaningful structure,
-   zero PHI.
+   `"[PERSON_NAME_1] was diagnosed with [DIAGNOSIS_1] in 2023 and
+   started [MEDICATION_1]…"` — clinically meaningful structure, with
+   the patient's name and identifiers replaced. The diagnosis and
+   medication placeholders exist only with Layer 3 on, as set up in
+   step 2.
 5. The de-anonymised summary appears in the attending's chart view.
 
 **Why it lands.** HIPAA audits care about technical safeguards
@@ -93,27 +95,27 @@ without learning who the patient is.
 
 ## Free-form chat — masking what you typed
 
-**The problem.** A marketing manager types a prompt that contains
-real customer data — name, email, phone, address — to draft a
-personalised email. They didn't upload a document; they typed the PII
+**The problem.** A clinic coordinator types a prompt that contains
+real patient data — name, email, phone, national ID — to draft a
+follow-up reminder. They didn't upload a document; they typed the PII
 directly. Most "privacy gateways" only mask documents and miss this
 path entirely.
 
 **The Septum path.**
 
-1. The user types into chat: *"Draft a welcome email for Ahmet Yılmaz
-   (ahmet@firma.com, TC: 12345678901, address: İstanbul Caddesi
-   No:42)."*
+1. The user types into chat: *"Draft a follow-up reminder for Elif
+   Demir (e.demir@example.com, TCKN 10000000146, phone +90 555 010
+   20 30)."*
 2. Septum runs PII detection on **the message itself**, not just on
    uploaded documents. `PERSON_NAME`, `EMAIL_ADDRESS`,
-   `NATIONAL_ID` (TCKN with checksum validation), `POSTAL_ADDRESS`
+   `NATIONAL_ID` (TCKN with checksum validation) and `PHONE_NUMBER`
    are detected.
 3. The cloud LLM sees:
-   `"Draft a welcome email for [PERSON_1] ([EMAIL_ADDRESS_1], TC:
-   [NATIONAL_ID_1], address: [POSTAL_ADDRESS_1])."`
+   `"Draft a follow-up reminder for [PERSON_NAME_1] ([EMAIL_ADDRESS_1],
+   TCKN [NATIONAL_ID_1], phone [PHONE_NUMBER_1])."`
 4. The LLM writes a perfectly fluent draft using those placeholders.
 5. Septum restores the real values locally; the user sees the final
-   email with the actual customer's name in it, ready to send.
+   reminder with the actual patient's name in it, ready to send.
 
 **Why it lands.** The whole point of Septum is "raw PII never
 leaves the machine" — and that has to be true whether the PII rides
@@ -150,13 +152,13 @@ Anthropic / OpenAI.
    them.
 
 **Why it lands.** MCP is an open protocol; the integration works for
-every tool that speaks it (Claude Code, Cursor, Windsurf, Zed,
-Cline, Continue, ChatGPT Desktop, plus the official Python /
+every tool that speaks it (Claude Code, Cursor, Windsurf, Zed, Cline, Continue, ChatGPT Desktop,
+plus the official Python /
 TypeScript / Rust / Go / C# / Java SDKs). Adding privacy is one
 config block; no editor patches, no custom plugins.
 
 For the full MCP server reference — transports, deployment,
-environment variables — see the [MCP guide](https://github.com/byerlikaya/Septum/blob/main/packages/mcp/readme.md).
+environment variables — see the [MCP guide](https://github.com/byerlikaya/Septum/blob/main/packages/mcp/README.md).
 
 ---
 
