@@ -41,7 +41,8 @@ RUN mkdir -p public \
         "${NEXT_PUBLIC_API_BASE_URL}" \
         "${BACKEND_INTERNAL_URL}" \
         > .env.local \
-    && npm run build
+    && npm run build \
+    && chmod -R go-w public .next/standalone .next/static
 
 # ── runtime ──
 FROM node:26-alpine@sha256:6f08a523443ddedf52941874c203475b0ad503e859ad70cb26ab8be9a517dbd5 AS runtime
@@ -52,9 +53,16 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-COPY --from=builder --chown=node:node /app/.next/standalone ./
-COPY --from=builder --chown=node:node /app/.next/static ./.next/static
-COPY --from=builder --chown=node:node /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
+
+# Code and HOME stay root-owned (node resolves modules from
+# ~/.node_modules); only the Next.js cache is writable by node.
+RUN mkdir -p /app/.next/cache \
+    && chown -R root:root /home/node \
+    && chmod 755 /home/node \
+    && chown -R node:node /app/.next/cache
 
 # node:26-alpine ships a uid=1000 'node' user by default — reuse it instead
 # of creating a second one (the python images create 'septum' because they

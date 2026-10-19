@@ -42,7 +42,8 @@ RUN sh /tmp/install-torch.sh "$TORCH_VARIANT" \
 COPY packages/core/ /app/packages/core/
 COPY packages/queue/ /app/packages/queue/
 COPY packages/api/ /app/packages/api/
-RUN pip install --no-warn-script-location -e /app/packages/core \
+RUN chmod -R go-w /app/packages \
+    && pip install --no-warn-script-location -e /app/packages/core \
     && pip install --no-warn-script-location -e /app/packages/queue \
     && pip install --no-warn-script-location -e /app/packages/api
 
@@ -71,15 +72,16 @@ WORKDIR /app
 
 # Stamp the version into the image (read at runtime by septum_api.main
 # for the /health response).
-RUN echo "${VERSION}" > /app/VERSION && chown septum:septum /app/VERSION
+RUN echo "${VERSION}" > /app/VERSION
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/packages /app/packages
 # scripts/ + alembic.ini + alembic/ now live alongside the package they
 # operate on (packages/api/), already brought in via COPY packages/api/.
 # The entrypoint + 'alembic upgrade head' both run from /app/packages/api.
 
+# Code stays root-owned; only the runtime state volumes are writable by septum.
 RUN mkdir -p /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models \
-    && chown -R septum:septum /app /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models
+    && chown -R septum:septum /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models
 
 VOLUME ["/app/data", "/app/uploads", "/app/anon_maps", "/app/vector_indexes", "/app/bm25_indexes", "/app/models"]
 
