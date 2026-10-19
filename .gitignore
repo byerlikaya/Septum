@@ -21,6 +21,9 @@ env/
 .env.*
 !.env.example
 config.json
+septum-user-pins.json
+septum-user-pins.json.lock
+.septum-user-pins.json.*.tmp
 .pytest_cache/
 .mypy_cache/
 .coverage

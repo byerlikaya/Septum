@@ -67,6 +67,11 @@ services:
       USE_GATEWAY_DEFAULT: "true"
       SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
       FRONTEND_ORIGIN: http://localhost:3000
+      # No internet in this zone: a model missing from /app/models fails fast with
+      # model_integrity_failed instead of hanging on a Hub download. Pre-populate
+      # the volume with `docker compose run --rm -e HF_HUB_OFFLINE=0 api python -m septum_api.cli.models fetch`
+      # on a connected host (compose run inherits this variable, so the override is needed).
+      HF_HUB_OFFLINE: "1"
     ports:
       - "8000:8000"
     extra_hosts:
@@ -137,10 +142,13 @@ services:
       SEPTUM_MCP_HTTP_ALLOWED_HOSTS: ${SEPTUM_MCP_HTTP_ALLOWED_HOSTS:-}
       SEPTUM_REGULATIONS: ${SEPTUM_REGULATIONS:-}
       SEPTUM_MCP_FILE_ROOT: /data/scan
+      HF_HUB_OFFLINE: "1"
     ports:
       - "8765:8765"
     volumes:
       - septum-mcp-scan:/data/scan:ro
+      # Read-only: mcp loads snapshots that api or the models fetch CLI already verified.
+      - septum-models:/app/models:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health')"]

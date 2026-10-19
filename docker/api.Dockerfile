@@ -58,7 +58,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DOCUMENT_STORAGE_DIR=/app/uploads \
     ANON_MAP_STORAGE_DIR=/app/anon_maps \
     VECTOR_INDEX_DIR=/app/vector_indexes \
-    BM25_INDEX_DIR=/app/bm25_indexes
+    BM25_INDEX_DIR=/app/bm25_indexes \
+    HF_HOME=/app/models/huggingface \
+    HF_HUB_DISABLE_TELEMETRY=1 \
+    XDG_CACHE_HOME=/app/models \
+    PADDLE_PDX_CACHE_HOME=/app/models/paddlex
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libmagic1 ffmpeg curl \
@@ -80,7 +84,9 @@ COPY --from=builder /app/packages /app/packages
 # The entrypoint + 'alembic upgrade head' both run from /app/packages/api.
 
 # Code stays root-owned; only the runtime state volumes are writable by septum.
-RUN mkdir -p /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models \
+# Every model cache (HF_HOME, XDG_CACHE_HOME/whisper, PADDLE_PDX_CACHE_HOME) lives under /app/models.
+RUN mkdir -p /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes \
+        /app/models/huggingface /app/models/whisper /app/models/paddlex \
     && chown -R septum:septum /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models
 
 VOLUME ["/app/data", "/app/uploads", "/app/anon_maps", "/app/vector_indexes", "/app/bm25_indexes", "/app/models"]

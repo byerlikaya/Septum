@@ -51,14 +51,18 @@ COPY packages/mcp/ /app/packages/mcp/
 # Editable install records the source path, so builder + runtime stages
 # must agree on the package location (both use /app/packages).
 RUN pip install --no-warn-script-location -e "/app/packages/core[transformers]" \
-    && pip install --no-warn-script-location -e /app/packages/mcp
+    && pip install --no-warn-script-location -e /app/packages/mcp \
+    && pip install --no-warn-script-location \
+        "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#sha256=1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85"
 
 # ── runtime ──
 FROM python:3.13-slim@sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/app/.venv/bin:$PATH"
+    PATH="/app/.venv/bin:$PATH" \
+    HF_HOME=/app/models/huggingface \
+    HF_HUB_DISABLE_TELEMETRY=1
 
 RUN groupadd --gid 1000 septum \
     && useradd --uid 1000 --gid septum --shell /bin/sh --create-home septum
@@ -67,7 +71,12 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/packages /app/packages
 
-RUN mkdir -p /data/scan && chown septum:septum /data/scan
+# Code stays root-owned; only the scan root and the HF model cache are writable by septum.
+RUN mkdir -p /data/scan /app/models/huggingface \
+    && chown septum:septum /data/scan \
+    && chown -R septum:septum /app/models
+
+VOLUME ["/app/models"]
 
 USER septum
 
