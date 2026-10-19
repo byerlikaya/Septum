@@ -19,6 +19,12 @@ updates:
         update-types: [minor, patch]
     cooldown:
       default-days: 3
+    ignore:
+      # paddlepaddle 3.3.x breaks PaddleOCR inference on linux/amd64 (oneDNN PIR
+      # regression, Paddle issue #77340). Pinned at 3.2.2 until the fix ships;
+      # the OCR regression test in packages/api/tests guards later releases.
+      - dependency-name: paddlepaddle
+        versions: ["3.3.x"]
 
   - package-ecosystem: npm
     directories:
