@@ -1,52 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 460" font-family="ui-sans-serif, -apple-system, system-ui, Segoe UI, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 460" role="img" aria-labelledby="cr-t cr-d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif">
+  <title id="cr-t">Özel kural hattı</title>
+  <desc id="cr-d">Özel kural regex, anahtar kelime listesi veya LLM promptu ile tespit yapar. Eşleşmeler policy composer tarafından hazır paketlerle birleştirilir ve metin maskelenir.</desc>
   <defs>
-    <marker id="cra" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/>
-    </marker>
+    <marker id="m0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#4A5A6D"/></marker>
+    <filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#1F2D3D" flood-opacity="0.12"/></filter>
   </defs>
-
-  <rect width="880" height="460" fill="#FAFAFA"/>
-
-  <text x="440" y="36" text-anchor="middle" font-size="18" font-weight="700" fill="currentColor">Özel Kural Hattı</text>
-
-  <polygon points="440,68 540,118 440,168 340,118" fill="#9333ea" stroke="#6b21a8" stroke-width="2"/>
-  <text x="440" y="113" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">Özel Kural</text>
-  <text x="440" y="132" text-anchor="middle" font-size="11" fill="#e9d5ff">tespit yöntemini seç</text>
-
-  <g>
-    <rect x="60" y="200" width="220" height="78" rx="10" fill="#1e40af" stroke="#1e3a8a" stroke-width="2"/>
-    <text x="170" y="226" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Regex</text>
-    <text x="170" y="248" text-anchor="middle" font-size="11" fill="#bfdbfe">Örüntü eşleme</text>
-    <text x="170" y="266" text-anchor="middle" font-size="10" fill="#dbeafe" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">\d{3}-\d{2}-\d{4}</text>
-  </g>
-
-  <g>
-    <rect x="330" y="200" width="220" height="78" rx="10" fill="#0ea5e9" stroke="#0369a1" stroke-width="2"/>
-    <text x="440" y="226" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Anahtar Kelime</text>
-    <text x="440" y="248" text-anchor="middle" font-size="11" fill="#bae6fd">Kelime listesi</text>
-    <text x="440" y="266" text-anchor="middle" font-size="10" fill="#e0f2fe">"gizli", "hassas"</text>
-  </g>
-
-  <g>
-    <rect x="600" y="200" width="220" height="78" rx="10" fill="#ec4899" stroke="#9d174d" stroke-width="2"/>
-    <text x="710" y="226" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">LLM Promptu</text>
-    <text x="710" y="248" text-anchor="middle" font-size="11" fill="#fbcfe8">Semantik denetim</text>
-    <text x="710" y="266" text-anchor="middle" font-size="10" fill="#fce7f3">"Bu metinde teşhis var mı?"</text>
-  </g>
-
-  <path d="M 410,160 L 220,200" stroke="#6b7280" stroke-width="2" fill="none" marker-end="url(#cra)"/>
-  <path d="M 440,168 L 440,200" stroke="#6b7280" stroke-width="2" fill="none" marker-end="url(#cra)"/>
-  <path d="M 470,160 L 660,200" stroke="#6b7280" stroke-width="2" fill="none" marker-end="url(#cra)"/>
-
-  <rect x="320" y="320" width="240" height="60" rx="10" fill="#f59e0b" stroke="#b45309" stroke-width="2"/>
-  <text x="440" y="346" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">Metinde eşleşme bulundu</text>
-  <text x="440" y="366" text-anchor="middle" font-size="11" fill="#fef3c7">policy composer hazır paketlerle birleştirir</text>
-
-  <path d="M 170,278 L 380,320" stroke="#6b7280" stroke-width="2" fill="none" marker-end="url(#cra)"/>
-  <path d="M 440,278 L 440,320" stroke="#6b7280" stroke-width="2" fill="none" marker-end="url(#cra)"/>
-  <path d="M 710,278 L 500,320" stroke="#6b7280" stroke-width="2" fill="none" marker-end="url(#cra)"/>
-
-  <rect x="350" y="410" width="180" height="40" rx="8" fill="#10b981" stroke="#047857" stroke-width="2"/>
-  <text x="440" y="436" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">→ Maskelendi</text>
-  <path d="M 440,380 L 440,410" stroke="#6b7280" stroke-width="2" fill="none" marker-end="url(#cra)"/>
+  <rect x="0.5" y="0.5" width="879" height="459" rx="16" fill="#F5F8FB" stroke="#D9E1E6"/>
+<text x="440" y="36" font-size="18" font-weight="700" fill="#1F2D3D" text-anchor="middle">Özel Kural Hattı</text>
+<polygon points="440,68 540,118 440,168 340,118" fill="#2a6aa8" stroke="#1F4E7E" stroke-width="1.25" stroke-linejoin="round" filter="url(#sh)"/><text x="440" y="115.8" font-size="14" font-weight="700" fill="#FFFFFF" text-anchor="middle">Özel Kural</text><text x="440" y="130.9" font-size="11" font-weight="400" fill="#D6E6F7" text-anchor="middle">tespit yöntemini seç</text>
+<rect x="60" y="200" width="220" height="78" rx="10" fill="#FFFFFF" stroke="#C0CEDB" stroke-width="1.25" filter="url(#sh)"/><text x="170.0" y="229.9" font-size="13" font-weight="700" fill="#1F2D3D" text-anchor="middle">Regex</text><text x="170.0" y="244.8" font-size="11" font-weight="400" fill="#5B6B7D" text-anchor="middle">Örüntü eşleme</text><text x="170.0" y="258.1" font-size="10" font-weight="400" fill="#1F4E7E" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">\bSTUDY-\d{4}-\d{5}\b</text><rect x="60" y="212" width="4" height="54" rx="2" fill="#2a6aa8"/>
+<rect x="330" y="200" width="220" height="78" rx="10" fill="#FFFFFF" stroke="#C0CEDB" stroke-width="1.25" filter="url(#sh)"/><text x="440.0" y="229.9" font-size="13" font-weight="700" fill="#1F2D3D" text-anchor="middle">Anahtar Kelime</text><text x="440.0" y="244.8" font-size="11" font-weight="400" fill="#5B6B7D" text-anchor="middle">Kelime listesi</text><text x="440.0" y="258.1" font-size="10" font-weight="400" fill="#1F4E7E" text-anchor="middle">"Project Bluebird", "Halcyon"</text><rect x="330" y="212" width="4" height="54" rx="2" fill="#579cd4"/>
+<rect x="600" y="200" width="220" height="78" rx="10" fill="#FFFFFF" stroke="#C0CEDB" stroke-width="1.25" filter="url(#sh)"/><text x="710.0" y="229.9" font-size="13" font-weight="700" fill="#1F2D3D" text-anchor="middle">LLM Promptu</text><text x="710.0" y="244.8" font-size="11" font-weight="400" fill="#5B6B7D" text-anchor="middle">Semantik denetim</text><text x="710.0" y="258.1" font-size="10" font-weight="400" fill="#1F4E7E" text-anchor="middle">"Bu metinde teşhis var mı?"</text><rect x="600" y="212" width="4" height="54" rx="2" fill="#4B6F96"/>
+<path d="M410 160 L220 200" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M440 168 V200" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M470 160 L660 200" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M170 278 L380 320" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M440 278 V320" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M710 278 L500 320" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<rect x="290" y="320" width="300" height="60" rx="10" fill="#2a6aa8" stroke="#1F4E7E" stroke-width="1.25" filter="url(#sh)"/><text x="440.0" y="347.8" font-size="14" font-weight="700" fill="#FFFFFF" text-anchor="middle">Metinde eşleşme bulundu</text><text x="440.0" y="362.9" font-size="11" font-weight="400" fill="#D6E6F7" text-anchor="middle">policy composer hazır paketlerle birleştirir</text>
+<path d="M440 380 V410" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<rect x="350" y="410" width="180" height="40" rx="8" fill="#EAF5EE" stroke="#7FB594" stroke-width="1.25" filter="url(#sh)"/><text x="440.0" y="434.6" font-size="13" font-weight="700" fill="#24583A" text-anchor="middle">→ Maskelendi</text>
 </svg>

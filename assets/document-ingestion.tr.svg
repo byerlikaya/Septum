@@ -1,133 +1,69 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 1120" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 1120" role="img" aria-labelledby="di-t di-d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif">
+  <title id="di-t">Doküman işleme hattı</title>
+  <desc id="di-d">Yükleme, dosya tipi tespiti, formata özel ingester, dil tespiti, üç katmanlı PII tespiti, anonimleştirme haritasıyla maskeleme, paralel parçalama ve şifreli saklama, ardından FAISS ve BM25 indekslerine gömme.</desc>
   <defs>
-    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#444"/>
-    </marker>
-    <filter id="sh" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.15"/>
-    </filter>
+    <marker id="m0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#4A5A6D"/></marker>
+    <filter id="sh" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#1F2D3D" flood-opacity="0.12"/></filter>
   </defs>
-
-  <rect width="960" height="1120" fill="#FAFAFA"/>
-
-  <!-- ═══════ Arrows (drawn first, under boxes) ═══════ -->
-
-  <path d="M 480 82 L 480 113" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-
-  <path d="M 480 168 L 480 185" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 150 185 L 810 185" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 150 185 L 150 210" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-  <path d="M 370 185 L 370 210" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-  <path d="M 590 185 L 590 210" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-  <path d="M 810 185 L 810 210" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-
-  <path d="M 150 250 L 150 280" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 370 250 L 370 280" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 590 250 L 590 280" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 810 250 L 810 280" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 150 280 L 810 280" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 480 280 L 480 300" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-
-  <path d="M 480 340 L 480 390" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-
-  <path d="M 480 430 L 480 480" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 200 480 L 760 480" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 200 480 L 200 515" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-  <path d="M 480 480 L 480 515" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-  <path d="M 760 480 L 760 515" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-
-  <path d="M 200 555 L 200 600" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 480 555 L 480 600" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 760 555 L 760 600" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 200 600 L 760 600" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 480 600 L 480 620" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-
-  <path d="M 480 660 L 480 710" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-
-  <path d="M 480 750 L 480 775" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 280 775 L 680 775" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 280 775 L 280 800" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-  <path d="M 680 775 L 680 800" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-
-  <path d="M 280 840 L 280 880" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-
-  <path d="M 280 920 L 280 945" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 180 945 L 380 945" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 180 945 L 180 965" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-  <path d="M 380 945 L 380 965" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-
-  <path d="M 180 1005 L 180 1030" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 380 1005 L 380 1030" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 680 840 L 680 1030" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 180 1030 L 680 1030" stroke="#444" stroke-width="2" fill="none"/>
-  <path d="M 480 1030 L 480 1055" stroke="#444" stroke-width="2" fill="none" marker-end="url(#arr)"/>
-
-  <!-- Tespit Katmanları subgraph container -->
-  <rect x="100" y="490" width="760" height="85" rx="12" fill="none" stroke="#F9A825" stroke-width="1.5" stroke-dasharray="5 4"/>
-  <text x="115" y="505" font-size="11" font-weight="600" fill="#6D4C00" paint-order="stroke" stroke="#FAFAFA" stroke-width="4">Tespit Katmanları</text>
-
-  <!-- ═══════ Nodes ═══════ -->
-
-  <rect x="400" y="40" width="160" height="42" rx="10" fill="#E8F5E9" stroke="#43A047" stroke-width="2" filter="url(#sh)"/>
-  <text x="480" y="67" text-anchor="middle" font-size="13" font-weight="600" fill="#2E7D32">📁 Doküman Yükleme</text>
-
-  <polygon points="400,140 480,113 560,140 480,168" fill="#FFF3E0" stroke="#FB8C00" stroke-width="2" filter="url(#sh)"/>
-  <text x="480" y="145" text-anchor="middle" font-size="12" font-weight="600" fill="#E65100">Dosya Tipi?</text>
-
-  <rect x="90" y="210" width="120" height="40" rx="8" fill="#E3F2FD" stroke="#1E88E5" stroke-width="1.5" filter="url(#sh)"/>
-  <text x="150" y="235" text-anchor="middle" font-size="12" font-weight="600" fill="#1565C0">📄 PDF</text>
-
-  <rect x="310" y="210" width="120" height="40" rx="8" fill="#E3F2FD" stroke="#1E88E5" stroke-width="1.5" filter="url(#sh)"/>
-  <text x="370" y="235" text-anchor="middle" font-size="12" font-weight="600" fill="#1565C0">📃 DOCX / XLSX</text>
-
-  <rect x="530" y="210" width="120" height="40" rx="8" fill="#E3F2FD" stroke="#1E88E5" stroke-width="1.5" filter="url(#sh)"/>
-  <text x="590" y="235" text-anchor="middle" font-size="12" font-weight="600" fill="#1565C0">🖼️ PaddleOCR</text>
-
-  <rect x="750" y="210" width="120" height="40" rx="8" fill="#E3F2FD" stroke="#1E88E5" stroke-width="1.5" filter="url(#sh)"/>
-  <text x="810" y="235" text-anchor="middle" font-size="12" font-weight="600" fill="#1565C0">🎙️ Whisper</text>
-
-  <rect x="360" y="300" width="240" height="40" rx="8" fill="#E3F2FD" stroke="#1E88E5" stroke-width="1.5" filter="url(#sh)"/>
-  <text x="480" y="325" text-anchor="middle" font-size="12" font-weight="600" fill="#1565C0">🌍 Dil Tespiti (20+ dil)</text>
-
-  <rect x="330" y="390" width="300" height="44" rx="10" fill="#BBDEFB" stroke="#1565C0" stroke-width="2" filter="url(#sh)"/>
-  <text x="480" y="417" text-anchor="middle" font-size="13" font-weight="700" fill="#0D47A1">🔍 3 Katmanlı PII Tespiti</text>
-
-  <rect x="140" y="515" width="120" height="40" rx="8" fill="#FFFDE7" stroke="#F9A825" stroke-width="1.5" filter="url(#sh)"/>
-  <text x="200" y="533" text-anchor="middle" font-size="11" font-weight="600" fill="#6D4C00">Presidio</text>
-  <text x="200" y="547" text-anchor="middle" font-size="10" fill="#6D4C00">pattern + validator</text>
-
-  <rect x="420" y="515" width="120" height="40" rx="8" fill="#FFFDE7" stroke="#F9A825" stroke-width="1.5" filter="url(#sh)"/>
-  <text x="480" y="533" text-anchor="middle" font-size="11" font-weight="600" fill="#6D4C00">NER</text>
-  <text x="480" y="547" text-anchor="middle" font-size="10" fill="#6D4C00">XLM-RoBERTa</text>
-
-  <rect x="700" y="515" width="120" height="40" rx="8" fill="#FFFDE7" stroke="#F9A825" stroke-width="1.5" filter="url(#sh)"/>
-  <text x="760" y="533" text-anchor="middle" font-size="11" font-weight="600" fill="#6D4C00">Ollama</text>
-  <text x="760" y="547" text-anchor="middle" font-size="10" fill="#6D4C00">semantik (opsiyonel)</text>
-
-  <rect x="350" y="620" width="260" height="42" rx="10" fill="#F3E5F5" stroke="#8E24AA" stroke-width="2" filter="url(#sh)"/>
-  <text x="480" y="647" text-anchor="middle" font-size="13" font-weight="600" fill="#4A148C">🎭 Maskeleme + Anon Map</text>
-
-  <rect x="370" y="710" width="220" height="40" rx="8" fill="#FFF3E0" stroke="#FB8C00" stroke-width="1.5" filter="url(#sh)"/>
-  <text x="480" y="735" text-anchor="middle" font-size="12" font-weight="600" fill="#E65100">⚡ Paralel İşleme</text>
-
-  <rect x="210" y="800" width="140" height="40" rx="8" fill="#E3F2FD" stroke="#1E88E5" stroke-width="1.5" filter="url(#sh)"/>
-  <text x="280" y="825" text-anchor="middle" font-size="12" font-weight="600" fill="#1565C0">📦 Chunking</text>
-
-  <rect x="590" y="800" width="180" height="40" rx="8" fill="#FFEBEE" stroke="#E53935" stroke-width="1.5" filter="url(#sh)"/>
-  <text x="680" y="820" text-anchor="middle" font-size="12" font-weight="600" fill="#B71C1C">🔐 Şifreli Saklama</text>
-  <text x="680" y="833" text-anchor="middle" font-size="10" fill="#B71C1C">AES-256-GCM</text>
-
-  <rect x="210" y="880" width="140" height="40" rx="8" fill="#E3F2FD" stroke="#1E88E5" stroke-width="1.5" filter="url(#sh)"/>
-  <text x="280" y="905" text-anchor="middle" font-size="12" font-weight="600" fill="#1565C0">🧬 Embedding</text>
-
-  <rect x="120" y="965" width="120" height="40" rx="8" fill="#E8F5E9" stroke="#43A047" stroke-width="1.5" filter="url(#sh)"/>
-  <text x="180" y="983" text-anchor="middle" font-size="11" font-weight="600" fill="#2E7D32">FAISS</text>
-  <text x="180" y="997" text-anchor="middle" font-size="10" fill="#2E7D32">vektör indeksi</text>
-
-  <rect x="320" y="965" width="120" height="40" rx="8" fill="#E8F5E9" stroke="#43A047" stroke-width="1.5" filter="url(#sh)"/>
-  <text x="380" y="983" text-anchor="middle" font-size="11" font-weight="600" fill="#2E7D32">BM25</text>
-  <text x="380" y="997" text-anchor="middle" font-size="10" fill="#2E7D32">keyword indeksi</text>
-
-  <rect x="370" y="1055" width="220" height="46" rx="10" fill="#C8E6C9" stroke="#2E7D32" stroke-width="2" filter="url(#sh)"/>
-  <text x="480" y="1084" text-anchor="middle" font-size="13" font-weight="700" fill="#1B5E20">✅ Arama Hazır</text>
+  <rect x="0.5" y="0.5" width="959" height="1119" rx="16" fill="#F5F8FB" stroke="#D9E1E6"/>
+<path d="M480 82 V113" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M480 168 V185" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M150 185 H810" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M150 185 V210" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M370 185 V210" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M590 185 V210" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M810 185 V210" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M150 250 V280" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M370 250 V280" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M590 250 V280" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M810 250 V280" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M150 280 H810" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M480 280 V300" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M480 340 V390" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M480 430 V480" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M200 480 H760" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M200 480 V515" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M480 480 V515" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M760 480 V515" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M200 555 V600" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M480 555 V600" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M760 555 V600" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M200 600 H760" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M480 600 V620" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M480 660 V710" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M480 750 V775" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M280 775 H680" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M280 775 V800" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M680 775 V800" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M280 840 V880" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M280 920 V945" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M180 945 H380" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M180 945 V965" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M380 945 V965" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<path d="M180 1005 V1030" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M380 1005 V1030" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M680 840 V1030" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M180 1030 H680" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M480 1030 V1055" fill="none" stroke="#4A5A6D" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#m0)"/>
+<rect x="100" y="490" width="760" height="85" rx="14" fill="#FFFCF2" stroke="#E7CB85" stroke-width="1.25" stroke-dasharray="5 4"/>
+<text x="340" y="507" font-size="11" font-weight="600" fill="#7A5A12" text-anchor="middle">Tespit Katmanları</text>
+<rect x="380" y="40" width="200" height="42" rx="10" fill="#FFFFFF" stroke="#C0CEDB" stroke-width="1.25" filter="url(#sh)"/><g transform="translate(416.7 53.5) scale(0.938)" fill="none" stroke="#1F2D3D" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.6a1.2 1.2 0 0 1 1.2-1.2h3l1.5 1.7h5.1A1.2 1.2 0 0 1 14 6.3v6.2a1.2 1.2 0 0 1-1.2 1.2H3.2A1.2 1.2 0 0 1 2 12.5z"/></g><text x="437.7" y="65.5" font-size="13" font-weight="600" fill="#1F2D3D" text-anchor="start">Doküman Yükleme</text>
+<polygon points="400,140 480,113 560,140 480,168" fill="#FFFFFF" stroke="#C0CEDB" stroke-width="1.25" stroke-linejoin="round" filter="url(#sh)"/><text x="480" y="144.2" font-size="12" font-weight="600" fill="#1F2D3D" text-anchor="middle">Dosya Tipi?</text>
+<rect x="75" y="210" width="150" height="40" rx="8" fill="#EAF2FA" stroke="#7dafda" stroke-width="1.25" filter="url(#sh)"/><g transform="translate(130.3 223.0) scale(0.875)" fill="none" stroke="#1F4E7E" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 1.8h5l3 3v9.4H4z"/><path d="M9 1.8v3h3"/></g><text x="150.3" y="234.2" font-size="12" font-weight="600" fill="#1F4E7E" text-anchor="start">PDF</text>
+<rect x="295" y="210" width="150" height="40" rx="8" fill="#EAF2FA" stroke="#7dafda" stroke-width="1.25" filter="url(#sh)"/><g transform="translate(324.3 223.0) scale(0.875)" fill="none" stroke="#1F4E7E" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 1.8h5l3 3v9.4H4z"/><path d="M9 1.8v3h3M6.3 8.5h3.4M6.3 11h3.4"/></g><text x="344.3" y="234.2" font-size="12" font-weight="600" fill="#1F4E7E" text-anchor="start">DOCX / XLSX</text>
+<rect x="515" y="210" width="150" height="40" rx="8" fill="#EAF2FA" stroke="#7dafda" stroke-width="1.25" filter="url(#sh)"/><g transform="translate(550.8 223.0) scale(0.875)" fill="none" stroke="#1F4E7E" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="1.4"/><circle cx="5.6" cy="6.4" r="1.2"/><path d="M2.5 12.2l3.4-3.4 2.4 2.4 1.8-1.8 3.4 3.4"/></g><text x="570.8" y="234.2" font-size="12" font-weight="600" fill="#1F4E7E" text-anchor="start">PaddleOCR</text>
+<rect x="735" y="210" width="150" height="40" rx="8" fill="#EAF2FA" stroke="#7dafda" stroke-width="1.25" filter="url(#sh)"/><g transform="translate(777.3 223.0) scale(0.875)" fill="none" stroke="#1F4E7E" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="5.8" y="1.8" width="4.4" height="7.4" rx="2.2"/><path d="M3.8 7.6a4.2 4.2 0 0 0 8.4 0M8 11.8v2.4M5.8 14.2h4.4"/></g><text x="797.3" y="234.2" font-size="12" font-weight="600" fill="#1F4E7E" text-anchor="start">Whisper</text>
+<rect x="360" y="300" width="240" height="40" rx="8" fill="#EAF2FA" stroke="#7dafda" stroke-width="1.25" filter="url(#sh)"/><g transform="translate(401.8 313.0) scale(0.875)" fill="none" stroke="#1F4E7E" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2.1 2.2 2.1 9.8 0 12M8 2c-2.1 2.2-2.1 9.8 0 12"/></g><text x="421.8" y="324.2" font-size="12" font-weight="600" fill="#1F4E7E" text-anchor="start">Dil Tespiti (20+ dil)</text>
+<rect x="330" y="390" width="300" height="44" rx="10" fill="#2a6aa8" stroke="#1F4E7E" stroke-width="1.25" filter="url(#sh)"/><g transform="translate(392.1 404.6) scale(0.938)" fill="none" stroke="#FFFFFF" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="4.4"/><path d="M10.3 10.3l3.2 3.2"/></g><text x="413.1" y="416.6" font-size="13" font-weight="700" fill="#FFFFFF" text-anchor="start">3 Katmanlı PII Tespiti</text>
+<rect x="125" y="515" width="150" height="40" rx="8" fill="#FDF6E3" stroke="#D9B45A" stroke-width="1.25" filter="url(#sh)"/><text x="200.0" y="532.4" font-size="11" font-weight="600" fill="#7A5A12" text-anchor="middle">Presidio</text><text x="200.0" y="545.6" font-size="10" font-weight="400" fill="#7A5A12" text-anchor="middle">pattern + validator</text>
+<rect x="405" y="515" width="150" height="40" rx="8" fill="#FDF6E3" stroke="#D9B45A" stroke-width="1.25" filter="url(#sh)"/><text x="480.0" y="532.4" font-size="11" font-weight="600" fill="#7A5A12" text-anchor="middle">NER</text><text x="480.0" y="545.6" font-size="10" font-weight="400" fill="#7A5A12" text-anchor="middle">XLM-RoBERTa</text>
+<rect x="685" y="515" width="150" height="40" rx="8" fill="#FDF6E3" stroke="#D9B45A" stroke-width="1.25" filter="url(#sh)"/><text x="760.0" y="532.4" font-size="11" font-weight="600" fill="#7A5A12" text-anchor="middle">Ollama</text><text x="760.0" y="545.6" font-size="10" font-weight="400" fill="#7A5A12" text-anchor="middle">semantik (opsiyonel)</text>
+<rect x="350" y="620" width="260" height="42" rx="10" fill="#1F4E7E" stroke="#1F4E7E" stroke-width="1.25" filter="url(#sh)"/><g transform="translate(399.1 633.5) scale(0.938)" fill="none" stroke="#FFFFFF" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.6c1.9-1.2 3.8-1.2 5.5.2 1.7-1.4 3.6-1.4 5.5-.2v3.6c0 2.9-2.4 4.7-5.5 5.4-3.1-.7-5.5-2.5-5.5-5.4z"/><path d="M5.2 7.2h.01M10.8 7.2h.01"/></g><text x="420.1" y="645.5" font-size="13" font-weight="600" fill="#FFFFFF" text-anchor="start">Maskeleme + Anon Map</text>
+<rect x="370" y="710" width="220" height="40" rx="8" fill="#EAF2FA" stroke="#7dafda" stroke-width="1.25" filter="url(#sh)"/><g transform="translate(424.5 723.0) scale(0.875)" fill="none" stroke="#1F4E7E" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M9.2 1.8L4 9h3.6L6.8 14.2 12 7H8.4z"/></g><text x="444.5" y="734.2" font-size="12" font-weight="600" fill="#1F4E7E" text-anchor="start">Paralel İşleme</text>
+<rect x="210" y="800" width="140" height="40" rx="8" fill="#EAF2FA" stroke="#7dafda" stroke-width="1.25" filter="url(#sh)"/><g transform="translate(244.0 813.0) scale(0.875)" fill="none" stroke="#1F4E7E" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5l6-3 6 3v6l-6 3-6-3z"/><path d="M2 5l6 3 6-3M8 8v6"/></g><text x="264.0" y="824.2" font-size="12" font-weight="600" fill="#1F4E7E" text-anchor="start">Chunking</text>
+<rect x="590" y="800" width="180" height="40" rx="8" fill="#FBEFEF" stroke="#D99A9A" stroke-width="1.25" filter="url(#sh)"/><g transform="translate(621.3 806.5) scale(0.875)" fill="none" stroke="#7E2F2F" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3.2" y="7" width="9.6" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></g><text x="641.3" y="817.7" font-size="12" font-weight="600" fill="#7E2F2F" text-anchor="start">Şifreli Saklama</text><text x="680.0" y="831.3" font-size="10" font-weight="400" fill="#7E2F2F" text-anchor="middle">AES-256-GCM</text>
+<rect x="210" y="880" width="140" height="40" rx="8" fill="#EAF2FA" stroke="#7dafda" stroke-width="1.25" filter="url(#sh)"/><g transform="translate(240.8 893.0) scale(0.875)" fill="none" stroke="#1F4E7E" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 1.8c0 3.4 5 4.2 5 6.2s-5 2.8-5 6.2M10.5 1.8c0 3.4-5 4.2-5 6.2s5 2.8 5 6.2"/></g><text x="260.8" y="904.2" font-size="12" font-weight="600" fill="#1F4E7E" text-anchor="start">Embedding</text>
+<rect x="120" y="965" width="120" height="40" rx="8" fill="#EAF5EE" stroke="#7FB594" stroke-width="1.25" filter="url(#sh)"/><text x="180.0" y="982.4" font-size="11" font-weight="600" fill="#24583A" text-anchor="middle">FAISS</text><text x="180.0" y="995.6" font-size="10" font-weight="400" fill="#24583A" text-anchor="middle">vektör indeksi</text>
+<rect x="320" y="965" width="120" height="40" rx="8" fill="#EAF5EE" stroke="#7FB594" stroke-width="1.25" filter="url(#sh)"/><text x="380.0" y="982.4" font-size="11" font-weight="600" fill="#24583A" text-anchor="middle">BM25</text><text x="380.0" y="995.6" font-size="10" font-weight="400" fill="#24583A" text-anchor="middle">keyword indeksi</text>
+<rect x="370" y="1055" width="220" height="46" rx="10" fill="#EAF5EE" stroke="#7FB594" stroke-width="1.25" filter="url(#sh)"/><g transform="translate(430.8 1070.5) scale(0.938)" fill="none" stroke="#24583A" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M5.2 8.2l2 2 3.6-3.8"/></g><text x="451.8" y="1082.5" font-size="13" font-weight="700" fill="#24583A" text-anchor="start">Arama Hazır</text>
 </svg>
