@@ -22,6 +22,11 @@ jest.mock("../../../lib/api", () => ({
   },
   PASSWORD_MIN_LENGTH: 12,
   PASSWORD_MAX_BYTES: 72,
+  OLLAMA_URL_NOT_ALLOWED: "ollama_url_not_allowed",
+  extractErrorCode: (e: { response?: { data?: { code?: string } } }) =>
+    e?.response?.data?.code ?? null,
+  extractErrorDetail: (e: { response?: { data?: { detail?: string } } }) =>
+    e?.response?.data?.detail ?? null,
   initializeInfrastructure: jest.fn(),
   setAuthToken: jest.fn(),
   streamSSE: jest.fn(),
@@ -106,4 +111,101 @@ it("registers a password of exactly 72 ASCII bytes", async () => {
     email: "admin@example.com",
     password: "a".repeat(72)
   });
+});
+
+describe("provider step settings save", () => {
+  const renderOllamaProvider = () =>
+    render(
+      <SetupWizard
+        startPhase="needs_application_setup"
+        initialProvider="ollama"
+        initialModel="m"
+        version="1"
+        onComplete={jest.fn()}
+      />
+    );
+
+  const testCalls = () =>
+    mockPost.mock.calls.filter((c) => c[0] === "/api/settings/test-local-models");
+
+  it("shows the translated rejection on the URL field and does not advance", async () => {
+    mockPatch.mockRejectedValue({
+      response: {
+        status: 400,
+        data: { detail: "English detail with host", code: "ollama_url_not_allowed" }
+      }
+    });
+    renderOllamaProvider();
+
+    fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("settings.llm.ollama.baseUrl.rejected");
+    const input = screen.getByPlaceholderText("http://localhost:11434");
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input).toHaveAttribute("aria-describedby", alert.id);
+    expect(screen.queryByText("English detail with host")).not.toBeInTheDocument();
+    expect(testCalls()).toHaveLength(0);
+    expect(screen.queryByText("setup.nav.next")).not.toBeInTheDocument();
+  });
+
+  it("clears the rejection when the URL is edited", async () => {
+    mockPatch.mockRejectedValue({
+      response: { data: { detail: "x", code: "ollama_url_not_allowed" } }
+    });
+    renderOllamaProvider();
+    fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
+    await screen.findByRole("alert");
+
+    fireEvent.change(screen.getByPlaceholderText("http://localhost:11434"), {
+      target: { value: "http://localhost:11435" }
+    });
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows the generic save failure and does not advance on other errors", async () => {
+    mockPatch.mockRejectedValue(new Error("network down"));
+    renderOllamaProvider();
+
+    fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
+
+    expect(await screen.findByText("setup.step.provider.saveFailed")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(testCalls()).toHaveLength(0);
+  });
+
+  it("shows the server detail when a non-URL failure carries one", async () => {
+    mockPatch.mockRejectedValue({
+      response: { status: 422, data: { detail: "Unknown regulation id(s)" } }
+    });
+    renderOllamaProvider();
+
+    fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
+
+    expect(await screen.findByText("Unknown regulation id(s)")).toBeInTheDocument();
+    expect(testCalls()).toHaveLength(0);
+  });
+});
+
+it("maps a coded cloud test-llm refusal to the translated rejection", async () => {
+  mockPost.mockImplementation((url: string) =>
+    url === "/api/settings/test-llm"
+      ? Promise.reject({ response: { data: { detail: "English detail", code: "ollama_url_not_allowed" } } })
+      : Promise.resolve({ data: { ok: true } })
+  );
+  render(
+    <SetupWizard
+      startPhase="needs_application_setup"
+      initialProvider="anthropic"
+      initialModel="m"
+      version="1"
+      onComplete={jest.fn()}
+    />
+  );
+
+  fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
+
+  expect(await screen.findByText("settings.llm.ollama.baseUrl.rejected")).toBeInTheDocument();
+  expect(screen.queryByText("setup.step.test.failed")).not.toBeInTheDocument();
 });

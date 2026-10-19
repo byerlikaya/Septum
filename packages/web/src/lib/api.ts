@@ -48,8 +48,16 @@ export const PASSWORD_MAX_BYTES = 72;
 export const api = axios.create({ baseURL });
 
 export function extractErrorDetail(err: unknown): string | null {
-  const axiosError = err as AxiosError<{ detail?: string }>;
-  return axiosError.response?.data?.detail ?? null;
+  const axiosError = err as AxiosError<{ detail?: unknown }>;
+  const detail = axiosError.response?.data?.detail;
+  return typeof detail === "string" ? detail : null;
+}
+
+export const OLLAMA_URL_NOT_ALLOWED = "ollama_url_not_allowed";
+
+export function extractErrorCode(err: unknown): string | null {
+  const axiosError = err as AxiosError<{ code?: string }>;
+  return axiosError.response?.data?.code ?? null;
 }
 
 const AUTH_TOKEN_KEY = "septum_auth_token";

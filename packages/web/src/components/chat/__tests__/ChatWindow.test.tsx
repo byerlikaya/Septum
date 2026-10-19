@@ -122,3 +122,17 @@ it("a retry from a rejected approval resends each chunk's source document id", a
   ]);
   expect(params.numbering_token).toBe("v1.signed");
 });
+
+it("announces a stream error in an alert region", async () => {
+  mockStreamChatAsk.mockImplementation((_params: unknown, onEvent: (e: unknown) => void) => {
+    onEvent({ type: "error", message: "LLM is down" });
+    return { abort: jest.fn() };
+  });
+  renderChatWindow();
+
+  fireEvent.change(screen.getByPlaceholderText("chat.input.placeholder"), { target: { value: "Hi" } });
+  fireEvent.click(screen.getByRole("button", { name: "chat.button.send" }));
+
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("LLM is down");
+});

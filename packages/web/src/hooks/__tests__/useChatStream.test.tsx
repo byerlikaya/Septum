@@ -15,7 +15,8 @@ const mockGetChatDebug = jest.fn();
 
 jest.mock("../../lib/api", () => ({
   streamChatAsk: (...args: unknown[]) => mockStreamChatAsk(...args),
-  getChatDebug: (...args: unknown[]) => mockGetChatDebug(...args)
+  getChatDebug: (...args: unknown[]) => mockGetChatDebug(...args),
+  OLLAMA_URL_NOT_ALLOWED: "ollama_url_not_allowed"
 }));
 
 type OnEvent = (event: SSEChatEvent) => void;
@@ -194,6 +195,30 @@ it("shows the translated message when a retry is refused", async () => {
   await waitFor(() => expect(result.current.streamError).toBe("chat.error.retryNumberingChanged"));
   const assistant = result.current.messages.find((m) => m.role === "assistant");
   expect(assistant?.content).toBe("Error: chat.error.retryNumberingChanged");
+});
+
+it("shows the translated message when the Ollama URL is refused", async () => {
+  const { result } = renderStream();
+
+  act(() => result.current.sendMessage("Q"));
+  await waitFor(() => expect(mockStreamChatAsk).toHaveBeenCalledTimes(1));
+  act(() => {
+    lastOnEvent()({ type: "error", code: "ollama_url_not_allowed", message: "server text" });
+  });
+
+  await waitFor(() => expect(result.current.streamError).toBe("chat.error.ollamaUrlNotAllowed"));
+});
+
+it("keeps the server message for an unrecognised error code", async () => {
+  const { result } = renderStream();
+
+  act(() => result.current.sendMessage("Q"));
+  await waitFor(() => expect(mockStreamChatAsk).toHaveBeenCalledTimes(1));
+  act(() => {
+    lastOnEvent()({ type: "error", code: "something_else", message: "server text" });
+  });
+
+  await waitFor(() => expect(result.current.streamError).toBe("server text"));
 });
 
 it("restores initialMessages on first render", () => {

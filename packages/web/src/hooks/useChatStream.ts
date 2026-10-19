@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { streamChatAsk, getChatDebug, type PreApprovedChunk } from "@/lib/api";
+import { CHAT_STREAM_ERROR_KEYS, translateErrorCode } from "@/lib/apiErrors";
 import type {
   ApprovalChunkPayload,
   ApprovalData,
@@ -276,10 +277,7 @@ export function useChatStream({
             // and the user sees a perpetual thinking indicator with
             // an out-of-band toast.
             const targetId = pendingAssistantIdRef.current;
-            const errorMessage =
-              event.code === "retry_numbering_changed"
-                ? t("chat.error.retryNumberingChanged")
-                : event.message;
+            const errorMessage = translateErrorCode(event.code, t, CHAT_STREAM_ERROR_KEYS) ?? event.message;
             setStreaming(false);
             setPendingAssistantId(null);
             setStreamError(errorMessage);

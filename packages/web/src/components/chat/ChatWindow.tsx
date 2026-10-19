@@ -289,7 +289,7 @@ export function ChatWindow({
       )}
 
       {streamError != null && (
-        <div className="mt-2">
+        <div className="mt-2" role="alert">
           <ErrorWithRetry message={streamError} onRetry={regenerate} />
         </div>
       )}

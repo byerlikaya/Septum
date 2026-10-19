@@ -10,6 +10,7 @@ export type SettingsUpdatePayload = Partial<Omit<AppSettingsResponse, "id">> & {
 export type TestStatus = {
   status: "idle" | "pending" | "success" | "error";
   message?: string;
+  code?: string;
 };
 
 export type SettingsTabProps = {
@@ -17,7 +18,7 @@ export type SettingsTabProps = {
   onChange: <K extends keyof SettingsUpdatePayload>(
     key: K,
     value: SettingsUpdatePayload[K]
-  ) => Promise<void>;
+  ) => Promise<unknown>;
   isSaving: (key: keyof SettingsUpdatePayload) => boolean;
 };
 

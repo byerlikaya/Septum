@@ -1,7 +1,10 @@
 "use client";
 
 import { useI18n } from "@/lib/i18n";
+import { useState } from "react";
 import { OllamaModelCombobox } from "@/components/common/OllamaModelCombobox";
+import { OLLAMA_URL_NOT_ALLOWED } from "@/lib/api";
+import { localizeApiError } from "@/lib/apiErrors";
 import type { SettingsTabProps, TestStatus } from "./types";
 import { FieldHint } from "./FieldHint";
 import { SavingIndicator } from "./SavingIndicator";
@@ -33,6 +36,45 @@ export function LLMProviderTab({
   const isOllama = settings.llm_provider === "ollama";
   const testStatus = isOllama ? localTestStatus : cloudTestStatus;
   const onTest = isOllama ? onTestLocal : onTestCloud;
+  const [baseUrlError, setBaseUrlError] = useState<string | null>(null);
+  const urlRejectedByTest = isOllama && localTestStatus.code === OLLAMA_URL_NOT_ALLOWED;
+  const dynamicUrlError = baseUrlError ?? (urlRejectedByTest ? localTestStatus.message ?? null : null);
+  const storedUrlRejected = settings.ollama_url_not_allowed && !dynamicUrlError;
+  const urlMessage = dynamicUrlError ?? (storedUrlRejected ? t("settings.llm.ollama.baseUrl.storedRejected") : null);
+
+  const baseUrlField = (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-slate-200">
+        {t("settings.llm.ollama.baseUrl.label")}
+      </label>
+      <input
+        type="text"
+        className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-hidden transition focus:border-sky-500"
+        defaultValue={settings.ollama_base_url}
+        aria-invalid={urlMessage ? true : undefined}
+        aria-describedby={urlMessage ? "ollama-base-url-message" : undefined}
+        onBlur={async (e) => {
+          const value = e.target.value.trim();
+          if (!value || value === settings.ollama_base_url) return;
+          setBaseUrlError(null);
+          const err = await onChange("ollama_base_url", value);
+          if (err) setBaseUrlError(localizeApiError(err, t, "errors.settings.update"));
+        }}
+        placeholder="http://localhost:11434"
+      />
+      {urlMessage && (
+        <p
+          id="ollama-base-url-message"
+          role={dynamicUrlError ? "alert" : undefined}
+          className={`text-[11px] ${dynamicUrlError ? "text-red-300" : "text-amber-300"}`}
+        >
+          {urlMessage}
+        </p>
+      )}
+      <FieldHint text={t("settings.llm.ollama.baseUrl.hint")} />
+      {isSaving("ollama_base_url") && <SavingIndicator />}
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -57,7 +99,7 @@ export function LLMProviderTab({
               ? t("settings.common.testing")
               : t("settings.common.testConnection")}
           </button>
-          {testStatus.status !== "idle" && testStatus.message && (
+          {testStatus.status !== "idle" && testStatus.message && !urlRejectedByTest && (
             <p className={`max-w-xs text-[11px] ${testStatus.status === "success" ? "text-emerald-300" : "text-red-300"}`}>
               {testStatus.message}
             </p>
@@ -137,27 +179,12 @@ export function LLMProviderTab({
         </div>
       )}
 
-      {/* Ollama fields */}
-      {isOllama && (
+      {/* Ollama base URL; the Ollama models follow it when Ollama is the provider */}
+      {(isOllama || settings.ollama_url_not_allowed) && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-slate-200">
-              {t("settings.llm.ollama.baseUrl.label")}
-            </label>
-            <input
-              type="text"
-              className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-hidden transition focus:border-sky-500"
-              defaultValue={settings.ollama_base_url}
-              onBlur={async (e) => {
-                const value = e.target.value.trim();
-                if (value && value !== settings.ollama_base_url) await onChange("ollama_base_url", value);
-              }}
-              placeholder="http://localhost:11434"
-            />
-            <FieldHint text={t("settings.llm.ollama.baseUrl.hint")} />
-            {isSaving("ollama_base_url") && <SavingIndicator />}
-          </div>
+          {baseUrlField}
 
+          {isOllama && (<>
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-slate-200">
               {t("settings.llm.ollama.chatModel.label")}
@@ -199,6 +226,7 @@ export function LLMProviderTab({
             <FieldHint text={t("settings.llm.model.hint")} />
             {isSaving("llm_model") && <SavingIndicator />}
           </div>
+          </>)}
         </div>
       )}
     </div>

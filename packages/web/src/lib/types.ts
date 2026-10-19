@@ -220,8 +220,8 @@ export interface SSEEndEvent {
 export interface SSEErrorEvent {
   type: "error";
   message: string;
-  /** Machine-readable reason; "retry_numbering_changed" when a retry is refused. */
-  code?: string;
+  /** Machine-readable reason, e.g. "retry_numbering_changed" or "ollama_url_not_allowed"; null/absent otherwise. */
+  code?: string | null;
 }
 
 export type SSEChatEvent =
@@ -276,6 +276,7 @@ export interface AppSettingsResponse {
   ollama_base_url: string;
   ollama_chat_model: string;
   ollama_deanon_model: string;
+  ollama_url_not_allowed: boolean;
   deanon_enabled: boolean;
   require_approval: boolean;
   approval_timeout_seconds: number;
