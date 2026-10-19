@@ -24,6 +24,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ### 2026-10-19
 
+- Fixed OCR in the Docker images: PaddlePaddle 3.3 has a oneDNN regression that makes PaddleOCR inference fail on x86-64 CPUs, so PaddlePaddle is pinned back to 3.2.2 and Dependabot skips 3.3.x. A new test runs real OCR inference in CI to catch this kind of break.
 - Fixed the bugs and vulnerabilities a SonarQube analysis reported: stream and worker shutdowns now propagate task cancellation (the audit and gateway workers still finish before their queues close), login timing uses a random dummy password, downloaded Whisper models are owner-only, and the standalone image's start script is root-owned. In the web app, regulation rows are now keyboard-accessible, the modal backdrop and upload area use native click targets, and chat message ids come from the Web Crypto API.
 - Hardened the container images: application code in the api, standalone and web images is now root-owned and read-only for the runtime user, with only the data, model and cache directories writable. In the web and standalone images the runtime user's home directory is no longer writable, and the build context excludes local databases, document stores, indexes, caches and secrets at any depth (plus the package test suites), so a local dev run can no longer be baked into an image.
 

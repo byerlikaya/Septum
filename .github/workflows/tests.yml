@@ -67,6 +67,16 @@ jobs:
           # truth for the services/ layer).
           python -m pip install -r packages/api/requirements.txt
 
+      # The OCR regression test runs real PP-OCRv5 models (~130 MB, downloaded
+      # on first use into the PaddleX cache). Cached per requirements.txt.
+      - name: Cache PaddleOCR models
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.paddlex
+          key: ${{ runner.os }}-paddlex-${{ hashFiles('packages/api/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-paddlex-
+
       # Upgrade, check the models match, step one revision down and back up.
       - name: Check database migrations on PostgreSQL
         env:
