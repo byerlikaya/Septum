@@ -103,9 +103,6 @@ def e2e_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "_run_ocr_on_page",
         _no_ocr_replace,
     )
-    tld_cache = tmp_path / "tldextract_cache"
-    tld_cache.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("TLDEXTRACT_CACHE", str(tld_cache))
 
     # Avoid HuggingFace downloads: no-op index_document, search returns [] (chat uses fallback chunks)
     from septum_api.services import vector_store as vs_module

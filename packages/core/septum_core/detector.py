@@ -43,7 +43,10 @@ from .span_processing import (
     merge_adjacent_person_name_spans,
 )
 from .spans import DetectedSpan, ResolvedSpan, SanitizeResult
+from .suffix_list import use_bundled_suffix_list
 from .text_utils import normalize_for_comparison, normalize_unicode
+
+use_bundled_suffix_list()
 
 _SPACY_MODEL = "en_core_web_sm"
 _cached_nlp_engine: object | None = None

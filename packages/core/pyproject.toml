@@ -39,6 +39,10 @@ dependencies = [
     "spacy>=3.8.16",
     "pydantic>=2.10",
     "regex>=2024.11.6",
+    # Exception to the rule above: tldextract is required to force the bundled
+    # public-suffix snapshot (no fetch, no disk cache; see septum_core.suffix_list).
+    # It pulls in `requests` transitively, which presidio-analyzer already did.
+    "tldextract>=5.4,<6",
 ]
 
 [project.optional-dependencies]
