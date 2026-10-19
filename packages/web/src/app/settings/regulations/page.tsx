@@ -85,7 +85,7 @@ function regulationDescription(ruleset: RegulationRuleset, t: Translate): string
     return t(key);
   }
   const apiDescription = ruleset.description?.trim();
-  return apiDescription ? apiDescription : null;
+  return apiDescription || null;
 }
 
 const REGION_FLAGS: Record<string, string> = {
