@@ -104,7 +104,7 @@ Module contracts and zone semantics live in the [Architecture](docs/architecture
 - **Custom Rules** — define your own detectors: regex, keyword lists, or LLM-prompt based.
 - **Rich Format Support** — PDFs, Office files, spreadsheets, images (OCR), audio (Whisper), emails.
 - **Hybrid Retrieval** — BM25 keyword matching + FAISS semantic search with Reciprocal Rank Fusion.
-- **Multi-Provider** — Anthropic, OpenAI, OpenRouter, or local Ollama. Switch from the UI.
+- **Multi-Provider** — Anthropic, OpenAI, OpenRouter, or local Ollama. Switch from the UI. The Ollama URL must point to this machine (localhost or loopback, `host.docker.internal`, `host.containers.internal`) or to the bundled `ollama` service in your own compose stack; remote Ollama servers are refused.
 - **JWT Auth + RBAC + API Keys** — first user auto-promoted via setup wizard; admin UI manages roles (admin / editor / viewer). Programmatic API keys with SHA-256 hashed storage and per-prefix rate limits.
 - **MCP Server** — standalone `septum-mcp` exposes the same local masking pipeline to any MCP-aware client over stdio (Claude Desktop, Cursor, Windsurf) or streamable-http / sse (remote, browser, containerised clients) with bearer-token auth.
 - **Document Relationship Graph** — visual cytoscape-based map of which documents share entities (people, IBANs, IDs, organisations). Distinct-entity counts inside each node, edge weight scaled by entity uniqueness so a shared NATIONAL_ID outweighs a shared city name.
