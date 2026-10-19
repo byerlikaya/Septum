@@ -120,9 +120,10 @@ def test_verify_files_accepts_matching_directory(tmp_path: Path) -> None:
 
 def test_verify_files_refuses_a_flipped_byte(tmp_path: Path) -> None:
     root = _write(tmp_path / "m", {**GOOD, "model.safetensors": b"weights-v2"})
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError) as exc:
-        verify_files(root, _pin())
+        verify_files(root, pin)
 
     assert exc.value.code == "model_integrity_failed"
     assert "model.safetensors" in exc.value.reason
@@ -131,14 +132,17 @@ def test_verify_files_refuses_a_flipped_byte(tmp_path: Path) -> None:
 
 def test_verify_files_refuses_a_missing_pinned_file(tmp_path: Path) -> None:
     root = _write(tmp_path / "m", {"config.json": GOOD["config.json"]})
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError, match="missing"):
-        verify_files(root, _pin())
+        verify_files(root, pin)
 
 
 def test_verify_files_refuses_a_missing_directory(tmp_path: Path) -> None:
+    pin = _pin()
+
     with pytest.raises(ModelIntegrityError, match="directory is missing"):
-        verify_files(tmp_path / "absent", _pin())
+        verify_files(tmp_path / "absent", pin)
 
 
 @pytest.mark.parametrize(
@@ -148,9 +152,10 @@ def test_verify_files_refuses_a_missing_directory(tmp_path: Path) -> None:
 )
 def test_verify_files_refuses_any_unpinned_file(tmp_path: Path, stray: str) -> None:
     root = _write(tmp_path / "m", {**GOOD, stray: b"planted"})
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError) as exc:
-        verify_files(root, _pin())
+        verify_files(root, pin)
 
     assert exc.value.reason == f"unpinned file '{stray}' is present"
 
@@ -159,17 +164,19 @@ def test_verify_files_refuses_a_planted_symlink(tmp_path: Path) -> None:
     root = _write(tmp_path / "m", GOOD)
     (tmp_path / "evil.json").write_text("{}")
     os.symlink(tmp_path / "evil.json", root / "tokenizer.json")
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError, match="unpinned file 'tokenizer.json'"):
-        verify_files(root, _pin())
+        verify_files(root, pin)
 
 
 def test_verify_files_refuses_a_dangling_planted_symlink(tmp_path: Path) -> None:
     root = _write(tmp_path / "m", GOOD)
     os.symlink(tmp_path / "nowhere", root / "added_tokens.json")
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError, match="unpinned file 'added_tokens.json'"):
-        verify_files(root, _pin())
+        verify_files(root, pin)
 
 
 def test_verify_files_accepts_the_hub_cache_layout_of_symlinked_blobs(tmp_path: Path) -> None:
@@ -194,9 +201,10 @@ def test_verify_files_refuses_a_file_that_changes_while_hashed(
         return digest, None, git
 
     monkeypatch.setattr(model_integrity, "_hash_file", _moving)
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError, match="changed while it was verified"):
-        verify_files(root, _pin())
+        verify_files(root, pin)
 
 
 @pytest.mark.parametrize("rel", ["../escape.json", "a/../../escape.json", "/etc/passwd"])
@@ -232,9 +240,10 @@ def test_stat_cache_is_invalidated_when_the_file_is_replaced(tmp_path: Path) -> 
     tampered = tmp_path / "tampered"
     tampered.write_bytes(b"weights-v2")
     os.replace(tampered, root / "model.safetensors")
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError, match="model.safetensors"):
-        verify_files(root, _pin())
+        verify_files(root, pin)
 
 
 def test_stat_cache_is_invalidated_when_the_file_is_rewritten_in_place(tmp_path: Path) -> None:
@@ -244,9 +253,10 @@ def test_stat_cache_is_invalidated_when_the_file_is_rewritten_in_place(tmp_path:
     st = target.stat()
     target.write_bytes(b"weights-v2")
     os.utime(target, ns=(st.st_atime_ns, st.st_mtime_ns))
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError):
-        verify_files(root, _pin())
+        verify_files(root, pin)
 
 
 # --- manifest -------------------------------------------------------------
@@ -262,7 +272,8 @@ def test_manifest_entry_is_well_formed(repo_id: str) -> None:
     assert pin.files
     for rel, digest in pin.files.items():
         assert re.fullmatch(r"[0-9a-f]{64}", digest), rel
-        assert not rel.startswith("/") and ".." not in rel.split("/"), rel
+        assert not rel.startswith("/"), rel
+        assert ".." not in rel.split("/"), rel
         assert Path(rel).suffix.lower() not in _PICKLE_SUFFIXES, rel
     if pin.kind != "paddle":
         assert any(rel.endswith(".safetensors") for rel in pin.files)
@@ -376,9 +387,10 @@ def test_second_bad_download_raises_after_exactly_two_fetches(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, online: None
 ) -> None:
     hub = _install(monkeypatch, FakeHub({**GOOD, "model.safetensors": b"tampered"}))
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError) as exc:
-        ensure_pinned_snapshot(_pin(), cache_dir=tmp_path)
+        ensure_pinned_snapshot(pin, cache_dir=tmp_path)
 
     assert len(hub.calls) == 2
     assert exc.value.code == "model_integrity_failed"
@@ -454,18 +466,20 @@ def test_shared_store_mismatch_is_not_healed_by_an_unforced_refetch(
         "snapshot_download",
         lambda *a, **k: hub(*a, **{**k, "force_download": False}),
     )
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError, match="model.safetensors"):
-        fetch_pinned_snapshot(_pin(), cache_dir=tmp_path)
+        fetch_pinned_snapshot(pin, cache_dir=tmp_path)
 
 
 def test_fetch_failure_online_is_a_coded_integrity_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, online: None
 ) -> None:
     _install(monkeypatch, FakeHub(LocalEntryNotFoundError("nope")))
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError, match="could not be fetched"):
-        ensure_pinned_snapshot(_pin(), cache_dir=tmp_path)
+        ensure_pinned_snapshot(pin, cache_dir=tmp_path)
 
 
 def _snapshot(cache: Path, repo: str = REPO, rev: str = REV) -> Path:
@@ -476,9 +490,10 @@ def test_offline_missing_files_fail_at_once_without_network(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, offline: None
 ) -> None:
     hub = _install(monkeypatch, FakeHub(GOOD))
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError, match="offline mode"):
-        ensure_pinned_snapshot(_pin(), cache_dir=tmp_path)
+        ensure_pinned_snapshot(pin, cache_dir=tmp_path)
 
     assert hub.calls == []
 
@@ -488,9 +503,10 @@ def test_offline_mismatch_is_refused_without_purge_or_refetch(
 ) -> None:
     snapshot = _write(_snapshot(tmp_path), {**GOOD, "model.safetensors": b"tampered"})
     hub = _install(monkeypatch, FakeHub(GOOD))
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError, match="model.safetensors"):
-        ensure_pinned_snapshot(_pin(), cache_dir=tmp_path)
+        ensure_pinned_snapshot(pin, cache_dir=tmp_path)
 
     assert hub.calls == []
     assert (snapshot / "model.safetensors").read_bytes() == b"tampered"
@@ -540,9 +556,10 @@ def test_cached_mismatch_with_a_bad_refetch_raises_after_one_fetch(
 ) -> None:
     _write(_snapshot(tmp_path), {**GOOD, "model.safetensors": b"tampered"})
     hub = _install(monkeypatch, FakeHub({**GOOD, "model.safetensors": b"still-bad"}))
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError):
-        fetch_pinned_snapshot(_pin(), cache_dir=tmp_path)
+        fetch_pinned_snapshot(pin, cache_dir=tmp_path)
 
     assert len(hub.calls) == 1
 
@@ -977,9 +994,10 @@ def test_offline_missing_snapshot_is_refused_before_any_lock(
     cache: Path, monkeypatch: pytest.MonkeyPatch, offline: None, no_lock: None
 ) -> None:
     hub = _install(monkeypatch, FakeHub(GOOD))
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError) as exc:
-        fetch_pinned_snapshot(_pin(), cache_dir=cache)
+        fetch_pinned_snapshot(pin, cache_dir=cache)
 
     assert exc.value.reason == model_integrity._OFFLINE_MISSING
     assert hub.calls == []
@@ -990,9 +1008,10 @@ def test_offline_missing_snapshot_in_a_read_only_cache_gets_the_offline_reason(
     cache: Path, read_only, offline: None
 ) -> None:
     read_only(cache)
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError) as exc:
-        fetch_pinned_snapshot(_pin(), cache_dir=cache)
+        fetch_pinned_snapshot(pin, cache_dir=cache)
 
     assert exc.value.reason == model_integrity._OFFLINE_MISSING
 
@@ -1009,9 +1028,10 @@ def test_offline_failing_snapshot_raises_its_exact_reason_without_a_lock(
     cache: Path, offline: None, no_lock: None, served: dict[str, bytes], reason: str
 ) -> None:
     _write(_snapshot(cache), served)
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError) as exc:
-        fetch_pinned_snapshot(_pin(), cache_dir=cache)
+        fetch_pinned_snapshot(pin, cache_dir=cache)
 
     assert exc.value.reason == reason
 
@@ -1034,9 +1054,10 @@ def test_online_read_only_cache_refuses_at_lock_creation(
 ) -> None:
     hub = _install(monkeypatch, FakeHub(GOOD))
     read_only(cache)
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError) as exc:
-        fetch_pinned_snapshot(_pin(), cache_dir=cache)
+        fetch_pinned_snapshot(pin, cache_dir=cache)
 
     assert exc.value.reason == f"{_READ_ONLY} (PermissionError)"
     assert hub.calls == []
@@ -1049,9 +1070,10 @@ def test_online_read_only_snapshot_refuses_at_delete(
     _write(_snapshot(cache), {**GOOD, "model.safetensors": b"tampered"})
     hub = _install(monkeypatch, FakeHub(GOOD))
     read_only(_snapshot(cache).parent)
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError) as exc:
-        fetch_pinned_snapshot(_pin(), cache_dir=cache)
+        fetch_pinned_snapshot(pin, cache_dir=cache)
 
     assert exc.value.reason == f"{_READ_ONLY} (PermissionError)"
     assert hub.calls == []
@@ -1066,9 +1088,10 @@ def test_online_read_only_cache_refuses_at_download(
     cache: Path, monkeypatch: pytest.MonkeyPatch, online: None, error: OSError
 ) -> None:
     _install(monkeypatch, FakeHub(error))
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError) as exc:
-        fetch_pinned_snapshot(_pin(), cache_dir=cache)
+        fetch_pinned_snapshot(pin, cache_dir=cache)
 
     assert exc.value.reason == f"{_READ_ONLY} ({type(error).__name__})"
 
@@ -1112,9 +1135,10 @@ def test_unrelated_os_error_still_propagates(
         raise OSError(errno.ENOSPC, "No space left on device")
 
     monkeypatch.setattr(model_integrity, "_repo_lock", _full_disk)
+    pin = _pin()
 
     with pytest.raises(OSError) as exc:
-        fetch_pinned_snapshot(_pin(), cache_dir=cache)
+        fetch_pinned_snapshot(pin, cache_dir=cache)
 
     assert not isinstance(exc.value, ModelIntegrityError)
     assert exc.value.errno == errno.ENOSPC
@@ -1124,9 +1148,10 @@ def test_enospc_during_download_propagates_unchanged(
     cache: Path, monkeypatch: pytest.MonkeyPatch, online: None
 ) -> None:
     _install(monkeypatch, FakeHub(OSError(errno.ENOSPC, "No space left on device")))
+    pin = _pin()
 
     with pytest.raises(OSError) as exc:
-        fetch_pinned_snapshot(_pin(), cache_dir=cache)
+        fetch_pinned_snapshot(pin, cache_dir=cache)
 
     assert not isinstance(exc.value, ModelIntegrityError)
     assert exc.value.errno == errno.ENOSPC
@@ -1193,9 +1218,10 @@ def test_refetch_never_deletes_through_a_symlinked_snapshot(
     _snapshot(cache).parent.mkdir(parents=True)
     os.symlink(outside, _snapshot(cache))
     hub = _install(monkeypatch, FakeHub(GOOD))
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError, match="symlink"):
-        fetch_pinned_snapshot(_pin(), cache_dir=cache)
+        fetch_pinned_snapshot(pin, cache_dir=cache)
 
     assert hub.calls == []
     assert (outside / "model.safetensors").read_bytes() == b"tampered"
@@ -1275,11 +1301,13 @@ _FORGED = "x.json\nWARNING forged log line"
 
 def test_newline_in_a_planted_name_is_escaped_in_the_reason(tmp_path: Path) -> None:
     root = _write(tmp_path / "m", {**GOOD, _FORGED: b"planted"})
+    pin = _pin()
 
     with pytest.raises(ModelIntegrityError) as exc:
-        verify_files(root, _pin())
+        verify_files(root, pin)
 
-    assert "\n" not in exc.value.reason and "\n" not in str(exc.value)
+    assert "\n" not in exc.value.reason
+    assert "\n" not in str(exc.value)
     assert "WARNING forged log line" in exc.value.reason
 
 

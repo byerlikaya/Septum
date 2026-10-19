@@ -1,1 +1,2 @@
 path:packages/api/tests/test_migrations.py
+path:packages/web/src/hooks/__tests__/useChatStream.test.tsx

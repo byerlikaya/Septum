@@ -197,42 +197,22 @@ it("shows the translated message when a retry is refused", async () => {
   expect(assistant?.content).toBe("Error: chat.error.retryNumberingChanged");
 });
 
-it("shows the translated message when the Ollama URL is refused", async () => {
+it.each([
+  ["the Ollama URL is refused", "ollama_url_not_allowed", "chat.error.ollamaUrlNotAllowed"],
+  ["a model fails its integrity check", "model_integrity_failed", "errors.model.integrityFailed"],
+  ["the custom NER model is not pinned", "ner_model_unpinned", "errors.model.nerUnpinned"]
+])("shows the translated message when %s", async (_label, code, translationKey) => {
   const { result } = renderStream();
 
   act(() => result.current.sendMessage("Q"));
   await waitFor(() => expect(mockStreamChatAsk).toHaveBeenCalledTimes(1));
   act(() => {
-    lastOnEvent()({ type: "error", code: "ollama_url_not_allowed", message: "server text" });
+    lastOnEvent()({ type: "error", code, message: "server text" });
   });
 
-  await waitFor(() => expect(result.current.streamError).toBe("chat.error.ollamaUrlNotAllowed"));
-});
-
-it("shows the translated message when a model fails its integrity check", async () => {
-  const { result } = renderStream();
-
-  act(() => result.current.sendMessage("Q"));
-  await waitFor(() => expect(mockStreamChatAsk).toHaveBeenCalledTimes(1));
-  act(() => {
-    lastOnEvent()({ type: "error", code: "model_integrity_failed", message: "server text" });
-  });
-
-  await waitFor(() => expect(result.current.streamError).toBe("errors.model.integrityFailed"));
+  await waitFor(() => expect(result.current.streamError).toBe(translationKey));
   const assistant = result.current.messages.find((m) => m.role === "assistant");
-  expect(assistant?.content).toBe("Error: errors.model.integrityFailed");
-});
-
-it("shows the translated message when the custom NER model is not pinned", async () => {
-  const { result } = renderStream();
-
-  act(() => result.current.sendMessage("Q"));
-  await waitFor(() => expect(mockStreamChatAsk).toHaveBeenCalledTimes(1));
-  act(() => {
-    lastOnEvent()({ type: "error", code: "ner_model_unpinned", message: "server text" });
-  });
-
-  await waitFor(() => expect(result.current.streamError).toBe("errors.model.nerUnpinned"));
+  expect(assistant?.content).toBe(`Error: ${translationKey}`);
 });
 
 it("keeps the server message for an unrecognised error code", async () => {

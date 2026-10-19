@@ -53,4 +53,5 @@ def test_paddleocr_recognises_synthetic_text(synthetic_text_image: np.ndarray) -
     recognised = " ".join(texts)
     assert "Hello" in recognised, recognised
     assert "12345" in recognised, recognised
-    assert confidences and min(confidences) > 0.5, confidences
+    assert confidences, confidences
+    assert min(confidences) > 0.5, confidences
