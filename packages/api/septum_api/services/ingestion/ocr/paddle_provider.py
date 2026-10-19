@@ -6,16 +6,20 @@ OCR inference runs in a **persistent subprocess** so that PaddlePaddle's
 ~1.5 GB memory footprint is isolated from the main FastAPI process.
 The worker stays alive between calls with the engine cached, so only
 the first OCR call pays the model-loading cost.
+
+Every model the pipeline uses is fetched at its pinned revision and
+hash-verified before PaddleOCR sees it, and handed over as a local model
+directory, so PaddleX never downloads a model on its own.
 """
 
 import atexit
 import logging
 import multiprocessing as mp
-import os
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Mapping, Tuple
 
 import numpy as np  # type: ignore[import]
+from septum_core.model_integrity import ModelIntegrityError
 
 from .base import OcrProvider
 
@@ -30,29 +34,45 @@ _CURRENCY_STANDALONE = re.compile(r"[εε€¢º£¥₺も]")
 
 _worker_engine: Any = None
 
+_PIN_ORG = "PaddlePaddle"
+
+
+def _pinned_engine_kwargs(model_names: Mapping[str, str]) -> Dict[str, str]:
+    """Resolve each model to its verified pinned directory as PaddleOCR kwargs.
+
+    ``model_names`` maps a PaddleOCR parameter prefix (for example
+    ``text_detection``) to the official model name.
+    """
+    from septum_core.model_integrity import ensure_pinned_snapshot, require_pin
+
+    kwargs: Dict[str, str] = {}
+    for prefix, name in model_names.items():
+        pin = require_pin(f"{_PIN_ORG}/{name}")
+        kwargs[f"{prefix}_model_name"] = name
+        kwargs[f"{prefix}_model_dir"] = str(ensure_pinned_snapshot(pin))
+    return kwargs
+
 
 def _paddle_ocr_predict(
     image_bytes: bytes,
     image_shape: Tuple[int, ...],
     image_dtype_str: str,
-    rec_model_name: str,
-    det_model_name: str,
+    model_names: Mapping[str, str],
 ) -> List[Dict[str, Any]]:
     """Run PaddleOCR in the worker subprocess.
 
     The engine is created once and cached in the module-level
     ``_worker_engine`` variable for the lifetime of the worker process.
+    Raises :class:`ModelIntegrityError` when a model fails its pin; it
+    pickles, so the pool re-raises it unchanged in the parent.
     """
     global _worker_engine
 
     if _worker_engine is None:
-        os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+        engine_kwargs = _pinned_engine_kwargs(model_names)
         from paddleocr import PaddleOCR  # type: ignore[import]
 
-        _worker_engine = PaddleOCR(
-            text_detection_model_name=det_model_name,
-            text_recognition_model_name=rec_model_name,
-        )
+        _worker_engine = PaddleOCR(**engine_kwargs)
 
     image = np.frombuffer(image_bytes, dtype=np.dtype(image_dtype_str)).reshape(
         image_shape
@@ -130,6 +150,13 @@ class PaddleOcrProvider(OcrProvider):
     # text regions on dense layouts.
     _REC_MODEL_NAME = "PP-OCRv5_server_rec"
     _DET_MODEL_NAME = "PP-OCRv5_mobile_det"
+    _MODEL_NAMES: Mapping[str, str] = {
+        "text_detection": _DET_MODEL_NAME,
+        "text_recognition": _REC_MODEL_NAME,
+        "doc_orientation_classify": "PP-LCNet_x1_0_doc_ori",
+        "doc_unwarping": "UVDoc",
+        "textline_orientation": "PP-LCNet_x1_0_textline_ori",
+    }
 
     def __init__(self, **options: Any) -> None:
         self._options = dict(options)
@@ -182,7 +209,12 @@ class PaddleOcrProvider(OcrProvider):
     def _predict_in_subprocess(
         self, image_array: np.ndarray,
     ) -> List[Dict[str, Any]]:
-        """Send image to the persistent OCR worker and collect results."""
+        """Send image to the persistent OCR worker and collect results.
+
+        Raises :class:`ModelIntegrityError` (``model_integrity_failed``)
+        when a model fails its pin; any other worker failure is logged and
+        yields no results.
+        """
         pool = _get_ocr_pool()
         try:
             return pool.apply(
@@ -191,10 +223,11 @@ class PaddleOcrProvider(OcrProvider):
                     image_array.tobytes(),
                     image_array.shape,
                     str(image_array.dtype),
-                    self._REC_MODEL_NAME,
-                    self._DET_MODEL_NAME,
+                    dict(self._MODEL_NAMES),
                 ),
             )
+        except ModelIntegrityError:
+            raise
         except Exception as exc:
             logger.warning(
                 "PaddleOCR subprocess failed (image shape=%s): %s",

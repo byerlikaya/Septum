@@ -56,11 +56,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from langdetect import DetectorFactory
 from pydantic import BaseModel, Field, model_validator
+from septum_core.model_integrity import ModelRefusal
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..database import get_db
+from ..errors import MODEL_REFUSED_DETAIL
 from ..models.document import Chunk, Document
 from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
@@ -1938,19 +1940,26 @@ async def chat_ask(
                 }
             )
         except Exception as exc:
-            logger.error("Unhandled exception in chat event stream: %s", type(exc).__name__)
+            refused = isinstance(exc, ModelRefusal)
+            if refused:
+                logger.error("Chat refused, a model was refused (code: %s)", exc.code)
+            else:
+                logger.error("Unhandled exception in chat event stream: %s", type(exc).__name__)
             try:
                 await log_backend_error(
-                    db, http_request, exc, status_code=500
+                    db, http_request, exc, status_code=503 if refused else 500
                 )
             except Exception as log_exc:
                 logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
-            yield _encode_sse(
-                {
-                    "type": "error",
-                    "message": "An unexpected error occurred while processing the chat request.",
-                }
-            )
+            event = {
+                "type": "error",
+                "message": MODEL_REFUSED_DETAIL
+                if refused
+                else "An unexpected error occurred while processing the chat request.",
+            }
+            if refused:
+                event["code"] = exc.code
+            yield _encode_sse(event)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

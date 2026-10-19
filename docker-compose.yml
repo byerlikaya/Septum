@@ -207,6 +207,8 @@ services:
       - "8765:8765"
     volumes:
       - septum-mcp-scan:/data/scan:ro
+      # Read-only: mcp loads snapshots that api or the models fetch CLI already verified.
+      - septum-models:/app/models:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health')"]

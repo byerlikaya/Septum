@@ -68,6 +68,24 @@ def test_revision_016_is_noop_on_create_all_database(
     engine.dispose()
 
 
+def test_revision_017_adds_nullable_error_code_to_existing_documents(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "at_016.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.upgrade(cfg, "016")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    before = {c["name"] for c in sa.inspect(engine).get_columns("documents")}
+
+    command.upgrade(cfg, "017")
+
+    columns = {c["name"]: c for c in sa.inspect(engine).get_columns("documents")}
+    engine.dispose()
+    assert "ingestion_error_code" not in before
+    assert columns["ingestion_error_code"]["nullable"] is True
+
+
 @pytest.mark.skipif(
     not os.getenv("SEPTUM_TEST_POSTGRES_URL"),
     reason="SEPTUM_TEST_POSTGRES_URL not set",

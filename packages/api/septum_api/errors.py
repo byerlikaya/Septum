@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
+MODEL_REFUSED_DETAIL = "A model failed its integrity check; the request was refused."
+
 
 class ContentFreeError(Exception):
     """Base for errors whose message is authored by Septum and carries no user content.

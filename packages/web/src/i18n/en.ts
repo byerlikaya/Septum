@@ -215,6 +215,9 @@ export const enMessages = {
   "settings.ner.defaultsLoadError":
     "Could not load the default NER model map from the backend.",
   "settings.ner.defaultsEmpty": "No default NER models are registered.",
+  "settings.ner.customFormatHint":
+    "Custom models must be entered as org/name@<40-character commit SHA> and must ship safetensors weights. Built-in presets need no SHA. The first use of a custom model must be online, because its files are checked against the Hub. On air-gapped hosts, fetch it on a connected host first.",
+  "settings.ner.customPinnedLabel": "custom, user-pinned",
   "settings.common.saving": "Saving…",
   "settings.common.saved": "Saved",
 
@@ -338,6 +341,9 @@ export const enMessages = {
   "settings.ingestion.whisperModel.label": "Whisper model",
   "settings.ingestion.whisperModel.hint":
     "Local Whisper model size for audio transcription.",
+  "settings.ingestion.whisperModel.unsupportedPlaceholder": "Unsupported model saved — pick one",
+  "settings.ingestion.whisperModel.unsupportedWarning":
+    "The saved Whisper model is not supported, so audio ingestion will fail until you choose a supported model.",
   "settings.ingestion.defaultAudioLanguage.label": "Default audio language",
   "settings.ingestion.defaultAudioLanguage.auto": "Auto-detect",
   "settings.ingestion.defaultAudioLanguage.hint":
@@ -384,6 +390,12 @@ export const enMessages = {
     "An error occurred while deleting all documents.",
   "errors.settings.load": "An error occurred while loading settings.",
   "errors.settings.update": "An error occurred while updating the setting.",
+  "errors.model.integrityFailed":
+    "A model file is missing or failed its checksum, so it was not loaded. An administrator should restore it from a verified copy: on a connected host, run the model fetch command (python -m septum_api.cli.models fetch); on an air-gapped host, copy a verified models volume into place. For custom NER models, the user-pins file must be copied too. Then try again.",
+  "errors.model.nerUnpinned":
+    "The custom NER model is not pinned. Enter it as org/name@<40-character commit SHA> in Settings → NER Models. Only safetensors models are accepted.",
+  "errors.model.whisperNotAllowed":
+    "This Whisper model is not supported. Choose a model from the supported list in Settings.",
   "errors.regulations.load": "An error occurred while loading regulation settings.",
   "errors.regulations.update": "An error occurred while updating regulation rules.",
   "errors.regulations.test": "An error occurred while testing the rule. If this is a regex rule, please ensure the pattern is valid.",

@@ -19,6 +19,7 @@ from .utils.logging_config import setup_structured_logging
 
 setup_structured_logging(_bootstrap_early.get_config().log_level)
 
+import os
 import threading  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
 from typing import Any  # noqa: E402
@@ -28,6 +29,11 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.openapi.docs import get_redoc_html  # noqa: E402
 from fastapi.openapi.utils import get_openapi  # noqa: E402
 from fastapi.responses import HTMLResponse, JSONResponse  # noqa: E402
+from septum_core.model_integrity import (
+    ModelRefusal,
+    parse_model_spec,
+    split_model_specs,
+)
 from sqlalchemy import select  # noqa: E402
 from starlette import status as http_status  # noqa: E402
 
@@ -39,6 +45,7 @@ from .database import (  # noqa: E402
     init_db,
     initialize_engine,
 )
+from .errors import MODEL_REFUSED_DETAIL
 from .models.settings import AppSettings
 from .routers import api_keys as api_keys_router
 from .routers import approval as approval_router
@@ -59,15 +66,56 @@ from .services.document_anon_store import sweep_stale_temp_files
 from .services.error_logger import log_backend_error, log_backend_message
 from .utils.device import get_device
 
+MODEL_WARMUP_OPT_OUT_ENV = "SEPTUM_DISABLE_MODEL_WARMUP"
 
-def _preload_models() -> None:
+
+def _warn_on_refused_model_settings(
+    ner_overrides: dict[str, str] | None, whisper_model: str | None
+) -> None:
+    """Log one warning, codes only, if a stored model setting would be refused at use.
+
+    The Whisper check is skipped when openai-whisper is not installed: the
+    registry is unknown then, and audio ingestion reports that on its own.
+    """
+    import importlib.util
+
+    from .services.whisper_models import require_registry_model
+
+    codes: set[str] = set()
+    for spec in split_model_specs(ner_overrides):
+        try:
+            parse_model_spec(spec)
+        except ModelRefusal as exc:
+            codes.add(exc.code)
+    if whisper_model and importlib.util.find_spec("whisper") is not None:
+        try:
+            require_registry_model(whisper_model)
+        except ModelRefusal as exc:
+            codes.add(exc.code)
+    if codes:
+        logger.warning(
+            "Stored model settings would be refused at use: %s", ", ".join(sorted(codes))
+        )
+
+
+def _preload_models(
+    ner_overrides: dict[str, str] | None = None, whisper_model: str | None = None
+) -> None:
     """Pre-load heavy ML models in a background thread.
 
     Called once at startup so that the first user request does not
-    have to wait ~15 s for spaCy, NER, and embedding models to load.
+    have to wait ~15 s for spaCy, NER, and embedding models to load, after
+    warning about stored model settings that would be refused. Warmup is
+    best-effort and never fatal: any failure, including a model refused by
+    the integrity check, is logged as a warning, and the request that needs
+    the model later raises the same error.
     """
     try:
-        from .services.sanitizer import _get_shared_nlp_engine
+        _warn_on_refused_model_settings(ner_overrides, whisper_model)
+    except Exception as exc:
+        logger.warning("Model settings check failed: %s", type(exc).__name__)
+    try:
+        from septum_core.detector import _get_shared_nlp_engine
         _get_shared_nlp_engine()
 
         from .services.ner_model_registry import get_shared_ner_registry
@@ -77,7 +125,8 @@ def _preload_models() -> None:
         model = get_shared_sentence_transformer()
         model.encode(["warmup"], convert_to_numpy=True)
     except Exception as exc:
-        logger.debug("Model warmup skipped: %s", type(exc).__name__)
+        reason = exc.code if isinstance(exc, ModelRefusal) else type(exc).__name__
+        logger.warning("Model warmup failed: %s", reason)
 
 
 async def _reset_orphaned_processing_docs() -> None:
@@ -109,6 +158,19 @@ async def _reset_orphaned_processing_docs() -> None:
             logger.info("Reset %d orphaned processing documents to failed", result.rowcount)
 
 
+async def _stored_model_settings() -> tuple[dict[str, str] | None, str | None]:
+    """Return the stored NER overrides and Whisper model; ``(None, None)`` if unreadable."""
+    try:
+        async with get_session_maker()() as db:
+            row = (await db.execute(select(AppSettings))).scalars().first()
+    except Exception as exc:
+        logger.warning("Reading model settings for warmup failed: %s", type(exc).__name__)
+        return None, None
+    if row is None:
+        return None, None
+    return row.ner_model_overrides, row.whisper_model
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan handler — initialise database if already configured."""
@@ -122,7 +184,15 @@ async def lifespan(app: FastAPI):
         await init_db()
         await _reset_orphaned_processing_docs()
         sweep_stale_temp_files()
-        threading.Thread(target=_preload_models, daemon=True).start()
+        if os.getenv(MODEL_WARMUP_OPT_OUT_ENV) == "1":
+            logger.info("Model warmup disabled by %s", MODEL_WARMUP_OPT_OUT_ENV)
+        else:
+            threading.Thread(
+                target=_preload_models,
+                args=await _stored_model_settings(),
+                name="septum-model-warmup",
+                daemon=True,
+            ).start()
     yield
 
 
@@ -314,6 +384,31 @@ async def http_exception_handler(
     if code is not None:
         content["code"] = code
     return JSONResponse(status_code=exc.status_code, content=content)
+
+
+@app.exception_handler(ModelRefusal)
+async def model_refusal_handler(request: Request, exc: ModelRefusal) -> JSONResponse:
+    """Turn a refused model load anywhere in a route into 503 with its code.
+
+    The detail is fixed, host-free text; the exception is persisted to the
+    error log like any other server-side failure.
+    """
+    try:
+        if engine_is_ready():
+            async with get_session_maker()() as db:
+                await log_backend_error(
+                    db=db,
+                    request=request,
+                    exc=exc,
+                    level="ERROR",
+                    status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+    except Exception as log_exc:
+        logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
+    return JSONResponse(
+        status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": MODEL_REFUSED_DETAIL, "code": exc.code},
+    )
 
 
 @app.exception_handler(Exception)

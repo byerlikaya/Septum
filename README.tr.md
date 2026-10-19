@@ -134,6 +134,20 @@ Daha sade bir tek container demosu, iki makineli air-gapped ayrım, Ollama'sız 
 
 ---
 
+## Model bütünlüğü
+
+Septum, bir modelin adı Hugging Face'te çözülüyor diye o modeli yüklemez. Varsayılan her model bir commit'e sabitlenir ve çalışmadan önce kontrol edilir.
+
+- **Sabitlenmiş ve denetlenen dosyalar.** Varsayılan NER modelleri ve önerilen ön ayarlar, çok dilli sentence-transformers embedding modeli ve beş PaddleOCR modeli bir Hugging Face commit'ine sabitlenmiştir. Her dosya yüklenmeden önce SHA256 değeriyle denetlenir. Transformer modelleri yalnızca safetensors ağırlıklarını yükler ve uzak kod (remote code) kapalıdır. spaCy İngilizce modeli, hash'i sabitlenmiş bir wheel dosyasından kurulur. Whisper indirmeleri openai-whisper kayıt defterine göre doğrulanır ve yalnızca bu kayıt defterindeki model adları kabul edilir.
+- **Uyuşmazlık.** Denetimi geçemeyen bir dosya, sabitlenmiş commit'ten yalnızca bağlantılı bir host'ta bir kez daha indirilir. Hâlâ geçemezse ya da host çevrimdışıysa (air-gapped compose dosyası `HF_HUB_OFFLINE=1` ayarlar), modele ihtiyaç duyan işlem doğrulanmış bir kopya yerine konana kadar `model_integrity_failed` koduyla reddedilir. Doküman yüklemesi dokümanı bu kodla başarısız olarak işaretler; sohbet cevap yerine aynı kodu döndürür.
+- **Özel NER modelleri.** `org/name@<40 karakterlik commit SHA>` biçiminde girilir ve yalnızca safetensors ağırlıkları kabul edilir. Commit'siz bir model kimliği `ner_model_unpinned` koduyla reddedilir. İlk kullanımda (yalnızca çevrimiçi) indirilen her dosya, o commit için Hub'ın kendi hash'iyle karşılaştırılır (LFS dosyalarında SHA256, diğerlerinde git blob SHA-1). Dosya hash'leri bunun ardından model volume'unun dışındaki bir user-pins dosyasına kaydedilir ve sonraki her yükleme bu kayda göre denetlenir. Çevrimdışı ilk kullanıma izin verilmez; bu yüzden özel model önce bağlantılı bir host'ta çekilmelidir.
+
+Air-gapped (internetsiz) hostlarda modeller bağlantılı bir makinede indirilip kopyalanır. Ayrıntılar için [Kurulum Rehberi](docs/tr/installation.md#3-yalnız-air-gapped-bölge) bölümüne bakın.
+
+**Yükseltme sonrası.** Önceki sürümden kalan model önbellekleri sabitlenmiş commit'lerle eşleşmeyebilir. Bir sonraki çevrimiçi açılışta, bekleyen denetlenmemiş dosyalar içeren sabitlenmiş bir snapshot temizlenir ve bir kez yeniden indirilir; çevrimdışıysa, yeniden çekilene kadar reddedilir. Air-gapped bir kurulum, fetch komutunu bağlantılı bir host'ta yeniden çalıştırıp models volume'unu ve user-pins dosyasını kopyalamalıdır. Kayıtlı commit'siz özel NER kimliği ya da kayıt defteri dışındaki bir Whisper modeli adı (yerel bir checkpoint yolu gibi) reddedilir ve Ayarlar'dan değiştirilmelidir. Ön yükleme kapalı değilse, başlangıç günlüğü reddedilecek her saklı özel NER modeli veya Whisper modeli için yalnızca hata kodlarıyla uyarı verir.
+
+---
+
 ## Projeye Destek Olun
 
 Septum açık kaynak bir projedir (MIT lisanslı) ve geliştirme süreci herkese açık yürütülür. Bir gizlilik ihlalinin önüne geçmenize, ekibinizin hızlanmasına ya da LLM akışınızın güvenli kalmasına yardımcı olduysa:

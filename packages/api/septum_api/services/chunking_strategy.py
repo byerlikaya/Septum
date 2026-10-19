@@ -20,6 +20,7 @@ from typing import List, Optional
 from langchain_experimental.text_splitter import (
     SemanticChunker as LangChainSemanticChunker,
 )
+from septum_core.model_integrity import ModelRefusal
 
 
 @dataclass
@@ -229,6 +230,8 @@ class StructuredDocumentChunker(SemanticChunker):
                     )
 
             return chunks if chunks else [Chunk(text=text, index=0, section_title=section_title)]
+        except ModelRefusal:
+            raise
         except Exception:
             # Fallback to paragraph-based splitting if semantic fails
             return self._split_large_section_paragraph(text, section_title)
@@ -285,6 +288,8 @@ class StructuredDocumentChunker(SemanticChunker):
                     chunks.append(Chunk(text=doc_text, index=idx))
 
             return chunks if chunks else [Chunk(text=text, index=0)]
+        except ModelRefusal:
+            raise
         except Exception:
             # Final fallback to paragraph-based
             return self._fallback_paragraph_chunking(text)

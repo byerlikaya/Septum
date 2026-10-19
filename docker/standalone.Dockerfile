@@ -82,7 +82,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DOCUMENT_STORAGE_DIR=/app/uploads \
     ANON_MAP_STORAGE_DIR=/app/anon_maps \
     VECTOR_INDEX_DIR=/app/vector_indexes \
-    BM25_INDEX_DIR=/app/bm25_indexes
+    BM25_INDEX_DIR=/app/bm25_indexes \
+    HF_HOME=/app/models/huggingface \
+    HF_HUB_DISABLE_TELEMETRY=1 \
+    XDG_CACHE_HOME=/app/models \
+    PADDLE_PDX_CACHE_HOME=/app/models/paddlex
 
 COPY --from=node-donor /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-donor /usr/local/lib/node_modules /usr/local/lib/node_modules
@@ -115,11 +119,12 @@ COPY --from=frontend-builder /app/public /app/frontend/public
 # Code and HOME stay root-owned (node resolves modules from
 # ~/.node_modules); only runtime state is writable by septum: the volumes
 # below, the Next.js cache (optimised images, fetch cache) and ~/.cache.
-# ~/.paddlex points PaddleX at the models volume.
-RUN mkdir -p /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models /app/frontend/.next/cache /home/septum/.cache \
+# Every model cache (HF_HOME, XDG_CACHE_HOME/whisper, PADDLE_PDX_CACHE_HOME) lives under /app/models.
+RUN mkdir -p /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes \
+        /app/models/huggingface /app/models/whisper /app/models/paddlex \
+        /app/frontend/.next/cache /home/septum/.cache \
     && chown -R root:root /home/septum \
     && chmod 755 /home/septum \
-    && ln -s /app/models/paddlex /home/septum/.paddlex \
     && chown -R septum:septum /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models /app/frontend/.next/cache /home/septum/.cache
 
 VOLUME ["/app/data", "/app/uploads", "/app/anon_maps", "/app/vector_indexes", "/app/bm25_indexes", "/app/models"]
@@ -128,14 +133,6 @@ VOLUME ["/app/data", "/app/uploads", "/app/anon_maps", "/app/vector_indexes", "/
 COPY <<'STARTUP' /app/start.sh
 #!/bin/bash
 set -e
-
-# Symlink ML model caches to the persistent /app/models volume so
-# Whisper, HuggingFace, and PaddleOCR models survive container recreation.
-# ~/.paddlex is linked at build time because HOME is root-owned.
-mkdir -p /app/models/whisper /app/models/huggingface /app/models/paddlex \
-         /home/septum/.cache
-ln -sfn /app/models/whisper /home/septum/.cache/whisper
-ln -sfn /app/models/huggingface /home/septum/.cache/huggingface
 
 # Start backend
 cd /app/packages/api

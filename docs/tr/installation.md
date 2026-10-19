@@ -95,6 +95,8 @@ docker compose exec ollama ollama pull llama3.2:3b
 
 **http://localhost:3000** adresine gidin. Sihirbazın akışı için [İlk açılış](#i̇lk-açılış--kurulum-sihirbazı) bölümüne bakın.
 
+İsteğe bağlı `mcp` servisi (profil `mcp`) models volume'unu salt okunur bağlar; bu yüzden yalnızca volume'da zaten bulunan ve hash denetimini geçen modelleri yükler. `api` henüz yüklemediği diller için `mcp`'ye güvenmeden önce `api`'yi ısıtın ya da fetch komutunu çalıştırın (`docker compose run --rm api python -m septum_api.cli.models fetch`).
+
 Ollama olmaksızın çalıştırmak isterseniz (yalnız bulut sağlayıcı kullanılan dağıtımlar):
 
 ```bash
@@ -129,6 +131,41 @@ docker compose -f docker-compose.airgap.yml up -d --build
 
 Bu topoloji `USE_GATEWAY_DEFAULT=true` kullanır; her LLM çağrısı HTTP yerine `septum-queue` (Redis Streams) üzerinden yönlendirilir. Bölge sınırını yalnızca maskelenmiş metin aşar. İnternete açık hostu varyant 4 ile birlikte kurun.
 
+**İnternetsiz host için modelleri hazırlama.** Air-gapped host'un internet erişimi yoktur; bu yüzden model önbelleği bağlantılı bir makinede doldurulur ve host'a kopyalanır. Sabitlemeler (pin) kodun içinde olduğu için iki makine de aynı Septum kaynak ağacını çalıştırmalıdır. Bağlantılı makinede, aynı `.env` ile:
+
+```bash
+docker compose -f docker-compose.airgap.yml build api
+docker compose -f docker-compose.airgap.yml run --rm -e HF_HUB_OFFLINE=0 api python -m septum_api.cli.models fetch --whisper base
+docker run --rm -v septum_septum-models:/src -v "$PWD":/dst alpine tar czf /dst/septum-models.tar.gz -C /src .
+```
+
+`fetch` komutu, varsayılan her modeli sabitlenmiş commit'inden indirip doğrular; ardından `--whisper` ile verilen Whisper modelini indirir (kullandığınız her boyut için seçeneği tekrarlayın). `--whisper` verilmezse `WHISPER_MODEL` ayarındaki model indirilir; bu ayarın varsayılanı `base`'dir. Son komut model volume'unu arşivler; volume adı compose proje önekini taşır (`Septum` adlı bir dizindeki kaynak ağacı için `septum_`). Air-gapped compose dosyası `HF_HUB_OFFLINE=1` ayarlar; bu yüzden fetch komutları `-e HF_HUB_OFFLINE=0` ile bu ayarı geçersiz kılar. Bu, indirme yapan tek adımdır ve bağlantılı host üzerinde çalışır. `septum-models.tar.gz` dosyasını air-gapped host'a kopyalayın, ardından:
+
+```bash
+docker compose -f docker-compose.airgap.yml build api
+docker compose -f docker-compose.airgap.yml create
+docker run --rm -v septum_septum-models:/dst -v "$PWD":/src alpine tar xzf /src/septum-models.tar.gz -C /dst
+docker compose -f docker-compose.airgap.yml up -d
+docker compose -f docker-compose.airgap.yml run --rm api python -m septum_api.cli.models fetch --whisper base --offline-check
+```
+
+`--offline-check` kopyalanan dosyaları ağa çıkmadan doğrular. Her model için bir satır yazdırır; herhangi bir dosya eksik ya da sabitlemesiyle uyuşmuyorsa çıkış durumu 1 olur.
+
+Her iki host'ta `alpine` image'ının yerelde bulunması gerekir: bağlantılı makinede `docker pull alpine` çalıştırın ve image'ı `docker save` ile `docker load` üzerinden aktarın. İçinde `tar` bulunan herhangi bir image, yukarıdaki komutlarda onun yerine kullanılabilir. Air-gapped compose dosyası `api` ve `mcp` servislerinde `HF_HUB_OFFLINE=1` ayarlar; bu container'lar model indirmez. Etkinleştirildiğinde `mcp` servisi models volume'unu salt okunur (read-only) bağlar; bu yüzden yalnızca volume'da zaten bulunan ve hash denetimini geçen modelleri yükler. `api`'nin henüz yüklemediği diller için `mcp`'ye güvenmeden önce volume'u `fetch` komutuyla (tüm varsayılan sabitlemeler) doldurun.
+
+**Özel NER modelleri.** Özel model, bağlantılı host'ta aynı `.env` ile `--user-pin` kullanılarak çekilir. Yukarıdaki gibi, bu indirme için çevrimdışı ayarı `-e HF_HUB_OFFLINE=0` ile geçersiz kılınır. Her özel model için seçeneği tekrarlayın:
+
+```bash
+docker compose -f docker-compose.airgap.yml run --rm -e HF_HUB_OFFLINE=0 api python -m septum_api.cli.models fetch --user-pin org/name@<40 karakterlik commit SHA>
+docker run --rm -v septum_septum-data:/src -v "$PWD":/dst alpine cp /src/septum-user-pins.json /dst/
+```
+
+User-pins dosyası `config.json` yanında duran `septum-user-pins.json` dosyasıdır; bu yüzden models volume'unda değil, `septum-data` volume'unda bulunur. Dosyayı models arşivi ile birlikte air-gapped host'a kopyalayın. Yukarıda anlatılan `create` adımından sonra, `up -d` öncesinde dosyayı data volume'una geri yükleyin:
+
+```bash
+docker run --rm -v septum_septum-data:/dst -v "$PWD":/src alpine cp /src/septum-user-pins.json /dst/
+```
+
 ### 4. Yalnız internet-facing bölge
 
 Yalnızca gateway ve audit modüllerini, bulut LLM sağlayıcılarına ulaşabilen bir host üzerinde çalıştırır. Redis'ten maskelenmiş istekleri tüketir ve Anthropic / OpenAI / OpenRouter'a iletir.
@@ -155,7 +192,9 @@ git clone https://github.com/byerlikaya/Septum.git && cd Septum
 ./dev.sh                # api ile web'i port 3000 üzerinde başlatır
 ```
 
-Gereksinimler: Python 3.11+ (3.13 üzerinde doğrulandı), Node.js 20+, ffmpeg (Whisper ses akışı için). Bootstrap script'i ilk açılışta yeni bir şifreleme anahtarı ve JWT gizli anahtarıyla `config.json` üretir; yolu değiştirmek için `SEPTUM_CONFIG_PATH` ortam değişkenini kullanabilirsiniz.
+Gereksinimler: Python 3.11+ (3.13 üzerinde doğrulandı), Node.js 20+, ffmpeg (Whisper ses akışı için). Bootstrap script'i ilk açılışta yeni bir şifreleme anahtarı ve JWT gizli anahtarıyla `config.json` üretir; yolu değiştirmek için `SEPTUM_CONFIG_PATH` ortam değişkenini kullanabilirsiniz. Açılışta arka planda yapılan model ön yüklemesini atlamak için `SEPTUM_DISABLE_MODEL_WARMUP=1` ayarlayın; varsayılanda NER, spaCy ve embedding modelleri ön yüklenir. Ön yükleme kapalıyken, saklı model ayarlarıyla ilgili başlangıç uyarısı da atlanır. `SEPTUM_USER_PINS_PATH`, özel NER modellerinin hash'lerinin kaydedileceği yeri belirler; varsayılanı `config.json` yanındaki `septum-user-pins.json` dosyasıdır (Docker'da `/app/data`). `mcp` servisi uygulama veri volume'unu bağlamaz; çünkü bu volume `config.json` dosyasını ve şifreleme anahtarını tutar. Bu yüzden `mcp` user-pins dosyasını oradan okuyamaz ve kullanıcı sabitlemeli özel NER modellerini kutudan çıktığı gibi kullanamaz. `mcp`'de birini kullanmak için user-pins dosyasının bir kopyasını salt okunur bir bağlama koyun ve `SEPTUM_USER_PINS_PATH` değişkenini bu kopyaya yöneltin.
+
+**Model sabitlemelerini güncelleme (bakımcılar).** `python packages/api/scripts/pin_models.py --write-manifest` her varsayılan modelin Hugging Face Hub üzerindeki `main` commit'ini okur ve `packages/core/septum_core/model_pins.py` dosyasını yeniden üretir; commit'lemeden önce farkı gözden geçirin. `--check` her sabitlenmiş commit'i yeniden okur ve sapma olursa çıkış durumu 1 ile sonlanır. İkisi de ağ erişimi gerektirir.
 
 Test setini çalıştırın:
 
@@ -242,7 +281,7 @@ Compose dosyaları, container yeniden başlatmaları ve yeniden derlemeler aras�
 | `septum-anon-maps` | `/app/anon_maps` | Doküman başına PII placeholder eşlemeleri, şifreli |
 | `septum-vector-indexes` | `/app/vector_indexes` | FAISS embedding'leri |
 | `septum-bm25-indexes` | `/app/bm25_indexes` | BM25 kelime indeksleri |
-| `septum-models` | `/app/models` | Önbelleklenmiş HuggingFace ve Whisper modelleri |
+| `septum-models` | `/app/models` | Önbelleklenmiş HuggingFace, Whisper ve PaddleOCR modelleri |
 | `septum-pgdata` | `/var/lib/postgresql/data` | PostgreSQL veri dizini (yalnızca compose) |
 | `septum-redis-data` | `/data` | Redis AOF/RDB (yalnızca compose) |
 | `ollama-data` | `/root/.ollama` | İndirilmiş Ollama modelleri (yalnızca tam yığın) |
@@ -291,6 +330,8 @@ docker compose -f docker-compose.standalone.yml up -d --build
 ```
 
 Yeniden derleme boyunca veriler korunur çünkü volume'lar isimlendirilmiş volume'lardır.
+
+**Yükseltme sonrası model önbellekleri.** Önceki sürümden kalan model önbellekleri sabitlenmiş commit'lerle eşleşmeyebilir. Bir sonraki çevrimiçi açılışta, bekleyen denetlenmemiş dosyalar içeren sabitlenmiş bir snapshot temizlenir ve bir kez yeniden indirilir; çevrimdışıysa, yeniden çekilene kadar reddedilir. Air-gapped bir kurulum, `fetch` komutunu bağlantılı bir host'ta yeniden çalıştırıp models volume'unu ve user-pins dosyasını kopyalamalıdır; ayrıntılar [3. varyant](#3-yalnız-air-gapped-bölge) bölümündedir. Kayıtlı commit'siz özel NER kimliği ya da kayıt defteri dışındaki bir Whisper modeli adı (yerel bir checkpoint yolu gibi) reddedilir ve Ayarlar'dan değiştirilmelidir. Ön yükleme kapalı değilse, başlangıç günlüğü reddedilecek her saklı özel NER modeli veya Whisper modeli için yalnızca hata kodlarıyla uyarı verir.
 
 **Yayınlanmış `byerlikaya/septum` image'ından geliyorsanız.** Yalnızca eski container'ı kaldırın, ardından standalone compose dosyasını derleyip başlatın. Container'ı kaldırmak volume'ları silmez ve compose dosyası aynı volume adlarını kullanır (`septum-data`, `septum-uploads`, `septum-anon-maps`, `septum-vector-indexes`, `septum-bm25-indexes`, `septum-models`); böylece verileriniz, `config.json` ve şifreleme anahtarınız aynen kullanılır.
 

@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { Shield, Zap, Check, AlertCircle, Loader2, Globe, Database, HardDrive, Mic, UserPlus } from "lucide-react";
 import api, { PASSWORD_MIN_LENGTH, extractErrorCode, initializeInfrastructure, setAuthToken, streamSSE, testDatabaseConnection, testRedisConnection } from "@/lib/api";
-import { localizeApiError, translateErrorCode } from "@/lib/apiErrors";
+import { HTTP_ERROR_KEYS, localizeApiError, translateErrorCode } from "@/lib/apiErrors";
 import { useI18n } from "@/lib/i18n";
 import { exceedsPasswordByteLimit, passwordTooLongMessage } from "@/lib/password";
 import { useLanguage, type AppLanguage } from "@/lib/language";
@@ -265,7 +265,15 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
   // Whisper: install + advance in one click
   const handleInstallAndAdvanceWhisper = useCallback(async () => {
     setWhisperStatus("pending"); setWhisperMessage(t("setup.step.test.whisper.checking")); setWhisperProgress(null);
-    try { await api.patch("/api/settings", { whisper_model: whisperModel }); } catch {}
+    try {
+      await api.patch("/api/settings", { whisper_model: whisperModel });
+    } catch (err: unknown) {
+      const message = translateErrorCode(extractErrorCode(err), t, HTTP_ERROR_KEYS) ?? t("setup.step.provider.saveFailed");
+      setWhisperStatus("error");
+      setWhisperMessage(message);
+      setWhisperProgress(null);
+      return;
+    }
     // Check if already installed
     try {
       const { data: st } = await api.get<{ installed: boolean }>(`/api/setup/whisper-status?model=${whisperModel}`);
@@ -297,6 +305,14 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
           } catch {
             /* skip malformed line */
           }
+        },
+        {
+          onHttpError: (code) => {
+            setWhisperStatus("error");
+            setWhisperMessage(translateErrorCode(code, t, HTTP_ERROR_KEYS) ?? t("setup.step.test.failed"));
+            setWhisperProgress(null);
+            if (!resolved) { resolved = true; resolve(); }
+          },
         },
       );
       setTimeout(() => {
@@ -505,7 +521,7 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
           <p className="mb-4 text-[11px] text-sky-300/80 bg-sky-950/30 rounded-md px-3 py-2">{t("setup.step.whisper.recommendation")}</p>
 
           {whisperProgress !== null && (<div className="mb-3"><div className="flex items-center justify-between text-xs text-slate-400 mb-1"><span>{whisperMessage}</span><span>{whisperProgress}%</span></div><div className="h-2 w-full overflow-hidden rounded-full bg-slate-700"><div className="h-full rounded-full bg-sky-500 transition-all duration-300" style={{ width: `${whisperProgress}%` }} /></div></div>)}
-          <StatusBadge status={whisperStatus} msg={whisperMessage} />
+          <div role={whisperStatus === "error" ? "alert" : undefined}><StatusBadge status={whisperStatus} msg={whisperMessage} /></div>
 
           <div className="mt-6 flex justify-between">
             <button type="button" onClick={() => setStep("regulations")} className={backBtnCls}>{t("setup.nav.back")}</button>

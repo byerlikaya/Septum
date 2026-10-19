@@ -67,15 +67,16 @@ jobs:
           # truth for the services/ layer).
           python -m pip install -r packages/api/requirements.txt
 
-      # The OCR regression test runs real PP-OCRv5 models (~130 MB, downloaded
-      # on first use into the PaddleX cache). Cached per requirements.txt.
-      - name: Cache PaddleOCR models
+      # The OCR regression test runs the real PP-OCRv5 models (~130 MB), fetched
+      # at their pinned revisions into the Hugging Face hub cache. Tests keep the
+      # NER layer off, so only the PaddleOCR repos are cached. Keyed on the pin
+      # manifest with no restore-keys: a pin bump starts from an empty cache
+      # instead of carrying superseded revisions forward.
+      - name: Cache pinned PaddleOCR models
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.paddlex
-          key: ${{ runner.os }}-paddlex-${{ hashFiles('packages/api/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-paddlex-
+          path: ~/.cache/huggingface/hub/models--PaddlePaddle--*
+          key: ${{ runner.os }}-hf-paddleocr-${{ hashFiles('packages/core/septum_core/model_pins.py') }}
 
       # Upgrade, check the models match, step one revision down and back up.
       - name: Check database migrations on PostgreSQL
@@ -138,8 +139,8 @@ jobs:
       - name: Install septum-audit (+ queue + server + test extras)
         run: pip install -e "packages/audit[queue,server,test]"
 
-      - name: Download spaCy English model
-        run: python -m spacy download en_core_web_sm
+      - name: Install spaCy English model (hash-pinned, same pin as packages/api/requirements.txt)
+        run: pip install "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#sha256=1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85"
 
       - name: Run septum-queue tests
         run: pytest packages/queue/tests/ -q

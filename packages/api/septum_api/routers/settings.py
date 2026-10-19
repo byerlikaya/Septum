@@ -19,6 +19,11 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
+from septum_core.model_integrity import (
+    UnpinnedModelError,
+    parse_model_spec,
+    split_model_specs,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
@@ -34,7 +39,11 @@ from ..services.ollama_client import (
     ollama_url_problem,
     ollama_url_refused,
 )
-from ..services.whisper_models import WhisperInstallBusy, ensure_whisper_model
+from ..services.whisper_models import (
+    WhisperInstallBusy,
+    ensure_whisper_model,
+    require_registry_model_http,
+)
 from ..utils.auth_dependency import (
     get_current_user,
     require_admin_or_bootstrap,
@@ -99,6 +108,20 @@ def _validate_ollama_url(url: str) -> str:
             log_message=OLLAMA_URL_REFUSED_MESSAGE,
         )
     return url
+
+
+def _validate_ner_overrides(overrides: dict[str, str] | None) -> None:
+    """Refuse NER overrides that name an unpinned model.
+
+    Each comma-separated id must be a manifest model or
+    ``org/name@<40-hex commit>``; otherwise raises :class:`CodedHTTPError`
+    (HTTP 400, ``ner_model_unpinned``) whose detail never echoes the value.
+    """
+    try:
+        for spec in split_model_specs(overrides):
+            parse_model_spec(spec)
+    except UnpinnedModelError as exc:
+        raise CodedHTTPError(status.HTTP_400_BAD_REQUEST, str(exc), exc.code) from None
 
 
 class SettingsResponse(BaseModel):
@@ -276,6 +299,12 @@ async def update_settings_endpoint(
         await _validate_regulation_ids(db, update_data["default_active_regulations"])
     if update_data.get("ollama_base_url") is not None:
         _validate_ollama_url(update_data["ollama_base_url"])
+    if "ner_model_overrides" in update_data:
+        _validate_ner_overrides(update_data["ner_model_overrides"])
+    if "whisper_model" in update_data and update_data["whisper_model"] is None:
+        del update_data["whisper_model"]
+    if "whisper_model" in update_data:
+        await require_registry_model_http(update_data["whisper_model"])
 
     for field_name, value in update_data.items():
         setattr(settings, field_name, value)
@@ -771,6 +800,7 @@ async def install_whisper_model_endpoint(
                 "Install it in the backend environment to enable audio transcription."
             ),
         ) from exc
+    await require_registry_model_http(model_name)
 
     def _load_model_sync() -> None:
         ensure_whisper_model(model_name, wait=False)

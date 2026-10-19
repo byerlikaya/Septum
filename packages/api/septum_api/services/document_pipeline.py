@@ -289,6 +289,7 @@ class DocumentPipeline:
 
         document.ingestion_status = "completed"
         document.ingestion_error = None
+        document.ingestion_error_code = None
         await db.commit()
 
     async def _build_chunks(

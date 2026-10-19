@@ -339,9 +339,9 @@ def test_unknown_model_reports_clear_error(
 
     resp = client.post("/api/setup/install-whisper", json={"model": "no-such-model"})
 
-    final = _events(resp)[-1]
-    assert final.get("error") is True
-    assert "Unknown Whisper model" in final["status"]
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Whisper model is not in the supported model registry"
+    assert "no-such-model" not in resp.text
     assert http_calls == []
     status = client.get("/api/setup/whisper-status", params={"model": "no-such-model"}).json()
     assert status["installed"] is False
@@ -620,8 +620,9 @@ def test_unknown_model_error_does_not_echo_the_name(tmp_path: Path, monkeypatch:
 
     resp = client.post("/api/setup/install-whisper", json={"model": "probe-<script>"})
 
-    final = _events(resp)[-1]
-    assert final["status"] == "Unknown Whisper model"
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Whisper model is not in the supported model registry"
+    assert "probe-" not in resp.text
 
 
 def _hold_download_slot():
