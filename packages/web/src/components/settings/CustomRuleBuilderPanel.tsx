@@ -610,7 +610,7 @@ export function CustomRuleBuilderPanel({
                 onChange={() => {
                   handleFieldChange("is_active", !form.is_active);
                 }}
-                ariaLabel="Toggle rule active"
+                ariaLabel={t("regulations.panel.ruleActive")}
               />
               <span className="text-[11px] text-slate-200">
                 {t("regulations.panel.ruleActive")}

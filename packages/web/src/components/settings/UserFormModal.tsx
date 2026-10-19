@@ -164,7 +164,7 @@ export function UserFormModal(props: UserFormModalProps) {
         <span className="text-xs font-medium text-slate-300">
           {t("users.form.active")}
         </span>
-        <ToggleSwitch enabled={isActive} onChange={setIsActive} />
+        <ToggleSwitch enabled={isActive} ariaLabel={t("users.form.active")} onChange={setIsActive} />
       </div>
     </Modal>
   );

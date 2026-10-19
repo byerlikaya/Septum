@@ -2,7 +2,7 @@ interface ToggleSwitchProps {
   enabled: boolean;
   onChange: (enabled: boolean) => void;
   disabled?: boolean;
-  ariaLabel?: string;
+  ariaLabel: string;
 }
 
 export function ToggleSwitch({

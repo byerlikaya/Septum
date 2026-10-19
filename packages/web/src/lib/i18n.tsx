@@ -12,7 +12,13 @@ const dictionaries: Record<string, Record<string, string>> = {
 
 type TranslationParams = Record<string, string | number>;
 
-export function useI18n(): (key: keyof typeof enMessages, params?: TranslationParams) => string {
+export type MessageKey = keyof typeof enMessages;
+
+export function hasMessage(key: string): key is MessageKey {
+  return Object.prototype.hasOwnProperty.call(enMessages, key);
+}
+
+export function useI18n(): (key: MessageKey, params?: TranslationParams) => string {
   const { language } = useLanguage();
 
   const dict = useMemo(() => {
