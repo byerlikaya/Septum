@@ -46,7 +46,8 @@ RUN sh /tmp/install-torch.sh "$TORCH_VARIANT" \
 COPY packages/core/ /app/packages/core/
 COPY packages/queue/ /app/packages/queue/
 COPY packages/api/ /app/packages/api/
-RUN pip install --no-warn-script-location -e /app/packages/core \
+RUN chmod -R go-w /app/packages \
+    && pip install --no-warn-script-location -e /app/packages/core \
     && pip install --no-warn-script-location -e /app/packages/queue \
     && pip install --no-warn-script-location -e /app/packages/api
 
@@ -64,7 +65,8 @@ RUN npm ci || npm install
 COPY packages/web/ .
 RUN mkdir -p public \
     && echo "NEXT_PUBLIC_APP_VERSION=${VERSION}" >> .env.local \
-    && npm run build
+    && npm run build \
+    && chmod -R go-w public .next/standalone .next/static
 
 # ── Stage 3: combined runtime ──
 FROM node:26-slim@sha256:0d1e33586362bb9e608c4e751e7a9e7edb55c9ac11461ed5666af696cc461dd4 AS node-donor
@@ -99,20 +101,26 @@ WORKDIR /app
 
 # Stamp the version into the image (read at runtime by septum_api.main
 # for the /health response + by the frontend for display).
-RUN echo "${VERSION}" > /app/VERSION && chown septum:septum /app/VERSION
+RUN echo "${VERSION}" > /app/VERSION
 
 # Copy backend venv + packages (editable install resolves through /app/packages)
 COPY --from=backend-builder /app/.venv /app/.venv
 COPY --from=backend-builder /app/packages /app/packages
 
 # Copy frontend (standalone build)
-COPY --from=frontend-builder --chown=septum:septum /app/.next/standalone /app/frontend/
-COPY --from=frontend-builder --chown=septum:septum /app/.next/static /app/frontend/.next/static
-COPY --from=frontend-builder --chown=septum:septum /app/public /app/frontend/public
+COPY --from=frontend-builder /app/.next/standalone /app/frontend/
+COPY --from=frontend-builder /app/.next/static /app/frontend/.next/static
+COPY --from=frontend-builder /app/public /app/frontend/public
 
-# Writable dirs — declared as VOLUME so data persists across container recreations
-RUN mkdir -p /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models \
-    && chown -R septum:septum /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models /app/packages
+# Code and HOME stay root-owned (node resolves modules from
+# ~/.node_modules); only runtime state is writable by septum: the volumes
+# below, the Next.js cache (optimised images, fetch cache) and ~/.cache.
+# ~/.paddlex points PaddleX at the models volume.
+RUN mkdir -p /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models /app/frontend/.next/cache /home/septum/.cache \
+    && chown -R root:root /home/septum \
+    && chmod 755 /home/septum \
+    && ln -s /app/models/paddlex /home/septum/.paddlex \
+    && chown -R septum:septum /app/data /app/uploads /app/anon_maps /app/vector_indexes /app/bm25_indexes /app/models /app/frontend/.next/cache /home/septum/.cache
 
 VOLUME ["/app/data", "/app/uploads", "/app/anon_maps", "/app/vector_indexes", "/app/bm25_indexes", "/app/models"]
 
@@ -123,11 +131,11 @@ set -e
 
 # Symlink ML model caches to the persistent /app/models volume so
 # Whisper, HuggingFace, and PaddleOCR models survive container recreation.
+# ~/.paddlex is linked at build time because HOME is root-owned.
 mkdir -p /app/models/whisper /app/models/huggingface /app/models/paddlex \
          /home/septum/.cache
 ln -sfn /app/models/whisper /home/septum/.cache/whisper
 ln -sfn /app/models/huggingface /home/septum/.cache/huggingface
-ln -sfn /app/models/paddlex /home/septum/.paddlex
 
 # Start backend
 cd /app/packages/api

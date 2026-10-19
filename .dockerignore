@@ -1,4 +1,11 @@
+# Runtime document stores at any depth, minus source directories that share
+# the name. Kept first: the last matching pattern wins, so every exclusion
+# below still applies inside the re-included source directories.
+**/documents/
+!packages/web/src/**/documents/
+
 # VCS / dev junk
+**/.DS_Store
 .git/
 .gitignore
 .github/
@@ -6,32 +13,54 @@
 .idea/
 .cursor/
 .claude/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/__pycache__/
+**/*.py[cod]
+**/.venv/
+**/venv/
+**/.coverage
+**/htmlcov/
 
 # Node build artifacts (web rebuilds from source in the image)
-node_modules/
-packages/web/node_modules/
+**/*.tsbuildinfo
+**/node_modules/
 packages/web/.next/
 packages/web/coverage/
-packages/web/.env.local
 
-# Top-level runtime state (from local dev runs)
-/data/
-/uploads/
-/anon_maps/
-/vector_indexes/
-/bm25_indexes/
+# Runtime state from local dev runs, at any depth: the storage defaults are
+# CWD-relative, so a dev server leaves them wherever it was started. They
+# hold databases, documents and indexes that must never reach an image.
+# /models/ stays root-only: packages/api/septum_api/models/ is source.
 /models/
-/documents/
-/*.db
-/*.log
-/septum.db
+**/data/
+**/storage/
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/*.db-journal
+**/*.sqlite*
+**/*.enc
+**/*.log
+**/uploads/
+**/anon_maps/
+**/vector_indexes/
+**/bm25_indexes/
+
+# Secrets and local config, at any depth
+**/.env*
+**/config.json
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/id_rsa*
+**/id_ed25519*
+**/*.keystore
+
+# Package test suites (no image installs or runs them)
+packages/*/tests/
 
 # Screenshots / assets that docs pull from, never the image
 screenshots/
