@@ -5,7 +5,8 @@ name: Docs Site (VitePress)
 # GitHub Pages at
 # https://byerlikaya.github.io/Septum/.
 #
-# Triggered on every push to `main` that touches the docs source or the
+# Triggered on every push to `main` that touches the docs source, the
+# repo-root CHANGELOG.md / CONTRIBUTING*.md the site renders, or the
 # workflow itself. Manual re-runs available from the Actions UI via
 # workflow_dispatch.
 
@@ -15,6 +16,9 @@ on:
     paths:
       - "docs/**"
       - "assets/**"
+      - "CHANGELOG.md"
+      - "CONTRIBUTING.md"
+      - "CONTRIBUTING.tr.md"
       - ".github/workflows/docs-site.yml"
   workflow_dispatch:
 
@@ -34,6 +38,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Node

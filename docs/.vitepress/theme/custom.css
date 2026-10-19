@@ -173,3 +173,12 @@ html:not(.dark) .vp-doc p.home-logo {
   cursor: pointer;
 }
 
+
+/* Landing hero logo: same dark card as the header wordmark in light mode,
+ * so the near-white wordmark stays legible on a light page. */
+html:not(.dark) .VPHero .image-src {
+  background: #0f172a;
+  border-radius: 18px;
+  padding: 16px;
+  box-sizing: content-box;
+}

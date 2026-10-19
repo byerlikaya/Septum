@@ -12,6 +12,7 @@ const navEn = [
   { text: "Benchmark", link: "/benchmark" },
   { text: "Features", link: "/features" },
   { text: "Workflows", link: "/workflows" },
+  { text: "Custom Rules", link: "/custom-rules" },
   { text: "Use Cases", link: "/use-cases" },
   { text: "Architecture", link: "/architecture" },
   { text: "Document Ingestion", link: "/document-ingestion" },
@@ -31,6 +32,7 @@ const navTr = [
   { text: "Benchmark", link: "/tr/benchmark" },
   { text: "Özellikler", link: "/tr/features" },
   { text: "Akışlar", link: "/tr/workflows" },
+  { text: "Özel Kurallar", link: "/tr/custom-rules" },
   { text: "Senaryolar", link: "/tr/use-cases" },
   { text: "Mimari", link: "/tr/architecture" },
   { text: "Doküman İşleme", link: "/tr/document-ingestion" },
@@ -62,12 +64,22 @@ const PAGE_META = {
   "index.md": {
     title: "Septum",
     description:
-      "Privacy-first AI middleware — anonymize documents, chat with any LLM, no raw PII leaves your machine.",
+      "Privacy-first AI middleware — documents are anonymized locally, only masked text reaches the cloud LLM.",
   },
   "tr/index.md": {
     title: "Septum",
     description:
-      "Gizlilik öncelikli AI ara katmanı — dokümanları anonimleştir, dilediğin LLM ile sohbet et, ham PII makineden çıkmaz.",
+      "Gizlilik öncelikli AI ara katmanı — dokümanlar yerelde anonimleştirilir, buluta yalnızca maskelenmiş metin gider.",
+  },
+  "custom-rules.md": {
+    title: "Custom Rules",
+    description:
+      "Define your own detectors with regex, keyword lists, or LLM prompts, and test them before use.",
+  },
+  "tr/custom-rules.md": {
+    title: "Özel Kurallar",
+    description:
+      "Regex, anahtar kelime listesi veya LLM promptu ile kendi tespit kurallarınızı tanımlayın ve kullanmadan önce test edin.",
   },
   "changelog.md": {
     title: "Changelog",
@@ -169,6 +181,160 @@ const PAGE_META = {
   },
 };
 
+// Landing pages (`/` and `/tr/`) render VitePress' home layout. The hero
+// and feature cards are declared here for the same reason as PAGE_META:
+// frontmatter would show up as a table on GitHub. The markdown body of
+// index.md / tr/index.md is plain prose rendered below the cards.
+const HOME_LAYOUT = {
+  "index.md": {
+    hero: {
+      name: "Septum",
+      text: "Privacy-first AI middleware",
+      tagline:
+        "Documents are anonymized on your machine. Only masked text reaches the cloud LLM, and answers are restored locally.",
+      image: { src: "/septum_logo.svg", alt: "Septum" },
+      actions: [
+        { theme: "brand", text: "Get started", link: "/installation" },
+        { theme: "alt", text: "How it works", link: "/workflows" },
+        {
+          theme: "alt",
+          text: "GitHub",
+          link: "https://github.com/byerlikaya/Septum",
+        },
+      ],
+    },
+    features: [
+      {
+        title: "Local PII masking",
+        details:
+          "Presidio, NER and an optional Ollama layer detect personal data in uploaded documents and typed messages before retrieval or any cloud call.",
+        link: "/features",
+      },
+      {
+        title: "17 regulation packs",
+        details:
+          "GDPR, KVKK, HIPAA, CCPA and 13 more built-in packs. Activate several at once; where rules overlap, the most restrictive one applies.",
+        link: "/features",
+      },
+      {
+        title: "Hybrid retrieval",
+        details:
+          "BM25 keyword search and FAISS semantic search over masked content, merged with Reciprocal Rank Fusion.",
+        link: "/architecture",
+      },
+      {
+        title: "Approval gate",
+        details:
+          "Review the masked question, the retrieved passages and the exact cloud request side by side. Nothing is sent until you approve it.",
+        link: "/workflows",
+      },
+      {
+        title: "Zoned modular architecture",
+        details:
+          "Seven modules in three zones. Core, MCP, API and web handle raw data air-gapped; the queue bridge carries only masked text; gateway and audit never import septum-core.",
+        link: "/architecture",
+      },
+      {
+        title: "MCP server",
+        details:
+          "septum-mcp exposes the same masking pipeline to Claude Desktop, Cursor and other MCP clients over stdio, or over streamable HTTP and SSE with bearer-token auth.",
+        link: "/features",
+      },
+      {
+        title: "Pinned, verified models",
+        details:
+          "Default models are pinned to a commit and checked by SHA256 before they load. Air-gapped hosts take models copied in advance.",
+        link: "/installation",
+      },
+      {
+        title: "Audit trail and SIEM export",
+        details:
+          "Append-only compliance log of detection events. Events hold entity types and counts, never raw PII. Export as JSON, CSV or Splunk HEC.",
+        link: "/architecture",
+      },
+      {
+        title: "Encrypted at rest",
+        details:
+          "Uploaded files and the anonymization map are stored with AES-256-GCM. The map is never sent to the frontend, the cloud or logs.",
+        link: "/architecture",
+      },
+    ],
+  },
+  "tr/index.md": {
+    hero: {
+      name: "Septum",
+      text: "Gizlilik öncelikli AI ara katmanı",
+      tagline:
+        "Dokümanlar makinenizde anonimleştirilir. Buluta yalnızca maskelenmiş metin gider ve yanıtlar yerelde geri yazılır.",
+      image: { src: "/septum_logo.svg", alt: "Septum" },
+      actions: [
+        { theme: "brand", text: "Başlayın", link: "/tr/installation" },
+        { theme: "alt", text: "Nasıl çalışır", link: "/tr/workflows" },
+        {
+          theme: "alt",
+          text: "GitHub",
+          link: "https://github.com/byerlikaya/Septum",
+        },
+      ],
+    },
+    features: [
+      {
+        title: "Yerel PII maskeleme",
+        details:
+          "Presidio, NER ve isteğe bağlı Ollama katmanı; yüklenen dokümanlardaki ve yazılan mesajlardaki kişisel verileri arama ve bulut çağrısından önce maskeler.",
+        link: "/tr/features",
+      },
+      {
+        title: "17 regülasyon paketi",
+        details:
+          "GDPR, KVKK, HIPAA, CCPA ve 13 paket daha. Birkaçını aynı anda etkinleştirebilirsiniz; kurallar çakıştığında en kısıtlayıcı olan geçerli olur.",
+        link: "/tr/features",
+      },
+      {
+        title: "Hibrit arama",
+        details:
+          "Maskelenmiş içerik üzerinde BM25 anahtar kelime araması ile FAISS anlamsal arama, Reciprocal Rank Fusion ile birleştirilir.",
+        link: "/tr/architecture",
+      },
+      {
+        title: "Onay kapısı",
+        details:
+          "Maskelenmiş soruyu, bulunan parçaları ve buluta gidecek isteği yan yana inceleyin. Siz onaylamadan hiçbir şey gönderilmez.",
+        link: "/tr/workflows",
+      },
+      {
+        title: "Bölgelere ayrılmış modüler mimari",
+        details:
+          "Üç bölgede yedi modül. Core, MCP, API ve web ham veriyi hava boşluklu ortamda işler; kuyruk köprüsü yalnızca maskelenmiş metin taşır; gateway ve audit septum-core'u hiç içe aktarmaz.",
+        link: "/tr/architecture",
+      },
+      {
+        title: "MCP sunucusu",
+        details:
+          "septum-mcp aynı maskeleme hattını Claude Desktop, Cursor ve diğer MCP istemcilerine stdio üzerinden, ya da bearer token korumalı streamable HTTP ve SSE üzerinden sunar.",
+        link: "/tr/features",
+      },
+      {
+        title: "Sabitlenmiş ve doğrulanmış modeller",
+        details:
+          "Varsayılan modeller bir commit'e sabitlenir ve yüklenmeden önce SHA256 ile doğrulanır. Hava boşluklu kurulumlar modelleri önceden kopyalanmış olarak kullanır.",
+        link: "/tr/installation",
+      },
+      {
+        title: "Denetim kaydı ve SIEM dışa aktarımı",
+        details:
+          "Tespit olaylarının yalnızca eklenebilen uyumluluk kaydı. Olaylar varlık tiplerini ve sayılarını tutar, ham PII'yı asla. JSON, CSV veya Splunk HEC olarak dışa aktarılır.",
+        link: "/tr/architecture",
+      },
+      {
+        title: "Diskte şifreli saklama",
+        details:
+          "Yüklenen dosyalar ve anonimleştirme haritası AES-256-GCM ile şifrelenir. Harita asla ön yüze, buluta veya günlüklere gönderilmez.",
+        link: "/tr/architecture",
+      },
+    ],
+  },
+};
 
 export default defineConfig({
   title: "Septum",
@@ -214,6 +380,13 @@ export default defineConfig({
         ["meta", { name: "twitter:title", content: meta.title }],
         ["meta", { name: "twitter:description", content: meta.description }],
       ];
+    }
+
+    const home = HOME_LAYOUT[pageData.relativePath];
+    if (home) {
+      pageData.frontmatter.layout = "home";
+      pageData.frontmatter.hero = home.hero;
+      pageData.frontmatter.features = home.features;
     }
 
     const order = pageData.relativePath.startsWith("tr/")
@@ -272,9 +445,11 @@ export default defineConfig({
         if (pkg) return `${GH_BLOB}/packages/${pkg[1]}${hash}`;
 
         // README{,.tr}.md → locale root determined BY THE LINK ITSELF,
-        // not the current page. Lets the cross-language badges
-        // ("English" on the TR page, "Türkçe" on the EN page) route to
-        // the other locale instead of looping back.
+        // not the current page. The locale root is the site landing
+        // page (docs/index.md, docs/tr/index.md), so README links from
+        // the repo land there. Lets the cross-language badges ("English"
+        // on the TR page, "Türkçe" on the EN page) route to the other
+        // locale instead of looping back.
         if (/^(?:\.\.\/)*README(?:\.tr)?\.md$/.test(pathPart)) {
           const targetIsTr = /\.tr\.md$/i.test(pathPart);
           return `${targetIsTr ? "/tr" : ""}/${hash}`;
@@ -495,9 +670,15 @@ export default defineConfig({
     ],
   ],
 
-  // The canonical markdown lives in /docs/*.md at the repo root. VitePress
-  // sees them through symlinks under site/docs/ and site/docs/tr/.
-  srcExclude: ["**/README.md"],
+  // Source files that must never be published: the root README (the repo
+  // landing page, not a site page), local-only working notes, and the ADR
+  // directory. Paths are relative to docs/.
+  srcExclude: [
+    "**/README.md",
+    "**/HANDOVER.md",
+    "**/SESSION_STATE.md",
+    "adr/**",
+  ],
 
   locales: {
     root: {
@@ -570,7 +751,7 @@ export default defineConfig({
 
   vite: {
     resolve: {
-      // README/CHANGELOG/CONTRIBUTING are symlinked into docs/{en,tr}/
+      // changelog.md / contributing.md are symlinked into docs/{en,tr}/
       // from the repo root. Preserve the symlinked path so Vite resolves
       // imports (vue, etc.) against docs/node_modules, not repo root.
       preserveSymlinks: true,
