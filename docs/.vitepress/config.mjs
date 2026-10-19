@@ -181,6 +181,23 @@ const PAGE_META = {
   },
 };
 
+// Inline SVG icons for the home feature cards. Stroke-based, currentColor,
+// decorative (aria-hidden): the card title carries the meaning.
+const featureSvg = (body) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
+
+const FEATURE_ICONS = {
+  shield: featureSvg('<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9.5 12 1.8 1.8 3.2-3.6"/>'),
+  book: featureSvg('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z"/>'),
+  search: featureSvg('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'),
+  check: featureSvg('<circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/>'),
+  layers: featureSvg('<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>'),
+  terminal: featureSvg('<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="m7.5 9.5 2.5 2.5-2.5 2.5"/><path d="M13 14.5h3.5"/>'),
+  cube: featureSvg('<path d="M12 2.5 20 7v10l-8 4.5L4 17V7z"/><path d="m4 7 8 4.5L20 7M12 11.5v10"/>'),
+  audit: featureSvg('<path d="M9 4h6a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M8 5H6.5A2.5 2.5 0 0 0 4 7.5v11A2.5 2.5 0 0 0 6.5 21h11a2.5 2.5 0 0 0 2.5-2.5v-11A2.5 2.5 0 0 0 17.5 5H16"/><path d="M8.5 12.5h7M8.5 16h4.5"/>'),
+  lock: featureSvg('<rect x="5" y="10.5" width="14" height="10.5" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>'),
+};
+
 // Landing pages (`/` and `/tr/`) render VitePress' home layout. The hero
 // and feature cards are declared here for the same reason as PAGE_META:
 // frontmatter would show up as a table on GitHub. The markdown body of
@@ -206,54 +223,63 @@ const HOME_LAYOUT = {
     features: [
       {
         title: "Local PII masking",
+        icon: FEATURE_ICONS.shield,
         details:
           "Presidio, NER and an optional Ollama layer detect personal data in uploaded documents and typed messages before retrieval or any cloud call.",
         link: "/features",
       },
       {
         title: "17 regulation packs",
+        icon: FEATURE_ICONS.book,
         details:
           "GDPR, KVKK, HIPAA, CCPA and 13 more built-in packs. Activate several at once; where rules overlap, the most restrictive one applies.",
         link: "/features",
       },
       {
         title: "Hybrid retrieval",
+        icon: FEATURE_ICONS.search,
         details:
           "BM25 keyword search and FAISS semantic search over masked content, merged with Reciprocal Rank Fusion.",
         link: "/architecture",
       },
       {
         title: "Approval gate",
+        icon: FEATURE_ICONS.check,
         details:
           "Review the masked question, the retrieved passages and the exact cloud request side by side. Nothing is sent until you approve it.",
         link: "/workflows",
       },
       {
         title: "Zoned modular architecture",
+        icon: FEATURE_ICONS.layers,
         details:
           "Seven modules in three zones. Core, MCP, API and web handle raw data air-gapped; the queue bridge carries only masked text; gateway and audit never import septum-core.",
         link: "/architecture",
       },
       {
         title: "MCP server",
+        icon: FEATURE_ICONS.terminal,
         details:
           "septum-mcp exposes the same masking pipeline to Claude Desktop, Cursor and other MCP clients over stdio, or over streamable HTTP and SSE with bearer-token auth.",
         link: "/features",
       },
       {
         title: "Pinned, verified models",
+        icon: FEATURE_ICONS.cube,
         details:
           "Default models are pinned to a commit and checked by SHA256 before they load. Air-gapped hosts take models copied in advance.",
         link: "/installation",
       },
       {
         title: "Audit trail and SIEM export",
+        icon: FEATURE_ICONS.audit,
         details:
           "Append-only compliance log of detection events. Events hold entity types and counts, never raw PII. Export as JSON, CSV or Splunk HEC.",
         link: "/architecture",
       },
       {
         title: "Encrypted at rest",
+        icon: FEATURE_ICONS.lock,
         details:
           "Uploaded files and the anonymization map are stored with AES-256-GCM. The map is never sent to the frontend, the cloud or logs.",
         link: "/architecture",
@@ -280,54 +306,63 @@ const HOME_LAYOUT = {
     features: [
       {
         title: "Yerel PII maskeleme",
+        icon: FEATURE_ICONS.shield,
         details:
           "Presidio, NER ve isteğe bağlı Ollama katmanı; yüklenen dokümanlardaki ve yazılan mesajlardaki kişisel verileri arama ve bulut çağrısından önce maskeler.",
         link: "/tr/features",
       },
       {
         title: "17 regülasyon paketi",
+        icon: FEATURE_ICONS.book,
         details:
           "GDPR, KVKK, HIPAA, CCPA ve 13 paket daha. Birkaçını aynı anda etkinleştirebilirsiniz; kurallar çakıştığında en kısıtlayıcı olan geçerli olur.",
         link: "/tr/features",
       },
       {
         title: "Hibrit arama",
+        icon: FEATURE_ICONS.search,
         details:
           "Maskelenmiş içerik üzerinde BM25 anahtar kelime araması ile FAISS anlamsal arama, Reciprocal Rank Fusion ile birleştirilir.",
         link: "/tr/architecture",
       },
       {
         title: "Onay kapısı",
+        icon: FEATURE_ICONS.check,
         details:
           "Maskelenmiş soruyu, bulunan parçaları ve buluta gidecek isteği yan yana inceleyin. Siz onaylamadan hiçbir şey gönderilmez.",
         link: "/tr/workflows",
       },
       {
         title: "Bölgelere ayrılmış modüler mimari",
+        icon: FEATURE_ICONS.layers,
         details:
           "Üç bölgede yedi modül. Core, MCP, API ve web ham veriyi hava boşluklu ortamda işler; kuyruk köprüsü yalnızca maskelenmiş metin taşır; gateway ve audit septum-core'u hiç içe aktarmaz.",
         link: "/tr/architecture",
       },
       {
         title: "MCP sunucusu",
+        icon: FEATURE_ICONS.terminal,
         details:
           "septum-mcp aynı maskeleme hattını Claude Desktop, Cursor ve diğer MCP istemcilerine stdio üzerinden, ya da bearer token korumalı streamable HTTP ve SSE üzerinden sunar.",
         link: "/tr/features",
       },
       {
         title: "Sabitlenmiş ve doğrulanmış modeller",
+        icon: FEATURE_ICONS.cube,
         details:
           "Varsayılan modeller bir commit'e sabitlenir ve yüklenmeden önce SHA256 ile doğrulanır. Hava boşluklu kurulumlar modelleri önceden kopyalanmış olarak kullanır.",
         link: "/tr/installation",
       },
       {
         title: "Denetim kaydı ve SIEM dışa aktarımı",
+        icon: FEATURE_ICONS.audit,
         details:
           "Tespit olaylarının yalnızca eklenebilen uyumluluk kaydı. Olaylar varlık tiplerini ve sayılarını tutar, ham PII'yı asla. JSON, CSV veya Splunk HEC olarak dışa aktarılır.",
         link: "/tr/architecture",
       },
       {
         title: "Diskte şifreli saklama",
+        icon: FEATURE_ICONS.lock,
         details:
           "Yüklenen dosyalar ve anonimleştirme haritası AES-256-GCM ile şifrelenir. Harita asla ön yüze, buluta veya günlüklere gönderilmez.",
         link: "/tr/architecture",
@@ -358,6 +393,22 @@ export default defineConfig({
   transformPageData(pageData) {
     if (pageData.frontmatter.aside === undefined) {
       pageData.frontmatter.aside = "left";
+    }
+
+    // Every doc page (not the home layout) gets `doc-page` plus a
+    // `page-<slug>` class on the VitePress Layout wrapper, so the premium
+    // stylesheet can target per-page media (screenshots, benchmark charts)
+    // without touching the markdown.
+    if (!pageData.relativePath.endsWith("index.md")) {
+      const pageSlug = pageData.relativePath
+        .replace(/^tr\//, "")
+        .replace(/\.md$/, "");
+      pageData.frontmatter.pageClass = [
+        pageData.frontmatter.pageClass,
+        `doc-page page-${pageSlug}`,
+      ]
+        .filter(Boolean)
+        .join(" ");
     }
 
     // Per-page title / description injection. Source of truth is the
