@@ -30,6 +30,7 @@ from presidio_analyzer import AnalyzerEngine, EntityRecognizer, RecognizerResult
 
 from .anonymization_map import SANITIZER_STOPWORDS, AnonymizationMap
 from .config import SeptumCoreConfig
+from .model_integrity import ModelIntegrityError
 from .national_ids import IBANValidator
 from .ner_model_registry import NERModelRegistry
 from .non_pii_filter import NonPiiFilter, SpanView
@@ -44,6 +45,7 @@ from .span_processing import (
 from .spans import DetectedSpan, ResolvedSpan, SanitizeResult
 from .text_utils import normalize_for_comparison, normalize_unicode
 
+_SPACY_MODEL = "en_core_web_sm"
 _cached_nlp_engine: object | None = None
 _nlp_engine_lock = threading.Lock()
 
@@ -55,6 +57,10 @@ def _get_shared_nlp_engine() -> object:
     reduce memory by ~700 MB (no 300-dim word vectors). Presidio's NER
     acts as a supplementary first layer; the dedicated HuggingFace NER
     layer provides the primary person/location detection.
+
+    Raises :class:`~septum_core.model_integrity.ModelIntegrityError` when the
+    pinned spaCy model package is missing, instead of letting Presidio
+    download an unpinned copy.
     """
     global _cached_nlp_engine
     if _cached_nlp_engine is not None:
@@ -62,11 +68,17 @@ def _get_shared_nlp_engine() -> object:
     with _nlp_engine_lock:
         if _cached_nlp_engine is not None:
             return _cached_nlp_engine
+        import spacy.util
         from presidio_analyzer.nlp_engine import NlpEngineProvider
 
+        if not spacy.util.is_package(_SPACY_MODEL):
+            raise ModelIntegrityError(
+                _SPACY_MODEL,
+                "spaCy model package is not installed; it is never downloaded at runtime",
+            )
         conf = {
             "nlp_engine_name": "spacy",
-            "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+            "models": [{"lang_code": "en", "model_name": _SPACY_MODEL}],
         }
         _cached_nlp_engine = NlpEngineProvider(nlp_configuration=conf).create_engine()
         _adjust_spacy_max_length(_cached_nlp_engine)

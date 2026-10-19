@@ -32,6 +32,7 @@ from typing import Dict
 from transformers import pipeline  # noqa: E402
 
 from .device import get_device
+from .model_integrity import ensure_model_snapshot
 
 
 @dataclass
@@ -142,6 +143,12 @@ class NERModelRegistry:
         many languages (e.g. wikiann across 11 locales) is only loaded
         once. Thread-safe: the actual ``pipeline(...)`` initialization
         is guarded by ``_load_lock``.
+
+        Every model is loaded from a pinned, hash-verified local snapshot
+        (safetensors only, no remote code). Raises
+        :class:`~septum_core.model_integrity.UnpinnedModelError` or
+        :class:`~septum_core.model_integrity.ModelIntegrityError` instead of
+        loading anything unverified.
         """
         lang = (language or "en").lower()
         model_ids = self._resolve_model_ids(lang)
@@ -158,11 +165,15 @@ class NERModelRegistry:
             for mid in model_ids:
                 if mid in self._loaded_models:
                     continue
+                model_dir = str(ensure_model_snapshot(mid))
                 self._loaded_models[mid] = pipeline(
                     "ner",
-                    model=mid,
+                    model=model_dir,
+                    tokenizer=model_dir,
                     aggregation_strategy="simple",
                     device=device_index,
+                    trust_remote_code=False,
+                    model_kwargs={"use_safetensors": True},
                 )
         return [self._loaded_models[mid] for mid in model_ids]
 
@@ -180,7 +191,8 @@ class NERModelRegistry:
 
         Override format is comma-separated so a single string field on
         ``AppSettings.ner_model_overrides`` can carry either one model
-        id (current behaviour) or several to opt into an ensemble.
+        id (current behaviour) or several to opt into an ensemble. Each id
+        is a manifest model or ``org/name@<40-hex commit>``.
         """
         override = (self._overrides.get(language) or "").strip()
         if override:

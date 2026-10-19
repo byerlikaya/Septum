@@ -45,6 +45,10 @@ dependencies = [
 transformers = [
     "transformers>=5.10.0",
     "torch>=2.13.0",
+    # Pinned, verified model fetches (septum_core.model_integrity). Both
+    # already arrive through transformers; declared because core calls them.
+    "huggingface-hub>=1.31.0,<3.0",
+    "filelock>=3.10.0",
 ]
 test = [
     "pytest>=9.0",
