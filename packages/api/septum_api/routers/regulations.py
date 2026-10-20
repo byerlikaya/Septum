@@ -379,8 +379,9 @@ async def test_custom_recognizer(
 
     The implementation reuses :class:`RecognizerRegistry` to build a
     Presidio recognizer for the given database record and runs it over
-    the provided sample text. LLM-backed recognizers currently act as
-    placeholders and therefore return no matches.
+    the provided sample text. LLM-prompt recognizers run through the local
+    Ollama-backed recognizer, so the result is empty when Ollama is disabled
+    or the recognizer cannot be constructed.
     """
     recognizer_model = await _get_custom_or_404(db, recognizer_id)
 
