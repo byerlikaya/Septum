@@ -30,6 +30,8 @@ from presidio_analyzer import AnalyzerEngine, EntityRecognizer, RecognizerResult
 
 from .anonymization_map import SANITIZER_STOPWORDS, AnonymizationMap
 from .config import SeptumCoreConfig
+from .date_grammar import find_dates
+from .date_grammar import warm_up as warm_up_date_grammar
 from .model_integrity import ModelIntegrityError
 from .national_ids import IBANValidator
 from .ner_model_registry import NERModelRegistry
@@ -135,6 +137,7 @@ _SEMANTIC_VALIDATION_PASSTHROUGH_TYPES: frozenset[str] = frozenset(
         "IP_ADDRESS",
         "MAC_ADDRESS",
         "DATE_OF_BIRTH",
+        "DATE",
         "COORDINATES",
         "COOKIE_ID",
         "DEVICE_ID",
@@ -738,55 +741,27 @@ class CreditCardNumberRecognizer(BaseCustomRecognizer):
         return results
 
 
-class DateOfBirthRecognizer(BaseCustomRecognizer):
-    """Detects dates preceded by birth-related context labels.
+class CalendarDateRecognizer(BaseCustomRecognizer):
+    """Detects calendar dates as ``DATE`` and birth dates as ``DATE_OF_BIRTH``.
 
-    Matches both numeric date formats (``DD/MM/YYYY``, ``YYYY-MM-DD``,
-    ``DD.MM.YYYY``) and natural-language "day + month-name + year"
-    formats (``22. Juli 1991``, ``09 février 1987``, ``12 de março de
-    1983``, ``01 de octubre de 2024``, ``August 15, 1980``) when a
-    contextual keyword appears within 40 characters before the date.
-    Context keywords are language-agnostic abbreviations and common
-    labels.
+    One scan of the shared date grammar (:mod:`septum_core.date_grammar`)
+    serves both types. A date with a birth-context keyword within 40
+    characters before it is emitted as ``DATE_OF_BIRTH`` when that type is
+    requested; every other date is emitted as ``DATE`` (score 0.85, no
+    context needed) when ``DATE`` is requested. Building the recognizer
+    compiles the grammar, so the first request does not pay for it.
     """
 
-    # FUTURE: move to DB so admins can extend month vocabularies
-    # without code changes. List is kept minimal and covers the
-    # Western-European languages we currently benchmark.
-    _MONTH_NAMES: tuple[str, ...] = (
-        "january", "february", "march", "april", "may", "june",
-        "july", "august", "september", "october", "november", "december",
-        "januar", "februar", "märz", "maerz", "april", "mai", "juni",
-        "juli", "august", "september", "oktober", "november", "dezember",
-        "janvier", "février", "fevrier", "mars", "avril", "mai", "juin",
-        "juillet", "août", "aout", "septembre", "octobre", "novembre", "décembre", "decembre",
-        "enero", "febrero", "marzo", "abril", "mayo", "junio",
-        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
-        "janeiro", "fevereiro", "março", "marco", "abril", "maio", "junho",
-        "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-        "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
-        "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
-        "ocak", "şubat", "subat", "mart", "nisan", "mayıs", "mayis", "haziran",
-        "temmuz", "ağustos", "agustos", "eylül", "eylul", "ekim", "kasım", "kasim", "aralık", "aralik",
-    )
+    _DOB_SCORE = 0.96
+    _DATE_SCORE = 0.85
+    _CONTEXT_WINDOW = 40
 
-    def __init__(self) -> None:
+    def __init__(self, supported_entities: Optional[List[str]] = None) -> None:
         super().__init__(
-            supported_entities=["DATE_OF_BIRTH"],
+            supported_entities=supported_entities or ["DATE", "DATE_OF_BIRTH"],
             supported_language="en",
         )
-        month_alt = "|".join(
-            sorted({re.escape(name) for name in self._MONTH_NAMES}, key=len, reverse=True)
-        )
-        self._date_pattern = re.compile(
-            r"(?:"
-            r"\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}\b"
-            r"|\b\d{4}[/.\-]\d{1,2}[/.\-]\d{1,2}\b"
-            rf"|\b\d{{1,2}}\.?\s+(?:de\s+)?(?:{month_alt})\s+(?:de\s+)?\d{{2,4}}\b"
-            rf"|\b(?:{month_alt})\s+\d{{1,2}}(?:,)?\s+\d{{2,4}}\b"
-            r")",
-            re.IGNORECASE | re.UNICODE,
-        )
+        warm_up_date_grammar()
         # FUTURE: move context keywords to DB so new locales can be
         # enrolled without editing production code.
         self._context_pattern = re.compile(
@@ -803,15 +778,29 @@ class DateOfBirthRecognizer(BaseCustomRecognizer):
                 nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
         if self._entity_filter(entities):
             return []
+        wanted = set(self.supported_entities)
+        if entities:
+            wanted &= set(entities)
         results: List[RecognizerResult] = []
-        for m in self._date_pattern.finditer(text):
-            window_start = max(0, m.start() - 40)
-            window = text[window_start:m.start()]
-            if self._context_pattern.search(window):
-                results.append(RecognizerResult(
-                    entity_type="DATE_OF_BIRTH", start=m.start(), end=m.end(), score=0.96,
-                ))
+        for date in find_dates(text):
+            window = text[max(0, date.start - self._CONTEXT_WINDOW):date.start]
+            if "DATE_OF_BIRTH" in wanted and self._context_pattern.search(window):
+                entity_type, score = "DATE_OF_BIRTH", self._DOB_SCORE
+            elif "DATE" in wanted:
+                entity_type, score = "DATE", self._DATE_SCORE
+            else:
+                continue
+            results.append(RecognizerResult(
+                entity_type=entity_type, start=date.start, end=date.end, score=score,
+            ))
         return results
+
+
+class DateOfBirthRecognizer(CalendarDateRecognizer):
+    """``CalendarDateRecognizer`` restricted to ``DATE_OF_BIRTH`` output."""
+
+    def __init__(self) -> None:
+        super().__init__(supported_entities=["DATE_OF_BIRTH"])
 
 
 class MACAddressRecognizer(BaseCustomRecognizer):
@@ -1360,7 +1349,7 @@ class Detector:
         registry.add_recognizer(HeuristicPersonNameRecognizer())
         registry.add_recognizer(StructuralAddressRecognizer())
         registry.add_recognizer(CreditCardNumberRecognizer())
-        registry.add_recognizer(DateOfBirthRecognizer())
+        registry.add_recognizer(CalendarDateRecognizer())
         registry.add_recognizer(MACAddressRecognizer())
         registry.add_recognizer(URLRecognizer())
         registry.add_recognizer(CoordinatesRecognizer())

@@ -23,6 +23,7 @@ from typing import Any
 
 from .anonymization_map import AnonymizationMap
 from .config import SeptumCoreConfig
+from .detection_version import DETECTOR_VERSION
 from .national_ids import (
     AadhaarValidator,
     BaseIDValidator,
@@ -45,6 +46,7 @@ from .spans import DetectedSpan, ResolvedSpan, SanitizeResult
 from .unmasker import Unmasker
 
 __all__ = [
+    "DETECTOR_VERSION",
     "SeptumEngine",
     "MaskResult",
     "AnonymizationMap",

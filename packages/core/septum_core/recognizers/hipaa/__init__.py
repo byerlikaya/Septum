@@ -10,6 +10,7 @@ and the standalone core/MCP engine.
 ENTITY_TYPES: tuple[str, ...] = (
     "PERSON_NAME",
     "DATE_OF_BIRTH",
+    "DATE",
     "PHONE_NUMBER",
     "EMAIL_ADDRESS",
     "POSTAL_ADDRESS",
