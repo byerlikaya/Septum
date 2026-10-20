@@ -77,6 +77,20 @@ it("a retry with chunks still asks for approval when the setting requires it", a
   expect(params.pre_approved_chunks).toEqual([{ text: "chunk" }]);
 });
 
+it("never sends more than 50 document ids in one question", async () => {
+  const ids = Array.from({ length: 60 }, (_, i) => i + 1);
+  const { result } = renderStream({ documentIds: ids });
+
+  act(() => result.current.sendMessage("Q", undefined, ids));
+  await waitFor(() => expect(mockStreamChatAsk).toHaveBeenCalledTimes(1));
+
+  const [params] = mockStreamChatAsk.mock.calls[0];
+  expect(params.document_ids).toHaveLength(50);
+  expect(params.document_ids[49]).toBe(50);
+  expect(params.scoped_doc_ids).toHaveLength(50);
+  expect(params.document_id).toBe(1);
+});
+
 it("fetches debug data by debug_id and never keeps final_answer", async () => {
   mockGetChatDebug.mockResolvedValue({
     debug_id: "dbg-1",
@@ -200,7 +214,8 @@ it("shows the translated message when a retry is refused", async () => {
 it.each([
   ["the Ollama URL is refused", "ollama_url_not_allowed", "chat.error.ollamaUrlNotAllowed"],
   ["a model fails its integrity check", "model_integrity_failed", "errors.model.integrityFailed"],
-  ["the custom NER model is not pinned", "ner_model_unpinned", "errors.model.nerUnpinned"]
+  ["the custom NER model is not pinned", "ner_model_unpinned", "errors.model.nerUnpinned"],
+  ["the language model is unavailable", "llm_unavailable", "chat.error.llmUnavailable"]
 ])("shows the translated message when %s", async (_label, code, translationKey) => {
   const { result } = renderStream();
 
@@ -266,4 +281,18 @@ it("clears pendingAssistantId when streaming is stopped", async () => {
   expect(result.current.pendingAssistantId).not.toBeNull();
   act(() => result.current.stopStreaming());
   expect(result.current.pendingAssistantId).toBeNull();
+});
+
+it("shows the server message when the error carries no code", async () => {
+  const { result } = renderStream();
+
+  act(() => result.current.sendMessage("Q"));
+  await waitFor(() => expect(mockStreamChatAsk).toHaveBeenCalledTimes(1));
+  act(() => {
+    lastOnEvent()({ type: "error", code: null, message: "Uncoded server text" });
+  });
+
+  await waitFor(() => expect(result.current.streamError).toBe("Uncoded server text"));
+  const assistant = result.current.messages.find((m) => m.role === "assistant");
+  expect(assistant?.content).toBe("Error: Uncoded server text");
 });

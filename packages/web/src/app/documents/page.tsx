@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   getDocuments,
@@ -8,16 +8,20 @@ import {
   sendFrontendError,
 } from "@/lib/api";
 import { poolMap } from "@/lib/concurrency";
+import { fetchProgressInChunks, type ProgressMap } from "@/lib/documentProgress";
 import type { Document } from "@/lib/types";
 import { DocumentUploader } from "@/components/documents/DocumentUploader";
 import { DocumentList } from "@/components/documents/DocumentList";
 import { DocumentPreview } from "@/components/documents/DocumentPreview";
 import { useI18n } from "@/lib/i18n";
+import { canEditDocuments, useCurrentUser } from "@/lib/currentUser";
 import { uploadDocuments } from "@/lib/uploadDocuments";
 import { getDocumentDisplayName } from "@/lib/utils";
 
 export default function DocumentsPage() {
   const t = useI18n();
+  const currentUser = useCurrentUser();
+  const canEdit = canEditDocuments(currentUser);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isUploading, setIsUploading] = useState<boolean>(false);
@@ -83,10 +87,13 @@ export default function DocumentsPage() {
             .map((d) => d.id);
           if (processingIds.length > 0) {
             try {
-              const { data } = await api.get<Record<number, number>>(
-                `/api/documents/progress?ids=${processingIds.join(",")}`
-              );
-              setProcessingProgress(data);
+              const merged = await fetchProgressInChunks(processingIds, async (chunk) => {
+                const { data } = await api.get<ProgressMap>("/api/documents/progress", {
+                  params: { ids: chunk.join(",") },
+                });
+                return data;
+              });
+              setProcessingProgress(merged);
             } catch {
               // ignore progress errors
             }
@@ -279,10 +286,8 @@ export default function DocumentsPage() {
     [t]
   );
 
-  const handleBulkReprocess = useCallback(
+  const runBulkReprocess = useCallback(
     async (ids: number[]): Promise<void> => {
-      if (!ids.length) return;
-      if (!window.confirm(t("documents.bulk.confirmReprocess").replace("{count}", String(ids.length)))) return;
       setDocuments((prev) =>
         prev.map((d) =>
           ids.includes(d.id) ? { ...d, ingestion_status: "processing" as const } : d
@@ -300,6 +305,31 @@ export default function DocumentsPage() {
     },
     [t, fetchDocuments]
   );
+
+  const handleBulkReprocess = useCallback(
+    async (ids: number[]): Promise<void> => {
+      if (!ids.length) return;
+      if (!window.confirm(t("documents.bulk.confirmReprocess", { count: ids.length }))) return;
+      await runBulkReprocess(ids);
+    },
+    [t, runBulkReprocess]
+  );
+
+  const staleIds = useMemo(
+    () => documents.filter((d) => d.needs_reprocessing).map((d) => d.id),
+    [documents]
+  );
+
+  const handleReprocessStale = useCallback(async (): Promise<void> => {
+    if (!staleIds.length) return;
+    if (!window.confirm(t("documents.confirm.reprocessStale", { count: staleIds.length }))) return;
+    await runBulkReprocess(staleIds);
+  }, [staleIds, t, runBulkReprocess]);
+
+  const handleReprocessed = useCallback((updated: Document): void => {
+    setDocuments((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
+    setPreviewDoc((prev) => (prev && prev.id === updated.id ? updated : prev));
+  }, []);
 
   const handleReprocessAll = useCallback(async () => {
     if (!window.confirm(t("documents.confirmReprocessAll"))) return;
@@ -360,16 +390,28 @@ export default function DocumentsPage() {
           </div>
           {documents.length > 0 && (
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleReprocessAll}
-                disabled={isUploading || isReprocessingAll || isDeletingAll}
-                className="inline-flex items-center rounded-md border border-sky-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-sky-300 shadow-xs hover:bg-sky-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isReprocessingAll
-                  ? t("documents.actions.reprocessingAll")
-                  : t("documents.actions.reprocessAll")}
-              </button>
+              {canEdit && staleIds.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleReprocessStale}
+                  disabled={isUploading || isReprocessingAll || isDeletingAll}
+                  className="inline-flex items-center rounded-md border border-amber-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-amber-300 shadow-xs hover:bg-amber-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {t("documents.actions.reprocessStale", { count: staleIds.length })}
+                </button>
+              )}
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={handleReprocessAll}
+                  disabled={isUploading || isReprocessingAll || isDeletingAll}
+                  className="inline-flex items-center rounded-md border border-sky-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-sky-300 shadow-xs hover:bg-sky-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isReprocessingAll
+                    ? t("documents.actions.reprocessingAll")
+                    : t("documents.actions.reprocessAll")}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleDeleteAllDocuments}
@@ -417,6 +459,7 @@ export default function DocumentsPage() {
             setPreviewDoc(null);
           }
         }}
+        onReprocessed={handleReprocessed}
       />
     </div>
   );

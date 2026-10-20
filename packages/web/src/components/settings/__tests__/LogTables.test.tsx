@@ -48,6 +48,30 @@ describe("AuditLogTable", () => {
       )
     );
   });
+
+  it("offers DATE and DATE_OF_BIRTH in the entity type filter", async () => {
+    mockFetchAudit.mockImplementation(async (p: { page: number }) => ({
+      items: [],
+      total: 0,
+      page: p.page,
+      page_size: 50
+    }));
+    render(<AuditLogTable pageSize={50} />);
+    await waitFor(() => expect(mockFetchAudit).toHaveBeenCalledTimes(1));
+
+    const entitySelect = screen.getByTitle("audit.filter.entityTypeHint") as HTMLSelectElement;
+    const values = Array.from(entitySelect.options).map((o) => o.value);
+    expect(values).toContain("DATE");
+    expect(values).toContain("DATE_OF_BIRTH");
+    expect(values.indexOf("DATE")).toBe(values.indexOf("DATE_OF_BIRTH") + 1);
+
+    fireEvent.change(entitySelect, { target: { value: "DATE" } });
+    await waitFor(() =>
+      expect(mockFetchAudit).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 1, entity_type: "DATE" })
+      )
+    );
+  });
 });
 
 describe("ErrorLogTable", () => {

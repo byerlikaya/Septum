@@ -116,3 +116,20 @@ def test_custom_rule_entity_type_included_in_policy() -> None:
         for r in policy.recognizers
     )
 
+
+
+def test_gdpr_hipaa_union_includes_date_and_gdpr_alone_does_not() -> None:
+    """DATE comes from the HIPAA pack only; GDPR alone must not carry it."""
+    from septum_core.recognizers.gdpr import ENTITY_TYPES as gdpr_types
+    from septum_core.recognizers.hipaa import ENTITY_TYPES as hipaa_types
+
+    gdpr = _make_regulation("gdpr", entity_types=list(gdpr_types))
+    hipaa = _make_regulation("hipaa", entity_types=list(hipaa_types))
+    composer = PolicyComposer()
+
+    gdpr_only = composer.compose_from_data([gdpr], [], [])
+    union = composer.compose_from_data([gdpr, hipaa], [], [])
+
+    assert "DATE" not in gdpr_only.entity_types
+    assert "DATE" in union.entity_types
+    assert "DATE_OF_BIRTH" in union.entity_types

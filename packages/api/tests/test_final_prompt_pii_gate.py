@@ -21,6 +21,10 @@ from typing import Any, AsyncIterator, Optional
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from septum_core.spans import ResolvedSpan, SanitizeResult
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
 from septum_api.database import build_default_app_settings, get_db
 from septum_api.main import app
 from septum_api.models import Base
@@ -33,11 +37,9 @@ from septum_api.services import document_anon_store, pii_gate
 from septum_api.services.anonymization_map import AnonymizationMap
 from septum_api.services.approval_gate import ApprovalChunk, ApprovalDecision
 from septum_api.services.llm_router import LLMRouter
+from septum_api.services.policy_snapshot import current_policy_snapshot
 from septum_api.services.sanitizer import PIISanitizer
 from septum_api.utils.auth_dependency import get_current_user
-from septum_core.spans import ResolvedSpan, SanitizeResult
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 NAME = "Michael Thompson"
 IBAN = "DE89370400440532013000"
@@ -104,6 +106,8 @@ class _Env:
                 file_size_bytes=10,
                 ocr_confidence=0.0,
                 active_regulation_ids=[],
+                sanitized_entity_types=[],
+                sanitized_policy_digest=(await current_policy_snapshot(session)).digest,
                 ingestion_status="completed",
                 chunk_count=len(chunk_texts),
                 user_id=self.user.id,
@@ -145,7 +149,7 @@ async def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[
 
     sanitizer = PIISanitizer(settings=_presidio_only_settings())
 
-    async def _create_sanitizer(db, settings, enable_ollama=False):
+    async def _create_sanitizer(db, settings, enable_ollama=False, policy=None):
         return sanitizer
 
     async def _retrieve(db, document_id, query, top_k, chunk_count, relevance_threshold):
@@ -447,6 +451,54 @@ class _SpanSanitizer:
 
 
 class TestGateUnit:
+    def test_numeric_original_needs_digit_boundaries(self) -> None:
+        amap = AnonymizationMap(document_id=0, language="en")
+        amap.add_entity("3/15", "DATE")
+        amap.add_entity("4711", "MEDICAL_RECORD_NUMBER")
+
+        out = pii_gate.mask_known_entities(
+            "Seen 13/150, 3/15 and (3/15); ids 47110, A4711, MRN4711, 4711.", amap
+        )
+
+        assert out == (
+            "Seen 13/150, [DATE_1] and ([DATE_1]); ids 47110, A[MEDICAL_RECORD_NUMBER_1], "
+            "MRN[MEDICAL_RECORD_NUMBER_1], [MEDICAL_RECORD_NUMBER_1]."
+        )
+
+    @pytest.mark.parametrize(
+        ("original", "entity", "text", "expected"),
+        [
+            (
+                "\u0664\u0667\u0661\u0661",
+                "MEDICAL_RECORD_NUMBER",
+                "\u0664\u0667\u0661\u0661, A\u0664\u0667\u0661\u0661, \u0661\u0664\u0667\u0661\u0661",
+                "[MEDICAL_RECORD_NUMBER_1], A[MEDICAL_RECORD_NUMBER_1], "
+                "\u0661\u0664\u0667\u0661\u0661",
+            ),
+            ("(555) 1", "PHONE_NUMBER", "5(555) 1 and (555) 12", "5[PHONE_NUMBER_1] and (555) 12"),
+        ],
+    )
+    def test_digit_boundary_only_on_digit_ends(
+        self, original: str, entity: str, text: str, expected: str
+    ) -> None:
+        amap = AnonymizationMap(document_id=0, language="en")
+        amap.add_entity(original, entity)
+
+        assert pii_gate.mask_known_entities(text, amap) == expected
+
+    def test_letterless_original_left_inside_placeholder(self) -> None:
+        amap = AnonymizationMap(document_id=0, language="en")
+        amap.add_entity("3/15", "DATE")
+        amap.add_entity("1", "ID_NUMBER")
+
+        assert pii_gate.mask_known_entities("[DATE_1] and 1", amap) == "[DATE_1] and [ID_NUMBER_1]"
+
+    def test_original_with_letters_keeps_substring_matching(self) -> None:
+        amap = AnonymizationMap(document_id=0, language="en")
+        amap.add_entity("Acme", "ORGANIZATION")
+
+        assert pii_gate.mask_known_entities("AcmeCorp", amap) == "[ORGANIZATION_1]Corp"
+
     def test_unified_map_without_counters_gets_fresh_placeholder(self) -> None:
         amap = AnonymizationMap(document_id=0, language="en")
         amap.entity_map = {KNOWN_NAME: "[PERSON_NAME_1]"}

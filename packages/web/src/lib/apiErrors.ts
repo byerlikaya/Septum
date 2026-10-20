@@ -22,6 +22,9 @@ export const HTTP_ERROR_KEYS: CodeKeys = {
 
 export const CHAT_STREAM_ERROR_KEYS: CodeKeys = {
   retry_numbering_changed: "chat.error.retryNumberingChanged",
+  document_changed: "chat.error.documentChanged",
+  map_conflict: "chat.error.mapConflict",
+  llm_unavailable: "chat.error.llmUnavailable",
   [OLLAMA_URL_NOT_ALLOWED]: "chat.error.ollamaUrlNotAllowed",
   ...MODEL_ERROR_KEYS,
 };

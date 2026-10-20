@@ -13,6 +13,10 @@ from typing import Any, AsyncIterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from septum_core.spans import SanitizeResult
+from sqlalchemy import event, func, select, text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
 from septum_api import database as database_module
 from septum_api.database import _sqlite_wal_connect, get_db
 from septum_api.main import app
@@ -25,8 +29,6 @@ from septum_api.services import document_anon_store, pii_gate
 from septum_api.services import document_pipeline as pipeline_module
 from septum_api.services.anonymization_map import AnonymizationMap
 from septum_api.utils.auth_dependency import get_current_user
-from sqlalchemy import event, func, select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 
 class _NoopIndex:
@@ -179,6 +181,13 @@ async def test_delete_during_processing_is_refused(env: _Env) -> None:
     assert await document_anon_store.get_document_map(doc) is not None
 
 
+class _SilentSanitizer:
+    """Sanitizer double that detects nothing; the gate now runs it before the lock."""
+
+    def sanitize(self, text, language, anon_map):
+        return SanitizeResult(sanitized_text=text, entity_count=0, detected_spans=[])
+
+
 async def test_chunk_edit_racing_a_delete_does_not_recreate_the_map(
     env: _Env, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -189,7 +198,7 @@ async def test_chunk_edit_racing_a_delete_does_not_recreate_the_map(
 
     async def _create_sanitizer(db, settings, enable_ollama=False):
         gate_entered.set()
-        return object()
+        return _SilentSanitizer()
 
     real_pop = pipeline_module.pop_document_map
 

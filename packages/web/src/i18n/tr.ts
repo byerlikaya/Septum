@@ -181,6 +181,14 @@ export const trMessages: Record<string, string> = {
   "documents.actions.deletingAll": "Tüm dokümanlar siliniyor…",
   "documents.actions.reprocessAll": "Tümünü yeniden işle",
   "documents.actions.reprocessingAll": "Yeniden işleniyor…",
+  "documents.actions.reprocessing": "Yeniden işleniyor…",
+  "documents.actions.reprocessStale": "Güncel olmayanları yeniden işle ({count})",
+  "documents.confirm.reprocessStale": "{count} güncel olmayan belge yeniden işlensin mi? Bu işlem OCR, transkripsiyon ve PII tespitini yeniden çalıştırır ve biraz zaman alabilir.",
+  "documents.stale.badge": "Yeniden işleme gerekli",
+  "documents.stale.tooltip": "Şu varlık türleri için henüz maskelenmedi: {types}. Güncel gizlilik politikasını uygulamak için belgeyi yeniden işleyin.",
+  "documents.stale.unknownPolicy": "Belge bilinmeyen bir gizlilik politikasıyla maskelendi. Güncel politikayı uygulamak için belgeyi yeniden işleyin.",
+  "documents.stale.outdatedPolicy": "Belge daha eski bir gizlilik politikasıyla maskelendi. Güncel politikayı uygulamak için belgeyi yeniden işleyin.",
+  "documents.stale.banner": "Bu belgenin kayıtlı parçaları güncel gizlilik politikasından önce oluşturuldu. Sohbet bu parçaları anlık olarak yeniden maskeler; yeniden işleme ise bu değişikliği kalıcı hale getirir.",
   "documents.confirmReprocessAll": "Tüm dokümanları yeniden işlemek istediğinize emin misiniz? Bu biraz zaman alabilir.",
   "documents.confirm.deleteAll":
     "Tüm dokümanları silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.",
@@ -506,6 +514,9 @@ export const trMessages: Record<string, string> = {
   "chat.approval.rejectedDefault": "Reddedildi.",
   "chat.error.retryNumberingChanged":
     "Bu yanıt hazırlandıktan sonra belgeler değişti; lütfen soruyu yeniden sorun.",
+  "chat.error.documentChanged": "Soru yanıtlanırken bir doküman değişti. Lütfen sorunuzu yeniden sorun.",
+  "chat.error.llmUnavailable": "Dil modeli şu anda yanıt veremedi; lütfen daha sonra tekrar deneyin.",
+  "chat.error.mapConflict": "Doküman güncelleniyor. Lütfen tekrar deneyin.",
   "chat.error.ollamaUrlNotAllowed":
     "Yapılandırılmış Ollama adresine izin verilmiyor. Ayarlar → LLM Provider bölümünden adresi değiştirin.",
   "chat.debug.fetchError": "Hata ayıklama bilgisi alınırken bir hata oluştu.",
@@ -521,6 +532,8 @@ export const trMessages: Record<string, string> = {
     "Hedefli arama için doküman seçin veya tümünde otomatik arama için boş bırakın.",
   "chat.documentSelector.empty":
     "Sohbet için hazır doküman yok. Önce doküman yükleyip işlemeniz gerekir.",
+  "chat.documentSelector.limit": "Soru başına en fazla {max} doküman seçebilirsiniz.",
+  "chat.documentSelector.trimmed": "Seçimden {count} doküman çıkarıldı: bir soruda en fazla {max} doküman kullanılabilir.",
 
   "chat.ragMode.auto": "Otomatik arama",
   "chat.ragMode.none": "Doğrudan yanıt (doküman kullanılmadı)",

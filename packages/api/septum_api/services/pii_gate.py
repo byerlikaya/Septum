@@ -27,6 +27,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..errors import ContentFreeError
 from ..models.document import Chunk, Document
 from ..models.settings import AppSettings
 from ..utils.text_utils import normalize_unicode
@@ -56,6 +57,12 @@ def _known_placeholders(anon_map: AnonymizationMap) -> set[str]:
     return known
 
 
+def all_placeholders_known(text: str, anon_map: AnonymizationMap) -> bool:
+    """Return whether every placeholder-shaped token in ``text`` resolves in ``anon_map``."""
+    known = _known_placeholders(anon_map)
+    return all(m.group(0) in known for m in _PLACEHOLDER_RE.finditer(text))
+
+
 def reserve_placeholder_counters(
     anon_map: AnonymizationMap, extra_texts: Iterable[str] = ()
 ) -> None:
@@ -83,19 +90,37 @@ def _mask_known_originals(
 
     Known placeholders are part of the alternation (tried first) and are
     emitted unchanged, so an original can never be substituted inside an
-    existing placeholder.
+    existing placeholder. Originals without letters need digit boundaries
+    (see :func:`_original_alternative`).
     """
     originals = [o for o in anon_map.entity_map if o]
     if not originals:
         return text
-    alternatives = sorted(known, key=len, reverse=True) + sorted(
-        originals, key=len, reverse=True
-    )
-    pattern = re.compile("|".join(re.escape(a) for a in alternatives))
+    alternatives = [re.escape(a) for a in sorted(known, key=len, reverse=True)] + [
+        _original_alternative(o) for o in sorted(originals, key=len, reverse=True)
+    ]
+    pattern = re.compile("|".join(alternatives))
     return pattern.sub(
         lambda m: m.group(0) if m.group(0) in known else anon_map.entity_map[m.group(0)],
         text,
     )
+
+
+def _original_alternative(original: str) -> str:
+    """Return the regex alternative that matches ``original`` in text.
+
+    An original without letters (a date, an amount, an id such as ``3/15``)
+    must not extend a number: each end that is a digit may not touch another
+    digit, so ``3/15`` is never found inside ``13/150`` while ``A4711`` and
+    ``5(555) 1`` still mask. Originals with letters keep plain substring
+    matching.
+    """
+    escaped = re.escape(original)
+    if any(ch.isalpha() for ch in original):
+        return escaped
+    before = r"(?<!\d)" if original[0].isdigit() else ""
+    after = r"(?!\d)" if original[-1].isdigit() else ""
+    return f"{before}{escaped}{after}"
 
 
 def mask_known_entities(text: str, anon_map: AnonymizationMap) -> str:
@@ -219,74 +244,183 @@ async def gate_untrusted_texts(
     )
 
 
+_MAP_MERGE_ATTEMPTS = 3
+
+
+class DocumentMapMissingError(ContentFreeError, RuntimeError):
+    """The document has no anonymization map (never written, or erased mid-turn)."""
+
+
+class DocumentGoneError(HTTPException):
+    """HTTP 404: the document row was deleted while its texts were being gated."""
+
+    def __init__(self) -> None:
+        super().__init__(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+
+
+class DocumentMapConflictError(HTTPException):
+    """HTTP 409: the document map kept changing under concurrent writers."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The document's anonymization map kept changing; try again.",
+        )
+
+
+def _same_map(a: Optional[AnonymizationMap], b: Optional[AnonymizationMap]) -> bool:
+    """Return whether two persisted maps carry the same entities and counters."""
+    if a is None or b is None:
+        return a is b
+    return (
+        a.entity_map == b.entity_map
+        and a.token_to_placeholder == b.token_to_placeholder
+        and a.token_counter == b.token_counter
+    )
+
+
+async def _working_copy(
+    db: AsyncSession,
+    document: Document,
+    base: Optional[AnonymizationMap],
+    texts: Sequence[str],
+) -> AnonymizationMap:
+    """Return the map to gate against, with counters above every index in use.
+
+    A document without a map gets a fresh one whose counters are reserved
+    above the placeholders its stored chunks already carry. Indexes in
+    ``texts`` are reserved in both cases, so a placeholder the map does not
+    know is never handed to a different entity.
+    """
+    if base is not None:
+        working = copy.deepcopy(base)
+        reserve_placeholder_counters(working, texts)
+        return working
+    working = AnonymizationMap(
+        document_id=document.id,
+        language=document.language_override or document.detected_language or "en",
+    )
+    rows = await db.execute(
+        select(Chunk.sanitized_text).where(Chunk.document_id == document.id)
+    )
+    reserve_placeholder_counters(working, [*rows.scalars().all(), *texts])
+    return working
+
+
+async def _require_row(db: AsyncSession, document: Document) -> None:
+    """Raise HTTP 404 when the document row no longer exists."""
+    still_exists = await db.scalar(select(Document.id).where(Document.id == document.id))
+    if still_exists is None:
+        raise DocumentGoneError()
+
+
+async def _gate_and_merge(
+    db: AsyncSession,
+    settings: AppSettings,
+    document: Document,
+    texts: Sequence[str],
+    sanitizer: Optional["PIISanitizer"],
+    require_existing_map: bool,
+) -> Tuple[List[str], bool]:
+    """Gate ``texts`` outside the map lock, then merge and write under it.
+
+    Each attempt reads the authoritative disk copy, gates a private copy of
+    it (the sanitizer runs here, with no lock held), then takes the lock and
+    compares the disk copy with the one it started from. Unchanged: the
+    gated copy is written if it gained anything. Changed (another worker
+    added entities meanwhile): the attempt is discarded and redone on the
+    new copy, so no placeholder number is ever reused or overwritten. The
+    row is checked before the sanitizer runs and again under the lock.
+    Returns the gated texts and whether the map was written.
+    """
+    if sanitizer is None and any(texts):
+        sanitizer = await create_sanitizer(db, settings, enable_ollama=False)
+    for _ in range(_MAP_MERGE_ATTEMPTS):
+        await _require_row(db, document)
+        base = await load_persisted_document_map(document.id)
+        if base is None and require_existing_map:
+            raise DocumentMapMissingError(f"Document {document.id} has no anonymization map")
+        working = await _working_copy(db, document, base, texts)
+        gated = await gate_untrusted_texts(
+            texts, working, db, settings, sanitizer=sanitizer
+        )
+        async with document_map_lock(document.id) as lock:
+            await _require_row(db, document)
+            current = await load_persisted_document_map(document.id)
+            if current is None and require_existing_map:
+                raise DocumentMapMissingError(
+                    f"Anonymization map of document {document.id} was erased mid-turn"
+                )
+            if not _same_map(current, base):
+                continue
+            changed = base is None or not _same_map(working, base)
+            written = bool(changed and working.entity_map)
+            if written:
+                await lock.ensure_held()
+                await set_document_map(document.id, working)
+            return gated, written
+    raise DocumentMapConflictError()
+
+
 async def gate_document_texts(
     db: AsyncSession,
     settings: AppSettings,
     document: Document,
     texts: Sequence[str],
+    sanitizer: Optional["PIISanitizer"] = None,
 ) -> List[str]:
-    """Gate texts that will be stored on ``document`` and persist its map.
+    """Gate texts against ``document``'s map and persist the entities they add.
 
-    Works on a copy of the cached document map and replaces the cached map
-    only after gating succeeds, so concurrent chat turns holding the old
-    object never observe a half-updated map. The map is written (encrypted,
-    all tiers) before the caller commits the text, so stored text never
-    references a placeholder the map cannot resolve. Under the lock the
-    map is read from the authoritative disk tier, so another worker's
-    additions are never overwritten or their placeholder numbers reused.
-    The sanitizer (model loading) is built before the lock is taken, and
-    the lock is re-confirmed right before the write; a lost lock aborts
-    with :class:`DocumentMapLockLost` and nothing is written.
+    The cached map object is never mutated: gating works on a copy and the
+    stored map is replaced only after it succeeds, so concurrent chat turns
+    holding the old object never observe a half-updated map. The map is
+    written (encrypted, all tiers) before the caller commits the text, so
+    stored text never references a placeholder the map cannot resolve. The
+    sanitizer runs before the map lock is taken (see :func:`_gate_and_merge`);
+    the lock covers only the compare, merge and write, and is re-confirmed
+    right before the write: a lost lock aborts with
+    :class:`DocumentMapLockLost` and nothing is written.
 
     The delete endpoint erases the map and removes the row under the same
     lock, so the row is re-checked once the lock is held: a document
     deleted meanwhile aborts with HTTP 404 and its map is not recreated.
+    A caller gating several documents may pass one ``sanitizer`` built
+    beforehand.
     """
-    sanitizer = None
-    if any(texts):
-        sanitizer = await create_sanitizer(db, settings, enable_ollama=False)
-    async with document_map_lock(document.id) as lock:
-        still_exists = await db.scalar(
-            select(Document.id).where(Document.id == document.id)
-        )
-        if still_exists is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Document not found.",
-            )
-        cached = await load_persisted_document_map(document.id)
-        if cached is not None:
-            working = copy.deepcopy(cached)
-        else:
-            working = AnonymizationMap(
-                document_id=document.id,
-                language=document.language_override
-                or document.detected_language
-                or "en",
-            )
-            rows = await db.execute(
-                select(Chunk.sanitized_text).where(Chunk.document_id == document.id)
-            )
-            reserve_placeholder_counters(working, rows.scalars().all())
+    gated, _ = await _gate_and_merge(
+        db, settings, document, texts, sanitizer, require_existing_map=False
+    )
+    return gated
 
-        gated = await gate_untrusted_texts(
-            texts, working, db, settings, sanitizer=sanitizer
-        )
 
-        changed = cached is None or (
-            working.entity_map != cached.entity_map
-            or working.token_to_placeholder != cached.token_to_placeholder
-            or working.token_counter != cached.token_counter
-        )
-        if changed and working.entity_map:
-            await lock.ensure_held()
-            await set_document_map(document.id, working)
-        return gated
+async def remask_document_texts(
+    db: AsyncSession,
+    settings: AppSettings,
+    document: Document,
+    texts: Sequence[str],
+    sanitizer: "PIISanitizer",
+) -> Tuple[List[str], bool]:
+    """Re-mask stored chunk texts of ``document`` for a chat turn.
+
+    Like :func:`gate_document_texts`, but the document must already have a
+    map: one that is missing, or erased while the turn runs (a reprocess or
+    delete), raises :class:`DocumentMapMissingError` instead of a partial map
+    being rebuilt from these texts alone. Returns the texts and whether the
+    map gained entities.
+    """
+    return await _gate_and_merge(
+        db, settings, document, texts, sanitizer, require_existing_map=True
+    )
 
 
 __all__ = [
+    "DocumentGoneError",
+    "DocumentMapConflictError",
+    "DocumentMapMissingError",
+    "all_placeholders_known",
     "gate_document_texts",
     "gate_untrusted_texts",
     "mask_known_entities",
+    "remask_document_texts",
     "reserve_placeholder_counters",
 ]

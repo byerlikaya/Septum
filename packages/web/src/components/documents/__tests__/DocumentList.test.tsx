@@ -3,7 +3,8 @@ import { DocumentList } from "../DocumentList";
 import type { Document } from "@/lib/types";
 
 jest.mock("../../../lib/i18n", () => ({
-  useI18n: () => (key: string) => key
+  useI18n: () => (key: string, params?: Record<string, string | number>) =>
+    params ? `${key}:${Object.values(params).join(",")}` : key
 }));
 
 function failedDocument(overrides: Partial<Document>): Document {
@@ -26,6 +27,9 @@ function failedDocument(overrides: Partial<Document>): Document {
     transcription_text: null,
     ocr_confidence: null,
     active_regulation_ids: [],
+    needs_reprocessing: false,
+    missing_entity_types: [],
+    sanitized_policy_known: true,
     ...overrides,
   };
 }
@@ -35,6 +39,52 @@ const handlers = {
   onReprocess: jest.fn(),
   onPreview: jest.fn(),
 };
+
+function completedDocument(overrides: Partial<Document>): Document {
+  return failedDocument({ ingestion_status: "completed", ...overrides });
+}
+
+it("shows an accessible reprocessing badge naming the missing entity types", () => {
+  render(
+    <DocumentList
+      documents={[
+        completedDocument({
+          needs_reprocessing: true,
+          missing_entity_types: ["EMAIL", "PHONE"],
+        }),
+      ]}
+      {...handlers}
+    />
+  );
+  const badge = screen.getByRole("status");
+  expect(badge).toHaveTextContent("documents.stale.badge");
+  expect(badge).toHaveTextContent("documents.stale.tooltip:EMAIL, PHONE");
+  expect(badge).toHaveAttribute("title", "documents.stale.tooltip:EMAIL, PHONE");
+});
+
+it("uses the unknown-policy wording without listing types when the policy is unrecorded", () => {
+  render(
+    <DocumentList
+      documents={[
+        completedDocument({
+          needs_reprocessing: true,
+          sanitized_policy_known: false,
+          missing_entity_types: ["EMAIL"],
+        }),
+      ]}
+      {...handlers}
+    />
+  );
+  const badge = screen.getByRole("status");
+  expect(badge).toHaveTextContent("documents.stale.unknownPolicy");
+  expect(badge).not.toHaveTextContent("EMAIL");
+  expect(badge).not.toHaveTextContent("documents.stale.tooltip");
+});
+
+it("renders no reprocessing badge for an up-to-date document", () => {
+  render(<DocumentList documents={[completedDocument({})]} {...handlers} />);
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+});
 
 it("shows the translated message when the failure carries a known code", () => {
   render(

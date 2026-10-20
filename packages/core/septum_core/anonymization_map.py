@@ -1,19 +1,23 @@
+"""Anonymization map: original PII values and their placeholders.
+
+The map records which placeholder (``[ENTITY_TYPE_N]``) stands for each
+original value, plus a token-to-placeholder table so residual mentions
+of a person's name are redacted with the same placeholder. Placeholder
+reuse (coreference) is limited to person-identifying types; every other
+value only shares a placeholder with an identical value of the same type.
+
+The map holds raw PII. This package never writes it anywhere: it lives
+in memory, and a host that keeps it across requests is responsible for
+storing it encrypted (the Septum API keeps per-document maps in memory
+and writes them AES-256-GCM encrypted to Redis and to disk). It must
+never be sent to the frontend, to a cloud LLM, or to logs.
+"""
+
 from __future__ import annotations
-
-"""
-Session-scoped anonymization map with language-aware coreference resolution.
-
-This module keeps an in-memory mapping between original PII values and
-placeholder tokens, plus a token-to-placeholder map so residual token
-mentions are redacted with the correct [ENTITY_TYPE_N] placeholder.
-
-The map is intentionally kept local to the current process and is never
-persisted to disk in order to avoid leaking raw PII.
-"""
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 from .text_utils import normalize_for_comparison, strip_possessive_suffix
 
@@ -58,18 +62,30 @@ class AnonymizationMap:
     # cloud LLM might echo. Per-document maps leave this field empty and
     # the deanonymizer derives the lookup from ``entity_map`` directly.
     placeholder_lookup: Dict[str, str] = field(default_factory=dict)
+    # Lookup indexes derived from ``entity_map``; never persisted. They are
+    # rebuilt whenever ``entity_map`` changed size behind ``add_entity``
+    # (callers that fill the map directly, deserialized maps).
+    _value_index: Dict[Tuple[str, str], str] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
+    _person_entries: List[Tuple[Set[str], str]] = field(
+        default_factory=list, init=False, repr=False, compare=False
+    )
+    _indexed_size: int = field(default=-1, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        """Reconstruct blocklist from token_to_placeholder when deserialized."""
+        """Reconstruct blocklist and lookup indexes when deserialized."""
         if self.token_to_placeholder and not self.blocklist:
             self.blocklist = set(self.token_to_placeholder.keys())
+        self._sync_index()
 
     def add_entity(self, original: str, entity_type: str) -> str:
         """Register an entity span and return the placeholder for it.
 
         Coreference resolution is applied so that if ``original`` can be
         matched to a previously seen value (for example, "John" after
-        "John Smith"), the existing placeholder is reused.
+        "John Smith"), the existing placeholder is reused; see
+        ``_find_existing`` for when a match is allowed.
 
         Only person-identifying entity types (see ``_BLOCKLIST_ENTITY_TYPES``)
         have their tokens propagated to the blocklist. Other entity types are
@@ -81,15 +97,18 @@ class AnonymizationMap:
         if not entity_type:
             raise ValueError("entity_type must be a non-empty string.")
 
-        existing = self._find_existing(original)
+        existing = self._find_existing(original, entity_type)
         if existing is not None:
-            self.entity_map.setdefault(original, existing)
+            if original not in self.entity_map:
+                self.entity_map[original] = existing
+                self._index_entry(original, existing)
             if entity_type in _BLOCKLIST_ENTITY_TYPES:
                 self._update_blocklist(original, existing)
             return existing
 
         placeholder = self._next_placeholder(entity_type)
         self.entity_map[original] = placeholder
+        self._index_entry(original, placeholder)
         if entity_type in _BLOCKLIST_ENTITY_TYPES:
             self._update_blocklist(original, placeholder)
         return placeholder
@@ -169,34 +188,84 @@ class AnonymizationMap:
             self.blocklist.add(token)
             self.token_to_placeholder[token] = placeholder
 
-    def _find_existing(self, original: str) -> Optional[str]:
+    def _normalized(self, value: str) -> str:
+        """Return the comparison form of ``value`` (possessive stripped)."""
+        stripped = strip_possessive_suffix(value, self.language)
+        return normalize_for_comparison(stripped, self.language)
+
+    @staticmethod
+    def _coreference_tokens(normalized: str) -> Set[str]:
+        """Return the tokens used for person-name subset matching."""
+        return {t for t in normalized.split() if len(t) > 2}
+
+    def _index_entry(self, original: str, placeholder: str) -> None:
+        """Add one ``entity_map`` entry to the lookup indexes."""
+        entity_type = _placeholder_entity_type(placeholder)
+        normalized = self._normalized(original)
+        self._value_index.setdefault((entity_type, normalized), placeholder)
+        if entity_type in _BLOCKLIST_ENTITY_TYPES:
+            tokens = self._coreference_tokens(normalized)
+            if tokens:
+                self._person_entries.append((tokens, placeholder))
+        self._indexed_size = len(self.entity_map)
+
+    def _sync_index(self) -> None:
+        """Rebuild the lookup indexes when ``entity_map`` changed directly."""
+        if self._indexed_size == len(self.entity_map):
+            return
+        self._value_index = {}
+        self._person_entries = []
+        for original, placeholder in self.entity_map.items():
+            self._index_entry(original, placeholder)
+        self._indexed_size = len(self.entity_map)
+
+    def _find_existing(self, original: str, entity_type: str) -> Optional[str]:
         """Try to find an existing placeholder for ``original``.
 
-        This uses normalized token overlap as a simple coreference heuristic.
-        If the tokens of ``original`` are a subset of those of an existing
-        entity (or vice versa), the same placeholder is reused.
+        An existing placeholder is reused when:
+
+        * the original string is already a key of the map (the map is
+          keyed by original, so a second placeholder for the same string
+          would leave the first one unrestorable);
+        * the normalized value equals an existing one of the same entity
+          type (constant-time index lookup);
+        * both values are person-identifying (``_BLOCKLIST_ENTITY_TYPES``)
+          and the tokens of one are a subset of the other's, so ``"John"``
+          after ``"John Smith"`` keeps the same placeholder. Only this
+          case scans, and only over person entries.
+
+        Any other overlap (dates sharing a month and year, a location
+        inside an address, …) gets its own placeholder, because reusing
+        it would restore the wrong value on de-anonymization. The entity
+        type of an existing entry is read from its placeholder, so maps
+        persisted before this rule need no migration.
 
         Possessive suffixes are stripped before comparison so that
         ``"Ahmet's"`` matches a previously seen ``"Ahmet"``.
         """
         if not self.entity_map:
             return None
+        existing_placeholder = self.entity_map.get(original)
+        if existing_placeholder is not None:
+            return existing_placeholder
 
-        stripped = strip_possessive_suffix(original, self.language)
-        normalized = normalize_for_comparison(stripped, self.language)
-        orig_tokens = {t for t in normalized.split() if len(t) > 2}
+        self._sync_index()
+        normalized = self._normalized(original)
+        exact = self._value_index.get((entity_type, normalized))
+        if exact is not None:
+            return exact
+        if entity_type not in _BLOCKLIST_ENTITY_TYPES:
+            return None
 
-        for existing, placeholder in self.entity_map.items():
-            existing_stripped = strip_possessive_suffix(existing, self.language)
-            existing_normalized = normalize_for_comparison(existing_stripped, self.language)
-            if normalized == existing_normalized:
+        orig_tokens = self._coreference_tokens(normalized)
+        if not orig_tokens:
+            return None
+        for tokens, placeholder in self._person_entries:
+            if orig_tokens.issubset(tokens) or tokens.issubset(orig_tokens):
                 return placeholder
-
-            existing_tokens = {t for t in existing_normalized.split() if len(t) > 2}
-            if not orig_tokens or not existing_tokens:
-                continue
-
-            if orig_tokens.issubset(existing_tokens) or existing_tokens.issubset(orig_tokens):
-                return placeholder
-
         return None
+
+
+def _placeholder_entity_type(placeholder: str) -> str:
+    """Return the entity type encoded in a ``[ENTITY_TYPE_N]`` placeholder."""
+    return placeholder.strip("[]").rpartition("_")[0]

@@ -23,6 +23,7 @@ from fastapi import (
     Depends,
     File,
     HTTPException,
+    Query,
     UploadFile,
     status,
 )
@@ -44,6 +45,7 @@ from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
 from ..models.spreadsheet_schema import SpreadsheetColumn, SpreadsheetSchema
 from ..models.user import User
+from ..request_limits import MAX_DOCUMENT_ID, MAX_PROGRESS_IDS
 from ..services.document_anon_store import (
     DocumentMapErasureError,
     DocumentMapLockHandle,
@@ -64,6 +66,11 @@ from ..services.ingestion.pdf_ingester import PdfIngester
 from ..services.ingestion.router import IngestionRouter
 from ..services.ingestion.xlsx_ingester import XlsxIngester
 from ..services.pii_gate import gate_document_texts
+from ..services.policy_snapshot import (
+    PolicySnapshot,
+    current_policy_snapshot,
+    document_staleness,
+)
 from ..utils.auth_dependency import get_current_user, require_role
 from ..utils.crypto import decrypt, encrypt
 from ..utils.db_helpers import (
@@ -164,6 +171,39 @@ class DocumentResponse(BaseModel):
     transcription_text: Optional[str]
     ocr_confidence: Optional[float]
     active_regulation_ids: List[str]
+    needs_reprocessing: bool = False
+    missing_entity_types: List[str] = []
+    sanitized_policy_known: bool = True
+
+
+def _document_response(
+    document: Document, current: Optional[PolicySnapshot]
+) -> DocumentResponse:
+    """Serialize ``document`` with its staleness against the ``current`` policy.
+
+    ``current`` may be ``None`` only for a document that is not completed
+    (just uploaded or claimed for reprocessing).
+    """
+    staleness = document_staleness(document, current)
+    return DocumentResponse.model_validate(document).model_copy(
+        update={
+            "needs_reprocessing": staleness.needs_reprocessing,
+            "missing_entity_types": staleness.missing_entity_types,
+            "sanitized_policy_known": staleness.sanitized_policy_known,
+        }
+    )
+
+
+async def _single_document_response(
+    db: AsyncSession, document: Document
+) -> DocumentResponse:
+    """Serialize one document, reading the current policy only when it is judged."""
+    current = (
+        await current_policy_snapshot(db)
+        if document.ingestion_status == "completed"
+        else None
+    )
+    return _document_response(document, current)
 
 
 class DocumentListResponse(BaseModel):
@@ -702,7 +742,10 @@ async def upload_document(
 
     background_tasks.add_task(_run_full_background, document.id)
 
-    return DocumentResponse.model_validate(document)
+    return _document_response(document, None)
+
+
+_PROGRESS_ID_RE = re.compile(r"[0-9]{1,10}")
 
 
 @router.get(
@@ -710,20 +753,38 @@ async def upload_document(
     status_code=status.HTTP_200_OK,
 )
 async def get_processing_progress(
-    ids: str = "",
-    _user: User = Depends(get_current_user),
+    ids: str = Query("", max_length=MAX_PROGRESS_IDS * 20),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> dict:
-    """Return processing progress for documents being processed.
+    """Return processing progress for the caller's documents being processed.
 
-    Accepts a comma-separated list of document IDs.
-    Returns a mapping of document_id → percent (0-99).
+    Accepts a comma-separated list of at most ``MAX_PROGRESS_IDS`` document
+    IDs (more is HTTP 422) and returns ``document_id → percent (0-99)`` for
+    those the caller owns, with the same scoping as the list endpoint
+    (``admin`` sees every document). Ids of other users' documents, unknown
+    ids and malformed entries (including values beyond the 32-bit id range
+    of ``documents.id``) are left out.
     """
     from ..services.document_progress import get_progress
 
-    if not ids.strip():
+    parts = [p.strip() for p in ids.split(",") if p.strip()]
+    if len(parts) > MAX_PROGRESS_IDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"At most {MAX_PROGRESS_IDS} document ids per request.",
+        )
+    requested = {
+        int(p)
+        for p in parts
+        if _PROGRESS_ID_RE.fullmatch(p) and int(p) <= MAX_DOCUMENT_ID
+    }
+    if not requested:
         return {}
-    doc_ids = [int(x) for x in ids.split(",") if x.strip().isdigit()]
-    return {did: get_progress(did) for did in doc_ids}
+    owned = await db.execute(
+        _scope_to_owner(select(Document.id).where(Document.id.in_(requested)), user)
+    )
+    return {did: get_progress(did) for did in sorted(owned.scalars().all())}
 
 
 @router.get(
@@ -746,8 +807,9 @@ async def list_documents(
     )
     result = await db.execute(stmt)
     docs = list(result.scalars().all())
+    current = await current_policy_snapshot(db)
     return DocumentListResponse(
-        items=[DocumentResponse.model_validate(d) for d in docs]
+        items=[_document_response(d, current) for d in docs]
     )
 
 
@@ -765,7 +827,7 @@ async def get_document(
     document = await get_owned_or_404(
         db, Document, document_id, user, "Document not found."
     )
-    return DocumentResponse.model_validate(document)
+    return await _single_document_response(db, document)
 
 
 @router.get(
@@ -901,7 +963,7 @@ async def update_document_language(
     document.language_override = payload.language
     await db.commit()
     await db.refresh(document)
-    return DocumentResponse.model_validate(document)
+    return await _single_document_response(db, document)
 
 
 @router.delete(
@@ -1139,5 +1201,5 @@ async def reprocess_document(
 
     background_tasks.add_task(_reprocess_background, document.id)
 
-    return DocumentResponse.model_validate(document)
+    return _document_response(document, None)
 

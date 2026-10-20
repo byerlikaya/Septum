@@ -7,6 +7,7 @@ import { authMe, getAuthToken, clearAuthToken } from "@/lib/api";
 import { ROLE_LABEL_KEYS, type AuthUser, type UserRole } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { hardNavigate } from "@/lib/navigation";
+import { CurrentUserProvider } from "@/lib/currentUser";
 import { Sidebar } from "./Sidebar";
 import { ChangePasswordModal } from "@/components/common/ChangePasswordModal";
 
@@ -150,7 +151,7 @@ export function AppShell({ children }: AppShellProps) {
         {/* Content */}
         <main className="min-h-0 min-w-0 flex-1 overflow-auto md:overflow-hidden">
           <div className="flex min-h-full md:h-full min-w-0 w-full flex-col overflow-visible md:overflow-hidden px-4 py-5 sm:px-6 lg:px-8">
-            {children}
+            <CurrentUserProvider value={currentUser}>{children}</CurrentUserProvider>
           </div>
         </main>
       </div>

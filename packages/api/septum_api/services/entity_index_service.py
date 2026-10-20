@@ -94,6 +94,7 @@ ENTITY_UNIQUENESS_WEIGHTS: Dict[str, float] = {
     "PERSON_NAME": 0.30,
     "LOCATION": 0.10,
     "DATE_TIME": 0.05,
+    "DATE": 0.05,
 }
 
 # Score thresholds for converting the weighted shared-entity sum into

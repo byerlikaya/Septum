@@ -86,6 +86,64 @@ def test_revision_017_adds_nullable_error_code_to_existing_documents(
     assert columns["ingestion_error_code"]["nullable"] is True
 
 
+def test_revision_018_adds_nullable_entity_types_and_is_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "at_017.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.upgrade(cfg, "017")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    before = {c["name"] for c in sa.inspect(engine).get_columns("documents")}
+
+    command.upgrade(cfg, "018")
+    columns = {c["name"]: c for c in sa.inspect(engine).get_columns("documents")}
+
+    command.stamp(cfg, "017")
+    command.upgrade(cfg, "018")
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+    after_rerun = [c["name"] for c in sa.inspect(engine).get_columns("documents")]
+
+    command.downgrade(cfg, "017")
+    after_downgrade = {c["name"] for c in sa.inspect(engine).get_columns("documents")}
+    engine.dispose()
+
+    assert "sanitized_entity_types" not in before
+    assert columns["sanitized_entity_types"]["nullable"] is True
+    assert after_rerun.count("sanitized_entity_types") == 1
+    assert "sanitized_entity_types" not in after_downgrade
+
+
+def test_revision_019_adds_nullable_policy_digest_and_is_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "at_018.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.upgrade(cfg, "018")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    before = {c["name"] for c in sa.inspect(engine).get_columns("documents")}
+
+    command.upgrade(cfg, "019")
+    columns = {c["name"]: c for c in sa.inspect(engine).get_columns("documents")}
+
+    command.stamp(cfg, "018")
+    command.upgrade(cfg, "019")
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+    after_rerun = [c["name"] for c in sa.inspect(engine).get_columns("documents")]
+
+    command.downgrade(cfg, "018")
+    after_downgrade = {c["name"] for c in sa.inspect(engine).get_columns("documents")}
+    engine.dispose()
+
+    assert "sanitized_policy_digest" not in before
+    assert columns["sanitized_policy_digest"]["nullable"] is True
+    assert after_rerun.count("sanitized_policy_digest") == 1
+    assert "sanitized_policy_digest" not in after_downgrade
+
+
 @pytest.mark.skipif(
     not os.getenv("SEPTUM_TEST_POSTGRES_URL"),
     reason="SEPTUM_TEST_POSTGRES_URL not set",

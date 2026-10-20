@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.user import User
+from ..request_limits import MAX_CONTEXT_CHUNKS, MAX_PRE_APPROVED_CHUNK_CHARS
 from ..services.anonymization_map import AnonymizationMap
 from ..services.approval_gate import (
     ApprovalChunk,
@@ -32,8 +33,6 @@ from ..services.pii_gate import reserve_placeholder_counters
 from ..utils.auth_dependency import get_current_user
 from ..utils.db_helpers import load_settings
 from .chat import (
-    MAX_CONTEXT_CHUNKS,
-    MAX_PRE_APPROVED_CHUNK_CHARS,
     _assemble_user_prompt,
     _gate_edited_chunks,
 )

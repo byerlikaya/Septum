@@ -42,6 +42,7 @@ _ENTITY_TYPE_PRIORITY: dict[str, int] = {
 # starts earlier than the ORG, which strips the richer ORG label
 # and emits two placeholders for one semantic unit.
 _ABSORPTION_RULES: dict[str, frozenset[str]] = {
+    "DATE_OF_BIRTH": frozenset({"DATE"}),
     "ORGANIZATION_NAME": frozenset({"LOCATION"}),
     "POSTAL_ADDRESS": frozenset({"LOCATION", "STREET_ADDRESS"}),
     "STREET_ADDRESS": frozenset({"LOCATION"}),

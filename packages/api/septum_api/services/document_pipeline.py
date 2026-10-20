@@ -28,8 +28,10 @@ from .entity_index_service import (
     recompute_relationships_for_document,
     replace_index_for_document,
 )
+from .policy_composer import PolicyComposer
+from .remask_cache import remask_cache
 from .sanitizer import ResolvedSpan
-from .sanitizer_factory import create_sanitizer
+from .sanitizer_factory import DOCUMENT_SANITIZER_ENABLE_OLLAMA, create_sanitizer
 from .text_normalizer import TextNormalizer
 from .vector_store import VectorStore
 
@@ -70,8 +72,10 @@ async def erase_document_artifacts(
     Order: the source file (only when ``source_path`` is given), the FAISS
     index, the BM25 index, then the anonymization map. A missing file or
     index counts as already erased. The first tier that fails raises
-    :class:`ArtifactErasureError` and later tiers are not attempted.
+    :class:`ArtifactErasureError` and later tiers are not attempted. This
+    worker's re-masked chunk cache entries of the document are dropped first.
     """
+    remask_cache.forget_document(document_id)
     steps: list[tuple[str, Callable[[], None]]] = []
     if source_path is not None:
         steps.append(("source_file", lambda: Path(source_path).unlink(missing_ok=True)))
@@ -119,18 +123,32 @@ class DocumentPipeline:
         started before a reprocess) aborts with
         :class:`DocumentDeletedDuringIngestionError` before any index is
         written.
+
+        The policy is composed once, and its snapshot (entity types and
+        policy digest) is recorded when the run completes, so staleness is
+        judged against the policy these chunks were actually masked under.
         """
         def _emit(pct: int) -> None:
             if on_progress is not None:
                 on_progress(pct)
 
+        remask_cache.forget_document(document.id)
         detected_language = document.detected_language
         anon_map = AnonymizationMap(document_id=document.id, language=detected_language)
 
-        # Ingestion uses only Presidio + NER (no Ollama). Coreference is
-        # handled at masking time via the blocklist mechanism — Ollama would
-        # be redundant here and slow down ingestion significantly.
-        sanitizer = await create_sanitizer(db, self._settings, enable_ollama=False)
+        # Ollama semantic detection stays off at ingestion (coreference is
+        # handled at masking time via the blocklist); the Ollama validation
+        # and contextual layers follow the stored settings. Chat re-masks
+        # outdated chunks with the same configuration.
+        policy, policy_snapshot = await PolicyComposer().compose_with_snapshot(
+            db, self._settings
+        )
+        sanitizer = await create_sanitizer(
+            db,
+            self._settings,
+            enable_ollama=DOCUMENT_SANITIZER_ENABLE_OLLAMA,
+            policy=policy,
+        )
 
         semantic_chunks = await self._build_chunks(file_format, ingested_text)
 
@@ -287,6 +305,8 @@ class DocumentPipeline:
                 raw_texts_for_index,
             )
 
+        document.sanitized_entity_types = policy_snapshot.entity_types
+        document.sanitized_policy_digest = policy_snapshot.digest
         document.ingestion_status = "completed"
         document.ingestion_error = None
         document.ingestion_error_code = None

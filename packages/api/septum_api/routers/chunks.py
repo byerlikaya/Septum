@@ -6,13 +6,14 @@ import asyncio
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.document import Chunk, Document
 from ..models.user import User
+from ..request_limits import MAX_PRE_APPROVED_CHUNK_CHARS
 from ..services.pii_gate import gate_document_texts
 from ..services.vector_store import VectorStore
 from ..utils.auth_dependency import get_current_user, require_role
@@ -92,7 +93,7 @@ class ChunkSearchResponse(BaseModel):
 class ChunkUpdateRequest(BaseModel):
     """Payload for updating a chunk inline."""
 
-    sanitized_text: Optional[str] = None
+    sanitized_text: Optional[str] = Field(default=None, max_length=MAX_PRE_APPROVED_CHUNK_CHARS)
     section_title: Optional[str] = None
 
 

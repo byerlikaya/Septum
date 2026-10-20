@@ -43,7 +43,7 @@ were named.
 
 | Layer | Technology | Entity types |
 |:---:|:---|:---|
-| 1 | **Presidio** — regex patterns with algorithmic validators (Luhn, IBAN MOD-97, TCKN, CPF, SSN). Context-aware recognisers with multilingual keywords. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE |
+| 1 | **Presidio** — regex patterns with algorithmic validators (Luhn, IBAN MOD-97, TCKN, CPF, SSN). Context-aware recognisers with multilingual keywords. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, DATE, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE |
 | 2 | **NER** — HuggingFace XLM-RoBERTa with per-language model selection (20+ languages). ALL CAPS input auto-normalised to title case. LOCATION + ORGANIZATION_NAME pass through a multi-word-or-high-score gate to drop common-noun mis-fires. | PERSON_NAME, LOCATION, ORGANIZATION_NAME |
 | 3 | **Ollama** — local LLM for context validation, alias detection, and semantic entities. | PERSON_NAME aliases/nicknames; DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE |
 
@@ -136,6 +136,8 @@ assistant message. Threshold lives in the RAG settings tab as
 ## Documents, approval and sources
 
 - **Approval gate.** Before any cloud call, the dashboard shows the masked prompt, the retrieved chunks and the assembled request side by side; you approve or reject. A new install starts with the gate on (`require_approval`, changeable in settings).
+- **Stale-document flagging.** A document processed under an older policy is flagged on the Documents page when the active policy gains entity types (a built-in pack update, or a newly activated regulation or custom rule), when the detection engine version changes, or when custom recognizers or non-PII (allow-list) rules are added, edited or removed. Deactivating a regulation alone does not flag it. Flagged documents show a "Needs reprocessing" badge, a banner, and a "Reprocess outdated (N)" button. When no entity types are missing, the badge reads "Sanitized under an older privacy policy". Until a document is reprocessed, chat re-masks its retrieved chunks with the current policy and caches the result, before anything leaves the machine. Documents from before this version have no recorded policy and are flagged once.
+- **Document limit.** A question uses at most 50 documents.
 - **Hybrid retrieval.** Chunks are found by FAISS semantic search and BM25 keyword search, merged with Reciprocal Rank Fusion.
 - **Entity-aware Auto-RAG.** When several documents match, Auto-RAG narrows retrieval to documents that contain the queried personal data. If the matches are ambiguous, a disambiguation picker asks you which group to use.
 - **Source citation.** Under each grounded answer, a collapsible summary shows how many documents and chunks fed it; expanding it lists each document with its chunk count.
