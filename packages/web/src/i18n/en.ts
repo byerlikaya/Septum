@@ -177,6 +177,14 @@ export const enMessages = {
   "documents.actions.deletingAll": "Deleting all…",
   "documents.actions.reprocessAll": "Reprocess all",
   "documents.actions.reprocessingAll": "Reprocessing…",
+  "documents.actions.reprocessing": "Reprocessing…",
+  "documents.actions.reprocessStale": "Reprocess outdated ({count})",
+  "documents.confirm.reprocessStale": "Reprocess {count} outdated document(s)? This re-runs OCR, transcription and PII detection and can take a while.",
+  "documents.stale.badge": "Needs reprocessing",
+  "documents.stale.tooltip": "Not yet masked for: {types}. Reprocess the document to apply the current privacy policy.",
+  "documents.stale.unknownPolicy": "Sanitized under an unknown privacy policy. Reprocess the document to apply the current policy.",
+  "documents.stale.outdatedPolicy": "Sanitized under an older privacy policy. Reprocess the document to apply the current policy.",
+  "documents.stale.banner": "This document's stored chunks were created before the current privacy policy. Chat re-masks them on the fly, but reprocessing makes the change permanent.",
   "documents.confirmReprocessAll": "Are you sure you want to reprocess all documents? This may take a while.",
   "documents.confirm.delete":
     'Are you sure you want to delete "{name}"?',
@@ -489,6 +497,8 @@ export const enMessages = {
   "chat.approval.rejectedDefault": "Rejected.",
   "chat.error.retryNumberingChanged":
     "The documents changed since this answer was prepared; please ask again.",
+  "chat.error.documentChanged": "A document changed while the question was being answered. Please ask again.",
+  "chat.error.mapConflict": "The document is being updated. Please try again.",
   "chat.error.ollamaUrlNotAllowed":
     "The configured Ollama URL is not allowed. Change it in Settings → LLM Provider.",
   "chat.debug.fetchError": "An error occurred while fetching debug information.",

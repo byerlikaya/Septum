@@ -78,6 +78,12 @@ export interface Document {
   transcription_text: string | null;
   ocr_confidence: number | null;
   active_regulation_ids: string[];
+  /** True for completed documents sanitized under an older or smaller policy, or with no recorded policy. */
+  needs_reprocessing: boolean;
+  /** Sorted entity types the current policy masks but the stored chunks were not sanitized for. */
+  missing_entity_types: string[];
+  /** False for legacy documents with no recorded sanitization policy. */
+  sanitized_policy_known: boolean;
 }
 
 export interface DocumentListResponse {

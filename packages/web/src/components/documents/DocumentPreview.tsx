@@ -17,6 +17,7 @@ import {
   getEntityOutlineClasses,
 } from "@/lib/entityColors";
 import { HighlightedText } from "./HighlightedText";
+import { StaleDocumentBanner } from "./StaleDocumentBanner";
 import type {
   Chunk,
   Document,
@@ -38,6 +39,7 @@ interface DocumentPreviewProps {
    * to reprocess the document.
    */
   auditEventId?: number | null;
+  onReprocessed?: (updated: Document) => void;
 }
 
 function selectDetections(
@@ -58,6 +60,7 @@ export function DocumentPreview({
   onOpenChange,
   highlightEntityType = null,
   auditEventId = null,
+  onReprocessed,
 }: DocumentPreviewProps): ReactElement | null {
   const t = useI18n();
   const [chunks, setChunks] = useState<Chunk[]>([]);
@@ -617,6 +620,9 @@ export function DocumentPreview({
           </button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
+          {document.needs_reprocessing && (
+            <StaleDocumentBanner doc={document} onReprocessed={onReprocessed} />
+          )}
           {isLoading && (
             <div className="flex h-full items-center justify-center text-sm text-slate-400">
               {loadingText}

@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Trash2,
   Eye,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import type { Document, IngestionStatus } from "@/lib/types";
@@ -82,6 +83,26 @@ function SortIcon({
     <ArrowUp className="inline h-3 w-3" />
   ) : (
     <ArrowDown className="inline h-3 w-3" />
+  );
+}
+
+function ReprocessNeededBadge({ doc }: { doc: Document }) {
+  const t = useI18n();
+  const detail = !doc.sanitized_policy_known
+    ? t("documents.stale.unknownPolicy")
+    : doc.missing_entity_types.length > 0
+      ? t("documents.stale.tooltip", { types: doc.missing_entity_types.join(", ") })
+      : t("documents.stale.outdatedPolicy");
+  return (
+    <span
+      role="status"
+      title={detail}
+      className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300"
+    >
+      <TriangleAlert className="h-3 w-3" aria-hidden="true" />
+      <span>{t("documents.stale.badge")}</span>
+      <span className="sr-only">{detail}</span>
+    </span>
   );
 }
 
@@ -368,14 +389,17 @@ export function DocumentList({
                         </span>
                       </div>
                     ) : (
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusBadgeClasses(
-                          doc.ingestion_status
-                        )}`}
-                      >
-                        {doc.ingestion_status === "completed" && t("documents.status.completed")}
-                        {doc.ingestion_status === "failed" && t("documents.status.failed")}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusBadgeClasses(
+                            doc.ingestion_status
+                          )}`}
+                        >
+                          {doc.ingestion_status === "completed" && t("documents.status.completed")}
+                          {doc.ingestion_status === "failed" && t("documents.status.failed")}
+                        </span>
+                        {doc.needs_reprocessing && <ReprocessNeededBadge doc={doc} />}
+                      </div>
                     )}
                   </td>
                   <td className="px-4 py-2 text-right align-middle text-xs text-slate-300">

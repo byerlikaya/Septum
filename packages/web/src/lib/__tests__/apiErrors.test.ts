@@ -4,6 +4,8 @@ import {
   INGESTION_ERROR_KEYS,
   translateErrorCode,
 } from "../apiErrors";
+import { enMessages } from "../../i18n/en";
+import { trMessages } from "../../i18n/tr";
 
 const t = (key: string) => key;
 
@@ -42,5 +44,33 @@ describe("model refusal codes", () => {
   it("returns null for a null code so callers fall back to the server text", () => {
     expect(translateErrorCode(null, t, INGESTION_ERROR_KEYS)).toBeNull();
     expect(translateErrorCode("not_a_code", t, INGESTION_ERROR_KEYS)).toBeNull();
+  });
+});
+
+describe("chat document-consistency codes", () => {
+  it("maps document_changed and map_conflict to translated keys", () => {
+    expect(translateErrorCode("document_changed", t, CHAT_STREAM_ERROR_KEYS)).toBe(
+      "chat.error.documentChanged",
+    );
+    expect(translateErrorCode("map_conflict", t, CHAT_STREAM_ERROR_KEYS)).toBe(
+      "chat.error.mapConflict",
+    );
+  });
+
+  it("gives every chat stream code a translation in both en and tr", () => {
+    const en: Record<string, string> = enMessages;
+    const tr: Record<string, string> = trMessages;
+    for (const key of Object.values(CHAT_STREAM_ERROR_KEYS)) {
+      expect(en[key]).toBeTruthy();
+      expect(tr[key]).toBeTruthy();
+    }
+  });
+});
+
+describe("chat error locale parity", () => {
+  it("has identical chat.error.* key sets in en and tr", () => {
+    const chatErrorKeys = (messages: Record<string, string>) =>
+      Object.keys(messages).filter((key) => key.startsWith("chat.error.")).sort();
+    expect(chatErrorKeys(trMessages)).toEqual(chatErrorKeys(enMessages));
   });
 });
