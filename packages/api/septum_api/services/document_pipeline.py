@@ -29,6 +29,7 @@ from .entity_index_service import (
     replace_index_for_document,
 )
 from .policy_composer import PolicyComposer
+from .remask_cache import remask_cache
 from .sanitizer import ResolvedSpan
 from .sanitizer_factory import DOCUMENT_SANITIZER_ENABLE_OLLAMA, create_sanitizer
 from .text_normalizer import TextNormalizer
@@ -71,8 +72,10 @@ async def erase_document_artifacts(
     Order: the source file (only when ``source_path`` is given), the FAISS
     index, the BM25 index, then the anonymization map. A missing file or
     index counts as already erased. The first tier that fails raises
-    :class:`ArtifactErasureError` and later tiers are not attempted.
+    :class:`ArtifactErasureError` and later tiers are not attempted. This
+    worker's re-masked chunk cache entries of the document are dropped first.
     """
+    remask_cache.forget_document(document_id)
     steps: list[tuple[str, Callable[[], None]]] = []
     if source_path is not None:
         steps.append(("source_file", lambda: Path(source_path).unlink(missing_ok=True)))
@@ -129,6 +132,7 @@ class DocumentPipeline:
             if on_progress is not None:
                 on_progress(pct)
 
+        remask_cache.forget_document(document.id)
         detected_language = document.detected_language
         anon_map = AnonymizationMap(document_id=document.id, language=detected_language)
 

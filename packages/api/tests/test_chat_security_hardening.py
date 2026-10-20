@@ -14,6 +14,10 @@ from typing import Any, AsyncIterator, Optional
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from septum_core.spans import SanitizeResult
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
 from septum_api.database import build_default_app_settings, get_db
 from septum_api.main import app
 from septum_api.models import Base
@@ -23,10 +27,8 @@ from septum_api.routers import chat as chat_module
 from septum_api.services import chat_debug_store, pii_gate
 from septum_api.services.approval_gate import ApprovalDecision, ApprovalGate
 from septum_api.services.llm_router import LLMRouter, LLMRouterError
+from septum_api.services.policy_snapshot import current_policy_snapshot
 from septum_api.utils.auth_dependency import get_current_user
-from septum_core.spans import SanitizeResult
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 RAW_VALUE = "Jane Roe"
 PLACEHOLDER = "[PERSON_NAME_1]"
@@ -60,6 +62,8 @@ class _ChatEnv:
                 file_size_bytes=10,
                 ocr_confidence=0.0,
                 active_regulation_ids=[],
+                sanitized_entity_types=[],
+                sanitized_policy_digest=(await current_policy_snapshot(session)).digest,
                 ingestion_status="completed",
                 chunk_count=len(chunk_texts),
                 user_id=owner.id if owner is not None else None,
@@ -120,7 +124,9 @@ class _NoEntitySanitizer:
         return SanitizeResult(sanitized_text=text, entity_count=0, detected_spans=[])
 
 
-async def _create_sanitizer(db: Any, settings: Any, enable_ollama: bool = False) -> _NoEntitySanitizer:
+async def _create_sanitizer(
+    db: Any, settings: Any, enable_ollama: bool = False, policy: Any = None
+) -> _NoEntitySanitizer:
     return _NoEntitySanitizer()
 
 

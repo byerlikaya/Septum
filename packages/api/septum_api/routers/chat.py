@@ -15,7 +15,7 @@ import logging
 import re
 import time
 from itertools import zip_longest
-from typing import TYPE_CHECKING, Any, AsyncGenerator, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, AsyncGenerator, List, Optional, Sequence, Tuple
 from uuid import uuid4
 
 if TYPE_CHECKING:
@@ -94,18 +94,32 @@ from ..services.entity_index_service import (
 from ..services.error_logger import log_backend_error, log_backend_message
 from ..services.llm_router import LLMRouter, LLMRouterError, _chunk_text
 from ..services.pii_gate import (
+    DocumentGoneError,
+    DocumentMapConflictError,
+    DocumentMapMissingError,
     gate_untrusted_texts,
     mask_known_entities,
+    remask_document_texts,
     reserve_placeholder_counters,
 )
+from ..services.policy_composer import PolicyComposer
+from ..services.policy_snapshot import (
+    PolicySnapshot,
+    current_policy_snapshot,
+    document_staleness,
+)
 from ..services.prompts import PromptCatalog
+from ..services.remask_cache import remask_cache
 from ..services.retry_numbering import (
     MAX_NUMBERING_TOKEN_LENGTH,
     numbering_fingerprint,
     sign_numbering,
     verify_numbering,
 )
-from ..services.sanitizer_factory import create_sanitizer
+from ..services.sanitizer_factory import (
+    DOCUMENT_SANITIZER_ENABLE_OLLAMA,
+    create_sanitizer,
+)
 from ..services.text_normalizer import TextNormalizer
 from ..utils.auth_dependency import get_current_user
 from ..utils.db_helpers import detect_language, get_owned_or_404, load_settings
@@ -123,6 +137,8 @@ MAX_CONTEXT_CHUNKS = 2 * TOP_K_RETRIEVAL_MAX_CAP
 MAX_RETRY_DOCUMENTS = MAX_CONTEXT_CHUNKS
 MAX_PRE_APPROVED_CHUNK_CHARS = 20_000
 RETRY_NUMBERING_CHANGED = "retry_numbering_changed"
+DOCUMENT_CHANGED = "document_changed"
+MAP_CONFLICT = "map_conflict"
 
 
 class PreApprovedChunk(BaseModel):
@@ -314,6 +330,92 @@ async def _sanitize_query(
         anon_map,
     )
     return result.sanitized_text, result.entity_count, result.entity_type_counts
+
+
+async def _resanitize_outdated_chunks(
+    db: AsyncSession,
+    settings: AppSettings,
+    chunks: Sequence[Chunk],
+    documents_by_id: dict[int, Document],
+) -> tuple[dict[int, str], set[int]]:
+    """Re-mask chunks whose document was not sanitized under the current policy.
+
+    Returns ``({chunk_id: text}, ids of documents whose map gained entities)``.
+    Only chunks of outdated documents are in the dict; chunks of documents
+    whose snapshot matches the current policy cost no sanitizer call. A
+    document that is not ``completed`` is re-masked too: its snapshot does
+    not describe the chunks it still has. Every chunk's document must be one
+    of the turn's documents.
+
+    A chunk already re-masked under the same policy is taken from
+    :data:`remask_cache` while the document map still resolves it; the rest
+    go through :func:`remask_document_texts` with the sanitizer the ingestion
+    pipeline uses (same settings, same
+    :data:`DOCUMENT_SANITIZER_ENABLE_OLLAMA`). Placeholders the document map
+    already knows are never re-detected, and entities the current policy
+    finds are added to the document's own (encrypted) map, so the turn's
+    unified numbering, the de-anonymizer and a retry of the turn all resolve
+    them. A document whose map is missing or erased mid-turn aborts the
+    turn. The chunk rows are not rewritten; reprocessing the document is
+    what brings them up to date.
+    """
+    if not chunks:
+        return {}, set()
+    by_document: dict[int, list[Chunk]] = {}
+    for c in chunks:
+        by_document.setdefault(c.document_id, []).append(c)
+    docs: list[tuple[Document, list[Chunk]]] = []
+    for did in sorted(by_document):
+        doc = documents_by_id.get(did)
+        if doc is None:
+            raise LookupError(f"Retrieved chunk of document {did} is outside the turn")
+        docs.append((doc, by_document[did]))
+
+    def _outdated(snapshot: PolicySnapshot) -> list[tuple[Document, list[Chunk]]]:
+        return [
+            (doc, doc_chunks)
+            for doc, doc_chunks in docs
+            if doc.ingestion_status != "completed"
+            or document_staleness(doc, snapshot).needs_reprocessing
+        ]
+
+    # Cheap read first, so a turn over fresh documents builds no recognizer.
+    if not _outdated(await current_policy_snapshot(db)):
+        return {}, set()
+    # The sanitizer, the staleness verdict and the cache key all come from
+    # this one composition, so text masked under one policy is never cached
+    # under another's key.
+    policy, current = await PolicyComposer().compose_with_snapshot(db, settings)
+    restored: dict[int, str] = {}
+    changed: set[int] = set()
+    sanitizer = None
+    for doc, doc_chunks in _outdated(current):
+        doc_map = await get_document_map(doc.id)
+        if doc_map is None:
+            raise DocumentMapMissingError(f"Document {doc.id} has no anonymization map")
+        misses: list[tuple[Chunk, tuple]] = []
+        for c in doc_chunks:
+            key = remask_cache.key(doc.id, c.id, current.cache_key, c.sanitized_text or "")
+            hit = remask_cache.get(key, doc_map)
+            if hit is None:
+                misses.append((c, key))
+            else:
+                restored[c.id] = hit
+        if not misses:
+            continue
+        if sanitizer is None:
+            sanitizer = await create_sanitizer(
+                db, settings, enable_ollama=DOCUMENT_SANITIZER_ENABLE_OLLAMA, policy=policy
+            )
+        texts, written = await remask_document_texts(
+            db, settings, doc, [c.sanitized_text or "" for c, _ in misses], sanitizer
+        )
+        if written:
+            changed.add(doc.id)
+        for (c, key), text in zip(misses, texts):
+            restored[c.id] = text
+            remask_cache.put(key, text)
+    return restored, changed
 
 
 _ENTITY_PLACEHOLDER_RE = re.compile(r"\[([A-Z][A-Z_]*)_(\d+)\]")
@@ -1673,6 +1775,30 @@ async def chat_ask(
                     anon_map, {}, query_seed_document_id
                 )
                 if documents_by_id:
+                    # Before the maps are loaded: entities the current policy
+                    # finds in outdated chunks join their document's map.
+                    async with _phase_timer(session_id, "resanitize_outdated_chunks"):
+                        restored_chunk_texts, remasked_doc_ids = (
+                            await _resanitize_outdated_chunks(
+                                db, settings, chunks, documents_by_id
+                            )
+                        )
+                    if query_seed_document_id in remasked_doc_ids:
+                        # The query map was seeded from the seed document's
+                        # map before the re-mask grew it; a retry seeds from
+                        # the grown map, so seed and sanitize again from it
+                        # or the retry's numbering would never match.
+                        seed_map = await get_document_map(query_seed_document_id)
+                        if seed_map is None:
+                            raise DocumentMapMissingError(
+                                f"Document {query_seed_document_id} has no anonymization map"
+                            )
+                        anon_map = copy.deepcopy(seed_map)
+                        sanitized_query, entity_count, _ = (
+                            await _sanitize_query(
+                                message_text, language, settings, anon_map, db
+                            )
+                        )
                     # Every turn document's map is reloaded and unified with
                     # the query map (see ``_unify_turn_placeholders``): the
                     # outer ``anon_map`` may be the empty map auto-RAG started
@@ -1725,7 +1851,9 @@ async def chat_ask(
                             )
                             header = PromptCatalog.document_context_header(label)
                             prev_doc_id = c.document_id
-                        chunk_text = c.sanitized_text or ""
+                        chunk_text = restored_chunk_texts.get(
+                            c.id, c.sanitized_text or ""
+                        )
                         chunk_map = anon_maps.get(c.document_id, anon_map)
                         # Chunks were analysed at ingestion; the map is the source of truth here.
                         masked_chunk = mask_known_entities(chunk_text, chunk_map)
@@ -1937,6 +2065,34 @@ async def chat_ask(
         except asyncio.CancelledError:
             logger.debug("Client disconnected from chat SSE stream")
             raise
+        except (DocumentMapMissingError, DocumentGoneError) as exc:
+            logger.warning(
+                "chat turn refused session_id=%s reason=%s error=%s",
+                session_id,
+                DOCUMENT_CHANGED,
+                type(exc).__name__,
+            )
+            yield _encode_sse(
+                {
+                    "type": "error",
+                    "code": DOCUMENT_CHANGED,
+                    "message": (
+                        "A document changed while the question was being "
+                        "answered; please ask again."
+                    ),
+                }
+            )
+        except DocumentMapConflictError:
+            logger.warning(
+                "chat turn refused session_id=%s reason=%s", session_id, MAP_CONFLICT
+            )
+            yield _encode_sse(
+                {
+                    "type": "error",
+                    "code": MAP_CONFLICT,
+                    "message": "The document is being updated; please try again.",
+                }
+            )
         except LLMRouterError as exc:
             try:
                 await log_backend_error(
