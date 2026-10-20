@@ -24,7 +24,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ### 2026-10-20
 
-- The built-in settings fallback used outside the database now matches a fresh install's defaults: the approval gate and the Ollama layer are on, and the default cloud model is the same, so the two can no longer disagree. The API description of testing a custom recognizer no longer claims that LLM-prompt rules return nothing.
+- The built-in settings fallback used outside the database now matches a fresh install's defaults: the approval gate and the Ollama layer are on, and the default cloud model is the same, so the two can no longer disagree; it now reuses the seed's own builder, so settings it used to leave empty, such as the approval timeout, are filled as well. The API description of testing a custom recognizer no longer claims that LLM-prompt rules return nothing.
 
 ### 2026-10-19
 
