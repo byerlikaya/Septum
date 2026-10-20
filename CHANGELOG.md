@@ -26,7 +26,7 @@ All notable changes to this project are documented here in a high‑level, date�
 
 - Added a generic DATE entity so calendar dates are masked under regulations that cover them, such as HIPAA. Month names are recognized across locales from CLDR data rather than fixed term lists, and built-in regulation entity lists are synced on startup so existing installs gain the new type without a reset.
 - Documents sanitized under an older policy are now flagged as outdated and shown in the documents view, where editors can reprocess them in bulk. Chat re-masks their chunks under the current policy at question time, and fails closed with a typed error if that cannot be done, so unmasked text is never sent.
-- Chat, progress, chunk and session requests now have input size limits and return 422 when they are exceeded, and a chat question can cite at most 50 documents. Progress is limited to the caller's own documents, and LLM provider failures show a fixed message instead of the provider's error text.
+- Chat, progress, chunk and session requests now have input size limits and return 422 when they are exceeded, and a chat question can cite at most 50 documents. Progress is limited to the caller's own documents, and LLM provider failures show a fixed message instead of the provider's error text. The admin LLM connection test returns a fixed, translated message in place of the provider's error text, and the provider and model fields of the connection test and settings update are length-limited.
 
 ## v2.0.0 — 2026-10-20 — Air-gap hardening
 

@@ -30,6 +30,12 @@ MAX_CHAT_MESSAGE_CHARS = 20_000
 MAX_SESSION_ID_LENGTH = 128
 """Longest client-supplied chat session id."""
 
+MAX_LLM_PROVIDER_LENGTH = 64
+"""Longest LLM provider name a client may send (the known providers are one word each)."""
+
+MAX_LLM_MODEL_LENGTH = 128
+"""Longest LLM model id a client may send (provider-prefixed ids such as OpenRouter's stay well inside it)."""
+
 MAX_PROGRESS_IDS = 200
 """Most document ids one processing-progress request may ask about."""
 
@@ -44,6 +50,8 @@ __all__ = [
     "MAX_CHAT_MESSAGE_CHARS",
     "MAX_CONTEXT_CHUNKS",
     "MAX_DOCUMENT_ID",
+    "MAX_LLM_MODEL_LENGTH",
+    "MAX_LLM_PROVIDER_LENGTH",
     "MAX_PRE_APPROVED_CHUNK_CHARS",
     "MAX_PROGRESS_IDS",
     "MAX_RETRY_DOCUMENTS",

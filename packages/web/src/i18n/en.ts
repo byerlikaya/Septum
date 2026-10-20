@@ -263,6 +263,7 @@ export const enMessages = {
 
   "settings.llm.test.success": "LLM connectivity test succeeded.",
   "settings.llm.test.failed": "LLM connectivity test failed.",
+  "settings.llm.test.unavailable": "The LLM provider could not be reached; check the error logs for details.",
 
   "settings.privacy.sectionTitle": "Privacy & Sanitization",
   "settings.privacy.sectionDescription":

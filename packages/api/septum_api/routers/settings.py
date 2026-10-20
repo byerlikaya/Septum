@@ -18,7 +18,7 @@ from typing import Any, Optional
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from septum_core.model_integrity import (
     UnpinnedModelError,
     parse_model_spec,
@@ -29,8 +29,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..errors import CodedHTTPError, public_error_text
 from ..models.user import User
+from ..request_limits import MAX_LLM_MODEL_LENGTH, MAX_LLM_PROVIDER_LENGTH
 from ..services.error_logger import log_backend_error, log_backend_message
-from ..services.llm_errors import OLLAMA_URL_NOT_ALLOWED_CODE
+from ..services.llm_errors import LLM_UNAVAILABLE, OLLAMA_URL_NOT_ALLOWED_CODE
 from ..services.llm_router import LLMRouter, LLMRouterError
 from ..services.ollama_client import (
     OLLAMA_URL_REFUSED_MESSAGE,
@@ -56,6 +57,10 @@ from ..utils.device import get_device
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+LLM_TEST_UNAVAILABLE_MESSAGE = (
+    "The LLM provider could not be reached; check the error logs for details."
+)
 
 
 async def _validate_regulation_ids(
@@ -176,8 +181,8 @@ class SettingsResponse(BaseModel):
 class SettingsUpdatePayload(BaseModel):
     """PATCH payload for partially updating application settings."""
 
-    llm_provider: Optional[str] = None
-    llm_model: Optional[str] = None
+    llm_provider: Optional[str] = Field(default=None, max_length=MAX_LLM_PROVIDER_LENGTH)
+    llm_model: Optional[str] = Field(default=None, max_length=MAX_LLM_MODEL_LENGTH)
     ollama_base_url: Optional[str] = None
     ollama_chat_model: Optional[str] = None
     ollama_deanon_model: Optional[str] = None
@@ -220,8 +225,8 @@ class SettingsUpdatePayload(BaseModel):
 class TestLLMRequest(BaseModel):
     """Request body for testing the configured cloud LLM connection."""
 
-    provider: Optional[str] = None
-    model: Optional[str] = None
+    provider: Optional[str] = Field(default=None, max_length=MAX_LLM_PROVIDER_LENGTH)
+    model: Optional[str] = Field(default=None, max_length=MAX_LLM_MODEL_LENGTH)
 
 
 class TestLocalModelsRequest(BaseModel):
@@ -371,9 +376,8 @@ async def test_llm_connection_endpoint(
             raise CodedHTTPError(
                 status.HTTP_400_BAD_REQUEST, str(exc), exc.code
             ) from exc
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
+        raise CodedHTTPError(
+            status.HTTP_400_BAD_REQUEST, LLM_TEST_UNAVAILABLE_MESSAGE, LLM_UNAVAILABLE
         ) from exc
     except Exception as exc:
         try:

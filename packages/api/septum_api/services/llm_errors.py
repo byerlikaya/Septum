@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 OLLAMA_URL_NOT_ALLOWED_CODE = "ollama_url_not_allowed"
+LLM_UNAVAILABLE = "llm_unavailable"
 
 
 class LLMRouterError(RuntimeError):

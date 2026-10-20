@@ -263,6 +263,7 @@ export const trMessages: Record<string, string> = {
 
   "settings.llm.test.success": "LLM bağlantı testi başarılı.",
   "settings.llm.test.failed": "LLM bağlantı testi başarısız.",
+  "settings.llm.test.unavailable": "LLM sağlayıcısına ulaşılamadı; ayrıntılar için hata günlüklerine bakın.",
 
   "settings.privacy.sectionTitle": "Gizlilik ve Anonimleştirme",
   "settings.privacy.sectionDescription":

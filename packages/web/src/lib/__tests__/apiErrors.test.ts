@@ -2,6 +2,7 @@ import {
   CHAT_STREAM_ERROR_KEYS,
   HTTP_ERROR_KEYS,
   INGESTION_ERROR_KEYS,
+  LLM_TEST_ERROR_KEYS,
   translateErrorCode,
 } from "../apiErrors";
 import { enMessages } from "../../i18n/en";
@@ -64,8 +65,12 @@ describe("chat document-consistency codes", () => {
     const en: Record<string, string> = enMessages;
     const tr: Record<string, string> = trMessages;
     for (const key of Object.values(CHAT_STREAM_ERROR_KEYS)) {
-      expect(en[key]).toBeTruthy();
-      expect(tr[key]).toBeTruthy();
+      expect(Object.keys(en)).toContain(key);
+      expect(Object.keys(tr)).toContain(key);
+      expect(typeof en[key]).toBe("string");
+      expect(en[key].trim()).not.toBe("");
+      expect(typeof tr[key]).toBe("string");
+      expect(tr[key].trim()).not.toBe("");
     }
   });
 });
@@ -75,5 +80,32 @@ describe("chat error locale parity", () => {
     const chatErrorKeys = (messages: Record<string, string>) =>
       Object.keys(messages).filter((key) => key.startsWith("chat.error.")).sort();
     expect(chatErrorKeys(trMessages)).toEqual(chatErrorKeys(enMessages));
+  });
+});
+
+describe("LLM connection-test codes", () => {
+  it("maps llm_unavailable to the settings message and keeps the shared HTTP codes", () => {
+    const en: Record<string, string> = enMessages;
+    const tr: Record<string, string> = trMessages;
+    expect(translateErrorCode("llm_unavailable", t, LLM_TEST_ERROR_KEYS)).toBe(
+      "settings.llm.test.unavailable",
+    );
+    expect(translateErrorCode("ollama_url_not_allowed", t, LLM_TEST_ERROR_KEYS)).toBe(
+      HTTP_ERROR_KEYS.ollama_url_not_allowed,
+    );
+    expect(Object.keys(en)).toContain("settings.llm.test.unavailable");
+    expect(Object.keys(tr)).toContain("settings.llm.test.unavailable");
+    expect(typeof en["settings.llm.test.unavailable"]).toBe("string");
+    expect(en["settings.llm.test.unavailable"].trim()).not.toBe("");
+    expect(typeof tr["settings.llm.test.unavailable"]).toBe("string");
+    expect(tr["settings.llm.test.unavailable"].trim()).not.toBe("");
+  });
+
+  it("keeps llm_unavailable out of the shared HTTP map and the chat map on the chat key", () => {
+    expect(Object.keys(HTTP_ERROR_KEYS)).not.toContain("llm_unavailable");
+    expect(translateErrorCode("llm_unavailable", t, HTTP_ERROR_KEYS)).toBeNull();
+    expect(translateErrorCode("llm_unavailable", t, CHAT_STREAM_ERROR_KEYS)).toBe(
+      "chat.error.llmUnavailable",
+    );
   });
 });
