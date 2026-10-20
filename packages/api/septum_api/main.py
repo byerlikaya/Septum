@@ -116,6 +116,11 @@ def _preload_models(
     except Exception as exc:
         logger.warning("Model settings check failed: %s", type(exc).__name__)
     try:
+        from septum_core.date_grammar import warm_up as warm_up_date_grammar
+        warm_up_date_grammar()
+    except Exception as exc:
+        logger.warning("Date grammar warmup failed: %s", type(exc).__name__)
+    try:
         from septum_core.detector import _get_shared_nlp_engine
         _get_shared_nlp_engine()
 

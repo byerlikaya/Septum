@@ -924,3 +924,87 @@ def test_lgpd_pack_civil_identity_document(
     assert "[NATIONAL_ID_1]" in result.sanitized_text
 
 
+
+
+_DISCHARGE_SUMMARY = (
+    "Discharge summary. Admitted on 2024-03-15 with chest pain. "
+    "Follow-up scheduled 2024-04-02. Discharged 2024-03-15 in stable condition."
+)
+
+
+def _pack_policy(regulation_id: str, entity_types: tuple[str, ...]) -> ComposedPolicy:
+    return ComposedPolicy(
+        entity_types=list(entity_types),
+        recognizers=[],
+        regulation_ids=[regulation_id],
+        non_pii_rules=[],
+    )
+
+
+def test_hipaa_masks_clinical_dates_with_distinct_and_shared_placeholders(
+    app_settings: AppSettings,
+) -> None:
+    """HIPAA active: each distinct date gets its own [DATE_N]; a repeat shares it."""
+    from septum_core.recognizers.hipaa import ENTITY_TYPES as hipaa_types
+
+    sanitizer = PIISanitizer(
+        settings=app_settings, policy=_pack_policy("hipaa", hipaa_types)
+    )
+    anon_map = AnonymizationMap(document_id=10, language="en")
+
+    result = sanitizer.sanitize(
+        text=_DISCHARGE_SUMMARY, language="en", anon_map=anon_map
+    )
+
+    assert "2024-03-15" not in result.sanitized_text
+    assert "2024-04-02" not in result.sanitized_text
+    assert result.sanitized_text.count("[DATE_1]") == 2
+    assert result.sanitized_text.count("[DATE_2]") == 1
+    assert "[DATE_3]" not in result.sanitized_text
+    assert anon_map.entity_map["2024-03-15"] == "[DATE_1]"
+    assert anon_map.entity_map["2024-04-02"] == "[DATE_2]"
+
+
+def test_gdpr_leaves_clinical_dates_raw(app_settings: AppSettings) -> None:
+    """GDPR only: DATE is not in scope, so plain dates stay in the text."""
+    from septum_core.recognizers.gdpr import ENTITY_TYPES as gdpr_types
+
+    assert "DATE" not in gdpr_types
+    sanitizer = PIISanitizer(
+        settings=app_settings, policy=_pack_policy("gdpr", gdpr_types)
+    )
+    anon_map = AnonymizationMap(document_id=11, language="en")
+
+    result = sanitizer.sanitize(
+        text=_DISCHARGE_SUMMARY, language="en", anon_map=anon_map
+    )
+
+    assert "2024-03-15" in result.sanitized_text
+    assert "2024-04-02" in result.sanitized_text
+    assert "[DATE_" not in result.sanitized_text
+
+
+def test_gdpr_still_masks_date_of_birth_with_context(
+    app_settings: AppSettings,
+) -> None:
+    """GDPR carries DATE_OF_BIRTH, so a date with birth context is masked."""
+    from septum_core.recognizers.gdpr import ENTITY_TYPES as gdpr_types
+
+    assert "DATE_OF_BIRTH" in gdpr_types
+    sanitizer = PIISanitizer(
+        settings=app_settings, policy=_pack_policy("gdpr", gdpr_types)
+    )
+    anon_map = AnonymizationMap(document_id=12, language="en")
+
+    result = sanitizer.sanitize(
+        text=(
+            "Date of birth: 1980-08-15. The patient presented to the "
+            "emergency department and was admitted on 2024-03-15."
+        ),
+        language="en",
+        anon_map=anon_map,
+    )
+
+    assert "1980-08-15" not in result.sanitized_text
+    assert "[DATE_OF_BIRTH_1]" in result.sanitized_text
+    assert "2024-03-15" in result.sanitized_text

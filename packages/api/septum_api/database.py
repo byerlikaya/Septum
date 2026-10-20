@@ -430,6 +430,27 @@ def build_default_app_settings() -> AppSettings:
     )
 
 
+def _sync_builtin_entity_types(row: RegulationRuleset, pack_types: list[str]) -> None:
+    """Align a built-in ruleset's ``entity_types`` with its regulation pack.
+
+    Built-in entity types are not user-editable, so the pack is the only
+    source of truth; every other column (``is_active``, notes) is left as is.
+    No assignment happens when the stored list already matches.
+    """
+    current = list(row.entity_types or [])
+    if current == pack_types:
+        return
+    added = len(set(pack_types) - set(current))
+    removed = len(set(current) - set(pack_types))
+    row.entity_types = pack_types
+    logger.info(
+        "Synced built-in regulation %s entity types (+%d/-%d)",
+        row.id,
+        added,
+        removed,
+    )
+
+
 async def _seed_defaults(sm: async_sessionmaker[AsyncSession]) -> None:
     """Seed default AppSettings and built-in RegulationRuleset entries."""
 
@@ -444,16 +465,18 @@ async def _seed_defaults(sm: async_sessionmaker[AsyncSession]) -> None:
             session.add(settings)
 
         existing_regs = await session.execute(
-            select(RegulationRuleset.id)
+            select(RegulationRuleset)
             .where(RegulationRuleset.is_builtin.is_(True))
             .order_by(RegulationRuleset.id)
         )
-        existing_ids = {row[0] for row in existing_regs.all()}
+        existing_by_id = {row.id: row for row in existing_regs.scalars().all()}
 
-        builtin_regs = _builtin_regulations()
-        for reg in builtin_regs:
-            if reg.id not in existing_ids:
+        for reg in _builtin_regulations():
+            existing = existing_by_id.get(reg.id)
+            if existing is None:
                 session.add(reg)
+            else:
+                _sync_builtin_entity_types(existing, list(reg.entity_types))
 
         await session.execute(
             text(

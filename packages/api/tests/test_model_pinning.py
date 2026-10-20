@@ -594,6 +594,45 @@ def test_warmup_logs_an_integrity_refusal_as_a_warning(
     assert "model_integrity_failed" in record.getMessage()
 
 
+def test_warmup_builds_the_date_grammar(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from types import SimpleNamespace
+
+    from septum_core import date_grammar, detector
+
+    from septum_api.services import ner_model_registry as api_ner_registry
+    from septum_api.services import vector_store as vector_store_module
+
+    calls: list[str] = []
+
+    def _fail():
+        calls.append("date_grammar")
+        raise RuntimeError("grammar data missing")
+
+    monkeypatch.setattr(date_grammar, "warm_up", _fail)
+    monkeypatch.setattr(detector, "_get_shared_nlp_engine", lambda: calls.append("nlp"))
+    monkeypatch.setattr(
+        api_ner_registry,
+        "get_shared_ner_registry",
+        lambda: SimpleNamespace(get_pipeline=lambda lang: calls.append("ner")),
+    )
+    monkeypatch.setattr(
+        vector_store_module,
+        "get_shared_sentence_transformer",
+        lambda: SimpleNamespace(encode=lambda *a, **k: calls.append("embed")),
+    )
+
+    with caplog.at_level(logging.DEBUG, logger=main_module.logger.name):
+        main_module._preload_models()
+
+    assert calls == ["date_grammar", "nlp", "ner", "embed"]
+    [record] = [r for r in caplog.records if r.name == main_module.logger.name]
+    assert record.levelno == logging.WARNING
+    assert "RuntimeError" in record.getMessage()
+    assert "grammar data missing" not in record.getMessage()
+
+
 # --- CLI --------------------------------------------------------------------
 
 _CLI_REPO = next(iter(MODEL_PINS))

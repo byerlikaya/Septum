@@ -86,3 +86,19 @@ async def test_deanonymizer_disabled_returns_original_text() -> None:
     assert result == text
 
 
+
+
+@pytest.mark.asyncio
+async def test_deanonymizer_round_trips_date_placeholders() -> None:
+    """[DATE_1]/[DATE_2] in an LLM answer map back to the right originals."""
+    deanonymizer = Deanonymizer(settings=_base_settings(strategy="simple"))
+    amap = AnonymizationMap(document_id=1, language="en")
+    assert amap.add_entity("2024-03-15", "DATE") == "[DATE_1]"
+    assert amap.add_entity("2024-04-02", "DATE") == "[DATE_2]"
+
+    text = "Admitted [DATE_1], follow-up on [DATE_2]; discharge matches [DATE_1]."
+    result = await deanonymizer.deanonymize(text, anon_map=amap)
+
+    assert result == (
+        "Admitted 2024-03-15, follow-up on 2024-04-02; discharge matches 2024-03-15."
+    )
