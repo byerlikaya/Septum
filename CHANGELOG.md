@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-10-20
+
+- The built-in settings fallback used outside the database now matches a fresh install's defaults: the approval gate and the Ollama layer are on, and the default cloud model is the same, so the two can no longer disagree. The API description of testing a custom recognizer no longer claims that LLM-prompt rules return nothing.
+
 ### 2026-10-19
 
 - Reworked the documentation site: it has its own landing page and a refreshed theme, every diagram and benchmark chart is redrawn, and the README is now a short overview that points to the site. The docs were checked against the code and corrected (versions, routers, model integrity, MCP settings, known limitations), and all examples now use one clinical scenario with Septum's real placeholder format.
