@@ -68,6 +68,15 @@ from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
 from ..models.spreadsheet_schema import SpreadsheetSchema
 from ..models.user import User
+from ..request_limits import (
+    MAX_CHAT_MESSAGE_CHARS,
+    MAX_CONTEXT_CHUNKS,
+    MAX_PRE_APPROVED_CHUNK_CHARS,
+    MAX_RETRY_DOCUMENTS,
+    MAX_SESSION_ID_LENGTH,
+    TOP_K_RETRIEVAL_MAX_CAP,
+    DocumentId,
+)
 from ..services.anonymization_map import AnonymizationMap
 from ..services.approval_gate import (
     ApprovalChunk,
@@ -130,15 +139,13 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 DetectorFactory.seed = 42
 
 
-TOP_K_RETRIEVAL_MAX_CAP = 25
-# Most chunks one turn can put in front of the cloud LLM, and therefore the
-# most a ``pre_approved_chunks`` retry may send back.
-MAX_CONTEXT_CHUNKS = 2 * TOP_K_RETRIEVAL_MAX_CAP
-MAX_RETRY_DOCUMENTS = MAX_CONTEXT_CHUNKS
-MAX_PRE_APPROVED_CHUNK_CHARS = 20_000
 RETRY_NUMBERING_CHANGED = "retry_numbering_changed"
 DOCUMENT_CHANGED = "document_changed"
 MAP_CONFLICT = "map_conflict"
+LLM_UNAVAILABLE = "llm_unavailable"
+LLM_UNAVAILABLE_MESSAGE = (
+    "The language model could not answer right now; please try again later."
+)
 
 
 class PreApprovedChunk(BaseModel):
@@ -150,7 +157,7 @@ class PreApprovedChunk(BaseModel):
     """
 
     text: str = Field(default="", max_length=MAX_PRE_APPROVED_CHUNK_CHARS)
-    document_id: Optional[int] = None
+    document_id: Optional[DocumentId] = None
 
 
 class ChatRequest(BaseModel):
@@ -161,13 +168,15 @@ class ChatRequest(BaseModel):
     payload shape (``query``, ``document_ids``, etc.).
     """
 
-    message: Optional[str] = None
-    document_id: Optional[int] = None
+    message: Optional[str] = Field(default=None, max_length=MAX_CHAT_MESSAGE_CHARS)
+    document_id: Optional[DocumentId] = None
     top_k: Optional[int] = None
-    session_id: Optional[str] = None
+    session_id: Optional[str] = Field(default=None, max_length=MAX_SESSION_ID_LENGTH)
 
-    query: Optional[str] = None
-    document_ids: Optional[List[int]] = None
+    query: Optional[str] = Field(default=None, max_length=MAX_CHAT_MESSAGE_CHARS)
+    # A turn offers at most MAX_CONTEXT_CHUNKS chunks, so more documents than
+    # that could never all contribute; the bound also caps the owner checks.
+    document_ids: Optional[List[DocumentId]] = Field(default=None, max_length=MAX_RETRY_DOCUMENTS)
     output_mode: Optional[str] = "chat"
     require_approval: Optional[bool] = None
     deanon_enabled: Optional[bool] = None
@@ -184,7 +193,7 @@ class ChatRequest(BaseModel):
     # exactly this set of documents. The frontend obtains the value from
     # the ``analyze_query`` endpoint and resends the message with the
     # user's chosen cluster.
-    scoped_doc_ids: Optional[List[int]] = None
+    scoped_doc_ids: Optional[List[DocumentId]] = Field(default=None, max_length=MAX_RETRY_DOCUMENTS)
 
     @model_validator(mode="after")
     def _limit_retry_documents(self) -> "ChatRequest":
@@ -1161,8 +1170,8 @@ async def _run_llm_and_deanonymize(
 class AnalyzeQueryRequest(BaseModel):
     """Pre-flight payload for the disambiguation picker."""
 
-    message: str
-    document_ids: Optional[List[int]] = None
+    message: str = Field(max_length=MAX_CHAT_MESSAGE_CHARS)
+    document_ids: Optional[List[DocumentId]] = Field(default=None, max_length=MAX_RETRY_DOCUMENTS)
 
 
 class AnalyzeQueryCluster(BaseModel):
@@ -2094,6 +2103,15 @@ async def chat_ask(
                 }
             )
         except LLMRouterError as exc:
+            # Provider and gateway error text comes from outside the
+            # air-gapped zone; only a coded error carries a Septum-authored
+            # message, everything else gets the fixed one.
+            logger.warning(
+                "chat LLM call failed session_id=%s code=%s error=%s status=400",
+                session_id,
+                exc.code or LLM_UNAVAILABLE,
+                type(exc).__name__,
+            )
             try:
                 await log_backend_error(
                     db, http_request, exc, status_code=400
@@ -2103,8 +2121,8 @@ async def chat_ask(
             yield _encode_sse(
                 {
                     "type": "error",
-                    "code": exc.code,
-                    "message": str(exc),
+                    "code": exc.code or LLM_UNAVAILABLE,
+                    "message": str(exc) if exc.code else LLM_UNAVAILABLE_MESSAGE,
                 }
             )
         except Exception as exc:

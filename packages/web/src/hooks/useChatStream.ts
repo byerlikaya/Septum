@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { streamChatAsk, getChatDebug, type PreApprovedChunk } from "@/lib/api";
 import { CHAT_STREAM_ERROR_KEYS, translateErrorCode } from "@/lib/apiErrors";
+import { capDocumentIds } from "@/lib/chatLimits";
 import type {
   ApprovalChunkPayload,
   ApprovalData,
@@ -296,18 +297,19 @@ export function useChatStream({
       };
 
       const startStream = () => {
+        const sentDocumentIds = capDocumentIds(documentIds).ids;
+        const sentScopedDocIds = scopedDocIds ? capDocumentIds(scopedDocIds).ids : [];
         abortRef.current = streamChatAsk(
           {
             message: text,
-            document_id: documentIds.length > 0 ? documentIds[0] : undefined,
-            document_ids: documentIds.length > 0 ? documentIds : undefined,
+            document_id: sentDocumentIds.length > 0 ? sentDocumentIds[0] : undefined,
+            document_ids: sentDocumentIds.length > 0 ? sentDocumentIds : undefined,
             require_approval: requireApproval,
             deanon_enabled: deanonEnabled,
             output_mode: outputMode,
             pre_approved_chunks: preApprovedChunks,
             numbering_token: preApprovedChunks ? options?.numberingToken : undefined,
-            scoped_doc_ids:
-              scopedDocIds && scopedDocIds.length > 0 ? scopedDocIds : undefined,
+            scoped_doc_ids: sentScopedDocIds.length > 0 ? sentScopedDocIds : undefined,
           },
           onEvent
         );

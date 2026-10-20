@@ -8,6 +8,7 @@ import {
   sendFrontendError,
 } from "@/lib/api";
 import { poolMap } from "@/lib/concurrency";
+import { fetchProgressInChunks, type ProgressMap } from "@/lib/documentProgress";
 import type { Document } from "@/lib/types";
 import { DocumentUploader } from "@/components/documents/DocumentUploader";
 import { DocumentList } from "@/components/documents/DocumentList";
@@ -86,10 +87,13 @@ export default function DocumentsPage() {
             .map((d) => d.id);
           if (processingIds.length > 0) {
             try {
-              const { data } = await api.get<Record<number, number>>(
-                `/api/documents/progress?ids=${processingIds.join(",")}`
-              );
-              setProcessingProgress(data);
+              const merged = await fetchProgressInChunks(processingIds, async (chunk) => {
+                const { data } = await api.get<ProgressMap>("/api/documents/progress", {
+                  params: { ids: chunk.join(",") },
+                });
+                return data;
+              });
+              setProcessingProgress(merged);
             } catch {
               // ignore progress errors
             }

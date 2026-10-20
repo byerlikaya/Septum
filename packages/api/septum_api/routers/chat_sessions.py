@@ -15,6 +15,7 @@ from sqlalchemy.orm import selectinload
 from ..database import get_db
 from ..models.chat_session import ChatMessage, ChatSession
 from ..models.user import User
+from ..request_limits import DocumentId
 from ..utils.auth_dependency import get_current_user
 
 router = APIRouter(prefix="/api/chat-sessions", tags=["chat-sessions"])
@@ -55,14 +56,14 @@ class CreateSessionPayload(BaseModel):
     """Payload for creating a new chat session."""
 
     title: Optional[str] = None
-    document_ids: Optional[List[int]] = None
+    document_ids: Optional[List[DocumentId]] = None
 
 
 class UpdateSessionPayload(BaseModel):
     """Payload for updating a chat session."""
 
     title: Optional[str] = None
-    document_ids: Optional[List[int]] = None
+    document_ids: Optional[List[DocumentId]] = None
 
 
 class AddMessagePayload(BaseModel):

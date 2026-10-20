@@ -498,6 +498,7 @@ export const enMessages = {
   "chat.error.retryNumberingChanged":
     "The documents changed since this answer was prepared; please ask again.",
   "chat.error.documentChanged": "A document changed while the question was being answered. Please ask again.",
+  "chat.error.llmUnavailable": "The language model could not answer right now; please try again later.",
   "chat.error.mapConflict": "The document is being updated. Please try again.",
   "chat.error.ollamaUrlNotAllowed":
     "The configured Ollama URL is not allowed. Change it in Settings → LLM Provider.",
@@ -514,6 +515,8 @@ export const enMessages = {
     "Select documents for targeted search, or leave empty to auto-search all.",
   "chat.documentSelector.empty":
     "No documents ready for chat. Upload and process documents first.",
+  "chat.documentSelector.limit": "You can select up to {max} documents per question.",
+  "chat.documentSelector.trimmed": "{count} documents were removed from the selection: a question can use at most {max}.",
 
   "chat.ragMode.auto": "Auto-searched",
   "chat.ragMode.none": "Direct answer (no documents used)",

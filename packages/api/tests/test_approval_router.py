@@ -5,6 +5,7 @@ from typing import Any, Iterator, List, Optional
 
 import pytest
 from fastapi.testclient import TestClient
+from septum_api import request_limits
 from septum_api.main import app
 from septum_api.models.user import User
 from septum_api.routers import approval as approval_router
@@ -230,10 +231,10 @@ def test_reject_session_not_found_raises_404() -> None:
     "chunks",
     [
         pytest.param(
-            [{"text": "x"}] * (approval_router.MAX_CONTEXT_CHUNKS + 1), id="too-many-chunks"
+            [{"text": "x"}] * (request_limits.MAX_CONTEXT_CHUNKS + 1), id="too-many-chunks"
         ),
         pytest.param(
-            [{"text": "x" * (approval_router.MAX_PRE_APPROVED_CHUNK_CHARS + 1)}],
+            [{"text": "x" * (request_limits.MAX_PRE_APPROVED_CHUNK_CHARS + 1)}],
             id="chunk-too-long",
         ),
     ],
@@ -253,9 +254,9 @@ def test_approval_payload_at_the_limits_is_accepted() -> None:
     gate = _FakeApprovalGate()
     gate._sessions["at-limit"] = _DummySession(session_id="at-limit")
     client = _make_client_with_gate(gate)
-    chunks = [{"text": "x" * approval_router.MAX_PRE_APPROVED_CHUNK_CHARS}] + [
+    chunks = [{"text": "x" * request_limits.MAX_PRE_APPROVED_CHUNK_CHARS}] + [
         {"text": "y"}
-    ] * (approval_router.MAX_CONTEXT_CHUNKS - 1)
+    ] * (request_limits.MAX_CONTEXT_CHUNKS - 1)
 
     response = client.post("/api/approval/at-limit/approve", json={"chunks": chunks})
 

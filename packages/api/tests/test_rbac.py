@@ -11,6 +11,7 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 
+import pytest
 from httpx import AsyncClient
 
 
@@ -434,6 +435,28 @@ class TestChatSessionIsolation:
         )
         assert follow.status_code == 200
 
+
+    @pytest.mark.parametrize("bad_id", [0, 2**31])
+    async def test_document_id_outside_the_column_range_is_422(
+        self, router_client: AsyncClient, bad_id: int
+    ) -> None:
+        admin = await _bootstrap_admin(router_client)
+        editor = await _create_and_login(router_client, admin, "editor", "a@example.com")
+
+        created = await router_client.post(
+            "/api/chat-sessions",
+            headers=_auth(editor),
+            json={"title": "A"},
+        )
+        session_id = created.json()["id"]
+
+        resp = await router_client.patch(
+            f"/api/chat-sessions/{session_id}",
+            headers=_auth(editor),
+            json={"document_ids": [bad_id]},
+        )
+        assert resp.status_code == 422
+        assert resp.json()["detail"][0]["loc"] == ["body", "document_ids", 0]
 
 class TestDocumentSharing:
     """Documents are org-wide: any authenticated user sees every document."""

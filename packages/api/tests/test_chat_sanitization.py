@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from septum_api.models.settings import AppSettings
+from septum_api import request_limits
 from septum_api.routers import chat as chat_module
 from septum_api.routers.chat import (
     _apply_chunk_placeholder_remap,
@@ -315,3 +316,101 @@ async def test_chat_stream_propagates_client_disconnect_cancellation(
     with pytest.raises(asyncio.CancelledError):
         async for _ in response.body_iterator:
             pass
+
+
+async def test_overlong_chat_message_is_refused_with_422() -> None:
+    """``message`` and its legacy ``query`` alias are bounded before any work starts."""
+    from httpx import ASGITransport, AsyncClient
+    from septum_api.database import get_db
+    from septum_api.main import app
+    from septum_api.utils.auth_dependency import get_current_user
+
+    async def _no_db():
+        yield None
+
+    overlong = "x" * (request_limits.MAX_CHAT_MESSAGE_CHARS + 1)
+    app.dependency_overrides[get_db] = _no_db
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=1, role="editor")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            for field in ("message", "query"):
+                resp = await client.post("/api/chat/ask", json={field: overlong})
+                assert resp.status_code == 422, (field, resp.text)
+                assert resp.json()["detail"][0]["loc"] == ["body", field]
+            resp = await client.post("/api/chat/analyze_query", json={"message": overlong})
+            assert resp.status_code == 422, resp.text
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+async def test_request_list_and_id_bounds_are_refused_with_422() -> None:
+    """Document id lists, the session id and a chunk edit are bounded at the edge."""
+    from httpx import ASGITransport, AsyncClient
+    from septum_api.database import get_db
+    from septum_api.main import app
+    from septum_api.utils.auth_dependency import get_current_user
+
+    async def _no_db():
+        yield None
+
+    too_many = list(range(1, request_limits.MAX_RETRY_DOCUMENTS + 2))
+    cases = [
+        ("/api/chat/ask", {"message": "hi", "document_ids": too_many}, "document_ids"),
+        ("/api/chat/ask", {"message": "hi", "scoped_doc_ids": too_many}, "scoped_doc_ids"),
+        ("/api/chat/ask", {"message": "hi", "session_id": "s" * 129}, "session_id"),
+        ("/api/chat/analyze_query", {"message": "hi", "document_ids": too_many}, "document_ids"),
+    ]
+    app.dependency_overrides[get_db] = _no_db
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=1, role="admin")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            for path, body, field in cases:
+                resp = await client.post(path, json=body)
+                assert resp.status_code == 422, (field, resp.text)
+                assert resp.json()["detail"][0]["loc"] == ["body", field]
+            resp = await client.patch(
+                "/api/chunks/1",
+                json={"sanitized_text": "x" * (request_limits.MAX_PRE_APPROVED_CHUNK_CHARS + 1)},
+            )
+            assert resp.status_code == 422, resp.text
+            assert resp.json()["detail"][0]["loc"] == ["body", "sanitized_text"]
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.mark.parametrize("bad_id", [0, request_limits.MAX_DOCUMENT_ID + 1])
+async def test_document_ids_outside_the_column_range_are_refused_with_422(bad_id: int) -> None:
+    """A document id ``documents.id`` cannot hold never reaches the database."""
+    from httpx import ASGITransport, AsyncClient
+
+    from septum_api.database import get_db
+    from septum_api.main import app
+    from septum_api.utils.auth_dependency import get_current_user
+
+    async def _no_db():
+        yield None
+
+    cases = [
+        ("/api/chat/ask", {"message": "hi", "document_ids": [bad_id]}, ["document_ids", 0]),
+        ("/api/chat/ask", {"message": "hi", "scoped_doc_ids": [bad_id]}, ["scoped_doc_ids", 0]),
+        ("/api/chat/ask", {"message": "hi", "document_id": bad_id}, ["document_id"]),
+        (
+            "/api/chat/ask",
+            {"message": "hi", "pre_approved_chunks": [{"text": "x", "document_id": bad_id}]},
+            ["pre_approved_chunks", 0, "document_id"],
+        ),
+        ("/api/chat/analyze_query", {"message": "hi", "document_ids": [bad_id]}, ["document_ids", 0]),
+    ]
+    app.dependency_overrides[get_db] = _no_db
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=1, role="admin")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            for path, body, loc in cases:
+                resp = await client.post(path, json=body)
+                assert resp.status_code == 422, (loc, resp.text)
+                assert resp.json()["detail"][0]["loc"] == ["body", *loc]
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_current_user, None)

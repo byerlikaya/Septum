@@ -23,6 +23,7 @@ from fastapi import (
     Depends,
     File,
     HTTPException,
+    Query,
     UploadFile,
     status,
 )
@@ -44,6 +45,7 @@ from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
 from ..models.spreadsheet_schema import SpreadsheetColumn, SpreadsheetSchema
 from ..models.user import User
+from ..request_limits import MAX_DOCUMENT_ID, MAX_PROGRESS_IDS
 from ..services.document_anon_store import (
     DocumentMapErasureError,
     DocumentMapLockHandle,
@@ -743,25 +745,46 @@ async def upload_document(
     return _document_response(document, None)
 
 
+_PROGRESS_ID_RE = re.compile(r"[0-9]{1,10}")
+
+
 @router.get(
     "/progress",
     status_code=status.HTTP_200_OK,
 )
 async def get_processing_progress(
-    ids: str = "",
-    _user: User = Depends(get_current_user),
+    ids: str = Query("", max_length=MAX_PROGRESS_IDS * 20),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> dict:
-    """Return processing progress for documents being processed.
+    """Return processing progress for the caller's documents being processed.
 
-    Accepts a comma-separated list of document IDs.
-    Returns a mapping of document_id → percent (0-99).
+    Accepts a comma-separated list of at most ``MAX_PROGRESS_IDS`` document
+    IDs (more is HTTP 422) and returns ``document_id → percent (0-99)`` for
+    those the caller owns, with the same scoping as the list endpoint
+    (``admin`` sees every document). Ids of other users' documents, unknown
+    ids and malformed entries (including values beyond the 32-bit id range
+    of ``documents.id``) are left out.
     """
     from ..services.document_progress import get_progress
 
-    if not ids.strip():
+    parts = [p.strip() for p in ids.split(",") if p.strip()]
+    if len(parts) > MAX_PROGRESS_IDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"At most {MAX_PROGRESS_IDS} document ids per request.",
+        )
+    requested = {
+        int(p)
+        for p in parts
+        if _PROGRESS_ID_RE.fullmatch(p) and int(p) <= MAX_DOCUMENT_ID
+    }
+    if not requested:
         return {}
-    doc_ids = [int(x) for x in ids.split(",") if x.strip().isdigit()]
-    return {did: get_progress(did) for did in doc_ids}
+    owned = await db.execute(
+        _scope_to_owner(select(Document.id).where(Document.id.in_(requested)), user)
+    )
+    return {did: get_progress(did) for did in sorted(owned.scalars().all())}
 
 
 @router.get(

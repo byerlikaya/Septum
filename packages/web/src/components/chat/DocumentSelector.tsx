@@ -3,6 +3,7 @@
 import { FileText } from "lucide-react";
 import type { Document } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
+import { MAX_CHAT_DOCUMENTS } from "@/lib/chatLimits";
 
 export interface DocumentSelectorProps {
   documents: Document[];
@@ -18,11 +19,14 @@ export function DocumentSelector({
   onSelectionChange
 }: DocumentSelectorProps) {
   const t = useI18n();
+  const atLimit = selectedIds.size >= MAX_CHAT_DOCUMENTS;
+
   function toggle(id: number) {
     const next = new Set(selectedIds);
     if (next.has(id)) {
       next.delete(id);
     } else {
+      if (atLimit) return;
       next.add(id);
     }
     onSelectionChange(next);
@@ -60,7 +64,8 @@ export function DocumentSelector({
                     type="checkbox"
                     checked={selectedIds.has(doc.id)}
                     onChange={() => toggle(doc.id)}
-                    className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-800 text-sky-500 focus:ring-sky-500"
+                    disabled={!selectedIds.has(doc.id) && atLimit}
+                    className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-800 text-sky-500 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
                   />
                   <span className="flex min-w-0 flex-1 items-center gap-2">
                     <FileText className="h-4 w-4 shrink-0 text-slate-500" />

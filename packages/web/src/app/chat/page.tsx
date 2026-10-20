@@ -17,6 +17,7 @@ import api, {
 import { poolMap } from "@/lib/concurrency";
 import type { AppSettingsResponse, ApprovalData, ChatSessionSummary, DebugData, Document } from "@/lib/types";
 import { DocumentSelector } from "@/components/chat/DocumentSelector";
+import { DocumentSelectionNotice } from "@/components/chat/DocumentSelectionNotice";
 import { ChatWindow } from "@/components/chat/ChatWindow";
 import { ChatHistory } from "@/components/chat/ChatHistory";
 import { DeanonymizationBanner } from "@/components/chat/DeanonymizationBanner";
@@ -24,6 +25,8 @@ import { BlockingLoader } from "@/components/common/BlockingLoader";
 import { downloadJSON, downloadChatPDF } from "@/lib/export";
 import { useI18n } from "@/lib/i18n";
 import { uploadDocuments } from "@/lib/uploadDocuments";
+import { MAX_CHAT_DOCUMENTS, capDocumentIds } from "@/lib/chatLimits";
+import { useDocumentSelection } from "@/hooks/useDocumentSelection";
 
 /** Keep only the masked fields of a stored assistant debug record. */
 function toPersistedDebugData(raw: unknown): DebugData | undefined {
@@ -40,7 +43,7 @@ export default function ChatPage() {
   const [regulationPills, setRegulationPills] = useState<{ name: string; description: string }[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(true);
   const [loadingSettings, setLoadingSettings] = useState(true);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const { selectedIds, setSelectedIds, trimmedCount } = useDocumentSelection();
   const [showDeanonBanner, setShowDeanonBanner] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<"idle" | "success" | "error">("idle");
@@ -116,7 +119,9 @@ export default function ChatPage() {
 
   const documentIds = useMemo(
     () =>
-      selectedIds.size > 0 ? Array.from(selectedIds).sort((a, b) => a - b) : [],
+      selectedIds.size > 0
+        ? capDocumentIds(Array.from(selectedIds).sort((a, b) => a - b)).ids
+        : [],
     [selectedIds]
   );
 
@@ -198,7 +203,7 @@ export default function ChatPage() {
         setIsUploading(false);
       }
     },
-    [documents]
+    [documents, setSelectedIds]
   );
 
   const handleResponseComplete = useCallback((deanonApplied: boolean) => {
@@ -279,7 +284,7 @@ export default function ChatPage() {
     } catch {
       // Session may have been deleted
     }
-  }, []);
+  }, [setSelectedIds]);
 
   const handleNewChat = useCallback(() => {
     sessionIdRef.current = null;
@@ -438,12 +443,14 @@ export default function ChatPage() {
                 <button
                   key={doc.id}
                   type="button"
+                  disabled={!selectedIds.has(doc.id) && selectedIds.size >= MAX_CHAT_DOCUMENTS}
                   onClick={() => setSelectedIds((prev) => {
                     const next = new Set(prev);
-                    if (next.has(doc.id)) next.delete(doc.id); else next.add(doc.id);
+                    if (next.has(doc.id)) next.delete(doc.id);
+                    else if (next.size < MAX_CHAT_DOCUMENTS) next.add(doc.id);
                     return next;
                   })}
-                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                     selectedIds.has(doc.id)
                       ? "bg-sky-600 text-white"
                       : "bg-slate-800 text-slate-300 hover:bg-slate-700"
@@ -454,6 +461,7 @@ export default function ChatPage() {
               ))
             )}
           </div>
+          <DocumentSelectionNotice selectedCount={selectedIds.size} trimmedCount={trimmedCount} />
         </aside>
 
         <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-800 bg-slate-900/40 p-4">

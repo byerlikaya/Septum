@@ -23,6 +23,7 @@ from septum_api.main import app
 from septum_api.models import Base
 from septum_api.models.document import Chunk, Document
 from septum_api.models.user import User
+from septum_api import request_limits
 from septum_api.routers import chat as chat_module
 from septum_api.services import chat_debug_store, pii_gate
 from septum_api.services.approval_gate import ApprovalDecision, ApprovalGate
@@ -591,7 +592,7 @@ class TestPreApprovedLimits:
         status_code, _, _ = await chat_env.ask(
             {
                 "message": "who?",
-                "pre_approved_chunks": [{"text": "x"}] * (chat_module.MAX_CONTEXT_CHUNKS + 1),
+                "pre_approved_chunks": [{"text": "x"}] * (request_limits.MAX_CONTEXT_CHUNKS + 1),
             }
         )
         assert status_code == 422
@@ -603,7 +604,7 @@ class TestPreApprovedLimits:
             {
                 "message": "who?",
                 "pre_approved_chunks": [
-                    {"text": "x" * (chat_module.MAX_PRE_APPROVED_CHUNK_CHARS + 1)}
+                    {"text": "x" * (request_limits.MAX_PRE_APPROVED_CHUNK_CHARS + 1)}
                 ],
             }
         )
@@ -779,9 +780,30 @@ class TestLlmErrorEvent:
 
         assert event["code"] == "ollama_url_not_allowed"
 
-    async def test_uncoded_error_event_has_null_code(
+    async def test_uncoded_error_gets_the_fixed_llm_unavailable_event(
         self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        event = await self._ask_with_failure(chat_env, monkeypatch, LLMRouterError("boom"))
+        upstream = "gateway: upstream 502 from https://internal.example:8443 key=sk-123"
+        event = await self._ask_with_failure(chat_env, monkeypatch, LLMRouterError(upstream))
 
-        assert event["code"] is None
+        assert event["code"] == chat_module.LLM_UNAVAILABLE == "llm_unavailable"
+        assert event["message"] == chat_module.LLM_UNAVAILABLE_MESSAGE
+        for fragment in ("gateway", "502", "internal.example", "sk-123"):
+            assert fragment not in event["message"]
+
+    async def test_coded_error_keeps_its_authored_message(
+        self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from septum_api.services.ollama_client import (
+            OLLAMA_URL_NOT_ALLOWED_CODE,
+            OLLAMA_URL_REFUSED_MESSAGE,
+        )
+
+        event = await self._ask_with_failure(
+            chat_env,
+            monkeypatch,
+            LLMRouterError(OLLAMA_URL_REFUSED_MESSAGE, code=OLLAMA_URL_NOT_ALLOWED_CODE),
+        )
+
+        assert event["code"] == OLLAMA_URL_NOT_ALLOWED_CODE
+        assert event["message"] == OLLAMA_URL_REFUSED_MESSAGE

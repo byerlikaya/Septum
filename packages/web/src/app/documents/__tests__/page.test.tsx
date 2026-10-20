@@ -142,3 +142,37 @@ it("shows both bulk reprocess actions to an editor", async () => {
   expect(await screen.findByText("documents.actions.reprocessStale:1")).toBeInTheDocument();
   expect(screen.getByText("documents.actions.reprocessAll")).toBeInTheDocument();
 });
+
+it("polls progress for 450 processing documents in three requests and merges them", async () => {
+  jest.useFakeTimers();
+  try {
+    mockGetDocuments.mockResolvedValue(
+      Array.from({ length: 450 }, (_, i) => ({ ...makeDoc(i + 1, false), ingestion_status: "processing" as const }))
+    );
+    mockApiGet.mockImplementation(async (_url: string, config: { params: { ids: string } }) => {
+      const ids = config.params.ids.split(",").map(Number);
+      return { data: Object.fromEntries(ids.map((id) => [id, id % 100])) };
+    });
+
+    renderAs("editor");
+    await screen.findByText("documents.actions.reprocessAll");
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+
+    await waitFor(() => expect(mockApiGet.mock.calls.length).toBeGreaterThanOrEqual(3));
+    const firstThree = mockApiGet.mock.calls.slice(0, 3).map(([, config]) => config.params.ids.split(",").length);
+    expect(firstThree).toEqual([200, 200, 50]);
+
+    await waitFor(() => {
+      const lastCall = mockDocumentList.mock.calls[mockDocumentList.mock.calls.length - 1][0] as {
+        processingProgress: Record<number, number>;
+      };
+      expect(Object.keys(lastCall.processingProgress)).toHaveLength(450);
+      expect(lastCall.processingProgress[450]).toBe(50);
+      expect(lastCall.processingProgress[1]).toBe(1);
+    });
+  } finally {
+    jest.useRealTimers();
+  }
+});

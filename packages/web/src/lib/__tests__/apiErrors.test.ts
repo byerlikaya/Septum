@@ -55,6 +55,9 @@ describe("chat document-consistency codes", () => {
     expect(translateErrorCode("map_conflict", t, CHAT_STREAM_ERROR_KEYS)).toBe(
       "chat.error.mapConflict",
     );
+    expect(translateErrorCode("llm_unavailable", t, CHAT_STREAM_ERROR_KEYS)).toBe(
+      "chat.error.llmUnavailable",
+    );
   });
 
   it("gives every chat stream code a translation in both en and tr", () => {

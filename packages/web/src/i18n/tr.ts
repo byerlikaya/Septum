@@ -515,6 +515,7 @@ export const trMessages: Record<string, string> = {
   "chat.error.retryNumberingChanged":
     "Bu yanıt hazırlandıktan sonra belgeler değişti; lütfen soruyu yeniden sorun.",
   "chat.error.documentChanged": "Soru yanıtlanırken bir doküman değişti. Lütfen sorunuzu yeniden sorun.",
+  "chat.error.llmUnavailable": "Dil modeli şu anda yanıt veremedi; lütfen daha sonra tekrar deneyin.",
   "chat.error.mapConflict": "Doküman güncelleniyor. Lütfen tekrar deneyin.",
   "chat.error.ollamaUrlNotAllowed":
     "Yapılandırılmış Ollama adresine izin verilmiyor. Ayarlar → LLM Provider bölümünden adresi değiştirin.",
@@ -531,6 +532,8 @@ export const trMessages: Record<string, string> = {
     "Hedefli arama için doküman seçin veya tümünde otomatik arama için boş bırakın.",
   "chat.documentSelector.empty":
     "Sohbet için hazır doküman yok. Önce doküman yükleyip işlemeniz gerekir.",
+  "chat.documentSelector.limit": "Soru başına en fazla {max} doküman seçebilirsiniz.",
+  "chat.documentSelector.trimmed": "Seçimden {count} doküman çıkarıldı: bir soruda en fazla {max} doküman kullanılabilir.",
 
   "chat.ragMode.auto": "Otomatik arama",
   "chat.ragMode.none": "Doğrudan yanıt (doküman kullanılmadı)",
