@@ -346,6 +346,14 @@ async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:
             "documents",
             "ALTER TABLE documents ADD COLUMN ingestion_error_code VARCHAR(64)",
         ),
+        (
+            "documents",
+            "ALTER TABLE documents ADD COLUMN sanitized_entity_types JSON",
+        ),
+        (
+            "documents",
+            "ALTER TABLE documents ADD COLUMN sanitized_policy_digest VARCHAR(64)",
+        ),
     ]
 
     async with eng.begin() as conn:

@@ -64,6 +64,11 @@ from ..services.ingestion.pdf_ingester import PdfIngester
 from ..services.ingestion.router import IngestionRouter
 from ..services.ingestion.xlsx_ingester import XlsxIngester
 from ..services.pii_gate import gate_document_texts
+from ..services.policy_snapshot import (
+    PolicySnapshot,
+    current_policy_snapshot,
+    document_staleness,
+)
 from ..utils.auth_dependency import get_current_user, require_role
 from ..utils.crypto import decrypt, encrypt
 from ..utils.db_helpers import (
@@ -164,6 +169,39 @@ class DocumentResponse(BaseModel):
     transcription_text: Optional[str]
     ocr_confidence: Optional[float]
     active_regulation_ids: List[str]
+    needs_reprocessing: bool = False
+    missing_entity_types: List[str] = []
+    sanitized_policy_known: bool = True
+
+
+def _document_response(
+    document: Document, current: Optional[PolicySnapshot]
+) -> DocumentResponse:
+    """Serialize ``document`` with its staleness against the ``current`` policy.
+
+    ``current`` may be ``None`` only for a document that is not completed
+    (just uploaded or claimed for reprocessing).
+    """
+    staleness = document_staleness(document, current)
+    return DocumentResponse.model_validate(document).model_copy(
+        update={
+            "needs_reprocessing": staleness.needs_reprocessing,
+            "missing_entity_types": staleness.missing_entity_types,
+            "sanitized_policy_known": staleness.sanitized_policy_known,
+        }
+    )
+
+
+async def _single_document_response(
+    db: AsyncSession, document: Document
+) -> DocumentResponse:
+    """Serialize one document, reading the current policy only when it is judged."""
+    current = (
+        await current_policy_snapshot(db)
+        if document.ingestion_status == "completed"
+        else None
+    )
+    return _document_response(document, current)
 
 
 class DocumentListResponse(BaseModel):
@@ -702,7 +740,7 @@ async def upload_document(
 
     background_tasks.add_task(_run_full_background, document.id)
 
-    return DocumentResponse.model_validate(document)
+    return _document_response(document, None)
 
 
 @router.get(
@@ -746,8 +784,9 @@ async def list_documents(
     )
     result = await db.execute(stmt)
     docs = list(result.scalars().all())
+    current = await current_policy_snapshot(db)
     return DocumentListResponse(
-        items=[DocumentResponse.model_validate(d) for d in docs]
+        items=[_document_response(d, current) for d in docs]
     )
 
 
@@ -765,7 +804,7 @@ async def get_document(
     document = await get_owned_or_404(
         db, Document, document_id, user, "Document not found."
     )
-    return DocumentResponse.model_validate(document)
+    return await _single_document_response(db, document)
 
 
 @router.get(
@@ -901,7 +940,7 @@ async def update_document_language(
     document.language_override = payload.language
     await db.commit()
     await db.refresh(document)
-    return DocumentResponse.model_validate(document)
+    return await _single_document_response(db, document)
 
 
 @router.delete(
@@ -1139,5 +1178,5 @@ async def reprocess_document(
 
     background_tasks.add_task(_reprocess_background, document.id)
 
-    return DocumentResponse.model_validate(document)
+    return _document_response(document, None)
 

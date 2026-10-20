@@ -52,6 +52,12 @@ class Document(Base):
     active_regulation_ids: Mapped[List[str]] = mapped_column(
         JSON, nullable=False, default=list
     )
+    sanitized_entity_types: Mapped[Optional[List[str]]] = mapped_column(
+        JSON, nullable=True
+    )
+    sanitized_policy_digest: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
 
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
