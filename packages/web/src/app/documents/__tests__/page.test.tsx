@@ -6,6 +6,11 @@ import type { AuthUser, Document, UserRole } from "@/lib/types";
 const mockGetDocuments = jest.fn();
 const mockApiGet = jest.fn();
 const mockDocumentList = jest.fn();
+const mockDocumentUploader = jest.fn();
+
+function lastCallProps(mock: jest.Mock): Record<string, unknown> {
+  return mock.mock.calls[mock.mock.calls.length - 1][0] as Record<string, unknown>;
+}
 
 function renderAs(role: UserRole | null) {
   const user: AuthUser | null =
@@ -36,7 +41,10 @@ jest.mock("../../../lib/uploadDocuments", () => ({
 }));
 
 jest.mock("../../../components/documents/DocumentUploader", () => ({
-  DocumentUploader: () => null
+  DocumentUploader: (props: unknown) => {
+    mockDocumentUploader(props);
+    return null;
+  }
 }));
 
 jest.mock("../../../components/documents/DocumentList", () => ({
@@ -124,23 +132,39 @@ it("does not reprocess anything when the confirmation is declined", async () => 
   confirmSpy.mockRestore();
 });
 
-it.each(["viewer", null] as const)("hides both bulk reprocess actions when the role is %s", async (role) => {
+it.each(["viewer", null] as const)("hides every mutating action when the role is %s", async (role) => {
   mockGetDocuments.mockResolvedValue([makeDoc(1, true), makeDoc(2, false)]);
 
   renderAs(role);
 
-  await screen.findByText("documents.actions.deleteAll");
+  await waitFor(() => expect(lastCallProps(mockDocumentList).isLoading).toBe(false));
+  expect(screen.queryByText("documents.actions.deleteAll")).not.toBeInTheDocument();
   expect(screen.queryByText(/documents\.actions\.reprocessStale/)).not.toBeInTheDocument();
   expect(screen.queryByText("documents.actions.reprocessAll")).not.toBeInTheDocument();
+
+  const listProps = lastCallProps(mockDocumentList);
+  expect(listProps.onDelete).toBeUndefined();
+  expect(listProps.onReprocess).toBeUndefined();
+  expect(listProps.onBulkDelete).toBeUndefined();
+  expect(listProps.onBulkReprocess).toBeUndefined();
+  expect(lastCallProps(mockDocumentUploader).disabled).toBe(true);
 });
 
-it("shows both bulk reprocess actions to an editor", async () => {
-  mockGetDocuments.mockResolvedValue([makeDoc(1, true)]);
+it.each(["editor", "admin"] as const)("shows every mutating action to %s", async (role) => {
+  mockGetDocuments.mockResolvedValue([makeDoc(1, true), makeDoc(2, false)]);
 
-  renderAs("editor");
+  renderAs(role);
 
-  expect(await screen.findByText("documents.actions.reprocessStale:1")).toBeInTheDocument();
+  expect(await screen.findByText("documents.actions.deleteAll")).toBeInTheDocument();
+  expect(screen.getByText("documents.actions.reprocessStale:1")).toBeInTheDocument();
   expect(screen.getByText("documents.actions.reprocessAll")).toBeInTheDocument();
+
+  const listProps = lastCallProps(mockDocumentList);
+  expect(listProps.onDelete).toEqual(expect.any(Function));
+  expect(listProps.onReprocess).toEqual(expect.any(Function));
+  expect(listProps.onBulkDelete).toEqual(expect.any(Function));
+  expect(listProps.onBulkReprocess).toEqual(expect.any(Function));
+  expect(lastCallProps(mockDocumentUploader).disabled).toBe(false);
 });
 
 it("polls progress for 450 processing documents in three requests and merges them", async () => {

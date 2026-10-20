@@ -66,7 +66,8 @@ export function DocumentUploader({
       </p>
       <button
         type="button"
-        className="inline-flex items-center rounded-md bg-sky-500 px-3 py-1.5 text-xs font-medium text-slate-950 shadow-xs hover:bg-sky-400 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+        className="inline-flex items-center rounded-md bg-sky-500 px-3 py-1.5 text-xs font-medium text-slate-950 shadow-xs hover:bg-sky-400 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={disabled}
         onClick={event => {
           event.stopPropagation();
           if (!disabled) {
