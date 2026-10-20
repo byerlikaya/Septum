@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { DocumentList } from "../DocumentList";
 import type { Document } from "@/lib/types";
 
@@ -149,4 +149,46 @@ it("shows no error line for a document that did not fail", () => {
   );
   expect(screen.queryByText("Stale text")).not.toBeInTheDocument();
   expect(screen.queryByText("errors.model.integrityFailed")).not.toBeInTheDocument();
+});
+
+it("renders per-row reprocess and delete buttons and wires their callbacks when handlers are given", () => {
+  const onDelete = jest.fn();
+  const onReprocess = jest.fn();
+  const doc = completedDocument({});
+  render(
+    <DocumentList documents={[doc]} onDelete={onDelete} onReprocess={onReprocess} onPreview={jest.fn()} />
+  );
+  fireEvent.click(screen.getByText("documents.actions.delete"));
+  fireEvent.click(screen.getByText("documents.actions.reprocess"));
+  expect(onDelete).toHaveBeenCalledWith(doc);
+  expect(onReprocess).toHaveBeenCalledWith(doc);
+});
+
+it("hides per-row reprocess and delete buttons but keeps preview when the handlers are absent", () => {
+  render(<DocumentList documents={[completedDocument({})]} onPreview={jest.fn()} />);
+  expect(screen.getByText("documents.actions.preview")).toBeInTheDocument();
+  expect(screen.queryByText("documents.actions.delete")).not.toBeInTheDocument();
+  expect(screen.queryByText("documents.actions.reprocess")).not.toBeInTheDocument();
+});
+
+it("hides only the delete button when just onReprocess is given", () => {
+  render(<DocumentList documents={[failedDocument({})]} onReprocess={jest.fn()} onPreview={jest.fn()} />);
+  expect(screen.getByText("documents.actions.reprocess")).toBeInTheDocument();
+  expect(screen.queryByText("documents.actions.delete")).not.toBeInTheDocument();
+});
+
+it("hides the selection column and bulk toolbar when no bulk handler is given", () => {
+  render(<DocumentList documents={[completedDocument({})]} onPreview={jest.fn()} />);
+  expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("documents.bulk.selectAll")).not.toBeInTheDocument();
+});
+
+it("shows the selection column and bulk toolbar when a bulk handler is given", () => {
+  const onBulkDelete = jest.fn();
+  const doc = completedDocument({});
+  render(<DocumentList documents={[doc]} onBulkDelete={onBulkDelete} onPreview={jest.fn()} />);
+  expect(screen.getByLabelText("documents.bulk.selectAll")).toBeInTheDocument();
+  fireEvent.click(screen.getAllByRole("checkbox")[1]);
+  fireEvent.click(screen.getByText("documents.bulk.delete"));
+  expect(onBulkDelete).toHaveBeenCalledWith([doc.id]);
 });

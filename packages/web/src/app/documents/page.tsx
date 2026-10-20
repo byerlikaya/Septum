@@ -412,23 +412,25 @@ export default function DocumentsPage() {
                     : t("documents.actions.reprocessAll")}
                 </button>
               )}
-              <button
-                type="button"
-                onClick={handleDeleteAllDocuments}
-                disabled={isUploading || isDeletingAll || isReprocessingAll}
-                className="inline-flex items-center rounded-md border border-rose-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-rose-300 shadow-xs hover:bg-rose-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isDeletingAll
-                  ? t("documents.actions.deletingAll")
-                  : t("documents.actions.deleteAll")}
-              </button>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={handleDeleteAllDocuments}
+                  disabled={isUploading || isDeletingAll || isReprocessingAll}
+                  className="inline-flex items-center rounded-md border border-rose-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-rose-300 shadow-xs hover:bg-rose-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isDeletingAll
+                    ? t("documents.actions.deletingAll")
+                    : t("documents.actions.deleteAll")}
+                </button>
+              )}
             </div>
           )}
         </div>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
-        <DocumentUploader disabled={isUploading} onFilesSelected={handleFilesSelected} />
+        <DocumentUploader disabled={isUploading || !canEdit} onFilesSelected={handleFilesSelected} />
         {error && (
           <div className="rounded-lg border border-rose-800 bg-rose-950/70 px-3 py-2 text-xs text-rose-200">
             {error}
@@ -443,11 +445,11 @@ export default function DocumentsPage() {
           documents={documents}
           isLoading={isLoading}
           processingProgress={processingProgress}
-          onDelete={handleDeleteDocument}
-          onReprocess={handleReprocessDocument}
+          onDelete={canEdit ? handleDeleteDocument : undefined}
+          onReprocess={canEdit ? handleReprocessDocument : undefined}
           onPreview={handlePreviewDocument}
-          onBulkDelete={handleBulkDelete}
-          onBulkReprocess={handleBulkReprocess}
+          onBulkDelete={canEdit ? handleBulkDelete : undefined}
+          onBulkReprocess={canEdit ? handleBulkReprocess : undefined}
         />
       </div>
 

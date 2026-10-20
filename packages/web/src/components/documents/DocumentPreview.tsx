@@ -9,6 +9,7 @@ import api, {
   getEntityDetections,
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { canEditDocuments, useCurrentUser } from "@/lib/currentUser";
 import { getDocumentDisplayName } from "@/lib/utils";
 import { CopyButton } from "@/components/common/CopyButton";
 import {
@@ -63,6 +64,7 @@ export function DocumentPreview({
   onReprocessed,
 }: DocumentPreviewProps): ReactElement | null {
   const t = useI18n();
+  const canEditSchema = canEditDocuments(useCurrentUser());
   const [chunks, setChunks] = useState<Chunk[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -832,6 +834,7 @@ export function DocumentPreview({
                                           type="text"
                                           className="w-full rounded-md border border-slate-800 bg-slate-950 px-1 py-0.5 text-[11px] text-slate-100 outline-hidden focus:border-sky-500"
                                           placeholder="e.g. SALARY_MEASURE"
+                                          disabled={!canEditSchema}
                                           value={column.semantic_label ?? ""}
                                           onChange={event =>
                                             handleSchemaFieldChange(
@@ -851,6 +854,7 @@ export function DocumentPreview({
                                             type="checkbox"
                                             className="h-3 w-3 rounded border-slate-700 bg-slate-950 text-sky-500 focus:ring-sky-500"
                                             checked={Boolean(column.is_numeric)}
+                                            disabled={!canEditSchema}
                                             onChange={event =>
                                               handleSchemaFieldChange(
                                                 column.index,
@@ -876,14 +880,16 @@ export function DocumentPreview({
                                   {t("documents.preview.unsavedWarning")}
                                 </span>
                               )}
-                              <button
-                                type="button"
-                                className="inline-flex items-center rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-100 shadow-xs hover:bg-slate-800 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
-                                onClick={handleSaveSchema}
-                                disabled={isSchemaSaving || !schemaDirty}
-                              >
-                                {isSchemaSaving ? t("documents.preview.saving") : t("documents.preview.saveSchema")}
-                              </button>
+                              {canEditSchema && (
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-100 shadow-xs hover:bg-slate-800 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                                  onClick={handleSaveSchema}
+                                  disabled={isSchemaSaving || !schemaDirty}
+                                >
+                                  {isSchemaSaving ? t("documents.preview.saving") : t("documents.preview.saveSchema")}
+                                </button>
+                              )}
                             </div>
                           </>
                         )}

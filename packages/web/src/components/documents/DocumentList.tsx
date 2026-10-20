@@ -25,8 +25,8 @@ interface DocumentListProps {
   documents: Document[];
   isLoading?: boolean;
   processingProgress?: Record<number, number>;
-  onDelete: (document: Document) => void;
-  onReprocess: (document: Document) => void;
+  onDelete?: (document: Document) => void;
+  onReprocess?: (document: Document) => void;
   onPreview: (document: Document) => void;
   onBulkDelete?: (ids: number[]) => void;
   onBulkReprocess?: (ids: number[]) => void;
@@ -186,6 +186,7 @@ export function DocumentList({
   };
 
   const selArr = Array.from(selectedIds);
+  const showSelection = Boolean(onBulkDelete || onBulkReprocess);
 
   if (isLoading) {
     return (
@@ -247,7 +248,7 @@ export function DocumentList({
       </div>
 
       {/* Bulk toolbar */}
-      {selectedIds.size > 0 && (
+      {showSelection && selectedIds.size > 0 && (
         <div className="flex items-center gap-3 border-b border-sky-800/40 bg-sky-950/30 px-4 py-2">
           <span className="text-xs font-medium text-sky-300">
             {t("documents.bulk.selected").replace("{count}", String(selectedIds.size))}
@@ -278,15 +279,17 @@ export function DocumentList({
         <table className="min-w-full text-left text-sm">
           <thead className="sticky top-0 z-10 border-b border-slate-800 bg-slate-900/90 backdrop-blur">
             <tr className="text-xs uppercase tracking-wide text-slate-400">
-              <th className="px-3 py-2 font-medium w-8">
-                <input
-                  type="checkbox"
-                  checked={filtered.length > 0 && selectedIds.size === filtered.length}
-                  onChange={toggleSelectAll}
-                  className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 text-sky-500 focus:ring-sky-500"
-                  aria-label={t("documents.bulk.selectAll")}
-                />
-              </th>
+              {showSelection && (
+                <th className="px-3 py-2 font-medium w-8">
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                    onChange={toggleSelectAll}
+                    className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 text-sky-500 focus:ring-sky-500"
+                    aria-label={t("documents.bulk.selectAll")}
+                  />
+                </th>
+              )}
               <th
                 className="px-4 py-2 font-medium cursor-pointer select-none hover:text-slate-200"
                 onClick={() => toggleSort("name")}
@@ -328,14 +331,16 @@ export function DocumentList({
                   key={doc.id}
                   className={`hover:bg-slate-900/70 ${selectedIds.has(doc.id) ? "bg-sky-950/20" : "bg-slate-950/40"}`}
                 >
-                  <td className="px-3 py-2 align-middle">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(doc.id)}
-                      onChange={() => toggleSelect(doc.id)}
-                      className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 text-sky-500 focus:ring-sky-500"
-                    />
-                  </td>
+                  {showSelection && (
+                    <td className="px-3 py-2 align-middle">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(doc.id)}
+                        onChange={() => toggleSelect(doc.id)}
+                        className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 text-sky-500 focus:ring-sky-500"
+                      />
+                    </td>
+                  )}
                   <td className="max-w-[260px] px-4 py-2">
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-900">
@@ -418,7 +423,7 @@ export function DocumentList({
                         <Eye className="h-3.5 w-3.5" />
                         <span>{t("documents.actions.preview")}</span>
                       </button>
-                      {(doc.ingestion_status === "completed" || doc.ingestion_status === "failed") && (
+                      {onReprocess && (doc.ingestion_status === "completed" || doc.ingestion_status === "failed") && (
                         <button
                           type="button"
                           className="inline-flex items-center gap-1 rounded-md border border-sky-700 bg-slate-950 px-2 py-1 text-xs font-medium text-sky-300 shadow-xs hover:bg-sky-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
@@ -428,14 +433,16 @@ export function DocumentList({
                           <span>{t("documents.actions.reprocess")}</span>
                         </button>
                       )}
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 rounded-md border border-rose-700 bg-slate-950 px-2 py-1 text-xs font-medium text-rose-300 shadow-xs hover:bg-rose-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                        onClick={() => onDelete(doc)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        <span>{t("documents.actions.delete")}</span>
-                      </button>
+                      {onDelete && (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-md border border-rose-700 bg-slate-950 px-2 py-1 text-xs font-medium text-rose-300 shadow-xs hover:bg-rose-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                          onClick={() => onDelete(doc)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span>{t("documents.actions.delete")}</span>
+                        </button>
+                      )}
                     </div>
                     {failureMessage && (
                       <p className="mt-1 max-w-xs text-xs text-rose-300">
