@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import api, { extractErrorCode } from "@/lib/api";
-import { localizeApiError, translateErrorCode } from "@/lib/apiErrors";
+import { LLM_TEST_ERROR_KEYS, localizeApiError, translateErrorCode } from "@/lib/apiErrors";
 import type { AppSettingsResponse } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { ErrorWithRetry } from "@/components/common/ErrorWithRetry";
@@ -131,7 +131,7 @@ export default function SettingsPage() {
       if (typeof detail === "string" && detail.trim().length > 0) {
         message = detail;
       }
-      message = translateErrorCode(extractErrorCode(err), t) ?? message;
+      message = translateErrorCode(extractErrorCode(err), t, LLM_TEST_ERROR_KEYS) ?? message;
       setCloudTest({ status: "error", message });
     }
   };

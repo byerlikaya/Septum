@@ -101,6 +101,7 @@ from ..services.entity_index_service import (
     find_documents_for_query_entities,
 )
 from ..services.error_logger import log_backend_error, log_backend_message
+from ..services.llm_errors import LLM_UNAVAILABLE
 from ..services.llm_router import LLMRouter, LLMRouterError, _chunk_text
 from ..services.pii_gate import (
     DocumentGoneError,
@@ -142,7 +143,6 @@ DetectorFactory.seed = 42
 RETRY_NUMBERING_CHANGED = "retry_numbering_changed"
 DOCUMENT_CHANGED = "document_changed"
 MAP_CONFLICT = "map_conflict"
-LLM_UNAVAILABLE = "llm_unavailable"
 LLM_UNAVAILABLE_MESSAGE = (
     "The language model could not answer right now; please try again later."
 )

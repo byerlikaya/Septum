@@ -3,11 +3,21 @@ from __future__ import annotations
 """Ollama base URL validation: only loopback / container-host http(s) hosts are accepted."""
 
 import json
+from contextlib import asynccontextmanager
 
 import httpx
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
+from sqlalchemy import select, update
+
+from septum_api import main as main_module
+from septum_api.database import get_db
+from septum_api.errors import CodedHTTPError
+from septum_api.main import app
+from septum_api.models.error_log import ErrorLog
+from septum_api.models.settings import AppSettings
+from septum_api.request_limits import MAX_LLM_MODEL_LENGTH, MAX_LLM_PROVIDER_LENGTH
 from septum_api.routers import settings as settings_router
 from septum_api.routers.settings import _validate_ollama_url
 from septum_api.services import ollama_client
@@ -326,10 +336,6 @@ async def test_pull_refusal_carries_code(
 
 @pytest.fixture
 def captured_error_logs(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
-    from contextlib import asynccontextmanager
-
-    from septum_api import main as main_module
-
     logged: list[dict] = []
 
     @asynccontextmanager
@@ -383,11 +389,6 @@ async def test_uncoded_4xx_still_logs_its_detail(
 
 
 async def _store_ollama_url(url: str | None) -> None:
-    from septum_api.database import get_db
-    from septum_api.main import app
-    from septum_api.models.settings import AppSettings
-    from sqlalchemy import update
-
     session_gen = app.dependency_overrides[get_db]()
     session = await session_gen.__anext__()
     try:
@@ -472,15 +473,32 @@ async def test_test_llm_coded_router_error_carries_code(
     _assert_coded_400(resp)
 
 
-async def test_test_llm_uncoded_router_error_has_no_code(
+async def test_test_llm_uncoded_router_error_hides_provider_text(
     router_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    error = settings_router.LLMRouterError("boom")
+    provider_text = "upstream failed at http://10.0.0.5:8500/v1/chat"
+    error = settings_router.LLMRouterError(provider_text)
 
     resp = await _test_llm_with_router_error(router_client, monkeypatch, error)
 
     assert resp.status_code == 400
-    assert "code" not in resp.json() or resp.json()["code"] is None
+    body = resp.json()
+    assert body["code"] == "llm_unavailable"
+    assert body["detail"] == settings_router.LLM_TEST_UNAVAILABLE_MESSAGE
+    assert provider_text not in resp.text
+    session_gen = app.dependency_overrides[get_db]()
+    session = await session_gen.__anext__()
+    try:
+        rows = (await session.execute(select(ErrorLog))).scalars().all()
+    finally:
+        await session_gen.aclose()
+    assert any(
+        row.exception_type == "LLMRouterError" and row.path == "/api/settings/test-llm"
+        for row in rows
+    )
+    for row in rows:
+        assert provider_text not in row.message
+        assert provider_text not in (row.stack_trace or "")
 
 
 @pytest.mark.parametrize(
@@ -521,8 +539,6 @@ async def test_settings_ollama_clients_disable_env_proxies(
 
 
 def test_coded_http_error_log_message_defaults_to_safe_text() -> None:
-    from septum_api.errors import CodedHTTPError
-
     error = CodedHTTPError(400, "detail with secret-host.example.org", "some_code")
 
     assert error.log_message == "Request refused (code: some_code)"
@@ -553,9 +569,6 @@ async def test_test_llm_coded_refusal_persists_host_free_message(
 async def test_coded_error_without_log_message_persists_safe_text_not_detail(
     router_client: AsyncClient, captured_error_logs: list[dict]
 ) -> None:
-    from septum_api.errors import CodedHTTPError
-    from septum_api.main import app
-
     async def _boom() -> None:
         raise CodedHTTPError(400, "detail with secret-host.example.org", "some_code")
 
@@ -569,3 +582,82 @@ async def test_coded_error_without_log_message_persists_safe_text_not_detail(
     assert resp.status_code == 400
     assert resp.json()["code"] == "some_code"
     assert [e["message"] for e in captured_error_logs] == ["Request refused (code: some_code)"]
+
+
+async def test_test_llm_unexpected_error_is_generic(
+    router_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    resp = await _test_llm_with_router_error(
+        router_client, monkeypatch, RuntimeError("secret http://10.0.0.5")
+    )
+
+    assert resp.status_code == 400
+    assert "secret" not in resp.text
+    assert "10.0.0.5" not in resp.text
+    assert (
+        resp.json()["detail"]
+        == "Cloud LLM connection test failed due to an unexpected error."
+    )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"provider": "p" * (MAX_LLM_PROVIDER_LENGTH + 1)},
+        {"provider": "ollama", "model": "m" * (MAX_LLM_MODEL_LENGTH + 1)},
+    ],
+)
+async def test_test_llm_rejects_over_limit_fields(
+    router_client: AsyncClient, payload: dict[str, str]
+) -> None:
+    headers = await _admin_headers(router_client)
+
+    resp = await router_client.post("/api/settings/test-llm", headers=headers, json=payload)
+
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"llm_provider": "p" * (MAX_LLM_PROVIDER_LENGTH + 1)},
+        {"llm_model": "m" * (MAX_LLM_MODEL_LENGTH + 1)},
+    ],
+)
+async def test_patch_rejects_over_limit_llm_fields(
+    router_client: AsyncClient, payload: dict[str, str]
+) -> None:
+    headers = await _admin_headers(router_client)
+
+    resp = await router_client.patch("/api/settings", headers=headers, json=payload)
+
+    assert resp.status_code == 422, resp.text
+
+
+async def test_patch_accepts_llm_fields_at_limit(router_client: AsyncClient) -> None:
+    headers = await _admin_headers(router_client)
+    model = "m" * MAX_LLM_MODEL_LENGTH
+
+    resp = await router_client.patch("/api/settings", headers=headers, json={"llm_model": model})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["llm_model"] == model
+
+
+async def test_test_llm_accepts_fields_at_limit(
+    router_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def _ok(self, *args, **kwargs) -> str:
+        return "ok"
+
+    monkeypatch.setattr(settings_router.LLMRouter, "complete", _ok)
+    headers = await _admin_headers(router_client)
+
+    resp = await router_client.post(
+        "/api/settings/test-llm",
+        headers=headers,
+        json={"provider": "p" * MAX_LLM_PROVIDER_LENGTH, "model": "m" * MAX_LLM_MODEL_LENGTH},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ok"] is True

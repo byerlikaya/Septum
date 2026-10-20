@@ -20,6 +20,11 @@ export const HTTP_ERROR_KEYS: CodeKeys = {
   ...MODEL_ERROR_KEYS,
 };
 
+export const LLM_TEST_ERROR_KEYS: CodeKeys = {
+  ...HTTP_ERROR_KEYS,
+  llm_unavailable: "settings.llm.test.unavailable",
+};
+
 export const CHAT_STREAM_ERROR_KEYS: CodeKeys = {
   retry_numbering_changed: "chat.error.retryNumberingChanged",
   document_changed: "chat.error.documentChanged",
