@@ -20,7 +20,24 @@
 
 All notable changes to this project are documented here in a high‑level, date‑based format.
 
-## Unreleased
+## v2.0.0 — 2026-10-20 — Air-gap hardening
+
+Closes the remaining ways raw data or network traffic could leave the
+air-gapped zone and makes the supply chain verifiable: a final PII gate on
+every user-typed text in chat, verifiable document erasure, model weights
+pinned and checked before they load, an offline public-suffix list,
+local-only Ollama URLs and read-only container images. CI now enforces
+lint, security audits and the repository policy as failing gates.
+
+Breaking changes (details in the dated entries below):
+
+- Container images are no longer published; install by cloning the
+  repository and building with the compose files.
+- GPU builds need an NVIDIA driver with CUDA 13 support.
+- API keys can no longer manage credentials or the masking policy; those
+  routes require an interactive login.
+- A Redis you bring yourself must run with the `noeviction` policy (the
+  Redis default, which the bundled compose Redis uses).
 
 ### 2026-10-20
 
