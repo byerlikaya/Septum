@@ -45,9 +45,11 @@ The shortest path to a working Septum. Three commands, five minutes, a local-fir
 ```bash
 git clone https://github.com/byerlikaya/Septum.git && cd Septum
 cp .env.example .env
-# Open .env in your editor and set POSTGRES_PASSWORD + REDIS_PASSWORD
+# Open .env in your editor and set POSTGRES_PASSWORD, REDIS_PASSWORD and the four SEPTUM_QUEUE_*_PASSWORD values
 docker compose up --build
 ```
+
+Compose stops with an error naming any variable that is still empty.
 
 Open **http://localhost:3000**. The setup wizard's first step asks for a setup token, which the API prints to its log: `docker compose logs api`. The wizard takes you the rest of the way. See [Setup token](#setup-token).
 
@@ -79,12 +81,12 @@ Five supported topologies. Pick the one that matches your deployment shape.
 
 ### 1. Full local stack — **recommended**
 
-Single host, all modules plus Ollama, PostgreSQL, Redis. The default `docker-compose.yml` ships this topology.
+Single host, all modules plus Ollama, PostgreSQL, Redis. The default `docker-compose.yml` ships this topology. It is a development stack: every service shares one network with internet access, so zone isolation is not enforced. For a split between zones, use the air-gapped and internet-facing files in variants 3 and 4. In this stack one Redis holds both the queue and the rate-limit and setup-token keys, under `noeviction`. A stream backlog (for example, with the audit worker down) can fill it; after that, login attempts are refused. The split topologies keep these in separate Redis instances. Size the queue with `SEPTUM_QUEUE_REDIS_MAXMEMORY`. This Redis runs without persistence and has no data volume, so the rate-limit and setup-token attempt counters reset when it restarts.
 
 ```bash
 git clone https://github.com/byerlikaya/Septum.git && cd Septum
 cp .env.example .env
-# Edit .env: set POSTGRES_PASSWORD and REDIS_PASSWORD (required)
+# Edit .env: set POSTGRES_PASSWORD, REDIS_PASSWORD and the four SEPTUM_QUEUE_*_PASSWORD values (required)
 
 docker compose up --build       # foreground — watch the first-boot logs
 # or
@@ -123,26 +125,48 @@ Standalone does not bundle Ollama. Either run Ollama on the host (`brew install 
 
 ### 3. Air-gapped zone only
 
-Runs only the air-gapped zone (api + web + PostgreSQL + Redis). The host should have no internet egress, but the compose file does not enforce that. Read [Gateway routing status](#gateway-routing-status) before you rely on this split.
+Runs only the air-gapped zone: api, web, PostgreSQL, Redis, Ollama, and mcp when its profile is enabled. All of them sit on the `zone` network, which is internal. On Docker Desktop it has no route to the internet, and a port published on it is not reachable from the host (see the notes below). The only container on both `zone` and the normal bridge is `zone-edge`, a single haproxy relay, so it is the only way in or out:
+
+- `:3000` from the host to the dashboard (web).
+- `:8765` from the host to mcp, when the `mcp` profile is enabled (bound to `SEPTUM_MCP_BIND`).
+- `:6379` from the api to the gateway-zone Redis at `SEPTUM_GATEWAY_QUEUE_ADDR`.
+Ollama runs inside the zone as the `ollama` service, reached as `http://ollama:11434`. It has no published port and no route out, so model pulls from the dashboard and `*-cloud` model tags fail there. Models are loaded with the one-off `ollama-pull` service, which is not on `zone`:
+
+```bash
+docker compose -f docker-compose.airgap.yml run --rm ollama-pull llama3.2:3b
+```
+
+The one-off starts a throwaway Ollama on `edge`, pulls the named models into the shared `ollama-data` volume and exits. On a host with no internet access, copy the models from a connected host into that volume instead. `<project>` is the Compose project name (`septum` for a checkout in a directory named `Septum`):
+
+```bash
+docker run --rm -v <project>_ollama-data:/dst -v "$HOME/.ollama":/src:ro alpine cp -a /src/models /dst/
+```
+
+Containers on `zone` have no route out. This was verified on Docker Desktop. The `zone` network is `internal`, and `zone-edge` is the only container that also sits on the normal bridge. Its relay carries only the paths above, and the queue path accepts connections only from the api's fixed address (`SEPTUM_API_IP`). The relay logs no traffic and no client addresses. It writes only startup and configuration notices, which go to the Docker log driver (`docker compose -f docker-compose.airgap.yml logs zone-edge`).
+
+Native Linux Docker Engine has not been tested. An internal network still has a gateway address on the host, so a host service bound to `0.0.0.0` may be reachable from zone containers. Bind host services to loopback or to one specific interface.
 
 ```bash
 cp .env.example .env
-# Set POSTGRES_PASSWORD + REDIS_PASSWORD
+# Set POSTGRES_PASSWORD, REDIS_PASSWORD and SEPTUM_QUEUE_API_PASSWORD (the same value as on the gateway host)
+# Set SEPTUM_GATEWAY_QUEUE_ADDR to <gateway-private-ip>:6379
 
 docker compose -f docker-compose.airgap.yml up -d --build
 ```
 
-This topology sets `USE_GATEWAY_DEFAULT=true`, which is meant to route LLM calls through `septum-queue` (Redis Streams) to the internet-facing host. In this release that routing is not wired. See [Gateway routing status](#gateway-routing-status).
+Compose refuses to start without `SEPTUM_GATEWAY_QUEUE_ADDR` and `SEPTUM_QUEUE_API_PASSWORD`. The file sets `USE_GATEWAY_DEFAULT=true`, which does two things. The api refuses to start without a queue. And it forces gateway routing: while the variable is true, every cloud LLM call goes through the queue, whatever the stored `use_gateway` setting says. The stored setting is not changed by the variable. Each cloud LLM call is published as a masked request to the gateway host's Redis and answered from there, and the api connects as the `septum-api` ACL user, which reaches only the request and response streams. On Docker Desktop, the internal `zone` network gives a direct cloud call no route out, so the queue is the only path (see the notes above). Local answers with Ollama are not routed and work as before. `REDIS_URL` stays on the zone's own Redis, which holds the rate limiter, setup token and error-log buckets; it never leaves the zone. Only masked text crosses the queue.
 
-**Fetching the models for an offline host.** The air-gapped host has no internet access, so its model cache is filled on a connected machine and copied over. The pins live in the code, so both machines must run the same Septum checkout. On the connected machine, with the same `.env`:
+**Fetching the models for an offline host.** The air-gapped host has no internet access, so its model cache is filled on a connected machine and copied over. The pins live in the code, so both machines must run the same Septum checkout. On the connected machine, from that checkout:
 
 ```bash
 docker compose -f docker-compose.airgap.yml build api
-docker compose -f docker-compose.airgap.yml run --rm -e HF_HUB_OFFLINE=0 api python -m septum_api.cli.models fetch --whisper base
+docker run --rm -v septum_septum-models:/app/models septum-api:local python -m septum_api.cli.models fetch --whisper base
 docker run --rm -v septum_septum-models:/src -v "$PWD":/dst alpine tar czf /dst/septum-models.tar.gz -C /src .
 ```
 
-The `fetch` command downloads and verifies every default model at its pinned commit, then the Whisper model named by `--whisper` (repeat the option for each size you use). Without `--whisper` it fetches the `WHISPER_MODEL` setting, which defaults to `base`. The last command archives the models volume; the volume name carries the Compose project prefix (`septum_` for a checkout in a directory named `Septum`). The air-gapped compose file sets `HF_HUB_OFFLINE=1`, so the fetch commands override it with `-e HF_HUB_OFFLINE=0`; this is the only step that downloads, and it runs on the connected host. Copy `septum-models.tar.gz` to the air-gapped host, then:
+Run the fetch with `docker run`, not `docker compose run`. `compose run` joins the internal `zone` network, which has no route out, so the download would fail there.
+
+The `fetch` command downloads and verifies every default model at its pinned commit, then the Whisper model named by `--whisper` (repeat the option for each size you use). Without `--whisper` it fetches the `WHISPER_MODEL` setting, which defaults to `base`. The last command archives the models volume; the volume name carries the Compose project prefix (`septum_` for a checkout in a directory named `Septum`). The `docker run` fetch does not read the compose file, so the image's default online mode applies. This is the only step that downloads, and it runs on the connected host. Copy `septum-models.tar.gz` to the air-gapped host, then:
 
 ```bash
 docker compose -f docker-compose.airgap.yml build api
@@ -156,10 +180,10 @@ docker compose -f docker-compose.airgap.yml run --rm api python -m septum_api.cl
 
 Both hosts need the `alpine` image locally: pull it on the connected machine and transfer it with `docker save` and `docker load`. Any image that contains `tar` can replace it in the commands above. The air-gapped compose file sets `HF_HUB_OFFLINE=1` on the `api` and `mcp` services, so those containers do not download models. The `mcp` service, when its profile is enabled, mounts the models volume read-only, so it only loads models that are already in the volume and pass the hash check. Pre-populate the volume with the `fetch` command (all default pins) before relying on `mcp` for languages that `api` has not loaded yet.
 
-**Custom NER models.** A custom model is fetched on the connected host with `--user-pin`, using the same `.env`. As above, `-e HF_HUB_OFFLINE=0` overrides the offline setting for this download. Repeat the option for each custom model:
+**Custom NER models.** A custom model is fetched on the connected host with `--user-pin`. Repeat the option for each custom model:
 
 ```bash
-docker compose -f docker-compose.airgap.yml run --rm -e HF_HUB_OFFLINE=0 api python -m septum_api.cli.models fetch --user-pin org/name@<40-character commit SHA>
+docker run --rm -v septum_septum-data:/app/data -v septum_septum-models:/app/models septum-api:local python -m septum_api.cli.models fetch --user-pin org/name@<40-character commit SHA>
 docker run --rm -v septum_septum-data:/src -v "$PWD":/dst alpine cp /src/septum-user-pins.json /dst/
 ```
 
@@ -175,16 +199,19 @@ Runs only the gateway + audit modules on a host that *can* reach the cloud LLM p
 
 ```bash
 cp .env.example .env
-# Set REDIS_PASSWORD (this host's own value; never reuse the air-gapped host's password)
+# Set the four queue passwords: SEPTUM_QUEUE_API_PASSWORD, SEPTUM_QUEUE_GATEWAY_PASSWORD,
+#   SEPTUM_QUEUE_AUDIT_PASSWORD, SEPTUM_QUEUE_HEALTH_PASSWORD
 # Set SEPTUM_GATEWAY_REDIS_BIND to this host's private or VPN address (required; compose refuses to start without it)
 # Set provider keys: ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.
 
 docker compose -f docker-compose.gateway.yml up -d --build
 ```
 
+This file runs the Redis that is the queue, plus the gateway, its health endpoint and the audit service. `REDIS_PASSWORD` is not used on this host, and the Redis default user is off. Each client has its own ACL user (see [Queue Redis users](#queue-redis-users)).
+
 The gateway image does not contain `septum-core` by security invariant — it only sees placeholder-masked text and publishes masked answers back. The audit sidecar logs every request with entity types, counts, and regulation ids (never raw PII) and exposes `/api/audit/export` for SIEM ingestion.
 
-**Air-gapped + internet-facing together**: two Docker hosts. The queue is the gateway host's Redis, published on `SEPTUM_GATEWAY_REDIS_BIND`. Each host keeps its own `REDIS_PASSWORD`. The air-gapped Redis stays on `127.0.0.1`, and its password never goes to the gateway host. Once routing ships, the air-gapped api will reach the queue through `SEPTUM_QUEUE_URL`. The Redis link is plain text, so run it only over a VPN or private network. The queue carries placeholder-masked payloads by design, but routing through it is not wired yet (see [Gateway routing status](#gateway-routing-status)).
+**Air-gapped + internet-facing together**: two Docker hosts. The queue is the gateway host's Redis, published on `SEPTUM_GATEWAY_REDIS_BIND`. On the air-gapped host set `SEPTUM_GATEWAY_QUEUE_ADDR` to `<that address>:6379` and copy only `SEPTUM_QUEUE_API_PASSWORD`. Never copy the gateway, audit or health passwords to the air-gapped host. The Redis link is plain text (AUTH and masked payloads) and this file configures no TLS listener, so run it only over a VPN or private link. `rediss://` works in `SEPTUM_QUEUE_URL` when TLS is terminated on the Redis listener. The client verifies the certificate and the host name in the URL, so the certificate must name that host (for the air-gapped default, `zone-edge`).
 
 ### 5. Native / source install (contributors)
 
@@ -238,7 +265,7 @@ If you started with `docker compose up` (the full stack), the api container reac
 
 **Bringing your own Redis?** Run it with `maxmemory-policy noeviction` (the Redis default, which the bundled compose Redis uses). Erasing a document leaves a short-lived tombstone in Redis that stops other workers from serving a cached copy of its anonymization map; any eviction policy — `allkeys-*` or `volatile-*`, since the tombstone carries a TTL — could drop it early.
 
-**Already have Ollama running on the host?** Stop the bundled one (`docker compose stop ollama && docker compose rm -f ollama`) so the port does not conflict, then use `http://host.docker.internal:11434` as the Ollama URL — docker-compose.yml wires `host.docker.internal` into the api container via `extra_hosts`, so it resolves back to your host's Ollama without any extra setup.
+**Already have Ollama running on the host?** Stop the bundled one (`docker compose stop ollama && docker compose rm -f ollama`) so the port does not conflict, then use `http://host.docker.internal:11434` as the Ollama URL — docker-compose.yml wires `host.docker.internal` into the api container via `extra_hosts`, so it resolves back to your host's Ollama without any extra setup. The air-gapped file does not do this: its api reaches only the in-zone `ollama` service (`http://ollama:11434`), and `host.docker.internal` does not resolve there.
 
 **Ollama URL rule.** Septum accepts an Ollama URL only when its host is loopback (`127.0.0.0/8`, `::1`), `localhost`, `host.docker.internal`, `host.containers.internal`, or `ollama` (the bundled compose service). Any other host is refused with HTTP 400 (`ollama_url_not_allowed`), including LAN or private IP addresses, `.local` names, and remote servers, even over `https://`, because Ollama receives unmasked text and raw PII must never leave the machine. `OLLAMA_BASE_URL` is copied into settings at first setup and used whenever no URL is saved; after that the saved URL governs. The same rule covers that variable: a refused value is not replaced by the default, so Ollama calls are refused until it is corrected. A custom compose service name for Ollama is not accepted. The names `ollama`, `host.docker.internal` and `host.containers.internal` are trusted by name, so do not alias them to another machine in `/etc/hosts`, DNS or container networking; Septum checks the name, not where it resolves. If a previously saved URL is now refused, Ollama features stay off, and the settings page flags it under the URL field until it is changed.
 
@@ -271,29 +298,62 @@ The API reads a client's address from `X-Forwarded-For` only when the request co
 
 `FORWARDED_ALLOW_IPS` never accepts `*`, and it refuses any range broader than `/8` (IPv4) or `/32` (IPv6).
 
-If a reverse proxy sits in front of the dashboard, set `SEPTUM_TRUSTED_PROXIES` on the dashboard process (the web container's environment, or the host running `npm start`) to that proxy's address or CIDR, with the same size limits. The dashboard then reads the client address from the proxy's `X-Forwarded-For`. It refuses to start on an invalid entry. The compose files do not set this variable; add it to the `web` service's environment.
+If a reverse proxy sits in front of the dashboard, set `SEPTUM_TRUSTED_PROXIES` on the dashboard process (the web container's environment, or the host running `npm start`) to that proxy's address or CIDR, with the same size limits. The dashboard then reads the client address from the proxy's `X-Forwarded-For`. It refuses to start on an invalid entry. The full stack does not set this variable; add it to the `web` service's environment in that case. The air-gapped file sets it to the zone-edge relay's fixed address (`SEPTUM_ZONE_EDGE_IP`, default `172.28.70.11`), because the relay sits in front of the dashboard there and sets `X-Forwarded-For` to the real client address.
 
 ### Published ports
 
-Only the dashboard listens on all interfaces. Every other published port binds to `127.0.0.1` unless you set its bind variable; the gateway Redis has no default and needs `SEPTUM_GATEWAY_REDIS_BIND`:
+Only the dashboard (port 3000) listens on all interfaces. Every other published port binds to `127.0.0.1` unless you set its bind variable; the gateway Redis has no default and needs `SEPTUM_GATEWAY_REDIS_BIND`:
 
 | Port | Service | Default bind | Variable |
 |---|---|---|---|
-| 3000 | Dashboard (web) | all interfaces | — |
-| 8000 | API | `127.0.0.1` | — (not published in standalone) |
-| 5432 | PostgreSQL | `127.0.0.1` | — |
-| 6379 | Redis (air-gapped file) | `127.0.0.1` | — |
-| 11434 | Ollama | `127.0.0.1` | `SEPTUM_OLLAMA_BIND` |
+| 3000 | Dashboard (web; zone-edge relay in the air-gapped file) | all interfaces | — |
+| 8000 | API (full stack only) | `127.0.0.1` | — (not published in standalone or the air-gapped file) |
+| 5432 | PostgreSQL (full stack only) | `127.0.0.1` | — |
+| 11434 | Ollama (full stack only) | `127.0.0.1` | `SEPTUM_OLLAMA_BIND` |
 | 8765 | MCP server (`mcp` profile) | `127.0.0.1` | `SEPTUM_MCP_BIND` |
 | 8002 | Audit API | `127.0.0.1` | `SEPTUM_AUDIT_BIND` |
 | 8001 | Gateway health | `127.0.0.1` | `SEPTUM_GATEWAY_HEALTH_BIND` |
 | 6379 | Gateway Redis (gateway file) | required | `SEPTUM_GATEWAY_REDIS_BIND` |
 
-Ports published by Docker bypass the INPUT rules of ufw and firewalld. Use the bind variables above, and add DOCKER-USER rules where the host needs them.
+The air-gapped file publishes no Redis, PostgreSQL or api port. Run commands inside those services with `docker compose -f docker-compose.airgap.yml exec <service> ...`. The full stack does not publish Redis. Ports published by Docker bypass the INPUT rules of ufw and firewalld. Use the bind variables above, and add DOCKER-USER rules where the host needs them.
+
+### Queue Redis users
+
+The gateway queue is a Redis with an ACL. The default user is off, and each client signs in as its own user, which can reach only its own streams and only the stream commands:
+
+| User | Streams it can reach | Compose file |
+|---|---|---|
+| `septum-api` | request and response streams | air-gapped (through zone-edge), gateway, full stack |
+| `septum-gateway` | request, response and audit streams | gateway, full stack |
+| `septum-audit` | audit stream | gateway, full stack |
+| `health` | `PING` only | gateway, full stack (healthcheck) |
+
+Each user has a password from `.env`: `SEPTUM_QUEUE_API_PASSWORD`, `SEPTUM_QUEUE_GATEWAY_PASSWORD`, `SEPTUM_QUEUE_AUDIT_PASSWORD` and `SEPTUM_QUEUE_HEALTH_PASSWORD`. Generate them with `openssl rand -hex 32`; use hex only, because Redis' `--user` arguments cannot carry spaces or quotes. As with `requirepass`, the passwords are visible to anyone who can run `docker inspect` on the container, so restrict access to the Docker host.
+
+### Gateway queue variables
+
+| Variable | Set on | Meaning |
+|---|---|---|
+| `SEPTUM_GATEWAY_QUEUE_ADDR` | air-gapped host (`.env`) | `<gateway-private-ip>:6379`. The zone-edge relay forwards the api's queue connection there. Required by the air-gapped file. |
+| `SEPTUM_QUEUE_URL` | api | Queue URL. Air-gapped default: `redis://septum-api:<SEPTUM_QUEUE_API_PASSWORD>@zone-edge:6379/0`; full stack default: the same user on `redis:6379`. Setting it on the air-gapped host replaces the default; keep it pointed at zone-edge. |
+| `SEPTUM_QUEUE_DIR` | api, gateway | Alternative to `SEPTUM_QUEUE_URL`: a file-backed queue directory. The compose files use Redis. |
+| `SEPTUM_ZONE_EDGE_IP` | air-gapped host (`.env`) | Fixed address of zone-edge on the `zone` network, default `172.28.70.11`. The dashboard trusts it as its proxy. |
+| `SEPTUM_GATEWAY_REQUEST_TOPIC` / `SEPTUM_GATEWAY_RESPONSE_TOPIC` | api, gateway | Stream names. Defaults `septum.llm.requests` and `septum.llm.responses`. Both sides must match; the compose files set them. |
+| `SEPTUM_GATEWAY_CLIENT_TIMEOUT_SECONDS` | api | How long the api waits for a gateway reply, in blocking reads of at most 25 s each, repeated until this deadline. Default `120`. Must be a positive number, or the api refuses to start when a queue is configured. |
+| `SEPTUM_GATEWAY_TIMEOUT_SECONDS` | gateway | Total deadline for one upstream attempt, covering the whole request and not just the connection. Default `30`. |
+| `SEPTUM_GATEWAY_MAX_ATTEMPTS` | gateway | Attempts per request. Default `3`. |
+| `SEPTUM_QUEUE_REDIS_MAXMEMORY` | gateway host (`.env`), full stack | Memory cap of the queue Redis, in Redis size syntax (for example `512mb`). Default `256mb`. The policy is `noeviction`: when the cap is reached, new queue writes fail, so the request is not queued. Nothing already queued is evicted, and nothing is sent to a cloud provider directly. Size it for the expected backlog. |
+| `SEPTUM_API_IP` | air-gapped host (`.env`) | Fixed address of the api on the `zone` network, default `172.28.70.12`. zone-edge relays the queue only from this address. Override it together with `SEPTUM_SUBNET`, `SEPTUM_DYNAMIC_IP_RANGE`, `SEPTUM_WEB_IP` and `SEPTUM_ZONE_EDGE_IP`. |
+
+The api's client timeout must stay above the gateway's worst case. With the defaults that is 3 attempts × 30 s, plus two `Retry-After` waits capped at 10 s each, about 110 s. The default client timeout of 120 s covers it. When you raise `SEPTUM_GATEWAY_TIMEOUT_SECONDS` or `SEPTUM_GATEWAY_MAX_ATTEMPTS`, raise `SEPTUM_GATEWAY_CLIENT_TIMEOUT_SECONDS` to match, or the api gives up on answers the gateway still delivers.
+
+**Queue retention.** Each queue entry is acknowledged and deleted (XACK, then XDEL) once it is processed, so the queue holds only the backlog. The queue Redis runs with persistence disabled (`--save ""`, `--appendonly no`), so it writes no snapshot or append-only file. On a queue Redis restart, in-flight requests fail and the caller gets an error. The queue Redis also runs with `--maxmemory ${SEPTUM_QUEUE_REDIS_MAXMEMORY}` and `--maxmemory-policy noeviction`. When it is full, new writes are refused and new requests fail closed; queued messages are never evicted. Size the cap with `SEPTUM_QUEUE_REDIS_MAXMEMORY`.
+
+**Clock sync.** In the split deployment (air-gapped and internet-facing hosts), both hosts must keep their clocks synchronised, through NTP or an internal time source. A skew of several minutes makes the api discard valid gateway replies as stale; the request then times out and falls back to Ollama.
 
 ### Monitoring
 
-The dashboard no longer proxies `/metrics`. Scrape the API directly: `api:8000` from inside the compose network, or `127.0.0.1:8000` on the host. The standalone container does not publish port 8000. In standalone, publish it yourself with `127.0.0.1:8000:8000` in a compose override. `/metrics` needs no login, so never publish it on a routable address. With `WEB_CONCURRENCY` above 1, each scrape reads one worker's counters.
+The dashboard no longer proxies `/metrics`. Scrape the API directly: `api:8000` from inside the compose network, or `127.0.0.1:8000` on the host. The standalone container does not publish port 8000, and neither does the air-gapped file. In standalone, publish it yourself with `127.0.0.1:8000:8000` in a compose override. In the air-gapped file, scrape from inside the zone, for example with `docker compose -f docker-compose.airgap.yml exec api`. `/metrics` needs no login, so never publish it on a routable address. With `WEB_CONCURRENCY` above 1, each scrape reads one worker's counters.
 
 New Prometheus series:
 
@@ -310,9 +370,18 @@ New Prometheus series:
 
 `ERROR_LOG_RETENTION_DAYS` (default `90`) deletes older error log rows once a day. `0` keeps them indefinitely and logs a warning at startup. Answers 401 or 403 to a caller with no login or API key are counted but not stored, so they cannot fill the table. Other rows draw on a budget per user, API key or client address: 60 a minute, or 20 a minute for server errors. Rows past the budget are counted only. Rows record the route template (for example `/api/documents/{document_id}`), not the concrete URL.
 
-### Gateway routing status
+### Gateway routing and fail-closed behaviour
 
-Until gateway routing ships, the air-gapped split is not an egress guarantee. In this release the API ignores `SEPTUM_QUEUE_URL` and does not send LLM calls through the gateway queue, even with `USE_GATEWAY_DEFAULT=true`. If a cloud provider is configured, the API calls it directly from the air-gapped host (with masked data only), and the compose files do not block that traffic. For now, use a local Ollama provider in the air-gapped zone and do not configure a cloud provider there.
+When gateway routing is on, cloud LLM calls go through the gateway queue and never directly from the API. Routing is on when the stored `use_gateway` setting is on, or when `USE_GATEWAY_DEFAULT=true` forces it. The environment variable wins over a stored off: it is read on every call and nothing is written to the database. Setting `USE_GATEWAY_DEFAULT` to false or leaving it unset makes the stored value decide, as before. The API applies these rules:
+
+- `USE_GATEWAY_DEFAULT=true` with neither `SEPTUM_QUEUE_URL` nor `SEPTUM_QUEUE_DIR` set: the API refuses to start.
+- Routing on but no gateway client installed (for example, `USE_GATEWAY_DEFAULT=true` or a saved `use_gateway` on, with no queue configured): the call fails with the code `gateway_not_configured`. There is no direct cloud call, no Ollama fallback, and the circuit breaker is not touched. Chat returns the coded error on its stream, and the LLM settings test returns HTTP 400 with the same code.
+- A real gateway failure, such as a timeout, an upstream error or a missing provider key on the gateway, is handled like a direct cloud failure: it counts against the circuit breaker and the call falls back to Ollama.
+- `llm_provider=ollama` always runs locally, whatever `use_gateway` or `USE_GATEWAY_DEFAULT` says.
+
+Boolean `*_DEFAULT` flags, such as `USE_GATEWAY_DEFAULT`, accept only `1`, `true`, `yes`, `on` and `0`, `false`, `no`, `off`, in any case. A blank value means the default. All of them are checked when the api starts. Any other value is refused with an error that names the variable and never shows its value. Integer `*_DEFAULT` flags must be whole numbers from each flag's minimum up to 2147483647, and `RAG_RELEVANCE_THRESHOLD_DEFAULT` must be a finite number from 0.0 to 1.0. An invalid value in any boolean or number `*_DEFAULT` flag, including `USE_GATEWAY_DEFAULT`, stops api startup.
+
+The stored `use_gateway` value is copied from `USE_GATEWAY_DEFAULT` when setup completes. The dashboard does not show it.
 
 ## LLM providers
 
@@ -324,6 +393,8 @@ Septum can use any combination of the following:
 | **Anthropic** | [console.anthropic.com](https://console.anthropic.com) | Claude Opus / Sonnet / Haiku — highest-quality answers |
 | **OpenAI** | [platform.openai.com](https://platform.openai.com) | GPT-4, GPT-4 Turbo, GPT-4o |
 | **OpenRouter** | [openrouter.ai](https://openrouter.ai) | Unified API across 100+ models with a single key |
+
+**Where the text goes.** A cloud provider receives only the masked messages. Masking can miss identifiers, so treat the text as possibly containing residual personal data. If a cloud call fails, the local Ollama model receives the same masked messages. The provider is normally a processor or recipient for the masked prompt, which is a contractual question for you. Whether sending it there is an international transfer depends on where the provider processes requests relative to your jurisdiction. Deciding whether the transfer is permitted, and what safeguards apply, is the operator's responsibility. The Ollama fallback uses the configured Ollama address; if that is not on your own host or network, it is a recipient too.
 
 **Ollama model recommendations:**
 
@@ -355,8 +426,8 @@ The compose files declare named Docker volumes so your data survives container r
 | `septum-bm25-indexes` | `/app/bm25_indexes` | BM25 keyword indexes |
 | `septum-models` | `/app/models` | Cached HuggingFace, Whisper and PaddleOCR models |
 | `septum-pgdata` | `/var/lib/postgresql/data` | PostgreSQL cluster (compose only) |
-| `septum-redis-data` | `/data` | Redis AOF/RDB (compose only) |
-| `ollama-data` | `/root/.ollama` | Downloaded Ollama models (full stack only) |
+| `septum-redis-data` | `/data` | Air-gapped stack's local Redis (rate limits, cache) |
+| `ollama-data` | `/root/.ollama` | Downloaded Ollama models (full stack and air-gapped file) |
 | `septum-audit-log` | `/var/log/septum` | Audit log files (full stack and gateway file) |
 | `septum-mcp-scan` | `/data/scan` | MCP scan directory, mounted read-only (full stack and air-gapped file) |
 
@@ -411,6 +482,16 @@ Volumes are preserved across the rebuild because they are named volumes.
 - A `rate_limit` of `60/minute` in `config.json` (the value earlier releases wrote) is read as the new default, `600/minute`.
 - `docker-compose.gateway.yml` no longer starts until `SEPTUM_GATEWAY_REDIS_BIND` is set (Redis used to publish on all interfaces).
 - The default rate limit is now enforced on every API route; earlier releases never applied it.
+- **Gateway queue, zone split.** The air-gapped file no longer publishes the api (8000), PostgreSQL or Redis ports. Use `docker compose -f docker-compose.airgap.yml exec <service> ...` instead.
+- **Gateway queue, air-gapped host.** The air-gapped file needs `SEPTUM_GATEWAY_QUEUE_ADDR` and `SEPTUM_QUEUE_API_PASSWORD` in `.env`. Compose refuses to start without them. Cloud calls from this zone go through the gateway queue.
+- **Ollama on the air-gapped host.** The api reaches Ollama as `http://ollama:11434`, a container inside the zone. The host Ollama relay is gone. A stored Ollama URL of `host.docker.internal` no longer works there; change it in Settings. Models are loaded with `ollama-pull` (see [variant 3](#3-air-gapped-zone-only)).
+- **Pre-fetching models.** The air-gapped host's models are fetched with `docker run` on a connected machine, outside the zone. Use the commands in [variant 3](#3-air-gapped-zone-only). `docker compose run` no longer works for this, because it joins the internal network.
+- **Gateway host.** The gateway Redis's default user is off, and `REDIS_PASSWORD` is not used on this host. Queue URLs in the old form `redis://:<password>@...` stop working; use the per-service URLs the compose file builds from the four `SEPTUM_QUEUE_*_PASSWORD` values.
+- **Full stack.** `docker-compose.yml` needs the four `SEPTUM_QUEUE_*_PASSWORD` values in `.env`. Compose refuses to start without them.
+- **Existing air-gapped installs.** With `USE_GATEWAY_DEFAULT=true` in the file, gateway routing is forced whatever the stored `use_gateway` setting says. An existing air-gapped install whose stored `use_gateway` is false is now forced through the gateway: its cloud calls stop going directly and go through the queue. Until the gateway host is running and the queue variables are set, those calls get `gateway_not_configured`. The stored value itself is not changed, so setting `USE_GATEWAY_DEFAULT` to false restores the stored behaviour.
+- **Timeouts.** Raising `SEPTUM_GATEWAY_TIMEOUT_SECONDS` requires raising `SEPTUM_GATEWAY_CLIENT_TIMEOUT_SECONDS` to match. `SEPTUM_GATEWAY_TIMEOUT_SECONDS` is now a total deadline per attempt. Earlier releases used httpx per-phase timeouts, which did not bound a slow response.
+- **Startup refusal.** With `USE_GATEWAY_DEFAULT=true`, the api refuses to start unless `SEPTUM_QUEUE_URL` or `SEPTUM_QUEUE_DIR` is set.
+- **Queue Redis data volume.** The queue Redis no longer has a data volume. Existing installs should remove the old queue Redis data volume before starting, because it still holds old queue data. On the gateway host, `<project>_septum-gateway-redis-data` can always be removed. On a full dev stack host, remove `<project>_septum-redis-data` only if that host does not also run the air-gapped stack from the same project directory, because both stacks use that volume name. `<project>` is the Compose project name.
 
 **Model caches after an upgrade.** Model caches from an earlier version may not match the pinned revisions. On the next online start, a pinned snapshot that holds leftover unpinned files is purged and fetched once; offline, it is refused until it is fetched again. An air-gapped install must run the `fetch` command again on a connected host and copy the models volume and the user-pins file, as described in [variant 3](#3-air-gapped-zone-only). A stored bare custom NER id is refused with `ner_model_unpinned`. A stored Whisper model name outside the openai-whisper registry (such as a local checkpoint path) is refused with `whisper_model_not_allowed`. Both must be changed in Settings. Unless warmup is disabled, the startup log then warns, with error codes only, about each stored custom NER model or Whisper model that would be refused.
 
@@ -439,6 +520,10 @@ Never run `docker volume prune` while moving: it deletes every volume no contain
 **Ollama step fails with "connection refused"**. Full stack: the Ollama container may still be pulling its first model; give it 30-60 seconds and retry. Standalone: Ollama is not bundled — either install it on the host (`brew install ollama`) and point the wizard at `http://host.docker.internal:11434`, or choose a cloud provider.
 
 **The wizard says "The setup token is invalid or expired"**. Enter the token exactly as printed. The token stays the same across restarts until setup completes. If you set `SEPTUM_SETUP_TOKEN`, enter that value; with the variable set, the log line reads `Septum setup is open; use the token set in SEPTUM_SETUP_TOKEN.` Otherwise read the latest line with `docker compose logs api | grep 'setup token'` (standalone: `docker compose -f docker-compose.standalone.yml logs septum | grep 'setup token'`). If the log has no token line, setup is closed because the database already has a user. After 10 wrong tries in a minute the wizard reports too many attempts; wait a minute and try again.
+
+**The api exits at startup with "USE_GATEWAY_DEFAULT is true but neither SEPTUM_QUEUE_URL nor SEPTUM_QUEUE_DIR is set".** This is the fail-closed startup check. Set the queue variables (see [Gateway queue variables](#gateway-queue-variables)) or unset `USE_GATEWAY_DEFAULT`. The air-gapped file cannot run without a queue.
+
+**Chat or the LLM settings test shows `gateway_not_configured`.** A saved setting routes LLM calls through the gateway, but this api has no queue client. Septum does not fall back to a direct cloud call or to Ollama here. Configure the queue and make sure the gateway host is running. The dashboard does not show `use_gateway`; the stored value is copied from `USE_GATEWAY_DEFAULT` when setup completes.
 
 **Port 3000 already in use**. Something else on your machine owns the port. Either stop the offender, or change Septum's binding: `docker compose up -d` with `-p 3001:3000` in a compose override, or edit `docker-compose.yml`'s `ports:` entry.
 

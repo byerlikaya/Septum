@@ -187,3 +187,18 @@ async def router_client(
             limiter.enabled = True
         app.dependency_overrides.pop(get_db, None)
         await engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def _ambient_gateway_flag_cleared(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An exported USE_GATEWAY_DEFAULT must not change routing in unrelated tests."""
+    monkeypatch.delenv("USE_GATEWAY_DEFAULT", raising=False)
+
+
+@pytest.fixture
+async def chat_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Chat router harness: isolated database, acting user, mocked LLM and retrieval."""
+    from chat_harness import open_chat_env
+
+    async with open_chat_env(tmp_path, monkeypatch) as env:
+        yield env

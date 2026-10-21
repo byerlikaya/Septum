@@ -39,8 +39,10 @@
 Septum, `packages/` dizini altında yer alan **bağımsız olarak kurulabilir yedi pakete** bölünmüştür; bu paketler üç güvenlik bölgesine dağıtılır.
 
 - **Air-gapped bölge** (`septum-core`, `septum-mcp`, `septum-api`, `septum-web`) — tüm PII işlemleri burada yürür. Bu paketlerin internete çıkan tek bir bağımlılığı yoktur; `septum-core` ayrıca `httpx` / `requests` / `urllib` import'larını kod seviyesinde yasaklar, böylece ham PII kazara dışarı sızamaz.
-- **Köprü** (`septum-queue`) — bölgeler arasında yalnızca önceden maskelenmiş payload'lar taşır. İki backend seçeneği vardır: dosya (air-gapped varsayılanı) ve Redis Streams (`[redis]` extra'sı). Ham PII köprüden geçemez; bu kısıt kod sözleşmesiyle garanti altındadır.
+- **Köprü** (`septum-queue`) — bölgeler arasında yalnızca önceden maskelenmiş payload'lar taşır. İki backend seçeneği vardır: dosya ve Redis Streams (`[redis]` extra'sı). Compose dosyaları Redis Streams kullanır. Ham PII köprüden geçemez; bu kısıt kod sözleşmesiyle garanti altındadır.
 - **Internet-facing bölge** (`septum-gateway`, `septum-audit`) — maskelenmiş LLM isteklerini Anthropic / OpenAI / OpenRouter'a iletir ve PII içermeyen uyumluluk telemetrisi yazar. Kod sözleşmesi gereği bu paketler `septum-core`'u asla import etmez; Dockerfile yerleşimi de `packages/core/` dizinini gateway ve audit imajlarına kopyalamaz — kısıtlama imaj katmanında da zorunlu kılınır.
+
+Air-gapped compose dosyasında `zone` ağı internal'dır: bu ağdaki container'ların internete giden bir rotası yoktur. Tek `zone-edge` relay'i (haproxy), hem `zone` hem normal bridge üzerinde bulunan tek container'dır. Panel ve isteğe bağlı mcp portunu içeri taşır; api'nin tek dış bağlantısını, yani gateway host'unun Redis'ine giden kuyruk bağlantısını relay eder. Ollama bölgenin içinde çalışır ve relay üzerinden geçmez. `USE_GATEWAY_DEFAULT=true` iken gateway yönlendirmesi zorlanır; bulut yönlendirmeli bir istek bölgeden yalnızca bu relay üzerinden, maskelenmiş bir kuyruk girdisi olarak çıkar ve gateway onu internete açık host'tan bulut sağlayıcısına iletir. Bu rota yokluğu yalnızca Docker Desktop üzerinde doğrulanmıştır; diğer motorlarda neyi kapsayıp neyi kapsamadığı için [Kurulum](installation.md#3-yalnız-air-gapped-bölge) bölümüne bakın. Tam yığın (`docker-compose.yml`) bir geliştirme yığınıdır ve bu ayrımı zorlamaz.
 
 | Bölge | Paket | Rol |
 |:---|:---|:---|
@@ -418,7 +420,9 @@ Septum, GDPR, KVKK ve diğer regülasyon uyumluluğu için **salt-ekleme denetim
 ## LLM Dayanıklılığı ve İzlenebilirlik
 
 - **Devre kesici (circuit breaker):** 120 saniye içinde 3 ardışık bulut LLM hatası sonrası sağlayıcı geçici olarak devre dışı bırakılır (60 saniye bekleme). İstekler yeniden deneme süresini harcamadan doğrudan yerel Ollama fallback'ine atlar. Bekleme süresi sonunda tek bir deneme isteğiyle toparlanma test edilir.
+- **Gateway yönlendirmesi:** Yönlendirme, saklanan `use_gateway` ayarı açıksa ya da `USE_GATEWAY_DEFAULT=true` her çağrıda onu zorluyorsa açıktır; bulut çağrıları gateway kuyruğu üzerinden gider ve API bunları asla doğrudan yapmaz. Kurulu bir gateway istemcisi yoksa çağrı `gateway_not_configured` koduyla başarısız olur: doğrudan bulut çağrısı yok, Ollama fallback'i yok ve devre kesici hiç değiştirilmez. Gerçek bir gateway hatası devre kesiciye yazılır ve doğrudan bulut hatası gibi Ollama'ya düşer. `llm_provider=ollama` her zaman yerel çalışır.
 - **Çoklu sağlayıcı desteği:** Anthropic, OpenAI, OpenRouter ve yerel Ollama. Ayarlar UI'ından kod değişikliği olmadan sağlayıcı değiştirilebilir.
+- **Fallback girdisi:** yerel Ollama fallback'i, bulut çağrısına verilen aynı maskelenmiş mesajları alır.
 - **Üstel geri çekilmeyle yeniden deneme:** Bulut HTTP çağrıları, üstel geri çekilmeyle 3 kez yeniden denenir (0,5sn → 1sn → 2sn).
 - **Sağlık uç noktası:** `GET /health` — backend durumu, cihaz bilgisi, LLM sağlayıcısı, Redis bağlantısı ve sağlayıcı bazlı devre kesici durumunu raporlar.
 

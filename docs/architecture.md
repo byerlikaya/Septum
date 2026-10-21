@@ -45,13 +45,15 @@ Septum is split into **seven independently installable packages** under
   `httpx` / `requests` / `urllib` imports so it can never accidentally
   egress raw PII.
 - **Bridge** (`septum-queue`) — transports already-masked payloads
-  between zones over a file backend (air-gap default) or Redis Streams
-  (`[redis]` extra). Raw PII cannot cross the bridge by contract.
+  between zones over a file backend or Redis Streams (`[redis]` extra).
+  The compose files use Redis Streams. Raw PII cannot cross the bridge by contract.
 - **Internet-facing zone** (`septum-gateway`, `septum-audit`) — forwards
   masked LLM requests to Anthropic / OpenAI / OpenRouter and logs
   PII-free compliance telemetry. By code-review invariant these packages
   never import `septum-core`; the Dockerfile layout enforces this by
   never COPY-ing `packages/core/` into the gateway or audit images.
+
+In the air-gapped compose file, the `zone` network is internal: containers on it have no route to the internet. The single `zone-edge` relay (haproxy) is the only container on both `zone` and the normal bridge. It carries the dashboard and the optional mcp port in, and the api's one outbound connection: the queue to the gateway host's Redis. Ollama runs inside the zone and is not relayed. With `USE_GATEWAY_DEFAULT=true`, gateway routing is forced, so a cloud-bound request leaves the zone only as a masked queue entry through that relay, and the gateway forwards it to the cloud provider from the internet-facing host. This no-route property was verified on Docker Desktop only; see [Installation](installation.md#3-air-gapped-zone-only) for what it does and does not cover on other engines. The full stack (`docker-compose.yml`) is a development stack and does not enforce this split.
 
 | Zone | Package | Role |
 |:---|:---|:---|
@@ -523,7 +525,9 @@ Septum maintains an **append-only audit trail** for GDPR, KVKK, and other regula
 ## LLM Resilience & Observability
 
 - **Circuit breaker:** After 3 consecutive cloud LLM failures within 120 seconds, the provider is temporarily disabled (60-second cooldown). Requests skip directly to the local Ollama fallback without wasting retry time. After cooldown, a single probe request tests recovery.
+- **Gateway routing:** when gateway routing is on (the stored `use_gateway` setting, or `USE_GATEWAY_DEFAULT=true`, which forces it on every call), cloud calls go through the gateway queue and are never made directly by the API. If no gateway client is installed, the call fails with `gateway_not_configured`: no direct cloud call, no Ollama fallback, and the circuit breaker is not touched. A real gateway failure counts against the circuit breaker and falls back to Ollama, like a direct cloud failure. `llm_provider=ollama` always runs locally.
 - **Multi-provider support:** Anthropic, OpenAI, OpenRouter, and local Ollama. Switch providers via Settings UI without code changes.
+- **Fallback input:** the local Ollama fallback receives the same masked messages the cloud call was given.
 - **Retry with exponential backoff:** Cloud HTTP calls retry up to 3 times with exponential backoff (0.5s → 1s → 2s).
 - **Health endpoint:** `GET /health` reports backend status, device info, LLM provider, Redis connectivity, and per-provider circuit breaker state.
 
