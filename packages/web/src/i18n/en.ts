@@ -254,6 +254,7 @@ export const enMessages = {
   "settings.llm.apiKey.hint":
     "Stored locally and never sent anywhere except the selected provider.",
   "settings.llm.ollama.baseUrl.label": "Ollama URL",
+  "settings.llm.ollama.baseUrl.placeholder": "e.g. http://localhost:11434",
   "settings.llm.ollama.baseUrl.hint":
     "Ollama receives unmasked text, so use Ollama on this machine (loopback, localhost, host.docker.internal, host.containers.internal) or in your own private compose stack (the bundled ollama service).",
   "settings.llm.ollama.baseUrl.rejected":

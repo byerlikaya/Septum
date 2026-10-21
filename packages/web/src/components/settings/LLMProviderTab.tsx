@@ -60,7 +60,7 @@ export function LLMProviderTab({
           const err = await onChange("ollama_base_url", value);
           if (err) setBaseUrlError(localizeApiError(err, t, "errors.settings.update"));
         }}
-        placeholder="http://localhost:11434"
+        placeholder={t("settings.llm.ollama.baseUrl.placeholder")}
       />
       {urlMessage && (
         <p

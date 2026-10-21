@@ -334,6 +334,18 @@ export async function getOllamaModels(): Promise<{ models: string[] }> {
   return data;
 }
 
+/** Reachable Ollama found by the server probe, plus the server's configured default URL. */
+export interface OllamaProbeResponse {
+  url: string | null;
+  models: string[];
+  default_url: string | null;
+}
+
+export async function probeOllama(): Promise<OllamaProbeResponse> {
+  const { data } = await api.get<Partial<OllamaProbeResponse>>("/api/settings/ollama-probe");
+  return { url: data.url ?? null, models: data.models ?? [], default_url: data.default_url ?? null };
+}
+
 export async function getRouteAuditEvents<T = unknown>(eventId: number): Promise<T> {
   const { data } = await api.get<T>(`/api/audit/${eventId}`);
   return data;

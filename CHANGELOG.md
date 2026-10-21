@@ -30,6 +30,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 - **Breaking: error logs are bounded and kept for 90 days by default** (ERROR_LOG_RETENTION_DAYS). Failed logins and other unauthenticated rejections are counted in metrics instead of stored, so they no longer appear in Error Logs. SQL bound values no longer reach the logs.
 - **Breaking: client-address trust is tightened.** The dashboard strips client-sent forwarding headers, and the API trusts forwarded addresses only from its known proxy; an outer proxy is trusted only when SEPTUM_TRUSTED_PROXIES is set. The /metrics endpoint is no longer proxied on the dashboard port.
 - **Breaking: published ports bind to 127.0.0.1 by default** (API, MCP, Ollama, audit and gateway health). The gateway compose file requires SEPTUM_GATEWAY_REDIS_BIND, and the full-stack and air-gapped compose files use a fixed subnet.
+- The setup wizard no longer saves `http://localhost:11434` as the Ollama address on Docker installs, where it points at the API container itself. It now uses the detected address or the server's configured default, and leaves the setting alone when neither is known.
 
 ### 2026-10-20
 

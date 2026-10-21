@@ -461,10 +461,22 @@ async def test_local_models_endpoint(
 
 
 class OllamaProbeResponse(BaseModel):
-    """Result of probing multiple Ollama URLs to find a reachable instance."""
+    """Result of probing multiple Ollama URLs to find a reachable instance.
+
+    ``default_url`` is the server's configured Ollama base URL (the value the
+    settings seed uses), or ``None`` when that value fails the local-host check.
+    It is returned whether or not a probe target answers.
+    """
 
     url: Optional[str] = None
     models: list[str] = []
+    default_url: Optional[str] = None
+
+
+def _configured_ollama_default() -> Optional[str]:
+    """Return the configured default Ollama base URL if it passes validation, else ``None``."""
+    url = effective_ollama_base_url(None)
+    return None if ollama_url_problem(url) is not None else url
 
 
 _OLLAMA_PROBE_URLS = [
@@ -487,18 +499,20 @@ async def ollama_probe_endpoint(
 
     Tries ``host.docker.internal`` (Docker → host), ``ollama`` (Compose
     service), and ``localhost`` in order. Returns the first URL that
-    responds to ``/api/tags`` along with the available model names.
+    responds to ``/api/tags`` along with the available model names, plus
+    the server's configured default URL in ``default_url``.
     """
+    default_url = _configured_ollama_default()
     async with ollama_async_http_client(2.0) as client:
         for base in _OLLAMA_PROBE_URLS:
             try:
                 resp = await client.get(f"{base}/api/tags")
                 resp.raise_for_status()
                 names = [m.get("name", "") for m in resp.json().get("models", [])]
-                return OllamaProbeResponse(url=base, models=names)
+                return OllamaProbeResponse(url=base, models=names, default_url=default_url)
             except httpx.HTTPError:
                 continue
-    return OllamaProbeResponse()
+    return OllamaProbeResponse(default_url=default_url)
 
 
 class OllamaModelInfo(BaseModel):
