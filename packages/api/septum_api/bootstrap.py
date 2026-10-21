@@ -15,6 +15,7 @@ import json
 import os
 import secrets
 import tempfile
+import threading
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,12 @@ from typing import Any
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 _DEFAULT_CONFIG_PATH = "/app/data/config.json"
+
+SETUP_TOKEN_ENV = "SEPTUM_SETUP_TOKEN"
+_SETUP_TOKEN_KEY = "setup_token"
+_SETUP_TOKEN_BYTES = 32
+SETUP_TOKEN_MIN_LENGTH = 32
+SETUP_TOKEN_MIN_DISTINCT_CHARS = 10
 
 # Every config.json written before the default limit was enforced carries
 # this value; it was never applied, so it is read as the current default.
@@ -121,6 +128,7 @@ def _write_config_file(path: Path, data: dict[str, Any]) -> None:
 # Cached singleton
 # ---------------------------------------------------------------------------
 _cached_config: BootstrapConfig | None = None
+_config_write_lock = threading.Lock()
 
 
 def _invalidate_cache() -> None:
@@ -163,7 +171,8 @@ def get_config() -> BootstrapConfig:
 
     # Persist if we generated new secrets or the file did not exist
     if dirty or not path.exists():
-        _write_config_file(path, asdict(config))
+        with _config_write_lock:
+            _write_config_file(path, {**_read_config_file(path), **asdict(config)})
 
     # Environment variables always win
     _apply_env_overrides(config)
@@ -175,9 +184,10 @@ def get_config() -> BootstrapConfig:
 def save_config(updates: dict[str, Any]) -> None:
     """Merge *updates* into the persisted config file and invalidate the cache."""
     path = _config_path()
-    current = _read_config_file(path)
-    current.update(updates)
-    _write_config_file(path, current)
+    with _config_write_lock:
+        current = _read_config_file(path)
+        current.update(updates)
+        _write_config_file(path, current)
     _invalidate_cache()
 
 
@@ -185,3 +195,98 @@ def needs_setup() -> bool:
     """Return True when the infrastructure wizard has not completed yet."""
     config = get_config()
     return not config.database_configured
+
+
+class WeakSetupTokenError(RuntimeError):
+    """``SEPTUM_SETUP_TOKEN`` is set but too weak to resist guessing."""
+
+
+def _weak_setup_token(value: str) -> bool:
+    """Too short, or too few distinct characters (``aaaa…`` / ``1212…``)."""
+    return (
+        len(value) < SETUP_TOKEN_MIN_LENGTH
+        or len(set(value)) < SETUP_TOKEN_MIN_DISTINCT_CHARS
+    )
+
+
+def validate_setup_token_env() -> None:
+    """Refuse to start with a weak ``SEPTUM_SETUP_TOKEN``.
+
+    Weak means shorter than the minimum length or built from fewer than
+    the minimum number of distinct characters; ``openssl rand -hex 32``
+    passes. The message names the variable and the rules, never the value.
+    """
+    value = os.getenv(SETUP_TOKEN_ENV, "").strip()
+    if value and _weak_setup_token(value):
+        raise WeakSetupTokenError(
+            f"{SETUP_TOKEN_ENV} must be at least {SETUP_TOKEN_MIN_LENGTH} characters with "
+            f"at least {SETUP_TOKEN_MIN_DISTINCT_CHARS} distinct characters; generate one "
+            "with `openssl rand -hex 32` or unset it to get a generated token."
+        )
+
+
+def setup_token_from_env() -> str | None:
+    """Return the operator-supplied ``SEPTUM_SETUP_TOKEN``, or None when unset, blank or weak.
+
+    A weak value is never accepted as a token; startup refuses it first
+    through :func:`validate_setup_token_env`.
+    """
+    value = os.getenv(SETUP_TOKEN_ENV, "").strip()
+    if not value or _weak_setup_token(value):
+        return None
+    return value
+
+
+def get_setup_token() -> str | None:
+    """Return the setup token the setup-window gate must compare against.
+
+    ``SEPTUM_SETUP_TOKEN`` wins over the value stored in ``config.json``.
+    Returns None when neither exists, which means no setup-time request can
+    be authorised by a token. The value is a secret: it must never be logged,
+    persisted anywhere but ``config.json``, or returned in an API response.
+    Whether setup is still open is not decided here; callers check that
+    against the database themselves.
+    """
+    from_env = setup_token_from_env()
+    if from_env:
+        return from_env
+    stored = _read_config_file(_config_path()).get(_SETUP_TOKEN_KEY)
+    return stored if isinstance(stored, str) and stored else None
+
+
+def ensure_setup_token() -> str:
+    """Return the stored setup token, generating and persisting one if absent.
+
+    Call this only once setup is positively known to be open; an install that
+    already has a user or a completed setup must never get a token. The token
+    survives restarts and ``--reload`` because it lives in ``config.json``
+    (mode 0600, written atomically). It is independent of
+    ``SEPTUM_SETUP_TOKEN``: callers that honour the override check
+    :func:`setup_token_from_env` first.
+    """
+    path = _config_path()
+    with _config_write_lock:
+        current = _read_config_file(path)
+        stored = current.get(_SETUP_TOKEN_KEY)
+        if isinstance(stored, str) and stored:
+            return stored
+        token = secrets.token_urlsafe(_SETUP_TOKEN_BYTES)
+        current[_SETUP_TOKEN_KEY] = token
+        _write_config_file(path, current)
+    return token
+
+
+def clear_setup_token() -> None:
+    """Remove the stored setup token from ``config.json``; a no-op when none is stored.
+
+    Called once setup closes (first admin created, or found closed at start).
+    The rewrite is atomic and keeps the file at mode 0600.
+    ``SEPTUM_SETUP_TOKEN`` lives in the environment and is not affected.
+    """
+    path = _config_path()
+    with _config_write_lock:
+        current = _read_config_file(path)
+        if _SETUP_TOKEN_KEY not in current:
+            return
+        del current[_SETUP_TOKEN_KEY]
+        _write_config_file(path, current)

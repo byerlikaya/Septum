@@ -29,6 +29,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 PROXY = "127.0.0.1"
 UNTRUSTED_PEER = "203.0.113.9"
+VERIFY_TOKEN_LIMIT = 10
 
 
 def _client(peer: str) -> AsyncClient:
@@ -75,6 +76,17 @@ async def isolated_db(tmp_path: Path) -> AsyncIterator[async_sessionmaker]:
     await engine.dispose()
 
 
+async def _spend_verify_token(client: AsyncClient, xff: str | None = None) -> list[int]:
+    """Send one more than the verify-token limit with a wrong token; return status codes."""
+    codes = []
+    for i in range(VERIFY_TOKEN_LIMIT + 1):
+        headers = {"X-Setup-Token": "wrong"}
+        if xff is not None:
+            headers["X-Forwarded-For"] = xff.format(i=i)
+        codes.append((await client.post("/api/setup/verify-token", headers=headers)).status_code)
+    return codes
+
+
 def _fake_request(**state) -> SimpleNamespace:
     return SimpleNamespace(
         state=SimpleNamespace(**state),
@@ -107,6 +119,37 @@ class TestKeyFunction:
         assert resolve_client_ip(SimpleNamespace(client=None)) is None
 
 
+class TestProxyTrust:
+    async def test_forged_xff_from_untrusted_peer_keeps_one_bucket(self, limiter):
+        async with _client(UNTRUSTED_PEER) as client:
+            codes = await _spend_verify_token(client, xff="10.0.0.{i}")
+        assert codes[:-1] == [403] * VERIFY_TOKEN_LIMIT
+        assert codes[-1] == 429
+
+    async def test_trusted_proxy_separates_clients(self, limiter):
+        async with _client(PROXY) as client:
+            first = await _spend_verify_token(client, xff="192.0.2.10")
+            second = await client.post(
+                "/api/setup/verify-token",
+                headers={"X-Setup-Token": "wrong", "X-Forwarded-For": "192.0.2.11"},
+            )
+        assert first[-1] == 429
+        assert second.status_code == 403
+
+    async def test_ipv4_mapped_and_plain_share_a_bucket(self, limiter):
+        async with _client(PROXY) as client:
+            for _ in range(VERIFY_TOKEN_LIMIT):
+                await client.post(
+                    "/api/setup/verify-token",
+                    headers={"X-Setup-Token": "wrong", "X-Forwarded-For": "::ffff:192.0.2.20"},
+                )
+            resp = await client.post(
+                "/api/setup/verify-token",
+                headers={"X-Setup-Token": "wrong", "X-Forwarded-For": "192.0.2.20"},
+            )
+        assert resp.status_code == 429
+
+
 class TestDefaultLimit:
     async def test_global_limit_returns_429(self, tight_default_limit, isolated_db):
         async with _client(UNTRUSTED_PEER) as client:
@@ -123,7 +166,7 @@ class TestDefaultLimit:
         assert alice_codes[2] == 429
         assert bob_code != 429
 
-    @pytest.mark.parametrize("path", ["/health", "/metrics"])
+    @pytest.mark.parametrize("path", ["/health", "/metrics", "/api/setup/status"])
     async def test_exempt_paths_are_not_limited(self, tight_default_limit, isolated_db, path: str):
         async with _client(UNTRUSTED_PEER) as client:
             codes = [(await client.get(path)).status_code for _ in range(4)]
@@ -202,6 +245,12 @@ class TestDefaultLimit:
         endpoints = {main.health, metrics.metrics_endpoint}
         assert {rate_limit._endpoint_name(e) for e in endpoints} == DEFAULT_LIMIT_EXEMPT_ENDPOINTS
         assert rate_limit._endpoint_name(setup.setup_status) not in DEFAULT_LIMIT_EXEMPT_ENDPOINTS
+
+    async def test_verify_token_is_limited_by_setup_token_failures(self, limiter):
+        async with _client(UNTRUSTED_PEER) as client:
+            codes = await _spend_verify_token(client)
+        assert codes[:-1] == [403] * VERIFY_TOKEN_LIMIT
+        assert codes[-1] == 429
 
 
 VICTIM_EMAIL = "victim@example.com"
@@ -283,6 +332,39 @@ class TestLoginFailureLimit:
             first_failure = await _login(client, "192.0.2.1", WRONG_PASSWORD)
         assert successes == [200, 200, 200]
         assert first_failure == 401
+
+
+class TestNoRawIdentityStored:
+    async def test_storage_and_logs_hold_no_email_or_address(self, limiter, isolated_db, caplog):
+        async with _client(PROXY) as client:
+            with caplog.at_level(logging.DEBUG):
+                await _login(client, "192.0.2.77", WRONG_PASSWORD)
+                await _spend_verify_token(client, xff="192.0.2.77")
+        keys = " ".join(limiter.buckets._primary.storage.storage.keys())
+        assert "login-email-fail" in keys and "login-client-fail" in keys
+        assert "victim" not in keys.lower()
+        assert "192.0.2.77" not in keys
+        assert "192.0.2.77" not in caplog.text
+
+
+class TestSetupTokenFailures:
+    async def test_failures_share_one_bucket_across_gated_routes(self, limiter, isolated_db):
+        wrong = {"X-Setup-Token": "wrong"}
+        async with _client(UNTRUSTED_PEER) as client:
+            codes = [
+                (await client.post("/api/setup/verify-token", headers=wrong)).status_code
+                for _ in range(5)
+            ]
+            codes += [
+                (await client.get("/api/setup/whisper-status", headers=wrong)).status_code
+                for _ in range(5)
+            ]
+            stream = await client.post("/api/setup/install-whisper", json={}, headers=wrong)
+        async with _client("203.0.113.10") as other_client:
+            other = await other_client.post("/api/setup/verify-token", headers=wrong)
+        assert codes == [403] * 10
+        assert stream.status_code == 429
+        assert other.status_code == 403
 
 
 class _BrokenStorage:
@@ -436,7 +518,7 @@ class TestRouteLimits:
         assert third.status_code == 429
 
     def test_registered_route_limits_and_outage_policies(self):
-        from septum_api.routers import api_keys, auth, chat, error_logs
+        from septum_api.routers import api_keys, auth, chat, error_logs, setup
 
         expected = {
             chat.chat_ask: ("30/minute", True),
@@ -445,6 +527,7 @@ class TestRouteLimits:
             auth.change_password: ("5/minute", False),
             api_keys.create_api_key_endpoint: ("10/minute", True),
             error_logs.ingest_frontend_error: ("60/hour", False),
+            setup.setup_status: ("120/minute", True),
         }
         site = {
             auth.login: parse("60/minute"),
@@ -554,6 +637,45 @@ class TestBreakerStates:
         async with _client(UNTRUSTED_PEER) as client:
             health = (await client.get("/health")).json()
         assert health["rate_limit_storage"] == "degraded"
+
+
+class TestFailureBucketIdentity:
+    async def test_ipv6_clients_share_a_failure_bucket_per_48(self, limiter):
+        wrong = {"X-Setup-Token": "wrong"}
+        async with _client(PROXY) as client:
+            codes = [
+                (
+                    await client.post(
+                        "/api/setup/verify-token",
+                        headers={**wrong, "X-Forwarded-For": f"2001:db8::{i + 1:x}"},
+                    )
+                ).status_code
+                for i in range(10)
+            ]
+            same_prefix = await client.post(
+                "/api/setup/verify-token", headers={**wrong, "X-Forwarded-For": "2001:db8::ffff"}
+            )
+            same_site = await client.post(
+                "/api/setup/verify-token", headers={**wrong, "X-Forwarded-For": "2001:db8:0:1::1"}
+            )
+            other_prefix = await client.post(
+                "/api/setup/verify-token", headers={**wrong, "X-Forwarded-For": "2001:db8:1::1"}
+            )
+        assert codes == [403] * 10
+        assert same_prefix.status_code == 429
+        assert same_site.status_code == 429
+        assert other_prefix.status_code == 403
+
+    async def test_correct_token_passes_after_the_bucket_is_spent(self, limiter, monkeypatch):
+        from septum_api import bootstrap
+
+        token = "a-correct-setup-token-0123456789abcdef"
+        monkeypatch.setenv(bootstrap.SETUP_TOKEN_ENV, token)
+        async with _client(UNTRUSTED_PEER) as client:
+            spent = await _spend_verify_token(client)
+            correct = await client.post("/api/setup/verify-token", headers={"X-Setup-Token": token})
+        assert spent[-1] == 429
+        assert correct.status_code == 204
 
 
 class TestRound4:
@@ -722,6 +844,21 @@ class TestIpv6FailureIdentity:
                 for i in range(3)
             ]
         assert codes == [204, 204, 429]
+
+
+class TestIpv4StaysPerAddress:
+    async def test_setup_token_failures_do_not_cross_neighbouring_ipv4_addresses(self, limiter):
+        wrong = {"X-Setup-Token": "wrong"}
+        async with _client(PROXY) as client:
+            spent = [
+                (await client.post("/api/setup/verify-token", headers={**wrong, "X-Forwarded-For": "192.0.2.1"})).status_code
+                for _ in range(VERIFY_TOKEN_LIMIT + 1)
+            ]
+            neighbour = await client.post(
+                "/api/setup/verify-token", headers={**wrong, "X-Forwarded-For": "192.0.2.2"}
+            )
+        assert spent[-1] == 429
+        assert neighbour.status_code == 403
 
 
     async def test_login_marker_does_not_cover_neighbouring_ipv4_addresses(

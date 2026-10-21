@@ -122,6 +122,9 @@ def dispose_async_engine() -> None:
         asyncio.run(get_engine().dispose())
 
 
+TEST_SETUP_TOKEN = "test-setup-token-0123456789abcdef"
+
+
 @pytest.fixture(autouse=True)
 def _fresh_rate_limits() -> None:
     """Start every test with empty rate-limit counters.
@@ -135,13 +138,19 @@ def _fresh_rate_limits() -> None:
 
 
 @pytest.fixture
-async def router_client(tmp_path: Path) -> AsyncIterator["AsyncClient"]:  # noqa: F821
+async def router_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator["AsyncClient"]:  # noqa: F821
     """FastAPI test client backed by an isolated per-test SQLite database.
 
     Router tests that need to exercise real DB behaviour (users, auth, etc.)
     use this fixture to get a fresh engine + session override, with the real
-    application engine left untouched.
+    application engine left untouched. The client carries a valid
+    ``X-Setup-Token`` (set through ``SEPTUM_SETUP_TOKEN``) so setup-time
+    endpoints such as register work; tests of the setup gate itself drop or
+    replace that header.
     """
+    monkeypatch.setenv("SEPTUM_SETUP_TOKEN", TEST_SETUP_TOKEN)
     from httpx import ASGITransport, AsyncClient
     from septum_api.database import get_db
     from septum_api.main import app
@@ -168,7 +177,9 @@ async def router_client(tmp_path: Path) -> AsyncIterator["AsyncClient"]:  # noqa
 
     try:
         async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers={"X-Setup-Token": TEST_SETUP_TOKEN},
         ) as http_client:
             yield http_client
     finally:

@@ -168,6 +168,14 @@ def initialize_engine(database_url: str) -> None:
     logger.info("Database engine initialised (%s)", "PostgreSQL" if "postgresql" in database_url else "SQLite")
 
 
+async def reset_engine() -> None:
+    """Dispose the global engine and forget it, so nothing uses a half-built setup."""
+    global _engine, _session_maker
+    engine, _engine, _session_maker = _engine, None, None
+    if engine is not None:
+        await engine.dispose()
+
+
 def engine_is_ready() -> bool:
     """Return True if the database engine has been initialised."""
     return _engine is not None

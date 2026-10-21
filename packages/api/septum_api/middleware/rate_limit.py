@@ -11,14 +11,15 @@ The key function picks one identity per request, in this order:
    proxy; an IPv6 client counts as its /64 (:func:`client_network_digest`).
    Hashed so limiter storage never holds a raw address.
 
-Failure buckets (login marker) count IPv6 per /48 and IPv4 per address (:func:`client_failure_digest`).
+Failure buckets (login marker, setup-token failures) count IPv6 per /48 and IPv4 per address (:func:`client_failure_digest`).
 
 ``AuthMiddleware`` sets the identity before routing, so
 :class:`DefaultRateLimit` (a router dependency) sees it.
 
 Every counter is async (:class:`AsyncBuckets`): a slow or dead Redis never
 blocks the event loop. Each limit says what happens during a storage
-outage: general limits fail open, brute-force controls (login, register) keep counting in process memory.
+outage: general limits fail open, brute-force controls (login, register,
+setup token) keep counting in process memory.
 """
 
 from __future__ import annotations
@@ -59,7 +60,8 @@ _API_KEY_PREFIX_END = _API_KEY_PREFIX_OFFSET + 8
 # Only the health and metrics probes stay outside every limit, matched by
 # endpoint (not path) so a mount prefix or --root-path cannot change it.
 # Both are app-level routes the router dependency never sees; they are
-# listed so the set is the whole exemption policy.
+# listed so the set is the whole exemption policy. /api/setup/status runs
+# a database query, so it has a generous limit of its own instead.
 DEFAULT_LIMIT_EXEMPT_ENDPOINTS = frozenset(
     {
         "septum_api.main.health",
@@ -74,6 +76,10 @@ LOGIN_EMAIL_FAILURE_CEILING = parse("100/hour")
 LOGIN_CLIENT_FAILURE_MARKER = parse("1/hour")
 _LOGIN_EMAIL_CEILING_NAMESPACE = "login-email-fail"
 _LOGIN_CLIENT_MARKER_NAMESPACE = "login-client-fail"
+
+# Failed setup-token checks per client, shared by every gated route.
+SETUP_TOKEN_FAILURE_LIMIT = parse("10/minute")
+_SETUP_TOKEN_FAILURE_NAMESPACE = "setup-token-fail"
 
 # Redis must answer fast or not at all. A dead store is probed again after
 # the retry window; while it stays dead the warning repeats hourly.
@@ -339,7 +345,7 @@ def client_site_digest(request: Request) -> str | None:
 def client_failure_digest(request: Request) -> str:
     """Identity for failure buckets: an IPv6 client's /48, else its /64 or IPv4 address.
 
-    Failure buckets (login marker) must not reset when a client moves to another /64 of its site.
+    Failure buckets (login marker, setup-token failures) must not reset when a client moves to another /64 of its site.
     """
     client = _parsed_client(request)
     return _site_digest(client) or _network_digest(client)
@@ -423,6 +429,28 @@ async def record_login_failure(request: Request, email: str) -> None:
     ceiling, marker = _login_identifiers(request, email)
     await limiter.buckets.hit(LOGIN_EMAIL_FAILURE_CEILING, *ceiling, fail_open=False)
     await limiter.buckets.hit(LOGIN_CLIENT_FAILURE_MARKER, *marker, fail_open=False)
+
+
+async def check_setup_token_failures(request: Request) -> None:
+    """429 once this client has used up its failed setup-token attempts; counts nothing."""
+    limiter = get_limiter()
+    if not limiter.enabled:
+        return
+    identifiers = (_SETUP_TOKEN_FAILURE_NAMESPACE, client_failure_digest(request))
+    if not await limiter.buckets.test(SETUP_TOKEN_FAILURE_LIMIT, *identifiers, fail_open=False):
+        raise await limiter.buckets.exceeded(SETUP_TOKEN_FAILURE_LIMIT, *identifiers)
+
+
+async def record_setup_token_failure(request: Request) -> None:
+    """Count one failed setup-token check for this client."""
+    limiter = get_limiter()
+    if limiter.enabled:
+        await limiter.buckets.hit(
+            SETUP_TOKEN_FAILURE_LIMIT,
+            _SETUP_TOKEN_FAILURE_NAMESPACE,
+            client_failure_digest(request),
+            fail_open=False,
+        )
 
 
 def create_limiter(config: BootstrapConfig) -> RateLimiter:

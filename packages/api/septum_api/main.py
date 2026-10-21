@@ -64,6 +64,7 @@ from .routers import text_normalization as text_normalization_router
 from .routers import users as users_router
 from .services.document_anon_store import sweep_stale_temp_files
 from .services.error_logger import log_backend_error, log_backend_message
+from .utils.auth_dependency import setup_window_open
 from .utils.device import get_device
 
 MODEL_WARMUP_OPT_OUT_ENV = "SEPTUM_DISABLE_MODEL_WARMUP"
@@ -177,6 +178,39 @@ async def _stored_model_settings() -> tuple[dict[str, str] | None, str | None]:
     return row.ner_model_overrides, row.whisper_model
 
 
+async def _announce_setup_token() -> None:
+    """Print the setup token to stdout while setup is open; drop a stale one once it is closed.
+
+    Setup counts as open only when :func:`setup_window_open` establishes it:
+    either the infrastructure step has not run (no database is configured, so
+    no user can exist), or the configured database has no user and
+    ``setup_completed`` is false. Anything else, including an upgraded install
+    with users, is closed: no token is generated, nothing is printed, and a
+    leftover stored token is removed. A database error propagates instead of
+    guessing a state.
+
+    The token goes to stdout via ``print`` and never through ``logging``, so
+    it stays out of structured log sinks and the ErrorLog table.
+    """
+    if not await setup_window_open():
+        bootstrap.clear_setup_token()
+        return
+
+    if bootstrap.setup_token_from_env():
+        print(
+            f"Septum setup is open; use the token set in {bootstrap.SETUP_TOKEN_ENV}.",
+            flush=True,
+        )
+        return
+
+    token = bootstrap.ensure_setup_token()
+    print(f"Septum setup token: {token}", flush=True)
+    print(
+        "Enter it in the setup wizard; it is deleted when the first admin is created.",
+        flush=True,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan handler — initialise database if already configured."""
@@ -186,6 +220,7 @@ async def lifespan(app: FastAPI):
         warm_dummy_password_hash,
     )
 
+    bootstrap.validate_setup_token_env()
     await run_password_work(warm_dummy_password_hash)
     config = bootstrap.get_config()
     if not bootstrap.needs_setup():
@@ -203,6 +238,7 @@ async def lifespan(app: FastAPI):
                 name="septum-model-warmup",
                 daemon=True,
             ).start()
+    await _announce_setup_token()
     try:
         yield
     finally:
