@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import secrets
 import tempfile
@@ -21,6 +22,8 @@ from pathlib import Path
 from typing import Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_CONFIG_PATH = "/app/data/config.json"
 
@@ -44,6 +47,7 @@ _ENV_OVERRIDES: dict[str, str] = {
     "jwt_expiration_minutes": "JWT_EXPIRATION_MINUTES",
     "log_level": "LOG_LEVEL",
     "rate_limit": "RATE_LIMIT_DEFAULT",
+    "error_log_retention_days": "ERROR_LOG_RETENTION_DAYS",
     "frontend_origin": "FRONTEND_ORIGIN",
 }
 
@@ -60,6 +64,7 @@ class BootstrapConfig:
     jwt_expiration_minutes: int = 1440
     log_level: str = "INFO"
     rate_limit: str = "600/minute"
+    error_log_retention_days: int = 90
     frontend_origin: str = "*"
     database_configured: bool = False
 
@@ -80,6 +85,33 @@ def _config_path() -> Path:
     return Path(os.getenv("SEPTUM_CONFIG_PATH", _DEFAULT_CONFIG_PATH))
 
 
+# Accepted ranges for int settings; anything outside falls back with a warning.
+_INT_RANGES: dict[str, tuple[int, int]] = {
+    "error_log_retention_days": (0, 36500),
+    "jwt_expiration_minutes": (1, 43200),
+}
+
+
+def _coerce_int(field: str, label: str, value: Any, fallback: int, source: str) -> int:
+    """Return *value* as an int within *field*'s range, else *fallback* with a warning.
+
+    The warning names the setting (*label*) and its source, never the value.
+    """
+    parsed: int | None = None
+    if isinstance(value, int) and not isinstance(value, bool):
+        parsed = value
+    elif isinstance(value, str):
+        try:
+            parsed = int(value.strip())
+        except ValueError:
+            parsed = None
+    low, high = _INT_RANGES.get(field, (None, None))
+    if parsed is not None and (low is None or low <= parsed <= high):
+        return parsed
+    logger.warning("Ignoring invalid %s from %s; using %s", label, source, fallback)
+    return fallback
+
+
 def _apply_env_overrides(config: BootstrapConfig) -> None:
     """Overlay environment variables onto *config* in-place."""
     for attr, env_var in _ENV_OVERRIDES.items():
@@ -90,10 +122,7 @@ def _apply_env_overrides(config: BootstrapConfig) -> None:
         if isinstance(current, bool):
             setattr(config, attr, value.strip().lower() in {"1", "true", "yes", "on"})
         elif isinstance(current, int):
-            try:
-                setattr(config, attr, int(value))
-            except ValueError:
-                pass
+            setattr(config, attr, _coerce_int(attr, env_var, value, current, "the environment"))
         else:
             setattr(config, attr, value)
 
@@ -154,8 +183,13 @@ def get_config() -> BootstrapConfig:
 
     # Apply persisted values from config.json
     for f in fields(config):
-        if f.name in raw:
-            setattr(config, f.name, raw[f.name])
+        if f.name not in raw:
+            continue
+        default = getattr(config, f.name)
+        value = raw[f.name]
+        if isinstance(default, int) and not isinstance(default, bool):
+            value = _coerce_int(f.name, f.name, value, default, "config.json")
+        setattr(config, f.name, value)
 
     # Auto-generate secrets when missing
     dirty = False

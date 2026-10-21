@@ -729,6 +729,24 @@ class TestFrontendErrorIntake:
             rows = (await db.execute(select(ErrorLog))).scalars().all()
         return resp, rows
 
+    async def test_long_route_and_user_agent_are_cut_to_the_columns(self, limiter, isolated_db):
+        resp, rows = await self._post(
+            isolated_db,
+            {"message": "boom", "route": "/r" * 1000},
+            headers={"User-Agent": "u" * 2000},
+        )
+        assert resp.status_code == 204
+        assert len(rows[0].path) == 512
+        assert len(rows[0].user_agent) == 512
+
+    @pytest.mark.parametrize(
+        ("sent", "stored"),
+        [("ERROR", "ERROR"), ("warning", "WARNING"), ("INFO", "INFO"), ("CRITICAL" * 5, "ERROR"), (None, "ERROR")],
+    )
+    async def test_level_is_restricted(self, limiter, isolated_db, sent, stored):
+        resp, rows = await self._post(isolated_db, {"message": "boom", "level": sent})
+        assert resp.status_code == 204
+        assert rows[0].level == stored
 
     async def test_limit_holds_in_memory_during_an_outage(self, limiter, isolated_db, monkeypatch):
         monkeypatch.setattr(limiter.buckets, "_primary", _BrokenStorage())
@@ -780,6 +798,21 @@ async def test_setup_status_is_capped_at_its_own_limit(limiter, isolated_db, mon
     assert codes == [200, 200, 200, 429]
 
 
+async def test_frontend_route_loses_query_and_fragment(limiter, isolated_db):
+    from septum_api.models.error_log import ErrorLog
+    from sqlalchemy import select
+
+    async with _client(UNTRUSTED_PEER) as client:
+        resp = await client.post(
+            "/api/error-logs/frontend",
+            json={"message": "m", "route": "/documents/7?token=secret&email=a@b.c#frag"},
+        )
+    async with isolated_db() as db:
+        row = (await db.execute(select(ErrorLog))).scalar_one()
+    assert resp.status_code == 204
+    assert row.path == "/documents/7"
+
+
 class TestIpv6SiteLimit:
     async def test_rotating_64s_inside_one_48_share_the_login_site_bucket(
         self, limiter, isolated_db, monkeypatch
@@ -823,6 +856,21 @@ class TestIpv6FailureIdentity:
         assert rotated == 429
         assert other_site == 200
 
+    async def test_anonymous_error_log_budget_is_per_48(self, limiter, monkeypatch):
+        monkeypatch.setattr(rate_limit, "ERROR_LOG_WRITE_LIMIT", parse("2/minute"))
+
+        def anonymous(host: str):
+            request = _fake_request(auth_method=None, auth_user_id=None)
+            request.client = SimpleNamespace(host=host, port=1)
+            return request
+
+        results = [
+            await rate_limit.error_log_write_allowed(anonymous(f"2001:db8:0:{i:x}::1"), server_fault=False)
+            for i in range(3)
+        ]
+        other = await rate_limit.error_log_write_allowed(anonymous("2001:db8:1::1"), server_fault=False)
+        assert results == [True, True, False]
+        assert other is True
 
     async def test_frontend_intake_has_a_48_site_limit(self, limiter, isolated_db, monkeypatch):
         from septum_api.routers import error_logs
@@ -860,6 +908,18 @@ class TestIpv4StaysPerAddress:
         assert spent[-1] == 429
         assert neighbour.status_code == 403
 
+    async def test_anonymous_error_log_budget_is_per_ipv4_address(self, limiter, monkeypatch):
+        monkeypatch.setattr(rate_limit, "ERROR_LOG_WRITE_LIMIT", parse("2/minute"))
+
+        def anonymous(host: str):
+            request = _fake_request(auth_method=None, auth_user_id=None)
+            request.client = SimpleNamespace(host=host, port=1)
+            return request
+
+        spent = [await rate_limit.error_log_write_allowed(anonymous("192.0.2.1"), server_fault=False) for _ in range(3)]
+        neighbour = await rate_limit.error_log_write_allowed(anonymous("192.0.2.2"), server_fault=False)
+        assert spent == [True, True, False]
+        assert neighbour is True
 
     async def test_login_marker_does_not_cover_neighbouring_ipv4_addresses(
         self, limiter, isolated_db, monkeypatch

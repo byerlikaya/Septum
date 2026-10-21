@@ -101,7 +101,11 @@ from ..services.entity_index_service import (
     RELATIONSHIP_THRESHOLD_STRONG,
     find_documents_for_query_entities,
 )
-from ..services.error_logger import log_backend_error, log_backend_message
+from ..services.error_logger import (
+    log_backend_error,
+    log_backend_message,
+    report_error_log_failure,
+)
 from ..services.llm_errors import LLM_UNAVAILABLE
 from ..services.llm_router import LLMRouter, LLMRouterError, _chunk_text
 from ..services.pii_gate import (
@@ -1050,7 +1054,7 @@ async def _run_llm_and_deanonymize(
             try:
                 await log_backend_message(db, http_request, message, level="ERROR", extra=extra)
             except Exception as log_exc:
-                logger.warning("Cloud-failure log persistence failed: %s", type(log_exc).__name__)
+                report_error_log_failure(log_exc)
 
     if rag_mode == "none":
         user_prompt = PromptCatalog.pure_chat_prompt(sanitized_query)
@@ -2119,7 +2123,7 @@ async def chat_ask(
                     db, http_request, exc, status_code=400
                 )
             except Exception as log_exc:
-                logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
+                report_error_log_failure(log_exc)
             yield _encode_sse(
                 {
                     "type": "error",
@@ -2135,7 +2139,7 @@ async def chat_ask(
                     db, http_request, exc, status_code=503 if refused else 500
                 )
             except Exception as log_exc:
-                logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
+                report_error_log_failure(log_exc)
             event = {
                 "type": "error",
                 "message": MODEL_REFUSED_DETAIL

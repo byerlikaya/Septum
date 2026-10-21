@@ -105,11 +105,17 @@ def _engine_kwargs(url: str) -> dict[str, Any]:
     the UI simultaneously polls /documents/progress, /auth/me, /settings
     and /regulations from a fresh dashboard — the default 5+10 pool
     saturated and raised QueuePool timeouts.
+
+    ``hide_parameters`` leaves bound values (emails, error log fields) out
+    of the SQL statements SQLAlchemy logs and puts in its exception
+    messages. It does not cover what drivers or other libraries log on
+    their own, which is why their loggers are kept quiet separately.
     """
     if "postgresql" in url:
         return {
             "echo": False,
             "future": True,
+            "hide_parameters": True,
             "pool_size": 10,
             "max_overflow": 20,
             "pool_pre_ping": True,
@@ -117,6 +123,7 @@ def _engine_kwargs(url: str) -> dict[str, Any]:
     return {
         "echo": False,
         "future": True,
+        "hide_parameters": True,
         "pool_size": 20,
         "max_overflow": 30,
     }

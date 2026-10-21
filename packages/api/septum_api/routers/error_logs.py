@@ -18,7 +18,10 @@ from ..models.user import User
 _MAX_FRONTEND_MESSAGE_LEN = 2000
 _MAX_FRONTEND_STACK_LEN = 8000
 _MAX_FRONTEND_EXTRA_BYTES = 8 * 1024
+_FRONTEND_LEVELS = frozenset({"ERROR", "WARNING", "INFO"})
+_DEFAULT_FRONTEND_LEVEL = "ERROR"
 from ..utils.auth_dependency import get_optional_user, require_role
+from ..utils.client_ip import resolve_client_ip
 
 router = APIRouter(prefix="/api/error-logs", tags=["error-logs"])
 
@@ -164,11 +167,14 @@ async def ingest_frontend_error(
 
     Uses optional auth because frontend error reporting must work for
     pre-login failures (network errors on the login page itself).
-    Rate-limited to 60/hour per identity (IP for unauthenticated
-    callers, API key prefix otherwise) so a misbehaving client cannot
-    flood the error log table and hide real failures under noise.
+    Rate-limited to 60/hour per identity (``user:<id>``, API key prefix,
+    or client address) plus 120/hour per IPv6 /48, so a misbehaving client
+    cannot flood the error log table and hide real failures under noise.
     Inputs are length-capped at the same time so a single malformed
-    request cannot exhaust storage on its own.
+    request cannot exhaust storage on its own (the logger also cuts every
+    bounded column to its width, so long input never fails the insert);
+    ``level`` outside the known set becomes ``ERROR``. The limits stay
+    enforced from memory while the rate-limit storage is down.
     """
     import json as _json
 
@@ -188,16 +194,21 @@ async def ingest_frontend_error(
         except (TypeError, ValueError):
             extra = {"invalid": True}
 
-    client_ip = request.client.host if request.client else None
+    # Query strings and fragments can carry tokens or personal data.
+    route = payload.route.split("?", 1)[0].split("#", 1)[0] if payload.route else None
+    level = (payload.level or "").upper()
+    if level not in _FRONTEND_LEVELS:
+        level = _DEFAULT_FRONTEND_LEVEL
+    client_ip = resolve_client_ip(request)
     user_agent = request.headers.get("user-agent")
 
     await log_frontend_error(
         db=db,
         message=message,
         stack_trace=stack,
-        route=payload.route,
+        route=route,
         user_agent=user_agent,
-        level=payload.level or "ERROR",
+        level=level,
         extra=extra,
         client_ip=client_ip,
     )

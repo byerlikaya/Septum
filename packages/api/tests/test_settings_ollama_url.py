@@ -10,6 +10,7 @@ import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from septum_api import main as main_module
 from septum_api.database import get_db
@@ -478,6 +479,12 @@ async def test_test_llm_uncoded_router_error_hides_provider_text(
 ) -> None:
     provider_text = "upstream failed at http://10.0.0.5:8500/v1/chat"
     error = settings_router.LLMRouterError(provider_text)
+    probe_gen = app.dependency_overrides[get_db]()
+    probe = await probe_gen.__anext__()
+    session_maker = async_sessionmaker(bind=probe.bind, expire_on_commit=False)
+    await probe_gen.aclose()
+    monkeypatch.setattr(main_module, "engine_is_ready", lambda: True)
+    monkeypatch.setattr(main_module, "get_session_maker", lambda: session_maker)
 
     resp = await _test_llm_with_router_error(router_client, monkeypatch, error)
 
@@ -492,10 +499,9 @@ async def test_test_llm_uncoded_router_error_hides_provider_text(
         rows = (await session.execute(select(ErrorLog))).scalars().all()
     finally:
         await session_gen.aclose()
-    assert any(
-        row.exception_type == "LLMRouterError" and row.path == "/api/settings/test-llm"
-        for row in rows
-    )
+    # The route writes no row of its own; the HTTPException handler records the 400 once.
+    assert len(rows) == 1
+    assert not any(row.exception_type == "LLMRouterError" for row in rows)
     for row in rows:
         assert provider_text not in row.message
         assert provider_text not in (row.stack_trace or "")

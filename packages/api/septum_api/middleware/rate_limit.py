@@ -11,7 +11,8 @@ The key function picks one identity per request, in this order:
    proxy; an IPv6 client counts as its /64 (:func:`client_network_digest`).
    Hashed so limiter storage never holds a raw address.
 
-Failure buckets (login marker, setup-token failures) count IPv6 per /48 and IPv4 per address (:func:`client_failure_digest`).
+Failure buckets (login marker, setup-token failures, anonymous error-log
+budget) count IPv6 per /48 and IPv4 per address (:func:`client_failure_digest`).
 
 ``AuthMiddleware`` sets the identity before routing, so
 :class:`DefaultRateLimit` (a router dependency) sees it.
@@ -80,6 +81,13 @@ _LOGIN_CLIENT_MARKER_NAMESPACE = "login-client-fail"
 # Failed setup-token checks per client, shared by every gated route.
 SETUP_TOKEN_FAILURE_LIMIT = parse("10/minute")
 _SETUP_TOKEN_FAILURE_NAMESPACE = "setup-token-fail"
+
+# Error log rows any one identity may cause, across all routes: one budget
+# for client errors and other noise, a separate one for server faults.
+ERROR_LOG_WRITE_LIMIT = parse("60/minute")
+ERROR_LOG_FAULT_WRITE_LIMIT = parse("20/minute")
+_ERROR_LOG_WRITE_NAMESPACE = "error-log-write"
+_ERROR_LOG_FAULT_WRITE_NAMESPACE = "error-log-fault-write"
 
 # Redis must answer fast or not at all. A dead store is probed again after
 # the retry window; while it stays dead the warning repeats hourly.
@@ -294,6 +302,11 @@ def _anonymous_key(client_digest: str) -> str:
     return f"{_ANONYMOUS_KEY_PREFIX}{client_digest}"
 
 
+def is_anonymous_key(key: str) -> bool:
+    """Whether a :func:`get_rate_limit_key` result identifies a caller only by address."""
+    return key.startswith(_ANONYMOUS_KEY_PREFIX)
+
+
 _ClientAddress = ipaddress.IPv4Address | ipaddress.IPv6Address | str | None
 
 
@@ -345,7 +358,8 @@ def client_site_digest(request: Request) -> str | None:
 def client_failure_digest(request: Request) -> str:
     """Identity for failure buckets: an IPv6 client's /48, else its /64 or IPv4 address.
 
-    Failure buckets (login marker, setup-token failures) must not reset when a client moves to another /64 of its site.
+    Failure buckets (login marker, setup-token failures, anonymous error-log
+    budget) must not reset when a client moves to another /64 of its site.
     """
     client = _parsed_client(request)
     return _site_digest(client) or _network_digest(client)
@@ -451,6 +465,34 @@ async def record_setup_token_failure(request: Request) -> None:
             client_failure_digest(request),
             fail_open=False,
         )
+
+
+async def error_log_write_allowed(
+    request: Request | None, *, server_fault: bool, identity: str | None = None
+) -> bool:
+    """Count one error log row for a caller; False once its budget is spent.
+
+    The caller is *identity* when given (background work on a user's
+    behalf, ``user:<id>``), else the request's rate-limit key. Server
+    faults (5xx) and everything else have separate budgets. Enforced from
+    memory while the storage is down, so an outage cannot become a way to
+    flood the error log.
+    """
+    limiter = get_limiter()
+    if not limiter.enabled:
+        return True
+    if server_fault:
+        item, namespace = ERROR_LOG_FAULT_WRITE_LIMIT, _ERROR_LOG_FAULT_WRITE_NAMESPACE
+    else:
+        item, namespace = ERROR_LOG_WRITE_LIMIT, _ERROR_LOG_WRITE_NAMESPACE
+    if identity is not None:
+        key = identity
+    else:
+        key = get_rate_limit_key(request)
+        if is_anonymous_key(key):
+            # Anonymous IPv6 callers share one budget per /48.
+            key = _anonymous_key(client_failure_digest(request))
+    return await limiter.buckets.hit(item, namespace, key, fail_open=False)
 
 
 def create_limiter(config: BootstrapConfig) -> RateLimiter:
