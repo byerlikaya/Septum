@@ -11,7 +11,7 @@ middleware stack).
 from __future__ import annotations
 
 import hmac
-import os
+from typing import NoReturn
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
@@ -19,7 +19,13 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_db
+from .. import bootstrap
+from ..database import engine_is_ready, get_db, get_session_maker
+from ..errors import CodedHTTPError
+from ..middleware.rate_limit import (
+    check_setup_token_failures,
+    record_setup_token_failure,
+)
 from ..models.settings import AppSettings
 from ..models.user import User
 from ..services.auth import decode_access_token
@@ -27,46 +33,52 @@ from ..services.auth import decode_access_token
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
-_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "testclient"}
-_SETUP_TOKEN_HEADER = "x-setup-token"
+SETUP_TOKEN_HEADER = "X-Setup-Token"
+SETUP_FORBIDDEN_CODE = "setup_forbidden"
+SETUP_FORBIDDEN_DETAIL = "Setup access denied."
 
 
-def _is_loopback_request(request: Request) -> bool:
-    client = getattr(request, "client", None)
-    host = getattr(client, "host", None) if client else None
-    return host in _LOOPBACK_HOSTS if host else False
+def deny_setup_access() -> NoReturn:
+    """Raise the one 403 every setup-gate failure shares.
 
-
-def _check_setup_window_origin(request: Request) -> None:
-    """Reject bootstrap-window requests from non-loopback hosts that lack a setup token.
-
-    Septum's setup endpoints (test-database, test-redis, initialize,
-    install-whisper, ollama-pull, infrastructure PATCH, settings PATCH
-    during the first-admin window, ...) used to be reachable from any
-    network origin until the first admin was created. That made every
-    fresh container an SSRF probe and a settings-poisoning surface for
-    any attacker who could reach port 3000 before the legitimate
-    operator finished the wizard.
-
-    Now: requests during the bootstrap window must originate from
-    loopback OR present ``X-Setup-Token: <SEPTUM_SETUP_TOKEN env>``.
-    Once setup completes the bootstrap-window relaxations no longer
-    apply and standard admin auth takes over.
+    Missing token, wrong token and closed setup look identical, so a caller
+    learns nothing beyond what ``/api/setup/status`` already exposes.
     """
-    if _is_loopback_request(request):
-        return
-    expected = os.getenv("SEPTUM_SETUP_TOKEN", "").strip()
-    presented = request.headers.get(_SETUP_TOKEN_HEADER, "").strip()
-    if expected and presented and hmac.compare_digest(expected, presented):
-        return
-    raise HTTPException(
+    raise CodedHTTPError(
         status_code=status.HTTP_403_FORBIDDEN,
-        detail=(
-            "Setup wizard is only reachable from localhost during the "
-            "bootstrap window. Set SEPTUM_SETUP_TOKEN and pass it via "
-            "the X-Setup-Token header to drive the wizard remotely."
-        ),
+        detail=SETUP_FORBIDDEN_DETAIL,
+        code=SETUP_FORBIDDEN_CODE,
     )
+
+
+async def require_setup_token(request: Request) -> None:
+    """Require ``X-Setup-Token`` to match :func:`bootstrap.get_setup_token` (403 otherwise).
+
+    The only token check in the API. There is no loopback exception: behind
+    the dashboard's proxy every remote client reaches the API from loopback,
+    so the peer address proves nothing. Whether setup is open is checked by
+    the callers, which know whether a database exists yet.
+
+    The token is compared first and a match always passes. Only failures
+    are counted, in one per-client bucket shared by every gated route (SSE
+    ones included); once it is spent, a wrong token gets 429 instead of 403.
+    That bucket is a signal and a brake, not a limit on access: it never
+    blocks the correct token, and an attacker spreading guesses over many
+    addresses is not stopped by it. The protection is the token itself,
+    256 bits when generated, and an operator-set one is refused at startup
+    unless it is long and varied enough (``bootstrap.validate_setup_token_env``).
+    """
+    expected = bootstrap.get_setup_token()
+    presented = request.headers.get(SETUP_TOKEN_HEADER, "").strip()
+    if (
+        expected
+        and presented
+        and hmac.compare_digest(expected.encode("utf-8"), presented.encode("utf-8"))
+    ):
+        return
+    await check_setup_token_failures(request)
+    await record_setup_token_failure(request)
+    deny_setup_access()
 
 
 async def get_current_user(
@@ -185,8 +197,8 @@ def require_role(*allowed_roles: str):
     return _check
 
 
-async def _is_bootstrap_mode(db: AsyncSession) -> bool:
-    """Return True while the system is still in first-run bootstrap.
+async def is_setup_open(db: AsyncSession) -> bool:
+    """Return True while the system is still in first-run bootstrap (database view).
 
     Bootstrap mode is defined as: the ``users`` table is empty **and**
     ``AppSettings.setup_completed`` is ``False``. This is the window
@@ -207,6 +219,50 @@ async def _is_bootstrap_mode(db: AsyncSession) -> bool:
     return not bool(completed)
 
 
+async def setup_window_open() -> bool:
+    """Return True while setup is open, usable before a database exists.
+
+    With no database configured yet (``bootstrap.needs_setup()``) no user
+    can exist, so setup is open. With one configured, the database decides
+    through :func:`is_setup_open`. A configured database whose engine is not
+    up yet counts as closed rather than guessed open.
+    """
+    if bootstrap.needs_setup():
+        return True
+    if not engine_is_ready():
+        return False
+    async with get_session_maker()() as db:
+        return await is_setup_open(db)
+
+
+async def require_infrastructure_setup(request: Request) -> None:
+    """Gate the pre-database wizard steps: infrastructure not configured yet + setup token.
+
+    test-database, test-redis and initialize only make sense before a
+    database is chosen; afterwards they answer the same generic 403.
+    """
+    if not bootstrap.needs_setup():
+        deny_setup_access()
+    await require_setup_token(request)
+
+
+async def require_open_setup_token(request: Request) -> None:
+    """Gate usable in either wizard phase: :func:`setup_window_open` + setup token."""
+    await require_setup_token(request)
+    if not await setup_window_open():
+        deny_setup_access()
+
+
+async def require_setup_window(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Gate a setup-time endpoint that has a database: setup open + setup token."""
+    if not await is_setup_open(db):
+        deny_setup_access()
+    await require_setup_token(request)
+
+
 async def require_admin_or_bootstrap(
     request: Request,
     token: str | None = Depends(oauth2_scheme),
@@ -223,18 +279,17 @@ async def require_admin_or_bootstrap(
 
     This dependency relaxes admin enforcement **only** while the
     system is still in first-run bootstrap state (see
-    :func:`_is_bootstrap_mode`). During that window the request must
-    also originate from loopback OR present a valid
-    ``X-Setup-Token: <SEPTUM_SETUP_TOKEN>`` header — otherwise an
-    attacker reachable on port 3000 could plant settings, register the
-    first admin, and lock the legitimate operator out before they ever
-    finish the wizard. Once setup completes, the dependency becomes
+    :func:`is_setup_open`). During that window the request must present
+    a valid ``X-Setup-Token`` header (:func:`require_setup_token`) —
+    otherwise an attacker reachable on port 3000 could plant settings,
+    register the first admin, and lock the legitimate operator out
+    before they ever finish the wizard. Once setup completes, the dependency becomes
     strictly admin-only — equivalent to ``require_role("admin")``.
     Returns ``None`` during bootstrap so handlers that want to use
     the user must handle the optional case.
     """
-    if await _is_bootstrap_mode(db):
-        _check_setup_window_origin(request)
+    if await is_setup_open(db):
+        await require_setup_token(request)
         return None
 
     user = await get_current_user(request, token, db)
@@ -256,10 +311,10 @@ async def require_user_or_bootstrap(
     Same bootstrap escape hatch as :func:`require_admin_or_bootstrap`
     but for endpoints that only require *some* authenticated user
     (admin / editor / viewer) outside of first-run setup. Bootstrap
-    requests must come from loopback or carry the setup token (see
+    requests must carry the setup token (see
     :func:`require_admin_or_bootstrap`).
     """
-    if await _is_bootstrap_mode(db):
-        _check_setup_window_origin(request)
+    if await is_setup_open(db):
+        await require_setup_token(request)
         return None
     return await get_current_user(request, token, db)

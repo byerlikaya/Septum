@@ -162,6 +162,24 @@ class TestUserCrud:
         )
         assert resp.status_code == 409
 
+    async def test_create_user_race_on_duplicate_email_is_409(
+        self, router_client: AsyncClient, monkeypatch
+    ) -> None:
+        from septum_api.routers import users as users_router
+        from sqlalchemy import false
+
+        admin_token = await _bootstrap_admin(router_client)
+        await _create_user(router_client, admin_token, "race@example.com")
+        # The pre-insert check misses, as when a concurrent create commits in between.
+        monkeypatch.setattr(users_router, "select", lambda *cols: select(*cols).where(false()))
+        resp = await router_client.post(
+            "/api/users",
+            headers=_auth(admin_token),
+            json={"email": "race@example.com", "password": "password-12345", "role": "editor"},
+        )
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "Email already registered"
+
     async def test_create_rejects_invalid_role(self, router_client: AsyncClient) -> None:
         admin_token = await _bootstrap_admin(router_client)
         resp = await router_client.post(
@@ -368,3 +386,47 @@ class TestLastAdminHelper:
             assert await _count_active_admins(session, exclude_id=only_admin.id) == 0
 
         await engine.dispose()
+
+
+async def test_password_hashing_runs_off_the_event_loop(
+    router_client: AsyncClient, monkeypatch
+) -> None:
+    """bcrypt work in register, create, reset and change-password stays off the loop thread."""
+    import threading
+
+    from septum_api.routers import auth as auth_router
+    from septum_api.routers import users as users_router
+
+    loop_thread = threading.get_ident()
+    calls: list[tuple[str, int]] = []
+
+    def recording(name, real):
+        def wrapper(*args):
+            calls.append((name, threading.get_ident()))
+            return real(*args)
+
+        return wrapper
+
+    monkeypatch.setattr(auth_router, "hash_password", recording("auth.hash", auth_router.hash_password))
+    monkeypatch.setattr(auth_router, "verify_password", recording("auth.verify", auth_router.verify_password))
+    monkeypatch.setattr(users_router, "hash_password", recording("users.hash", users_router.hash_password))
+
+    admin_token = await _bootstrap_admin(router_client)
+    created = await _create_user(router_client, admin_token, "offloop@example.com")
+    reset = await router_client.post(
+        f"/api/users/{created['id']}/reset-password",
+        headers=_auth(admin_token),
+        json={"new_password": "newpassword9"},
+    )
+    assert reset.status_code == 200, reset.text
+    changed = await router_client.post(
+        "/api/auth/change-password",
+        headers=_auth(admin_token),
+        json={"current_password": "password-12345", "new_password": "password-67890"},
+    )
+    assert changed.status_code == 200, changed.text
+
+    assert sorted(name for name, _ in calls) == [
+        "auth.hash", "auth.hash", "auth.verify", "users.hash", "users.hash",
+    ]
+    assert all(ident != loop_thread for _, ident in calls)

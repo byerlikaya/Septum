@@ -55,7 +55,7 @@ git clone https://github.com/byerlikaya/Septum.git && cd Septum
 docker compose -f docker-compose.standalone.yml up --build
 ```
 
-**http://localhost:3000** adresini açın. Kurulum sihirbazı veritabanı, cache, LLM sağlayıcısı, regülasyonlar ve yönetici hesabını yapılandırır. Tam yığın, air-gapped ve internete açık bölgelerin ayrımı ya da kaynaktan kurulum için [Kurulum Rehberi](https://byerlikaya.github.io/Septum/tr/installation) sayfasına bakın.
+**http://localhost:3000** adresini açın. Kurulum sihirbazı önce container günlüğüne yazdırılan bir kurulum anahtarı ister (`docker compose -f docker-compose.standalone.yml logs septum`). Ardından veritabanı, cache, LLM sağlayıcısı, regülasyonlar ve yönetici hesabını yapılandırır. Tam yığın, air-gapped ve internete açık bölgelerin ayrımı ya da kaynaktan kurulum için [Kurulum Rehberi](https://byerlikaya.github.io/Septum/tr/installation) sayfasına bakın.
 
 ## Dokümantasyon
 

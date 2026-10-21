@@ -56,6 +56,7 @@ WORKDIR /app
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/scripts/xff-preload.cjs ./xff-preload.cjs
 
 # Code and HOME stay root-owned (node resolves modules from
 # ~/.node_modules); only the Next.js cache is writable by node.
@@ -74,4 +75,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD wget -qO- http://127.0.0.1:3000 >/dev/null || exit 1
 
-CMD ["node", "server.js"]
+# The preload replaces client-sent forwarding headers with the real peer.
+CMD ["node", "-r", "./xff-preload.cjs", "server.js"]

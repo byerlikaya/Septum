@@ -32,5 +32,7 @@ def setup_structured_logging(level: str = "INFO") -> None:
         "httpx",
         "httpcore",
         "uvicorn.access",
+        # Logs SQL with bound values at DEBUG.
+        "aiosqlite",
     ):
         logging.getLogger(name).setLevel(logging.ERROR)

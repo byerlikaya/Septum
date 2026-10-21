@@ -488,7 +488,7 @@ async def test_failed_ingestion_records_the_refusal_code(
         doc_id = doc.id
 
     async with doc_session() as session:
-        await documents_router._record_background_failure(session, doc_id, exc)
+        await documents_router._record_background_failure(session, doc_id, exc, user_id=1)
 
     async with doc_session() as session:
         row = (await session.execute(select(Document).where(Document.id == doc_id))).scalar_one()

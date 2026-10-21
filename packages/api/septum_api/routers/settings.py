@@ -30,7 +30,7 @@ from ..database import get_db
 from ..errors import CodedHTTPError, public_error_text
 from ..models.user import User
 from ..request_limits import MAX_LLM_MODEL_LENGTH, MAX_LLM_PROVIDER_LENGTH
-from ..services.error_logger import log_backend_error, log_backend_message
+from ..services.error_logger import log_backend_message, report_error_log_failure
 from ..services.llm_errors import LLM_UNAVAILABLE, OLLAMA_URL_NOT_ALLOWED_CODE
 from ..services.llm_router import LLMRouter, LLMRouterError
 from ..services.ollama_client import (
@@ -353,7 +353,10 @@ async def test_llm_connection_endpoint(
 
     async def on_cloud_failure(message: str, extra: dict[str, Any]) -> None:
         used_fallback[0] = True
-        await log_backend_message(db, request, message, level="ERROR", extra=extra)
+        try:
+            await log_backend_message(db, request, message, level="ERROR", extra=extra)
+        except Exception as log_exc:
+            report_error_log_failure(log_exc)
 
     router = LLMRouter(settings)
     try:
@@ -368,10 +371,7 @@ async def test_llm_connection_endpoint(
             on_cloud_failure=on_cloud_failure,
         )
     except LLMRouterError as exc:
-        try:
-            await log_backend_error(db, request, exc, status_code=400)
-        except Exception as log_exc:
-            logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
+        # The exception handler records the resulting 400; no second row here.
         if exc.code is not None:
             raise CodedHTTPError(
                 status.HTTP_400_BAD_REQUEST, str(exc), exc.code
@@ -380,10 +380,6 @@ async def test_llm_connection_endpoint(
             status.HTTP_400_BAD_REQUEST, LLM_TEST_UNAVAILABLE_MESSAGE, LLM_UNAVAILABLE
         ) from exc
     except Exception as exc:
-        try:
-            await log_backend_error(db, request, exc, status_code=400)
-        except Exception as log_exc:
-            logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cloud LLM connection test failed due to an unexpected error.",

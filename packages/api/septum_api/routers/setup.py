@@ -11,8 +11,9 @@ import asyncio
 import json
 import logging
 import time
+from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -25,8 +26,10 @@ from ..database import (
     get_session_maker,
     init_db,
     initialize_engine,
+    reset_engine,
 )
-from ..errors import public_error_text
+from ..errors import CodedHTTPError, public_error_text
+from ..middleware.rate_limit import route_limit
 from ..models.settings import AppSettings
 from ..models.user import User
 from ..services.whisper_models import (
@@ -38,14 +41,32 @@ from ..services.whisper_models import (
     whisper_file_plausible,
 )
 from ..utils.auth_dependency import (
+    deny_setup_access,
     require_admin_or_bootstrap,
+    require_infrastructure_setup,
     require_interactive_session,
+    require_open_setup_token,
     require_role,
 )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
+
+_DATABASE_SCHEMES = frozenset({"postgresql", "postgresql+asyncpg"})
+_REDIS_SCHEMES = frozenset({"redis", "rediss"})
+CONNECTION_FAILED_CODE = "connection_failed"
+CONNECTION_FAILED_MESSAGE = "Connection failed"
+
+
+def _require_scheme(url: str, allowed: frozenset[str]) -> None:
+    """Reject a connection URL whose scheme is not in *allowed* (400, URL never echoed)."""
+    if urlsplit(url).scheme.lower() not in allowed:
+        raise CodedHTTPError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported connection URL scheme.",
+            code="unsupported_url_scheme",
+        )
 
 
 def _read_version() -> str:
@@ -75,9 +96,10 @@ class TestRedisRequest(BaseModel):
 
 
 class TestConnectionResponse(BaseModel):
-    """Generic connectivity test result."""
+    """Generic connectivity test result; ``code`` is set on failure for client-side translation."""
     ok: bool
     message: str = ""
+    code: str = ""
 
 
 class InitializeRequest(BaseModel):
@@ -117,6 +139,7 @@ class InfrastructureUpdateRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.get("/status", response_model=SetupStatusResponse)
+@route_limit("120/minute", fail_open=True)
 async def setup_status() -> SetupStatusResponse:
     """Return the current setup phase — works without a database."""
     version = _read_version()
@@ -143,20 +166,44 @@ async def setup_status() -> SetupStatusResponse:
 
 
 # ---------------------------------------------------------------------------
+# POST /api/setup/verify-token
+# ---------------------------------------------------------------------------
+
+@router.post("/verify-token", status_code=status.HTTP_204_NO_CONTENT)
+async def verify_setup_token(request: Request) -> Response:
+    """Let the wizard check a pasted ``X-Setup-Token``: 204 on match, the generic 403 otherwise.
+
+    Works in both wizard phases (before and after the database exists).
+    Wrong guesses are limited by the per-client setup-token failure bucket
+    that every setup-gated route shares; a correct token always passes,
+    so this route has no all-requests limit of its own beyond the default.
+    """
+    await require_open_setup_token(request)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
 # POST /api/setup/test-database
 # ---------------------------------------------------------------------------
 
-def _require_setup_phase() -> None:
-    if not bootstrap.needs_setup():
-        raise HTTPException(403, "Setup already completed.")
+def _connection_failed(kind: str, exc: BaseException) -> TestConnectionResponse:
+    """Log the failure class only and answer with the generic failure; details stay in the server log."""
+    logger.info("%s connection test failed: %s", kind, type(exc).__name__)
+    return TestConnectionResponse(
+        ok=False, message=CONNECTION_FAILED_MESSAGE, code=CONNECTION_FAILED_CODE
+    )
 
 
 @router.post("/test-database", response_model=TestConnectionResponse)
-async def test_database(body: TestDatabaseRequest, _: None = Depends(_require_setup_phase)) -> TestConnectionResponse:
-    """Test connectivity to a PostgreSQL database."""
+async def test_database(
+    body: TestDatabaseRequest,
+    _: None = Depends(require_infrastructure_setup),
+) -> TestConnectionResponse:
+    """Test connectivity to a PostgreSQL database (``postgresql`` / ``postgresql+asyncpg`` only)."""
     url = body.database_url.strip()
     if not url:
         raise HTTPException(400, "database_url is required")
+    _require_scheme(url, _DATABASE_SCHEMES)
 
     if url.startswith("postgresql://"):
         url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
@@ -168,8 +215,7 @@ async def test_database(body: TestDatabaseRequest, _: None = Depends(_require_se
         await eng.dispose()
         return TestConnectionResponse(ok=True, message="Connection successful")
     except Exception as exc:
-        logger.info("Database test failed: %s", type(exc).__name__)
-        return TestConnectionResponse(ok=False, message=public_error_text(exc, "Database connection failed"))
+        return _connection_failed("Database", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -183,11 +229,15 @@ def _get_redis_module():
 
 
 @router.post("/test-redis", response_model=TestConnectionResponse)
-async def test_redis(body: TestRedisRequest, _: None = Depends(_require_setup_phase)) -> TestConnectionResponse:
-    """Test connectivity to a Redis instance."""
+async def test_redis(
+    body: TestRedisRequest,
+    _: None = Depends(require_infrastructure_setup),
+) -> TestConnectionResponse:
+    """Test connectivity to a Redis instance (``redis`` / ``rediss`` only)."""
     url = body.redis_url.strip()
     if not url:
         raise HTTPException(400, "redis_url is required")
+    _require_scheme(url, _REDIS_SCHEMES)
 
     try:
         aioredis = _get_redis_module()
@@ -196,68 +246,80 @@ async def test_redis(body: TestRedisRequest, _: None = Depends(_require_setup_ph
         await client.aclose()
         return TestConnectionResponse(ok=True, message="Connection successful")
     except Exception as exc:
-        logger.info("Redis test failed: %s", type(exc).__name__)
-        return TestConnectionResponse(ok=False, message=public_error_text(exc, "Redis connection failed"))
+        return _connection_failed("Redis", exc)
 
 
 # ---------------------------------------------------------------------------
 # POST /api/setup/initialize
 # ---------------------------------------------------------------------------
 
-def _initialize_origin_check(request: Request) -> None:
-    """Check setup-window origin only when initialization is actually needed.
+INITIALIZE_FAILED_MESSAGE = "Infrastructure initialisation failed"
 
-    A no-op when the engine is already up (idempotent re-call) so the
-    legitimate operator's repeat clicks don't fail with 403; otherwise
-    requires loopback or ``X-Setup-Token``.
-    """
-    if engine_is_ready():
-        return
-    from ..utils.auth_dependency import _check_setup_window_origin
-
-    _check_setup_window_origin(request)
+# One infrastructure step at a time; see initialize().
+_initialize_lock = asyncio.Lock()
 
 
 @router.post("/initialize", response_model=InitializeResponse)
 async def initialize(
     body: InitializeRequest,
-    _: None = Depends(_initialize_origin_check),
+    _: None = Depends(require_infrastructure_setup),
 ) -> InitializeResponse:
     """Initialise the database engine and seed defaults.
 
     Called by the wizard after the user picks a database and cache backend.
     This endpoint writes ``config.json``, creates the engine, runs
-    migrations (for PostgreSQL) and seeds default data.
+    migrations (for PostgreSQL) and seeds default data. Only reachable
+    before infrastructure is configured, with the setup token.
+    ``database_configured`` is set last; a failure disposes the new engine
+    and restores the previous URLs, so a failed attempt leaks no connections
+    and leaves setup open for a retry. The failure message is generic; the
+    exception class goes to the server log only. Calls are serialised and
+    re-check that setup is still needed once they hold the lock, so two
+    concurrent calls cannot both configure infrastructure.
     """
-    if engine_is_ready():
-        return InitializeResponse(ok=True, message="Already initialised")
+    if body.database_type == "postgresql":
+        _require_scheme(body.database_url.strip(), _DATABASE_SCHEMES)
+    if body.redis_url.strip():
+        _require_scheme(body.redis_url.strip(), _REDIS_SCHEMES)
 
-    try:
-        # Persist infrastructure choices
-        bootstrap.save_config({
-            "database_url": body.database_url.strip() if body.database_type == "postgresql" else "",
-            "redis_url": body.redis_url.strip(),
-            "database_configured": True,
-        })
+    async with _initialize_lock:
+        # A concurrent call may have finished the step while this one waited.
+        if not bootstrap.needs_setup():
+            deny_setup_access()
+        previous = bootstrap.get_config()
+        rollback = {
+            "database_url": previous.database_url,
+            "redis_url": previous.redis_url,
+            "database_configured": False,
+        }
+        engine_created = False
+        try:
+            # Setup stays open until everything below has succeeded.
+            bootstrap.save_config({
+                "database_url": body.database_url.strip() if body.database_type == "postgresql" else "",
+                "redis_url": body.redis_url.strip(),
+            })
 
-        # Build URL and create the engine
-        config = bootstrap.get_config()
-        url = build_database_url(config.database_url, config.db_path)
-        initialize_engine(url)
+            config = bootstrap.get_config()
+            url = build_database_url(config.database_url, config.db_path)
+            initialize_engine(url)
+            engine_created = True
 
-        # Run Alembic migrations for PostgreSQL
-        if config.database_url:
-            await _run_alembic_upgrade(config.database_url)
+            # Run Alembic migrations for PostgreSQL
+            if config.database_url:
+                await _run_alembic_upgrade(config.database_url)
 
-        # Create tables (SQLite) and seed defaults
-        await init_db()
+            # Create tables (SQLite) and seed defaults
+            await init_db()
 
-        return InitializeResponse(ok=True, message="Infrastructure initialised")
-    except Exception as exc:
-        logger.error("Infrastructure initialisation failed: %s", type(exc).__name__)
-        return InitializeResponse(
-            ok=False, message=public_error_text(exc, "Infrastructure initialisation failed")
-        )
+            bootstrap.save_config({"database_configured": True})
+            return InitializeResponse(ok=True, message="Infrastructure initialised")
+        except Exception as exc:
+            logger.error("Infrastructure initialisation failed: %s", type(exc).__name__)
+            if engine_created:
+                await reset_engine()
+            bootstrap.save_config(rollback)
+            return InitializeResponse(ok=False, message=INITIALIZE_FAILED_MESSAGE)
 
 
 def _mask_url(url: str) -> str:

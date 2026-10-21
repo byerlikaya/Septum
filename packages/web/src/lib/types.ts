@@ -322,6 +322,7 @@ export interface SetupStatus {
 export interface TestConnectionResponse {
   ok: boolean;
   message?: string;
+  code?: string;
 }
 
 export interface InitializeResponse {

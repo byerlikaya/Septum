@@ -791,6 +791,52 @@ class TestLlmErrorEvent:
         for fragment in ("gateway", "502", "internal.example", "sk-123"):
             assert fragment not in event["message"]
 
+    @pytest.mark.parametrize(
+        ("error", "expected_code"),
+        [(LLMRouterError("down"), "llm_unavailable"), (RuntimeError("unexpected"), None)],
+    )
+    async def test_failing_error_log_is_reported_and_the_error_event_still_arrives(
+        self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch, error: Exception, expected_code: Optional[str]
+    ) -> None:
+        from septum_api.services.error_logger import ERROR_LOG_WRITE_FAILURES
+
+        async def _broken(*args, **kwargs):
+            raise OSError("db gone")
+
+        monkeypatch.setattr(chat_module, "log_backend_error", _broken)
+        before = ERROR_LOG_WRITE_FAILURES._value.get()
+
+        event = await self._ask_with_failure(chat_env, monkeypatch, error)
+
+        assert event["type"] == "error"
+        if expected_code:
+            assert event["code"] == expected_code
+        assert ERROR_LOG_WRITE_FAILURES._value.get() == before + 1
+
+    async def test_failing_error_log_does_not_break_a_cloud_fallback_turn(
+        self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from septum_api.services.error_logger import ERROR_LOG_WRITE_FAILURES
+
+        async def _broken(*args, **kwargs):
+            raise OSError("db gone")
+
+        async def _complete(self, messages, **kwargs):
+            await kwargs["on_cloud_failure"]("cloud down", {})
+            return "fallback answer"
+
+        await chat_env.set_require_approval(False)
+        doc = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha"])
+        monkeypatch.setattr(chat_module, "log_backend_message", _broken)
+        monkeypatch.setattr(LLMRouter, "complete", _complete)
+        before = ERROR_LOG_WRITE_FAILURES._value.get()
+        chat_env.act_as("alice")
+
+        _, events, _ = await chat_env.ask({"message": "who?", "document_ids": [doc]})
+
+        assert not [e for e in events if e["type"] == "error"]
+        assert ERROR_LOG_WRITE_FAILURES._value.get() == before + 1
+
     async def test_coded_error_keeps_its_authored_message(
         self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch
     ) -> None:

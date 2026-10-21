@@ -40,8 +40,9 @@ TABLES_IN_ORDER = [
 async def migrate(sqlite_path: str, pg_url: str) -> None:
     """Read all rows from *sqlite_path* and insert into *pg_url*."""
     sqlite_url = f"sqlite+aiosqlite:///{sqlite_path}"
-    src_engine = create_async_engine(sqlite_url, echo=False)
-    dst_engine = create_async_engine(pg_url, echo=False)
+    # hide_parameters keeps row values (personal data) out of SQL logs and errors.
+    src_engine = create_async_engine(sqlite_url, echo=False, hide_parameters=True)
+    dst_engine = create_async_engine(pg_url, echo=False, hide_parameters=True)
 
     src_session_maker = async_sessionmaker(bind=src_engine, class_=AsyncSession)
     dst_session_maker = async_sessionmaker(bind=dst_engine, class_=AsyncSession)

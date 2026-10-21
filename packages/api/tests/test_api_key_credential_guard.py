@@ -39,6 +39,7 @@ async def key_client(
     app.dependency_overrides[get_db] = _override_get_db
     monkeypatch.setattr(database, "engine_is_ready", lambda: True)
     monkeypatch.setattr(database, "get_session_maker", lambda: session_maker)
+    monkeypatch.setenv("SEPTUM_SETUP_TOKEN", "credential-guard-setup-token-0123456789")
     limiter = getattr(app.state, "limiter", None)
     if limiter is not None:
         limiter.enabled = False
@@ -49,6 +50,7 @@ async def key_client(
             resp = await client.post(
                 "/api/auth/register",
                 json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
+                headers={"X-Setup-Token": "credential-guard-setup-token-0123456789"},
             )
             assert resp.status_code == 201, resp.text
             jwt_token = resp.json()["access_token"]

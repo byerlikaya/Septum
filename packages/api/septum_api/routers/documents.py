@@ -57,7 +57,7 @@ from ..services.document_pipeline import (
     DocumentPipeline,
     erase_document_artifacts,
 )
-from ..services.error_logger import log_backend_error
+from ..services.error_logger import log_backend_error, report_error_log_failure
 from ..services.ingestion.audio_ingester import AudioIngester
 from ..services.ingestion.docx_ingester import DocxIngester
 from ..services.ingestion.image_ingester import ImageIngester
@@ -538,7 +538,7 @@ async def _ensure_spreadsheet_schema(
 
 
 async def _record_background_failure(
-    bg_db: AsyncSession, doc_id: int, exc: BaseException
+    bg_db: AsyncSession, doc_id: int, exc: BaseException, user_id: int
 ) -> None:
     """Record an ingestion failure on a document, recovering the session if needed.
 
@@ -555,6 +555,8 @@ async def _record_background_failure(
     :func:`log_backend_error` so it surfaces in the Error Logs UI; previously
     these failures were only attached to the Document row and the user had no
     way to see the stack trace from the UI without poking at the database.
+    The row draws on the requesting user's error-log budget, so repeated
+    failing uploads cannot flood the table either.
     """
     try:
         await bg_db.rollback()
@@ -590,9 +592,10 @@ async def _record_background_failure(
             None,
             exc,
             extra={"source": "ingestion", "document_id": doc_id},
+            identity=f"user:{user_id}",
         )
     except Exception as log_exc:
-        logger.warning("Error-log persistence failed: %s", type(log_exc).__name__)
+        report_error_log_failure(log_exc)
 
 
 _MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(500 * 1024 * 1024)))
@@ -736,7 +739,7 @@ async def upload_document(
                     on_progress=lambda pct: set_progress(doc_id, pct),
                 )
             except Exception as bg_exc:  # noqa: BLE001
-                await _record_background_failure(bg_db, doc_id, bg_exc)
+                await _record_background_failure(bg_db, doc_id, bg_exc, current_user.id)
             finally:
                 clear_progress(doc_id)
 
@@ -1195,7 +1198,7 @@ async def reprocess_document(
                     on_progress=lambda pct: set_progress(doc_id, pct),
                 )
             except Exception as bg_exc:  # noqa: BLE001
-                await _record_background_failure(bg_db, doc_id, bg_exc)
+                await _record_background_failure(bg_db, doc_id, bg_exc, user.id)
             finally:
                 clear_progress(doc_id)
 

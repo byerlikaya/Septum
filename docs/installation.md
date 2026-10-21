@@ -29,6 +29,7 @@
   - [Internet-facing zone only](#4-internet-facing-zone-only)
   - [Native / source install](#5-native--source-install-contributors)
 - [First launch — setup wizard](#first-launch--setup-wizard)
+- [Access and network settings](#access-and-network-settings)
 - [LLM providers](#llm-providers)
 - [Data persistence & volumes](#data-persistence--volumes)
 - [Upgrading](#upgrading)
@@ -48,7 +49,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Open **http://localhost:3000** — the setup wizard takes you the rest of the way.
+Open **http://localhost:3000**. The setup wizard's first step asks for a setup token, which the API prints to its log: `docker compose logs api`. The wizard takes you the rest of the way. See [Setup token](#setup-token).
 
 The compose stack brings up PostgreSQL, Redis, Ollama, the FastAPI backend, and the Next.js dashboard on a single host. Septum is installed from source: the first run builds the Septum images locally (several minutes) and pulls the base services and a default Ollama model; subsequent runs reuse the build cache. No raw PII ever leaves the machine — detection, masking, and LLM inference all happen locally.
 
@@ -112,6 +113,8 @@ git clone https://github.com/byerlikaya/Septum.git && cd Septum
 docker compose -f docker-compose.standalone.yml up -d --build
 ```
 
+The setup token is printed to the container log: `docker compose -f docker-compose.standalone.yml logs septum`.
+
 Standalone does not bundle Ollama. Either run Ollama on the host (`brew install ollama && ollama serve`) and point the wizard at `http://host.docker.internal:11434`, or skip Ollama and use a cloud provider (Anthropic / OpenAI / OpenRouter).
 
 **Use standalone when**: you want the fastest try-it-out experience, your corpus is small, and you don't need the full modular zone separation.
@@ -120,7 +123,7 @@ Standalone does not bundle Ollama. Either run Ollama on the host (`brew install 
 
 ### 3. Air-gapped zone only
 
-Runs only the air-gapped zone (api + web + PostgreSQL + Redis) on a host with no internet egress. Cloud LLM calls travel via a separate internet-facing host that hosts the gateway.
+Runs only the air-gapped zone (api + web + PostgreSQL + Redis). The host should have no internet egress, but the compose file does not enforce that. Read [Gateway routing status](#gateway-routing-status) before you rely on this split.
 
 ```bash
 cp .env.example .env
@@ -129,7 +132,7 @@ cp .env.example .env
 docker compose -f docker-compose.airgap.yml up -d --build
 ```
 
-This topology sets `USE_GATEWAY_DEFAULT=true` so every LLM call is routed through `septum-queue` (Redis Streams) instead of HTTP. Only masked text crosses the zone boundary. Pair with variant 4 on the internet-facing host.
+This topology sets `USE_GATEWAY_DEFAULT=true`, which is meant to route LLM calls through `septum-queue` (Redis Streams) to the internet-facing host. In this release that routing is not wired. See [Gateway routing status](#gateway-routing-status).
 
 **Fetching the models for an offline host.** The air-gapped host has no internet access, so its model cache is filled on a connected machine and copied over. The pins live in the code, so both machines must run the same Septum checkout. On the connected machine, with the same `.env`:
 
@@ -172,7 +175,8 @@ Runs only the gateway + audit modules on a host that *can* reach the cloud LLM p
 
 ```bash
 cp .env.example .env
-# Set REDIS_PASSWORD (same value as the air-gapped host, over VPN / private net)
+# Set REDIS_PASSWORD (this host's own value; never reuse the air-gapped host's password)
+# Set SEPTUM_GATEWAY_REDIS_BIND to this host's private or VPN address (required; compose refuses to start without it)
 # Set provider keys: ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.
 
 docker compose -f docker-compose.gateway.yml up -d --build
@@ -180,7 +184,7 @@ docker compose -f docker-compose.gateway.yml up -d --build
 
 The gateway image does not contain `septum-core` by security invariant — it only sees placeholder-masked text and publishes masked answers back. The audit sidecar logs every request with entity types, counts, and regulation ids (never raw PII) and exposes `/api/audit/export` for SIEM ingestion.
 
-**Air-gapped + internet-facing together**: two Docker hosts, one Redis reachable from both (ideally over a VPN / private subnet). Set identical `REDIS_PASSWORD` on both hosts. Septum's encryption invariant guarantees that Redis sees only placeholder-masked payloads.
+**Air-gapped + internet-facing together**: two Docker hosts. The queue is the gateway host's Redis, published on `SEPTUM_GATEWAY_REDIS_BIND`. Each host keeps its own `REDIS_PASSWORD`. The air-gapped Redis stays on `127.0.0.1`, and its password never goes to the gateway host. Once routing ships, the air-gapped api will reach the queue through `SEPTUM_QUEUE_URL`. The Redis link is plain text, so run it only over a VPN or private network. The queue carries placeholder-masked payloads by design, but routing through it is not wired yet (see [Gateway routing status](#gateway-routing-status)).
 
 ### 5. Native / source install (contributors)
 
@@ -207,7 +211,7 @@ cd packages/web && npm test       # frontend Jest suite
 
 ## First launch — setup wizard
 
-After any compose variant finishes booting, navigate to **http://localhost:3000**. You'll land on the setup wizard — it runs once, on a fresh install, and configures everything the backend needs to start.
+After any compose variant finishes booting, navigate to **http://localhost:3000**. You'll land on the setup wizard — it runs once, on a fresh install, and configures everything the backend needs to start. Its first step asks for the setup token.
 
 | Step | What you do | Notes |
 |---|---|---|
@@ -241,6 +245,74 @@ If you started with `docker compose up` (the full stack), the api container reac
 Each step has a **Test connection** button — it runs inside the api container, so it reflects what the backend will see after you finish the wizard. Green check = safe to move on.
 
 ---
+
+## Access and network settings
+
+### Setup token
+
+While setup is open, the API creates a setup token on first start and prints it on every start, to its log:
+
+```
+Septum setup token: <token>
+```
+
+Read it with `docker compose logs api` (full stack), `docker compose -f docker-compose.airgap.yml logs api` (air-gapped file), `docker compose -f docker-compose.standalone.yml logs septum` (standalone), or, for source installs, the terminal running `./dev.sh`. The wizard asks for it in its first step, and every later setup request sends it. The token is deleted when the first admin account is created. Until then, anyone who can read the container log or `config.json` (the data volume) can complete setup, so treat that log and the data volume as sensitive.
+
+To choose the value yourself, set `SEPTUM_SETUP_TOKEN` to at least 32 characters with at least 10 different characters. Septum refuses to start with a shorter or less varied value. Generate one with `openssl rand -hex 32`. When the variable is set, the log says `Septum setup is open; use the token set in SEPTUM_SETUP_TOKEN.` instead of printing the value.
+
+An install that already has a user has no open setup, so no token is printed.
+
+### Trusted proxies
+
+The API reads a client's address from `X-Forwarded-For` only when the request comes from a listed proxy. The dashboard (Next.js) is that proxy and sets the header itself. `FORWARDED_ALLOW_IPS` therefore lists only the dashboard's address:
+
+- Standalone: `127.0.0.1` (both processes share the container).
+- Compose: the web container's fixed address, `SEPTUM_WEB_IP` (default `172.28.70.10`). The compose files set this for you.
+
+`FORWARDED_ALLOW_IPS` never accepts `*`, and it refuses any range broader than `/8` (IPv4) or `/32` (IPv6).
+
+If a reverse proxy sits in front of the dashboard, set `SEPTUM_TRUSTED_PROXIES` on the dashboard process (the web container's environment, or the host running `npm start`) to that proxy's address or CIDR, with the same size limits. The dashboard then reads the client address from the proxy's `X-Forwarded-For`. It refuses to start on an invalid entry. The compose files do not set this variable; add it to the `web` service's environment.
+
+### Published ports
+
+Only the dashboard listens on all interfaces. Every other published port binds to `127.0.0.1` unless you set its bind variable; the gateway Redis has no default and needs `SEPTUM_GATEWAY_REDIS_BIND`:
+
+| Port | Service | Default bind | Variable |
+|---|---|---|---|
+| 3000 | Dashboard (web) | all interfaces | — |
+| 8000 | API | `127.0.0.1` | — (not published in standalone) |
+| 5432 | PostgreSQL | `127.0.0.1` | — |
+| 6379 | Redis (air-gapped file) | `127.0.0.1` | — |
+| 11434 | Ollama | `127.0.0.1` | `SEPTUM_OLLAMA_BIND` |
+| 8765 | MCP server (`mcp` profile) | `127.0.0.1` | `SEPTUM_MCP_BIND` |
+| 8002 | Audit API | `127.0.0.1` | `SEPTUM_AUDIT_BIND` |
+| 8001 | Gateway health | `127.0.0.1` | `SEPTUM_GATEWAY_HEALTH_BIND` |
+| 6379 | Gateway Redis (gateway file) | required | `SEPTUM_GATEWAY_REDIS_BIND` |
+
+Ports published by Docker bypass the INPUT rules of ufw and firewalld. Use the bind variables above, and add DOCKER-USER rules where the host needs them.
+
+### Monitoring
+
+The dashboard no longer proxies `/metrics`. Scrape the API directly: `api:8000` from inside the compose network, or `127.0.0.1:8000` on the host. The standalone container does not publish port 8000. In standalone, publish it yourself with `127.0.0.1:8000:8000` in a compose override. `/metrics` needs no login, so never publish it on a routable address. With `WEB_CONCURRENCY` above 1, each scrape reads one worker's counters.
+
+New Prometheus series:
+
+- `septum_rate_limit_storage_up`: 1 while the rate-limit storage answers.
+- `septum_unauthenticated_rejections_total`: 401 and 403 answers to callers with no login or API key, by status.
+- `septum_password_work_refused_total`: login, register or password-change requests refused with 503 because the password queue was full.
+- `septum_error_log_writes_dropped_total`: error log rows not written because the caller's budget was spent.
+- `septum_error_log_write_failures_total`: error log rows that could not be stored.
+- `septum_error_log_retention_failures_total`: error log retention runs that failed; they are retried on the next run.
+
+`GET /health` also reports `rate_limit_storage`: `ok`, or `degraded` while the storage is unreachable.
+
+### Error log retention
+
+`ERROR_LOG_RETENTION_DAYS` (default `90`) deletes older error log rows once a day. `0` keeps them indefinitely and logs a warning at startup. Answers 401 or 403 to a caller with no login or API key are counted but not stored, so they cannot fill the table. Other rows draw on a budget per user, API key or client address: 60 a minute, or 20 a minute for server errors. Rows past the budget are counted only. Rows record the route template (for example `/api/documents/{document_id}`), not the concrete URL.
+
+### Gateway routing status
+
+Until gateway routing ships, the air-gapped split is not an egress guarantee. In this release the API ignores `SEPTUM_QUEUE_URL` and does not send LLM calls through the gateway queue, even with `USE_GATEWAY_DEFAULT=true`. If a cloud provider is configured, the API calls it directly from the air-gapped host (with masked data only), and the compose files do not block that traffic. For now, use a local Ollama provider in the air-gapped zone and do not configure a cloud provider there.
 
 ## LLM providers
 
@@ -331,6 +403,15 @@ docker compose -f docker-compose.standalone.yml up -d --build
 
 Volumes are preserved across the rebuild because they are named volumes.
 
+**Breaking changes in this release.**
+
+- Setup now needs the setup token from every address, including `localhost`. The loopback exception is gone, so a setup request without the token gets `403`.
+- The API and the other service ports bind to `127.0.0.1` by default (see [Published ports](#published-ports)). Reach the API through the dashboard on port 3000.
+- Compose uses a fixed subnet (`172.28.70.0/24` by default; `SEPTUM_SUBNET`, `SEPTUM_DYNAMIC_IP_RANGE` and `SEPTUM_WEB_IP` change it). If compose reports that the network changed, run `docker compose -f <file> down` once with the same `-f` file you start with (for example `docker compose -f docker-compose.airgap.yml down`); volumes are kept. Then start again with `docker compose -f <file> up -d --build`. A custom `SEPTUM_SUBNET` needs `SEPTUM_WEB_IP` inside it and outside `SEPTUM_DYNAMIC_IP_RANGE`.
+- A `rate_limit` of `60/minute` in `config.json` (the value earlier releases wrote) is read as the new default, `600/minute`.
+- `docker-compose.gateway.yml` no longer starts until `SEPTUM_GATEWAY_REDIS_BIND` is set (Redis used to publish on all interfaces).
+- The default rate limit is now enforced on every API route; earlier releases never applied it.
+
 **Model caches after an upgrade.** Model caches from an earlier version may not match the pinned revisions. On the next online start, a pinned snapshot that holds leftover unpinned files is purged and fetched once; offline, it is refused until it is fetched again. An air-gapped install must run the `fetch` command again on a connected host and copy the models volume and the user-pins file, as described in [variant 3](#3-air-gapped-zone-only). A stored bare custom NER id is refused with `ner_model_unpinned`. A stored Whisper model name outside the openai-whisper registry (such as a local checkpoint path) is refused with `whisper_model_not_allowed`. Both must be changed in Settings. Unless warmup is disabled, the startup log then warns, with error codes only, about each stored custom NER model or Whisper model that would be refused.
 
 **Coming from the published `byerlikaya/septum` image.** Septum no longer publishes container images; the older images on Docker Hub remain available but are not updated. Remove the old container only, then build and start the standalone compose file. The container removal keeps the volumes, and the compose file uses the same volume names (`septum-data`, `septum-uploads`, `septum-anon-maps`, `septum-vector-indexes`, `septum-bm25-indexes`, `septum-models`), so your data, `config.json` and encryption key are reused.
@@ -356,6 +437,8 @@ Never run `docker volume prune` while moving: it deletes every volume no contain
 **Wizard hangs at "Testing Redis / PostgreSQL connection"**. The compose file requires `POSTGRES_PASSWORD` and `REDIS_PASSWORD` — if they're missing in `.env`, the data containers didn't start. Check `docker compose logs postgres redis` and set the variables before restarting.
 
 **Ollama step fails with "connection refused"**. Full stack: the Ollama container may still be pulling its first model; give it 30-60 seconds and retry. Standalone: Ollama is not bundled — either install it on the host (`brew install ollama`) and point the wizard at `http://host.docker.internal:11434`, or choose a cloud provider.
+
+**The wizard says "The setup token is invalid or expired"**. Enter the token exactly as printed. The token stays the same across restarts until setup completes. If you set `SEPTUM_SETUP_TOKEN`, enter that value; with the variable set, the log line reads `Septum setup is open; use the token set in SEPTUM_SETUP_TOKEN.` Otherwise read the latest line with `docker compose logs api | grep 'setup token'` (standalone: `docker compose -f docker-compose.standalone.yml logs septum | grep 'setup token'`). If the log has no token line, setup is closed because the database already has a user. After 10 wrong tries in a minute the wizard reports too many attempts; wait a minute and try again.
 
 **Port 3000 already in use**. Something else on your machine owns the port. Either stop the offender, or change Septum's binding: `docker compose up -d` with `-p 3001:3000` in a compose override, or edit `docker-compose.yml`'s `ports:` entry.
 

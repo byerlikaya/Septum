@@ -10,10 +10,17 @@
 # Start:
 #   docker compose -f docker-compose.airgap.yml up -d
 #
-# Gateway hand-off:
-#   Export the same Redis (or reach it from the gateway host), and
-#   point docker-compose.gateway.yml at it via SEPTUM_QUEUE_URL. Only
-#   masked text crosses the queue.
+# Gateway hand-off (one direction: this api connects OUTWARD to the gateway):
+#   The queue is the gateway-zone Redis (docker-compose.gateway.yml). Set
+#   SEPTUM_QUEUE_URL in .env to it, e.g.
+#     SEPTUM_QUEUE_URL=redis://:<gateway REDIS_PASSWORD>@<gateway-private-ip>:6379/0
+#   Unset = single-host dev, the queue falls back to the local Redis below.
+#   NOT WIRED YET: the api currently ignores SEPTUM_QUEUE_URL (no gateway
+#   client factory). Routing through the gateway lands in the next branch.
+#   REDIS_URL always stays on the local Redis (rate limiter: login failures,
+#   setup token, error-log buckets); the gateway host never receives it.
+#   The local Redis is bound to 127.0.0.1 on purpose: it is not reachable
+#   from the network. Only masked text crosses the queue.
 # -----------------------------------------------------------------------------
 
 services:
@@ -41,7 +48,8 @@ services:
     container_name: septum-redis
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}"]
     ports:
-      - "6379:6379"
+      # Loopback on purpose: this Redis serves REDIS_URL only and is never a queue endpoint for other hosts.
+      - "127.0.0.1:6379:6379"
     volumes:
       - septum-redis-data:/data
     restart: unless-stopped
@@ -64,16 +72,21 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
       # Opt into gateway mode so cloud LLM calls flow over Redis Streams
       # to the internet-facing zone instead of happening in-process.
+      # NOT WIRED YET: the api ignores SEPTUM_QUEUE_URL below until the gateway client factory lands.
       USE_GATEWAY_DEFAULT: "true"
-      SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
+      SEPTUM_QUEUE_URL: ${SEPTUM_QUEUE_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0}
       FRONTEND_ORIGIN: http://localhost:3000
+      # Only the web container's proxy may set X-Forwarded-For; anything
+      # else (incl. the Docker gateway behind the published port) is
+      # taken at face value. Never "*".
+      FORWARDED_ALLOW_IPS: ${SEPTUM_WEB_IP:-172.28.70.10}
       # No internet in this zone: a model missing from /app/models fails fast with
       # model_integrity_failed instead of hanging on a Hub download. Pre-populate
       # the volume with `docker compose run --rm -e HF_HUB_OFFLINE=0 api python -m septum_api.cli.models fetch`
       # on a connected host (compose run inherits this variable, so the override is needed).
       HF_HUB_OFFLINE: "1"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -108,6 +121,9 @@ services:
     image: septum-web:local
     pull_policy: never
     container_name: septum-web
+    networks:
+      default:
+        ipv4_address: ${SEPTUM_WEB_IP:-172.28.70.10}
     ports:
       - "3000:3000"
     depends_on:
@@ -144,7 +160,7 @@ services:
       SEPTUM_MCP_FILE_ROOT: /data/scan
       HF_HUB_OFFLINE: "1"
     ports:
-      - "8765:8765"
+      - "${SEPTUM_MCP_BIND:-127.0.0.1}:8765:8765"
     volumes:
       - septum-mcp-scan:/data/scan:ro
       # Read-only: mcp loads snapshots that api or the models fetch CLI already verified.
@@ -157,6 +173,18 @@ services:
       start_period: 30s
       retries: 3
     profiles: ["mcp"]
+
+# Fixed subnet so web gets a known address the API trusts as its proxy.
+# Other containers draw from the upper half (ip_range), so the static
+# web address can never be handed to another one. If the subnet collides
+# with a network on the host, override SEPTUM_SUBNET,
+# SEPTUM_DYNAMIC_IP_RANGE and SEPTUM_WEB_IP together.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${SEPTUM_SUBNET:-172.28.70.0/24}
+          ip_range: ${SEPTUM_DYNAMIC_IP_RANGE:-172.28.70.128/25}
 
 volumes:
   septum-pgdata:

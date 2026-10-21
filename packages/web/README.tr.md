@@ -38,7 +38,7 @@ Panel, iki ortam değişkeniyle kontrol edilen iki topolojiyi destekler:
 
 ### 1. Tek container (varsayılan)
 
-Frontend ve backend aynı origin'i paylaşır. `next.config.mjs` içindeki Next.js rewrite'ları `/api/*`, `/health`, `/metrics`, `/docs`, `/redoc` ve `/openapi.json` isteklerini backend süreçlerine yönlendirir.
+Frontend ve backend aynı origin'i paylaşır. `next.config.mjs` içindeki Next.js rewrite'ları `/api/*`, `/health`, `/docs`, `/redoc` ve `/openapi.json` isteklerini backend süreçlerine yönlendirir.
 
 ```bash
 # Build zamanı bir URL gerekmez — istekler göreli kalır.

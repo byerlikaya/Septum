@@ -294,15 +294,21 @@ API keys are for data and read automation. They cannot manage API keys, users or
 
 | Endpoint | Limit |
 |:---|:---|
-| `POST /api/auth/register` | 3 / minute |
-| `POST /api/auth/login` | 5 / minute |
+| `POST /api/auth/register` | 3 / minute per client |
+| `POST /api/auth/login` | 5 / minute per client; after 100 failures for one email in an hour, only clients that themselves failed for that email are refused |
+| `POST /api/auth/change-password` | 5 / minute per user |
 | `POST /api/api-keys` | 10 / minute |
-| Everything else | 60 / minute (configurable via `RATE_LIMIT_DEFAULT`) |
+| `POST /api/chat/ask` | 30 / minute |
+| `GET /api/setup/status` | 120 / minute |
+| `POST /api/error-logs/frontend` | 60 / hour per client; IPv6 also 120 / hour per /48 |
+| Setup-token failures (every setup-gated route) | 10 / minute per client |
+| Everything else | 600 / minute (configurable via `RATE_LIMIT_DEFAULT`) |
 
-API-key requests are rate-limited by **key prefix**, not IP, so services
-behind a shared NAT each get their own quota. Anonymous and JWT requests
-fall back to the remote IP. Limits are stored in Redis when configured;
-otherwise in-process memory (single-node dev only).
+Limits count per route and identity: the **API key prefix** for API-key requests, the user for signed-in requests, and the client address otherwise, so services behind a shared NAT each get their own quota. Login, register and setup routes always count per client address, even for signed-in callers. IPv6 clients count per /64. Failed-login and setup-token counters use the /48. Login and register each also have a 60-per-minute cap per IPv6 /48. These IPv6 rules apply only when the API sees real IPv6 client addresses; with the default compose network (IPv4 only), IPv6 visitors arrive through Docker's proxy and share one IPv4 bucket.
+
+A 429 response carries `Retry-After`. Login, register and password change can return `503` with code `server_busy` when the password-hashing queue is full, or when the same caller already has a password check in progress; the response carries `Retry-After: 2`.
+
+Limits are stored in Redis when Redis is configured (`REDIS_URL`, or the Redis URL saved by the setup wizard, applied after a restart), otherwise in process memory, which is only correct for a single process. During a Redis outage, general limits fail open, while login, register, password change, frontend error reports, the failed-login counters, the setup-token counter and the error-log budgets keep counting in memory (per process). Run more than one API worker (`WEB_CONCURRENCY` above 1) only with `REDIS_URL` set, and complete first-time setup with one worker or set `SEPTUM_SETUP_TOKEN`. See [Access and network settings](installation.md#access-and-network-settings) for the related settings.
 
 ### Quick API example
 

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Shield } from "lucide-react";
 import { authLogin, setAuthToken } from "@/lib/api";
+import { translateTransientAuthError } from "@/lib/apiErrors";
 import { useI18n } from "@/lib/i18n";
 import { hardNavigate } from "@/lib/navigation";
 
@@ -21,8 +22,8 @@ export default function LoginPage() {
       const { access_token } = await authLogin(email, password);
       setAuthToken(access_token);
       hardNavigate("/chat");
-    } catch {
-      setError(t("auth.login.error"));
+    } catch (err) {
+      setError(translateTransientAuthError(err, t) ?? t("auth.login.error"));
     } finally {
       setLoading(false);
     }

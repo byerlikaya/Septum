@@ -79,6 +79,10 @@ def _no_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(socket.socket, "connect", _guarded(_real_connect))
     monkeypatch.setattr(socket.socket, "connect_ex", _guarded(_real_connect_ex))
 
+# The limiter (and anything else reading REDIS_URL) must never reach a real
+# Redis from a test: a limiter reset would hit it.
+os.environ.pop("REDIS_URL", None)
+
 # Point bootstrap config to a temp directory so tests don't try to write to /app/data/.
 if "SEPTUM_CONFIG_PATH" not in os.environ:
     _test_config_dir = tempfile.mkdtemp(prefix="septum_test_config_")
@@ -118,14 +122,35 @@ def dispose_async_engine() -> None:
         asyncio.run(get_engine().dispose())
 
 
+TEST_SETUP_TOKEN = "test-setup-token-0123456789abcdef"
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rate_limits() -> None:
+    """Start every test with empty rate-limit counters.
+
+    The limiter is process-wide; without this, requests from earlier tests
+    (same ``testclient`` identity, same route) count toward later ones.
+    """
+    from septum_api.middleware.rate_limit import get_limiter
+
+    get_limiter().reset()
+
+
 @pytest.fixture
-async def router_client(tmp_path: Path) -> AsyncIterator["AsyncClient"]:  # noqa: F821
+async def router_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator["AsyncClient"]:  # noqa: F821
     """FastAPI test client backed by an isolated per-test SQLite database.
 
     Router tests that need to exercise real DB behaviour (users, auth, etc.)
     use this fixture to get a fresh engine + session override, with the real
-    application engine left untouched.
+    application engine left untouched. The client carries a valid
+    ``X-Setup-Token`` (set through ``SEPTUM_SETUP_TOKEN``) so setup-time
+    endpoints such as register work; tests of the setup gate itself drop or
+    replace that header.
     """
+    monkeypatch.setenv("SEPTUM_SETUP_TOKEN", TEST_SETUP_TOKEN)
     from httpx import ASGITransport, AsyncClient
     from septum_api.database import get_db
     from septum_api.main import app
@@ -152,7 +177,9 @@ async def router_client(tmp_path: Path) -> AsyncIterator["AsyncClient"]:  # noqa
 
     try:
         async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers={"X-Setup-Token": TEST_SETUP_TOKEN},
         ) as http_client:
             yield http_client
     finally:

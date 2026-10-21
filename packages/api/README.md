@@ -33,7 +33,7 @@ pip install -r packages/api/requirements.txt
 | `septum_api.routers` | 15 APIRouter modules (`auth`, `api_keys`, `chat`, `chat_sessions`, `chunks`, `documents`, `regulations`, `relationships`, `settings`, `setup`, `users`, `approval`, `audit`, `error_logs`, `text_normalization`). |
 | `septum_api.cli` | `python -m septum_api.cli.models fetch` pre-populates the model caches on a connected host (see below). |
 | `septum_api.services` | Document pipeline, sanitizer wrapper, `llm_router`, `vector_store`, `bm25_retriever`, `deanonymizer`, `prompts`, `approval_gate`, `gateway_client` (queue producer), `ingestion/`, `llm_providers/`. |
-| `septum_api.middleware` | `auth.py` (JWT + API key resolution) and `rate_limit.py` (slowapi + per-route limits). |
+| `septum_api.middleware` | `auth.py` (JWT + API key resolution) and `rate_limit.py` (identity-keyed counters and per-route limits). |
 | `septum_api.utils` | Crypto (AES-256-GCM), `auth_dependency`, Prometheus metrics, structured logging. |
 | `septum_api.seeds` | Built-in regulation ruleset seed data. |
 | `alembic/`, `alembic.ini` | Postgres schema migrations. Run with `alembic upgrade head` from `packages/api/`. |

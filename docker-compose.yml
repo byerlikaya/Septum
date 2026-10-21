@@ -66,9 +66,13 @@ services:
       USE_GATEWAY_DEFAULT: "true"
       SEPTUM_QUEUE_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
       FRONTEND_ORIGIN: http://localhost:3000
+      # Only the web container's proxy may set X-Forwarded-For; anything
+      # else (incl. the Docker gateway behind the published port) is
+      # taken at face value. Never "*".
+      FORWARDED_ALLOW_IPS: ${SEPTUM_WEB_IP:-172.28.70.10}
       OLLAMA_BASE_URL: http://ollama:11434
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -103,6 +107,9 @@ services:
     image: septum-web:local
     pull_policy: never
     container_name: septum-web
+    networks:
+      default:
+        ipv4_address: ${SEPTUM_WEB_IP:-172.28.70.10}
     ports:
       - "3000:3000"
     depends_on:
@@ -170,7 +177,7 @@ services:
       ["python", "-m", "uvicorn", "septum_audit.main:create_app",
        "--factory", "--host", "0.0.0.0", "--port", "8002"]
     ports:
-      - "8002:8002"
+      - "${SEPTUM_AUDIT_BIND:-127.0.0.1}:8002:8002"
     volumes:
       - septum-audit-log:/var/log/septum
     restart: unless-stopped
@@ -204,7 +211,7 @@ services:
       SEPTUM_REGULATIONS: ${SEPTUM_REGULATIONS:-}
       SEPTUM_MCP_FILE_ROOT: /data/scan
     ports:
-      - "8765:8765"
+      - "${SEPTUM_MCP_BIND:-127.0.0.1}:8765:8765"
     volumes:
       - septum-mcp-scan:/data/scan:ro
       # Read-only: mcp loads snapshots that api or the models fetch CLI already verified.
@@ -222,7 +229,8 @@ services:
     image: ollama/ollama:latest
     container_name: septum-ollama
     ports:
-      - "11434:11434"
+      # Containers reach Ollama as http://ollama:11434; the host port is for host-side tools only.
+      - "${SEPTUM_OLLAMA_BIND:-127.0.0.1}:11434:11434"
     volumes:
       - ollama-data:/root/.ollama
     restart: unless-stopped
@@ -232,6 +240,18 @@ services:
       timeout: 5s
       start_period: 15s
       retries: 3
+
+# Fixed subnet so web gets a known address the API trusts as its proxy.
+# Other containers draw from the upper half (ip_range), so the static
+# web address can never be handed to another one. If the subnet collides
+# with a network on the host, override SEPTUM_SUBNET,
+# SEPTUM_DYNAMIC_IP_RANGE and SEPTUM_WEB_IP together.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${SEPTUM_SUBNET:-172.28.70.0/24}
+          ip_range: ${SEPTUM_DYNAMIC_IP_RANGE:-172.28.70.128/25}
 
 volumes:
   septum-pgdata:

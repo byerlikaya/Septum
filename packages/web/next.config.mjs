@@ -34,7 +34,6 @@ const nextConfig = {
     return [
       { source: "/api/:path*", destination: `${backend}/api/:path*` },
       { source: "/health", destination: `${backend}/health` },
-      { source: "/metrics", destination: `${backend}/metrics` },
       { source: "/docs", destination: `${backend}/docs` },
       {
         source: "/docs/oauth2-redirect",

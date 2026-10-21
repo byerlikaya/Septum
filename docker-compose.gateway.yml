@@ -9,8 +9,21 @@
 # Start:
 #   docker compose -f docker-compose.gateway.yml up -d
 #
-# Wire to the air-gapped zone by pointing SEPTUM_QUEUE_URL at the same
-# Redis the api publishes on. Over a VPN / private link in production.
+# This Redis IS the queue. The air-gapped api connects to it (its
+# SEPTUM_QUEUE_URL, see docker-compose.airgap.yml); the air-gapped side
+# never gets a credential for the local Redis, and this host never gets one for it.
+# Binds (host interface for published ports):
+#   SEPTUM_GATEWAY_REDIS_BIND   REQUIRED. Gateway host's private/VPN IP, never 0.0.0.0.
+#                               Compose refuses to start without it.
+#   SEPTUM_GATEWAY_HEALTH_BIND  gateway health port (8001), default 127.0.0.1
+#   SEPTUM_AUDIT_BIND           audit API port (8002), default 127.0.0.1
+#
+# Docker-published ports bypass host INPUT rules (ufw / firewalld). The bind
+# variable is the restriction that works; additionally, or instead, restrict
+# with rules in the DOCKER-USER chain so only the air-gapped host / VPN subnet
+# can reach 6379.
+# Traffic is plaintext (AUTH and masked payloads): run it over a VPN or private
+# link. rediss:// needs TLS on this Redis listener, which this file does not configure.
 # -----------------------------------------------------------------------------
 
 x-gateway-base: &gateway-base
@@ -49,7 +62,7 @@ services:
     container_name: septum-gateway-redis
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}"]
     ports:
-      - "6379:6379"
+      - "${SEPTUM_GATEWAY_REDIS_BIND:?set SEPTUM_GATEWAY_REDIS_BIND to the gateway host's private/VPN IP (see docker-compose.gateway.yml header)}:6379:6379"
     volumes:
       - septum-gateway-redis-data:/data
     restart: unless-stopped
@@ -80,7 +93,7 @@ services:
       ["python", "-m", "uvicorn", "septum_gateway.main:create_app",
        "--factory", "--host", "0.0.0.0", "--port", "8001"]
     ports:
-      - "8001:8001"
+      - "${SEPTUM_GATEWAY_HEALTH_BIND:-127.0.0.1}:8001:8001"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"]
       interval: 30s
@@ -103,7 +116,7 @@ services:
       ["python", "-m", "uvicorn", "septum_audit.main:create_app",
        "--factory", "--host", "0.0.0.0", "--port", "8002"]
     ports:
-      - "8002:8002"
+      - "${SEPTUM_AUDIT_BIND:-127.0.0.1}:8002:8002"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health')"]
       interval: 30s

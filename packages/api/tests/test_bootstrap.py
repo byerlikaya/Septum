@@ -3,17 +3,25 @@
 from __future__ import annotations
 
 import json
+import stat
 from pathlib import Path
 
 import pytest
-
 from septum_api.bootstrap import (
+    SETUP_TOKEN_ENV,
     BootstrapConfig,
+    WeakSetupTokenError,
     _invalidate_cache,
+    clear_setup_token,
+    ensure_setup_token,
     get_config,
+    get_setup_token,
     needs_setup,
     save_config,
+    validate_setup_token_env,
 )
+
+OPERATOR_TOKEN = "operator-token-0123456789abcdef0123"
 
 
 @pytest.fixture(autouse=True)
@@ -25,7 +33,7 @@ def _isolated_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     for env_var in (
         "DATABASE_URL", "DB_PATH", "REDIS_URL", "ENCRYPTION_KEY",
         "JWT_SECRET_KEY", "JWT_EXPIRATION_MINUTES", "LOG_LEVEL",
-        "RATE_LIMIT_DEFAULT", "FRONTEND_ORIGIN",
+        "RATE_LIMIT_DEFAULT", "FRONTEND_ORIGIN", SETUP_TOKEN_ENV, "ERROR_LOG_RETENTION_DAYS",
     ):
         monkeypatch.delenv(env_var, raising=False)
     _invalidate_cache()
@@ -84,9 +92,24 @@ class TestGetConfig:
         assert config.redis_url == ""
         assert config.jwt_expiration_minutes == 1440
         assert config.log_level == "INFO"
-        assert config.rate_limit == "60/minute"
+        assert config.rate_limit == "600/minute"
         assert config.frontend_origin == "*"
         assert config.database_configured is False
+
+    def test_unenforced_legacy_rate_limit_is_upgraded(self, tmp_path: Path):
+        path = tmp_path / "config.json"
+        path.write_text(json.dumps({
+            "encryption_key": "k", "jwt_secret_key": "j", "rate_limit": "60/minute",
+        }))
+        assert get_config().rate_limit == "600/minute"
+        assert json.loads(path.read_text())["rate_limit"] == "600/minute"
+
+    def test_custom_rate_limit_is_kept(self, tmp_path: Path):
+        path = tmp_path / "config.json"
+        path.write_text(json.dumps({
+            "encryption_key": "k", "jwt_secret_key": "j", "rate_limit": "120/minute",
+        }))
+        assert get_config().rate_limit == "120/minute"
 
 
 class TestEnvOverrides:
@@ -178,3 +201,133 @@ class TestNeedsSetup:
             "database_configured": False,
         }))
         assert needs_setup() is True
+
+
+class TestSetupToken:
+    """Setup token persistence, env override and removal."""
+
+    def test_no_token_until_ensured(self, tmp_path: Path):
+        get_config()
+        assert get_setup_token() is None
+        assert "setup_token" not in json.loads((tmp_path / "config.json").read_text())
+
+    def test_ensure_generates_and_persists(self, tmp_path: Path):
+        get_config()
+        token = ensure_setup_token()
+        assert len(token) >= 43
+        assert json.loads((tmp_path / "config.json").read_text())["setup_token"] == token
+        assert get_setup_token() == token
+
+    def test_ensure_is_stable_across_restarts(self):
+        get_config()
+        first = ensure_setup_token()
+        _invalidate_cache()
+        get_config()
+        assert ensure_setup_token() == first
+
+    def test_tokens_differ_between_installs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        first = ensure_setup_token()
+        monkeypatch.setenv("SEPTUM_CONFIG_PATH", str(tmp_path / "other" / "config.json"))
+        assert ensure_setup_token() != first
+
+    def test_env_override_wins(self, monkeypatch: pytest.MonkeyPatch):
+        ensure_setup_token()
+        monkeypatch.setenv(SETUP_TOKEN_ENV, f"  {OPERATOR_TOKEN}  ")
+        assert get_setup_token() == OPERATOR_TOKEN
+
+    def test_short_env_token_is_never_accepted(self, monkeypatch: pytest.MonkeyPatch):
+        stored = ensure_setup_token()
+        monkeypatch.setenv(SETUP_TOKEN_ENV, "short-operator-token")
+        assert get_setup_token() == stored
+
+    def test_short_env_token_refuses_startup_without_echoing_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv(SETUP_TOKEN_ENV, "short-operator-token")
+        with pytest.raises(WeakSetupTokenError) as excinfo:
+            validate_setup_token_env()
+        assert "short-operator-token" not in str(excinfo.value)
+        assert SETUP_TOKEN_ENV in str(excinfo.value)
+
+    @pytest.mark.parametrize("value", ["a" * 64, "ab" * 32, "012345678" * 4])
+    def test_low_diversity_env_token_refuses_startup(self, monkeypatch: pytest.MonkeyPatch, value: str):
+        monkeypatch.setenv(SETUP_TOKEN_ENV, value)
+        with pytest.raises(WeakSetupTokenError) as excinfo:
+            validate_setup_token_env()
+        assert value not in str(excinfo.value)
+        assert "distinct" in str(excinfo.value)
+        assert get_setup_token() != value
+
+    @pytest.mark.parametrize(
+        ("value", "accepted"),
+        [
+            ("0123456789" * 3 + "ab", True),
+            ("0123456789" * 3 + "a", False),
+            ("012345678" * 3 + "0" * 5, False),
+            ("012345678a" + "0" * 22, True),
+        ],
+    )
+    def test_setup_token_length_and_diversity_boundaries(
+        self, monkeypatch: pytest.MonkeyPatch, value: str, accepted: bool
+    ):
+        monkeypatch.setenv(SETUP_TOKEN_ENV, value)
+        if accepted:
+            validate_setup_token_env()
+            assert get_setup_token() == value
+        else:
+            with pytest.raises(WeakSetupTokenError):
+                validate_setup_token_env()
+
+    def test_openssl_style_hex_token_passes(self, monkeypatch: pytest.MonkeyPatch):
+        import secrets
+
+        monkeypatch.setenv(SETUP_TOKEN_ENV, secrets.token_hex(32))
+        validate_setup_token_env()
+
+    def test_long_env_token_passes_startup_check(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv(SETUP_TOKEN_ENV, OPERATOR_TOKEN)
+        validate_setup_token_env()
+
+    def test_blank_env_is_ignored(self, monkeypatch: pytest.MonkeyPatch):
+        stored = ensure_setup_token()
+        monkeypatch.setenv(SETUP_TOKEN_ENV, "   ")
+        assert get_setup_token() == stored
+
+    def test_clear_removes_token_and_keeps_secrets_and_mode(self, tmp_path: Path):
+        path = tmp_path / "config.json"
+        config = get_config()
+        ensure_setup_token()
+        clear_setup_token()
+        raw = json.loads(path.read_text())
+        assert "setup_token" not in raw
+        assert raw["encryption_key"] == config.encryption_key
+        assert get_setup_token() is None
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+    def test_clear_without_token_does_not_rewrite(self, tmp_path: Path):
+        path = tmp_path / "config.json"
+        get_config()
+        before = path.stat().st_mtime_ns, path.stat().st_ino
+        clear_setup_token()
+        assert (path.stat().st_mtime_ns, path.stat().st_ino) == before
+
+    def test_save_config_keeps_token(self):
+        token = ensure_setup_token()
+        save_config({"log_level": "DEBUG"})
+        assert get_setup_token() == token
+
+    def test_regenerating_secrets_keeps_token(self, tmp_path: Path):
+        path = tmp_path / "config.json"
+        get_config()
+        token = ensure_setup_token()
+        raw = json.loads(path.read_text())
+        del raw["jwt_secret_key"]
+        path.write_text(json.dumps(raw))
+        _invalidate_cache()
+        get_config()
+        assert get_setup_token() == token
+
+    def test_token_not_on_config_object(self):
+        ensure_setup_token()
+        _invalidate_cache()
+        assert not hasattr(get_config(), "setup_token")

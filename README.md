@@ -55,7 +55,7 @@ git clone https://github.com/byerlikaya/Septum.git && cd Septum
 docker compose -f docker-compose.standalone.yml up --build
 ```
 
-Open **http://localhost:3000**. The setup wizard configures the database, cache, LLM provider, regulations and the admin account. For the full stack, the air-gapped and internet-facing splits, and the source install, see the [Installation guide](https://byerlikaya.github.io/Septum/installation).
+Open **http://localhost:3000**. The setup wizard first asks for a setup token, which is printed to the container log (`docker compose -f docker-compose.standalone.yml logs septum`). It then configures the database, cache, LLM provider, regulations and the admin account. For the full stack, the air-gapped and internet-facing splits, and the source install, see the [Installation guide](https://byerlikaya.github.io/Septum/installation).
 
 ## Documentation
 

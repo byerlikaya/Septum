@@ -4,6 +4,7 @@ import {
   INGESTION_ERROR_KEYS,
   LLM_TEST_ERROR_KEYS,
   translateErrorCode,
+  translateTransientAuthError,
 } from "../apiErrors";
 import { enMessages } from "../../i18n/en";
 import { trMessages } from "../../i18n/tr";
@@ -107,5 +108,62 @@ describe("LLM connection-test codes", () => {
     expect(translateErrorCode("llm_unavailable", t, CHAT_STREAM_ERROR_KEYS)).toBe(
       "chat.error.llmUnavailable",
     );
+  });
+});
+
+describe("transient auth errors", () => {
+  const tp = (key: string, params?: Record<string, string | number>) =>
+    params ? `${key}:${Object.values(params).join(",")}` : key;
+  const failure = (status: number, data: unknown = {}, headers: Record<string, unknown> = {}) => ({
+    response: { status, data, headers },
+  });
+
+  it("maps 503 server_busy to the busy message", () => {
+    expect(
+      translateTransientAuthError(failure(503, { detail: "raw", code: "server_busy" }), tp),
+    ).toBe("auth.error.serverBusy");
+  });
+
+  it("leaves a 503 without the server_busy code to the caller", () => {
+    expect(translateTransientAuthError(failure(503, { code: "other" }), tp)).toBeNull();
+  });
+
+  it("interpolates the Retry-After seconds on 429", () => {
+    expect(translateTransientAuthError(failure(429, {}, { "retry-after": "12" }), tp)).toBe(
+      "auth.error.rateLimited:12",
+    );
+  });
+
+  it("uses the generic 429 message when Retry-After is missing or not a number", () => {
+    expect(translateTransientAuthError(failure(429), tp)).toBe("auth.error.rateLimitedGeneric");
+    expect(
+      translateTransientAuthError(failure(429, {}, { "retry-after": "Wed, 21 Oct 2026 07:28:00 GMT" }), tp),
+    ).toBe("auth.error.rateLimitedGeneric");
+    expect(translateTransientAuthError(failure(429, {}, { "retry-after": "0" }), tp)).toBe(
+      "auth.error.rateLimitedGeneric",
+    );
+  });
+
+  it("returns null for other statuses and for errors without a response", () => {
+    expect(translateTransientAuthError(failure(401, { detail: "bad" }), tp)).toBeNull();
+    expect(translateTransientAuthError(failure(400), tp)).toBeNull();
+    expect(translateTransientAuthError(new Error("network down"), tp)).toBeNull();
+  });
+
+  it("ships the busy and rate-limit keys in both dictionaries", () => {
+    for (const key of ["auth.error.serverBusy", "auth.error.rateLimited", "auth.error.rateLimitedGeneric"]) {
+      expect(enMessages).toHaveProperty([key]);
+      expect(trMessages).toHaveProperty([key]);
+    }
+    expect(enMessages["auth.error.rateLimited"]).toContain("{seconds}");
+    expect(trMessages["auth.error.rateLimited"]).toContain("{seconds}");
+  });
+
+  it("reads correctly for any seconds value in both languages", () => {
+    const render = (template: string, seconds: number) => template.replace("{seconds}", String(seconds));
+    expect(render(enMessages["auth.error.rateLimited"], 1)).toBe("Too many attempts. Try again in 1 s.");
+    expect(render(enMessages["auth.error.rateLimited"], 60)).toBe("Too many attempts. Try again in 60 s.");
+    expect(render(trMessages["auth.error.rateLimited"], 1)).toBe("Çok fazla deneme. 1 sn sonra tekrar deneyin.");
+    expect(render(trMessages["auth.error.rateLimited"], 60)).toBe("Çok fazla deneme. 60 sn sonra tekrar deneyin.");
   });
 });

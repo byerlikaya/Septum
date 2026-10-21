@@ -21,14 +21,15 @@ setup_structured_logging(_bootstrap_early.get_config().log_level)
 
 import os
 import threading  # noqa: E402
-from contextlib import asynccontextmanager  # noqa: E402
+from contextlib import asynccontextmanager, suppress  # noqa: E402
 from typing import Any  # noqa: E402
 
-from fastapi import FastAPI, HTTPException, Request  # noqa: E402
+from fastapi import Depends, FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.openapi.docs import get_redoc_html  # noqa: E402
 from fastapi.openapi.utils import get_openapi  # noqa: E402
 from fastapi.responses import HTMLResponse, JSONResponse  # noqa: E402
+from prometheus_client import Counter  # noqa: E402
 from septum_core.model_integrity import (
     ModelRefusal,
     parse_model_spec,
@@ -63,11 +64,16 @@ from .routers import setup as setup_router
 from .routers import text_normalization as text_normalization_router
 from .routers import users as users_router
 from .services.document_anon_store import sweep_stale_temp_files
-from .services.error_logger import log_backend_error, log_backend_message
+from .services.error_logger import (
+    log_backend_error,
+    log_backend_message,
+    purge_expired_error_logs,
+    report_error_log_failure,
+)
+from .utils.auth_dependency import setup_window_open
 from .utils.device import get_device
 
 MODEL_WARMUP_OPT_OUT_ENV = "SEPTUM_DISABLE_MODEL_WARMUP"
-_ERROR_LOG_FAILED_MESSAGE = "Error-log persistence failed: %s"
 
 
 def _warn_on_refused_model_settings(
@@ -177,12 +183,92 @@ async def _stored_model_settings() -> tuple[dict[str, str] | None, str | None]:
     return row.ner_model_overrides, row.whisper_model
 
 
+async def _announce_setup_token() -> None:
+    """Print the setup token to stdout while setup is open; drop a stale one once it is closed.
+
+    Setup counts as open only when :func:`setup_window_open` establishes it:
+    either the infrastructure step has not run (no database is configured, so
+    no user can exist), or the configured database has no user and
+    ``setup_completed`` is false. Anything else, including an upgraded install
+    with users, is closed: no token is generated, nothing is printed, and a
+    leftover stored token is removed. A database error propagates instead of
+    guessing a state.
+
+    The token goes to stdout via ``print`` and never through ``logging``, so
+    it stays out of structured log sinks and the ErrorLog table.
+    """
+    if not await setup_window_open():
+        bootstrap.clear_setup_token()
+        return
+
+    if bootstrap.setup_token_from_env():
+        print(
+            f"Septum setup is open; use the token set in {bootstrap.SETUP_TOKEN_ENV}.",
+            flush=True,
+        )
+        return
+
+    token = bootstrap.ensure_setup_token()
+    print(f"Septum setup token: {token}", flush=True)
+    print(
+        "Enter it in the setup wizard; it is deleted when the first admin is created.",
+        flush=True,
+    )
+
+
+ERROR_LOG_PURGE_INTERVAL_SECONDS = 24 * 60 * 60
+
+ERROR_LOG_RETENTION_FAILURES = Counter(
+    "septum_error_log_retention_failures_total",
+    "Error log retention runs that failed (retried on the next tick)",
+)
+
+
+async def _purge_error_logs_once() -> None:
+    """Apply the error log retention once; a no-op until the database is set up."""
+    if not engine_is_ready():
+        return
+    async with get_session_maker()() as db:
+        removed = await purge_expired_error_logs(
+            db, bootstrap.get_config().error_log_retention_days
+        )
+    if removed:
+        logger.info("Purged %d error log entries past retention", removed)
+
+
+async def _error_log_retention_loop() -> None:
+    """Purge expired error logs at startup and then once a day; warn and stop if disabled.
+
+    A failed run is logged (class name only) and retried on the next
+    tick, so a transient database error does not end retention for the
+    life of the process.
+    """
+    if bootstrap.get_config().error_log_retention_days < 1:
+        logger.warning(
+            "Error log retention is disabled (error_log_retention_days < 1); "
+            "error log rows are kept indefinitely"
+        )
+        return
+    while True:
+        try:
+            await _purge_error_logs_once()
+        except Exception as exc:
+            logger.warning("Error log retention purge failed: %s", type(exc).__name__)
+            ERROR_LOG_RETENTION_FAILURES.inc()
+        await asyncio.sleep(ERROR_LOG_PURGE_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan handler — initialise database if already configured."""
-    from .services.auth import warm_dummy_password_hash
+    from .services.auth import (
+        run_password_work,
+        shutdown_password_executor,
+        warm_dummy_password_hash,
+    )
 
-    await asyncio.to_thread(warm_dummy_password_hash)
+    bootstrap.validate_setup_token_env()
+    await run_password_work(warm_dummy_password_hash)
     config = bootstrap.get_config()
     if not bootstrap.needs_setup():
         url = build_database_url(config.database_url, config.db_path)
@@ -199,13 +285,24 @@ async def lifespan(app: FastAPI):
                 name="septum-model-warmup",
                 daemon=True,
             ).start()
-    yield
+    await _announce_setup_token()
+    retention = asyncio.create_task(_error_log_retention_loop(), name="septum-error-log-retention")
+    try:
+        yield
+    finally:
+        retention.cancel()
+        with suppress(asyncio.CancelledError):
+            await retention
+        shutdown_password_executor()
 
 
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
-
-from .middleware.rate_limit import get_limiter
+from .middleware.rate_limit import (
+    DefaultRateLimit,
+    RateLimited,
+    get_limiter,
+    rate_limited_handler,
+)
+from .services.auth import PASSWORD_BUSY_RETRY_AFTER_SECONDS, PasswordWorkBusy
 
 limiter = get_limiter()
 
@@ -286,7 +383,7 @@ def _custom_openapi() -> dict[str, Any]:
 
 app.openapi = _custom_openapi  # type: ignore[method-assign]
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimited, rate_limited_handler)
 
 from .middleware.auth import AuthMiddleware
 from .middleware.security_headers import SecurityHeadersMiddleware
@@ -315,7 +412,9 @@ app.add_middleware(
 app.add_route("/metrics", metrics_endpoint, methods=["GET"])
 
 
-# Every router carries its own /api/... prefix and is mounted once.
+# Every router carries its own /api/... prefix and is mounted once, with no
+# extra prefix here: error log rows store the route template, which must be
+# the path the route is actually served at.
 _all_routers = [
     setup_router.router,
     auth_router.router,
@@ -334,9 +433,47 @@ _all_routers = [
     users_router.router,
 ]
 
+default_rate_limit = DefaultRateLimit(bootstrap.get_config().rate_limit)
 for _r in _all_routers:
-    app.include_router(_r)
+    app.include_router(_r, dependencies=[Depends(default_rate_limit)])
 
+
+
+# Rejections of callers without credentials are counted, not stored: anyone
+# can produce them, so persisting each one would let a client grow the
+# error log at will. The only label is the status code.
+UNAUTHENTICATED_REJECTIONS = Counter(
+    "septum_unauthenticated_rejections_total",
+    "401/403 answers to requests without a resolved user or API key",
+    ["status"],
+)
+_UNAUTHENTICATED_REJECTION_CODES = frozenset(
+    {http_status.HTTP_401_UNAUTHORIZED, http_status.HTTP_403_FORBIDDEN}
+)
+
+
+def _is_unauthenticated_rejection(request: Request, status_code: int) -> bool:
+    return (
+        status_code in _UNAUTHENTICATED_REJECTION_CODES
+        and getattr(request.state, "auth_user_id", None) is None
+    )
+
+
+PASSWORD_WORK_REFUSED = Counter(
+    "septum_password_work_refused_total",
+    "Login, register and change-password requests refused because the bcrypt queue was full",
+)
+
+
+@app.exception_handler(PasswordWorkBusy)
+async def password_work_busy_handler(request: Request, exc: PasswordWorkBusy) -> JSONResponse:
+    """503 with Retry-After when the bcrypt queue is full; no error log row, only a counter."""
+    PASSWORD_WORK_REFUSED.inc()
+    return JSONResponse(
+        status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": "Server is busy, try again shortly.", "code": "server_busy"},
+        headers={"Retry-After": str(PASSWORD_BUSY_RETRY_AFTER_SECONDS)},
+    )
 
 
 @app.exception_handler(HTTPException)
@@ -347,7 +484,14 @@ async def http_exception_handler(
 
     Also persists an error_log entry for any 4xx/5xx so the Error Logs UI
     surfaces these failures. 404s are excluded because they are noisy
-    under healthchecks/probes; everything else 4xx+ is logged.
+    under healthchecks/probes. 401/403 for a caller with no resolved
+    identity are only counted (``septum_unauthenticated_rejections_total``),
+    never stored, so anonymous clients cannot grow the table. Every other
+    row draws on the caller's error-log budget inside the logger (a
+    separate, smaller one for 5xx); past it the failure is only counted
+    (``septum_error_log_writes_dropped_total``). Stored rows keep the
+    request's user agent and request id, cut to their column widths: they
+    are useful for correlating a failure with a client.
 
     5xx errors are routed through ``log_backend_error`` so the full
     ``traceback.format_exception`` stack is captured — otherwise the
@@ -362,7 +506,9 @@ async def http_exception_handler(
     log_message = getattr(exc, "log_message", None) or (
         str(exc.detail) if exc.detail else exc.__class__.__name__
     )
-    if exc.status_code >= 400 and exc.status_code != http_status.HTTP_404_NOT_FOUND:
+    if _is_unauthenticated_rejection(request, exc.status_code):
+        UNAUTHENTICATED_REJECTIONS.labels(status=str(exc.status_code)).inc()
+    elif exc.status_code >= 400 and exc.status_code != http_status.HTTP_404_NOT_FOUND:
         try:
             if engine_is_ready():
                 sm = get_session_maker()
@@ -384,8 +530,8 @@ async def http_exception_handler(
                             status_code=exc.status_code,
                         )
         except Exception as log_exc:
-            # Logging must never break the response.
-            logger.warning(_ERROR_LOG_FAILED_MESSAGE, type(log_exc).__name__)
+            # Logging must never break the response; the failure is still reported.
+            report_error_log_failure(log_exc)
     content: dict[str, Any] = {"detail": exc.detail}
     if code is not None:
         content["code"] = code
@@ -410,7 +556,7 @@ async def model_refusal_handler(request: Request, exc: ModelRefusal) -> JSONResp
                     status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
     except Exception as log_exc:
-        logger.warning(_ERROR_LOG_FAILED_MESSAGE, type(log_exc).__name__)
+        report_error_log_failure(log_exc)
     return JSONResponse(
         status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
         content={"detail": MODEL_REFUSED_DETAIL, "code": exc.code},
@@ -421,7 +567,7 @@ async def model_refusal_handler(request: Request, exc: ModelRefusal) -> JSONResp
 async def global_exception_handler(
     request: Request, exc: Exception
 ) -> JSONResponse:
-    """Global fallback exception handler that also persists an error log entry."""
+    """Global fallback exception handler that also persists an error log entry (within budget)."""
     try:
         if engine_is_ready():
             sm = get_session_maker()
@@ -434,7 +580,7 @@ async def global_exception_handler(
                     status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
     except Exception as log_exc:
-        logger.warning(_ERROR_LOG_FAILED_MESSAGE, type(log_exc).__name__)
+        report_error_log_failure(log_exc)
 
     return JSONResponse(
         status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -470,6 +616,7 @@ async def health() -> dict[str, Any]:
     from .services.llm_providers.health import get_all_statuses
     redis_ok = await redis_ping()
     result["redis"] = "connected" if redis_ok else "unavailable"
+    result["rate_limit_storage"] = "ok" if limiter.buckets.storage_up else "degraded"
     result["llm_providers"] = get_all_statuses()
 
     return result
