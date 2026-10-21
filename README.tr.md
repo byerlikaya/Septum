@@ -4,6 +4,8 @@
 
 <h3 align="center">Veriniz dışarı çıkmaz. Yapay zekanız çalışmaya devam eder.</h3>
 
+https://github.com/user-attachments/assets/595432be-e008-4531-bb2c-e2e0f6a580c2
+
 <p align="center">
   <a href="https://github.com/byerlikaya/Septum/actions/workflows/tests.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/byerlikaya/Septum/tests.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=tests&color=43A047" alt="CI Testler" />
@@ -13,6 +15,9 @@
   </a>
   <a href="README.md">
     <img src="https://img.shields.io/badge/lang-English-1E88E5?style=for-the-badge" alt="English README" />
+  </a>
+  <a href="https://github.com/crewforth/crewforth">
+    <img src="https://img.shields.io/badge/built%20with-Crewforth-37474F?style=for-the-badge" alt="Crewforth ile geliştirildi" />
   </a>
 </p>
 

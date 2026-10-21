@@ -1,3 +1,5 @@
+<video src="/septum-teaser.mp4" controls playsinline preload="metadata" style="width:100%;border-radius:12px"></video>
+
 ## Works with the LLM you choose
 
 Septum connects to Anthropic, OpenAI, OpenRouter, or a local Ollama model. You switch providers from the dashboard, and the masking pipeline stays the same.

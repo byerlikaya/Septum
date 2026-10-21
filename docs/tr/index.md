@@ -1,3 +1,5 @@
+<video src="/septum-teaser-tr.mp4" controls playsinline preload="metadata" style="width:100%;border-radius:12px"></video>
+
 ## Tercih ettiğiniz LLM ile çalışır
 
 Septum; Anthropic, OpenAI, OpenRouter veya yerel bir Ollama modeli ile bağlanır. Sağlayıcıyı panelden değiştirirsiniz, maskeleme hattı aynı kalır.
