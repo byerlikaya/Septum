@@ -4,6 +4,8 @@
 
 <h3 align="center">Your data never leaves. Your AI still works.</h3>
 
+https://github.com/user-attachments/assets/36b90157-9f57-4800-862c-71dbb44d39bc
+
 <p align="center">
   <a href="https://github.com/byerlikaya/Septum/actions/workflows/tests.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/byerlikaya/Septum/tests.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=tests&color=43A047" alt="CI Tests" />
@@ -13,6 +15,9 @@
   </a>
   <a href="README.tr.md">
     <img src="https://img.shields.io/badge/lang-Türkçe-E53935?style=for-the-badge" alt="Turkish README" />
+  </a>
+  <a href="https://github.com/crewforth/crewforth">
+    <img src="https://img.shields.io/badge/built%20with-Crewforth-37474F?style=for-the-badge" alt="Built with Crewforth" />
   </a>
 </p>
 
