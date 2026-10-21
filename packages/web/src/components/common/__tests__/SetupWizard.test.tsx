@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SetupWizard } from "../SetupWizard";
 import { streamSSE, testDatabaseConnection } from "../../../lib/api";
 
@@ -9,6 +9,7 @@ const mockVerifySetupToken = jest.fn();
 const mockSetSetupToken = jest.fn();
 const mockClearSetupToken = jest.fn();
 const mockOnSetupForbidden = jest.fn();
+const mockProbeOllama = jest.fn();
 
 jest.mock("../../../lib/i18n", () => ({
   useI18n: () => (key: string) => key
@@ -38,6 +39,7 @@ jest.mock("../../../lib/api", () => ({
   setSetupToken: (...a: unknown[]) => mockSetSetupToken(...a),
   verifySetupToken: (...a: unknown[]) => mockVerifySetupToken(...a),
   onSetupForbidden: (...a: unknown[]) => mockOnSetupForbidden(...a),
+  probeOllama: (...a: unknown[]) => mockProbeOllama(...a),
   streamSSE: jest.fn(),
   testDatabaseConnection: jest.fn(),
   testRedisConnection: jest.fn()
@@ -48,6 +50,7 @@ beforeEach(() => {
   mockPatch.mockResolvedValue({ data: {} });
   mockVerifySetupToken.mockResolvedValue(undefined);
   mockOnSetupForbidden.mockImplementation(() => () => {});
+  mockProbeOllama.mockResolvedValue({ url: null, models: [], default_url: null });
   mockGet.mockImplementation((url: string) =>
     url === "/api/regulations"
       ? Promise.resolve({
@@ -190,7 +193,7 @@ describe("provider step settings save", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("settings.llm.ollama.baseUrl.rejected");
-    const input = screen.getByPlaceholderText("http://localhost:11434");
+    const input = screen.getByPlaceholderText("settings.llm.ollama.baseUrl.placeholder");
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(input).toHaveAttribute("aria-describedby", alert.id);
     expect(screen.queryByText("English detail with host")).not.toBeInTheDocument();
@@ -206,7 +209,7 @@ describe("provider step settings save", () => {
     fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
     await screen.findByRole("alert");
 
-    fireEvent.change(screen.getByPlaceholderText("http://localhost:11434"), {
+    fireEvent.change(screen.getByPlaceholderText("settings.llm.ollama.baseUrl.placeholder"), {
       target: { value: "http://localhost:11435" }
     });
 
@@ -582,4 +585,70 @@ it("translates a rejected unsupported-scheme database test (HTTP 400)", async ()
 
   expect(await screen.findByText("setup.step.connection.unsupportedScheme")).toBeInTheDocument();
   expect(screen.queryByText("Unsupported connection URL scheme.")).not.toBeInTheDocument();
+});
+
+describe("Ollama URL prefill", () => {
+  const renderProvider = async (initialProvider: string) => {
+    render(
+      <SetupWizard
+        startPhase="needs_application_setup"
+        initialProvider={initialProvider}
+        initialModel="m"
+        version="1"
+        onComplete={jest.fn()}
+      />
+    );
+    await passSetupToken("setup.step.provider.testAndContinue");
+  };
+  const urlInput = () =>
+    screen.getByPlaceholderText("settings.llm.ollama.baseUrl.placeholder") as HTMLInputElement;
+  const patchedPayload = async () => {
+    fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
+    await act(async () => {});
+    expect(mockPatch).toHaveBeenCalledWith("/api/settings", expect.any(Object));
+    return mockPatch.mock.calls[0][1] as Record<string, string>;
+  };
+
+  it("uses the server default when the probe finds nothing", async () => {
+    mockProbeOllama.mockResolvedValue({
+      url: null, models: [], default_url: "http://host.docker.internal:11434"
+    });
+    await renderProvider("ollama");
+    await waitFor(() => expect(urlInput().value).toBe("http://host.docker.internal:11434"));
+    expect((await patchedPayload()).ollama_base_url).toBe("http://host.docker.internal:11434");
+  });
+
+  it("prefers the probed URL over the server default", async () => {
+    mockProbeOllama.mockResolvedValue({
+      url: "http://ollama:11434", models: [], default_url: "http://host.docker.internal:11434"
+    });
+    await renderProvider("ollama");
+    await waitFor(() => expect(urlInput().value).toBe("http://ollama:11434"));
+  });
+
+  it("prefills the server default in external mode", async () => {
+    mockProbeOllama.mockResolvedValue({
+      url: "http://ollama:11434", models: [], default_url: "http://host.docker.internal:11434"
+    });
+    await renderProvider("anthropic");
+    fireEvent.click(screen.getByText("setup.step.provider.ollamaPrivacy.external"));
+    await waitFor(() => expect(urlInput().value).toBe("http://host.docker.internal:11434"));
+    expect((await patchedPayload()).ollama_base_url).toBe("http://host.docker.internal:11434");
+  });
+
+  it.each(["ollama", "external"])(
+    "leaves the field empty and writes no URL when neither value exists (%s)",
+    async (mode) => {
+      await renderProvider(mode === "ollama" ? "ollama" : "anthropic");
+      if (mode === "external") {
+        fireEvent.click(screen.getByText("setup.step.provider.ollamaPrivacy.external"));
+      }
+      await waitFor(() => expect(mockProbeOllama).toHaveBeenCalled());
+      await act(async () => {});
+      expect(urlInput().value).toBe("");
+      const payload = await patchedPayload();
+      expect(payload).not.toHaveProperty("ollama_base_url");
+      expect(JSON.stringify(mockPatch.mock.calls)).not.toContain("localhost");
+    }
+  );
 });

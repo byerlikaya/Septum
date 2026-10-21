@@ -35,6 +35,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 - Gateway replies are now awaited up to the configured timeout (default 120 seconds) instead of being cut off at about 30 seconds. The gateway caps Retry-After and bounds each forwarding attempt so it finishes within that wait.
 - Processed queue messages are deleted once handled, and malformed ones are dropped without logging their content. The queue Redis keeps nothing on disk and refuses new requests when full instead of evicting. Upgrade: remove the old queue Redis data volume, as described in the installation guide's breaking changes.
 - **Breaking: the air-gapped stack is network-isolated.** It runs on an internal network with no route out; a single edge relay carries the dashboard, MCP and the queue (the queue only from the API). Ollama runs inside the zone, with models loaded by a one-off pull service, and the API, Postgres and Redis ports are no longer published. The host Ollama relay is removed, and each queue client has its own Redis user. Upgrade: set the SEPTUM_QUEUE_*_PASSWORD variables, which are now required.
+- The setup wizard no longer saves `http://localhost:11434` as the Ollama address on Docker installs, where it points at the API container itself. It now uses the detected address or the server's configured default, and leaves the setting alone when neither is known.
 
 ### 2026-10-20
 

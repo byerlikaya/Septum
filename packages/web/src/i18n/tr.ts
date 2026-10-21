@@ -254,6 +254,7 @@ export const trMessages: Record<string, string> = {
   "settings.llm.apiKey.hint":
     "Lokal olarak saklanır, seçilen provider dışında hiçbir yere gönderilmez.",
   "settings.llm.ollama.baseUrl.label": "Ollama URL",
+  "settings.llm.ollama.baseUrl.placeholder": "örn. http://localhost:11434",
   "settings.llm.ollama.baseUrl.hint":
     "Ollama maskelenmemiş metin aldığı için Ollama'yı bu makinede (loopback, localhost, host.docker.internal, host.containers.internal) ya da kendi özel compose yığınınızda (birlikte gelen ollama servisi) çalıştırın.",
   "settings.llm.ollama.baseUrl.rejected":

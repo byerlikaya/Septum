@@ -39,7 +39,7 @@ function renderTab(overrides: {
       localTestStatus={overrides.localTestStatus ?? idle}
     />
   );
-  return { onChange, input: screen.getByPlaceholderText("http://localhost:11434") };
+  return { onChange, input: screen.getByPlaceholderText("settings.llm.ollama.baseUrl.placeholder") };
 }
 
 it("shows the translated rejection inline with aria attributes on a rejected blur-save", async () => {

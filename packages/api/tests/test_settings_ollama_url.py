@@ -667,3 +667,131 @@ async def test_test_llm_accepts_fields_at_limit(
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["ok"] is True
+
+
+def _unreachable_ollama(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every probe target refuse the connection."""
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused", request=request)
+
+    def _client(**kw):
+        return _REAL_ASYNC_CLIENT(transport=httpx.MockTransport(_handler), **kw)
+
+    monkeypatch.setattr(settings_router.httpx, "AsyncClient", _client)
+
+
+async def test_ollama_probe_returns_default_when_no_target_answers(
+    router_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("DOCKER", raising=False)
+    monkeypatch.setattr("septum_api.config._is_docker", lambda: False)
+    _unreachable_ollama(monkeypatch)
+
+    resp = await router_client.get("/api/settings/ollama-probe")
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"url": None, "models": [], "default_url": "http://localhost:11434"}
+
+
+async def test_ollama_probe_default_reflects_env(
+    router_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama:11434/")
+    _unreachable_ollama(monkeypatch)
+
+    resp = await router_client.get("/api/settings/ollama-probe")
+
+    assert resp.json()["default_url"] == "http://ollama:11434"
+
+
+async def test_ollama_probe_default_reflects_docker_fallback(
+    router_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.setenv("DOCKER", "true")
+    _unreachable_ollama(monkeypatch)
+
+    resp = await router_client.get("/api/settings/ollama-probe")
+
+    assert resp.json()["default_url"] == "http://host.docker.internal:11434"
+
+
+@pytest.mark.parametrize(
+    "configured",
+    ["http://10.0.0.5:11434", "http://user:pw@localhost:11434", "http://169.254.169.254", ""],
+)
+async def test_ollama_probe_invalid_configured_default_is_null(
+    router_client: AsyncClient, monkeypatch: pytest.MonkeyPatch, configured: str
+) -> None:
+    monkeypatch.setenv("OLLAMA_BASE_URL", configured)
+    _unreachable_ollama(monkeypatch)
+
+    resp = await router_client.get("/api/settings/ollama-probe")
+
+    assert resp.status_code == 200
+    assert resp.json()["default_url"] is None
+    if configured:
+        assert configured not in resp.text
+
+
+async def test_ollama_probe_reachable_target_keeps_fields_and_adds_default(
+    router_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama:11434")
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"models": [{"name": "m"}]})
+
+    monkeypatch.setattr(
+        settings_router.httpx,
+        "AsyncClient",
+        lambda **kw: _REAL_ASYNC_CLIENT(transport=httpx.MockTransport(_handler), **kw),
+    )
+
+    resp = await router_client.get("/api/settings/ollama-probe")
+
+    assert resp.json() == {
+        "url": "http://host.docker.internal:11434",
+        "models": ["m"],
+        "default_url": "http://ollama:11434",
+    }
+
+
+async def test_ollama_probe_requires_setup_token_during_setup(
+    router_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama:11434")
+    _unreachable_ollama(monkeypatch)
+
+    resp = await router_client.get(
+        "/api/settings/ollama-probe", headers={"X-Setup-Token": "wrong-token-0123456789abcdefgh"}
+    )
+    assert resp.status_code in (401, 403)
+    assert "default_url" not in resp.text
+
+
+async def test_ollama_probe_requires_admin_after_setup(
+    router_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _admin_headers(router_client)
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama:11434")
+    _unreachable_ollama(monkeypatch)
+
+    resp = await router_client.get("/api/settings/ollama-probe")
+
+    assert resp.status_code == 401
+    assert "default_url" not in resp.text
+
+
+def test_ollama_probe_dependency_and_schema() -> None:
+    route = next(
+        r
+        for r in settings_router.router.routes
+        if getattr(r, "endpoint", None) is settings_router.ollama_probe_endpoint
+    )
+    calls = [d.call for d in route.dependant.dependencies]
+    assert settings_router.require_admin_or_bootstrap in calls
+    props = app.openapi()["components"]["schemas"]["OllamaProbeResponse"]["properties"]
+    assert set(props) == {"url", "models", "default_url"}

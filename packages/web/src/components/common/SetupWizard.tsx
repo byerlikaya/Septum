@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Shield, Zap, Check, AlertCircle, Loader2, Globe, Database, HardDrive, Mic, UserPlus, KeyRound, Eye, EyeOff } from "lucide-react";
-import api, { PASSWORD_MIN_LENGTH, clearSetupToken, extractErrorCode, initializeInfrastructure, onSetupForbidden, setAuthToken, setSetupToken, streamSSE, testDatabaseConnection, testRedisConnection, verifySetupToken } from "@/lib/api";
+import api, { PASSWORD_MIN_LENGTH, clearSetupToken, extractErrorCode, initializeInfrastructure, onSetupForbidden, probeOllama as fetchOllamaProbe, type OllamaProbeResponse, setAuthToken, setSetupToken, streamSSE, testDatabaseConnection, testRedisConnection, verifySetupToken } from "@/lib/api";
 import { HTTP_ERROR_KEYS, localizeApiError, translateErrorCode, translateTransientAuthError } from "@/lib/apiErrors";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { exceedsPasswordByteLimit, passwordTooLongMessage } from "@/lib/password";
@@ -77,8 +77,8 @@ const StepHeader = ({ icon: Icon, title, desc }: { icon: React.ElementType; titl
     <div className="mb-6 flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-sky-600/20"><Icon className="h-5 w-5 text-sky-400" /></div><div><h2 className="text-lg font-semibold text-slate-50">{title}</h2><p className="text-xs text-slate-400">{desc}</p></div></div>
   );
 
-const OllamaUrlInput = ({ id, value, error, errorId, onChange, className }: { id: string; value: string; error: string | null; errorId: string; onChange: (value: string) => void; className: string }) => (
-  <input id={id} type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder="http://localhost:11434" aria-invalid={error ? true : undefined} aria-describedby={error ? errorId : undefined} className={className} />
+const OllamaUrlInput = ({ id, value, error, errorId, onChange, className, placeholder }: { id: string; value: string; error: string | null; errorId: string; onChange: (value: string) => void; className: string; placeholder: string }) => (
+  <input id={id} type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} aria-invalid={error ? true : undefined} aria-describedby={error ? errorId : undefined} className={className} />
 );
 const OllamaUrlError = ({ id, message }: { id: string; message: string | null }) => (
   message ? <p id={id} role="alert" className="mt-1 text-xs text-red-300">{message}</p> : null
@@ -123,9 +123,12 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
     return initialModel && initialModel !== "test" ? initialModel : (prov?.defaultModel ?? "");
   });
   const [apiKey, setApiKey] = useState("");
-  const [ollamaUrl, setOllamaUrl] = useState("http://localhost:11434");
+  const [ollamaUrl, setOllamaUrlState] = useState("");
   const [ollamaMode, setOllamaMode] = useState<"compose" | "external" | "none">("none");
   const [ollamaUrlError, setOllamaUrlError] = useState<string | null>(null);
+  // Bumped on every URL write so a late probe answer never overwrites a newer choice.
+  const ollamaUrlGeneration = useRef(0);
+  const setOllamaUrl = (value: string) => { ollamaUrlGeneration.current += 1; setOllamaUrlState(value); };
   const changeOllamaUrl = (value: string) => { setOllamaUrl(value); setOllamaUrlError(null); };
   const [deanonModel, setDeanonModel] = useState("llama3.2:3b");
   const [providerTestStatus, setProviderTestStatus] = useState<TestStatus>("idle");
@@ -173,23 +176,30 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
     setRegStatus((s) => (s === "pending" ? "idle" : s));
   }), [t]);
 
-  // Auto-probe Ollama when provider switches to ollama
-  const probeOllama = useCallback(async () => {
-    if (ollamaProbeResult !== "idle") return;
-    setOllamaProbeResult("probing");
-    try {
-      const { data } = await api.get<{ url: string | null; models: string[] }>("/api/settings/ollama-probe");
-      if (data.url) {
-        setOllamaUrl(data.url);
-        if (data.models.length > 0 && model === "llama3.2:3b") setModel(data.models[0]);
-        setOllamaProbeResult("found");
-      } else {
-        setOllamaProbeResult("not_found");
-      }
-    } catch {
-      setOllamaProbeResult("not_found");
+  // The server probe runs once; its answer (a reachable URL and the server's
+  // configured default) prefills the URL field. Nothing falls back to a hardcoded host.
+  const ollamaProbe = useRef<Promise<OllamaProbeResponse | null> | null>(null);
+  const prefillOllamaUrl = useCallback(async (pick: (r: OllamaProbeResponse) => string | null) => {
+    const generation = ++ollamaUrlGeneration.current;
+    if (!ollamaProbe.current) {
+      setOllamaProbeResult("probing");
+      ollamaProbe.current = fetchOllamaProbe().then(
+        (r) => { setOllamaProbeResult(r.url ? "found" : "not_found"); return r; },
+        () => { setOllamaProbeResult("not_found"); return null; },
+      );
     }
-  }, [ollamaProbeResult, model]);
+    const result = await ollamaProbe.current;
+    if (generation === ollamaUrlGeneration.current) setOllamaUrlState((result && pick(result)) ?? "");
+    return result;
+  }, []);
+  const prefillProviderOllamaUrl = useCallback(async () => {
+    const result = await prefillOllamaUrl((r) => r.url ?? r.default_url);
+    const found = result?.url ? result.models : [];
+    if (found.length > 0) setModel((m) => (m === "llama3.2:3b" ? found[0] : m));
+  }, [prefillOllamaUrl]);
+  useEffect(() => {
+    if (step === "provider" && provider === "ollama" && !ollamaProbe.current) void prefillProviderOllamaUrl();
+  }, [step, provider, prefillProviderOllamaUrl]);
 
   // --- Handlers ---
   const handleTestDatabase = useCallback(async () => {
@@ -249,8 +259,10 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
     setProviderTestStatus("pending"); setProviderTestMessage(""); setNeedsPull(false);
     // Save settings first
     const payload: Record<string, string> = { llm_provider: provider, llm_model: model, whisper_model: whisperModel };
-    const effectiveOllamaUrl = provider === "ollama" ? ollamaUrl.trim() || "http://localhost:11434" : ollamaMode === "compose" ? "http://ollama:11434" : ollamaMode === "external" ? ollamaUrl.trim() || "http://localhost:11434" : "";
-    if (effectiveOllamaUrl) { payload.ollama_base_url = effectiveOllamaUrl; payload.ollama_deanon_model = deanonModel.trim() || "llama3.2:3b"; }
+    // An empty URL is left out so the server keeps its configured value.
+    const effectiveOllamaUrl = provider === "ollama" || ollamaMode === "external" ? ollamaUrl.trim() : ollamaMode === "compose" ? "http://ollama:11434" : "";
+    if (effectiveOllamaUrl) payload.ollama_base_url = effectiveOllamaUrl;
+    if (provider === "ollama" || ollamaMode !== "none") payload.ollama_deanon_model = deanonModel.trim() || "llama3.2:3b";
     if (provider !== "ollama" && ollamaMode === "none") { payload.use_ollama_validation_layer = "false"; payload.use_ollama_layer = "false"; }
     if (provider === "ollama") { payload.ollama_chat_model = model; } else if (apiKey.trim()) { payload[apiKeyField] = apiKey.trim(); }
     setOllamaUrlError(null);
@@ -265,7 +277,7 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
     // Test connection
     try {
       const endpoint = provider === "ollama" ? "/api/settings/test-local-models" : "/api/settings/test-llm";
-      const body = provider === "ollama" ? { base_url: ollamaUrl } : { provider, model };
+      const body = provider === "ollama" ? { base_url: ollamaUrl.trim() || undefined } : { provider, model };
       const { data } = await api.post<{ ok: boolean; message?: string }>(endpoint, body);
       if (data.ok) {
         setProviderTestStatus("success"); setProviderTestMessage(data.message ?? t("setup.step.test.success"));
@@ -525,9 +537,9 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
           <StepHeader icon={Zap} title={t("setup.step.provider")} desc={t("setup.step.provider.description")} />
           <div className="space-y-4">
             <div><label className="mb-1.5 block text-xs font-medium text-slate-300">{t("setup.step.provider.label")}</label>
-              <select value={provider} onChange={(e) => { const v = e.target.value; setProvider(v); const def = PROVIDERS.find((p) => p.value === v); if (def) setModel(def.defaultModel); setProviderTestStatus("idle"); if (v === "ollama") probeOllama(); }} className={inputCls}>{PROVIDERS.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</select></div>
+              <select value={provider} onChange={(e) => { const v = e.target.value; setProvider(v); const def = PROVIDERS.find((p) => p.value === v); if (def) setModel(def.defaultModel); setProviderTestStatus("idle"); if (v === "ollama") void prefillProviderOllamaUrl(); }} className={inputCls}>{PROVIDERS.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</select></div>
             {provider === "ollama" ? (
-              <div><label htmlFor="ollama-url-provider" className="mb-1.5 block text-xs font-medium text-slate-300">Ollama URL</label><div className="relative"><OllamaUrlInput id="ollama-url-provider" value={ollamaUrl} error={ollamaUrlError} errorId="ollama-url-error-provider" onChange={changeOllamaUrl} className={inputCls} />{ollamaProbeResult === "probing" && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-slate-500" />}</div><p className="mt-1 text-xs text-slate-500">{t("setup.step.provider.ollamaHint")}</p><OllamaUrlError id="ollama-url-error-provider" message={ollamaUrlError} />{ollamaProbeResult === "not_found" && (<div className="mt-2 rounded-md bg-amber-950/40 border border-amber-800/50 px-3 py-2 text-xs text-amber-300/90 space-y-1"><p>{t("setup.step.provider.ollamaNotFound")}</p><ul className="list-disc pl-4 space-y-0.5"><li>{t("setup.step.provider.ollamaNotFound.install")}: <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-amber-200">ollama.com</a></li><li>{t("setup.step.provider.ollamaNotFound.compose")}: <code className="bg-slate-800 px-1 rounded">docker compose --profile ollama up</code></li></ul></div>)}</div>
+              <div><label htmlFor="ollama-url-provider" className="mb-1.5 block text-xs font-medium text-slate-300">Ollama URL</label><div className="relative"><OllamaUrlInput id="ollama-url-provider" value={ollamaUrl} error={ollamaUrlError} errorId="ollama-url-error-provider" onChange={changeOllamaUrl} className={inputCls} placeholder={t("settings.llm.ollama.baseUrl.placeholder")} />{ollamaProbeResult === "probing" && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-slate-500" />}</div><p className="mt-1 text-xs text-slate-500">{t("setup.step.provider.ollamaHint")}</p><OllamaUrlError id="ollama-url-error-provider" message={ollamaUrlError} />{ollamaProbeResult === "not_found" && (<div className="mt-2 rounded-md bg-amber-950/40 border border-amber-800/50 px-3 py-2 text-xs text-amber-300/90 space-y-1"><p>{t("setup.step.provider.ollamaNotFound")}</p><ul className="list-disc pl-4 space-y-0.5"><li>{t("setup.step.provider.ollamaNotFound.install")}: <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-amber-200">ollama.com</a></li><li>{t("setup.step.provider.ollamaNotFound.compose")}: <code className="bg-slate-800 px-1 rounded">docker compose --profile ollama up</code></li></ul></div>)}</div>
             ) : (
               <div><label className="mb-1.5 block text-xs font-medium text-slate-300">API Key</label><input type="text" autoComplete="off" data-1p-ignore data-lpignore="true" style={{ WebkitTextSecurity: "disc" } as React.CSSProperties} value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={provider === "anthropic" ? "sk-ant-..." : provider === "openai" ? "sk-..." : "sk-or-..."} className={inputCls} /><p className="mt-1 text-xs text-slate-500">{t("setup.step.provider.apiKeyHint")}</p></div>
             )}
@@ -540,8 +552,8 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
                 { value: "compose" as const, label: t("setup.step.provider.ollamaPrivacy.compose"), d: t("setup.step.provider.ollamaPrivacy.compose.description") },
                 { value: "external" as const, label: t("setup.step.provider.ollamaPrivacy.external"), d: t("setup.step.provider.ollamaPrivacy.external.description") },
                 { value: "none" as const, label: t("setup.step.provider.ollamaPrivacy.none"), d: t("setup.step.provider.ollamaPrivacy.none.description") },
-              ]).map((o) => (<button key={o.value} type="button" onClick={() => { setOllamaMode(o.value); setOllamaUrlError(null); if (o.value === "compose") setOllamaUrl("http://ollama:11434"); else if (o.value === "external") setOllamaUrl("http://localhost:11434"); }} className={`w-full rounded-md border p-2.5 text-left transition-colors ${ollamaMode === o.value ? "border-sky-500 bg-sky-600/10" : "border-slate-700 bg-slate-800/50 hover:border-slate-600"}`}><div className="text-xs font-medium text-slate-200">{o.label}</div><div className="text-[11px] text-slate-400">{o.d}</div></button>))}</div>
-              {ollamaMode === "external" && (<div><label htmlFor="ollama-url-external" className="mb-1 block text-xs font-medium text-slate-300">Ollama URL</label><OllamaUrlInput id="ollama-url-external" value={ollamaUrl} error={ollamaUrlError} errorId="ollama-url-error-external" onChange={changeOllamaUrl} className={inputCls} /><OllamaUrlError id="ollama-url-error-external" message={ollamaUrlError} /></div>)}
+              ]).map((o) => (<button key={o.value} type="button" onClick={() => { setOllamaMode(o.value); setOllamaUrlError(null); if (o.value === "compose") setOllamaUrl("http://ollama:11434"); else if (o.value === "external") { setOllamaUrl(""); void prefillOllamaUrl((r) => r.default_url ?? r.url); } }} className={`w-full rounded-md border p-2.5 text-left transition-colors ${ollamaMode === o.value ? "border-sky-500 bg-sky-600/10" : "border-slate-700 bg-slate-800/50 hover:border-slate-600"}`}><div className="text-xs font-medium text-slate-200">{o.label}</div><div className="text-[11px] text-slate-400">{o.d}</div></button>))}</div>
+              {ollamaMode === "external" && (<div><label htmlFor="ollama-url-external" className="mb-1 block text-xs font-medium text-slate-300">Ollama URL</label><OllamaUrlInput id="ollama-url-external" value={ollamaUrl} error={ollamaUrlError} errorId="ollama-url-error-external" onChange={changeOllamaUrl} className={inputCls} placeholder={t("settings.llm.ollama.baseUrl.placeholder")} /><OllamaUrlError id="ollama-url-error-external" message={ollamaUrlError} /></div>)}
               {ollamaMode !== "none" && (<div><label className="mb-1 block text-xs font-medium text-slate-300">{t("setup.step.provider.deanonModel")}</label><OllamaModelCombobox value={deanonModel} onChange={setDeanonModel} baseUrl={ollamaUrl} placeholder="llama3.2:3b" /></div>)}
             </div>)}
           </div>
