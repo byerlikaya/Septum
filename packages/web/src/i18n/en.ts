@@ -42,6 +42,11 @@ export const enMessages = {
   "sidebar.footer": "Privacy-first · Local-first",
   "sidebar.logout": "Log out",
   "sidebar.changePassword": "Change password",
+  "sidebar.openMenu": "Open menu",
+  "sidebar.closeMenu": "Close menu",
+  "sidebar.navigation": "Main navigation",
+  "sidebar.swagger": "Swagger",
+  "sidebar.apiDocs": "API Docs",
 
   "auth.login.title": "Sign In",
   "auth.login.subtitle": "Sign in to your Septum account",

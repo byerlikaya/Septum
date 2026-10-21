@@ -3,7 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { Menu, X } from "lucide-react";
+import { useEscapeToClose } from "@/hooks/useEscapeToClose";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { fetchErrorLogs, getSetupStatus } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { useLanguage } from "@/lib/language";
@@ -32,6 +35,9 @@ const navItems: NavItemDef[] = [
 ];
 
 const ERROR_LOGS_HREF = "/settings/error-logs";
+
+/** Matches Tailwind's ``lg`` breakpoint, where the drawer gives way to the fixed sidebar. */
+const DESKTOP_MEDIA_QUERY = "(min-width: 1024px)";
 
 function NavLink({
   item,
@@ -73,7 +79,8 @@ function NavLink({
   return (
     <Link
       href={item.href}
-      className={`flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+      aria-current={isActive ? "page" : undefined}
+      className={`flex min-h-11 items-center rounded-md px-3 py-2 text-sm font-medium lg:min-h-0 transition-colors ${
         isActive
           ? "bg-slate-800 text-slate-50"
           : "text-slate-300 hover:bg-slate-900 hover:text-slate-50"
@@ -95,7 +102,8 @@ function LanguageSelector() {
         {t("language.label")}
       </span>
       <select
-        className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-100"
+        aria-label={t("language.label")}
+        className="min-h-11 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-100 lg:min-h-0"
         value={language}
         onChange={event =>
           setLanguage(event.target.value === "tr" ? "tr" : "en")
@@ -117,6 +125,9 @@ export function Sidebar({ currentUser }: SidebarProps) {
   const t = useI18n();
   const [isNavOpen, setIsNavOpen] = useState<boolean>(false);
   const [errorLogCount, setErrorLogCount] = useState<number>(0);
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const drawerId = useId();
 
   const visibleNavItems = navItems.filter((item) =>
     currentUser ? item.allowedRoles.includes(currentUser.role) : false
@@ -164,97 +175,164 @@ export function Sidebar({ currentUser }: SidebarProps) {
     };
   }, []);
 
-  const toggleNav = (): void => {
-    setIsNavOpen(prev => !prev);
+  const openNav = (): void => {
+    // Safari does not focus a clicked button; focus it explicitly so the
+    // focus trap returns focus here when the drawer closes.
+    menuButtonRef.current?.focus();
+    setIsNavOpen(true);
   };
+  const closeNav = useCallback((): void => setIsNavOpen(false), []);
+
+  useEscapeToClose(isNavOpen, closeNav);
+  useFocusTrap(drawerRef, isNavOpen);
+
+  useEffect(() => {
+    if (!isNavOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isNavOpen]);
+
+  useEffect(() => {
+    if (!isNavOpen || typeof window.matchMedia !== "function") return;
+    const desktopQuery = window.matchMedia(DESKTOP_MEDIA_QUERY);
+    const handleChange = (event: MediaQueryListEvent): void => {
+      if (event.matches) setIsNavOpen(false);
+    };
+    desktopQuery.addEventListener("change", handleChange);
+    return () => desktopQuery.removeEventListener("change", handleChange);
+  }, [isNavOpen]);
+
+  const brand = (
+    <div className="flex items-center gap-2">
+      <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-slate-400">
+        {t("sidebar.tagline")}
+      </span>
+      {appVersion && (
+        <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-500">
+          v{appVersion}
+        </span>
+      )}
+    </div>
+  );
+
+  const userInfo = currentUser && (
+    <div className="border-t border-slate-800 px-4 py-2 text-[11px] text-slate-500">
+      <div className="truncate text-slate-300">{currentUser.email}</div>
+      <div>{t(ROLE_LABEL_KEYS[currentUser.role])}</div>
+    </div>
+  );
+
+  const footer = (
+    <div className="border-t border-slate-800 px-4 py-3 text-xs text-slate-500 space-y-2">
+      <LanguageSelector />
+      <span>{t("sidebar.footer")}</span>
+    </div>
+  );
 
   return (
-    <aside className="flex w-full flex-col border-b border-slate-800 bg-slate-950 text-slate-50 md:h-screen md:w-72 md:border-b-0 md:border-r">
-      {/* Mobile layout */}
-      <div className="md:hidden">
-        <div className="flex items-center justify-between gap-2 px-4 py-5">
-          <div className="flex items-center gap-3">
-            <div className="flex flex-col gap-1">
-              <div className="w-full max-w-[170px]">
+    <aside className="flex w-full shrink-0 flex-col border-b border-slate-800 bg-slate-950 text-slate-50 lg:h-full lg:w-72 lg:border-b-0 lg:border-r">
+      {/* Mobile / tablet bar */}
+      <div className="flex items-center justify-between gap-2 px-4 py-2 lg:hidden">
+        <div className="flex min-w-0 items-center gap-2">
+          <Image
+            src="/septum_logo.png"
+            alt={t("sidebar.appName")}
+            width={112}
+            height={112}
+            className="h-14 w-14 shrink-0"
+            priority
+          />
+          <span className="truncate text-[11px] font-medium uppercase tracking-[0.2em] text-slate-400">
+            {t("sidebar.tagline")}
+          </span>
+        </div>
+        <button
+          ref={menuButtonRef}
+          type="button"
+          onClick={openNav}
+          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-slate-700 bg-slate-900 text-slate-100 transition-colors hover:bg-slate-800 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500"
+          aria-label={t("sidebar.openMenu")}
+          aria-expanded={isNavOpen}
+          aria-controls={drawerId}
+          aria-haspopup="dialog"
+        >
+          <Menu className="h-5 w-5" aria-hidden="true" />
+        </button>
+      </div>
+
+      {isNavOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-hidden="true"
+            onClick={closeNav}
+            className="absolute inset-0 cursor-default bg-slate-950/80"
+          />
+          <div
+            ref={drawerRef}
+            id={drawerId}
+            role="dialog"
+            aria-modal="true"
+            aria-label={t("sidebar.navigation")}
+            className="relative flex h-full w-72 max-w-[85vw] flex-col overflow-y-auto border-r border-slate-800 bg-slate-950 shadow-xl"
+          >
+            <div className="flex items-start justify-between gap-2 border-b border-slate-800 px-4 py-3">
+              <div className="flex min-w-0 flex-col gap-1">
                 <Image
                   src="/septum_logo.png"
                   alt={t("sidebar.appName")}
-                  width={340}
-                  height={110}
-                  className="h-auto w-full"
-                  priority
+                  width={160}
+                  height={160}
+                  className="h-20 w-20"
                 />
+                {brand}
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-slate-400">
-                  {t("sidebar.tagline")}
-                </span>
-                {appVersion && (
-                  <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-500">
-                    v{appVersion}
-                  </span>
-                )}
-              </div>
+              <button
+                type="button"
+                onClick={closeNav}
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-slate-300 transition-colors hover:bg-slate-800 hover:text-slate-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500"
+                aria-label={t("sidebar.closeMenu")}
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
             </div>
-          </div>
-          <button
-            type="button"
-            onClick={toggleNav}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 bg-slate-900 text-xs text-slate-100 transition-colors hover:bg-slate-800 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-0"
-            aria-label="Toggle navigation"
-            aria-expanded={isNavOpen}
-          >
-            <span className="text-base leading-none">&#9776;</span>
-          </button>
-        </div>
-        <div
-          className={`space-y-1 px-2 pb-3 transition-[max-height] duration-200 ease-out ${
-            isNavOpen ? "max-h-96" : "max-h-0 overflow-hidden"
-          }`}
-        >
-          <div className="mt-1 flex flex-col gap-1">
-            {visibleNavItems.map(item => (
-              <NavLink
-                key={item.href}
-                item={item}
-                pathname={pathname}
-                errorLogCount={errorLogCount}
-                onClick={() => setIsNavOpen(false)}
-              />
-            ))}
-          </div>
-          <div className="mt-4 border-t border-slate-800 pt-3 text-xs text-slate-500 space-y-2">
-            <LanguageSelector />
-            <span>{t("sidebar.footer")}</span>
+            <nav aria-label={t("sidebar.navigation")} className="flex-1 space-y-1 px-2 py-4">
+              {visibleNavItems.map(item => (
+                <NavLink
+                  key={item.href}
+                  item={item}
+                  pathname={pathname}
+                  errorLogCount={errorLogCount}
+                  onClick={closeNav}
+                />
+              ))}
+            </nav>
+            {userInfo}
+            {footer}
           </div>
         </div>
-      </div>
+      )}
 
       {/* Desktop layout */}
-        <div className="hidden h-full flex-col md:flex">
-          <div className="flex min-h-[130px] flex-col items-center justify-center gap-3 border-b border-slate-800 px-4 py-6">
-            <div className="w-full max-w-[190px]">
-              <Image
-                src="/septum_logo.png"
-                alt={t("sidebar.appName")}
-                width={380}
-                height={120}
-                className="h-auto w-full"
-                priority
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-medium uppercase tracking-[0.26em] text-slate-400">
-                {t("sidebar.tagline")}
-              </span>
-              {appVersion && (
-                <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-500">
-                  v{appVersion}
-                </span>
-              )}
-            </div>
+      <div className="hidden h-full flex-col lg:flex">
+        <div className="flex min-h-[130px] flex-col items-center justify-center gap-3 border-b border-slate-800 px-4 py-6">
+          <div className="w-full max-w-[190px]">
+            <Image
+              src="/septum_logo.png"
+              alt={t("sidebar.appName")}
+              width={380}
+              height={120}
+              className="h-auto w-full"
+              priority
+            />
           </div>
-        <nav className="flex-1 space-y-1 px-2 py-4">
+          {brand}
+        </div>
+        <nav aria-label={t("sidebar.navigation")} className="flex-1 space-y-1 overflow-y-auto px-2 py-4">
           {visibleNavItems.map(item => (
             <NavLink
               key={item.href}
@@ -264,16 +342,8 @@ export function Sidebar({ currentUser }: SidebarProps) {
             />
           ))}
         </nav>
-        {currentUser && (
-          <div className="border-t border-slate-800 px-4 py-2 text-[11px] text-slate-500">
-            <div className="truncate text-slate-300">{currentUser.email}</div>
-            <div>{t(ROLE_LABEL_KEYS[currentUser.role])}</div>
-          </div>
-        )}
-        <div className="border-t border-slate-800 px-4 py-3 text-xs text-slate-500 space-y-2">
-          <LanguageSelector />
-          <span>{t("sidebar.footer")}</span>
-        </div>
+        {userInfo}
+        {footer}
       </div>
     </aside>
   );

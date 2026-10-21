@@ -62,10 +62,10 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         onSubmit={onSubmit}
-        className="relative w-full max-w-md space-y-4 rounded-lg border border-border/80 bg-slate-900 p-6 shadow-xl"
+        className="relative max-h-[90dvh] w-full max-w-md space-y-4 overflow-y-auto rounded-lg border border-border/80 bg-slate-900 p-4 shadow-xl sm:p-6"
       >
-        <div className="flex items-start justify-between">
-          <div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
             <h2 id={titleId} className="text-lg font-semibold text-slate-100">
               {title}
             </h2>
@@ -76,7 +76,7 @@ export function Modal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-800 hover:text-slate-200 lg:h-auto lg:w-auto lg:p-1"
             aria-label={cancelLabel}
           >
             <X className="h-4 w-4" />

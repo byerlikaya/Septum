@@ -397,7 +397,7 @@ export function CustomRuleBuilderPanel({
 
   return (
     <div className="fixed inset-0 z-40 flex items-stretch justify-end bg-black/40">
-      <div className="h-full w-full max-w-md border-l border-border bg-slate-950 p-4 text-xs text-slate-50 shadow-xl">
+      <div className="h-full w-full max-w-md overflow-y-auto border-l border-border bg-slate-950 p-4 text-xs text-slate-50 shadow-xl">
         <div className="mb-3 flex items-center justify-between gap-3 border-b border-border pb-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-50">

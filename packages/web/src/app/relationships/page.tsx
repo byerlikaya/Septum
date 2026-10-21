@@ -39,7 +39,7 @@ export default function RelationshipsPage() {
   }, [t]);
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-hidden p-6">
+    <div className="flex min-h-full min-w-0 flex-col gap-4 md:h-full md:overflow-hidden">
       <header>
         <h1 className="text-xl font-semibold text-slate-50">
           {t("relationships.title")}
@@ -49,7 +49,7 @@ export default function RelationshipsPage() {
         </p>
       </header>
 
-      <main className="min-h-0 flex-1 overflow-auto">
+      <div className="min-h-0 min-w-0 flex-1 md:overflow-auto">
         {loading && (
           <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-8 text-center text-sm text-slate-400">
             {t("relationships.loading")}
@@ -61,7 +61,7 @@ export default function RelationshipsPage() {
           </div>
         )}
         {!loading && !error && graph && <RelationshipGraph graph={graph} />}
-      </main>
+      </div>
     </div>
   );
 }

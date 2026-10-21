@@ -79,8 +79,8 @@ export function LLMProviderTab({
   return (
     <div className="space-y-6">
       {/* Header + Test */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0">
           <h2 className="text-sm font-semibold text-slate-50">
             {t("settings.llm.sectionTitle")}
           </h2>
@@ -88,7 +88,7 @@ export function LLMProviderTab({
             {t("settings.llm.sectionDescription")}
           </p>
         </div>
-        <div className="flex flex-col items-end gap-1">
+        <div className="flex flex-col items-start gap-1 sm:items-end">
           <button
             type="button"
             onClick={onTest}

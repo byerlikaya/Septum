@@ -220,7 +220,7 @@ export function ApprovalModal({
     >
       <div
         ref={dialogRef}
-        className="flex h-[85vh] w-full max-w-7xl flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-xl overflow-hidden"
+        className="flex h-[95dvh] w-full max-w-7xl flex-col rounded-xl sm:h-[85vh] border border-slate-700 bg-slate-900 shadow-xl overflow-hidden"
       >
         {/* Header — slim: title + optional readOnly decision badge. The
             regulation text and protected-entity summary live inside the

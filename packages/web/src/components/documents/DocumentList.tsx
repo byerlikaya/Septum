@@ -249,7 +249,7 @@ export function DocumentList({
 
       {/* Bulk toolbar */}
       {showSelection && selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 border-b border-sky-800/40 bg-sky-950/30 px-4 py-2">
+        <div className="flex flex-wrap items-center gap-3 border-b border-sky-800/40 bg-sky-950/30 px-4 py-2">
           <span className="text-xs font-medium text-sky-300">
             {t("documents.bulk.selected").replace("{count}", String(selectedIds.size))}
           </span>
@@ -417,7 +417,7 @@ export function DocumentList({
                     <div className="flex justify-end gap-2">
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-medium text-slate-100 shadow-xs hover:bg-slate-800 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-medium text-slate-100 shadow-xs hover:bg-slate-800 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                         onClick={() => onPreview(doc)}
                       >
                         <Eye className="h-3.5 w-3.5" />
@@ -426,7 +426,7 @@ export function DocumentList({
                       {onReprocess && (doc.ingestion_status === "completed" || doc.ingestion_status === "failed") && (
                         <button
                           type="button"
-                          className="inline-flex items-center gap-1 rounded-md border border-sky-700 bg-slate-950 px-2 py-1 text-xs font-medium text-sky-300 shadow-xs hover:bg-sky-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-sky-700 bg-slate-950 px-2 py-1 text-xs font-medium text-sky-300 shadow-xs hover:bg-sky-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                           onClick={() => onReprocess(doc)}
                         >
                           <RefreshCw className="h-3.5 w-3.5" />
@@ -436,7 +436,7 @@ export function DocumentList({
                       {onDelete && (
                         <button
                           type="button"
-                          className="inline-flex items-center gap-1 rounded-md border border-rose-700 bg-slate-950 px-2 py-1 text-xs font-medium text-rose-300 shadow-xs hover:bg-rose-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-rose-700 bg-slate-950 px-2 py-1 text-xs font-medium text-rose-300 shadow-xs hover:bg-rose-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                           onClick={() => onDelete(doc)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />

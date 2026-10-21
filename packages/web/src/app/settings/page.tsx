@@ -230,7 +230,7 @@ export default function SettingsPage() {
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
-        <div className="flex shrink-0 gap-1 overflow-x-auto md:w-52 md:flex-col md:overflow-x-visible rounded-lg border border-slate-800 bg-slate-950/80 p-2 text-sm">
+        <div className="flex shrink-0 gap-1 overflow-x-auto md:w-52 md:flex-col md:overflow-x-visible md:overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/80 p-2 text-sm">
           <SettingsTabButton
             label={t("settings.tabs.llm.label")}
             description={t("settings.tabs.llm.description")}
@@ -269,7 +269,7 @@ export default function SettingsPage() {
           />
         </div>
 
-        <div className="relative min-h-0 min-w-0 flex-1 overflow-y-auto rounded-lg border border-border bg-slate-900 p-4 text-slate-50">
+        <div className="relative min-h-0 min-w-0 flex-1 overflow-y-auto rounded-lg border border-border bg-slate-900 p-3 text-slate-50 sm:p-4">
           {showSaved && (
             <div className="absolute right-4 top-4 z-10 flex items-center gap-1.5 rounded-md bg-emerald-600/90 px-3 py-1.5 text-xs font-medium text-white shadow-lg transition-opacity duration-200">
               <Check className="h-3.5 w-3.5" />
@@ -308,14 +308,15 @@ function SettingsTabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex w-full flex-col rounded-md px-3 py-2 text-left text-xs transition-colors ${
+      aria-pressed={active}
+      className={`flex min-h-11 shrink-0 flex-col justify-center whitespace-nowrap rounded-md px-3 py-2 text-left text-xs transition-colors md:w-full md:whitespace-normal ${
         active
           ? "bg-slate-800 text-slate-50"
           : "text-slate-300 hover:bg-slate-900 hover:text-slate-50"
       }`}
     >
       <span className="text-[13px] font-medium">{label}</span>
-      <span className="text-[11px] text-slate-400">{description}</span>
+      <span className="hidden text-[11px] text-slate-400 md:block">{description}</span>
     </button>
   );
 }
