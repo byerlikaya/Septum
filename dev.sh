@@ -103,13 +103,15 @@ fi
 BACKEND_PORT=$(find_available_port "${BACKEND_PORT:-8000}")
 FRONTEND_PORT=$(find_available_port "${FRONTEND_PORT:-3000}")
 
-export BACKEND_INTERNAL_URL="http://localhost:$BACKEND_PORT"
+export BACKEND_INTERNAL_URL="http://127.0.0.1:$BACKEND_PORT"
 
 (
   cd "$PROJECT_ROOT"
   # Avoid OMP Error #179 (pthread_mutex_init) on macOS with PyTorch/MPS
   export OMP_NUM_THREADS=1
-  python -m uvicorn septum_api.main:app --reload --host 0.0.0.0 --port "$BACKEND_PORT"
+  # Only the Next.js dev server on loopback may set X-Forwarded-For.
+  python -m uvicorn septum_api.main:app --reload --host 127.0.0.1 --port "$BACKEND_PORT" \
+    --proxy-headers --forwarded-allow-ips 127.0.0.1
 ) &
 
 BACKEND_PID=$!
@@ -117,6 +119,8 @@ BACKEND_PID=$!
 cd "$PROJECT_ROOT/packages/web"
 
 echo "Septum starting on http://localhost:$FRONTEND_PORT ..."
+# The dev script preloads scripts/xff-preload.cjs, which replaces
+# client-sent forwarding headers with the real peer address.
 PORT=$FRONTEND_PORT npm run dev
 
 echo "Stopping backend process (PID: $BACKEND_PID) ..."

@@ -115,6 +115,7 @@ COPY --from=backend-builder /app/packages /app/packages
 COPY --from=frontend-builder /app/.next/standalone /app/frontend/
 COPY --from=frontend-builder /app/.next/static /app/frontend/.next/static
 COPY --from=frontend-builder /app/public /app/frontend/public
+COPY --from=frontend-builder /app/scripts/xff-preload.cjs /app/frontend/xff-preload.cjs
 
 # Code and HOME stay root-owned (node resolves modules from
 # ~/.node_modules); only runtime state is writable by septum: the volumes
@@ -139,7 +140,8 @@ set -e
 # Start backend
 cd /app/packages/api
 export PATH="/app/.venv/bin:$PATH"
-bash ./scripts/docker-entrypoint.sh &
+# Next.js below is the only proxy, on loopback.
+FORWARDED_ALLOW_IPS=127.0.0.1 bash ./scripts/docker-entrypoint.sh &
 BACKEND_PID=$!
 
 # Wait for backend health
@@ -153,9 +155,10 @@ for i in $(seq 1 60); do
 done
 
 # Start frontend (HOSTNAME=0.0.0.0 required for Docker — Next.js 14+
-# defaults to localhost which is unreachable from outside the container)
+# defaults to localhost which is unreachable from outside the container).
+# The preload replaces client-sent forwarding headers with the real peer.
 cd /app/frontend
-HOSTNAME=0.0.0.0 PORT=3000 node server.js &
+HOSTNAME=0.0.0.0 PORT=3000 node -r ./xff-preload.cjs server.js &
 FRONTEND_PID=$!
 
 echo "Septum is running on http://localhost:3000"
