@@ -16,7 +16,7 @@ from typing import Any
 
 import fitz
 import pytest
-import test_chat_security_hardening as chat_security
+from chat_harness import ChatEnv
 from fastapi import BackgroundTasks
 from httpx import AsyncClient
 from septum_core import model_integrity
@@ -46,7 +46,6 @@ _PACKAGES = Path(__file__).resolve().parents[2]
 UNPINNED = "someone/unpinned-ner-probe"
 INTEGRITY_REASON = "file 'model.safetensors' does not match its pinned hash"
 
-chat_env = chat_security.chat_env
 
 # --- single loading path (static guard) -----------------------------------
 
@@ -534,7 +533,7 @@ async def test_reprocess_clears_the_stored_error_code(
 
 @pytest.mark.parametrize("exc", _REFUSALS, ids=_REFUSAL_IDS)
 async def test_chat_stream_reports_a_refused_model_with_its_code(
-    chat_env: chat_security._ChatEnv, monkeypatch: pytest.MonkeyPatch, exc: Exception
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch, exc: Exception
 ) -> None:
     async def _refuse(*args, **kwargs):
         raise exc
@@ -552,7 +551,7 @@ async def test_chat_stream_reports_a_refused_model_with_its_code(
 
 
 async def test_analyze_query_answers_503_with_the_refusal_code(
-    chat_env: chat_security._ChatEnv, monkeypatch: pytest.MonkeyPatch
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def _refuse(*args, **kwargs):
         raise UnpinnedModelError(UNPINNED)

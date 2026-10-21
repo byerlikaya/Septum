@@ -46,6 +46,7 @@ from .database import (  # noqa: E402
     init_db,
     initialize_engine,
 )
+from .env_flags import parse_bool_default_flags
 from .errors import MODEL_REFUSED_DETAIL
 from .models.settings import AppSettings
 from .routers import api_keys as api_keys_router
@@ -70,10 +71,13 @@ from .services.error_logger import (
     purge_expired_error_logs,
     report_error_log_failure,
 )
+from .services.llm_errors import GatewayStartupError
+from .services.llm_router import GatewayClientProtocol, set_gateway_client_factory
 from .utils.auth_dependency import setup_window_open
 from .utils.device import get_device
 
 MODEL_WARMUP_OPT_OUT_ENV = "SEPTUM_DISABLE_MODEL_WARMUP"
+QUEUE_ENV_VARS = ("SEPTUM_QUEUE_URL", "SEPTUM_QUEUE_DIR")
 
 
 def _warn_on_refused_model_settings(
@@ -258,6 +262,46 @@ async def _error_log_retention_loop() -> None:
         await asyncio.sleep(ERROR_LOG_PURGE_INTERVAL_SECONDS)
 
 
+async def _install_gateway_client(gateway_forced: bool) -> Any | None:
+    """Install the process-wide gateway client when a queue is configured.
+
+    Without ``SEPTUM_QUEUE_URL`` / ``SEPTUM_QUEUE_DIR`` nothing is built, and
+    ``USE_GATEWAY_DEFAULT=true`` refuses startup: the router forces gateway
+    routing under that flag, with no way to reach the gateway. Databases
+    seeded with ``use_gateway`` are refused per request by the router instead.
+    """
+    if not any(os.getenv(name) for name in QUEUE_ENV_VARS):
+        if gateway_forced:
+            raise GatewayStartupError(
+                "USE_GATEWAY_DEFAULT is true but neither SEPTUM_QUEUE_URL nor "
+                "SEPTUM_QUEUE_DIR is set; configure the gateway queue or unset "
+                "USE_GATEWAY_DEFAULT."
+            )
+        return None
+    from .services.gateway_client import build_gateway_client_from_env
+
+    client = await build_gateway_client_from_env()
+
+    def _shared_client(_settings: AppSettings) -> GatewayClientProtocol:
+        return client
+
+    set_gateway_client_factory(_shared_client)
+    logger.info("Gateway client installed")
+    return client
+
+
+@asynccontextmanager
+async def _gateway_client_installed(gateway_forced: bool):
+    """Hold the gateway client for the lifespan; clear and close it on exit, even after a later failure."""
+    gateway_client = await _install_gateway_client(gateway_forced)
+    try:
+        yield
+    finally:
+        if gateway_client is not None:
+            set_gateway_client_factory(None)
+            await gateway_client.aclose()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan handler — initialise database if already configured."""
@@ -268,32 +312,34 @@ async def lifespan(app: FastAPI):
     )
 
     bootstrap.validate_setup_token_env()
-    await run_password_work(warm_dummy_password_hash)
-    config = bootstrap.get_config()
-    if not bootstrap.needs_setup():
-        url = build_database_url(config.database_url, config.db_path)
-        initialize_engine(url)
-        await init_db()
-        await _reset_orphaned_processing_docs()
-        sweep_stale_temp_files()
-        if os.getenv(MODEL_WARMUP_OPT_OUT_ENV) == "1":
-            logger.info("Model warmup disabled by %s", MODEL_WARMUP_OPT_OUT_ENV)
-        else:
-            threading.Thread(
-                target=_preload_models,
-                args=await _stored_model_settings(),
-                name="septum-model-warmup",
-                daemon=True,
-            ).start()
-    await _announce_setup_token()
-    retention = asyncio.create_task(_error_log_retention_loop(), name="septum-error-log-retention")
-    try:
-        yield
-    finally:
-        retention.cancel()
-        with suppress(asyncio.CancelledError):
-            await retention
-        shutdown_password_executor()
+    flags = parse_bool_default_flags()
+    async with _gateway_client_installed(flags["USE_GATEWAY_DEFAULT"]):
+        await run_password_work(warm_dummy_password_hash)
+        config = bootstrap.get_config()
+        if not bootstrap.needs_setup():
+            url = build_database_url(config.database_url, config.db_path)
+            initialize_engine(url)
+            await init_db()
+            await _reset_orphaned_processing_docs()
+            sweep_stale_temp_files()
+            if os.getenv(MODEL_WARMUP_OPT_OUT_ENV) == "1":
+                logger.info("Model warmup disabled by %s", MODEL_WARMUP_OPT_OUT_ENV)
+            else:
+                threading.Thread(
+                    target=_preload_models,
+                    args=await _stored_model_settings(),
+                    name="septum-model-warmup",
+                    daemon=True,
+                ).start()
+        await _announce_setup_token()
+        retention = asyncio.create_task(_error_log_retention_loop(), name="septum-error-log-retention")
+        try:
+            yield
+        finally:
+            retention.cancel()
+            with suppress(asyncio.CancelledError):
+                await retention
+            shutdown_password_executor()
 
 
 from .middleware.rate_limit import (

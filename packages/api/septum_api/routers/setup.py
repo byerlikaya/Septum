@@ -28,6 +28,7 @@ from ..database import (
     initialize_engine,
     reset_engine,
 )
+from ..env_flags import EnvFlagError
 from ..errors import CodedHTTPError, public_error_text
 from ..middleware.rate_limit import route_limit
 from ..models.settings import AppSettings
@@ -315,7 +316,11 @@ async def initialize(
             bootstrap.save_config({"database_configured": True})
             return InitializeResponse(ok=True, message="Infrastructure initialised")
         except Exception as exc:
-            logger.error("Infrastructure initialisation failed: %s", type(exc).__name__)
+            # An EnvFlagError message names the variable, never its value, so it is safe to log.
+            if isinstance(exc, EnvFlagError):
+                logger.error("Infrastructure initialisation failed: %s", exc)
+            else:
+                logger.error("Infrastructure initialisation failed: %s", type(exc).__name__)
             if engine_created:
                 await reset_engine()
             bootstrap.save_config(rollback)

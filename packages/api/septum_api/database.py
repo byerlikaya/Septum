@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from .config import default_ollama_url
+from .env_flags import parse_bool_default_flags
 from .models import Base
 from .models.api_key import ApiKey
 from .models.audit_event import AuditEvent
@@ -388,6 +389,7 @@ def build_default_app_settings() -> AppSettings:
     ``utils.db_helpers.load_settings`` so fresh databases and partial
     bootstraps produce the same default configuration.
     """
+    flags = parse_bool_default_flags()
     default_active_regulations: List[str] = parse_active_regulations_env(
         os.getenv("DEFAULT_ACTIVE_REGULATIONS")
     )
@@ -405,22 +407,18 @@ def build_default_app_settings() -> AppSettings:
         ollama_deanon_model=os.getenv(
             "OLLAMA_DEANON_MODEL", "llama3.2:3b"
         ),
-        deanon_enabled=_env_bool("DEANON_ENABLED_DEFAULT", True),
+        deanon_enabled=flags["DEANON_ENABLED_DEFAULT"],
         deanon_strategy=os.getenv("DEANON_STRATEGY", "simple"),
-        require_approval=_env_bool("REQUIRE_APPROVAL_DEFAULT", True),
+        require_approval=flags["REQUIRE_APPROVAL_DEFAULT"],
         approval_timeout_seconds=_env_int(
             "APPROVAL_TIMEOUT_SECONDS_DEFAULT", 300
         ),
-        show_json_output=_env_bool("SHOW_JSON_OUTPUT_DEFAULT", False),
-        use_presidio_layer=_env_bool("USE_PRESIDIO_LAYER_DEFAULT", True),
-        use_ner_layer=_env_bool("USE_NER_LAYER_DEFAULT", True),
-        use_ollama_validation_layer=_env_bool(
-            "USE_OLLAMA_VALIDATION_LAYER_DEFAULT", True
-        ),
-        use_ollama_layer=_env_bool("USE_OLLAMA_LAYER_DEFAULT", True),
-        use_ollama_semantic_layer=_env_bool(
-            "USE_OLLAMA_SEMANTIC_LAYER_DEFAULT", False
-        ),
+        show_json_output=flags["SHOW_JSON_OUTPUT_DEFAULT"],
+        use_presidio_layer=flags["USE_PRESIDIO_LAYER_DEFAULT"],
+        use_ner_layer=flags["USE_NER_LAYER_DEFAULT"],
+        use_ollama_validation_layer=flags["USE_OLLAMA_VALIDATION_LAYER_DEFAULT"],
+        use_ollama_layer=flags["USE_OLLAMA_LAYER_DEFAULT"],
+        use_ollama_semantic_layer=flags["USE_OLLAMA_SEMANTIC_LAYER_DEFAULT"],
         chunk_size=_env_int("CHUNK_SIZE_DEFAULT", 800),
         chunk_overlap=_env_int("CHUNK_OVERLAP_DEFAULT", 200),
         top_k_retrieval=_env_int("TOP_K_RETRIEVAL_DEFAULT", 5),
@@ -440,16 +438,11 @@ def build_default_app_settings() -> AppSettings:
         ocr_provider=os.getenv("OCR_PROVIDER", "paddleocr").strip().lower()
         or "paddleocr",
         ocr_provider_options=None,
-        extract_embedded_images=_env_bool(
-            "EXTRACT_EMBEDDED_IMAGES_DEFAULT", True
-        ),
-        recursive_email_attachments=_env_bool(
-            "RECURSIVE_EMAIL_ATTACHMENTS_DEFAULT",
-            True,
-        ),
+        extract_embedded_images=flags["EXTRACT_EMBEDDED_IMAGES_DEFAULT"],
+        recursive_email_attachments=flags["RECURSIVE_EMAIL_ATTACHMENTS_DEFAULT"],
         default_active_regulations=default_active_regulations,
         setup_completed=False,
-        use_gateway=_env_bool("USE_GATEWAY_DEFAULT", False),
+        use_gateway=flags["USE_GATEWAY_DEFAULT"],
     )
 
 
@@ -523,14 +516,6 @@ async def _seed_defaults(sm: async_sessionmaker[AsyncSession]) -> None:
             )
 
         await session.commit()
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    """Parse a boolean environment variable with a default."""
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _env_int(name: str, default: int) -> int:
