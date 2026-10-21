@@ -421,8 +421,8 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
   const backBtnCls = "rounded-md px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950 overflow-y-auto py-8">
-      <div className="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-950 overflow-y-auto px-4 py-6 sm:items-center sm:py-8">
+      <div className="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-2xl sm:p-8">
 
         {/* Setup token */}
         {step === "token" && (

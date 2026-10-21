@@ -114,27 +114,28 @@ export function AppShell({ children }: AppShellProps) {
   }
 
   return (
-    <div className="flex h-full min-w-0 flex-col md:flex-row">
+    <div className="flex h-full min-w-0 flex-col lg:flex-row">
       <Sidebar currentUser={currentUser} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-950">
         {/* Top bar */}
-        <div className="flex shrink-0 items-center justify-end gap-3 border-b border-slate-800/50 px-4 py-2 sm:px-6 lg:px-8">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1 border-b border-slate-800/50 px-4 py-1 sm:px-6 lg:px-8 lg:py-2">
           <a href="/docs" target="_blank" rel="noopener noreferrer" className="hidden items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors sm:flex">
             <FileCode className="h-3.5 w-3.5" />
-            <span>Swagger</span>
+            <span>{t("sidebar.swagger")}</span>
           </a>
           <a href="/redoc" target="_blank" rel="noopener noreferrer" className="hidden items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors sm:flex">
             <BookOpen className="h-3.5 w-3.5" />
-            <span>API Docs</span>
+            <span>{t("sidebar.apiDocs")}</span>
           </a>
           <div className="hidden h-3 w-px bg-slate-700 sm:block" />
-          <span className="hidden text-xs text-slate-400 sm:inline">
+          <span className="hidden max-w-[40vw] truncate text-xs text-slate-400 sm:block lg:hidden xl:block">
             {currentUser.email} · {t(ROLE_LABEL_KEYS[currentUser.role])}
           </span>
           <button
             type="button"
             onClick={() => setChangePasswordOpen(true)}
-            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            aria-label={t("sidebar.changePassword")}
+            className="flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-md px-2 text-xs lg:min-h-0 lg:min-w-0 lg:px-0 text-slate-500 hover:text-slate-300 transition-colors"
           >
             <KeyRound className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">{t("sidebar.changePassword")}</span>
@@ -142,7 +143,7 @@ export function AppShell({ children }: AppShellProps) {
           <button
             type="button"
             onClick={() => { clearAuthToken(); hardNavigate("/login"); }}
-            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            className="flex min-h-11 items-center justify-center gap-1 rounded-md px-2 text-xs lg:min-h-0 lg:px-0 text-slate-500 hover:text-slate-300 transition-colors"
           >
             <LogOut className="h-3.5 w-3.5" />
             <span>{t("sidebar.logout")}</span>

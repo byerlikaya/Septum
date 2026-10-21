@@ -208,7 +208,7 @@ export function ChatWindow({
   return (
     <div className="flex min-h-0 h-full flex-col">
       <div className="shrink-0 border-b border-slate-800 pb-3 space-y-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-slate-400">
             {t("chat.output.label")}
           </span>
@@ -320,13 +320,14 @@ export function ChatWindow({
             }}
             placeholder={t("chat.input.placeholder")}
             disabled={streaming}
-            className="min-w-0 flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-sky-500 focus:outline-hidden focus:ring-1 focus:ring-sky-500 disabled:opacity-50"
+            aria-label={t("chat.input.placeholder")}
+            className="min-w-0 flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-base sm:text-sm text-slate-200 placeholder:text-slate-500 focus:border-sky-500 focus:outline-hidden focus:ring-1 focus:ring-sky-500 disabled:opacity-50"
           />
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={streaming}
-            className="shrink-0 inline-flex items-center justify-center rounded-md border border-slate-600 bg-slate-900 px-2 py-2 text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+            className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md border border-slate-600 bg-slate-900 px-2 py-2 text-slate-200 lg:min-h-0 lg:min-w-0 hover:bg-slate-800 disabled:opacity-50"
             title={t("chat.button.upload")}
             aria-label={t("chat.button.upload")}
           >
@@ -336,7 +337,7 @@ export function ChatWindow({
             <button
               type="button"
               onClick={stopStreaming}
-              className="shrink-0 rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500"
+              className="min-h-11 shrink-0 rounded-md bg-amber-600 px-3 py-2 sm:px-4 lg:min-h-0 text-sm font-medium text-white hover:bg-amber-500"
             >
               {t("chat.button.stop")}
             </button>
@@ -345,7 +346,7 @@ export function ChatWindow({
               type="button"
               onClick={handleSend}
               disabled={!input.trim()}
-              className="shrink-0 rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+              className="min-h-11 shrink-0 rounded-md bg-sky-600 px-3 py-2 sm:px-4 lg:min-h-0 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
             >
               {t("chat.button.send")}
             </button>
@@ -402,8 +403,8 @@ export function ChatWindow({
       />
 
       {debugOpen && debugData != null && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4">
-          <div className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-xl">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-2 sm:p-4">
+          <div className="flex max-h-[90dvh] w-full max-w-3xl flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-xl">
             <div className="shrink-0 flex items-center justify-between border-b border-slate-700 px-4 py-3">
               <h2 className="text-base font-semibold text-slate-100">
                 {t("chat.debug.title")}

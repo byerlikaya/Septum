@@ -30,8 +30,8 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4">
-      <div className="w-full max-w-sm rounded-xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
+    <div className="flex min-h-dvh items-center justify-center bg-slate-950 px-4 py-6">
+      <div className="w-full max-w-sm rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-2xl sm:p-8">
         <div className="mb-6 flex flex-col items-center text-center">
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-sky-600/20">
             <Shield className="h-7 w-7 text-sky-400" />

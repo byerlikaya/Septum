@@ -558,7 +558,7 @@ export function DocumentPreview({
       </div>
       <div
         ref={textScrollRef}
-        className="flex-1 overflow-auto rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-relaxed text-slate-100 whitespace-pre-wrap"
+        className="flex-1 overflow-auto rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-relaxed text-slate-100 whitespace-pre-wrap wrap-break-word"
       >
         {chunks.length > 0 && detections.length > 0 ? (
           chunks.map((chunk, idx) => {
@@ -587,9 +587,9 @@ export function DocumentPreview({
   );
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-2 sm:p-4">
       <div
-        className={`relative flex max-h-[85vh] w-full flex-col rounded-lg border border-slate-800 bg-slate-950 shadow-xl ${
+        className={`relative flex max-h-[95dvh] w-full flex-col sm:max-h-[85vh] rounded-lg border border-slate-800 bg-slate-950 shadow-xl ${
           hasSideBySide && detections.length > 0
             ? "max-w-7xl"
             : hasSideBySide
@@ -599,12 +599,12 @@ export function DocumentPreview({
                 : "max-w-4xl"
         }`}
       >
-        <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/80 px-4 py-3">
-          <div>
+        <div className="flex items-start justify-between gap-2 border-b border-slate-800 bg-slate-900/80 px-4 py-3">
+          <div className="min-w-0">
             <h2 className="text-sm font-semibold text-slate-50">
               {previewTitle}
             </h2>
-            <p className="text-xs text-slate-400">
+            <p className="break-all text-xs text-slate-400">
               {docTitle}
               {auditEventId != null && detections.length > 0 && (
                 <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-900/30 border border-amber-800/40 px-2 py-0.5 text-[10px] font-medium text-amber-300">
@@ -615,8 +615,9 @@ export function DocumentPreview({
           </div>
           <button
             type="button"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-slate-400 hover:bg-slate-800 hover:text-slate-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-transparent text-slate-400 hover:bg-slate-800 hover:text-slate-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 lg:h-7 lg:w-7"
             onClick={() => onOpenChange(false)}
+            aria-label={t("common.close")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -722,20 +723,20 @@ export function DocumentPreview({
           {/* Side-by-side layout for formats with original preview */}
           {!isLoading && !error && hasSideBySide && (
             <div
-              className={`grid h-[55vh] gap-4 ${
+              className={`grid gap-4 md:h-[55vh] ${
                 detections.length > 0
                   ? "md:grid-cols-2 lg:grid-cols-[1fr_1fr_17rem]"
                   : "md:grid-cols-2"
               }`}
             >
-              <div className="min-h-0 overflow-auto">
+              <div className="h-[50dvh] min-h-0 min-w-0 overflow-auto md:h-auto">
                 {renderOriginalDocument()}
               </div>
-              <div className="min-h-0">
+              <div className="h-[50dvh] min-h-0 min-w-0 md:h-auto">
                 {renderSanitizedContent()}
               </div>
               {detections.length > 0 && (
-                <div className="min-h-0">{renderEntityList()}</div>
+                <div className="h-[40dvh] min-h-0 min-w-0 md:col-span-2 md:h-auto lg:col-span-1">{renderEntityList()}</div>
               )}
             </div>
           )}

@@ -250,7 +250,7 @@ export default function RegulationsPage() {
           {t("regulations.page.subtitle")}
         </p>
         {activeEntitySummary.activeCount > 0 && (
-          <div className="mt-3 flex items-center gap-3">
+          <div className="mt-3 flex flex-wrap items-center gap-3">
             <div className="inline-flex items-center gap-1.5 rounded-full border border-emerald-700/40 bg-emerald-950/30 px-2.5 py-1 text-[11px] font-medium text-emerald-300">
               <ShieldCheck className="h-3.5 w-3.5" />
               {t("regulations.builtin.summary.active")}: {activeEntitySummary.activeCount}
@@ -264,13 +264,13 @@ export default function RegulationsPage() {
       </header>
 
       {/* Tabs */}
-      <div className="shrink-0 flex items-center gap-1 border-b border-slate-800">
+      <div className="shrink-0 flex items-center gap-1 overflow-x-auto border-b border-slate-800">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
             onClick={() => setActiveTab(tab.id)}
-            className={`relative px-3 py-2 text-sm font-medium transition-colors ${
+            className={`relative min-h-11 shrink-0 whitespace-nowrap px-3 py-2 text-sm font-medium transition-colors lg:min-h-0 ${
               activeTab === tab.id
                 ? "text-sky-400"
                 : "text-slate-400 hover:text-slate-200"
@@ -320,12 +320,12 @@ export default function RegulationsPage() {
                       }`}
                     >
                       {/* Main row — clickable to expand */}
-                      <div className="relative flex items-center gap-3 px-4 py-3 hover:bg-slate-800/30 transition-colors">
+                      <div className="relative flex items-center gap-2 px-3 py-3 hover:bg-slate-800/30 transition-colors sm:gap-3 sm:px-4">
                         <ChevronDown aria-hidden="true" className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
 
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <h3 className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <h3 className="min-w-0 wrap-break-word">
                               <button
                                 type="button"
                                 aria-expanded={isExpanded}
@@ -351,8 +351,8 @@ export default function RegulationsPage() {
                           )}
                         </div>
 
-                        <div className="relative z-10 flex items-center gap-3">
-                          <span className="text-[11px] text-slate-500">
+                        <div className="relative z-10 flex shrink-0 items-center gap-2 sm:gap-3">
+                          <span className="hidden text-[11px] text-slate-500 sm:inline">
                             {entityCount} {t("regulations.builtin.entityCountSuffix")}
                           </span>
 
@@ -420,7 +420,7 @@ export default function RegulationsPage() {
               docsLabel={t("regulations.custom.helpBanner.docsLink")}
             />
 
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs text-slate-400">
                 {t("regulations.custom.subtitle")}
               </p>

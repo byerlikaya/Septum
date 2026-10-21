@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import api, {
   getDocuments,
   getSettings,
@@ -42,6 +43,8 @@ export default function ChatPage() {
   const [settings, setSettings] = useState<AppSettingsResponse | null>(null);
   const [regulationPills, setRegulationPills] = useState<{ name: string; description: string }[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(true);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const historyPanelId = useId();
   const [loadingSettings, setLoadingSettings] = useState(true);
   const { selectedIds, setSelectedIds, trimmedCount } = useDocumentSelection();
   const [showDeanonBanner, setShowDeanonBanner] = useState(false);
@@ -371,7 +374,7 @@ export default function ChatPage() {
       <BlockingLoader visible={isUploading} label={t("chat.uploading")} />
       <header className="shrink-0 border-b border-slate-800 pb-4">
         <div className="flex items-start justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <h1 className="text-xl font-semibold tracking-tight text-slate-50">
               {t("chat.title")}
             </h1>
@@ -412,18 +415,37 @@ export default function ChatPage() {
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 lg:flex-row">
         <aside className="flex w-full shrink-0 flex-col gap-2 overflow-hidden lg:w-72">
-          <div className="hidden shrink-0 overflow-hidden rounded-lg border border-slate-800 lg:block lg:h-48">
-            <ChatHistory
-              sessions={sessions}
-              activeSessionId={activeSessionId}
-              onSelectSession={handleSelectSession}
-              onNewChat={handleNewChat}
-              onDeleteSession={handleDeleteSession}
-              onDeleteAll={handleDeleteAllSessions}
-              onRenameSession={handleRenameSession}
-              onExportSession={handleExportSession}
-              onExportSessionPDF={handleExportSessionPDF}
-            />
+          {/* One ChatHistory: collapsible below lg, always shown from lg up */}
+          <div className="shrink-0 overflow-hidden rounded-lg border border-slate-800 lg:h-48">
+            <button
+              type="button"
+              onClick={() => setIsHistoryOpen((prev) => !prev)}
+              aria-expanded={isHistoryOpen}
+              aria-controls={historyPanelId}
+              className="flex min-h-11 w-full items-center justify-between gap-2 px-3 text-left text-xs font-medium text-slate-300 lg:hidden"
+            >
+              <span>{t("chat.history.title")}</span>
+              <ChevronDown
+                className={`h-4 w-4 shrink-0 motion-safe:transition-transform ${isHistoryOpen ? "rotate-180" : ""}`}
+                aria-hidden="true"
+              />
+            </button>
+            <div
+              id={historyPanelId}
+              className={`${isHistoryOpen ? "block" : "hidden"} h-56 border-t border-slate-800 lg:block lg:h-full lg:border-t-0`}
+            >
+              <ChatHistory
+                sessions={sessions}
+                activeSessionId={activeSessionId}
+                onSelectSession={handleSelectSession}
+                onNewChat={handleNewChat}
+                onDeleteSession={handleDeleteSession}
+                onDeleteAll={handleDeleteAllSessions}
+                onRenameSession={handleRenameSession}
+                onExportSession={handleExportSession}
+                onExportSessionPDF={handleExportSessionPDF}
+              />
+            </div>
           </div>
           <div className="hidden min-h-0 flex-1 overflow-hidden rounded-lg border border-slate-800 lg:block">
             <DocumentSelector
@@ -450,7 +472,8 @@ export default function ChatPage() {
                     else if (next.size < MAX_CHAT_DOCUMENTS) next.add(doc.id);
                     return next;
                   })}
-                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  title={doc.original_filename}
+                  className={`max-w-[60vw] shrink-0 truncate rounded-full px-3 py-2 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                     selectedIds.has(doc.id)
                       ? "bg-sky-600 text-white"
                       : "bg-slate-800 text-slate-300 hover:bg-slate-700"
@@ -464,7 +487,7 @@ export default function ChatPage() {
           <DocumentSelectionNotice selectedCount={selectedIds.size} trimmedCount={trimmedCount} />
         </aside>
 
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+        <section className="flex h-[75dvh] min-h-0 min-w-0 flex-none flex-col overflow-hidden rounded-lg border border-slate-800 bg-slate-900/40 p-3 sm:p-4 lg:h-auto lg:flex-1">
           {loadingSettings ? (
             <p className="text-sm text-slate-500">
               {t("chat.loadingSettings")}

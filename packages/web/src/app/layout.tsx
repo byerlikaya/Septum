@@ -27,7 +27,7 @@ export default function RootLayout(props: RootLayoutProps) {
 
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <body className="h-screen bg-slate-950 text-foreground antialiased overflow-auto md:overflow-hidden">
+      <body className="h-dvh bg-slate-950 text-foreground antialiased overflow-auto md:overflow-hidden">
         <LanguageProvider>
           <ErrorBoundary>
             <GlobalErrorListener />

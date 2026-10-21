@@ -359,7 +359,7 @@ export default function DocumentsPage() {
   return (
     <div className="relative flex min-h-full md:h-full min-w-0 flex-col gap-4">
       {isUploading && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
           <div className="w-full max-w-sm rounded-lg border border-slate-700 bg-slate-900 p-6 shadow-xl">
             <p className="mb-3 text-center text-sm font-medium text-slate-200">
               {uploadTotal > 0
@@ -379,8 +379,8 @@ export default function DocumentsPage() {
         </div>
       )}
       <header className="shrink-0 border-b border-slate-800 pb-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
+          <div className="min-w-0">
             <h1 className="text-xl font-semibold tracking-tight text-slate-50">
               {t("documents.title")}
             </h1>
@@ -389,13 +389,13 @@ export default function DocumentsPage() {
             </p>
           </div>
           {documents.length > 0 && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
               {canEdit && staleIds.length > 0 && (
                 <button
                   type="button"
                   onClick={handleReprocessStale}
                   disabled={isUploading || isReprocessingAll || isDeletingAll}
-                  className="inline-flex items-center rounded-md border border-amber-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-amber-300 shadow-xs hover:bg-amber-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-h-11 items-center rounded-md border border-amber-700 bg-slate-950 px-3 py-1.5 lg:min-h-0 text-xs font-medium text-amber-300 shadow-xs hover:bg-amber-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {t("documents.actions.reprocessStale", { count: staleIds.length })}
                 </button>
@@ -405,7 +405,7 @@ export default function DocumentsPage() {
                   type="button"
                   onClick={handleReprocessAll}
                   disabled={isUploading || isReprocessingAll || isDeletingAll}
-                  className="inline-flex items-center rounded-md border border-sky-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-sky-300 shadow-xs hover:bg-sky-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-h-11 items-center rounded-md border border-sky-700 bg-slate-950 px-3 py-1.5 lg:min-h-0 text-xs font-medium text-sky-300 shadow-xs hover:bg-sky-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isReprocessingAll
                     ? t("documents.actions.reprocessingAll")
@@ -417,7 +417,7 @@ export default function DocumentsPage() {
                   type="button"
                   onClick={handleDeleteAllDocuments}
                   disabled={isUploading || isDeletingAll || isReprocessingAll}
-                  className="inline-flex items-center rounded-md border border-rose-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-rose-300 shadow-xs hover:bg-rose-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-h-11 items-center rounded-md border border-rose-700 bg-slate-950 px-3 py-1.5 lg:min-h-0 text-xs font-medium text-rose-300 shadow-xs hover:bg-rose-950 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isDeletingAll
                     ? t("documents.actions.deletingAll")

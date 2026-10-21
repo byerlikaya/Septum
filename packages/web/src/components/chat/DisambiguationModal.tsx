@@ -30,7 +30,7 @@ export default function DisambiguationModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 sm:p-4">
       <div
         ref={dialogRef}
         role="dialog"

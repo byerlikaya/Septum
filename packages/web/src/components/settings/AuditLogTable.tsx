@@ -143,15 +143,15 @@ function EventCard({ event, t, onViewDocument }: { event: AuditEvent; t: ReturnT
   };
 
   return (
-    <div className={`rounded-lg border border-slate-800 border-l-[3px] ${accentBorder(event.event_type)} bg-slate-900/60 p-4 transition-colors hover:bg-slate-900/80`}>
+    <div className={`rounded-lg border border-slate-800 border-l-[3px] ${accentBorder(event.event_type)} bg-slate-900/60 p-3 transition-colors sm:p-4 hover:bg-slate-900/80`}>
       <div className="flex items-start gap-3">
         <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-800/80">
           <EventIcon type={event.event_type} source={source} />
         </div>
         <div className="min-w-0 flex-1">
           {/* Header */}
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-semibold text-slate-100">{typeLabel}</span>
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+            <span className="min-w-0 wrap-break-word text-sm font-semibold text-slate-100">{typeLabel}</span>
             <span className="shrink-0 text-[11px] text-slate-500" title={new Date(event.created_at).toLocaleString()}>
               {timeAgo(event.created_at)}
             </span>
@@ -320,8 +320,8 @@ export function AuditLogTable({ pageSize = 50, onViewDocument }: AuditLogTablePr
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <select
             className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 focus:border-sky-500 focus:outline-hidden"
             value={eventTypeFilter}
@@ -361,7 +361,7 @@ export function AuditLogTable({ pageSize = 50, onViewDocument }: AuditLogTablePr
       )}
 
       {total > pageSize && (
-        <div className="flex items-center justify-between text-xs text-slate-400">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
           <span>{t("audit.paginationSummary", { total, page, totalPages })}</span>
           <div className="flex gap-2">
             <button

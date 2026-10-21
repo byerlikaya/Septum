@@ -28,7 +28,7 @@ export function MessageBubble({
       data-message-id={message.id}
     >
       <div
-        className={`max-w-[85%] rounded-lg px-4 py-2.5 text-sm ${
+        className={`max-w-[92%] min-w-0 rounded-lg px-3 py-2.5 text-sm sm:max-w-[85%] sm:px-4 ${
           isUser
             ? "bg-sky-600 text-white"
             : "bg-slate-800 text-slate-200 border border-slate-700"
@@ -54,7 +54,7 @@ export function MessageBubble({
         </div>
       )}
       {!isUser && message.ragMode !== "none" && message.matchedDocuments && message.matchedDocuments.length > 0 && (
-        <details className="mt-1.5 group rounded-md border border-sky-800/60 bg-sky-950/40 text-xs text-sky-200">
+        <details className="mt-1.5 group max-w-full rounded-md border border-sky-800/60 bg-sky-950/40 text-xs text-sky-200">
           <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 py-1.5 hover:bg-sky-900/40">
             <FileSearch className="h-3.5 w-3.5 shrink-0" aria-hidden />
             <span>
