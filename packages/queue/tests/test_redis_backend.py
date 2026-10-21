@@ -8,6 +8,7 @@ suite.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path  # noqa: F401 — keeps pytest fixture autocompletion happy
 
 import pytest
@@ -116,3 +117,132 @@ class TestRedisStreamsQueueBackend:
     ):
         received = await _drain_all(backend, batch_size=1)
         assert received == []
+
+
+class TestStreamRetention:
+    """Acked, dropped and requeued entries leave the stream, not only the PEL."""
+
+    async def test_ack_deletes_entry_from_stream(self, backend: RedisStreamsQueueBackend):
+        await backend.publish({"x": 1})
+        received = await _drain_all(backend, batch_size=1)
+        await backend.ack(received[0].id)
+
+        assert await backend._redis.xlen(backend._stream) == 0
+        assert await backend._redis.xpending(backend._stream, "gateway") == {
+            "pending": 0, "min": None, "max": None, "consumers": []
+        }
+
+    async def test_nack_drop_deletes_entry_from_stream(self, backend: RedisStreamsQueueBackend):
+        await backend.publish({"x": 1})
+        received = await _drain_all(backend, batch_size=1)
+        await backend.nack(received[0].id, requeue=False)
+
+        assert await backend._redis.xlen(backend._stream) == 0
+
+    async def test_nack_requeue_leaves_only_the_copy(self, backend: RedisStreamsQueueBackend):
+        await backend.publish({"x": 1})
+        first = await _drain_all(backend, batch_size=1)
+        await backend.nack(first[0].id, requeue=True)
+
+        assert await backend._redis.xlen(backend._stream) == 1
+        assert await backend._redis.xrange(backend._stream, min=first[0].id, max=first[0].id) == []
+        second = await _drain_all(backend, batch_size=1)
+        assert second[0].payload == {"x": 1}
+
+
+class TestMalformedEntries:
+    """Entries that cannot be decoded are acked, deleted and logged without payload."""
+
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {b"other": b"secret-sentinel"},
+            {b"data": b"secret-sentinel{"},
+            {b"data": b"\xffsecret-sentinel"},
+            {b"data": b'["secret-sentinel"]'},
+        ],
+    )
+    async def test_malformed_entry_is_dropped(
+        self,
+        backend: RedisStreamsQueueBackend,
+        caplog: pytest.LogCaptureFixture,
+        fields: dict,
+    ):
+        await backend.publish({"ok": True})
+        await backend._redis.xadd(backend._stream, fields)
+
+        received = await _drain_all(backend)
+
+        assert [m.payload for m in received] == [{"ok": True}]
+        assert await backend._redis.xlen(backend._stream) == 1
+        pending = await backend._redis.xpending(backend._stream, "gateway")
+        assert pending["pending"] == 1
+        good_id = received[0].id.encode()
+        assert pending["min"] == pending["max"] == good_id
+        survivors = await backend._redis.xrange(backend._stream)
+        assert [entry_id for entry_id, _ in survivors] == [good_id]
+        assert json.loads(survivors[0][1][b"data"]) == {"ok": True}
+        assert "Dropping malformed entry" in caplog.text
+        assert "secret-sentinel" not in caplog.text
+
+
+@pytest.fixture()
+def redis_server_url():
+    """Start a throwaway local ``redis-server``; skip when it is not installed."""
+    import shutil
+    import socket
+    import subprocess
+    import time
+
+    binary = shutil.which("redis-server")
+    if binary is None:
+        pytest.skip("redis-server is not installed")
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    process = subprocess.Popen(
+        [binary, "--port", str(port), "--bind", "127.0.0.1", "--save", "", "--appendonly", "no"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            with socket.socket() as client:
+                if client.connect_ex(("127.0.0.1", port)) == 0:
+                    break
+            time.sleep(0.05)
+        yield f"redis://127.0.0.1:{port}/0"
+    finally:
+        process.terminate()
+        process.wait(timeout=5)
+
+
+class TestBlockingReadAgainstSocketTimeout:
+    """A blocking read longer than the socket timeout fails; shorter ones are safe.
+
+    This is why callers cap ``block_ms`` below the client's socket timeout
+    and loop until their own deadline.
+    """
+
+    async def test_block_below_socket_timeout_returns_empty(self, redis_server_url: str):
+        backend = RedisStreamsQueueBackend.from_url(
+            redis_server_url, topic="t", consumer="c", socket_timeout=0.5
+        )
+        try:
+            received = [m async for m in backend.consume(block_ms=200)]
+        finally:
+            await backend.close()
+        assert received == []
+
+    async def test_block_above_socket_timeout_raises(self, redis_server_url: str):
+        from redis.exceptions import TimeoutError as RedisTimeoutError
+
+        backend = RedisStreamsQueueBackend.from_url(
+            redis_server_url, topic="t", consumer="c", socket_timeout=0.5
+        )
+        try:
+            with pytest.raises(RedisTimeoutError):
+                [m async for m in backend.consume(block_ms=1500)]
+        finally:
+            await backend.close()

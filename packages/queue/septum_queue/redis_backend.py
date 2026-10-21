@@ -234,12 +234,11 @@ class RedisStreamsQueueBackend(QueueBackend):
         # First: reclaim orphans (cheap, never blocks). Yield them as
         # ordinary messages — the consumer ack/nack path handles them
         # the same way as fresh deliveries.
-        for entry_id, fields in await self._reclaim_idle_pending(
+        reclaimed = await self._reclaim_idle_pending(
             min_idle_ms=reclaim_min_idle_ms, batch_size=batch_size
-        ):
-            message = self._message_or_none(entry_id, fields)
-            if message is not None:
-                yield message
+        )
+        for message in await self._decode_entries(reclaimed):
+            yield message
 
         kwargs: dict[str, object] = {
             "groupname": self._group,
@@ -254,62 +253,67 @@ class RedisStreamsQueueBackend(QueueBackend):
         if not response:
             return
         # xreadgroup returns [(stream_name, [(entry_id, {field: value})])].
-        for _stream, entries in response:
-            for entry_id, fields in entries:
-                message = self._message_or_none(entry_id, fields)
-                if message is not None:
-                    yield message
+        fresh = [entry for _stream, entries in response for entry in entries]
+        for message in await self._decode_entries(fresh):
+            yield message
 
-    def _message_or_none(self, entry_id, fields) -> Message | None:
-        raw_id = entry_id.decode() if isinstance(entry_id, bytes) else str(entry_id)
-        data = fields.get(b"data") or fields.get("data") if hasattr(fields, "get") else None
-        if data is None:
-            # Ack and skip corrupted entries so they do not wedge the
-            # consumer group forever. Logs the drop so operators can
-            # spot a producer regression instead of seeing messages
-            # silently disappear.
-            logger.warning(
-                "Dropping malformed entry %s from %s: missing data field",
-                raw_id,
-                self._stream,
-            )
-            # Best-effort ack; in tests using fakeredis this is a no-op
-            # if the group has been torn down already.
-            try:
-                import asyncio
+    async def _decode_entries(self, entries) -> list[Message]:
+        """Decode stream entries, acking and deleting the malformed ones.
 
-                asyncio.get_event_loop().create_task(
-                    self._redis.xack(self._stream, self._group, raw_id)
+        An entry without a ``data`` field, or whose ``data`` is not a UTF-8
+        JSON object, would otherwise sit in the PEL and be reclaimed forever.
+        The drop is logged by entry id and reason only, never the payload.
+        """
+        messages: list[Message] = []
+        malformed: list[str] = []
+        for entry_id, fields in entries:
+            raw_id = entry_id.decode() if isinstance(entry_id, bytes) else str(entry_id)
+            payload, reason = _decode_payload(fields)
+            if payload is None:
+                logger.warning(
+                    "Dropping malformed entry %s from %s: %s", raw_id, self._stream, reason
                 )
-            except Exception as exc:
-                logger.debug("Best-effort ack of malformed entry failed: %s", type(exc).__name__)
-            return None
-        text = data.decode() if isinstance(data, bytes) else str(data)
-        payload = json.loads(text)
-        return Message(id=raw_id, payload=payload)
+                malformed.append(raw_id)
+                continue
+            messages.append(Message(id=raw_id, payload=payload))
+        if malformed:
+            await self._ack_and_delete(*malformed)
+        return messages
+
+    async def _ack_and_delete(self, *message_ids: str) -> None:
+        """XACK and XDEL ``message_ids`` in one transaction.
+
+        Every topic stream has exactly one consumer group, so an entry acked
+        by that group is read by nobody else; deleting it keeps the stream
+        from growing without bound and keeps masked payloads from lingering.
+        """
+        pipe = self._redis.pipeline(transaction=True)
+        pipe.xack(self._stream, self._group, *message_ids)
+        pipe.xdel(self._stream, *message_ids)
+        await pipe.execute()
 
     async def ack(self, message_id: str) -> None:
+        """Acknowledge ``message_id`` and delete it from the stream."""
         self._ensure_open()
-        await self._redis.xack(self._stream, self._group, message_id)
+        await self._ack_and_delete(message_id)
 
     async def nack(self, message_id: str, *, requeue: bool = True) -> None:
         """Redis Streams has no native nack — simulate via ack + re-XADD.
 
-        ``requeue=False`` simply XACKs the entry so it is dropped from
-        the pending entries list. ``requeue=True`` XREADs the entry
-        back to recover its payload and re-XADDs a fresh copy (new
-        id) before XACKing the original.
+        ``requeue=False`` XACKs and XDELs the entry so it leaves both the
+        pending entries list and the stream. ``requeue=True`` XRANGEs the
+        entry back to recover its payload, then in one transaction XADDs a
+        fresh copy (new id) and XACKs + XDELs the original.
 
-        If the original entry has vanished (trimmed by MAXLEN, expired,
-        already requeued by another consumer), the XACK is *not*
-        issued so the entry stays in PEL — XAUTOCLAIM in the next
-        consume cycle will recover it. Silently dropping the message
-        in that case used to lose payloads; raise ``QueueError`` so
-        the caller knows something is off.
+        If the original entry has vanished (deleted, or already requeued
+        by another consumer), the XACK is *not* issued so the entry stays
+        in PEL — XAUTOCLAIM in the next consume cycle will recover it.
+        Silently dropping the message in that case used to lose payloads;
+        raise ``QueueError`` so the caller knows something is off.
         """
         self._ensure_open()
         if not requeue:
-            await self._redis.xack(self._stream, self._group, message_id)
+            await self._ack_and_delete(message_id)
             return
 
         response = await self._redis.xrange(self._stream, min=message_id, max=message_id)
@@ -318,8 +322,11 @@ class RedisStreamsQueueBackend(QueueBackend):
                 f"cannot requeue {message_id!r}: entry vanished from stream"
             )
         _entry_id, fields = response[0]
-        await self._redis.xadd(self._stream, fields)
-        await self._redis.xack(self._stream, self._group, message_id)
+        pipe = self._redis.pipeline(transaction=True)
+        pipe.xadd(self._stream, fields)
+        pipe.xack(self._stream, self._group, message_id)
+        pipe.xdel(self._stream, message_id)
+        await pipe.execute()
 
     async def close(self) -> None:
         """Close the underlying Redis connection pool."""
@@ -330,3 +337,18 @@ class RedisStreamsQueueBackend(QueueBackend):
             await self._redis.aclose()
         except AttributeError:  # pragma: no cover — redis-py < 5.0 shim
             await self._redis.close()
+
+
+def _decode_payload(fields) -> tuple[dict | None, str]:
+    """Return ``(payload, "")`` for a well-formed entry, else ``(None, reason)``."""
+    data = (fields.get(b"data") or fields.get("data")) if hasattr(fields, "get") else None
+    if data is None:
+        return None, "missing data field"
+    try:
+        text = data.decode("utf-8") if isinstance(data, bytes) else str(data)
+        payload = json.loads(text)
+    except (UnicodeDecodeError, ValueError):
+        return None, "data is not UTF-8 JSON"
+    if not isinstance(payload, dict):
+        return None, "data is not a JSON object"
+    return payload, ""
