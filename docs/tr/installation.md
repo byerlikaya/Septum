@@ -379,7 +379,7 @@ Gateway yönlendirmesi açıkken bulut LLM çağrıları gateway kuyruğu üzeri
 - Gerçek bir gateway hatası (zaman aşımı, upstream hatası ya da gateway'de eksik sağlayıcı anahtarı) doğrudan bulut hatası gibi ele alınır: devre kesiciye yazılır ve çağrı Ollama'ya düşer.
 - `llm_provider=ollama` her zaman yerel çalışır; `use_gateway` ya da `USE_GATEWAY_DEFAULT` değeri ne olursa olsun.
 
-Boolean `*_DEFAULT` bayrakları, örneğin `USE_GATEWAY_DEFAULT`, yalnızca `1`, `true`, `yes`, `on` ve `0`, `false`, `no`, `off` değerlerini kabul eder (büyük/küçük harf fark etmez). Boş değer varsayılanı kullanır. Tüm bu bayraklar api başlarken denetlenir. Başka her değer reddedilir; hata, değişkenin adını söyler ama değerini göstermez. Boolean `*_DEFAULT` bayraklarından herhangi birinde (`USE_GATEWAY_DEFAULT` dahil) geçersiz bir değer, api başlatmayı durdurur.
+Boolean `*_DEFAULT` bayrakları, örneğin `USE_GATEWAY_DEFAULT`, yalnızca `1`, `true`, `yes`, `on` ve `0`, `false`, `no`, `off` değerlerini kabul eder (büyük/küçük harf fark etmez). Boş değer varsayılanı kullanır. Tüm bu bayraklar api başlarken denetlenir. Başka her değer reddedilir; hata, değişkenin adını söyler ama değerini göstermez. Tam sayı `*_DEFAULT` bayrakları, her bayrağın alt sınırı ile 2147483647 arasında tam sayı olmalıdır; `RAG_RELEVANCE_THRESHOLD_DEFAULT` ise 0.0 ile 1.0 arasında sonlu bir sayı olmalıdır. Boolean ya da sayısal `*_DEFAULT` bayraklarından herhangi birinde (`USE_GATEWAY_DEFAULT` dahil) geçersiz bir değer, api başlatmayı durdurur.
 
 Saklanan `use_gateway` değeri kurulum tamamlandığında `USE_GATEWAY_DEFAULT` değerinden kopyalanır. Panel bu değeri göstermez.
 

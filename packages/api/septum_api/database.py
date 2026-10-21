@@ -23,7 +23,11 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from .config import default_ollama_url
-from .env_flags import parse_bool_default_flags
+from .env_flags import (
+    parse_bool_default_flags,
+    parse_float_default_flags,
+    parse_int_default_flags,
+)
 from .models import Base
 from .models.api_key import ApiKey
 from .models.audit_event import AuditEvent
@@ -390,6 +394,8 @@ def build_default_app_settings() -> AppSettings:
     bootstraps produce the same default configuration.
     """
     flags = parse_bool_default_flags()
+    ints = parse_int_default_flags()
+    floats = parse_float_default_flags()
     default_active_regulations: List[str] = parse_active_regulations_env(
         os.getenv("DEFAULT_ACTIVE_REGULATIONS")
     )
@@ -410,26 +416,20 @@ def build_default_app_settings() -> AppSettings:
         deanon_enabled=flags["DEANON_ENABLED_DEFAULT"],
         deanon_strategy=os.getenv("DEANON_STRATEGY", "simple"),
         require_approval=flags["REQUIRE_APPROVAL_DEFAULT"],
-        approval_timeout_seconds=_env_int(
-            "APPROVAL_TIMEOUT_SECONDS_DEFAULT", 300
-        ),
+        approval_timeout_seconds=ints["APPROVAL_TIMEOUT_SECONDS_DEFAULT"],
         show_json_output=flags["SHOW_JSON_OUTPUT_DEFAULT"],
         use_presidio_layer=flags["USE_PRESIDIO_LAYER_DEFAULT"],
         use_ner_layer=flags["USE_NER_LAYER_DEFAULT"],
         use_ollama_validation_layer=flags["USE_OLLAMA_VALIDATION_LAYER_DEFAULT"],
         use_ollama_layer=flags["USE_OLLAMA_LAYER_DEFAULT"],
         use_ollama_semantic_layer=flags["USE_OLLAMA_SEMANTIC_LAYER_DEFAULT"],
-        chunk_size=_env_int("CHUNK_SIZE_DEFAULT", 800),
-        chunk_overlap=_env_int("CHUNK_OVERLAP_DEFAULT", 200),
-        top_k_retrieval=_env_int("TOP_K_RETRIEVAL_DEFAULT", 5),
-        pdf_chunk_size=_env_int("PDF_CHUNK_SIZE_DEFAULT", 1200),
-        audio_chunk_size=_env_int("AUDIO_CHUNK_SIZE_DEFAULT", 60),
-        spreadsheet_chunk_size=_env_int(
-            "SPREADSHEET_CHUNK_SIZE_DEFAULT", 200
-        ),
-        rag_relevance_threshold=float(
-            os.getenv("RAG_RELEVANCE_THRESHOLD_DEFAULT", "0.35")
-        ),
+        chunk_size=ints["CHUNK_SIZE_DEFAULT"],
+        chunk_overlap=ints["CHUNK_OVERLAP_DEFAULT"],
+        top_k_retrieval=ints["TOP_K_RETRIEVAL_DEFAULT"],
+        pdf_chunk_size=ints["PDF_CHUNK_SIZE_DEFAULT"],
+        audio_chunk_size=ints["AUDIO_CHUNK_SIZE_DEFAULT"],
+        spreadsheet_chunk_size=ints["SPREADSHEET_CHUNK_SIZE_DEFAULT"],
+        rag_relevance_threshold=floats["RAG_RELEVANCE_THRESHOLD_DEFAULT"],
         whisper_model=os.getenv("WHISPER_MODEL", "base"),
         default_audio_language=os.getenv("DEFAULT_AUDIO_LANGUAGE") or None,
         image_ocr_languages=_csv_env_to_list(
@@ -516,17 +516,6 @@ async def _seed_defaults(sm: async_sessionmaker[AsyncSession]) -> None:
             )
 
         await session.commit()
-
-
-def _env_int(name: str, default: int) -> int:
-    """Parse an integer environment variable with a default."""
-    value = os.getenv(name)
-    if value is None:
-        return default
-    try:
-        return int(value)
-    except ValueError:
-        return default
 
 
 def _csv_env_to_list(name: str, default: str | None = None) -> list[str]:

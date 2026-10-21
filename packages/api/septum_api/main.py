@@ -46,7 +46,11 @@ from .database import (  # noqa: E402
     init_db,
     initialize_engine,
 )
-from .env_flags import parse_bool_default_flags
+from .env_flags import (
+    parse_bool_default_flags,
+    parse_float_default_flags,
+    parse_int_default_flags,
+)
 from .errors import MODEL_REFUSED_DETAIL
 from .models.settings import AppSettings
 from .routers import api_keys as api_keys_router
@@ -313,6 +317,8 @@ async def lifespan(app: FastAPI):
 
     bootstrap.validate_setup_token_env()
     flags = parse_bool_default_flags()
+    parse_int_default_flags()
+    parse_float_default_flags()
     async with _gateway_client_installed(flags["USE_GATEWAY_DEFAULT"]):
         await run_password_work(warm_dummy_password_hash)
         config = bootstrap.get_config()

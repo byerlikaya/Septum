@@ -379,7 +379,7 @@ When gateway routing is on, cloud LLM calls go through the gateway queue and nev
 - A real gateway failure, such as a timeout, an upstream error or a missing provider key on the gateway, is handled like a direct cloud failure: it counts against the circuit breaker and the call falls back to Ollama.
 - `llm_provider=ollama` always runs locally, whatever `use_gateway` or `USE_GATEWAY_DEFAULT` says.
 
-Boolean `*_DEFAULT` flags, such as `USE_GATEWAY_DEFAULT`, accept only `1`, `true`, `yes`, `on` and `0`, `false`, `no`, `off`, in any case. A blank value means the default. All of them are checked when the api starts. Any other value is refused with an error that names the variable and never shows its value. An invalid value in any boolean `*_DEFAULT` flag, including `USE_GATEWAY_DEFAULT`, stops api startup.
+Boolean `*_DEFAULT` flags, such as `USE_GATEWAY_DEFAULT`, accept only `1`, `true`, `yes`, `on` and `0`, `false`, `no`, `off`, in any case. A blank value means the default. All of them are checked when the api starts. Any other value is refused with an error that names the variable and never shows its value. Integer `*_DEFAULT` flags must be whole numbers from each flag's minimum up to 2147483647, and `RAG_RELEVANCE_THRESHOLD_DEFAULT` must be a finite number from 0.0 to 1.0. An invalid value in any boolean or number `*_DEFAULT` flag, including `USE_GATEWAY_DEFAULT`, stops api startup.
 
 The stored `use_gateway` value is copied from `USE_GATEWAY_DEFAULT` when setup completes. The dashboard does not show it.
 
