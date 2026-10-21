@@ -1,0 +1,23 @@
+Weekly Product Sync, Mobile App Team
+
+Attendees: {{PII:PERSON_NAME:1}} (product manager), {{PII:PERSON_NAME:2}} (engineering lead), design, quality assurance, and support. Notes are shared with the whole team afterwards.
+
+Release status. Version 4.2 of the app went into staged rollout on Monday. Twenty percent of Android users have it so far, and the crash-free session rate is ninety-nine point four percent, slightly better than the previous release. The iOS build is still waiting for store review, which usually takes one to two days. The engineering lead wants to hold the rollout at twenty percent until the weekend, because a late-night push of the payment screen redesign has not yet been seen under heavy load.
+
+Bug triage. Support reported that some users cannot reset their password when the e-mail client opens the link inside an embedded browser. This is the top issue this week with forty-seven tickets. QA reproduced it and found that the token is dropped when the link is opened in a second tab. The fix is small, and the engineering lead promised a patch by Wednesday. A second bug, where the dark theme shows white text on a light button in the settings screen, was assigned to design as a quick colour correction.
+
+Feature work. The offline mode for saved lists is feature complete but slow on older phones: synchronising two thousand items takes about eleven seconds. The team agreed this is acceptable for launch but wants a progress indicator so users do not think the app has frozen. The product manager asked whether the indicator can show the number of items still to sync. Engineering said yes, with one extra day of work.
+
+Customer feedback. The latest survey had four hundred responses. The most requested feature is a home screen widget, followed by shared lists for families. Support said many customers write in because they cannot find the option to delete their account. Product decided to move this setting from the privacy menu to the main profile page and to add a short explanation of what is deleted and how long it takes.
+
+Experiments. The onboarding test with three screens instead of five finished with a rise of six percent in completed sign-ups. The difference is statistically reliable. The team decided to ship the shorter version to everyone and to drop the planned fourth variant.
+
+Next week. Prepare the press kit for the version 4.2 announcement, review the privacy text for the widget, and schedule a usability session with five users who use the app only on tablets. The product manager will send the plan to {{PII:EMAIL_ADDRESS:1}} for the marketing team. The call ended after thirty minutes.
+
+Accessibility. The designer shared the results of a review with a screen reader. Three screens lack labels on icon-only buttons, and the checkout flow cannot be completed with the keyboard on the tablet layout. QA will add these checks to the regression suite, and engineering agreed to fix the labels in the current sprint and the keyboard flow in the next one. The product manager pointed out that the missing labels also explain several support tickets from users who rely on voice control.
+
+Analytics. The data analyst reported that the event for completed purchases is counted twice on some Android devices, which inflates conversion by about three percent. A correction has been prepared and will be released with the patch. Historical dashboards will carry a note instead of being recalculated. The team also decided to stop collecting the unused device model field, in line with the agreement to gather only what the product needs.
+
+Risks. The payment provider announced maintenance on Saturday morning, which overlaps with the planned increase of the rollout. The engineering lead will move the increase to Saturday afternoon unless the provider's window is postponed. Support will have two people on call over the weekend and a short script for the most common password questions.
+
+Decisions summary. Keep rollout at twenty percent until Saturday afternoon. Ship the patch for the reset link by Wednesday. Ship the shorter onboarding to all users. Move account deletion to the profile page.

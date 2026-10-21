@@ -1,0 +1,67 @@
+ARAÇ KİRALAMA SÖZLEŞMESİ
+
+Bu sözleşme, {{PII:ORGANIZATION_NAME:1}} (Kiralayan) ile {{PII:PERSON_NAME:1}} (Kiracı) arasında, aşağıdaki şartlarla düzenlenmiştir. Kiracı'nın iletişim adresi {{PII:LOCATION:1}} olup, telefon numarası {{PII:PHONE_NUMBER:1}} şeklindedir.
+
+Madde 1 - Kiralanan Araç
+
+1.1 Kiralayan, otomatik vitesli, dizel motorlu, beş kişilik bir binek aracı Kiracı'ya kiralamıştır. Aracın teslim anındaki kilometresi, yakıt seviyesi ve mevcut hasarlar teslim tutanağında belirtilmiştir.
+
+1.2 Araç, tutanaktaki hasarlar dışında kusursuz teslim edilmiştir. Kiracı, teslim sırasında aracı kontrol etme hakkına sahiptir.
+
+Madde 2 - Kira Süresi ve Bedeli
+
+2.1 Kira süresi, teslim tarihinde başlar ve on dört takvim günü sürer. Süre sonunda araç, teslim alındığı yerde ve saatte iade edilir.
+
+2.2 Günlük kira bedeli sözleşme ekindeki fiyat listesinde yazılıdır. Bedel, teslim anında Kiracı'nın kredi kartından peşin olarak tahsil edilir. Ayrıca iade edilmek üzere bir teminat bloke edilir.
+
+2.3 Kiracı, araç iade saatinden sonraki ilk bir saat için ücret ödemez. Bir saati aşan gecikmelerde, bir günün üçte biri kadar ek ücret alınır; üç saati aşan gecikmelerde tam gün ücreti tahsil edilir.
+
+2.4 Ödeme havale ile yapılacaksa, tutar {{PII:IBAN:1}} numaralı hesaba yatırılır ve dekont, açıklama satırında sözleşme numarasıyla birlikte gönderilir.
+
+Madde 3 - Günlük Kilometre Sınırı
+
+3.1 Günlük kilometre sınırı üç yüz kilometredir. Sınırın aşılması hâlinde her fazla kilometre için fiyat listesindeki ek kilometre ücreti uygulanır.
+
+Madde 4 - Kullanım Şartları
+
+4.1 Aracı yalnızca sözleşmede adı geçen sürücüler kullanabilir. Sürücülerin en az yirmi üç yaşında olması ve en az iki yıldır geçerli sürücü belgesi bulundurması gerekir.
+
+4.2 Araç, yarış, hız denemesi, yük taşımacılığı, römork çekme ve ücret karşılığı yolcu taşıma amacıyla kullanılamaz. Araçta sigara içilmesi yasaktır; ihlal hâlinde temizlik bedeli kesilir.
+
+4.3 Kiralayan'ın yazılı izni olmadan araç yurt dışına çıkarılamaz. İzin verilmesi durumunda sınır geçiş sigortası ayrıca düzenlenir.
+
+4.4 Yakıt seviyesi, teslim sırasında dolu olarak verilir ve dolu olarak iade edilmelidir. Eksik iade edilen yakıt, depo dolum bedeli ve hizmet ücreti ile birlikte tahsil edilir.
+
+Madde 5 - Sigorta ve Hasar
+
+5.1 Araç, zorunlu trafik sigortası ve kasko ile teminat altındadır. Kasko kapsamındaki hasarlarda Kiracı en fazla muafiyet bedelini öder. Lastik, cam, jant ve alt takım hasarları kasko kapsamı dışında olup Kiracı'ya aittir.
+
+5.2 Kaza, hırsızlık veya hasar durumunda Kiracı, derhâl Kiralayan'ı arar, olay yerinde polis veya jandarma tutanağı düzenletir ve kaza tespit tutanağını doldurur. Tutanak olmadan kasko hakkı doğmaz.
+
+5.3 Alkollü veya uyuşturucu etkisi altında kullanım, hız sınırının büyük ölçüde aşılması ve ruhsatsız sürücü kullanımı hâllerinde sigorta teminatı geçersiz olur ve tüm zarar Kiracı'ya ait olur.
+
+Madde 6 - Trafik Cezaları
+
+6.1 Kira süresince araca kesilen trafik cezaları, otoyol ve köprü geçiş ücretleri Kiracı'ya aittir. Kiralayan bu tutarları teminattan mahsup etme hakkına sahiptir.
+
+Madde 7 - Fesih
+
+7.1 Kiracı sözleşmeyi, kira başlangıcından kırk sekiz saat öncesine kadar ücretsiz iptal edebilir. Daha geç iptallerde bir günlük kira bedeli tahsil edilir.
+
+7.2 Kiralayan, sözleşme şartlarının ihlali hâlinde aracı geri alma ve sözleşmeyi derhâl feshetme hakkına sahiptir.
+
+Madde 8 - Yetkili Mahkeme
+
+8.1 Bu sözleşmeden doğacak uyuşmazlıklarda Kiralayan'ın yerleşim yerindeki mahkemeler ve icra daireleri yetkilidir. İki nüsha olarak düzenlenmiş ve imzalanmıştır.
+
+Madde 9 - Teslim Alma ve İade Ayrıntıları
+
+9.1 Araç, mesai saatleri dışında iade edilecekse Kiracı bunu en az bir gün önceden bildirir. Mesai dışı iadelerde araç, anahtar kutusuna bırakılır ve Kiralayan'ın ertesi sabah yapacağı kontrol sonuçları esas alınır.
+
+9.2 İade sırasında aracın iç ve dış temizliği makul düzeyde olmalıdır. Aşırı kirlilik hâlinde sabit bir temizlik ücreti tahsil edilir. Araçta unutulan eşyalardan Kiralayan sorumlu değildir.
+
+9.3 Teminat, aracın iadesinden ve hasar, ceza ve yakıt kontrollerinden sonra en geç on dört gün içinde Kiracı'nın kartına iade edilir. Trafik cezası bildirimi gecikebileceği için, cezalara ilişkin bakiye için ayrıca doksan gün boyunca talepte bulunma hakkı saklıdır.
+
+Madde 10 - Ek Hizmetler
+
+10.1 Çocuk koltuğu, ek sürücü ve navigasyon cihazı ücretli ek hizmetlerdir ve rezervasyon sırasında talep edilmelidir. Ek sürücü ekleme işlemi için sürücünün kimlik ve ehliyet bilgilerinin sözleşme tarihinden önce Kiralayan'a iletilmesi gerekir.

@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-10-22
+
+- Added an offline retrieval benchmark with a hand-authored English, Turkish and Simplified Chinese evaluation set. It measures Recall@5/10, MRR, nDCG@10, latency and a chunk-boundary PII leak check against the production chunker, FAISS and BM25 stores, and its MiniLM baseline is published in the benchmark docs so that upcoming chunking, embedding and reranking changes can be compared against it.
+
 ### 2026-10-21
 
 - **Breaking: the setup wizard and its endpoints require a one-time setup token.** The API prints the token in its log while setup is open, or uses SEPTUM_SETUP_TOKEN if set; first-admin registration needs it too. There is no localhost exemption, so every install reads the token from the log or sets it.

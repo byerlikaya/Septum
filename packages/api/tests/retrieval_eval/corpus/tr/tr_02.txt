@@ -1,0 +1,57 @@
+YILLIK İZİN VE DEVAMSIZLIK YÖNERGESİ
+
+Bu yönerge, {{PII:ORGANIZATION_NAME:1}} bünyesinde çalışan tüm personelin izin haklarını ve devamsızlık hâllerinde izlenecek usulleri düzenler. Yönerge İnsan Kaynakları Müdürü {{PII:PERSON_NAME:1}} tarafından hazırlanmıştır. Sorular için {{PII:EMAIL_ADDRESS:1}} adresine yazabilirsiniz.
+
+Madde 1 - Amaç ve Kapsam
+
+1.1 Bu yönergenin amacı, izin kullanımında adil ve öngörülebilir bir düzen sağlamaktır. Yönerge, belirli ve belirsiz süreli iş sözleşmesiyle çalışan tüm personeli kapsar. Stajyerler için staj sözleşmesi hükümleri geçerlidir.
+
+Madde 2 - Yıllık Ücretli İzin
+
+2.1 Çalışan, işyerinde en az bir yıl çalışmış olmak koşuluyla yıllık ücretli izne hak kazanır. Yıllık izin süresi, hizmet süresi bir yıldan beş yıla kadar olanlar için on dört iş günüdür.
+
+2.2 Hizmet süresi beş yıldan fazla ve on beş yıldan az olanlar için izin süresi yirmi iş günü, on beş yıl ve daha fazla olanlar için yirmi altı iş günüdür. On sekiz yaşından küçük ve elli yaşından büyük çalışanlara verilecek izin süresi yirmi iş gününden az olamaz.
+
+2.3 İzin talebi, en geç yedi gün öncesinden insan kaynakları sistemi üzerinden yapılır. Yöneticiler talebi üç iş günü içinde yanıtlar. Ardışık on günü aşan izin talepleri için en az otuz gün öncesinden bildirim gerekir.
+
+2.4 Yıllık iznin bir bölümü, çalışanın isteğiyle en fazla üç parçaya bölünebilir; ancak bir parçanın süresi on günden az olamaz. İzinler, ait olduğu yılı izleyen takvim yılı sonuna kadar kullanılmalıdır.
+
+2.5 Kullanılmayan izinler ücret karşılığı satın alınamaz; ancak iş sözleşmesinin sona ermesi hâlinde kullanılmayan izin günlerinin ücreti son ücret üzerinden ödenir.
+
+Madde 3 - Mazeret İzinleri
+
+3.1 Evlenme hâlinde üç iş günü, çalışanın anne, baba, eş veya çocuğunun ölümü hâlinde yedi iş günü, kardeşin ölümünde üç iş günü ücretli izin verilir.
+
+3.2 Eşi doğum yapan çalışana beş iş günü babalık izni verilir. Doğum yapan çalışanın doğum öncesi sekiz hafta, doğum sonrası sekiz hafta olmak üzere toplam on altı haftalık analık izni vardır.
+
+3.3 Çalışanın taşınma nedeniyle talep ettiği izin, yılda bir kez ve bir iş günüyle sınırlı olmak üzere verilir.
+
+Madde 4 - Hastalık ve Devamsızlık
+
+4.1 Hastalık nedeniyle işe gelemeyen çalışan, durumu mesai başlangıcından önce yöneticisine telefonla veya mesajla bildirir. Rapor, işe dönüşten sonra iki iş günü içinde insan kaynaklarına iletilir.
+
+4.2 Raporsuz hastalık günleri, yılda en fazla iki ardışık gün olacak şekilde ve toplam üç günü geçmemek üzere kabul edilir. Daha uzun devamsızlıklar için doktor raporu zorunludur.
+
+4.3 Mazeretsiz ve bildirimsiz devamsızlık, üst üste iki iş günü veya bir ay içinde toplam üç iş günü sürerse disiplin sürecini başlatır.
+
+Madde 5 - Ücretsiz İzin ve Uzaktan Çalışma Günleri
+
+5.1 Yıllık izin hakkı bittikten sonra, yönetici onayıyla en fazla otuz gün ücretsiz izin kullanılabilir. Ücretsiz izin süresince sigorta primleri çalışan tarafından karşılanır.
+
+5.2 Uzaktan çalışılan günler izin olarak sayılmaz. Ancak çalışan, uzaktan çalıştığı gün mesai saatlerinde ulaşılabilir olmak zorundadır.
+
+Madde 6 - Resmî Tatiller ve Köprü Günleri
+
+6.1 Resmî tatil günleri yıllık izin süresinden düşülmez. Bayram öncesi ve sonrasındaki köprü günlerinin kullanımı, şirket tarafından yıl başında ilan edilir ve gerekirse yıllık izinden mahsup edilir.
+
+Madde 7 - Yürürlük
+
+7.1 Bu yönerge yayımı tarihinde yürürlüğe girer ve eski izin uygulamasının yerini alır. Yönergedeki değişiklikler, çalışanlara en az on beş gün önceden duyurulur. İzin bakiyenizi öğrenmek için insan kaynakları sistemindeki "İzinlerim" sayfasına bakabilir veya {{PII:PHONE_NUMBER:1}} numaralı dahili hattı arayabilirsiniz.
+
+Madde 8 - İzin Planlaması ve Yedekleme
+
+8.1 Her ekip, yıl başında ortak bir izin takvimi hazırlar. Aynı birimde aynı anda izinde olabilecek kişi sayısı, ekibin yarısını geçemez. Yaz aylarında temmuz ve ağustos için talepler mayıs ayının sonuna kadar toplanır; çakışma olursa kıdem ve geçen yılki tercih sırası dikkate alınır.
+
+8.2 İzne çıkan çalışan, devam eden işlerini yazılı bir devir notuyla yedeğine bırakır ve otomatik yanıt mesajına yedeğinin iletişim bilgisini yazar. İzin sırasında çalışanın aranması, ancak acil durumlarda ve çalışanın önceden verdiği onay çerçevesinde mümkündür.
+
+8.3 İzindeyken hastalanan çalışan, durumunu rapor ile belgelerse rapor günleri yıllık izinden düşülmez.

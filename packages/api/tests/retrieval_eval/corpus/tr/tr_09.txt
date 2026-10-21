@@ -1,0 +1,27 @@
+Çocuk Sağlığı ve Hastalıkları Polikliniği Muayene Raporu
+
+Hasta: {{PII:PERSON_NAME:1}}, altı yaşında erkek çocuk. Anne: {{PII:PERSON_NAME:2}}. Kurum: {{PII:ORGANIZATION_NAME:1}}. Annenin iletişim numarası: {{PII:PHONE_NUMBER:1}}.
+
+Başvuru şikâyeti. Çocuk, üç gündür devam eden öksürük, ateş ve iştahsızlık şikâyetiyle getirildi. Ateş ilk gün otuz sekiz buçuk dereceye çıkmış, ateş düşürücü ilaçla düşmüş ve geceleri tekrar yükselmiştir. Öksürük kuru başlamış, ikinci günden itibaren balgamlı hâle gelmiştir. Kusma, ishal veya döküntü olmamıştır. Çocuk, geceleri öksürük nedeniyle birkaç kez uyanmıştır ve sabahları sesi kısıktır.
+
+Öykü. Anaokulunda iki arkadaşında benzer yakınmalar olduğu bildirilmiştir. Doğumdan beri bilinen bir hastalığı yoktur. Aşıları ulusal takvime göre eksiksizdir. Geçen kış bir kez zatürre benzeri bir tablo geçirmiş ve ağızdan antibiyotikle tedavi edilmiştir. Besin veya ilaç alerjisi bilinmemektedir. Ailede astım öyküsü vardır: babada çocukluk çağında hırıltılı solunum görülmüştür.
+
+Muayene. Genel durumu iyi, ancak hafif halsiz görünümlüdür. Ateş otuz sekiz derece, solunum sayısı dakikada yirmi sekiz, nabız bir yüz on, oksijen satürasyonu yüzde doksan sekizdir. Boğaz hafif kırmızıdır, bademcikler normal büyüklüktedir ve üzerinde iltihap yoktur. Kulak muayenesi normaldir. Akciğer dinlemesinde sağ alt bölgede ince ralleri duyulmuştur; hırıltı yoktur. Karın muayenesi doğal, boyunda büyümüş lenf bezi saptanmamıştır.
+
+Tetkikler. Akciğer grafisinde sağ alt zonda sınırlı bir infiltrasyon görülmüştür; plevral sıvı yoktur. Kan sayımında lökosit on iki bin, CRP orta düzeyde yüksek bulunmuştur. Boğaz kültürü alınmıştır.
+
+Tanı. Toplum kökenli, hafif seyirli alt solunum yolu enfeksiyonu, olası bakteriyel zatürre.
+
+Tedavi ve öneriler. Çocuğa yedi gün süreyle ağızdan antibiyotik başlandı; ilacın günde iki kez, yemekten sonra ve aynı saatlerde verilmesi anlatıldı. Ateş otuz sekiz buçuğun üzerine çıkarsa parasetamol verilebilir. Bol sıvı verilmesi, evin havalandırılması ve çocuğun sigara dumanından uzak tutulması önerildi. Öksürük kesici şuruplar önerilmedi, çünkü balgamın atılması önemlidir. Anaokuluna en az iki gün ara verilmesi uygun görüldü.
+
+Aileye uyarılar. Çocuğun nefes alıp vermesi hızlanırsa, göğüs kafesinde çekilme olursa, dudaklar morarırsa, sıvıları reddederse veya ateş üç gün sonra hâlâ düşmezse hemen acile başvurulması gerektiği açıklandı. Anne, uyarıları anladığını belirtti ve yazılı bir bilgilendirme formu aldı.
+
+Kontrol. Tedavinin ikinci gününde telefonla durum sorulacak, beşinci günde poliklinikte muayene yapılacaktır. Yakınmalar geçmezse akciğer grafisi dört hafta sonra tekrarlanacaktır. Tekrarlayan öksürük nöbetleri olması hâlinde astım açısından değerlendirme planlanabilir.
+
+Beslenme ve bakım önerileri. Hastalık süresince çocuğun iştahsız olması olağandır; zorla yedirmek yerine küçük ve sık öğünler verilmesi, çorba, yoğurt ve meyve gibi kolay yenen besinlerin tercih edilmesi önerildi. Günlük sıvı alımının en az bir buçuk litre olması hedeflendi. Çocuğun odasında oda sıcaklığı yirmi ile yirmi iki derece arasında tutulmalı, nemlendirici kullanılacaksa her gün temizlenmelidir.
+
+Antibiyotik kullanımı. Anneye, çocuk iyileşmiş görünse bile ilacın yedi gün boyunca eksiksiz verilmesi gerektiği, erken bırakılırsa enfeksiyonun tekrarlayabileceği ve bakterilerin ilaca direnç kazanabileceği anlatıldı. İlaç suspansiyonunun buzdolabında saklanması ve her kullanımdan önce çalkalanması gerektiği gösterildi. İshal veya yaygın döküntü ortaya çıkarsa ilacı kesmeden önce doktora haber verilmesi söylendi.
+
+Okula dönüş. Ateşin ilaçsız en az yirmi dört saat boyunca olmaması ve çocuğun genel durumunun iyi olması koşuluyla, okula dönüş için bir sağlık raporuna gerek yoktur. Kardeşler ve diğer aile üyeleri için, el yıkamanın ve ortak eşyaların ayrı kullanılmasının önemi vurgulandı.
+
+Annenin soruları. Anne, çocuğun kardeşiyle aynı odada uyumasının sakıncalı olup olmadığını sordu. Küçük kardeşin henüz bir yaşında olduğu göz önüne alınarak, hastalık süresince çocukların ayrı odalarda yatırılması, bu mümkün değilse öksürük sırasında ağzın kolla kapatılması ve odanın sık sık havalandırılması önerildi. Anne ayrıca, çocuğa bal verip veremeyeceğini sordu; altı yaşındaki çocuklarda bir kaşık balın boğaz tahrişini rahatlatabileceği, fakat bunun enfeksiyonu tedavi etmediği açıklandı.

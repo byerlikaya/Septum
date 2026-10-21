@@ -1,0 +1,25 @@
+Proje Haftalık Durum Toplantısı Notları
+
+Katılımcılar: {{PII:PERSON_NAME:1}} (proje yöneticisi), {{PII:PERSON_NAME:2}} (yazılım ekip lideri), tasarım ekibi, test ekibi ve müşteri ilişkileri temsilcisi. Müşteri: {{PII:ORGANIZATION_NAME:1}}.
+
+Genel durum. Müşteri portalı projesinin ikinci aşaması üç hafta içinde tamamlanacak şekilde planlanmıştı. Ekip, şu an planın yaklaşık dört gün gerisinde olduğunu bildirdi. Gecikmenin ana nedeni, ödeme sağlayıcısının test ortamında yaşanan kesintiler ve fatura ekranındaki tasarım değişikliği talebidir. Proje yöneticisi, müşteri ile bu hafta konuşulacağını ve teslim tarihinin korunması için bazı küçük özelliklerin sonraki aşamaya bırakılmasının önerileceğini söyledi.
+
+Yazılım. Ekip lideri, kullanıcı girişi ve yetkilendirme modüllerinin tamamlandığını bildirdi. Fatura listesi sayfası, bin kayıtta yaklaşık dört saniyede açılıyor; hedef iki saniyenin altı. Sorunun veritabanı sorgularındaki eksik dizinden kaynaklandığı düşünülüyor ve çözüm için yarım günlük iş gerekiyor. Raporlama ekranı için kullanılan grafik kütüphanesi, eski tarayıcılarda sorun çıkardığı için değiştirilecek.
+
+Test. Test ekibi, geçen hafta kırk iki hata açtıklarını, bunların otuz birinin kapatıldığını bildirdi. Açık kalan hatalardan ikisi yüksek öncelikli: farklı kullanıcı rollerinde aynı faturanın görüntülenebilmesi ve mobil görünümde ödeme düğmesinin ekranın dışında kalması. Birinci hata güvenlik açısından önemli görüldüğü için bugün düzeltilecek, ardından test ekibi yetkilendirme senaryolarını baştan çalıştıracak.
+
+Tasarım. Yeni fatura ekranının iki alternatifi müşteriye sunuldu. Müşteri, ayrıntıların varsayılan olarak kapalı geldiği daha sade sürümü seçti. Tasarım ekibi, erişilebilirlik kontrolünü bu hafta bitirecek; renk kontrastı düşük olan iki düğme koyulaştırılacak.
+
+Müşteri geri bildirimi. Müşteri temsilcisi, kullanıcı eğitimi için kısa bir video hazırlanmasını istediklerini aktardı. Ekip, videonun yerine bir adım adım kullanım kılavuzu hazırlamayı önerdi; çünkü ekran görüntüleri her sürümde daha kolay güncellenebilir. Karar müşteri ile görüşüldükten sonra verilecek.
+
+Riskler. Ödeme sağlayıcısının test ortamı kararsız olduğu sürece uçtan uca testler yavaş ilerleyecek. Ekip lideri, geçici olarak sahte bir ödeme servisi yazarak yerel testlerin bağımsız yürütülmesini önerdi. Ayrıca, iki geliştiricinin gelecek hafta izinde olacağı hatırlatıldı; bu durum kapasiteyi yaklaşık yüzde yirmi düşürecek.
+
+Aksiyonlar. Proje yöneticisi müşteriye kapsam önerisini gönderecek. Ekip lideri dizin sorununu ve rol hatasını çözecek. Test ekibi yetkilendirme testlerini yineleyecek. Tasarım ekibi erişilebilirlik düzeltmelerini tamamlayacak. Toplantı notları {{PII:EMAIL_ADDRESS:1}} listesine gönderilecektir. Bir sonraki toplantı gelecek hafta aynı saatte yapılacak.
+
+Bakım ve dokümantasyon. Ekip lideri, teslimden sonra müşterinin kendi ekibinin sistemi devralabilmesi için mimari şemaların, kurulum adımlarının ve sık karşılaşılan sorunların yazılı hâle getirilmesini önerdi. Proje yöneticisi bu çalışmanın iki kişi gününe karşılık geldiğini ve plana eklenmesi gerektiğini belirtti. Müşteri temsilcisi, devir teslim toplantısının mümkünse iki oturum hâlinde yapılmasını talep etti.
+
+Performans ölçümleri. Test ekibi, portalın yüz eşzamanlı kullanıcıyla yapılan yük testinde ortalama yanıt süresinin bir buçuk saniye olduğunu, ancak rapor dışa aktarma işleminin kullanıcı sayısı arttıkça yirmi saniyeye kadar uzadığını bildirdi. Dışa aktarma işleminin arka planda çalıştırılıp bitince kullanıcıya bildirim gönderilmesi önerildi. Bu iş kapsama alındı ve beş gün olarak tahmin edildi.
+
+Sonraki adımlar. Pazartesi günü müşteri ile bir kapsam görüşmesi yapılacak. Çarşamba günü kullanıcı kabul testi için ortam hazırlanacak. Cuma günü tüm hata kayıtları gözden geçirilerek ikinci aşamanın çıkış kriterleri yeniden değerlendirilecek.
+
+Not. Kapsam değişiklikleri yazılı olarak kayda geçirilmeden geliştirmeye alınmayacaktır; proje yöneticisi bu kuralı toplantı sonunda ekibe bir kez daha hatırlattı.

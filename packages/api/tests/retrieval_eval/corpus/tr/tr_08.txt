@@ -1,0 +1,25 @@
+Yeni Çalışan Karşılama Rehberi
+
+Aramıza hoş geldiniz. Bu rehber, {{PII:ORGANIZATION_NAME:1}} ailesine katıldığınız ilk günlerde ihtiyaç duyacağınız temel bilgileri bir araya getirir. Hepsini bir kerede okumanız beklenmiyor; ilk ayınız boyunca elinizin altında dursun yeter.
+
+İlk gününüz. Sizi sabah dokuzda resepsiyonda insan kaynakları uzmanı karşılar. Kimlik kartınızı, bilgisayarınızı ve şirket e-posta hesabınızı o gün teslim alırsınız. Öğleden önce kısa bir bilgi güvenliği eğitimi vardır. Öğle yemeğini yöneticinizle ve ekibinizle birlikte yersiniz; yemek şirket tarafından karşılanır. Öğleden sonra masanızı kurar, ekibinizdeki kişilerle tanışırsınız. Ekip arkadaşlarınızdan biri, ilk haftanız boyunca "yol arkadaşı" olarak size eşlik eder ve aklınıza gelen her soruyu sorabilirsiniz.
+
+Çalışma saatleri. Mesai genel olarak 09.00 ile 18.00 arasındadır ve bir saat öğle arası dahildir. Çekirdek saatlerde, yani 10.00 ile 16.00 arasında ekip arkadaşlarınızın size ulaşabilmesini bekleriz. Bunun dışında, yöneticinizle anlaşarak başlangıç ve bitiş saatlerinizi bir saat kaydırabilirsiniz. Haftada iki gün uzaktan çalışma, deneme süresinin ardından mümkündür.
+
+Deneme süresi. İlk iki ay deneme süresidir. Bu süre içinde yöneticiniz sizinle her hafta kısa bir görüşme yapar. Birinci ayın sonunda ve ikinci ayın sonunda, beklentilerin ve geri bildirimlerin konuşulduğu iki resmî değerlendirme toplantısı yapılır. Amacımız sizi sınamak değil, doğru desteği verebilmektir.
+
+Maaş ve yan haklar. Maaşınız her ayın yirmi beşinde hesabınıza yatırılır. Yemek kartı, özel sağlık sigortası ve yıllık izin haklarınız işe başlama tarihinizden itibaren devreye girer; sağlık sigortası için eşinizi ve çocuklarınızı eklemek isterseniz ilk ay içinde başvurmanız gerekir. Banka hesap bilgilerinizi, ilk maaş gününden en az on gün önce insan kaynaklarına bildirmeyi unutmayın.
+
+Ekipman ve erişimler. Bilgisayarınızda şirket tarafından kurulan güvenlik yazılımını kapatmayın. Parolalarınızı kimseyle paylaşmayın ve iki aşamalı doğrulamayı ilk gün etkinleştirin. Bir cihazı kaybederseniz, durumu hemen bilgi işlem destek hattına bildirin. Şüpheli bir e-posta aldığınızda bağlantıya tıklamadan önce bilgi güvenliği ekibine iletin.
+
+Eğitim ve gelişim. Her çalışanın yıllık bir eğitim bütçesi vardır. Konferans, kurs ve kitap harcamaları bu bütçeden karşılanır. Eğitim talebinizi yöneticinizle konuştuktan sonra portaldan açabilirsiniz. Ayrıca iç eğitimlerimiz her ayın ikinci perşembe günü yapılır ve herkese açıktır.
+
+Sosyal hayat. Ekiplerin ayda bir ortak etkinliği olur; bu bir yemek, bir yürüyüş ya da bir oyun akşamı olabilir. Katılım zorunlu değildir. Mutfakta çay ve kahve ücretsizdir; mutfağı ortak kullandığımız için kendi kirlettiğimiz bardağı yıkamayı alışkanlık hâline getirmenizi rica ederiz.
+
+Yardım için. Rehberde yanıtını bulamadığınız bir soru olursa {{PII:EMAIL_ADDRESS:1}} adresine yazın ya da {{PII:PHONE_NUMBER:1}} numaralı hattı arayın. Yöneticiniz ve yol arkadaşınız da her zaman yanınızda. Yeni görevinizde başarılar dileriz.
+
+İlk ayın kontrol listesi. Birinci haftanın sonunda şu işleri tamamlamış olmanız beklenir: bilgi güvenliği eğitiminin bitirilmesi, iki aşamalı doğrulamanın etkinleştirilmesi, yöneticinizle hedeflerinizin konuşulması ve ekip takviminin size açılması. İkinci haftada ekip dışından en az üç kişiyle tanışmaya çalışın; bu, ileride işlerin nasıl yürüdüğünü anlamanızı kolaylaştırır. Üçüncü haftada ilk küçük görevinizi tek başınıza tamamlamanız, dördüncü haftada ise deneyimlerinizi anlatan kısa bir not hazırlamanız yeterlidir. Not resmî olmak zorunda değil; neyi kolay, neyi zor bulduğunuzu yazmanız yeterli.
+
+Yemekhane ve ulaşım. Yemekhane hafta içi her gün açıktır ve vejetaryen seçenek her zaman bulunur. Servis araçlarının güzergâhları ve saatleri intranette yayımlanmıştır; servisten yararlanmak için ilk hafta içinde kayıt yaptırmanız gerekir. Bisikletle gelenler için kapalı bir park alanı ve soyunma odaları vardır.
+
+Geri bildirim. Rehberi okurken eksik veya hatalı bulduğunuz her şeyi bize bildirin. Aramıza yeni katılanların gözü, bizim artık fark etmediğimiz sorunları görür ve bu rehber de çoğunlukla onların önerileriyle iyileşir.

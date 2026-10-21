@@ -1,0 +1,27 @@
+Household Water Filter, Installation and Care Guide
+
+Thank you for choosing the AquaPure under-sink filter system from {{PII:ORGANIZATION_NAME:1}}. This guide explains how to install the filter, how to look after it, and what to do if something does not work as expected. Please keep it for the lifetime of the product.
+
+What is in the box. You will find the filter housing with a mounting bracket, one carbon block cartridge, a separate faucet for drinking water, two lengths of tubing, a T-adapter for the cold water supply, a housing wrench, and a bag of screws and washers. If any part is missing, write to {{PII:EMAIL_ADDRESS:1}} and include a photo of the packaging label.
+
+Before you begin. Switch off the cold water supply under the sink and open the kitchen tap to release pressure. Place a towel and a shallow bowl under the pipes. You need an adjustable spanner, a drill with a twelve millimetre bit if your sink has no spare hole for the drinking water faucet, and some plumber's tape. Allow about forty-five minutes for the installation.
+
+Installing the filter. Start with the mounting bracket. Hold it against the inside wall of the cabinet at a height that leaves at least thirty centimetres below the housing, because you need that room to unscrew the housing when you change the cartridge. Mark the holes, drill them and fix the bracket firmly. Hang the housing on the bracket until it clicks. Next, connect the T-adapter to the cold water pipe. Wind the plumber's tape twice around the thread, tighten by hand, and then give it a quarter turn with the spanner. Over-tightening can crack the plastic. Push the white tubing into the inlet of the housing until it stops, and the blue tubing into the outlet, and pull gently to check that they are held. Finally, mount the drinking water faucet on the sink and connect it to the outlet tubing.
+
+First use. Open the supply slowly and check every joint for drips. Open the new faucet and let water run for ten minutes. At the beginning the water may look cloudy or slightly grey, which is carbon dust and is harmless. Do not drink the first five litres. The cloudiness should vanish after that.
+
+Cartridge replacement. The carbon block lasts about six months or two thousand litres, depending on which comes first. A household of four usually reaches that point after five months. Signs that the cartridge needs changing are a reduced flow, a taste of chlorine returning, or a red light on the optional flow meter. To change it, close the supply, relieve pressure by opening the faucet, then turn the housing counterclockwise with the wrench, remove the old cartridge, rinse the housing with clean water, and insert the new cartridge. Make sure the rubber seal sits flat. Tighten the housing by hand and a small additional turn with the wrench, then flush for five minutes.
+
+Care. Once a year, disinfect the housing with a small amount of food-safe sanitiser, particularly if the filter has been unused for more than two weeks. If you are going on holiday for a longer period, close the supply valve. Do not let the housing freeze, as the water inside will expand and damage it.
+
+Troubleshooting. If water leaks at the housing, check the rubber seal for dirt or twisting. If the flow is weak even with a new cartridge, the tubing may be kinked, or the inlet valve is not fully open. If the water tastes of plastic after replacement, flush for longer. Support is available on {{PII:PHONE_NUMBER:1}} on weekdays.
+
+Warranty. The housing has a warranty of five years, the faucet of two years. Cartridges are consumables and carry no warranty beyond manufacturing defects reported within thirty days.
+
+Water quality notes. The carbon block reduces chlorine, bad taste and odour, and some organic compounds. It does not remove dissolved minerals, so it will not soften hard water, and it is not designed to make microbiologically unsafe water drinkable. If your local authority has issued a boil notice, follow it, and do not rely on this filter. In regions with very hard water, limescale may build up at the faucet, which can be removed with diluted citric acid.
+
+Pressure and temperature. The system works with mains pressure between two and six bar. If your pressure is higher, fit a pressure reducing valve before the filter. Only connect the filter to the cold water line, since hot water above forty degrees Celsius can deform the housing and release substances from the cartridge. Do not install the filter near a heat source such as a boiler or dishwasher outlet.
+
+Recycling. Used cartridges can be returned to the retailer or to a collection point for electronic and filter waste. The carbon core must not be burned. The plastic housing is marked with its material code for recycling.
+
+Spare parts. Seals, tubing sets and cartridges can be ordered through the shop where you bought the system or by e-mail at the address shown on the first page.

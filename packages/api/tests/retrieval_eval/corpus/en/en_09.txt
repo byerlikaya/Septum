@@ -1,0 +1,23 @@
+Sleep Clinic Consultation Report
+
+Patient: {{PII:PERSON_NAME:1}}, forty-six years old, referred by the family doctor. Clinic: {{PII:ORGANIZATION_NAME:1}}. Date of birth on file: {{PII:DATE_OF_BIRTH:1}}.
+
+Presenting complaint. The patient complains of loud snoring, waking with a dry mouth and morning headaches, and of falling asleep during afternoon meetings. The partner has noticed pauses in breathing at night on several occasions. The Epworth sleepiness score at the first visit was fourteen out of twenty-four, which indicates excessive daytime sleepiness. The patient works as an accountant, drives about forty minutes to work, and reports two near-misses caused by drowsiness during the past year.
+
+Medical background. Body mass index is thirty-four. Blood pressure was one hundred and sixty over ninety-eight at the last measurement and is treated with two drugs. There is no known heart disease. The patient drinks one or two glasses of wine most evenings, stopped smoking eight years ago, and does little regular exercise. Family history includes a father who used a breathing mask for sleep.
+
+Examination. The neck circumference is forty-four centimetres. The airway examination shows a narrow oropharynx with a large tongue base and enlarged tonsils, graded two. Nasal breathing is partly blocked on the left because of a deviated septum. The heart and lung examination was normal.
+
+Sleep study. An overnight home study with a portable device recorded seven hours and ten minutes of sleep. The apnoea-hypopnoea index was thirty-two events per hour, which is the severe range, and the oxygen level fell below ninety percent for nineteen percent of the recording time, with a lowest value of seventy-eight percent. The events were most frequent when the patient lay on the back. Very few central events occurred.
+
+Assessment. Severe obstructive sleep apnoea with significant daytime sleepiness, in a patient whose high blood pressure is difficult to control. Untreated, this raises the risk of heart rhythm problems, stroke and road accidents.
+
+Recommendations. First-line treatment is continuous positive airway pressure through a nasal mask, which will be started with an automatic device and reviewed after four weeks using the downloaded usage data. The target is use on at least four hours per night for seventy percent of nights. The patient is advised not to drive when drowsy until the treatment has been established, and to avoid alcohol in the evening because it relaxes the throat muscles. Weight loss of ten percent would reduce the number of events considerably, and a referral to the dietitian was made. Sleeping on the side, using a positional pillow, may help during the first weeks. If the mask is not tolerated, the ear, nose and throat department can consider surgery of the septum and tonsils, and a mandibular advancement device is the third option.
+
+Follow-up. Telephone check after two weeks and clinic visit after three months, when blood pressure treatment will also be reviewed by the family doctor. Letter sent to the referring doctor. Clinic contact: {{PII:PHONE_NUMBER:1}}.
+
+Patient questions and counselling. The patient asked whether the mask would need to be worn for the rest of life. We explained that treatment is long term, but that with weight loss and changes in sleeping position, the pressure can sometimes be lowered, and a repeat study will be offered after one year. The patient also worried about travelling, and was told that a compact device with a battery is available and can be taken as hand luggage. The partner, who attended the second part of the visit, was shown how the mask is fitted and how to check for air leaks around the nose. We advised cleaning the mask every morning with warm water and mild soap and replacing the filter every month.
+
+Work and driving. A letter for the employer was offered, stating only that the patient is undergoing treatment for a sleep disorder and may need to avoid safety-critical tasks for a few weeks. The patient declined the letter for now but agreed to avoid long drives. In many countries, drivers with untreated severe sleep apnoea must inform the licensing authority, and the patient was given the written information on this.
+
+Medication notes. No sedatives or sleeping pills should be started without discussing them with the clinic, as these can worsen breathing pauses. The current blood pressure drugs continue unchanged until the family doctor reviews them after the first three months of treatment.

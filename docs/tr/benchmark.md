@@ -125,9 +125,185 @@ Ollama sürümü, sistem prompt'u) bağlıdır ve runner script'iyle
 sayısıyla doğrusal artar; tek 24 GB GPU'da 14 B modeller hâlâ sığar
 fakat ~3× artan çağrı maliyeti ingest pipeline'ında baskın olur.
 
+## Erişim (retrieval) benchmark'ı
+
+Bu benchmark PII tespitini değil erişimi (retrieval) ölçer. Her soru için arama yığını, cevabı içeren chunk'ı döndürüyor mu sorusunu sorar; bunu bir kez ham soruyla, bir kez de maskelenmiş soruyla yapar. Parçalama, embedding modeli ve reranker değişikliklerinin karşılaştırılacağı temel ölçüm budur.
+
+Çalıştırma belge parçalayıcıyı, chunk başına sanitizer'ı, FAISS vektör deposunu ve BM25 indeksini kullanır. Dense, BM25 ve hybrid erişim, üretimdeki VectorStore ve BM25 kodunu çağırır; buna `VectorStore.hybrid_search` de dahildir. auto_rag, chat'in belgeler arası aramasını yansıtır: aynı ilgililik eşiği ve belge başına aday sayısı kullanılır; bir parite testi eşiği, belge başına aday sayısını ve aday üst sınırını chat'in uygulamasına karşı sabitler. Benchmark belge bazlı aramaları sıralı (serial) çalıştırır, üretimde ise eşzamanlı (concurrent) çalışırlar; bu nedenle auto_rag gecikmesi bir üst sınırdır. LLM çağrılmaz; çalışma sabitlenmiş (pinned) bir embedder ile çevrimdışı yürür.
+
+### Değerlendirme seti
+
+| Öğe | Değer |
+|:---|:---|
+| Belgeler | 30 sentetik belge: 10 İngilizce, 10 Türkçe, 10 Çince |
+| Sorular | 140: 129 cevaplanabilir, 11 olumsuz |
+| Cevaplanabilir, tipe göre | lexical 45 · paraphrase 45 · entity 24 · cross-lingual 15 |
+| Olumsuz | hiçbir belgenin cevaplamadığı 11 soru |
+| İndeks | 187 chunk; her chunk kaynak belgesinde bir aralığa eşlenmiş |
+| Digest | `df81576cd611d809dd59eed997ec789cced8315301796ea75bcc11b97179efec` (her fixture dosyası üzerinde SHA-256) |
+
+Belgeler ve sorular elle yazılmıştır. Bir belgedeki her kişisel veri yuvası, sabit tohumlu (seed 42) bir üreticinin değeriyle doldurulur. Bir sorunun işaret ettiği değer, kendi belgesindeki değerdir; bu yüzden her çalıştırma aynı metni üretir.
+
+### Kurulum
+
+| Öğe | Değer |
+|:---|:---|
+| Embedding modeli | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, revision `e8f8c211226b894fcb81acc59f3b34ba3efd5f42` (sabitlenmiş) |
+| Boyut | 384 |
+| Parçalayıcı | `pipeline`. Düz metin olan 18 belge 200 karakter örtüşmeli, 800 karakterlik kayan pencere kullanır. PDF etiketli 12 belge en fazla 1.200 karakterlik structured parçalayıcı kullanır; metinleri doğrudan verilir, PDF ayrıştırması yapılmaz |
+| Erişim | ilk 10; auto-RAG ilgililik eşiği 0,35 |
+| Sorgu modları | ham ve maskelenmiş; ana sonuç maskelenmiş sorgudur |
+| Güven aralıkları | Ortalama için %95 yüzdelik bootstrap, 1.000 yeniden örnekleme, seed 42 |
+| Gecikme | Sorgu başına 5 ölçülmüş tekrar, maskelenmiş sorgular, sorgu embedding'i dahil tek bir retriever çağrısı |
+| Donanım | Apple M4 Max, 14 CPU çekirdeği, 10 torch thread, Darwin 27.0.0 arm64 |
+| Seed | 42 |
+| Commit | Temel commit `2b9db6eb` ile bu daldaki benchmark harness commit'leri (taban kaydedildiğinde harness henüz commit'lenmemişti) |
+
+### Sonuçlar
+
+**Ana sonuç: maskelenmiş sorgu, hybrid arama.** Her hücrede ortalama [%95 CI] yer alır.
+
+| Dil | n | Recall@5 | Recall@10 | MRR | nDCG@10 |
+|:---|:---:|:---:|:---:|:---:|:---:|
+| en | 43 | 0,953 [0,884, 1,000] | 1,000 [1,000, 1,000] | 0,727 [0,631, 0,827] | 0,789 [0,712, 0,865] |
+| tr | 43 | 0,977 [0,930, 1,000] | 1,000 [1,000, 1,000] | 0,822 [0,728, 0,901] | 0,861 [0,788, 0,923] |
+| zh | 43 | 0,953 [0,884, 1,000] | 1,000 [1,000, 1,000] | 0,767 [0,663, 0,853] | 0,824 [0,746, 0,889] |
+| **genel** | **129** | **0,961 [0,922, 0,992]** | **1,000 [1,000, 1,000]** | **0,772 [0,715, 0,824]** | **0,825 [0,779, 0,865]** |
+
+**Karşılaştırılan retriever'lar (genel, n = 129), ham ve maskelenmiş sorgu modları.**
+
+| Retriever | Mod | Recall@5 | Recall@10 | MRR | nDCG@10 |
+|:---|:---|:---:|:---:|:---:|:---:|
+| dense | ham | 0,953 [0,907, 0,984] | 1,000 [1,000, 1,000] | 0,748 [0,690, 0,801] | 0,809 [0,765, 0,849] |
+| dense | maskelenmiş | 0,953 [0,907, 0,984] | 1,000 [1,000, 1,000] | 0,739 [0,681, 0,791] | 0,802 [0,758, 0,841] |
+| bm25 | ham | 0,930 [0,876, 0,969] | 1,000 [1,000, 1,000] | 0,740 [0,677, 0,796] | 0,799 [0,753, 0,842] |
+| bm25 | maskelenmiş | 0,930 [0,876, 0,969] | 1,000 [1,000, 1,000] | 0,741 [0,681, 0,797] | 0,800 [0,753, 0,842] |
+| hybrid | ham | 0,961 [0,922, 0,992] | 1,000 [1,000, 1,000] | 0,783 [0,724, 0,834] | 0,833 [0,787, 0,872] |
+| hybrid | maskelenmiş | 0,961 [0,922, 0,992] | 1,000 [1,000, 1,000] | 0,772 [0,715, 0,824] | 0,825 [0,779, 0,865] |
+| auto_rag | ham | 0,550 [0,465, 0,636] | 0,612 [0,527, 0,690] | 0,441 [0,368, 0,514] | 0,483 [0,409, 0,555] |
+| auto_rag | maskelenmiş | 0,527 [0,442, 0,612] | 0,589 [0,504, 0,674] | 0,406 [0,336, 0,476] | 0,450 [0,381, 0,523] |
+
+**Olumsuzlarda auto-RAG (11 soru).** Bir soru, en az bir chunk 0,35 eşiğinin üstünde ya da eşitte skor aldığında yanlış erişim sayılır. Yanlış erişim oranı iki sorgu modunda da 0,727 [0,455, 0,909]'dur. En yüksek (top-1) skorlar örtüşür: ham sorgularda olumsuzların 90. yüzdeliği 0,577, cevaplanabilir soruların 10. yüzdeliği 0,473'tür.
+
+**Gecikme** (maskelenmiş sorgular, milisaniye, tek makine):
+
+| Retriever | p50 (ms) | p95 (ms) | Örnek |
+|:---|:---:|:---:|:---:|
+| dense | 11,749 | 12,932 | 645 |
+| bm25 | 0,216 | 0,275 | 645 |
+| hybrid | 11,972 | 13,050 | 645 |
+| auto_rag | 351,882 | 371,848 | 700 |
+
+Örnek sayısı, sorgu sayısının 5 tekrarla çarpımıdır; auto_rag tüm 140 soruyu, diğerleri 129 cevaplanabilir soruyu çalıştırır.
+
+**Ingestion** (tek çalıştırma):
+
+| Adım | Süre |
+|:---|:---:|
+| Parçalama, 30 belge | 1,356 s |
+| Embedding ve indeksleme | 1,187 s |
+| Chunk başına sanitizasyon, 30 belge | 10,132 s |
+| Sızıntı bloğu sanitizasyonu, en / tr / zh | 14,566 s / 20,605 s / 29,095 s |
+| Tüm çalıştırma, duvar saati | 505,603 s |
+
+### PII sızıntı kontrolü
+
+Sızıntı kontrolü, ham kişisel veri metninin sanitizasyondan sağ çıkıp çıkmadığını sorar. Retrieval belgeleri yerine ayrı bir dolgu metni üzerinde çalışır.
+
+| Terim | Anlamı |
+|:---|:---|
+| Literal sızıntı | Değer, büyük/küçük harf duyarsız olarak, üst üste binen bir chunk'ın maskelenmiş metninde birebir geçer. Yer tutucular asla sayılmaz. |
+| Fragment sızıntısı | Değerin kurtarılabilir bir parçası, maskelenmiş metinde değerin kendi konumunda kalır. Tanımlayıcılar (e-posta, telefon, IBAN): en az max(6, sıkıştırılmış uzunluğun yarısı, yukarı yuvarlanmış) harf ve rakamdan oluşan bir dizi. İsimler: en az 3 karakterlik bir kelime; Han, kana ve Hangul için en az max(2, uzunluğun yarısı, yukarı yuvarlanmış) karakterlik bir dizi. |
+| Çapraz değer | İçinde bir chunk sınırı bulunan değer (bir chunk başlangıcı ya da bitişi değerin içine düşer). |
+| Kontrol değeri | İçinde hiçbir chunk sınırı bulunmayan değer. |
+
+Her dilin yuvasız korpus paragrafları dolgu olarak kullanılır. Her 120 ile 180 dolgu karakterinden sonra bir sentetik değer eklenir. Değer sayısı 300'den başlar ve en az 50 değer çapraz olana kadar ikiye katlanır (üst sınır 4.800); nihai sayılar en için 1.200, tr için 1.200, zh için 2.400'dür. Her dil, tek bir anonimleştirme haritasıyla chunk chunk sanitize edilir. Blok yalnızca kaydedilir; geçme ya da kalma eşiği yoktur.
+
+**Dil bazında** (tüm değerler; literal ve fragment sızıntı oranları):
+
+| Dil | Çapraz n | Literal: çapraz | Literal: kontrol | Literal: fark | Fragment: çapraz | Fragment: kontrol | Fragment: fark |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| en | 52 | 0,269 | 0,369 | -0,100 | 0,365 | 0,368 | -0,003 |
+| tr | 58 | 0,362 | 0,271 | +0,091 | 0,534 | 0,275 | +0,260 |
+| zh | 91 | 0,154 | 0,492 | -0,338 | 0,264 | 0,492 | -0,228 |
+
+**ORGANIZATION_NAME hariç** (tüm tipler arasında en yüksek sızıntı oranına sahip olduğu için ayrıca gösterilir):
+
+| Dil | Çapraz n | Literal: çapraz | Literal: kontrol | Literal: fark | Fragment: çapraz | Fragment: kontrol | Fragment: fark |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| en | 38 | 0,079 | 0,252 | -0,173 | 0,158 | 0,251 | -0,093 |
+| tr | 44 | 0,159 | 0,149 | +0,010 | 0,386 | 0,141 | +0,245 |
+| zh | 81 | 0,049 | 0,403 | -0,353 | 0,173 | 0,403 | -0,230 |
+
+**Tipe göre literal sızıntı oranı** (tüm değerler, çapraz ve kontrol; sızıntı/n):
+
+| Tip | en | tr | zh |
+|:---|:---:|:---:|:---:|
+| PERSON_NAME | 0,335 (77/230) | 0,047 (9/190) | 0,971 (369/380) |
+| LOCATION | 0,872 (164/188) | 0,676 (142/210) | 0,979 (426/435) |
+| ORGANIZATION_NAME | 0,912 (197/216) | 0,932 (179/192) | 1,000 (355/355) |
+| EMAIL_ADDRESS | 0,000 (0/178) | 0,000 (0/209) | 0,000 (0/424) |
+| PHONE_NUMBER | 0,000 (0/184) | 0,000 (0/213) | 0,000 (0/428) |
+| IBAN | 0,000 (0/204) | 0,000 (0/186) | 0,000 (0/378) |
+
+Sayıların okunuşu:
+
+- Sızıntıyı, chunk sınırları değil, dedektörün maskelemediği değerler belirler. İçinde sınır bulunmayan kontrol değerleri bile literal olarak 0,271 ile 0,492 arasında sızar. Sızan tipler kişi adları, konumlar ve kurum adlarıdır; örneğin Çince kişi adları 380 değerin 369'unda sızar.
+- Bu sentetik değerlerde ve üretilen biçimlerde e-posta, telefon ve IBAN değerleri hiçbir zaman literal olarak sızmaz. Gerçek dünyadaki biçimler farklı olabilir ve bu ölçümün kapsamında değildir. Bu üç tipteki fragment isabetleri toplamda en'de 566 değerin 3'ü, tr'de 608'in 10'u, zh'de 1.230'un 10'udur.
+- Chunk sınırlarının tutarlı bir etkisi yoktur. en ve zh'de çapraz değerler kontrol değerlerinden daha az sızar. tr'de ise daha fazla sızar: 58 çapraz değerde +0,260 fragment farkı, ORGANIZATION_NAME hariç tutulduğunda 44 değerde +0,245. tr farkının nedeni araştırılmadı.
+
+### Yeniden üretme
+
+`packages/api` dizininden çalıştırın. Her embedder yerel Hugging Face önbelleğinde bulunmalıdır; `HF_HUB_OFFLINE=1` çalıştırmayı çevrimdışı tutar ve sabitlenmiş embedder yoksa tam çalıştırma atlanır.
+
+```bash
+cd packages/api
+HF_HUB_OFFLINE=1 pytest tests/benchmark_retrieval.py -k smoke -s -q
+HF_HUB_OFFLINE=1 SEPTUM_BENCHMARK_OUT=/absolute/path/run.json pytest tests/benchmark_retrieval.py -k full_retrieval -s -q
+```
+
+| Değişken | Varsayılan | Anlamı |
+|:---|:---|:---|
+| `SEPTUM_BENCHMARK_EMBEDDING_MODEL` | üretim MiniLM | Embedding model kimliği; `septum_core` içinde sabitlenmiş olmalıdır |
+| `SEPTUM_BENCHMARK_CHUNKER` | `pipeline` | `pipeline`, `structured` ya da `sliding` |
+| `SEPTUM_BENCHMARK_RETRIEVERS` | `dense,bm25,hybrid,auto_rag` | Virgülle ayrılmış liste |
+| `SEPTUM_BENCHMARK_QUERY_MODE` | `both` | `raw`, `sanitized` ya da `both` |
+| `SEPTUM_BENCHMARK_LATENCY_REPEATS` | `5` | Sorgu başına ölçülmüş tekrar sayısı |
+| `SEPTUM_BENCHMARK_OUT` | tanımsız | JSON sonuç dosyasının yolu |
+
+Birden fazla yapılandırma, ilkine göre bir delta tablosuyla:
+
+```bash
+./scripts/benchmark_retrieval.sh
+./scripts/benchmark_retrieval.sh "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,sliding"
+```
+
+Betik, her yapılandırma için `benchmark_runs/retrieval/<config>.json` ve bir `.log` dosyası yazar. Kayıtlı taban ölçüm `packages/api/tests/retrieval_eval/baseline_minilm.json` içinde commit'lenmiştir; yeni çalıştırmalar rapor CLI'ı ile bu dosyayla karşılaştırılabilir:
+
+```bash
+cd packages/api
+python -m tests.retrieval_report base.json other.json
+```
+
+Rapor, farklı şema sürümüne ya da değerlendirme digest'ine sahip çalıştırmaları reddeder; çünkü bunlar farklı soruları ölçer.
+
+### Sınırlamalar
+
+- Belgeler ve sorular sentetiktir ve elle yazılmıştır. Gerçek belgeler daha uzun, daha gürültülü ve başka konularda olur.
+- Örneklem küçüktür: dil başına 43 cevaplanabilir soru ve 11 olumsuz soru. %95 aralıklar geniştir; özellikle auto-RAG yanlış erişiminde.
+- Dense, bm25 ve hybrid için küme Recall@10'da doygunluğa ulaşır (her satırda 1,000); bu nedenle ayırt edici metrikler Recall@5, MRR ve nDCG@10'dur. Dense, bm25 ve hybrid, Recall@5 ve MRR'de %95 CI'ları içinde örtüşür; aralarında fark varmış gibi okunmamalıdır.
+- Gecikme tek makineden ve tek çalıştırmadan gelir. Diğer donanımlar hakkında bir şey söylemez.
+- E-posta, telefon ve IBAN için fragment isabetleri elle doğrulanmamıştır.
+- Han, kana ve Hangul için fragment kontrolü bir sezgiseldir. Kısmi isim eşleşmelerini fazla ya da eksik sayabilir.
+- Temel ölçüm tek embedder ve tek parçalayıcı kapsar. Diğer yapılandırmalar burada raporlanmamıştır.
+
+---
+
 **Ek kaynaklar:**
 
 - Benchmark test dosyası: [`packages/api/tests/benchmark_detection.py`](../packages/api/tests/benchmark_detection.py)
+- Erişim benchmark test dosyası: [`packages/api/tests/benchmark_retrieval.py`](../packages/api/tests/benchmark_retrieval.py)
+- Erişim benchmark taban kaydı (MiniLM çalıştırması): [`packages/api/tests/retrieval_eval/baseline_minilm.json`](../packages/api/tests/retrieval_eval/baseline_minilm.json)
 - Regülasyon bazlı tanıyıcı paketleri: [`packages/core/septum_core/recognizers/`](../packages/core/septum_core/recognizers/)
 - Ulusal kimlik doğrulayıcıları (Luhn, Verhoeff, ISO 7064, TCKN mod-10/mod-11, CPF, NRIC): [`packages/core/septum_core/national_ids/`](../packages/core/septum_core/national_ids/)
 - Her varlık tipinin hukuki dayanağı: [`REGULATION_ENTITY_SOURCES.md`](../packages/core/docs/REGULATION_ENTITY_SOURCES.md)

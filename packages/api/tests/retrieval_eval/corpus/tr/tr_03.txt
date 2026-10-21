@@ -1,0 +1,78 @@
+AKILLI ROBOT SÜPÜRGE RS-50
+KULLANIM KILAVUZU
+
+Üretici: {{PII:ORGANIZATION_NAME:1}}. Müşteri hizmetleri: {{PII:PHONE_NUMBER:1}} veya {{PII:EMAIL_ADDRESS:1}}.
+
+1. Güvenlik Uyarıları
+
+1.1 Cihazı kullanmadan önce bu kılavuzu dikkatle okuyunuz. Yalnızca kutudan çıkan şarj istasyonunu ve adaptörü kullanınız.
+
+1.2 Cihazı ıslak zeminlerde, sıvı dökülmüş yüzeylerde veya banyo gibi nemli ortamlarda çalıştırmayınız. Yanıcı sıvılar ve sigara külü gibi sıcak maddeler süpürülmemelidir.
+
+1.3 Cihaz, sekiz yaşından küçük çocukların ve denetimsiz hayvanların kullanımına uygun değildir. Çocukların cihazla oynamasına izin vermeyiniz.
+
+2. Kutu İçeriği ve İlk Kurulum
+
+2.1 Kutuda robot süpürge, şarj istasyonu, adaptör, iki yan fırça, bir yedek filtre, temizleme fırçası ve bu kılavuz bulunur.
+
+2.2 Şarj istasyonunu duvara yaslayarak düz bir zemine yerleştiriniz. İstasyonun her iki yanında en az yarım metre, önünde ise en az bir buçuk metre boş alan bırakınız.
+
+2.3 Yan fırçaları, rengine uygun olarak alt kısımdaki yuvalara geçiriniz. Tık sesi duyana kadar bastırınız.
+
+2.4 Cihazı ilk kez kullanmadan önce yaklaşık dört saat şarj ediniz. Şarj sırasında ön paneldeki ışık yavaşça yanıp söner, şarj bitince sabit yanar.
+
+3. Mobil Uygulama ile Eşleştirme
+
+3.1 Uygulama mağazasından cihazın uygulamasını indiriniz ve bir hesap oluşturunuz.
+
+3.2 Cihazın üzerindeki Wi-Fi düğmesine beş saniye basılı tutunuz. Ses mesajı "eşleştirme modu" dediğinde uygulamada cihazı ekleyiniz. Cihaz yalnızca 2,4 GHz ağlara bağlanabilir.
+
+3.3 Eşleştirme tamamlandıktan sonra ilk temizlikte cihaz evin haritasını çıkarır. Haritayı uygulamadan odalara bölebilir, yasak bölge ve sanal duvar tanımlayabilirsiniz.
+
+4. Temizlik Modları
+
+4.1 Otomatik mod, tüm kat için en verimli rotayı seçer. Tek tuşla başlatmak için üst kapaktaki düğmeye bir kez basınız.
+
+4.2 Nokta modu, bulunduğu yerin etrafındaki yaklaşık bir metrekarelik alanı yoğun biçimde temizler. Kenar modu ise duvar ve mobilya kenarlarını izler.
+
+4.3 Halıda emiş gücü otomatik olarak artar. Uzun tüylü halılarda ve püsküllü örtülerde sıkışmayı önlemek için yasak bölge tanımlamanız önerilir.
+
+4.4 Pil seviyesi yüzde yirmiye düştüğünde cihaz kendiliğinden istasyona döner, şarj olur ve yarım kalan temizliğe devam eder.
+
+5. Bakım
+
+5.1 Toz haznesini her temizlikten sonra boşaltınız. Hazne filtresini haftada bir fırçayla temizleyiniz ve üç ayda bir değiştiriniz. Filtreyi yıkarsanız, takmadan önce en az yirmi dört saat kurumasını bekleyiniz.
+
+5.2 Ana fırçada dolanan saç ve iplikleri ayda iki kez kesip çıkarınız. Yan fırçalar yıpranmış ya da eğilmişse değiştiriniz.
+
+5.3 Zemin algılama sensörlerini ve şarj temas noktalarını kuru ve yumuşak bir bezle siliniz.
+
+6. Işık ve Ses Uyarıları
+
+6.1 Mavi ışık cihazın çalıştığını, sarı ışık pilin zayıf olduğunu gösterir. Kırmızı ışık bir hata olduğunu bildirir ve cihaz bu durumda sesli olarak hatayı söyler.
+
+6.2 "Tekerlek sıkıştı" uyarısı: cihazı kaldırıp tekerleklerde dolanan kıl ve ip parçalarını temizleyiniz. "Düşme sensörü" uyarısı: cihaz merdiven kenarı gibi bir yükseklik algılamıştır, alt sensörleri siliniz.
+
+7. Sorun Giderme
+
+7.1 Cihaz şarj istasyonunu bulamıyorsa, istasyonun önündeki engelleri kaldırınız ve istasyonun fişini kontrol ediniz.
+
+7.2 Cihaz haritayı kaybediyorsa, evde ışıkları açık bırakıp ilk haritalamayı yeniden yapınız. Parlak, siyah zeminlerde sensörler yanılabilir.
+
+8. Garanti
+
+8.1 Cihaz, satın alma tarihinden itibaren iki yıl garantilidir. Pil, filtre ve fırçalar sarf malzemesidir ve garanti kapsamı dışındadır. Pil için garanti süresi altı aydır.
+
+9. Zamanlama ve Sesli Komutlar
+
+9.1 Uygulamadan haftanın her günü için ayrı bir temizlik saati belirleyebilirsiniz. Cihaz, planlanan saatte pil seviyesi yeterliyse kendiliğinden başlar. Pil düşükse önce şarj olur, sonra temizliğe çıkar.
+
+9.2 Rahatsız Etme modu, belirlediğiniz saat aralığında cihazın sesini kısar ve planlı temizliği erteler. Varsayılan olarak bu mod gece yarısı ile sabah yedi arasında açıktır.
+
+9.3 Cihaz, uyumlu akıllı hoparlörlerle sesli komutları destekler. Temizliği başlatma, durdurma ve istasyona gönderme komutları kullanılabilir.
+
+10. Taşıma ve Saklama
+
+10.1 Cihazı uzun süre kullanmayacaksanız pili yaklaşık yüzde elli şarjlı bırakın, kapatın ve serin, kuru bir yerde saklayın. Pili tamamen boşalmış hâlde bırakmak ömrünü kısaltır.
+
+10.2 Cihazı taşırken şarj istasyonundan ayırın ve orijinal kutusunda ya da yumuşak bir örtüyle koruyarak taşıyın.
