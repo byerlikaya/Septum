@@ -1,0 +1,25 @@
+Diyabet Polikliniği Kontrol Raporu
+
+Hasta: {{PII:PERSON_NAME:1}}, elli dokuz yaşında. Takip eden kurum: {{PII:ORGANIZATION_NAME:1}} Endokrinoloji Polikliniği. Rapor tarihi itibarıyla hastanın telefon numarası: {{PII:PHONE_NUMBER:1}}.
+
+Başvuru nedeni. Hasta, altı yıldır bilinen tip 2 diyabet nedeniyle üç aylık rutin kontrole gelmiştir. Son iki haftadır gece sık idrara çıkma, ayaklarında karıncalanma ve öğleden sonraları halsizlik tarif etmektedir. Düzenli olarak sabah ve akşam metformin kullanmaktadır; üç ay önce eklenen ikinci ilacı ise mide bulantısı nedeniyle haftada iki üç gün atladığını belirtmiştir.
+
+Özgeçmiş ve soygeçmiş. Hasta emekli bir ilkokul öğretmenidir. Yüksek tansiyon nedeniyle ayrıca tedavi görmektedir. Sigara kullanmamaktadır. Annesinde ve ağabeyinde de diyabet vardır. Kalp krizi veya felç öyküsü yoktur.
+
+Muayene bulguları. Boy bir yüz altmış sekiz santimetre, kilo seksen dokuz kilogramdır; beden kitle indeksi otuz bir olarak hesaplanmıştır. Tansiyon bir yüz otuz sekize seksen altı. Nabız düzenlidir. Ayak muayenesinde her iki ayakta ince dokunma duyusunda hafif azalma saptanmıştır; nabızlar alınmakta, ciltte yara veya mantar bulgusu yoktur. Göz dibi muayenesi geçen ay yapılmış ve hafif evrede diyabetik retinopati bulgusu bildirilmiştir.
+
+Laboratuvar. Açlık kan şekeri yüz kırk dört miligram, ortalama üç aylık şeker göstergesi olan HbA1c yüzde sekiz virgül iki olarak ölçülmüştür. Önceki kontrolde bu değer yüzde yedi virgül yedi idi. Böbrek fonksiyon testleri normal sınırlardadır, ancak idrarda albümin atılımı hafif artmıştır. Kolesterol değerlerinden LDL yüz yirmi dört miligramdır.
+
+Değerlendirme. Kan şekeri kontrolü hedefin gerisindedir ve hafif bir kötüleşme eğilimi vardır. Bunun başlıca nedenleri ilaç düzensizliği, akşamları artan karbonhidrat tüketimi ve düşük fiziksel aktivitedir. Ayaklardaki duyu kaybı, başlangıç düzeyinde diyabetik sinir hasarını düşündürmektedir. İdrarda albümin artışı, böbrek açısından yakın izlem gerektirir.
+
+Plan. Mide bulantısı yapan ilaç yerine, mideyi daha az etkileyen uzun etkili bir ilaca geçilmiştir; hastaya ilacı yemekle birlikte alması önerilmiştir. Metformin dozu değiştirilmemiştir. Kolesterol düşürücü bir ilaç başlanmıştır. Diyetisyen görüşmesi planlanmış, akşam yemeğinde ekmek ve pilav miktarının yarıya indirilmesi önerilmiştir. Hastaya haftada en az beş gün otuz dakika tempolu yürüyüş yapması söylenmiştir.
+
+Ayak bakımı eğitimi verilmiştir: her gün ayakların kontrol edilmesi, çıplak ayakla yürünmemesi, ayakkabıların içinin elle yoklanması, tırnakların düz kesilmesi ve çatlaklar için nemlendirici kullanılması anlatılmıştır. Hastaya, ayakta yara, kızarıklık veya şişlik görürse beklemeden başvurması söylenmiştir.
+
+Takip. Üç ay sonra HbA1c, böbrek testleri ve idrar albümin oranı tekrarlanacaktır. Ayrıca yılda bir kez göz muayenesi, ayak sinir testi ve diş kontrolü yapılacaktır. Sorular için hasta, poliklinik sekreterliğine {{PII:EMAIL_ADDRESS:1}} adresinden yazabilir. Hasta, planı anladığını ve evde kan şekeri ölçümlerini günde iki kez, sabah aç ve akşam yemekten iki saat sonra yapıp deftere yazacağını belirtmiştir.
+
+Beslenme ve yaşam tarzı ayrıntıları. Hasta, günlük öğünlerini şöyle tarif etti: kahvaltıda peynir, zeytin ve iki dilim ekmek; öğlen sebze yemeği ve yoğurt; akşam ise genellikle pilav ya da makarna ile et yemeği. Aralarda çay içerken iki üç kesme şeker kullanıyor. Şekerin bırakılması ve çayın şekersiz içilmesi önerildi. Meyve tüketimi günde iki porsiyonu aşmamalı, tercihen öğün aralarında ve kabuğuyla yenmelidir. Hasta, torunlarıyla geçirdiği hafta sonlarında düzensiz beslendiğini, bu günlerde ilacı da unuttuğunu kabul etti; telefonuna ilaç hatırlatıcısı kurması önerildi.
+
+Düşük kan şekeri uyarısı. Yeni ilaçla birlikte, nadiren de olsa kan şekeri düşebileceği anlatıldı. Terleme, titreme, çarpıntı ve ani açlık hissi durumunda hastanın hemen bir bardak meyve suyu veya üç kesme şeker alması, on beş dakika sonra ölçümü tekrarlaması gerektiği söylendi. Hastanın cebinde her zaman kesme şeker taşıması önerildi.
+
+Aşılar. Hastaya grip aşısının her sonbahar, zatürre aşısının ise beş yılda bir yapılması gerektiği hatırlatıldı. Bu yıl grip aşısı henüz yapılmamıştı ve aynı gün poliklinikte uygulandı.

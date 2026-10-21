@@ -1,0 +1,21 @@
+Site Yönetim Kurulu Toplantı Tutanağı
+
+Toplantıya {{PII:PERSON_NAME:1}} (yönetim kurulu başkanı), {{PII:PERSON_NAME:2}} (muhasip üye), iki asıl üye ve site yöneticisi katılmıştır. Asansör bakımını yapan {{PII:ORGANIZATION_NAME:1}} firmasının temsilcisi, ilk gündem maddesi için toplantıya davet edilmiştir. Toplantı saat 20.00'de site toplantı salonunda başlamıştır.
+
+Gündem madde 1: Asansör bakım sözleşmesi. Firma temsilcisi, B blokta bulunan iki asansörden birinin, son altı ayda üç kez arızalandığını doğrulamıştır. Arızaların nedeni, kapı sensörünün eskimesi ve kumanda kartındaki nemdir. Firma, sensörün ve kartın değiştirilmesi için bir teklif sunmuş, bunun yaklaşık seksen bin liraya mal olacağını söylemiştir. Üyeler, teklifin yüksek olduğunu belirtmiş ve ikinci bir firmadan fiyat alınmasını istemiştir. Yönetim kurulu başkanı, kat malikleri kuruluna bu konuda bilgi verilmesinin gerektiğini hatırlatmıştır. Sonuçta, iki ek teklif alınana kadar sözleşmenin devam etmesine ve geçici olarak ayda bir ek bakım yapılmasına karar verilmiştir.
+
+Gündem madde 2: Aidat ve gecikmiş borçlar. Muhasip üye, yıl sonu itibarıyla aidat tahsilat oranının yüzde doksan bir olduğunu bildirmiştir. On dört dairenin toplam borcu, yıllık bütçenin yaklaşık yüzde dördüne ulaşmıştır. Borcu altı aydan uzun süredir ödenmeyen üç daireye, noter aracılığıyla ihtar gönderilmesi oybirliğiyle kabul edilmiştir. Borcunu taksitlendirmek isteyen maliklerin yönetime yazılı olarak başvurabileceği belirtilmiştir.
+
+Gündem madde 3: Otopark düzenlemesi. Bazı sakinler, ziyaretçi araçlarının kapalı otoparkta saatlerce beklediğinden şikâyetçi olmuştur. Üyeler, ziyaretçilere iki saatlik ücretsiz süre tanınmasını, süreyi aşanların ise sakin onayı olmadan otoparkta bekletilmemesini önermiştir. Bariyer sistemine plaka tanıma özelliği eklenmesi de konuşulmuş, ancak maliyet nedeniyle bu konu bir sonraki toplantıya bırakılmıştır.
+
+Gündem madde 4: Çocuk oyun alanı. Oyun alanındaki kauçuk zeminin birçok yerde yırtıldığı ve bir çocuğun düşerek hafifçe yaralandığı bildirilmiştir. Yönetici, zeminin acil olarak onarılması gerektiğini, bu süre içinde alanın bantla kapatılmasını önermiştir. Kurul, onarım için en fazla otuz beş bin liralık harcamaya yetki vermiştir.
+
+Gündem madde 5: Dilek ve temenniler. Bir üye, bahçedeki ağaçların budanması gerektiğini ve çatı sızıntılarının sonbahardan önce kontrol edilmesini istemiştir. Yönetici, sakinlerin şikâyetlerini {{PII:EMAIL_ADDRESS:1}} adresine iletebileceğini ve bu adresin ilan panosuna asılacağını bildirmiştir.
+
+Alınan kararlar. Asansör için iki ek teklif toplanacak; borçlu üç daireye ihtar çekilecek; oyun alanı kapatılıp zemin onarılacak; ziyaretçi otopark süresi iki saat olacak. Toplantı saat 21.45'te sona ermiş, tutanak hazır bulunanlarca imzalanmıştır. Bir sonraki toplantı ayın sonunda yapılacaktır. Yönetim kurulu başkanı, onarım işlemlerinin ilerleyişini sakinlere duyurularla bildireceğini söylemiştir.
+
+Bütçe durumu. Muhasip üye, yıl içinde yapılan harcamaların bütçenin yüzde seksen üçüne ulaştığını, en büyük kalemlerin ısınma yakıtı, temizlik hizmeti ve güvenlik görevlisi maaşları olduğunu söyledi. Isınma giderlerinin geçen yıla göre yüzde on dokuz arttığı, bu nedenle gelecek yıl aidatın en az bu oranda güncellenmesi gerektiği belirtildi. Yönetici, kat malikleri kurulunun yıllık toplantısında bütçe önerisinin sunulacağını bildirdi. Üyelerden biri, yedek akçeden hiçbir harcama yapılmadan önce yönetim kurulunun onayının alınmasının tutanağa geçirilmesini istedi ve bu talep kabul edildi.
+
+Güvenlik. Gece görev yapan güvenlik görevlisinin vardiya çizelgesi gözden geçirildi. İki kamera kaydının bozulduğu, birinin ise bahçe girişine bakmadığı tespit edildi. Kameraların onarımı ve yönünün düzeltilmesi için servis çağrılmasına karar verildi. Görüntülerin otuz gün saklanması ve yalnızca yönetim kurulu kararıyla izlenmesi hususu yeniden teyit edildi.
+
+Temizlik ve çevre. Çöp konteynerlerinin yeri, bazı sakinlerin şikâyetleri üzerine tartışıldı. Konteynerlerin B blok arkasına taşınması önerildi; ancak belediyenin toplama saatleri nedeniyle taşıma konusu yeniden incelenecek. Geri dönüşüm kutularının sayısının artırılması oybirliğiyle kabul edildi.

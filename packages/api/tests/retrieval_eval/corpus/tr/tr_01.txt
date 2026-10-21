@@ -1,0 +1,65 @@
+BİLGİ İŞLEM HİZMETLERİ SÖZLEŞMESİ
+
+İşbu Bilgi İşlem Hizmetleri Sözleşmesi ("Sözleşme"), merkezi {{PII:LOCATION:1}} adresinde bulunan {{PII:ORGANIZATION_NAME:1}} ("Hizmet Sağlayıcı") ile {{PII:ORGANIZATION_NAME:2}} ("Müşteri") arasında akdedilmiştir. Hizmet Sağlayıcı adına {{PII:PERSON_NAME:1}}, Müşteri adına {{PII:PERSON_NAME:2}} imza yetkisine sahiptir. Taraflar arasındaki yazışmalar {{PII:EMAIL_ADDRESS:1}} adresine yapılabilir.
+
+Madde 1 - Tanımlar
+
+1.1 "Hizmetler", Müşteri'nin sunucu, ağ ve kullanıcı cihazlarının kurulumu, izlenmesi, yedeklenmesi ve arıza giderme faaliyetlerini ifade eder.
+
+1.2 "Çalışma Günü", Pazartesi ile Cuma arasındaki resmî tatil olmayan günlerdir.
+
+1.3 "Olay", Hizmetler kapsamındaki bir sistemin beklenen şekilde çalışmamasına yol açan her türlü kesinti veya bozulmadır.
+
+Madde 2 - Hizmetin Kapsamı
+
+2.1 Hizmet Sağlayıcı, Müşteri'ye ait en fazla seksen kullanıcı cihazını ve altı sunucuyu uzaktan izler, yazılım güncellemelerini planlı bakım pencerelerinde uygular ve aylık durum raporu hazırlar.
+
+2.2 Yeni bir ofisin açılması, sunucu odasının taşınması veya yeni uygulamaların devreye alınması gibi proje niteliğindeki işler bu Sözleşme'nin kapsamı dışındadır ve ayrı bir teklifle fiyatlandırılır.
+
+2.3 Hizmet Sağlayıcı, işlerin yürütülmesinde alt yüklenici kullanabilir; ancak alt yüklenicinin faaliyetlerinden bizzat sorumludur ve Müşteri'ye önceden yazılı bildirimde bulunur.
+
+Madde 3 - Hizmet Seviyeleri
+
+3.1 Kritik olaylarda, yani tüm kullanıcıların çalışamaz hale geldiği durumlarda, ilk müdahale en geç iki saat içinde yapılır ve geçici çözüm bir çalışma günü içinde sağlanır.
+
+3.2 Önemli olaylarda ilk müdahale dört saat, kalıcı çözüm ise beş çalışma günü içinde tamamlanır.
+
+3.3 Destek hattı çalışma günlerinde 08.30 ile 18.00 saatleri arasında {{PII:PHONE_NUMBER:1}} numaralı telefondan ulaşılabilir durumdadır. Mesai dışı kritik olaylar için nöbetçi mühendis görevlendirilir.
+
+3.4 Hizmet Sağlayıcı, bir takvim çeyreğinde üç veya daha fazla kritik olayda müdahale süresini aşarsa Müşteri, o çeyreğe ait hizmet bedelinin yüzde onu kadar indirim talep edebilir.
+
+Madde 4 - Bedel ve Ödeme
+
+4.1 Aylık hizmet bedeli, her ayın ilk iş günü düzenlenen faturayla tahsil edilir. Faturalar, tebliğ tarihinden itibaren otuz gün içinde {{PII:IBAN:1}} numaralı hesaba havale edilir.
+
+4.2 Gecikmeli ödemelerde, yasal azami faiz oranını geçmemek üzere aylık yüzde bir gecikme faizi işletilir.
+
+4.3 Bedeller, her yıl sözleşme yıldönümünde, Türkiye İstatistik Kurumu tarafından açıklanan on iki aylık ortalama tüketici fiyatları artışını aşmayacak şekilde güncellenir. Hizmet Sağlayıcı artışı en az altmış gün önceden bildirir.
+
+Madde 5 - Gizlilik ve Kişisel Veriler
+
+5.1 Taraflar, Sözleşme süresince ve sona ermesinden sonra beş yıl boyunca birbirlerine ait ticari sırları üçüncü kişilerle paylaşmayacaktır.
+
+5.2 Hizmet Sağlayıcı, uzaktan erişim sırasında karşılaştığı kişisel verileri yalnızca arıza gidermek için işler, kopyalamaz ve Müşteri'nin talimatı dışında kullanmaz. Bu amaçla ayrıca bir veri işleme eki imzalanmıştır.
+
+5.3 Kişisel verilerin ihlal edildiğinin fark edilmesi halinde Hizmet Sağlayıcı, Müşteri'yi en geç kırk sekiz saat içinde bilgilendirir.
+
+Madde 6 - Sorumluluk
+
+6.1 Hizmet Sağlayıcı'nın bir sözleşme yılı içindeki toplam sorumluluğu, o yıl için ödenen hizmet bedeliyle sınırlıdır. Kasıt ve ağır ihmal hâlleri bu sınırın dışındadır.
+
+6.2 Taraflar, kâr kaybı ve dolaylı zararlardan sorumlu değildir. Yedeklerin geri yüklenebilirliği her üç ayda bir birlikte test edilir.
+
+Madde 7 - Süre ve Fesih
+
+7.1 Sözleşme imza tarihinde yürürlüğe girer ve yirmi dört ay geçerlidir. Taraflardan biri süre bitiminden en az doksan gün önce yazılı bildirimde bulunmazsa, Sözleşme birer yıllık dönemlerle kendiliğinden uzar.
+
+7.2 Taraflardan biri esaslı bir ihlalde bulunur ve yazılı ihtarın tebliğinden itibaren otuz gün içinde ihlali gidermezse diğer taraf Sözleşme'yi derhal feshedebilir.
+
+7.3 Fesih hâlinde Hizmet Sağlayıcı, yönetici parolalarını ve altyapı belgelerini on beş gün içinde Müşteri'ye teslim eder.
+
+Madde 8 - Uyuşmazlıkların Çözümü
+
+8.1 Bu Sözleşme Türk hukukuna tabidir. Uyuşmazlıklarda Müşteri'nin yerleşim yerindeki mahkemeler ve icra daireleri yetkilidir.
+
+İki nüsha olarak düzenlenen Sözleşme, taraflarca okunarak imzalanmıştır.

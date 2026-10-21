@@ -1,0 +1,71 @@
+SOFTWARE LICENCE AND SUPPORT AGREEMENT
+
+This Software Licence and Support Agreement (the "Agreement") is entered into between {{PII:ORGANIZATION_NAME:1}} (the "Licensor") and {{PII:ORGANIZATION_NAME:2}} (the "Customer"). The Licensor is represented by {{PII:PERSON_NAME:1}}, and the Customer is represented by {{PII:PERSON_NAME:2}}. Notices under this Agreement may be sent to {{PII:EMAIL_ADDRESS:1}}.
+
+1. Definitions
+
+1.1 "Software" means the inventory planning application delivered by the Licensor, including all updates, patches and documentation supplied during the term.
+
+1.2 "Authorised User" means an employee or contractor of the Customer who has been issued individual credentials and who uses the Software only for the Customer's internal business.
+
+1.3 "Business Day" means any day other than a Saturday, a Sunday or a public holiday in the country where the Licensor is established.
+
+2. Grant of Licence
+
+2.1 The Licensor grants the Customer a non-exclusive, non-transferable licence to install and use the Software for up to one hundred and twenty Authorised Users during the term.
+
+2.2 The Customer may make one copy of the Software for backup and disaster recovery purposes. The backup copy must not be used in production unless the primary installation has failed.
+
+2.3 The Customer shall not sublicense, rent, lend or resell the Software, and shall not attempt to reverse engineer it except to the extent that mandatory law permits.
+
+3. Fees and Payment
+
+3.1 The Customer shall pay an annual licence fee, invoiced in advance on the first Business Day of each contract year. Support is included in the licence fee for the first twelve months.
+
+3.2 Invoices are payable within thirty days of receipt by bank transfer to the account with IBAN {{PII:IBAN:1}}. A payment is treated as late if it has not been credited by the due date.
+
+3.3 Late payments accrue interest at one percent per month. If an undisputed invoice remains unpaid for sixty days after a written reminder, the Licensor may suspend access to updates, though not to data already stored by the Customer.
+
+3.4 The annual fee may be increased once per contract year by no more than the percentage change in the national consumer price index, provided that the Licensor announces the increase at least ninety days before renewal.
+
+4. Support and Service Levels
+
+4.1 The Licensor operates a support desk from 08:00 to 18:00 on Business Days. Requests are logged through the support portal or by telephone on {{PII:PHONE_NUMBER:1}}.
+
+4.2 A critical incident, meaning a failure that stops all Authorised Users from working, shall receive a first response within two hours and a workaround within one Business Day.
+
+4.3 A major incident, meaning a failure that blocks an important function but leaves a workaround available, shall receive a first response within four hours and a fix within five Business Days.
+
+4.4 If the Licensor misses the response time for a critical incident three times in any rolling quarter, the Customer may claim a service credit equal to ten percent of one quarter's licence fee.
+
+5. Data and Confidentiality
+
+5.1 The Customer remains the owner of all data it enters into the Software. The Licensor shall process that data only to provide the services and shall not use it to train models or to build benchmarks.
+
+5.2 Each party shall keep the other party's confidential information secret for the term of the Agreement and for five years afterwards, and shall protect it with at least the care it gives to its own confidential material.
+
+5.3 Confidentiality does not cover information that is public through no fault of the receiving party, that was already known to it, or that it must disclose by order of a court or authority.
+
+5.4 If the Licensor discovers unauthorised access to the Customer's data, it shall notify the Customer without undue delay and in any case within forty-eight hours.
+
+6. Warranty and Liability
+
+6.1 The Licensor warrants that the Software will perform substantially as described in the documentation for ninety days after each major release. The Customer's sole remedy for a breach of this warranty is repair or replacement of the affected component.
+
+6.2 Neither party is liable for loss of profit, loss of goodwill or indirect damage. The total liability of the Licensor in any contract year is limited to the licence fee paid for that year.
+
+6.3 Nothing in this Agreement limits liability for intent, gross negligence, injury to persons, or any liability that cannot be excluded by law.
+
+7. Term and Termination
+
+7.1 The Agreement starts on the effective date and runs for thirty-six months. It renews automatically for periods of twelve months unless either party gives written notice of non-renewal at least ninety days before the end of the current period.
+
+7.2 Either party may terminate the Agreement immediately by written notice if the other party commits a material breach and fails to remedy it within thirty days of being asked to do so.
+
+7.3 On termination the Customer shall stop using the Software and may request an export of its data in a common open format within thirty days. After that period the Licensor shall delete the data and confirm the deletion in writing.
+
+8. General
+
+8.1 This Agreement is governed by the laws of the country in which the Licensor is established, and disputes shall be brought before the courts of the city in which the Licensor has its registered office.
+
+8.2 Changes to the Agreement are valid only if made in writing and signed by both parties. Signed in two copies, one for each party.

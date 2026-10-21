@@ -1,0 +1,63 @@
+WAREHOUSE LEASE AGREEMENT
+
+This lease is made between {{PII:ORGANIZATION_NAME:1}}, the landlord, represented by {{PII:PERSON_NAME:1}}, and {{PII:ORGANIZATION_NAME:2}}, the tenant, represented by {{PII:PERSON_NAME:2}}. The leased premises are located at {{PII:LOCATION:1}}.
+
+Article 1. Premises
+
+1.1 The landlord leases to the tenant a warehouse hall of about two thousand four hundred square metres, together with an office mezzanine of ninety square metres and eight parking spaces in the yard.
+
+1.2 Three loading docks with levellers, one ground-level roller door and the fire alarm system belong to the premises. The tenant receives all keys and access cards on the handover date and signs a handover report.
+
+Article 2. Term
+
+2.1 The lease starts on the handover date and runs for five years. The tenant has the option to extend it once, for a further three years, by written notice given no later than nine months before expiry.
+
+2.2 During the first twelve months neither party may terminate the lease for convenience.
+
+Article 3. Rent and Charges
+
+3.1 The monthly base rent is payable in advance by the fifth day of each month to the landlord's account with IBAN {{PII:IBAN:1}}.
+
+3.2 Service charges for building insurance, property tax, yard lighting and snow clearing are paid as monthly advances and settled once a year. Electricity and water are metered separately and billed to the tenant at cost.
+
+3.3 The rent is adjusted every year on the anniversary of the start date according to the change in the consumer price index. A decrease in the index does not reduce the rent below the amount agreed at signing.
+
+3.4 The tenant paid a deposit equal to three months' base rent. The landlord holds it in a separate account and returns it, with interest, within two months after the premises are handed back in proper condition.
+
+Article 4. Use of the Premises
+
+4.1 The tenant may use the premises only for storage, packing and dispatch of non-hazardous goods. Storing flammable liquids, gas cylinders or chemicals requires the landlord's written consent and proof of additional insurance.
+
+4.2 The maximum floor load is five tonnes per square metre. Racking higher than eight metres must be approved by a structural engineer at the tenant's cost.
+
+4.3 Operating hours are between 05:00 and 22:00 on weekdays and 07:00 and 18:00 on Saturdays. Work on Sundays and public holidays needs the landlord's consent because of noise limits in the surrounding district.
+
+Article 5. Maintenance and Repairs
+
+5.1 The landlord is responsible for roof, walls, structure, heating system and the external fire protection equipment.
+
+5.2 The tenant carries out minor repairs, up to a cost of five hundred euros per case, for items such as lighting, door fittings, dock seals and floor markings. The tenant keeps the yard clean and free of waste.
+
+5.3 The tenant must inform the landlord immediately of any damage that could endanger people or the building, including water ingress and cracks in the floor slab.
+
+Article 6. Alterations and Subletting
+
+6.1 The tenant may not make structural alterations without written consent. Non-structural installations, such as shelving, partition walls and cable trays, are allowed and must be removed at the end of the lease unless the parties agree otherwise.
+
+6.2 Subletting part of the premises to a third party requires the landlord's prior consent, which may not be unreasonably withheld for a sublessee in a comparable line of business.
+
+Article 7. Insurance and Liability
+
+7.1 The tenant insures its stock and equipment against fire, water damage and theft, and delivers the policy to the landlord on request.
+
+7.2 The landlord is not liable for loss of goods unless the loss results from its intent or gross negligence.
+
+Article 8. Return of the Premises
+
+8.1 At the end of the lease the tenant returns the premises broom-clean and in the condition recorded in the handover report, except for normal wear and tear. A joint inspection takes place at least two weeks before the end date, and the landlord can call {{PII:PHONE_NUMBER:1}} to arrange it.
+
+8.2 Costs of remedying damage that goes beyond normal wear and tear are deducted from the deposit.
+
+Article 9. Final Provisions
+
+9.1 Amendments must be in writing. If a provision is invalid, the remaining provisions stay in force and the parties replace the invalid one with a valid provision that comes closest to its purpose.

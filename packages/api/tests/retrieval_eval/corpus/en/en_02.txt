@@ -1,0 +1,59 @@
+REMOTE AND HYBRID WORK POLICY
+
+Policy owner: People Operations. Approved by {{PII:PERSON_NAME:1}}, Chief People Officer, for all employees of {{PII:ORGANIZATION_NAME:1}}. Questions about this policy can be sent to {{PII:EMAIL_ADDRESS:1}}.
+
+1. Purpose and Scope
+
+1.1 This policy explains when and how employees may work away from their assigned office. It covers full-time and part-time employees on permanent or fixed-term contracts. Interns and agency workers follow the rules of their placement agreement instead.
+
+1.2 Remote work is a working arrangement, not an entitlement. Roles that depend on physical presence, such as reception, facilities and laboratory work, are not eligible for regular remote work.
+
+2. Eligibility and Approval
+
+2.1 An employee becomes eligible for hybrid work after completing the six-month probation period and receiving at least a "meets expectations" rating in the most recent review.
+
+2.2 The employee submits a request through the HR portal. The line manager answers within ten working days. A refusal must be explained in writing and must refer to operational reasons.
+
+2.3 Approval is granted for twelve months and is reviewed at the annual appraisal. Either side may end the arrangement with four weeks' notice if it no longer works for the team.
+
+3. Working Pattern
+
+3.1 The standard hybrid pattern is three days in the office and two days at home. Teams agree on common anchor days, normally Tuesday and Thursday, so that meetings can be held in person.
+
+3.2 Core hours are 10:00 to 15:00 local time. During core hours employees must be reachable by chat or telephone, whether they are at home or in the office.
+
+3.3 Employees may work from a different city or region for up to ten days per calendar year without special approval, provided they inform their manager in advance and stay within the country of employment.
+
+3.4 Working from abroad for longer than ten days per year requires written approval from People Operations, because tax, social security and immigration rules may apply. Employees who work abroad without approval do so at their own risk.
+
+4. Equipment and Home Office
+
+4.1 The company supplies a laptop, a headset and a docking station. Employees who work from home at least two days a week may order one external monitor and one office chair from the approved catalogue.
+
+4.2 A monthly home office allowance of thirty euros covers electricity, heating and internet costs. It is paid with the regular salary and is not taxable up to the legal limit.
+
+4.3 Employees must keep company equipment in a safe place, lock the screen when leaving it, and report loss or theft to the IT service desk on {{PII:PHONE_NUMBER:1}} within twenty-four hours.
+
+5. Information Security at Home
+
+5.1 Company data may only be handled on company devices. Personal laptops, phones and tablets must not be used to store customer files or internal documents.
+
+5.2 Employees must use the company VPN for all work traffic and must not connect to public wireless networks without it. Printing work documents at home is not allowed.
+
+5.3 Video calls should be taken in a place where family members or visitors cannot see the screen or hear confidential conversations.
+
+6. Health, Safety and Expenses
+
+6.1 The duty of care of the employer extends to the home workplace. Employees complete a short online checklist on ergonomics when the arrangement starts and each year afterwards.
+
+6.2 An accident that happens at the home workstation during working hours is treated like an accident at the office and must be reported to the manager on the same day.
+
+6.3 Travel between home and the office is not working time. Costs for travel to a different office at the company's request are reimbursed according to the travel policy.
+
+7. Ending or Suspending the Arrangement
+
+7.1 The company may suspend remote work temporarily if there are performance concerns, if an employee repeatedly misses core hours, or if a security incident is linked to the home setup.
+
+7.2 When an employee changes team, the new manager reviews the arrangement within the first month. Until then the existing pattern continues.
+
+7.3 When employment ends, all equipment must be returned within seven days. The company arranges a courier at its own cost.

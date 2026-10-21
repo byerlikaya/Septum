@@ -1,0 +1,23 @@
+Hava Fritözü AF-6 Kullanma ve Temizlik Kılavuzu
+
+{{PII:ORGANIZATION_NAME:1}} tarafından üretilen Hava Fritözü AF-6'yı tercih ettiğiniz için teşekkür ederiz. Bu cihaz, yiyecekleri çok az yağ kullanarak veya hiç yağ kullanmadan, sıcak havanın hızla dolaştırılmasıyla pişirir. Sorularınız için müşteri hizmetlerimize {{PII:PHONE_NUMBER:1}} numarasından ulaşabilir veya {{PII:EMAIL_ADDRESS:1}} adresine yazabilirsiniz.
+
+İlk kullanımdan önce. Cihazı kutusundan çıkarın ve tüm ambalaj malzemelerini, plastik koruyucuları ve etiketleri uzaklaştırın. Pişirme sepetini ve çekmeceyi sıcak sabunlu suyla yıkayıp iyice kurulayın. Cihazın gövdesini ise yalnızca nemli bir bezle silin; gövdeyi asla suya batırmayın. İlk çalıştırmada cihaz hafif bir koku çıkarabilir. Bu normaldir ve boş olarak on dakika çalıştırıldığında geçer.
+
+Yerleştirme. Cihazı düz, ısıya dayanıklı bir yüzeye koyun. Arka ve yan taraflarında en az on santimetre boşluk bırakın; çünkü sıcak hava buradan dışarı atılır. Cihazı duvara, perdeye veya yanıcı eşyalara yakın kullanmayın. Uzatma kablosu kullanmaktan kaçının; mümkünse cihazı doğrudan prize takın.
+
+Pişirme. Sepeti çekmeceye yerleştirin, yiyecekleri sepetin içine tek kat hâlinde yayın ve çekmeceyi yerine itin. Sıcaklık düğmesiyle derece ayarlayın, zaman düğmesiyle süreyi seçin. Cihaz, süre dolunca zil sesiyle uyarır. Pişirme sırasında çekmeceyi çıkarıp sepeti sallayarak yiyecekleri karıştırmak, eşit pişmeyi sağlar. Patates kızartması için iki yüz derecede on sekiz ile yirmi beş dakika, tavuk but için yüz seksen derecede yirmi beş dakika, balık fileto için yüz altmış derecede on iki dakika uygundur.
+
+İpuçları. Çıtır bir sonuç için patatesleri doğramadan önce yirmi dakika soğuk suda bekletin ve iyice kurulayın, ardından bir tatlı kaşığı yağla karıştırın. Sepeti fazla doldurmayın; dolu sepet havanın dolaşımını engeller. Sıvı kıvamında hamurlar doğrudan pişirilmemelidir. Önceden ısıtma, çoğu tarifte üç dakika sürer.
+
+Güvenlik. Pişirme sırasında ve sonrasında çekmece çok sıcaktır; tutamaktan tutun ve sıcak sepeti ısıya dayanıklı bir yüzeye koyun. Cihaz çalışırken buhar çıkışı açıklığına el veya yüz yaklaştırmayın. Cihazı kullanmadığınızda fişini prizden çekin. Kablo veya fiş hasarlıysa cihazı kullanmayın ve yetkili servise başvurun. Cihazı çocukların erişemeyeceği bir yerde tutun.
+
+Temizlik. Cihaz soğuduktan sonra sepeti ve çekmeceyi çıkarın. Her ikisi de bulaşık makinesinde yıkanabilir; elde yıkarken yumuşak bir sünger kullanın, tel ve aşındırıcı malzemelerden kaçının, çünkü yapışmaz kaplamayı çizer. Yağ birikmiş yerler için sıcak suda bir süre bekletmek yeterlidir. Isıtıcı bölümü, soğuk olduğunda nemli bir bezle silinir ve gerekirse yumuşak bir fırçayla temizlenir.
+
+Sorun giderme. Cihaz açılmıyorsa fişin takılı olduğunu ve çekmecenin tam oturduğunu kontrol edin. Pişirme sırasında beyaz duman çıkıyorsa, çekmecede biriken yağ olabilir; cihazı kapatıp temizleyin. Yiyecekler eşit pişmiyorsa, miktarı azaltın ve süre ortasında karıştırın. Cihazdan yanık kokusu geliyorsa, cihazı kapatın ve ısıtıcıda yiyecek artığı olup olmadığına bakın.
+
+Garanti. Cihaz iki yıl garantilidir. Yapışmaz kaplamadaki çizikler, yanlış kullanımdan doğan hasarlar ve sepet gibi aşınan parçalar garanti kapsamı dışındadır.
+
+Aksesuarlar ve tarif önerileri. Cihazla uyumlu silikon pişirme kalıpları, tel ızgara ve şiş seti ayrıca satılmaktadır. Aksesuar kullanırken cihazın ısıtıcı bölümüne temas etmediğinden emin olun. Kek ve börek gibi kalıpla pişirilen yiyeceklerde sıcaklığı geleneksel fırına göre yirmi derece düşürmeniz önerilir. Dondurulmuş ürünlerde paket üzerindeki fırın süresini onda bir oranında kısaltmak iyi bir başlangıçtır. Yağda kızartma kokusu istemiyorsanız, pişirmeden önce yiyecekleri kâğıt havluyla kurulayın.
+
+Elektrik ve çevre. Cihazın gücü bin sekiz yüz vattır ve yalnızca şebeke gerilimine uygun bir prizde kullanılmalıdır. Aynı hatta yüksek güçlü başka cihazlar çalışıyorsa sigorta atabilir. Ömrünü tamamlayan cihazı evsel atıkla birlikte atmayın; elektronik atık toplama noktalarına teslim edin.

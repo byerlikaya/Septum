@@ -1,0 +1,25 @@
+Physiotherapy Assessment and Progress Report
+
+Patient: {{PII:PERSON_NAME:1}}. Referred by the orthopaedic department of {{PII:ORGANIZATION_NAME:1}}. Treating physiotherapist: {{PII:PERSON_NAME:2}}.
+
+Reason for referral. The patient, a fifty-eight-year-old retired bus driver, was referred six weeks after an arthroscopic repair of the right rotator cuff. The surgeon asked for a structured programme to restore shoulder mobility and strength, with a target of returning to light gardening and swimming by the end of the third month.
+
+History. The patient reports a gradual onset of shoulder pain over about two years, worst at night and when reaching overhead. A fall from a stepladder in the spring turned the discomfort into sharp pain and a clear loss of strength. Imaging showed a full-thickness tear of the supraspinatus tendon. There is no history of diabetes or thyroid disease, which can slow tendon healing. The patient takes a daily blood pressure tablet and uses paracetamol for pain, which has been needed less often in the last two weeks.
+
+Findings at the first visit. The sling was still being worn most of the day. Passive forward elevation reached ninety degrees and passive external rotation twenty degrees, both limited by pain and by guarding. Active movement was not yet permitted by the surgical protocol. The scar had healed well without signs of infection. Muscle tone around the neck and upper back was high, and the patient described a habit of lifting the right shoulder towards the ear when carrying anything.
+
+Treatment plan. The first phase, weeks six to ten, concentrates on passive and assisted movement. The patient learns pendulum exercises, table slides and gentle pulley work, to be repeated three times a day for five minutes. We also teach relaxation of the neck muscles and correct posture when sitting. The patient is asked to stop the sling during the day from week eight, but to keep it at night for comfort for two more weeks.
+
+The second phase, weeks ten to sixteen, introduces active movement without weight, followed by light resistance with elastic bands. Strengthening of the shoulder blade stabilisers has priority because weakness there overloads the repaired tendon. Heavy lifting above shoulder height remains forbidden until the surgeon confirms healing at the control visit.
+
+Progress at week nine. Passive forward elevation has improved to one hundred and thirty degrees and external rotation to forty degrees. Night pain has become rare, and the patient sleeps on the back with a small pillow under the elbow. The patient has been disciplined with the home exercises and keeps a diary, which shows twenty-one missed sessions out of one hundred and eighty-nine planned, almost all during a family visit.
+
+Concerns. The patient admits to being afraid of re-injury and tends to avoid reaching movements. We discussed that pain up to four on a ten-point scale during exercise is acceptable if it settles within an hour. A short written guide with this rule was handed over. The therapist will phone the patient after the first week of active exercises to check for flare-ups.
+
+Goals for the next four weeks. Reach one hundred and sixty degrees of passive elevation, start active-assisted movement, and walk at least thirty minutes daily to support general fitness and blood pressure control. The next appointment is in two weeks, and the report will be sent to the surgeon at the end of phase one. Contact for questions: {{PII:EMAIL_ADDRESS:1}}.
+
+Home environment and daily activities. The patient lives in a two-storey house with the bedroom upstairs and manages the stairs without difficulty, holding the rail with the left hand. Dressing is the most awkward daily task: putting on a shirt takes several minutes, and the patient has learned to dress the right arm first. Driving is not allowed for another four weeks, so the spouse takes the patient to appointments. The vegetable garden is the main motivation for recovery, and the patient has already planned which beds to prepare in the spring. We agreed on a gradual return to gardening, beginning with watering and light weeding, then digging with a short-handled spade after the surgeon's consent.
+
+Precautions given. Do not push up from a chair with the right hand, do not carry a shopping bag in the right hand, and do not sleep on the operated side. Cold packs for fifteen minutes after exercises are helpful if the shoulder feels warm or swollen. Call the clinic if there is a sudden loss of movement, a sharp pain after lifting something, redness or fluid at the scar, or fever.
+
+Outcome measures. At the first visit the shoulder function questionnaire gave a score of thirty-four out of one hundred, and at week nine it was fifty-two. We will repeat it at the end of each phase. A score above seventy-five is typical for patients who return to light recreational activity.

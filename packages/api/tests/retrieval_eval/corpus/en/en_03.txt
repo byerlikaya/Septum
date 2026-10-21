@@ -1,0 +1,76 @@
+MODEL LP-400 THERMAL LABEL PRINTER
+USER MANUAL
+
+Manufactured by {{PII:ORGANIZATION_NAME:1}}. Technical support: {{PII:EMAIL_ADDRESS:1}}, telephone {{PII:PHONE_NUMBER:1}}.
+
+1. Safety Instructions
+
+1.1 Read this manual before first use and keep it near the printer. Use only the power adapter supplied in the box. A different adapter may damage the printer and voids the warranty.
+
+1.2 The print head becomes hot during operation. Never touch it for at least ten minutes after printing, and never clean it with a metal object.
+
+1.3 Do not use the printer in damp rooms, near open water, or in places where the temperature is below five or above forty degrees Celsius.
+
+2. Unpacking and Setup
+
+2.1 The box contains the printer, a power adapter, a USB cable, one sample roll of labels and a quick start card. Check that nothing is damaged and keep the packaging for transport.
+
+2.2 Place the printer on a flat, stable surface with at least ten centimetres of free space behind it so that the label roll can turn freely.
+
+2.3 Connect the power adapter, then the USB cable to the computer. Press and hold the power button for two seconds. The green status light turns on when the printer is ready.
+
+3. Loading the Label Roll
+
+3.1 Press the release latch on both sides of the cover and lift the cover fully.
+
+3.2 Spread the two roll guides apart, place the roll on the spindle with the labels facing upward, and push the guides back against the roll until it sits snugly but can still turn.
+
+3.3 Pull about fifteen centimetres of the backing paper over the platen and close the cover until it clicks. Press the feed button once; the printer advances one label and aligns the sensor.
+
+3.4 If the printer reports that the media is not detected, the gap sensor probably needs calibration. Section 6 explains how to run it.
+
+4. Printing from a Computer
+
+4.1 Install the driver from the support website before connecting the printer for the first time. The installer works on current versions of all common desktop operating systems.
+
+4.2 In the print dialogue, choose the paper size that matches your labels. The most common sizes are listed in the driver, and custom sizes can be saved under a name.
+
+4.3 The default print speed is 100 millimetres per second. For small barcodes or dense text, reduce the speed to 60 millimetres per second to improve sharpness.
+
+4.4 The darkness setting runs from 1 to 15. Start with 8. Higher values give blacker print but shorten the life of the print head.
+
+5. Status Lights and Messages
+
+5.1 A steady green light means the printer is ready. A slowly blinking green light means data is being received.
+
+5.2 A blinking red light means the cover is open or the label roll is empty. Close the cover or load a new roll and press the feed button.
+
+5.3 A steady red light together with a continuous beep means the print head is overheated. Switch the printer off, wait fifteen minutes and switch it on again. If the light returns, contact technical support.
+
+5.4 An amber light indicates that the firmware update is running. Do not switch off the printer until the light turns green again.
+
+6. Calibration
+
+6.1 Switch the printer off, hold the feed button and switch it on again. Release the button after the status light has flashed twice.
+
+6.2 The printer feeds several labels, measures the gap between them and stores the value. The procedure takes about twenty seconds. Run it again whenever you change to a roll from a different supplier.
+
+7. Cleaning and Maintenance
+
+7.1 Clean the print head once a month, or after every ten rolls, with a cotton swab moistened with isopropyl alcohol. Let it dry for one minute before closing the cover.
+
+7.2 Wipe the platen roller and the label sensor with a soft dry cloth. Remove paper dust from the label path with compressed air.
+
+7.3 Do not use solvents, acetone or abrasive cleaners on the housing. A slightly damp cloth is sufficient.
+
+8. Troubleshooting
+
+8.1 Faint print: increase the darkness, check that the labels are thermal labels, and clean the print head.
+
+8.2 Labels skipping or printing out of position: run the calibration and check that the roll guides are not too tight.
+
+8.3 The computer does not find the printer: try another USB port and cable, and reinstall the driver.
+
+9. Warranty
+
+9.1 The printer has a warranty of twenty-four months from the date of purchase. The print head is a wearing part and is covered for six months or fifty kilometres of printed labels, whichever comes first.
