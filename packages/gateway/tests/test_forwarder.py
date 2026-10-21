@@ -8,6 +8,9 @@ failure test; the rest is mocked at the first attempt.
 
 from __future__ import annotations
 
+import asyncio
+import time
+
 import httpx
 import pytest
 import respx
@@ -19,6 +22,7 @@ from septum_gateway import (
     OpenAIForwarder,
     OpenRouterForwarder,
 )
+from septum_gateway import forwarder as forwarder_module
 from septum_queue import RequestEnvelope
 
 
@@ -169,6 +173,83 @@ class TestOpenAIForwarder:
         result = await forwarder.complete(_env("openai"))
         assert result == "ok"
         assert route.call_count == 2
+        await forwarder.aclose()
+
+
+class TestAttemptBounds:
+    @respx.mock
+    async def test_large_retry_after_is_capped(self, monkeypatch):
+        sleeps: list[float] = []
+
+        async def record_sleep(delay, *args, **kwargs):
+            sleeps.append(delay)
+
+        monkeypatch.setattr(asyncio, "sleep", record_sleep)
+        route = respx.post("https://api.openai.com/v1/chat/completions").mock(
+            side_effect=[
+                httpx.Response(429, headers={"Retry-After": "3600"}),
+                httpx.Response(
+                    200, json={"choices": [{"message": {"content": "ok"}}]}
+                ),
+            ]
+        )
+        forwarder = OpenAIForwarder(api_key="sk", max_attempts=2)
+        result = await forwarder.complete(_env("openai"))
+        assert result == "ok"
+        assert route.call_count == 2
+        assert sleeps == [forwarder_module._MAX_RETRY_AFTER_SECONDS]
+        await forwarder.aclose()
+
+    @respx.mock
+    async def test_stalled_attempt_is_aborted_and_retried(self):
+        attempts = []
+
+        async def stall_then_answer(request):
+            attempts.append(request)
+            if len(attempts) == 1:
+                await asyncio.sleep(30)
+            return httpx.Response(
+                200, json={"choices": [{"message": {"content": "recovered"}}]}
+            )
+
+        respx.post("https://api.openai.com/v1/chat/completions").mock(
+            side_effect=stall_then_answer
+        )
+        forwarder = OpenAIForwarder(
+            api_key="sk",
+            timeout_seconds=0.05,
+            max_attempts=2,
+            base_backoff_seconds=0.01,
+        )
+        started = time.monotonic()
+        result = await forwarder.complete(_env("openai"))
+        assert time.monotonic() - started < 5
+        assert result == "recovered"
+        assert len(attempts) == 2
+        await forwarder.aclose()
+
+    @respx.mock
+    async def test_every_attempt_stalling_fails_after_max_attempts(self):
+        attempts = []
+
+        async def always_stall(request):
+            attempts.append(request)
+            await asyncio.sleep(30)
+            return httpx.Response(200)
+
+        respx.post("https://api.openai.com/v1/chat/completions").mock(
+            side_effect=always_stall
+        )
+        forwarder = OpenAIForwarder(
+            api_key="sk",
+            timeout_seconds=0.05,
+            max_attempts=3,
+            base_backoff_seconds=0.01,
+        )
+        with pytest.raises(GatewayError, match="failed after 3 attempts") as excinfo:
+            await forwarder.complete(_env("openai"))
+        assert len(attempts) == 3
+        assert isinstance(excinfo.value.__cause__, TimeoutError)
         await forwarder.aclose()
 
 

@@ -31,6 +31,20 @@ Hardening invariants:
 * Backoff uses full-jitter (``_JITTER.uniform(0, base * 2**n)``) so
   multiple gateway replicas hitting the same provider 429 do not
   thunder-herd in lockstep.
+* Every attempt has a total deadline (``timeout_seconds``, enforced with
+  ``asyncio.timeout``; httpx's per-phase timeouts alone do not bound a
+  slow response). A stalled attempt is aborted and counted as a failed
+  attempt. ``Retry-After`` waits are capped at ``_MAX_RETRY_AFTER_SECONDS``.
+
+Worst-case time for one request, with ``N = max_attempts``::
+
+    N * timeout_seconds + (N - 1) * max(_MAX_RETRY_AFTER_SECONDS, base * 2 ** (N - 2))
+
+The api client timeout (``DEFAULT_CLIENT_TIMEOUT_SECONDS`` in
+``septum_api.services.gateway_client``) must stay strictly above this
+worst case with the defaults here; ``test_default_covers_gateway_worst_case``
+in ``packages/api/tests/test_gateway_client.py`` enforces it. Raising the
+attempt timeout or attempt count requires raising the api client timeout.
 """
 
 from __future__ import annotations
@@ -66,6 +80,8 @@ class ForwarderLike(Protocol):
 _JITTER = secrets.SystemRandom()
 
 _RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
+
+_MAX_RETRY_AFTER_SECONDS = 10.0
 
 # Per-provider host allow-list. ``base_url`` from the envelope must
 # resolve to one of these hostnames OR be empty (use the default).
@@ -133,7 +149,7 @@ def _retry_after_seconds(response: httpx.Response) -> float | None:
     if raw is None:
         return None
     try:
-        return max(0.0, float(raw))
+        return min(max(0.0, float(raw)), _MAX_RETRY_AFTER_SECONDS)
     except ValueError:
         return None
 
@@ -198,9 +214,10 @@ class BaseForwarder(ABC):
         while attempt < self._max_attempts:
             attempt += 1
             try:
-                response = await self._client.post(
-                    url, headers=outgoing_headers, json=dict(json)
-                )
+                async with asyncio.timeout(self._timeout_seconds):
+                    response = await self._client.post(
+                        url, headers=outgoing_headers, json=dict(json)
+                    )
                 if response.status_code in _RETRYABLE_STATUS:
                     last_error = httpx.HTTPStatusError(
                         f"upstream {response.status_code}",
@@ -236,7 +253,7 @@ class BaseForwarder(ABC):
                     f"upstream provider rejected request "
                     f"(status={exc.response.status_code})"
                 ) from exc
-            except httpx.HTTPError as exc:
+            except (httpx.HTTPError, TimeoutError) as exc:
                 last_error = exc
                 logger.warning(
                     "gateway transport error: url=%s error=%s attempt=%s/%s",

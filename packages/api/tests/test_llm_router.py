@@ -273,3 +273,267 @@ async def test_cloud_failure_logs_and_persists_only_class_and_status(
     message, extra = persisted[0]
     assert sentinel not in message
     assert extra["error"] == "LLMRouterError (status=429)"
+
+
+GATEWAY_MODEL = "gateway-check-model"
+GATEWAY_KEY = f"openai:{GATEWAY_MODEL}"
+MESSAGES = [{"role": "user", "content": "Where is [PERSON_1]?"}]
+
+
+class _RecordingGateway:
+    def __init__(self, *, text: str = "gateway answer", error: Exception | None = None) -> None:
+        self.calls = 0
+        self._text = text
+        self._error = error
+
+    async def complete(self, **_: Any) -> str:
+        self.calls += 1
+        if self._error is not None:
+            raise self._error
+        return self._text
+
+
+@pytest.fixture
+def gateway_guard(monkeypatch: pytest.MonkeyPatch) -> Dict[str, List[Any]]:
+    """Fail the test if a direct provider is built; record Ollama fallback calls."""
+    from septum_api.services import llm_router
+    from septum_api.services.llm_providers import health
+
+    calls: Dict[str, List[Any]] = {"provider": [], "ollama": []}
+
+    def _refuse_direct(settings: AppSettings) -> Any:
+        calls["provider"].append(settings.llm_provider)
+        raise AssertionError("direct provider must not be built")
+
+    async def _record_ollama(**kwargs: Any) -> str:
+        calls["ollama"].append(kwargs.get("base_url"))
+        return "ollama answer"
+
+    monkeypatch.setattr(llm_router, "build_provider", _refuse_direct)
+    monkeypatch.setattr(ollama_client, "call_ollama_async", _record_ollama)
+    health.reset(GATEWAY_KEY)
+    yield calls
+    health.reset(GATEWAY_KEY)
+    llm_router.set_gateway_client_factory(None)
+
+
+def _gateway_settings(use_gateway: bool = True) -> AppSettings:
+    settings = make_app_settings(provider="openai", model=GATEWAY_MODEL)
+    settings.openai_api_key = "sk-test"
+    settings.use_gateway = use_gateway
+    return settings
+
+
+async def _collect(router: LLMRouter) -> str:
+    return "".join([chunk async for chunk in router.stream_chat(messages=MESSAGES)])
+
+
+def _failures(provider_key: str = GATEWAY_KEY) -> int:
+    from septum_api.services.llm_providers import health
+
+    return health.get_provider_status(provider_key)["total_failures"]
+
+
+@pytest.mark.parametrize("factory", [None, lambda _settings: None], ids=["no-factory", "factory-none"])
+async def test_gateway_without_client_fails_closed(
+    gateway_guard: Dict[str, List[Any]], factory: Any
+) -> None:
+    from septum_api.services import llm_router
+
+    llm_router.set_gateway_client_factory(factory)
+
+    with pytest.raises(llm_router.LLMRouterError) as exc:
+        await _collect(LLMRouter(settings=_gateway_settings()))
+
+    assert exc.value.code == "gateway_not_configured"
+    assert gateway_guard == {"provider": [], "ollama": []}
+    assert _failures() == 0
+
+
+async def test_gateway_without_client_fails_closed_even_when_breaker_open(
+    gateway_guard: Dict[str, List[Any]],
+) -> None:
+    from septum_api.services import llm_router
+    from septum_api.services.llm_providers import health
+
+    while health.is_available(GATEWAY_KEY):
+        health.record_failure(GATEWAY_KEY)
+
+    with pytest.raises(llm_router.LLMRouterError) as exc:
+        await _collect(LLMRouter(settings=_gateway_settings()))
+
+    assert exc.value.code == "gateway_not_configured"
+    assert gateway_guard["ollama"] == []
+
+
+async def test_gateway_factory_failure_propagates_without_fallback(
+    gateway_guard: Dict[str, List[Any]],
+) -> None:
+    from septum_api.services import llm_router
+
+    def _broken_factory(_settings: AppSettings) -> Any:
+        raise RuntimeError("factory broke")
+
+    llm_router.set_gateway_client_factory(_broken_factory)
+
+    with pytest.raises(RuntimeError, match="factory broke"):
+        await _collect(LLMRouter(settings=_gateway_settings()))
+
+    assert gateway_guard == {"provider": [], "ollama": []}
+    assert _failures() == 0
+
+
+async def test_gateway_client_answers(gateway_guard: Dict[str, List[Any]]) -> None:
+    from septum_api.services import llm_router
+
+    gateway = _RecordingGateway()
+    llm_router.set_gateway_client_factory(lambda _settings: gateway)
+
+    assert await _collect(LLMRouter(settings=_gateway_settings())) == "gateway answer"
+    assert gateway.calls == 1
+    assert gateway_guard == {"provider": [], "ollama": []}
+
+
+async def test_gateway_runtime_failure_keeps_ollama_fallback(
+    gateway_guard: Dict[str, List[Any]],
+) -> None:
+    from septum_api.services import llm_router
+
+    gateway = _RecordingGateway(error=llm_router.LLMRouterError("gateway: upstream 502"))
+    llm_router.set_gateway_client_factory(lambda _settings: gateway)
+
+    assert await _collect(LLMRouter(settings=_gateway_settings())) == "ollama answer"
+    assert gateway.calls == 1
+    assert len(gateway_guard["ollama"]) == 1
+    assert gateway_guard["provider"] == []
+    assert _failures() == 1
+
+
+async def test_ollama_provider_stays_local_with_gateway_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from septum_api.services import llm_router
+    from septum_api.services.llm_providers import health
+
+    gateway = _RecordingGateway()
+    llm_router.set_gateway_client_factory(lambda _settings: gateway)
+    ollama_urls: List[Any] = []
+
+    async def _local(**kwargs: Any) -> str:
+        ollama_urls.append(kwargs.get("base_url"))
+        return "local answer"
+
+    monkeypatch.setattr(ollama_client, "call_ollama_async", _local)
+    settings = make_app_settings(provider="ollama", model="llama3.2:3b")
+    settings.use_gateway = True
+    health.reset("ollama:llama3.2:3b")
+    try:
+        assert await _collect(LLMRouter(settings=settings)) == "local answer"
+    finally:
+        llm_router.set_gateway_client_factory(None)
+        health.reset("ollama:llama3.2:3b")
+
+    assert gateway.calls == 0
+    assert ollama_urls == ["http://localhost:11434"]
+
+
+async def test_use_gateway_off_calls_provider_directly(monkeypatch: pytest.MonkeyPatch) -> None:
+    from septum_api.services import llm_router
+    from septum_api.services.llm_providers import health
+
+    gateway = _RecordingGateway()
+    llm_router.set_gateway_client_factory(lambda _settings: gateway)
+
+    class _DirectProvider:
+        async def complete(self, **_: Any) -> str:
+            return "direct answer"
+
+    monkeypatch.setattr(llm_router, "build_provider", lambda _settings: _DirectProvider())
+    health.reset(GATEWAY_KEY)
+    try:
+        assert await _collect(LLMRouter(settings=_gateway_settings(use_gateway=False))) == "direct answer"
+    finally:
+        llm_router.set_gateway_client_factory(None)
+        health.reset(GATEWAY_KEY)
+
+    assert gateway.calls == 0
+
+
+async def test_env_forced_gateway_without_client_fails_closed(
+    gateway_guard: Dict[str, List[Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from septum_api.services import llm_router
+
+    monkeypatch.setenv("USE_GATEWAY_DEFAULT", "true")
+
+    with pytest.raises(llm_router.LLMRouterError) as exc:
+        await _collect(LLMRouter(settings=_gateway_settings(use_gateway=False)))
+
+    assert exc.value.code == "gateway_not_configured"
+    assert gateway_guard == {"provider": [], "ollama": []}
+    assert _failures() == 0
+
+
+async def test_env_forced_gateway_routes_via_client(
+    gateway_guard: Dict[str, List[Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from septum_api.services import llm_router
+
+    monkeypatch.setenv("USE_GATEWAY_DEFAULT", "true")
+    gateway = _RecordingGateway()
+    llm_router.set_gateway_client_factory(lambda _settings: gateway)
+
+    assert await _collect(LLMRouter(settings=_gateway_settings(use_gateway=False))) == "gateway answer"
+    assert gateway.calls == 1
+    assert gateway_guard == {"provider": [], "ollama": []}
+
+
+async def test_env_forced_gateway_keeps_ollama_provider_local(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from septum_api.services import llm_router
+    from septum_api.services.llm_providers import health
+
+    monkeypatch.setenv("USE_GATEWAY_DEFAULT", "true")
+    llm_router.set_gateway_client_factory(None)
+    ollama_urls: List[Any] = []
+
+    async def _local(**kwargs: Any) -> str:
+        ollama_urls.append(kwargs.get("base_url"))
+        return "local answer"
+
+    monkeypatch.setattr(ollama_client, "call_ollama_async", _local)
+    settings = make_app_settings(provider="ollama", model="llama3.2:3b")
+    settings.use_gateway = False
+    health.reset("ollama:llama3.2:3b")
+    try:
+        assert await _collect(LLMRouter(settings=settings)) == "local answer"
+    finally:
+        health.reset("ollama:llama3.2:3b")
+
+    assert ollama_urls == ["http://localhost:11434"]
+
+
+@pytest.mark.parametrize("env_value", [None, "false"], ids=["unset", "false"])
+async def test_env_not_forcing_keeps_stored_off_direct(
+    monkeypatch: pytest.MonkeyPatch, env_value: str | None
+) -> None:
+    from septum_api.services import llm_router
+    from septum_api.services.llm_providers import health
+
+    if env_value is None:
+        monkeypatch.delenv("USE_GATEWAY_DEFAULT", raising=False)
+    else:
+        monkeypatch.setenv("USE_GATEWAY_DEFAULT", env_value)
+    llm_router.set_gateway_client_factory(None)
+
+    class _DirectProvider:
+        async def complete(self, **_: Any) -> str:
+            return "direct answer"
+
+    monkeypatch.setattr(llm_router, "build_provider", lambda _settings: _DirectProvider())
+    health.reset(GATEWAY_KEY)
+    try:
+        assert await _collect(LLMRouter(settings=_gateway_settings(use_gateway=False))) == "direct answer"
+    finally:
+        health.reset(GATEWAY_KEY)

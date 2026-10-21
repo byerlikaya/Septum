@@ -35,10 +35,11 @@ from typing import (
     Sequence,
 )
 
+from ..env_flags import env_bool
 from ..errors import public_error_text
 from ..models.settings import AppSettings
 from . import ollama_client
-from .llm_errors import LLMRouterError  # noqa: F401 — re-exported
+from .llm_errors import GATEWAY_NOT_CONFIGURED, LLMRouterError
 from .llm_providers.factory import build_provider, validate_provider_config
 from .llm_providers.health import is_available, record_failure, record_success
 
@@ -58,15 +59,28 @@ class GatewayClientProtocol(Protocol):
     ) -> str: ...
 
 
-# Lazy factory so air-gapped deployments that never set ``use_gateway=True``
-# never import ``septum_queue`` and never allocate the queue backends.
+# Installed by the application lifespan when a queue is configured, so
+# deployments without one never import ``septum_queue``.
 _gateway_client_factory: Callable[[AppSettings], GatewayClientProtocol | None] | None = None
+
+GATEWAY_NOT_CONFIGURED_MESSAGE = (
+    "Gateway routing is enabled but no gateway queue is configured; set "
+    "SEPTUM_QUEUE_URL or SEPTUM_QUEUE_DIR and restart the API."
+)
+
+# Providers that run on the local machine and therefore never cross the queue.
+_LOCAL_PROVIDERS: frozenset[str] = frozenset({"ollama"})
+
+
+def _gateway_forced_by_env() -> bool:
+    """True when ``USE_GATEWAY_DEFAULT`` forces gateway routing over the stored setting."""
+    return env_bool("USE_GATEWAY_DEFAULT", False)
 
 
 def set_gateway_client_factory(
     factory: Callable[[AppSettings], GatewayClientProtocol | None] | None,
 ) -> None:
-    """Install (or clear) the factory that builds a gateway client per request."""
+    """Install (or clear) the factory that returns the gateway client for a request."""
     global _gateway_client_factory
     _gateway_client_factory = factory
 
@@ -129,6 +143,7 @@ class LLMRouter:
             return
 
         validate_provider_config(self._settings)
+        gateway = self._resolve_gateway_client() if self._routes_via_gateway() else None
 
         provider_key = f"{self._provider}:{self._model}"
 
@@ -144,6 +159,7 @@ class LLMRouter:
                     messages=messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
+                    gateway=gateway,
                 )
                 record_success(provider_key)
             except Exception as exc:
@@ -173,25 +189,20 @@ class LLMRouter:
         messages: Sequence[ChatMessage],
         temperature: float,
         max_tokens: int | None,
+        gateway: GatewayClientProtocol | None = None,
     ) -> str:
-        """Route the cloud call through the gateway when opted in, else direct.
+        """Send the call through ``gateway`` when given, else to the provider directly.
 
-        Keeps the circuit-breaker and Ollama-fallback code path
-        identical for both branches — from the outer layer's point of
-        view a gateway error and a direct-call error look the same.
+        From the caller's point of view a gateway failure and a direct-call
+        failure look the same, so both share the circuit breaker and the
+        Ollama fallback.
         """
-        if self._settings.use_gateway:
-            client = self._resolve_gateway_client()
-            if client is not None:
-                return await client.complete(
-                    settings=self._settings,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-            logger.warning(
-                "use_gateway=True but no gateway client factory is installed; "
-                "falling back to direct cloud call"
+        if gateway is not None:
+            return await gateway.complete(
+                settings=self._settings,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
             )
         provider = build_provider(self._settings)
         return await provider.complete(
@@ -200,11 +211,29 @@ class LLMRouter:
             max_tokens=max_tokens,
         )
 
-    def _resolve_gateway_client(self) -> GatewayClientProtocol | None:
-        """Invoke the registered factory; let factory failures propagate."""
-        if _gateway_client_factory is None:
-            return None
-        return _gateway_client_factory(self._settings)
+    def _routes_via_gateway(self) -> bool:
+        """True when gateway routing is on and the provider is not a local one.
+
+        Routing is on when the stored ``use_gateway`` is set or
+        ``USE_GATEWAY_DEFAULT`` forces it, so a stale stored ``False`` never
+        lets a gateway deployment dial the cloud provider directly.
+        """
+        if self._provider in _LOCAL_PROVIDERS:
+            return False
+        return bool(self._settings.use_gateway) or _gateway_forced_by_env()
+
+    def _resolve_gateway_client(self) -> GatewayClientProtocol:
+        """Return the installed gateway client or refuse the call.
+
+        Runs before the circuit breaker and outside the fallback, so a
+        missing gateway is never answered by a direct cloud call or by
+        Ollama. Factory exceptions propagate unchanged.
+        """
+        client = _gateway_client_factory(self._settings) if _gateway_client_factory else None
+        if client is None:
+            logger.error("Gateway routing is enabled but no gateway client is installed")
+            raise LLMRouterError(GATEWAY_NOT_CONFIGURED_MESSAGE, code=GATEWAY_NOT_CONFIGURED)
+        return client
 
     async def _fallback_via_ollama(
         self,

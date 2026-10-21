@@ -7,6 +7,7 @@ from typing import Any
 
 from .base import QueueBackend, QueueError, QueueSession, QueueTimeoutError
 from .models import Message, RequestEnvelope, ResponseEnvelope
+from .topics import LLM_REQUEST_TOPIC, LLM_RESPONSE_TOPIC
 
 __all__ = [
     "QueueBackend",
@@ -16,6 +17,8 @@ __all__ = [
     "Message",
     "RequestEnvelope",
     "ResponseEnvelope",
+    "LLM_REQUEST_TOPIC",
+    "LLM_RESPONSE_TOPIC",
     "FileQueueBackend",
     "RedisStreamsQueueBackend",
     "backend_from_env",

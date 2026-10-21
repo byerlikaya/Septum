@@ -9,208 +9,18 @@ sanitizer call is mocked.
 """
 
 import json
-from pathlib import Path
-from typing import Any, AsyncIterator, Optional
+from typing import Any, Optional
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-from septum_core.spans import SanitizeResult
+from chat_harness import PLACEHOLDER, RAW_VALUE, ChatEnv, answer_text
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from septum_api.database import build_default_app_settings, get_db
-from septum_api.main import app
-from septum_api.models import Base
-from septum_api.models.document import Chunk, Document
-from septum_api.models.user import User
 from septum_api import request_limits
+from septum_api.models.document import Chunk
 from septum_api.routers import chat as chat_module
-from septum_api.services import chat_debug_store, pii_gate
-from septum_api.services.approval_gate import ApprovalDecision, ApprovalGate
+from septum_api.services import chat_debug_store
+from septum_api.services.approval_gate import ApprovalGate
 from septum_api.services.llm_router import LLMRouter, LLMRouterError
-from septum_api.services.policy_snapshot import current_policy_snapshot
-from septum_api.utils.auth_dependency import get_current_user
-
-RAW_VALUE = "Jane Roe"
-PLACEHOLDER = "[PERSON_NAME_1]"
-
-
-class _ChatEnv:
-    """Handle to the per-test database, acting user and captured LLM prompts."""
-
-    def __init__(self, session_maker: Any, client: AsyncClient) -> None:
-        self.session_maker = session_maker
-        self.client = client
-        self.current_user: Optional[User] = None
-        self.prompts: list[str] = []
-        self.users: dict[str, User] = {}
-        self.gate = _FakeGate()
-
-    def act_as(self, name: str) -> None:
-        self.current_user = self.users[name]
-
-    async def add_document(
-        self, owner: Optional[User], filename: str, chunk_texts: list[str]
-    ) -> int:
-        async with self.session_maker() as session:
-            doc = Document(
-                filename=f"stored-{filename}",
-                original_filename=filename,
-                file_type="application/pdf",
-                file_format="pdf",
-                detected_language="en",
-                encrypted_path="/nonexistent",
-                file_size_bytes=10,
-                ocr_confidence=0.0,
-                active_regulation_ids=[],
-                sanitized_entity_types=[],
-                sanitized_policy_digest=(await current_policy_snapshot(session)).digest,
-                ingestion_status="completed",
-                chunk_count=len(chunk_texts),
-                user_id=owner.id if owner is not None else None,
-            )
-            session.add(doc)
-            await session.flush()
-            for idx, text in enumerate(chunk_texts):
-                session.add(
-                    Chunk(
-                        document_id=doc.id,
-                        index=idx,
-                        sanitized_text=text,
-                        char_count=len(text),
-                    )
-                )
-            await session.commit()
-            return doc.id
-
-    async def set_require_approval(self, value: bool) -> None:
-        async with self.session_maker() as session:
-            settings = build_default_app_settings()
-            settings.require_approval = value
-            session.add(settings)
-            await session.commit()
-
-    async def ask(self, payload: dict[str, Any]) -> tuple[int, list[dict[str, Any]], Any]:
-        resp = await self.client.post("/api/chat/ask", json=payload)
-        if resp.status_code != 200:
-            return resp.status_code, [], resp.json()
-        events = [
-            json.loads(line[len("data: "):])
-            for line in resp.text.splitlines()
-            if line.startswith("data: ")
-        ]
-        return resp.status_code, events, None
-
-
-class _FakeGate:
-    """Approval gate double that records the request and rejects it."""
-
-    def __init__(self) -> None:
-        self.created: list[dict[str, Any]] = []
-
-    async def create(self, **kwargs: Any) -> None:
-        self.created.append(kwargs)
-
-    def discard_session(self, session_id: str, handle: Any) -> None:
-        pass
-
-    async def wait_for_approval(self, session_id: str, timeout: float) -> ApprovalDecision:
-        return ApprovalDecision(approved=False, chunks=[], reason="test")
-
-
-class _NoEntitySanitizer:
-    """Sanitizer double that detects nothing, so no NER model is loaded."""
-
-    def sanitize(self, text: str, language: str, anon_map: Any) -> SanitizeResult:
-        return SanitizeResult(sanitized_text=text, entity_count=0, detected_spans=[])
-
-
-async def _create_sanitizer(
-    db: Any, settings: Any, enable_ollama: bool = False, policy: Any = None
-) -> _NoEntitySanitizer:
-    return _NoEntitySanitizer()
-
-
-class _FakeDeanonymizer:
-    """Deterministic local de-anonymizer: restores the one known placeholder."""
-
-    def __init__(self, settings: Any) -> None:
-        self._settings = settings
-
-    async def deanonymize(self, text: str, anon_map: Any, **kwargs: Any) -> str:
-        return text.replace(PLACEHOLDER, RAW_VALUE)
-
-
-@pytest.fixture
-async def chat_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[_ChatEnv]:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'chat.db'}")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
-
-    async def _override_get_db():
-        async with session_maker() as session:
-            yield session
-
-    async with session_maker() as session:
-        users = {
-            "admin": User(email="admin@example.com", hashed_password="x", role="admin"),
-            "alice": User(email="alice@example.com", hashed_password="x", role="editor"),
-            "bob": User(email="bob@example.com", hashed_password="x", role="editor"),
-        }
-        session.add_all(users.values())
-        await session.commit()
-
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        env = _ChatEnv(session_maker, client)
-        env.users = users
-
-        async def _sanitize(message, language, settings, anon_map, db):
-            return message, 0, {}
-
-        async def _retrieve(db, document_id, query, top_k, chunk_count, relevance_threshold):
-            rows = await db.execute(select(Chunk).where(Chunk.document_id == document_id))
-            return list(rows.scalars().all())
-
-        async def _retrieve_all(db, query, top_k, documents, relevance_threshold):
-            ids = [d.id for d in documents]
-            rows = await db.execute(select(Chunk).where(Chunk.document_id.in_(ids)))
-            chunks = list(rows.scalars().all())
-            return chunks, sorted({c.document_id for c in chunks})
-
-        async def _no_map(document_id):
-            return None
-
-        async def _classify(**kwargs):
-            return "search"
-
-        async def _complete(self, messages, **kwargs):
-            env.prompts.append(messages[-1]["content"])
-            return f"The person is {PLACEHOLDER}."
-
-        monkeypatch.setattr(chat_module, "_sanitize_query", _sanitize)
-        monkeypatch.setattr(chat_module, "_retrieve_chunks", _retrieve)
-        monkeypatch.setattr(chat_module, "_retrieve_chunks_all_documents", _retrieve_all)
-        monkeypatch.setattr(chat_module, "get_document_map", _no_map)
-        monkeypatch.setattr(chat_module, "_classify_query_intent", _classify)
-        monkeypatch.setattr(chat_module, "Deanonymizer", _FakeDeanonymizer)
-        monkeypatch.setattr(chat_module, "create_sanitizer", _create_sanitizer)
-        monkeypatch.setattr(pii_gate, "create_sanitizer", _create_sanitizer)
-        monkeypatch.setattr(chat_module, "get_approval_gate", lambda: env.gate)
-        monkeypatch.setattr(LLMRouter, "complete", _complete)
-
-        app.dependency_overrides[get_db] = _override_get_db
-        app.dependency_overrides[get_current_user] = lambda: env.current_user
-        try:
-            yield env
-        finally:
-            app.dependency_overrides.pop(get_db, None)
-            app.dependency_overrides.pop(get_current_user, None)
-            await engine.dispose()
-
-
-def _answer(events: list[dict[str, Any]]) -> str:
-    return "".join(e["text"] for e in events if e["type"] == "answer_chunk")
 
 
 def _meta(events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -218,7 +28,7 @@ def _meta(events: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 class TestChatDocumentOwnership:
-    async def test_foreign_document_matches_missing_document_404(self, chat_env: _ChatEnv) -> None:
+    async def test_foreign_document_matches_missing_document_404(self, chat_env: ChatEnv) -> None:
         await chat_env.set_require_approval(False)
         alice_doc = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha"])
 
@@ -230,7 +40,7 @@ class TestChatDocumentOwnership:
         assert foreign[2] == missing[2]
         assert chat_env.prompts == []
 
-    async def test_legacy_single_document_id_is_scoped(self, chat_env: _ChatEnv) -> None:
+    async def test_legacy_single_document_id_is_scoped(self, chat_env: ChatEnv) -> None:
         await chat_env.set_require_approval(False)
         alice_doc = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha"])
 
@@ -239,7 +49,7 @@ class TestChatDocumentOwnership:
 
         assert status_code == 404
 
-    async def test_owner_can_ask_own_document(self, chat_env: _ChatEnv) -> None:
+    async def test_owner_can_ask_own_document(self, chat_env: ChatEnv) -> None:
         await chat_env.set_require_approval(False)
         alice_doc = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha"])
 
@@ -249,9 +59,9 @@ class TestChatDocumentOwnership:
         )
 
         assert status_code == 200
-        assert _answer(events) == f"The person is {RAW_VALUE}."
+        assert answer_text(events) == f"The person is {RAW_VALUE}."
 
-    async def test_admin_matches_documents_router(self, chat_env: _ChatEnv) -> None:
+    async def test_admin_matches_documents_router(self, chat_env: ChatEnv) -> None:
         await chat_env.set_require_approval(False)
         alice_doc = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha"])
 
@@ -265,7 +75,7 @@ class TestChatDocumentOwnership:
 
 class TestAutoRagOwnerScope:
     async def test_regular_user_does_not_retrieve_ownerless_documents(
-        self, chat_env: _ChatEnv
+        self, chat_env: ChatEnv
     ) -> None:
         await chat_env.set_require_approval(False)
         await chat_env.add_document(None, "legacy.pdf", ["ownerless secret chunk"])
@@ -277,7 +87,7 @@ class TestAutoRagOwnerScope:
         assert _meta(events)["rag_mode"] == "none"
         assert all("ownerless" not in p for p in chat_env.prompts)
 
-    async def test_regular_user_retrieves_only_own_documents(self, chat_env: _ChatEnv) -> None:
+    async def test_regular_user_retrieves_only_own_documents(self, chat_env: ChatEnv) -> None:
         await chat_env.set_require_approval(False)
         await chat_env.add_document(None, "legacy.pdf", ["ownerless secret chunk"])
         own = await chat_env.add_document(chat_env.users["alice"], "alice.pdf", ["alice chunk"])
@@ -291,7 +101,7 @@ class TestAutoRagOwnerScope:
 
 
 class TestFilenameNotSentToCloud:
-    async def test_multi_document_prompt_uses_index_labels(self, chat_env: _ChatEnv) -> None:
+    async def test_multi_document_prompt_uses_index_labels(self, chat_env: ChatEnv) -> None:
         await chat_env.set_require_approval(False)
         first = await chat_env.add_document(
             chat_env.users["alice"], "Jane_Roe_medical_record.pdf", ["first chunk"]
@@ -334,7 +144,7 @@ class TestApprovalFloor:
             is expected
         )
 
-    async def test_settings_on_request_off_still_gates(self, chat_env: _ChatEnv) -> None:
+    async def test_settings_on_request_off_still_gates(self, chat_env: ChatEnv) -> None:
         await chat_env.set_require_approval(True)
         doc = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha"])
 
@@ -349,7 +159,7 @@ class TestApprovalFloor:
         assert "approval_rejected" in types
         assert chat_env.prompts == []
 
-    async def test_pre_approved_chunks_do_not_bypass_gate(self, chat_env: _ChatEnv) -> None:
+    async def test_pre_approved_chunks_do_not_bypass_gate(self, chat_env: ChatEnv) -> None:
         await chat_env.set_require_approval(True)
 
         chat_env.act_as("alice")
@@ -365,7 +175,7 @@ class TestApprovalFloor:
         assert "approval_rejected" in [e["type"] for e in events]
         assert chat_env.prompts == []
 
-    async def test_retry_with_foreign_document_id_is_404(self, chat_env: _ChatEnv) -> None:
+    async def test_retry_with_foreign_document_id_is_404(self, chat_env: ChatEnv) -> None:
         await chat_env.set_require_approval(False)
         alice_doc = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha"])
 
@@ -388,7 +198,7 @@ class TestApprovalFloor:
         assert chat_env.prompts == []
         assert chat_env.gate.created == []
 
-    async def test_empty_pre_approved_list_skips_retrieval(self, chat_env: _ChatEnv) -> None:
+    async def test_empty_pre_approved_list_skips_retrieval(self, chat_env: ChatEnv) -> None:
         await chat_env.set_require_approval(False)
         doc = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha chunk"])
 
@@ -411,7 +221,7 @@ class TestApprovalFloor:
 
 
 class TestChatDebugStore:
-    async def test_debug_record_holds_masked_fields_only(self, chat_env: _ChatEnv) -> None:
+    async def test_debug_record_holds_masked_fields_only(self, chat_env: ChatEnv) -> None:
         await chat_env.set_require_approval(False)
         doc = await chat_env.add_document(chat_env.users["admin"], "a.pdf", ["alpha"])
 
@@ -431,7 +241,7 @@ class TestChatDebugStore:
         assert RAW_VALUE not in json.dumps(body)
         assert (await chat_env.client.get("/api/chat/debug/client-chosen")).status_code == 404
 
-    async def test_debug_ids_are_unique_per_turn(self, chat_env: _ChatEnv) -> None:
+    async def test_debug_ids_are_unique_per_turn(self, chat_env: ChatEnv) -> None:
         await chat_env.set_require_approval(False)
         doc = await chat_env.add_document(chat_env.users["admin"], "a.pdf", ["alpha"])
 
@@ -453,14 +263,14 @@ class TestChatDebugStore:
 
 
 class TestDebugAccessOverHttp:
-    async def _alice_debug_id(self, chat_env: _ChatEnv) -> str:
+    async def _alice_debug_id(self, chat_env: ChatEnv) -> str:
         await chat_env.set_require_approval(False)
         doc = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha"])
         chat_env.act_as("alice")
         _, events, _ = await chat_env.ask({"message": "who?", "document_ids": [doc]})
         return _meta(events)["debug_id"]
 
-    async def test_other_user_gets_same_404_as_unknown_id(self, chat_env: _ChatEnv) -> None:
+    async def test_other_user_gets_same_404_as_unknown_id(self, chat_env: ChatEnv) -> None:
         debug_id = await self._alice_debug_id(chat_env)
 
         chat_env.act_as("bob")
@@ -472,7 +282,7 @@ class TestDebugAccessOverHttp:
         assert foreign.json() == missing.json()
         assert "masked_prompt" not in foreign.text
 
-    async def test_owner_reads_own_masked_record(self, chat_env: _ChatEnv) -> None:
+    async def test_owner_reads_own_masked_record(self, chat_env: ChatEnv) -> None:
         debug_id = await self._alice_debug_id(chat_env)
 
         chat_env.act_as("alice")
@@ -484,7 +294,7 @@ class TestDebugAccessOverHttp:
         assert body["debug_id"] == debug_id
         assert RAW_VALUE not in json.dumps(body)
 
-    async def test_admin_reads_any_record_and_unknown_is_404(self, chat_env: _ChatEnv) -> None:
+    async def test_admin_reads_any_record_and_unknown_is_404(self, chat_env: ChatEnv) -> None:
         debug_id = await self._alice_debug_id(chat_env)
 
         chat_env.act_as("admin")
@@ -504,7 +314,7 @@ class TestDebugAccessOverHttp:
 
 
 class TestForeignChunkPatch:
-    async def test_patch_on_foreign_document_is_404(self, chat_env: _ChatEnv) -> None:
+    async def test_patch_on_foreign_document_is_404(self, chat_env: ChatEnv) -> None:
         doc = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha"])
         async with chat_env.session_maker() as session:
             chunk_id = (
@@ -530,7 +340,7 @@ class TestForeignChunkPatch:
 
 class TestApprovalSessionOwnership:
     async def test_foreign_session_id_is_not_overwritten(
-        self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch
+        self, chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         gate = ApprovalGate()
         await gate.create(
@@ -556,7 +366,7 @@ class TestApprovalSessionOwnership:
         await gate.assert_session_owner("shared", chat_env.users["bob"].id)
         assert await gate.get_assembly_context("shared") is None
 
-    async def test_status_endpoint_hides_foreign_session(self, chat_env: _ChatEnv) -> None:
+    async def test_status_endpoint_hides_foreign_session(self, chat_env: ChatEnv) -> None:
         gate = ApprovalGate()
         await gate.create(
             session_id="bobs",
@@ -587,7 +397,7 @@ class TestApprovalSessionOwnership:
 
 
 class TestPreApprovedLimits:
-    async def test_too_many_chunks_is_422(self, chat_env: _ChatEnv) -> None:
+    async def test_too_many_chunks_is_422(self, chat_env: ChatEnv) -> None:
         chat_env.act_as("alice")
         status_code, _, _ = await chat_env.ask(
             {
@@ -598,7 +408,7 @@ class TestPreApprovedLimits:
         assert status_code == 422
         assert chat_env.prompts == []
 
-    async def test_oversized_chunk_text_is_422(self, chat_env: _ChatEnv) -> None:
+    async def test_oversized_chunk_text_is_422(self, chat_env: ChatEnv) -> None:
         chat_env.act_as("alice")
         status_code, _, _ = await chat_env.ask(
             {
@@ -611,7 +421,7 @@ class TestPreApprovedLimits:
         assert status_code == 422
 
     async def test_distinct_document_ids_are_capped_after_dedupe(
-        self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch
+        self, chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         await chat_env.set_require_approval(False)
         alice = chat_env.users["alice"]
@@ -653,7 +463,7 @@ class TestPreApprovedLimits:
 
 class TestAnalyzeQueryOwnerScope:
     async def test_admin_picker_excludes_other_users_documents(
-        self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch
+        self, chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         admin = chat_env.users["admin"]
         own = await chat_env.add_document(admin, "admin.pdf", ["a"])
@@ -691,7 +501,7 @@ class TestNoContextTurn:
     def test_no_context_turn_is_never_gated(self) -> None:
         assert chat_module._effective_require_approval(True, True, "none") is False
 
-    async def test_no_documents_means_no_gate_and_no_chunks(self, chat_env: _ChatEnv) -> None:
+    async def test_no_documents_means_no_gate_and_no_chunks(self, chat_env: ChatEnv) -> None:
         await chat_env.set_require_approval(True)
         await chat_env.add_document(chat_env.users["bob"], "b.pdf", ["bob secret chunk"])
         chat_env.act_as("alice")
@@ -706,7 +516,7 @@ class TestNoContextTurn:
         assert "bob secret chunk" not in chat_env.prompts[0]
 
     async def test_chat_intent_sends_no_chunks(
-        self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch
+        self, chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         async def _chat_intent(**kwargs):
             return "chat"
@@ -726,7 +536,7 @@ class TestNoContextTurn:
 
 class TestApprovalSessionCleanup:
     async def test_stream_closed_right_after_approval_required_pops_the_session(
-        self, chat_env: _ChatEnv
+        self, chat_env: ChatEnv
     ) -> None:
         from starlette.requests import Request
 
@@ -758,7 +568,7 @@ class TestApprovalSessionCleanup:
 
 class TestLlmErrorEvent:
     async def _ask_with_failure(
-        self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch, error: LLMRouterError
+        self, chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch, error: LLMRouterError
     ) -> dict[str, Any]:
         await chat_env.set_require_approval(False)
         doc = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha"])
@@ -772,7 +582,7 @@ class TestLlmErrorEvent:
         return next(e for e in events if e["type"] == "error")
 
     async def test_error_event_carries_the_machine_code(
-        self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch
+        self, chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         event = await self._ask_with_failure(
             chat_env, monkeypatch, LLMRouterError("refused", code="ollama_url_not_allowed")
@@ -781,7 +591,7 @@ class TestLlmErrorEvent:
         assert event["code"] == "ollama_url_not_allowed"
 
     async def test_uncoded_error_gets_the_fixed_llm_unavailable_event(
-        self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch
+        self, chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         upstream = "gateway: upstream 502 from https://internal.example:8443 key=sk-123"
         event = await self._ask_with_failure(chat_env, monkeypatch, LLMRouterError(upstream))
@@ -796,7 +606,7 @@ class TestLlmErrorEvent:
         [(LLMRouterError("down"), "llm_unavailable"), (RuntimeError("unexpected"), None)],
     )
     async def test_failing_error_log_is_reported_and_the_error_event_still_arrives(
-        self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch, error: Exception, expected_code: Optional[str]
+        self, chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch, error: Exception, expected_code: Optional[str]
     ) -> None:
         from septum_api.services.error_logger import ERROR_LOG_WRITE_FAILURES
 
@@ -814,7 +624,7 @@ class TestLlmErrorEvent:
         assert ERROR_LOG_WRITE_FAILURES._value.get() == before + 1
 
     async def test_failing_error_log_does_not_break_a_cloud_fallback_turn(
-        self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch
+        self, chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from septum_api.services.error_logger import ERROR_LOG_WRITE_FAILURES
 
@@ -838,7 +648,7 @@ class TestLlmErrorEvent:
         assert ERROR_LOG_WRITE_FAILURES._value.get() == before + 1
 
     async def test_coded_error_keeps_its_authored_message(
-        self, chat_env: _ChatEnv, monkeypatch: pytest.MonkeyPatch
+        self, chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from septum_api.services.ollama_client import (
             OLLAMA_URL_NOT_ALLOWED_CODE,

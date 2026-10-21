@@ -1,26 +1,38 @@
 # -----------------------------------------------------------------------------
 # Septum — air-gapped deployment
 #
-# Runs ONLY the air-gapped zone modules: api + web + postgres + redis.
-# No gateway, no audit, no cloud LLM network egress. The api publishes
-# masked requests onto a Redis stream; the internet-facing gateway runs
-# on a separate host via docker-compose.gateway.yml and consumes them
-# over a VPN / private link.
+# Runs ONLY the air-gapped zone modules: api + web + postgres + redis + ollama
+# (+ mcp).
+# They sit on the `zone` network, which is internal: no route to the internet
+# and no published ports. The single `zone-edge` relay (docker/zone-edge/
+# haproxy.cfg) is on `zone` and `edge` and is the only way in or out:
+#   :3000  host -> web (the dashboard; the api is reached through it)
+#   :8765  host -> mcp (mcp profile, bound to SEPTUM_MCP_BIND)
+#   :6379  api  -> the gateway-zone Redis at SEPTUM_GATEWAY_QUEUE_ADDR
+#                  (only from the api's fixed address, SEPTUM_API_IP)
+# Ollama runs inside the zone (the `ollama` service, http://ollama:11434) and
+# has no route out. Load models with the `ollama-pull` one-off (see below).
+# Without Ollama: add -f docker-compose.no-ollama.yml.
+# The api publishes masked requests onto that Redis; the internet-facing
+# gateway (docker-compose.gateway.yml, separate host) consumes them over a
+# VPN / private link.
 #
 # Start:
 #   docker compose -f docker-compose.airgap.yml up -d
 #
-# Gateway hand-off (one direction: this api connects OUTWARD to the gateway):
-#   The queue is the gateway-zone Redis (docker-compose.gateway.yml). Set
-#   SEPTUM_QUEUE_URL in .env to it, e.g.
-#     SEPTUM_QUEUE_URL=redis://:<gateway REDIS_PASSWORD>@<gateway-private-ip>:6379/0
-#   Unset = single-host dev, the queue falls back to the local Redis below.
-#   NOT WIRED YET: the api currently ignores SEPTUM_QUEUE_URL (no gateway
-#   client factory). Routing through the gateway lands in the next branch.
-#   REDIS_URL always stays on the local Redis (rate limiter: login failures,
-#   setup token, error-log buckets); the gateway host never receives it.
-#   The local Redis is bound to 127.0.0.1 on purpose: it is not reachable
-#   from the network. Only masked text crosses the queue.
+# Required in .env (besides POSTGRES_PASSWORD and REDIS_PASSWORD):
+#   SEPTUM_GATEWAY_QUEUE_ADDR    <gateway-private-ip>:6379, the gateway-zone Redis
+#   SEPTUM_QUEUE_API_PASSWORD    the septum-api ACL user's password on that Redis
+#                                (same value as on the gateway host)
+# The api connects as redis://septum-api:<password>@zone-edge:6379/0, which can
+# only touch the request and response streams. USE_GATEWAY_DEFAULT is true,
+# so the api refuses to start without a queue, and cloud calls never leave
+# from this zone. REDIS_URL stays on the local Redis (rate limiter: login
+# failures, setup token, error-log buckets); the gateway host never receives
+# it. Only masked text crosses the queue.
+#
+# No host ports for api (8000), postgres or redis: use
+#   docker compose -f docker-compose.airgap.yml exec <service> ...
 # -----------------------------------------------------------------------------
 
 services:
@@ -31,8 +43,7 @@ services:
       POSTGRES_USER: septum
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (see .env.example)}
       POSTGRES_DB: septum
-    ports:
-      - "127.0.0.1:5432:5432"
+    networks: [zone]
     volumes:
       - septum-pgdata:/var/lib/postgresql/data
     restart: unless-stopped
@@ -47,14 +58,17 @@ services:
     image: redis:8-alpine
     container_name: septum-redis
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}"]
-    ports:
-      # Loopback on purpose: this Redis serves REDIS_URL only and is never a queue endpoint for other hosts.
-      - "127.0.0.1:6379:6379"
+    # Serves REDIS_URL only; never a queue endpoint for other hosts.
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}
+    networks: [zone]
     volumes:
       - septum-redis-data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)} redis-cli ping"]
+      # Password from the container env, not the healthcheck string; redis-cli
+      # exits 0 even on WRONGPASS, so the reply itself is checked.
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli --no-auth-warning ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       start_period: 5s
@@ -70,11 +84,12 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://septum:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (see .env.example)}@postgres:5432/septum
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0
-      # Opt into gateway mode so cloud LLM calls flow over Redis Streams
-      # to the internet-facing zone instead of happening in-process.
-      # NOT WIRED YET: the api ignores SEPTUM_QUEUE_URL below until the gateway client factory lands.
+      # Gateway mode: cloud LLM calls flow over Redis Streams to the
+      # internet-facing zone instead of happening in-process.
       USE_GATEWAY_DEFAULT: "true"
-      SEPTUM_QUEUE_URL: ${SEPTUM_QUEUE_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (see .env.example)}@redis:6379/0}
+      SEPTUM_QUEUE_URL: ${SEPTUM_QUEUE_URL:-redis://septum-api:${SEPTUM_QUEUE_API_PASSWORD:?SEPTUM_QUEUE_API_PASSWORD must be set (see .env.example)}@zone-edge:6379/0}
+      # The in-zone Ollama service (no egress).
+      OLLAMA_BASE_URL: http://ollama:11434
       FRONTEND_ORIGIN: http://localhost:3000
       # Only the web container's proxy may set X-Forwarded-For; anything
       # else (incl. the Docker gateway behind the published port) is
@@ -82,13 +97,14 @@ services:
       FORWARDED_ALLOW_IPS: ${SEPTUM_WEB_IP:-172.28.70.10}
       # No internet in this zone: a model missing from /app/models fails fast with
       # model_integrity_failed instead of hanging on a Hub download. Pre-populate
-      # the volume with `docker compose run --rm -e HF_HUB_OFFLINE=0 api python -m septum_api.cli.models fetch`
-      # on a connected host (compose run inherits this variable, so the override is needed).
+      # the volume on a connected host, outside the zone network (compose run
+      # would join it and have no egress):
+      #   docker run --rm -e HF_HUB_OFFLINE=0 -v <project>_septum-models:/app/models septum-api:local python -m septum_api.cli.models fetch
       HF_HUB_OFFLINE: "1"
-    ports:
-      - "127.0.0.1:8000:8000"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    # Fixed address: zone-edge relays the queue only from this one.
+    networks:
+      zone:
+        ipv4_address: ${SEPTUM_API_IP:-172.28.70.12}
     volumes:
       - septum-data:/app/data
       - septum-uploads:/app/uploads
@@ -101,6 +117,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      ollama:
+        condition: service_started
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
@@ -121,11 +139,13 @@ services:
     image: septum-web:local
     pull_policy: never
     container_name: septum-web
+    environment:
+      # zone-edge sets X-Forwarded-For to the real client; only its fixed
+      # address is trusted to do so.
+      SEPTUM_TRUSTED_PROXIES: ${SEPTUM_ZONE_EDGE_IP:-172.28.70.11}
     networks:
-      default:
+      zone:
         ipv4_address: ${SEPTUM_WEB_IP:-172.28.70.10}
-    ports:
-      - "3000:3000"
     depends_on:
       api:
         condition: service_healthy
@@ -159,8 +179,7 @@ services:
       SEPTUM_REGULATIONS: ${SEPTUM_REGULATIONS:-}
       SEPTUM_MCP_FILE_ROOT: /data/scan
       HF_HUB_OFFLINE: "1"
-    ports:
-      - "${SEPTUM_MCP_BIND:-127.0.0.1}:8765:8765"
+    networks: [zone]
     volumes:
       - septum-mcp-scan:/data/scan:ro
       # Read-only: mcp loads snapshots that api or the models fetch CLI already verified.
@@ -174,13 +193,86 @@ services:
       retries: 3
     profiles: ["mcp"]
 
-# Fixed subnet so web gets a known address the API trusts as its proxy.
-# Other containers draw from the upper half (ip_range), so the static
-# web address can never be handed to another one. If the subnet collides
-# with a network on the host, override SEPTUM_SUBNET,
-# SEPTUM_DYNAMIC_IP_RANGE and SEPTUM_WEB_IP together.
+  # Local LLM for the semantic PII layer and the fallback provider. On `zone`
+  # only: no egress, no published port, so a pull from the dashboard fails
+  # and `*-cloud` model tags cannot reach a cloud. Models come from the
+  # ollama-pull one-off below.
+  ollama:
+    image: ollama/ollama:0.40.7@sha256:2e6cc92ffa43b4b1a2e70e315407e00ac97ec125afc71277d73c7efe01c4f31b
+    container_name: septum-ollama
+    networks: [zone]
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  # Operator-only model loader; never started by `up`. It runs a throwaway
+  # Ollama on `edge` (egress, nothing published, listening on its own
+  # loopback), pulls the named models into the shared ollama-data volume and
+  # exits. It never joins `zone`, so nothing in the zone gains a route out:
+  #   docker compose -f docker-compose.airgap.yml run --rm ollama-pull llama3.2:3b [more:tags]
+  # The in-zone ollama lists new models without a restart. A host with no
+  # internet at all: copy a connected host's ~/.ollama/models into the
+  # <project>_ollama-data volume instead.
+  ollama-pull:
+    image: ollama/ollama:0.40.7@sha256:2e6cc92ffa43b4b1a2e70e315407e00ac97ec125afc71277d73c7efe01c4f31b
+    environment:
+      OLLAMA_HOST: 127.0.0.1:11434
+    entrypoint:
+      - /bin/sh
+      - -c
+      - 'ollama serve >/dev/null 2>&1 & until ollama list >/dev/null 2>&1; do sleep 1; done; for m in "$$@"; do ollama pull "$$m" || exit 1; done'
+      - ollama-pull
+    command: ["llama3.2:3b"]
+    networks: [edge]
+    volumes:
+      - ollama-data:/root/.ollama
+    profiles: ["ollama-pull"]
+
+  # The only service with published ports and the only one on `edge`
+  # (besides the ollama-pull one-off).
+  zone-edge:
+    image: haproxy:3.2-alpine@sha256:254e6370f01cd654e0744edf607c67f33777c1b6a9dc0d4b28bcba7171460122
+    container_name: septum-zone-edge
+    environment:
+      SEPTUM_GATEWAY_QUEUE_ADDR: ${SEPTUM_GATEWAY_QUEUE_ADDR:?set SEPTUM_GATEWAY_QUEUE_ADDR to <gateway-private-ip>:6379 (see docker-compose.airgap.yml header)}
+      SEPTUM_ZONE_EDGE_IP: ${SEPTUM_ZONE_EDGE_IP:-172.28.70.11}
+      SEPTUM_API_IP: ${SEPTUM_API_IP:-172.28.70.12}
+      SEPTUM_SUBNET: ${SEPTUM_SUBNET:-172.28.70.0/24}
+    volumes:
+      - ./docker/zone-edge/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    networks:
+      zone:
+        ipv4_address: ${SEPTUM_ZONE_EDGE_IP:-172.28.70.11}
+      edge: {}
+    ports:
+      - "3000:3000"
+      - "${SEPTUM_MCP_BIND:-127.0.0.1}:8765:8765"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO/dev/null", "http://127.0.0.1:8404/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+
+# `zone` is internal: no egress, and ports published on it are silently
+# dropped, so everything enters and leaves through zone-edge.
+# Fixed subnet so web, zone-edge and api get known addresses (the API trusts
+# web, web trusts zone-edge, zone-edge relays the queue only for the api). Other containers draw from the upper half
+# (ip_range), so the static addresses can never be handed to another one.
+# If the subnet collides with a network on the host, override SEPTUM_SUBNET,
+# SEPTUM_DYNAMIC_IP_RANGE, SEPTUM_WEB_IP, SEPTUM_ZONE_EDGE_IP and SEPTUM_API_IP
+# together.
 networks:
-  default:
+  edge: {}
+  zone:
+    internal: true
     ipam:
       config:
         - subnet: ${SEPTUM_SUBNET:-172.28.70.0/24}
@@ -196,3 +288,4 @@ volumes:
   septum-bm25-indexes:
   septum-models:
   septum-mcp-scan:
+  ollama-data:

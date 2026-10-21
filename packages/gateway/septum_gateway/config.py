@@ -12,6 +12,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from septum_queue import LLM_REQUEST_TOPIC, LLM_RESPONSE_TOPIC
+
 
 @dataclass(frozen=True)
 class GatewayConfig:
@@ -24,8 +26,8 @@ class GatewayConfig:
     the same config can be reused across file- and Redis-backed setups.
     """
 
-    request_topic: str = "septum.llm.requests"
-    response_topic: str = "septum.llm.responses"
+    request_topic: str = LLM_REQUEST_TOPIC
+    response_topic: str = LLM_RESPONSE_TOPIC
     audit_topic: str | None = None
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None

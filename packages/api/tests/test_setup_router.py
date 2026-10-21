@@ -270,6 +270,19 @@ class TestInitialize:
         assert all(record.exc_info is None for record in caplog.records)
 
 
+    def test_invalid_env_flag_failure_names_variable_not_value(self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("REQUIRE_APPROVAL_DEFAULT", "maybe-xq7")
+        with patch("septum_api.routers.setup.engine_is_ready", return_value=False), \
+             patch("septum_api.routers.setup.initialize_engine"), \
+             patch("septum_api.routers.setup.reset_engine", new_callable=AsyncMock), \
+             caplog.at_level(logging.DEBUG):
+            resp = client.post("/api/setup/initialize", json={"database_type": "sqlite"})
+
+        assert resp.json() == {"ok": False, "message": "Infrastructure initialisation failed"}
+        assert "REQUIRE_APPROVAL_DEFAULT" in caplog.text
+        assert "maybe-xq7" not in caplog.text
+        assert "maybe-xq7" not in resp.text
+
     def test_failed_initialize_leaves_setup_open_for_a_retry(self):
         with patch("septum_api.routers.setup.engine_is_ready", return_value=False), \
              patch("septum_api.routers.setup.initialize_engine"), \
