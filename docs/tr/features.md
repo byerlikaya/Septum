@@ -244,12 +244,21 @@ API anahtarları veri ve okuma otomasyonu içindir. API anahtarlarını, kullan�
 
 | Endpoint | Limit |
 |:---|:---|
-| `POST /api/auth/register` | dakikada 3 |
-| `POST /api/auth/login` | dakikada 5 |
+| `POST /api/auth/register` | istemci başına dakikada 3 |
+| `POST /api/auth/login` | istemci başına dakikada 5; bir e-posta için saatte 100 başarısız girişten sonra yalnızca o e-posta için kendisi başarısız olmuş istemciler reddedilir |
+| `POST /api/auth/change-password` | kullanıcı başına dakikada 5 |
 | `POST /api/api-keys` | dakikada 10 |
-| Diğer hepsi | dakikada 60 (`RATE_LIMIT_DEFAULT` ile yapılandırılır) |
+| `POST /api/chat/ask` | dakikada 30 |
+| `GET /api/setup/status` | dakikada 120 |
+| `POST /api/error-logs/frontend` | istemci başına saatte 60; IPv6'da ayrıca /48 başına saatte 120 |
+| Kurulum anahtarı hataları (kurulum kapılı her route) | istemci başına dakikada 10 |
+| Diğer hepsi | dakikada 600 (`RATE_LIMIT_DEFAULT` ile yapılandırılır) |
 
-API anahtarıyla gelen isteklere IP yerine **anahtar öneki** bazında rate limit uygulanır; böylece paylaşılan NAT arkasındaki her servis kendi kotasına sahip olur. Anonim ve JWT istekleri ise IP bazlı limite tabidir. Redis yapılandırıldığında sayaçlar Redis'te tutulur; aksi hâlde süreç içi bellekte saklanır (bu mod yalnızca tek node üzerinde çalışan geliştirme senaryolarına uygundur).
+Limitler route ve kimlik başına sayılır: API anahtarlı isteklerde **anahtar öneki**, oturum açmış isteklerde kullanıcı, diğer durumlarda istemci adresi. Böylece paylaşılan NAT arkasındaki her servis kendi kotasına sahip olur. Giriş, kayıt ve kurulum route'ları oturum açılmış olsa bile her zaman istemci adresine göre sayılır. IPv6 istemcileri /64 bazında sayılır. Başarısız giriş ve kurulum anahtarı sayaçları /48 kullanır. Giriş ve kayıt ayrıca her biri, IPv6 /48 başına dakikada 60 ile sınırlıdır. Bu IPv6 kuralları yalnızca API gerçek IPv6 istemci adreslerini gördüğünde geçerlidir; varsayılan compose ağında (yalnızca IPv4) IPv6 ziyaretçiler Docker proxy'si üzerinden gelir ve tek bir IPv4 kovasını paylaşır.
+
+429 yanıtı `Retry-After` başlığını taşır. Parola kuyruğu dolduğunda ya da aynı çağıran zaten bir parola kontrolü yürütüyorken giriş, kayıt ve parola değiştirme `503` ve `server_busy` koduyla yanıt verebilir; yanıt `Retry-After: 2` taşır.
+
+Redis yapılandırıldığında (`REDIS_URL` veya yeniden başlatmadan sonra sihirbazın Redis adımı) sayaçlar Redis'te tutulur; aksi hâlde yalnızca tek süreçte doğru çalışan süreç içi bellekte saklanır. Redis kesintisinde genel limitler açık kalır (fail open); giriş, kayıt, parola değiştirme, frontend hata bildirimleri, başarısız giriş sayaçları, kurulum anahtarı sayacı ve hata günlüğü bütçeleri bellekte (süreç başına) saymaya devam eder. API worker sayısını birden fazla yapmak için (`WEB_CONCURRENCY` 1'den büyük) `REDIS_URL` ayarlı olmalı; ilk kurulumu tek worker ile tamamlayın ya da `SEPTUM_SETUP_TOKEN` ayarlayın. İlgili ayarlar için [Erişim ve ağ ayarları](installation.md#erişim-ve-ağ-ayarları) bölümüne bakın.
 
 ### Hızlı API örneği
 

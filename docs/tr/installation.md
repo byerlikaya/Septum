@@ -29,6 +29,7 @@
   - [Yalnız internet-facing bölge](#4-yalnız-internet-facing-bölge)
   - [Kaynaktan geliştirici kurulumu](#5-kaynaktan-geliştirici-kurulumu)
 - [İlk açılış — kurulum sihirbazı](#i̇lk-açılış--kurulum-sihirbazı)
+- [Erişim ve ağ ayarları](#erişim-ve-ağ-ayarları)
 - [LLM sağlayıcıları](#llm-sağlayıcıları)
 - [Veri kalıcılığı ve volume'lar](#veri-kalıcılığı-ve-volumelar)
 - [Güncelleme](#güncelleme)
@@ -48,7 +49,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Tarayıcınızda **http://localhost:3000** adresini açın; kurulum sihirbazı gerisini halleder.
+Tarayıcınızda **http://localhost:3000** adresini açın. Kurulum sihirbazının ilk adımı, API'nin günlüğüne yazdırılan bir kurulum anahtarı ister: `docker compose logs api`. Sihirbaz gerisini halleder. Bkz. [Kurulum anahtarı](#kurulum-anahtarı).
 
 Compose yığını, tek bir makinede PostgreSQL, Redis, Ollama, FastAPI backend ve Next.js paneli birlikte ayağa kaldırır. Septum kaynaktan kurulur: ilk açılışta Septum image'ları yerelde derlenir (birkaç dakika sürer), temel servis image'ları ve Ollama'nın varsayılan modeli indirilir; sonraki açılışlar derleme önbelleğini kullanır. Ham PII hiçbir zaman makineden dışarı çıkmaz — tespit, maskeleme ve LLM çıkarımının tamamı yerelde yürür.
 
@@ -112,6 +113,8 @@ git clone https://github.com/byerlikaya/Septum.git && cd Septum
 docker compose -f docker-compose.standalone.yml up -d --build
 ```
 
+Kurulum anahtarı container günlüğüne yazdırılır: `docker compose -f docker-compose.standalone.yml logs septum`.
+
 Standalone varyantı Ollama'yı paketinde taşımaz. Ya host'a Ollama kurun (`brew install ollama && ollama serve`) ve sihirbaza `http://host.docker.internal:11434` adresini verin, ya da Ollama'yı atlayıp bulut sağlayıcısıyla (Anthropic / OpenAI / OpenRouter) ilerleyin.
 
 **Standalone'u şu durumlarda seçin**: mümkün olan en hızlı "hemen deneyeyim" akışını istiyorsanız, korpusunuz küçükse ve modüler bölge ayrımına ihtiyaç duymuyorsanız.
@@ -120,7 +123,7 @@ Standalone varyantı Ollama'yı paketinde taşımaz. Ya host'a Ollama kurun (`br
 
 ### 3. Yalnız air-gapped bölge
 
-Yalnızca air-gapped bölgeyi (api + web + PostgreSQL + Redis) internete çıkışı olmayan bir host üzerinde çalıştırır. Bulut LLM çağrıları, gateway'in koştuğu ayrı bir internete açık host üzerinden yapılır.
+Yalnızca air-gapped bölgeyi (api + web + PostgreSQL + Redis) çalıştırır. Host'un internet çıkışı olmamalıdır, ancak compose dosyası bunu zorlamaz. Bu ayrıma güvenmeden önce [Gateway yönlendirmesinin durumu](#gateway-yönlendirmesinin-durumu) bölümünü okuyun.
 
 ```bash
 cp .env.example .env
@@ -129,7 +132,7 @@ cp .env.example .env
 docker compose -f docker-compose.airgap.yml up -d --build
 ```
 
-Bu topoloji `USE_GATEWAY_DEFAULT=true` kullanır; her LLM çağrısı HTTP yerine `septum-queue` (Redis Streams) üzerinden yönlendirilir. Bölge sınırını yalnızca maskelenmiş metin aşar. İnternete açık hostu varyant 4 ile birlikte kurun.
+Bu topoloji `USE_GATEWAY_DEFAULT=true` kullanır; bu ayar, her LLM çağrısının `septum-queue` (Redis Streams) üzerinden internete açık host'a yönlendirilmesi içindir. Bu sürümde bu yönlendirme bağlı değildir. Bkz. [Gateway yönlendirmesinin durumu](#gateway-yönlendirmesinin-durumu).
 
 **İnternetsiz host için modelleri hazırlama.** Air-gapped host'un internet erişimi yoktur; bu yüzden model önbelleği bağlantılı bir makinede doldurulur ve host'a kopyalanır. Sabitlemeler (pin) kodun içinde olduğu için iki makine de aynı Septum kaynak ağacını çalıştırmalıdır. Bağlantılı makinede, aynı `.env` ile:
 
@@ -172,7 +175,8 @@ Yalnızca gateway ve audit modüllerini, bulut LLM sağlayıcılarına ulaşabil
 
 ```bash
 cp .env.example .env
-# REDIS_PASSWORD'ü doldurun (air-gapped host ile aynı değer; VPN / özel ağ üzerinden paylaşın)
+# REDIS_PASSWORD'ü doldurun (bu host'a özgü bir değer; air-gapped host'un parolasını kullanmayın)
+# SEPTUM_GATEWAY_REDIS_BIND değerini bu host'un özel veya VPN adresine ayarlayın (zorunlu; bu olmadan compose başlamaz)
 # Sağlayıcı anahtarlarını girin: ANTHROPIC_API_KEY, OPENAI_API_KEY vb.
 
 docker compose -f docker-compose.gateway.yml up -d --build
@@ -180,7 +184,7 @@ docker compose -f docker-compose.gateway.yml up -d --build
 
 Gateway image'ı güvenlik invariantı gereği `septum-core`'u içermez — yalnızca placeholder ile maskelenmiş metni görür ve maskelenmiş cevapları geri yayınlar. Audit sidecar'ı her isteği varlık tipi, sayı ve regülasyon id'leriyle loglar (ham PII asla yer almaz) ve `/api/audit/export` uç noktasını SIEM entegrasyonu için açar.
 
-**Air-gapped + internet-facing birlikte**: iki Docker host; her ikisinden de (ideal olarak VPN ya da özel alt ağ üzerinden) erişilebilen ortak bir Redis. İki hostta `REDIS_PASSWORD` değeri aynı olmalı. Septum'un şifreleme invariantı Redis'in yalnızca placeholder ile maskelenmiş payload'ları gördüğünü garanti eder.
+**Air-gapped + internet-facing birlikte**: iki Docker host. Kuyruk, gateway host'unun `SEPTUM_GATEWAY_REDIS_BIND` üzerinde yayımlanan Redis'idir. Her host kendi `REDIS_PASSWORD` değerini kullanır. Air-gapped Redis `127.0.0.1` üzerinde kalır ve parolası gateway host'una verilmez. Yönlendirme yayımlandığında air-gapped api kuyruğa `SEPTUM_QUEUE_URL` ile bağlanacak. Redis bağlantısı düz metindir; bu yüzden yalnızca VPN veya özel ağ üzerinden çalıştırın. Kuyruk tasarım gereği yalnızca placeholder ile maskelenmiş payload taşır, ancak kuyruk üzerinden yönlendirme henüz bağlı değildir (bkz. [Gateway yönlendirmesinin durumu](#gateway-yönlendirmesinin-durumu)).
 
 ### 5. Kaynaktan geliştirici kurulumu
 
@@ -207,7 +211,7 @@ cd packages/web && npm test       # frontend Jest suite
 
 ## İlk açılış — kurulum sihirbazı
 
-Compose varyantlarından biri açılışı tamamladığında **http://localhost:3000** adresine gidin. Sihirbaz ilk kurulumda bir kez çalışır ve backend'in ihtiyaç duyduğu her şeyi yapılandırır.
+Compose varyantlarından biri açılışı tamamladığında **http://localhost:3000** adresine gidin. Sihirbaz ilk kurulumda bir kez çalışır ve backend'in ihtiyaç duyduğu her şeyi yapılandırır. Sihirbazın ilk adımı kurulum anahtarını ister.
 
 | Adım | Ne yaparsınız | Notlar |
 |---|---|---|
@@ -239,6 +243,76 @@ Sihirbaz tamamlandığında `config.json` yazılır, admin kullanıcı oluşturu
 **Ollama URL kuralı.** Septum bir Ollama URL'ini yalnızca host'u loopback (`127.0.0.0/8`, `::1`), `localhost`, `host.docker.internal`, `host.containers.internal` veya `ollama` (paketli compose servisi) olduğunda kabul eder. Bunların dışındaki her host reddedilir ve HTTP 400 (`ollama_url_not_allowed`) döner; buna LAN veya özel IP adresleri, `.local` adları ve uzak sunucular dahildir; `https://` üzerinden bile olsa. Çünkü Ollama maskelenmemiş metin alır ve ham PII makineden çıkmamalıdır. `OLLAMA_BASE_URL` ilk kurulumda ayarlara kopyalanır ve kayıtlı URL yokken kullanılır; bundan sonra kayıtlı URL geçerlidir. Aynı kural bu değişken için de geçerlidir: reddedilen değer varsayılana düşmez, bu nedenle düzeltilene kadar Ollama çağrıları reddedilir. Ollama için özel bir compose servis adı kabul edilmez. `ollama`, `host.docker.internal` ve `host.containers.internal` adları isimleriyle güvenilir kabul edilir; bu adları `/etc/hosts`, DNS ya da container ağında başka bir makineye yönlendirmeyin. Septum adı kontrol eder, adın nereye çözüldüğünü değil. Daha önce kaydedilmiş bir URL artık reddediliyorsa Ollama özellikleri kapalı kalır ve ayarlar sayfası, URL değiştirilene kadar bunu URL alanının altında işaretler.
 
 Her adımın **Bağlantıyı Test Et** butonu api container'ının içinden çalışır — yani backend kurulum sonrasında ne görecekse sihirbaz o anda onu gösterir. Yeşil onay = devam edebilirsiniz.
+
+---
+
+## Erişim ve ağ ayarları
+
+### Kurulum anahtarı
+
+Kurulum açıkken API ilk açılışta bir kurulum anahtarı (setup token) üretir ve her açılışta günlüğüne yazdırır:
+
+```
+Septum setup token: <token>
+```
+
+Anahtarı `docker compose logs api` ile (tam yığın), `docker compose -f docker-compose.airgap.yml logs api` ile (air-gapped dosyası), `docker compose -f docker-compose.standalone.yml logs septum` ile (standalone) ya da kaynaktan kurulumda `./dev.sh` çalıştıran terminalden okuyun. Sihirbaz bunu ilk adımda ister; sonraki her kurulum isteği anahtarı gönderir. Anahtar, ilk yönetici hesabı oluşturulduğunda silinir. O zamana kadar container günlüğünü veya `config.json` dosyasını (veri volume'u) okuyabilen herkes kurulumu tamamlayabilir; bu nedenle günlüğü ve veri volume'unu hassas kabul edin.
+
+Değeri kendiniz seçmek için `SEPTUM_SETUP_TOKEN` değişkenini en az 32 karakter ve en az 10 farklı karakterden oluşacak şekilde ayarlayın. Septum daha kısa ya da daha az çeşitli bir değerle başlamayı reddeder. `openssl rand -hex 32` ile üretebilirsiniz. Değişken ayarlıysa günlük değeri yazdırmaz; `Septum setup is open; use the token set in SEPTUM_SETUP_TOKEN.` satırını yazar.
+
+Zaten bir kullanıcısı olan bir kurulumda açık bir kurulum penceresi yoktur; bu yüzden anahtar üretilmez ve yazdırılmaz.
+
+### Güvenilen proxy'ler
+
+API, bir istemcinin adresini `X-Forwarded-For` başlığından yalnızca istek listelenen bir proxy'den geldiğinde okur. Panel (Next.js) bu proxy'dir ve başlığı kendisi ayarlar. Bu nedenle `FORWARDED_ALLOW_IPS` yalnızca panelin adresini listeler:
+
+- Standalone: `127.0.0.1` (iki süreç de aynı container'ı paylaşır).
+- Compose: web container'ının sabit adresi, `SEPTUM_WEB_IP` (varsayılan `172.28.70.10`). Compose dosyaları bunu sizin için ayarlar.
+
+`FORWARDED_ALLOW_IPS` hiçbir zaman `*` kabul etmez; `/8` (IPv4) ya da `/32` (IPv6) değerinden geniş hiçbir aralığı kabul etmez.
+
+Panelin önünde ters bir proxy varsa `SEPTUM_TRUSTED_PROXIES` değişkenini panel sürecinde (web container'ının ortamında ya da `npm start` çalıştıran host'ta) proxy'nin adresi ya da CIDR'ı olarak ayarlayın; aynı boyut sınırları geçerlidir. Panel, istemci adresini proxy'nin `X-Forwarded-For` başlığından okur. Geçersiz bir girdide başlamayı reddeder. Compose dosyaları bu değişkeni ayarlamaz; `web` servisinin ortamına ekleyin.
+
+### Yayımlanan portlar
+
+Yalnızca panel tüm arayüzlerde dinler. Diğer yayımlanan her port, kendi bind değişkeni ayarlanmadıkça `127.0.0.1` adresine bağlanır; gateway Redis'in varsayılanı yoktur ve `SEPTUM_GATEWAY_REDIS_BIND` gerektirir:
+
+| Port | Servis | Varsayılan bind | Değişken |
+|---|---|---|---|
+| 3000 | Panel (web) | tüm arayüzler | — |
+| 8000 | API | `127.0.0.1` | — (standalone'da yayımlanmaz) |
+| 5432 | PostgreSQL | `127.0.0.1` | — |
+| 6379 | Redis (air-gapped dosyası) | `127.0.0.1` | — |
+| 11434 | Ollama | `127.0.0.1` | `SEPTUM_OLLAMA_BIND` |
+| 8765 | MCP sunucusu (`mcp` profili) | `127.0.0.1` | `SEPTUM_MCP_BIND` |
+| 8002 | Audit API | `127.0.0.1` | `SEPTUM_AUDIT_BIND` |
+| 8001 | Gateway sağlık | `127.0.0.1` | `SEPTUM_GATEWAY_HEALTH_BIND` |
+| 6379 | Gateway Redis (gateway dosyası) | zorunlu | `SEPTUM_GATEWAY_REDIS_BIND` |
+
+Docker'ın yayımladığı portlar ufw ve firewalld'nin INPUT kurallarını atlar. Yukarıdaki bind değişkenlerini kullanın; gerektiğinde DOCKER-USER kuralları ekleyin.
+
+### İzleme
+
+Panel artık `/metrics` isteklerini proxy'lemez. API'yi doğrudan kazıyın: compose ağı içinden `api:8000`, host üzerinden `127.0.0.1:8000`. Standalone container 8000 portunu yayımlamaz. Standalone'da bir compose override'ında `127.0.0.1:8000:8000` ile kendiniz yayımlayın. `/metrics` oturum gerektirmez, yönlendirilebilir bir adrese açmayın. `WEB_CONCURRENCY` 1'den büyükse her kazıma tek bir worker'ın sayaçlarını okur.
+
+Yeni Prometheus serileri:
+
+- `septum_rate_limit_storage_up`: rate-limit depolaması yanıt verdiği sürece 1.
+- `septum_unauthenticated_rejections_total`: oturumu ya da API anahtarı olmayan istemcilere verilen 401 ve 403 yanıtları, duruma göre.
+- `septum_password_work_refused_total`: parola kuyruğu dolu olduğu için 503 ile reddedilen giriş, kayıt veya parola değiştirme istekleri.
+- `septum_error_log_writes_dropped_total`: istemcinin bütçesi tükendiği için yazılmayan hata günlüğü satırları.
+- `septum_error_log_write_failures_total`: saklanamayan hata günlüğü satırları.
+- `septum_error_log_retention_failures_total`: başarısız olan hata günlüğü saklama çalışmaları; bir sonraki çalışmada yeniden denenir.
+
+`GET /health` ayrıca `rate_limit_storage` alanını döndürür: `ok`, depolama erişilemediğinde `degraded`.
+
+### Hata günlüğü saklama
+
+`ERROR_LOG_RETENTION_DAYS` (varsayılan `90`) eski hata günlüğü satırlarını günde bir kez siler. `0` bunları süresiz tutar ve başlangıçta bir uyarı yazar. Oturumu ya da API anahtarı olmayan bir istemciye verilen 401 veya 403 yanıtları sayılır ama saklanmaz; böylece tabloyu dolduramazlar. Diğer satırlar kullanıcı, API anahtarı ya da istemci adresi başına bir bütçeden düşer: dakikada 60, sunucu hataları için dakikada 20. Bütçeyi aşan satırlar yalnızca sayılır. Satırlar, somut URL yerine route şablonunu kaydeder (örneğin `/api/documents/{document_id}`).
+
+### Gateway yönlendirmesinin durumu
+
+Gateway yönlendirmesi yayımlanana kadar air-gapped ayrımı bir çıkış (egress) garantisi değildir. Bu sürümde API `SEPTUM_QUEUE_URL` değerini yok sayar ve `USE_GATEWAY_DEFAULT=true` olsa bile LLM çağrılarını gateway kuyruğu üzerinden göndermez. Bir bulut sağlayıcısı yapılandırılmışsa API onu air-gapped host'tan doğrudan çağırır (yalnızca maskelenmiş veriyle) ve compose dosyaları bu trafiği engellemez. Şimdilik air-gapped bölgede yerel bir Ollama sağlayıcısı kullanın ve orada bulut sağlayıcısı yapılandırmayın.
 
 ---
 
@@ -331,6 +405,15 @@ docker compose -f docker-compose.standalone.yml up -d --build
 
 Yeniden derleme boyunca veriler korunur çünkü volume'lar isimlendirilmiş volume'lardır.
 
+**Bu sürümdeki kırıcı değişiklikler.**
+
+- Kurulum artık `localhost` dahil her adresten kurulum anahtarı gerektirir. Loopback istisnası kalktı; anahtarsız kurulum istekleri `403` alır.
+- API ve diğer servis portları varsayılan olarak `127.0.0.1` adresine bağlanır (bkz. [Yayımlanan portlar](#yayımlanan-portlar)). API'ye panel üzerinden, 3000 numaralı porttan erişin.
+- Compose sabit bir alt ağ kullanır (varsayılan `172.28.70.0/24`; `SEPTUM_SUBNET`, `SEPTUM_DYNAMIC_IP_RANGE` ve `SEPTUM_WEB_IP` bunu değiştirir). Compose ağın değiştiğini bildirirse, başlatırken kullandığınız aynı `-f` dosyasıyla `docker compose -f <dosya> down` komutunu bir kez çalıştırın (örneğin `docker compose -f docker-compose.airgap.yml down`); volume'lar korunur. Ardından `docker compose -f <dosya> up -d --build` ile yeniden başlatın. Özel bir `SEPTUM_SUBNET` kullanıyorsanız `SEPTUM_WEB_IP` bu alt ağın içinde, ama `SEPTUM_DYNAMIC_IP_RANGE` dışında olmalıdır.
+- `config.json` içindeki `rate_limit` değeri `60/minute` (önceki sürümlerin yazdığı değer) ise yeni varsayılan olan `600/minute` olarak okunur.
+- `docker-compose.gateway.yml`, `SEPTUM_GATEWAY_REDIS_BIND` ayarlanmadan başlamaz (Redis önceden tüm arayüzlerde yayımlanıyordu).
+- Varsayılan rate limit artık her API route'unda uygulanır; önceki sürümler bunu hiç uygulamıyordu.
+
 **Yükseltme sonrası model önbellekleri.** Önceki sürümden kalan model önbellekleri sabitlenmiş commit'lerle eşleşmeyebilir. Bir sonraki çevrimiçi açılışta, bekleyen denetlenmemiş dosyalar içeren sabitlenmiş bir snapshot temizlenir ve bir kez yeniden indirilir; çevrimdışıysa, yeniden çekilene kadar reddedilir. Air-gapped bir kurulum, `fetch` komutunu bağlantılı bir host'ta yeniden çalıştırıp models volume'unu ve user-pins dosyasını kopyalamalıdır; ayrıntılar [3. varyant](#3-yalnız-air-gapped-bölge) bölümündedir. Kayıtlı commit'siz özel NER kimliği `ner_model_unpinned` koduyla, openai-whisper kayıt defteri dışındaki bir Whisper model adı (yerel bir checkpoint yolu gibi) ise `whisper_model_not_allowed` koduyla reddedilir; ikisi de Ayarlar'dan değiştirilmelidir. Ön yükleme kapalı değilse, başlangıç günlüğü reddedilecek her saklı özel NER modeli veya Whisper modeli için yalnızca hata kodlarıyla uyarı verir.
 
 **Yayınlanmış `byerlikaya/septum` image'ından geliyorsanız.** Septum artık container image'ı yayınlamıyor; Docker Hub'daki eski image'lar duruyor ancak güncellenmiyor. Yalnızca eski container'ı kaldırın, ardından standalone compose dosyasını derleyip başlatın. Container'ı kaldırmak volume'ları silmez ve compose dosyası aynı volume adlarını kullanır (`septum-data`, `septum-uploads`, `septum-anon-maps`, `septum-vector-indexes`, `septum-bm25-indexes`, `septum-models`); böylece verileriniz, `config.json` ve şifreleme anahtarınız aynen kullanılır.
@@ -356,6 +439,8 @@ Taşıma sırasında asla `docker volume prune` çalıştırmayın: hiçbir cont
 **Sihirbaz "Redis / PostgreSQL bağlantısı sınanıyor" adımında asılı kalıyor.** Compose dosyası `POSTGRES_PASSWORD` ve `REDIS_PASSWORD` değerlerini zorunlu tutar; `.env` boşsa veri container'ları hiç başlamamıştır. `docker compose logs postgres redis` ile bakın ve değişkenleri doldurup yeniden başlatın.
 
 **Ollama adımı "connection refused" hatası veriyor.** Tam yığın: Ollama container'ı ilk modeli indiriyor olabilir; 30-60 saniye bekleyip tekrar deneyin. Standalone: Ollama paketli değildir — ya host'a kurun (`brew install ollama`) ve sihirbaza `http://host.docker.internal:11434` adresini verin, ya da bulut sağlayıcıya geçin.
+
+**Sihirbaz "Kurulum anahtarı geçersiz veya süresi dolmuş" diyor.** Anahtarı yazdırıldığı gibi tam olarak girin. Anahtar, kurulum tamamlanana kadar yeniden başlatmalarda aynı kalır. `SEPTUM_SETUP_TOKEN` ayarladıysanız bu değeri girin; değişken ayarlıyken günlük satırı `Septum setup is open; use the token set in SEPTUM_SETUP_TOKEN.` yazar. Aksi hâlde en son satırı şöyle okuyun: `docker compose logs api | grep 'setup token'` (standalone: `docker compose -f docker-compose.standalone.yml logs septum | grep 'setup token'`). Günlükte anahtar satırı yoksa, veritabanında zaten bir kullanıcı olduğu için kurulum kapalıdır. Bir dakikada 10 yanlış denemeden sonra sihirbaz çok fazla deneme bildirir; bir dakika bekleyip tekrar deneyin.
 
 **Port 3000 kullanımda.** Makinenizde başka bir şey bu portu tutuyor. Ya o süreci durdurun ya da Septum'un bağlanma portunu değiştirin: bir compose override'ında `-p 3001:3000` kullanın veya `docker-compose.yml` içindeki `ports:` satırını düzenleyin.
 
