@@ -158,9 +158,185 @@ varies linearly with parameter count on CPU; on a single 24 GB GPU,
 14 B models still fit but the ~3× longer per-call cost dominates the
 ingestion pipeline.
 
+## Retrieval benchmark
+
+This benchmark measures retrieval, not PII detection. For each question it asks whether the search stack returns the chunk that holds the answer, once with the raw question and once with the sanitized question. It is the baseline that later changes to chunking, the embedding model and reranking are compared against.
+
+The run uses the document chunker, the per-chunk sanitizer, the FAISS vector store and the BM25 index. Dense, BM25 and hybrid retrieval call the production VectorStore and BM25 code, including `VectorStore.hybrid_search`. auto_rag mirrors chat's cross-document search: the same relevance threshold and per-document candidate count, and a parity test pins the threshold, the per-document candidate count and the candidate cap against chat's implementation. The benchmark runs the per-document searches serially, while production runs them concurrently, so the auto_rag latency is an upper bound. No LLM is called, and the run works offline against a pinned embedder.
+
+### Eval set
+
+| Item | Value |
+|:---|:---|
+| Documents | 30 synthetic documents: 10 English, 10 Turkish, 10 Chinese |
+| Questions | 140: 129 answerable, 11 negative |
+| Answerable, by type | lexical 45 · paraphrase 45 · entity 24 · cross-lingual 15 |
+| Negative | 11 questions that none of the documents answers |
+| Index | 187 chunks; every chunk maps to a span of its source document |
+| Digest | `df81576cd611d809dd59eed997ec789cced8315301796ea75bcc11b97179efec` (SHA-256 over every fixture file) |
+
+Documents and questions are hand-written. Each personal-data slot in a document is filled with a value from a seeded generator (seed 42). A question that refers to such a value uses the value of its own document, so a run always produces the same text.
+
+### Setup
+
+| Item | Value |
+|:---|:---|
+| Embedding model | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, revision `e8f8c211226b894fcb81acc59f3b34ba3efd5f42` (pinned) |
+| Dimension | 384 |
+| Chunker | `pipeline`. The 18 plain-text documents use a sliding window of 800 characters with 200 overlap. The 12 documents labelled PDF use the structured chunker with a maximum of 1,200 characters; their text is passed in directly, with no PDF parsing |
+| Retrieval | top 10; auto-RAG relevance threshold 0.35 |
+| Query modes | raw and sanitized; sanitized is the headline |
+| Confidence intervals | 95% percentile bootstrap of the mean, 1,000 resamples, seed 42 |
+| Latency | 5 timed repeats per query, sanitized queries, one retriever call including query embedding |
+| Hardware | Apple M4 Max, 14 CPU cores, 10 torch threads, Darwin 27.0.0 arm64 |
+| Seed | 42 |
+| Commit | Base commit `2b9db6eb` plus the benchmark harness commits on this branch (the harness was not yet committed when the baseline was recorded) |
+
+### Results
+
+**Headline: sanitized query, hybrid search.** Each cell is mean [95% CI].
+
+| Language | n | Recall@5 | Recall@10 | MRR | nDCG@10 |
+|:---|:---:|:---:|:---:|:---:|:---:|
+| en | 43 | 0.953 [0.884, 1.000] | 1.000 [1.000, 1.000] | 0.727 [0.631, 0.827] | 0.789 [0.712, 0.865] |
+| tr | 43 | 0.977 [0.930, 1.000] | 1.000 [1.000, 1.000] | 0.822 [0.728, 0.901] | 0.861 [0.788, 0.923] |
+| zh | 43 | 0.953 [0.884, 1.000] | 1.000 [1.000, 1.000] | 0.767 [0.663, 0.853] | 0.824 [0.746, 0.889] |
+| **overall** | **129** | **0.961 [0.922, 0.992]** | **1.000 [1.000, 1.000]** | **0.772 [0.715, 0.824]** | **0.825 [0.779, 0.865]** |
+
+**Retrievers compared (overall, n = 129), raw and sanitized query modes.**
+
+| Retriever | Mode | Recall@5 | Recall@10 | MRR | nDCG@10 |
+|:---|:---|:---:|:---:|:---:|:---:|
+| dense | raw | 0.953 [0.907, 0.984] | 1.000 [1.000, 1.000] | 0.748 [0.690, 0.801] | 0.809 [0.765, 0.849] |
+| dense | sanitized | 0.953 [0.907, 0.984] | 1.000 [1.000, 1.000] | 0.739 [0.681, 0.791] | 0.802 [0.758, 0.841] |
+| bm25 | raw | 0.930 [0.876, 0.969] | 1.000 [1.000, 1.000] | 0.740 [0.677, 0.796] | 0.799 [0.753, 0.842] |
+| bm25 | sanitized | 0.930 [0.876, 0.969] | 1.000 [1.000, 1.000] | 0.741 [0.681, 0.797] | 0.800 [0.753, 0.842] |
+| hybrid | raw | 0.961 [0.922, 0.992] | 1.000 [1.000, 1.000] | 0.783 [0.724, 0.834] | 0.833 [0.787, 0.872] |
+| hybrid | sanitized | 0.961 [0.922, 0.992] | 1.000 [1.000, 1.000] | 0.772 [0.715, 0.824] | 0.825 [0.779, 0.865] |
+| auto_rag | raw | 0.550 [0.465, 0.636] | 0.612 [0.527, 0.690] | 0.441 [0.368, 0.514] | 0.483 [0.409, 0.555] |
+| auto_rag | sanitized | 0.527 [0.442, 0.612] | 0.589 [0.504, 0.674] | 0.406 [0.336, 0.476] | 0.450 [0.381, 0.523] |
+
+**Auto-RAG on negatives (11 questions).** A question counts as a false retrieval when a chunk scores at or above the 0.35 threshold. The false-retrieval rate is 0.727 [0.455, 0.909] in both query modes. The top-1 scores overlap: for raw queries the 90th percentile of negatives is 0.577 and the 10th percentile of answerable questions is 0.473.
+
+**Latency** (sanitized queries, milliseconds, one machine):
+
+| Retriever | p50 (ms) | p95 (ms) | Samples |
+|:---|:---:|:---:|:---:|
+| dense | 11.749 | 12.932 | 645 |
+| bm25 | 0.216 | 0.275 | 645 |
+| hybrid | 11.972 | 13.050 | 645 |
+| auto_rag | 351.882 | 371.848 | 700 |
+
+Samples are queries times 5 repeats; auto_rag runs all 140 questions, the others the 129 answerable ones.
+
+**Ingestion** (one run):
+
+| Step | Time |
+|:---|:---:|
+| Chunking, 30 documents | 1.356 s |
+| Embedding and indexing | 1.187 s |
+| Per-chunk sanitization, 30 documents | 10.132 s |
+| Leak-block sanitization, en / tr / zh | 14.566 s / 20.605 s / 29.095 s |
+| Whole run, wall clock | 505.603 s |
+
+### PII leak check
+
+The leak check asks whether raw personal-data text survives sanitization. It runs on separate filler text, not on the retrieval documents.
+
+| Term | Meaning |
+|:---|:---|
+| Literal leak | The value, compared case-insensitively, appears verbatim in the sanitized text of a chunk that overlaps it. Placeholders never count. |
+| Fragment leak | A recoverable part of the value survives at the value's own position in the sanitized text. Identifiers (email, phone, IBAN): a run of letters and digits of at least max(6, half the compact length, rounded up). Names: a whole word token of at least 3 characters; for Han, kana and Hangul, a run of at least max(2, half the length, rounded up) characters. |
+| Crossing value | A value that contains a chunk boundary (a chunk start or end falls strictly inside it). |
+| Control value | A value that no chunk boundary falls inside. |
+
+Each language's slot-free corpus paragraphs are the filler. One synthetic value is inserted after every 120 to 180 filler characters. The value count starts at 300 and doubles until at least 50 values are crossing values (cap 4,800); the final counts are 1,200 (en), 1,200 (tr) and 2,400 (zh). Each language is sanitized chunk by chunk with one anonymization map. The block is recorded only and has no pass or fail threshold.
+
+**Per language** (all values; literal and fragment leak rates):
+
+| Lang | Crossing n | Literal: crossing | Literal: control | Literal: difference | Fragment: crossing | Fragment: control | Fragment: difference |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| en | 52 | 0.269 | 0.369 | -0.100 | 0.365 | 0.368 | -0.003 |
+| tr | 58 | 0.362 | 0.271 | +0.091 | 0.534 | 0.275 | +0.260 |
+| zh | 91 | 0.154 | 0.492 | -0.338 | 0.264 | 0.492 | -0.228 |
+
+**Excluding ORGANIZATION_NAME** (shown separately because its leak rate is the highest of all types):
+
+| Lang | Crossing n | Literal: crossing | Literal: control | Literal: difference | Fragment: crossing | Fragment: control | Fragment: difference |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| en | 38 | 0.079 | 0.252 | -0.173 | 0.158 | 0.251 | -0.093 |
+| tr | 44 | 0.159 | 0.149 | +0.010 | 0.386 | 0.141 | +0.245 |
+| zh | 81 | 0.049 | 0.403 | -0.353 | 0.173 | 0.403 | -0.230 |
+
+**Literal leak rate by type** (all values, crossing and control; leaks/n):
+
+| Type | en | tr | zh |
+|:---|:---:|:---:|:---:|
+| PERSON_NAME | 0.335 (77/230) | 0.047 (9/190) | 0.971 (369/380) |
+| LOCATION | 0.872 (164/188) | 0.676 (142/210) | 0.979 (426/435) |
+| ORGANIZATION_NAME | 0.912 (197/216) | 0.932 (179/192) | 1.000 (355/355) |
+| EMAIL_ADDRESS | 0.000 (0/178) | 0.000 (0/209) | 0.000 (0/424) |
+| PHONE_NUMBER | 0.000 (0/184) | 0.000 (0/213) | 0.000 (0/428) |
+| IBAN | 0.000 (0/204) | 0.000 (0/186) | 0.000 (0/378) |
+
+Reading the numbers:
+
+- Leakage is dominated by values the detector does not mask, not by chunk boundaries. Control values, with no boundary inside, already leak literally at 0.271 to 0.492. The leaking types are person names, locations and organisation names: Chinese person names leak in 369 of 380 values, for example.
+- For these synthetic values in these generated formats, email, phone and IBAN values never leak literally. Real-world formats may differ and are not covered by this measurement. Fragment hits for these three types total 3 of 566 values in en, 10 of 608 in tr and 10 of 1,230 in zh.
+- Chunk boundaries have no consistent effect. In en and zh, crossing values leak less than control values. In tr they leak more: a fragment difference of +0.260 on 58 crossing values, and +0.245 on 44 when ORGANIZATION_NAME is excluded. The cause of the tr difference was not investigated.
+
+### Reproduce
+
+Run from `packages/api`. Each embedder must already be in the local Hugging Face cache; `HF_HUB_OFFLINE=1` keeps the run offline, and the full run skips if the pinned embedder is missing.
+
+```bash
+cd packages/api
+HF_HUB_OFFLINE=1 pytest tests/benchmark_retrieval.py -k smoke -s -q
+HF_HUB_OFFLINE=1 SEPTUM_BENCHMARK_OUT=/absolute/path/run.json pytest tests/benchmark_retrieval.py -k full_retrieval -s -q
+```
+
+| Variable | Default | Meaning |
+|:---|:---|:---|
+| `SEPTUM_BENCHMARK_EMBEDDING_MODEL` | production MiniLM | Embedding model id; it must have a pin in `septum_core` |
+| `SEPTUM_BENCHMARK_CHUNKER` | `pipeline` | `pipeline`, `structured` or `sliding` |
+| `SEPTUM_BENCHMARK_RETRIEVERS` | `dense,bm25,hybrid,auto_rag` | Comma-separated list |
+| `SEPTUM_BENCHMARK_QUERY_MODE` | `both` | `raw`, `sanitized` or `both` |
+| `SEPTUM_BENCHMARK_LATENCY_REPEATS` | `5` | Timed repetitions per query |
+| `SEPTUM_BENCHMARK_OUT` | unset | Path of the JSON result file |
+
+Several configurations, with a delta table against the first one:
+
+```bash
+./scripts/benchmark_retrieval.sh
+./scripts/benchmark_retrieval.sh "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,sliding"
+```
+
+The script writes `benchmark_runs/retrieval/<config>.json` and a `.log` per configuration. The recorded baseline is committed at `packages/api/tests/retrieval_eval/baseline_minilm.json`; new runs can be compared to it with the report CLI:
+
+```bash
+cd packages/api
+python -m tests.retrieval_report base.json other.json
+```
+
+The report refuses runs with a different schema version or evaluation digest, because those runs measure different questions.
+
+### Limitations
+
+- The documents and questions are synthetic and hand-written. Real documents are longer, noisier and cover other topics.
+- The sample is small: 43 answerable questions per language and 11 negatives. The 95% intervals are wide, most of all for auto-RAG false retrieval.
+- The set saturates at Recall@10 for dense, bm25 and hybrid (1.000 in every row), so Recall@5, MRR and nDCG@10 are the discriminating metrics. Dense, bm25 and hybrid overlap within their 95% CIs at Recall@5 and MRR, so do not read them as different.
+- Latency comes from one machine and one run. It says nothing about other hardware.
+- Fragment hits for email, phone and IBAN were not checked by hand.
+- The fragment check for Han, kana and Hangul is a heuristic. It can over- or under-count partial name matches.
+- The baseline covers one embedder and one chunker. The other configurations are not reported here.
+
+---
+
 **Additional references:**
 
 - Benchmark harness: [`packages/api/tests/benchmark_detection.py`](../packages/api/tests/benchmark_detection.py)
+- Retrieval benchmark harness: [`packages/api/tests/benchmark_retrieval.py`](../packages/api/tests/benchmark_retrieval.py)
+- Retrieval benchmark baseline (MiniLM run): [`packages/api/tests/retrieval_eval/baseline_minilm.json`](../packages/api/tests/retrieval_eval/baseline_minilm.json)
 - Recognizer packs (per regulation): [`packages/core/septum_core/recognizers/`](../packages/core/septum_core/recognizers/)
 - National ID validators (Luhn, Verhoeff, ISO 7064, TCKN mod-10/mod-11, CPF, NRIC): [`packages/core/septum_core/national_ids/`](../packages/core/septum_core/national_ids/)
 - Per-regulation legal sources for every entity type: [`REGULATION_ENTITY_SOURCES.md`](../packages/core/docs/REGULATION_ENTITY_SOURCES.md)
