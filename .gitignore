@@ -79,6 +79,9 @@ out/
 /packages/api/anon_maps/
 /packages/api/vector_indexes/
 
+# Retrieval benchmark output (scripts/benchmark_retrieval.sh)
+benchmark_runs/
+
 # Test fixtures (do not commit local sample files)
 packages/api/tests/fixtures/
 
