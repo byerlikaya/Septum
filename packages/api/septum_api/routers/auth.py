@@ -8,7 +8,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..middleware.rate_limit import get_limiter
+from ..middleware.rate_limit import (
+    check_login_failures,
+    record_login_failure,
+    route_limit,
+)
 from ..models.user import User
 from ..services.auth import (
     WeakPasswordError,
@@ -21,7 +25,11 @@ from ..services.auth import (
 from ..utils.auth_dependency import get_current_user, require_interactive_session
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
-_limiter = get_limiter()
+
+# All IPv6 clients of one /48 together: twelve clients' worth of the 5/min
+# login limit, far above what one site's real sign-ins need, while 65 536
+# rotating /64s in that /48 would otherwise get 5/min each.
+_IPV6_SITE_AUTH_LIMIT = "60/minute"
 
 
 def require_strong_password(password: str) -> None:
@@ -73,7 +81,7 @@ class UserResponse(BaseModel):
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-@_limiter.limit("3/minute")
+@route_limit("3/minute", fail_open=False, ipv6_site_limit=_IPV6_SITE_AUTH_LIMIT)
 async def register(
     request: Request,
     payload: RegisterRequest,
@@ -103,18 +111,24 @@ async def register(
 
 
 @router.post("/login", response_model=TokenResponse)
-@_limiter.limit("5/minute")
+@route_limit("5/minute", fail_open=False, ipv6_site_limit=_IPV6_SITE_AUTH_LIMIT)
 async def login(
     request: Request,
     payload: LoginRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
-    """Authenticate a user and return a JWT."""
+    """Authenticate a user and return a JWT.
+
+    Limited per client (decorator) and by failed attempts per email
+    (:func:`check_login_failures`); a successful login counts nothing.
+    """
+    await check_login_failures(request, payload.email)
     result = await db.execute(select(User).where(User.email == payload.email))
     user = result.scalar_one_or_none()
 
     stored_hash = user.hashed_password if user is not None else None
     if not verify_password_or_dummy(payload.password, stored_hash):
+        await record_login_failure(request, payload.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -147,6 +161,7 @@ async def me(
     response_model=TokenResponse,
     dependencies=[Depends(require_interactive_session)],
 )
+@route_limit("5/minute", fail_open=False)
 async def change_password(
     payload: ChangePasswordRequest,
     current_user: User = Depends(get_current_user),

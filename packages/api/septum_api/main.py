@@ -24,7 +24,7 @@ import threading  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
 from typing import Any  # noqa: E402
 
-from fastapi import FastAPI, HTTPException, Request  # noqa: E402
+from fastapi import Depends, FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.openapi.docs import get_redoc_html  # noqa: E402
 from fastapi.openapi.utils import get_openapi  # noqa: E402
@@ -202,10 +202,12 @@ async def lifespan(app: FastAPI):
     yield
 
 
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
-
-from .middleware.rate_limit import get_limiter
+from .middleware.rate_limit import (
+    DefaultRateLimit,
+    RateLimited,
+    get_limiter,
+    rate_limited_handler,
+)
 
 limiter = get_limiter()
 
@@ -286,7 +288,7 @@ def _custom_openapi() -> dict[str, Any]:
 
 app.openapi = _custom_openapi  # type: ignore[method-assign]
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimited, rate_limited_handler)
 
 from .middleware.auth import AuthMiddleware
 from .middleware.security_headers import SecurityHeadersMiddleware
@@ -334,8 +336,9 @@ _all_routers = [
     users_router.router,
 ]
 
+default_rate_limit = DefaultRateLimit(bootstrap.get_config().rate_limit)
 for _r in _all_routers:
-    app.include_router(_r)
+    app.include_router(_r, dependencies=[Depends(default_rate_limit)])
 
 
 
@@ -470,6 +473,7 @@ async def health() -> dict[str, Any]:
     from .services.llm_providers.health import get_all_statuses
     redis_ok = await redis_ping()
     result["redis"] = "connected" if redis_ok else "unavailable"
+    result["rate_limit_storage"] = "ok" if limiter.buckets.storage_up else "degraded"
     result["llm_providers"] = get_all_statuses()
 
     return result

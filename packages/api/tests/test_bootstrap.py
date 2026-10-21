@@ -84,9 +84,24 @@ class TestGetConfig:
         assert config.redis_url == ""
         assert config.jwt_expiration_minutes == 1440
         assert config.log_level == "INFO"
-        assert config.rate_limit == "60/minute"
+        assert config.rate_limit == "600/minute"
         assert config.frontend_origin == "*"
         assert config.database_configured is False
+
+    def test_unenforced_legacy_rate_limit_is_upgraded(self, tmp_path: Path):
+        path = tmp_path / "config.json"
+        path.write_text(json.dumps({
+            "encryption_key": "k", "jwt_secret_key": "j", "rate_limit": "60/minute",
+        }))
+        assert get_config().rate_limit == "600/minute"
+        assert json.loads(path.read_text())["rate_limit"] == "600/minute"
+
+    def test_custom_rate_limit_is_kept(self, tmp_path: Path):
+        path = tmp_path / "config.json"
+        path.write_text(json.dumps({
+            "encryption_key": "k", "jwt_secret_key": "j", "rate_limit": "120/minute",
+        }))
+        assert get_config().rate_limit == "120/minute"
 
 
 class TestEnvOverrides:

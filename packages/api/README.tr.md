@@ -26,7 +26,7 @@ pip install -r packages/api/requirements.txt
 | `septum_api.routers` | 15 APIRouter modülü (`auth`, `api_keys`, `chat`, `chat_sessions`, `chunks`, `documents`, `regulations`, `relationships`, `settings`, `setup`, `users`, `approval`, `audit`, `error_logs`, `text_normalization`). |
 | `septum_api.cli` | `python -m septum_api.cli.models fetch` bağlantılı bir host'ta model önbelleklerini önceden doldurur (aşağıya bakın). |
 | `septum_api.services` | Doküman hattı, sanitizer sarmalayıcı, `llm_router`, `vector_store`, `bm25_retriever`, `deanonymizer`, `prompts`, `approval_gate`, `gateway_client` (kuyruk üreticisi), `ingestion/`, `llm_providers/`. |
-| `septum_api.middleware` | `auth.py` (JWT + API anahtarı çözümü) ve `rate_limit.py` (slowapi + route bazlı limitler). |
+| `septum_api.middleware` | `auth.py` (JWT + API anahtarı çözümü) ve `rate_limit.py` (kimlik anahtarlı sayaçlar ve route bazlı limitler). |
 | `septum_api.utils` | Crypto (AES-256-GCM), `auth_dependency`, Prometheus metrikleri, yapılandırılmış loglama. |
 | `septum_api.seeds` | Yerleşik regülasyon ruleset'lerinin seed verisi. |
 | `alembic/`, `alembic.ini` | Postgres şema migration'ları. `packages/api/` dizini altından `alembic upgrade head` ile uygulanır. |

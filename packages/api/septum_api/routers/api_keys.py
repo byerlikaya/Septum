@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..middleware.rate_limit import get_limiter
+from ..middleware.rate_limit import route_limit
 from ..models.user import User
 from ..services.api_key_service import generate_api_key, list_user_keys, revoke_key
 from ..utils.auth_dependency import (
@@ -33,7 +33,6 @@ router = APIRouter(
     tags=["api-keys"],
     dependencies=[Depends(require_interactive_session)],
 )
-_limiter = get_limiter()
 
 
 class CreateApiKeyRequest(BaseModel):
@@ -67,7 +66,7 @@ class ApiKeyCreatedResponse(ApiKeyResponse):
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_role("admin"))],
 )
-@_limiter.limit("10/minute")
+@route_limit("10/minute", fail_open=True)
 async def create_api_key_endpoint(
     request: Request,
     payload: CreateApiKeyRequest,

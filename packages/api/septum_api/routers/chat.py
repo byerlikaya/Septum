@@ -63,6 +63,7 @@ from sqlalchemy.orm import selectinload
 
 from ..database import get_db
 from ..errors import MODEL_REFUSED_DETAIL
+from ..middleware.rate_limit import route_limit
 from ..models.document import Chunk, Document
 from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
@@ -1308,6 +1309,7 @@ async def chat_analyze_query(
     response_class=StreamingResponse,
     status_code=status.HTTP_200_OK,
 )
+@route_limit("30/minute", fail_open=True)
 async def chat_ask(
     request: ChatRequest,
     http_request: Request,

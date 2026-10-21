@@ -23,6 +23,10 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 _DEFAULT_CONFIG_PATH = "/app/data/config.json"
 
+# Every config.json written before the default limit was enforced carries
+# this value; it was never applied, so it is read as the current default.
+_UNENFORCED_RATE_LIMIT = "60/minute"
+
 # Mapping from BootstrapConfig field → environment variable override.
 _ENV_OVERRIDES: dict[str, str] = {
     "database_url": "DATABASE_URL",
@@ -48,7 +52,7 @@ class BootstrapConfig:
     jwt_secret_key: str = ""
     jwt_expiration_minutes: int = 1440
     log_level: str = "INFO"
-    rate_limit: str = "60/minute"
+    rate_limit: str = "600/minute"
     frontend_origin: str = "*"
     database_configured: bool = False
 
@@ -147,6 +151,9 @@ def get_config() -> BootstrapConfig:
 
     # Auto-generate secrets when missing
     dirty = False
+    if config.rate_limit == _UNENFORCED_RATE_LIMIT:
+        config.rate_limit = BootstrapConfig.rate_limit
+        dirty = True
     if not config.encryption_key:
         config.encryption_key = _generate_encryption_key()
         dirty = True

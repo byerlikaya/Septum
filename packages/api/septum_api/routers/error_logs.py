@@ -11,11 +11,9 @@ from sqlalchemy import Select, delete, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..middleware.rate_limit import get_limiter
+from ..middleware.rate_limit import route_limit
 from ..models.error_log import ErrorLog
 from ..models.user import User
-
-_limiter = get_limiter()
 
 _MAX_FRONTEND_MESSAGE_LEN = 2000
 _MAX_FRONTEND_STACK_LEN = 8000
@@ -153,7 +151,9 @@ class FrontendErrorIn(BaseModel):
 
 
 @router.post("/frontend", status_code=204, response_model=None)
-@_limiter.limit("60/hour")
+# Per /48, twice the per-client 60/hour: room for a second browser on the
+# same site, while 65 536 rotating /64s cannot each get their own 60/hour.
+@route_limit("60/hour", fail_open=False, ipv6_site_limit="120/hour")
 async def ingest_frontend_error(
     request: Request,
     payload: FrontendErrorIn,

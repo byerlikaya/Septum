@@ -79,6 +79,10 @@ def _no_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(socket.socket, "connect", _guarded(_real_connect))
     monkeypatch.setattr(socket.socket, "connect_ex", _guarded(_real_connect_ex))
 
+# The limiter (and anything else reading REDIS_URL) must never reach a real
+# Redis from a test: a limiter reset would hit it.
+os.environ.pop("REDIS_URL", None)
+
 # Point bootstrap config to a temp directory so tests don't try to write to /app/data/.
 if "SEPTUM_CONFIG_PATH" not in os.environ:
     _test_config_dir = tempfile.mkdtemp(prefix="septum_test_config_")
@@ -116,6 +120,18 @@ def dispose_async_engine() -> None:
     yield
     if engine_is_ready():
         asyncio.run(get_engine().dispose())
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rate_limits() -> None:
+    """Start every test with empty rate-limit counters.
+
+    The limiter is process-wide; without this, requests from earlier tests
+    (same ``testclient`` identity, same route) count toward later ones.
+    """
+    from septum_api.middleware.rate_limit import get_limiter
+
+    get_limiter().reset()
 
 
 @pytest.fixture
