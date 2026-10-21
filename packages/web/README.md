@@ -38,7 +38,7 @@ The dashboard supports two topologies controlled by two environment variables:
 
 ### 1. Single-container (default)
 
-Frontend and backend share the same origin. Next.js rewrites in `next.config.mjs` proxy `/api/*`, `/health`, `/metrics`, `/docs`, `/redoc`, and `/openapi.json` to the backend process.
+Frontend and backend share the same origin. Next.js rewrites in `next.config.mjs` proxy `/api/*`, `/health`, `/docs`, `/redoc`, and `/openapi.json` to the backend process.
 
 ```bash
 # No build-time URL needed — requests stay relative.

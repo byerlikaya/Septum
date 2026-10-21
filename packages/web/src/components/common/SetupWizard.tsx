@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { Shield, Zap, Check, AlertCircle, Loader2, Globe, Database, HardDrive, Mic, UserPlus } from "lucide-react";
-import api, { PASSWORD_MIN_LENGTH, extractErrorCode, initializeInfrastructure, setAuthToken, streamSSE, testDatabaseConnection, testRedisConnection } from "@/lib/api";
-import { HTTP_ERROR_KEYS, localizeApiError, translateErrorCode } from "@/lib/apiErrors";
-import { useI18n } from "@/lib/i18n";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Shield, Zap, Check, AlertCircle, Loader2, Globe, Database, HardDrive, Mic, UserPlus, KeyRound, Eye, EyeOff } from "lucide-react";
+import api, { PASSWORD_MIN_LENGTH, clearSetupToken, extractErrorCode, initializeInfrastructure, onSetupForbidden, setAuthToken, setSetupToken, streamSSE, testDatabaseConnection, testRedisConnection, verifySetupToken } from "@/lib/api";
+import { HTTP_ERROR_KEYS, localizeApiError, translateErrorCode, translateTransientAuthError } from "@/lib/apiErrors";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 import { exceedsPasswordByteLimit, passwordTooLongMessage } from "@/lib/password";
 import { useLanguage, type AppLanguage } from "@/lib/language";
 import { OllamaModelCombobox } from "./OllamaModelCombobox";
@@ -17,8 +17,22 @@ interface SetupWizardProps {
   onComplete: () => void;
 }
 
-type Step = "welcome" | "database" | "cache" | "provider" | "regulations" | "whisper" | "register" | "done";
+type Step = "token" | "welcome" | "database" | "cache" | "provider" | "regulations" | "whisper" | "register" | "done";
 type TestStatus = "idle" | "pending" | "success" | "error";
+
+const SETUP_FORBIDDEN = "setup_forbidden";
+const DATABASE_CONNECTION_KEYS: Record<string, MessageKey> = {
+  connection_failed: "setup.step.database.test.failed",
+  unsupported_url_scheme: "setup.step.connection.unsupportedScheme",
+};
+const REDIS_CONNECTION_KEYS: Record<string, MessageKey> = {
+  connection_failed: "setup.step.cache.test.failed",
+  unsupported_url_scheme: "setup.step.connection.unsupportedScheme",
+};
+
+function isSetupForbidden(err: unknown): boolean {
+  return err != null && extractErrorCode(err) === SETUP_FORBIDDEN;
+}
 
 const PROVIDERS = [
   { value: "anthropic", label: "Anthropic (Claude)", defaultModel: "claude-sonnet-4-20250514" },
@@ -73,7 +87,20 @@ const OllamaUrlError = ({ id, message }: { id: string; message: string | null })
 export function SetupWizard({ startPhase, initialProvider, initialModel, version, onComplete }: SetupWizardProps) {
   const t = useI18n();
   const { language, setLanguage } = useLanguage();
-  const [step, setStep] = useState<Step>(startPhase === "needs_infrastructure" ? "welcome" : "provider");
+  const [step, setStep] = useState<Step>("token");
+  const defaultStep: Step = startPhase === "needs_infrastructure" ? "welcome" : "provider";
+
+  // Setup token (first step; every setup-time endpoint requires it)
+  const [tokenInput, setTokenInput] = useState("");
+  const [tokenVisible, setTokenVisible] = useState(false);
+  const [tokenStatus, setTokenStatus] = useState<TestStatus>("idle");
+  const [tokenMessage, setTokenMessage] = useState("");
+  const [resumeStep, setResumeStep] = useState<Step>(defaultStep);
+  const tokenInputRef = useRef<HTMLInputElement>(null);
+  const stepRef = useRef<Step>(step);
+
+  useEffect(() => { stepRef.current = step; }, [step]);
+  useEffect(() => { if (step === "token") tokenInputRef.current?.focus(); }, [step]);
 
   // Database
   const [databaseType, setDatabaseType] = useState<"sqlite" | "postgresql">("sqlite");
@@ -129,6 +156,23 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
 
   const apiKeyField = provider === "anthropic" ? "anthropic_api_key" : provider === "openai" ? "openai_api_key" : "openrouter_api_key";
 
+  // A setup-gate 403 anywhere in the wizard sends the user back to the token step.
+  useEffect(() => onSetupForbidden(() => {
+    if (stepRef.current !== "token") setResumeStep(stepRef.current);
+    setStep("token");
+    setTokenInput("");
+    setTokenVisible(false);
+    setTokenStatus("error");
+    setTokenMessage(t("setup.step.token.invalid"));
+    setDbTestStatus((s) => (s === "pending" ? "idle" : s));
+    setRedisTestStatus((s) => (s === "pending" ? "idle" : s));
+    setInfraStatus((s) => (s === "pending" ? "idle" : s));
+    setProviderTestStatus((s) => (s === "pending" ? "idle" : s));
+    setWhisperStatus((s) => (s === "pending" ? "idle" : s));
+    setWhisperProgress(null);
+    setRegStatus((s) => (s === "pending" ? "idle" : s));
+  }), [t]);
+
   // Auto-probe Ollama when provider switches to ollama
   const probeOllama = useCallback(async () => {
     if (ollamaProbeResult !== "idle") return;
@@ -152,19 +196,44 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
     setDbTestStatus("pending");
     try {
       const r = await testDatabaseConnection(databaseUrl);
-      setDbTestStatus(r.ok ? "success" : "error");
-      setDbTestMessage(r.message ?? (r.ok ? t("setup.step.database.test.success") : t("setup.step.database.test.failed")));
-    } catch { setDbTestStatus("error"); setDbTestMessage(t("setup.step.database.test.failed")); }
+      if (r.ok) { setDbTestStatus("success"); setDbTestMessage(t("setup.step.database.test.success")); }
+      else { setDbTestStatus("error"); setDbTestMessage(translateErrorCode(r.code, t, DATABASE_CONNECTION_KEYS) ?? t("setup.step.database.test.failed")); }
+    } catch (err: unknown) {
+      setDbTestStatus("error");
+      setDbTestMessage(translateErrorCode(extractErrorCode(err), t, DATABASE_CONNECTION_KEYS) ?? t("setup.step.database.test.failed"));
+    }
   }, [databaseUrl, t]);
 
   const handleTestRedis = useCallback(async () => {
     setRedisTestStatus("pending");
     try {
       const r = await testRedisConnection(redisUrl);
-      setRedisTestStatus(r.ok ? "success" : "error");
-      setRedisTestMessage(r.message ?? (r.ok ? t("setup.step.cache.test.success") : t("setup.step.cache.test.failed")));
-    } catch { setRedisTestStatus("error"); setRedisTestMessage(t("setup.step.cache.test.failed")); }
+      if (r.ok) { setRedisTestStatus("success"); setRedisTestMessage(t("setup.step.cache.test.success")); }
+      else { setRedisTestStatus("error"); setRedisTestMessage(translateErrorCode(r.code, t, REDIS_CONNECTION_KEYS) ?? t("setup.step.cache.test.failed")); }
+    } catch (err: unknown) {
+      setRedisTestStatus("error");
+      setRedisTestMessage(translateErrorCode(extractErrorCode(err), t, REDIS_CONNECTION_KEYS) ?? t("setup.step.cache.test.failed"));
+    }
   }, [redisUrl, t]);
+
+  const handleVerifyToken = useCallback(async () => {
+    const candidate = tokenInput.trim();
+    if (!candidate) return;
+    setTokenStatus("pending"); setTokenMessage("");
+    try {
+      await verifySetupToken(candidate);
+      setSetupToken(candidate);
+      setTokenInput("");
+      setTokenStatus("idle");
+      setStep(resumeStep);
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } } | null)?.response?.status;
+      if (status === 403) clearSetupToken();
+      setTokenStatus("error");
+      setTokenMessage(status === 429 ? t("setup.step.token.tooManyAttempts") : status === 403 ? t("setup.step.token.invalid") : t("setup.step.token.failed"));
+      tokenInputRef.current?.focus();
+    }
+  }, [tokenInput, resumeStep, t]);
 
   const handleInitializeInfra = useCallback(async () => {
     setInfraStatus("pending"); setInfraMessage(t("setup.step.infra.initializing"));
@@ -205,14 +274,16 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
         // users can deselect what they don't need via the toggle, but
         // the safe default is maximum PII coverage.
         setRegulationsLoading(true);
+        let regsError: unknown = null;
         try {
           const { data: regs } = await api.get<RegulationItem[]>("/api/regulations");
           setRegulations(regs);
           setActiveRegulations(
             new Set(regs.filter(r => r.is_builtin).map(r => r.id))
           );
-        } catch {}
+        } catch (err: unknown) { regsError = err; }
         setRegulationsLoading(false);
+        if (isSetupForbidden(regsError)) { setProviderTestStatus("idle"); return; }
         setStep("regulations");
       } else {
         setProviderTestStatus("error"); setProviderTestMessage(data.message ?? t("setup.step.test.failed"));
@@ -308,9 +379,11 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
         },
         {
           onHttpError: (code) => {
-            setWhisperStatus("error");
-            setWhisperMessage(translateErrorCode(code, t, HTTP_ERROR_KEYS) ?? t("setup.step.test.failed"));
-            setWhisperProgress(null);
+            if (code !== SETUP_FORBIDDEN) {
+              setWhisperStatus("error");
+              setWhisperMessage(translateErrorCode(code, t, HTTP_ERROR_KEYS) ?? t("setup.step.test.failed"));
+              setWhisperProgress(null);
+            }
             if (!resolved) { resolved = true; resolve(); }
           },
         },
@@ -330,13 +403,15 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
     try {
       const { data } = await api.post<{ access_token: string }>("/api/auth/register", { email: regEmail, password: regPassword });
       setAuthToken(data.access_token);
+      clearSetupToken();
       setRegStatus("success");
       await api.patch("/api/settings", { setup_completed: true });
       setStep("done");
     } catch (err: unknown) {
       setRegStatus("error");
+      const transient = translateTransientAuthError(err, t);
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setRegMessage(msg ?? t("setup.step.register.failed"));
+      setRegMessage(transient ?? msg ?? t("setup.step.register.failed"));
     }
   }, [regEmail, regPassword, regConfirm, t]);
 
@@ -348,6 +423,52 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950 overflow-y-auto py-8">
       <div className="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
+
+        {/* Setup token */}
+        {step === "token" && (
+          <form onSubmit={(e) => { e.preventDefault(); void handleVerifyToken(); }}>
+            <StepHeader icon={KeyRound} title={t("setup.step.token.title")} desc={t("setup.step.token.description")} />
+            <label htmlFor="setup-token" className="mb-1.5 block text-xs font-medium text-slate-300">{t("setup.step.token.label")}</label>
+            <div className="relative">
+              <input
+                id="setup-token"
+                ref={tokenInputRef}
+                type={tokenVisible ? "text" : "password"}
+                value={tokenInput}
+                onChange={(e) => { setTokenInput(e.target.value); if (tokenStatus === "error") { setTokenStatus("idle"); setTokenMessage(""); } }}
+                placeholder={t("setup.step.token.placeholder")}
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                data-1p-ignore
+                data-lpignore="true"
+                aria-invalid={tokenStatus === "error" ? true : undefined}
+                aria-describedby={tokenStatus === "error" ? "setup-token-hint setup-token-error" : "setup-token-hint"}
+                className={`${inputCls} pr-10`}
+              />
+              <button
+                type="button"
+                onClick={() => setTokenVisible((v) => !v)}
+                aria-label={t("setup.step.token.show")}
+                aria-pressed={tokenVisible}
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-400 hover:text-slate-200"
+              >
+                {tokenVisible ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+              </button>
+            </div>
+            <p id="setup-token-hint" className="mt-1.5 text-[11px] text-slate-500">{t("setup.step.token.hint")}</p>
+            {tokenStatus === "error" && (
+              <p id="setup-token-error" role="alert" className="mt-3 flex items-center gap-2 rounded-md bg-red-950/50 px-3 py-2 text-xs text-red-300">
+                <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />{tokenMessage}
+              </p>
+            )}
+            <div className="mt-6 flex justify-end">
+              <button type="submit" disabled={!tokenInput.trim() || tokenStatus === "pending"} className={actionBtnCls}>
+                {tokenStatus === "pending" ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />{t("setup.step.test.pending")}</span> : t("setup.step.token.verify")}
+              </button>
+            </div>
+          </form>
+        )}
 
         {/* Welcome */}
         {step === "welcome" && (
@@ -493,7 +614,8 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
           <div className="mt-6 flex justify-between">
             <button type="button" onClick={() => setStep("provider")} className={backBtnCls}>{t("setup.nav.back")}</button>
             <button type="button" onClick={async () => {
-              try { for (const reg of regulations) { const should = activeRegulations.has(reg.id); if (reg.is_active !== should) await api.patch(`/api/regulations/${reg.id}/activate`, { is_active: should }); } } catch {}
+              try { for (const reg of regulations) { const should = activeRegulations.has(reg.id); if (reg.is_active !== should) await api.patch(`/api/regulations/${reg.id}/activate`, { is_active: should }); } }
+              catch (err: unknown) { if (isSetupForbidden(err)) return; }
               setStep("whisper");
             }} disabled={activeRegulations.size === 0} className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50 transition-colors">{t("setup.nav.next")}</button>
           </div>

@@ -1,10 +1,14 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { SetupWizard } from "../SetupWizard";
-import { streamSSE } from "../../../lib/api";
+import { streamSSE, testDatabaseConnection } from "../../../lib/api";
 
 const mockGet = jest.fn();
 const mockPost = jest.fn();
 const mockPatch = jest.fn();
+const mockVerifySetupToken = jest.fn();
+const mockSetSetupToken = jest.fn();
+const mockClearSetupToken = jest.fn();
+const mockOnSetupForbidden = jest.fn();
 
 jest.mock("../../../lib/i18n", () => ({
   useI18n: () => (key: string) => key
@@ -30,6 +34,10 @@ jest.mock("../../../lib/api", () => ({
     e?.response?.data?.detail ?? null,
   initializeInfrastructure: jest.fn(),
   setAuthToken: jest.fn(),
+  clearSetupToken: (...a: unknown[]) => mockClearSetupToken(...a),
+  setSetupToken: (...a: unknown[]) => mockSetSetupToken(...a),
+  verifySetupToken: (...a: unknown[]) => mockVerifySetupToken(...a),
+  onSetupForbidden: (...a: unknown[]) => mockOnSetupForbidden(...a),
   streamSSE: jest.fn(),
   testDatabaseConnection: jest.fn(),
   testRedisConnection: jest.fn()
@@ -38,6 +46,8 @@ jest.mock("../../../lib/api", () => ({
 beforeEach(() => {
   jest.clearAllMocks();
   mockPatch.mockResolvedValue({ data: {} });
+  mockVerifySetupToken.mockResolvedValue(undefined);
+  mockOnSetupForbidden.mockImplementation(() => () => {});
   mockGet.mockImplementation((url: string) =>
     url === "/api/regulations"
       ? Promise.resolve({
@@ -54,6 +64,14 @@ beforeEach(() => {
   );
 });
 
+async function passSetupToken(nextMarker: string) {
+  fireEvent.change(screen.getByLabelText("setup.step.token.label"), {
+    target: { value: "setup-token-value" }
+  });
+  fireEvent.click(screen.getByText("setup.step.token.verify"));
+  await screen.findByText(nextMarker);
+}
+
 async function reachRegisterStep() {
   render(
     <SetupWizard
@@ -64,6 +82,7 @@ async function reachRegisterStep() {
       onComplete={jest.fn()}
     />
   );
+  await passSetupToken("setup.step.provider.testAndContinue");
   fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
   fireEvent.click(await screen.findByText("setup.nav.next"));
   fireEvent.click(await screen.findByText("setup.step.whisper.installAndContinue"));
@@ -98,6 +117,33 @@ it("rejects a register password over 72 UTF-8 bytes even when under 72 character
   expect(registerCalls()).toHaveLength(0);
 });
 
+function rejectRegisterWith(status: number, data: unknown, headers: Record<string, unknown> = {}) {
+  mockPost.mockImplementation((url: string) =>
+    url === "/api/auth/register"
+      ? Promise.reject({ response: { status, data, headers } })
+      : Promise.resolve({ data: { ok: true } })
+  );
+}
+
+it("shows the busy message on register 503 server_busy and not the raw detail", async () => {
+  rejectRegisterWith(
+    503,
+    { detail: "Server is busy, try again shortly.", code: "server_busy" },
+    { "retry-after": "2" }
+  );
+  await submitRegister("a".repeat(20));
+  expect(await screen.findByText("auth.error.serverBusy")).toBeInTheDocument();
+  expect(screen.queryByText("Server is busy, try again shortly.")).toBeNull();
+  expect(screen.queryByText("setup.step.register.createAndFinish")).toBeInTheDocument();
+});
+
+it("shows the rate-limit message on register 429 and not the raw detail", async () => {
+  rejectRegisterWith(429, { detail: "Too many registrations." }, { "retry-after": "45" });
+  await submitRegister("a".repeat(20));
+  expect(await screen.findByText("auth.error.rateLimited")).toBeInTheDocument();
+  expect(screen.queryByText("Too many registrations.")).toBeNull();
+});
+
 it("still reports a mismatch before the length checks", async () => {
   await submitRegister("a".repeat(20), "b".repeat(20));
   expect(await screen.findByText("setup.step.register.mismatch")).toBeInTheDocument();
@@ -115,7 +161,7 @@ it("registers a password of exactly 72 ASCII bytes", async () => {
 });
 
 describe("provider step settings save", () => {
-  const renderOllamaProvider = () =>
+  const renderOllamaProvider = async () => {
     render(
       <SetupWizard
         startPhase="needs_application_setup"
@@ -125,6 +171,8 @@ describe("provider step settings save", () => {
         onComplete={jest.fn()}
       />
     );
+    await passSetupToken("setup.step.provider.testAndContinue");
+  };
 
   const testCalls = () =>
     mockPost.mock.calls.filter((c) => c[0] === "/api/settings/test-local-models");
@@ -136,7 +184,7 @@ describe("provider step settings save", () => {
         data: { detail: "English detail with host", code: "ollama_url_not_allowed" }
       }
     });
-    renderOllamaProvider();
+    await renderOllamaProvider();
 
     fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
 
@@ -154,7 +202,7 @@ describe("provider step settings save", () => {
     mockPatch.mockRejectedValue({
       response: { data: { detail: "x", code: "ollama_url_not_allowed" } }
     });
-    renderOllamaProvider();
+    await renderOllamaProvider();
     fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
     await screen.findByRole("alert");
 
@@ -167,7 +215,7 @@ describe("provider step settings save", () => {
 
   it("shows the generic save failure and does not advance on other errors", async () => {
     mockPatch.mockRejectedValue(new Error("network down"));
-    renderOllamaProvider();
+    await renderOllamaProvider();
 
     fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
 
@@ -180,7 +228,7 @@ describe("provider step settings save", () => {
     mockPatch.mockRejectedValue({
       response: { status: 422, data: { detail: "Unknown regulation id(s)" } }
     });
-    renderOllamaProvider();
+    await renderOllamaProvider();
 
     fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
 
@@ -204,6 +252,7 @@ it("maps a coded cloud test-llm refusal to the translated rejection", async () =
       onComplete={jest.fn()}
     />
   );
+  await passSetupToken("setup.step.provider.testAndContinue");
 
   fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
 
@@ -221,6 +270,7 @@ async function reachWhisperStep() {
       onComplete={jest.fn()}
     />
   );
+  await passSetupToken("setup.step.provider.testAndContinue");
   fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
   fireEvent.click(await screen.findByText("setup.nav.next"));
   return screen.findByText("setup.step.whisper.installAndContinue");
@@ -264,4 +314,272 @@ it("shows the translated refusal when the install stream answers with an HTTP er
   fireEvent.click(installButton);
 
   expect(await screen.findByRole("alert")).toHaveTextContent("errors.model.whisperNotAllowed");
+});
+
+describe("setup token step", () => {
+  const renderWizard = (startPhase: "needs_application_setup" | "needs_infrastructure" = "needs_application_setup") =>
+    render(
+      <SetupWizard
+        startPhase={startPhase}
+        initialProvider="anthropic"
+        initialModel="m"
+        version="1"
+        onComplete={jest.fn()}
+      />
+    );
+  const tokenInput = () => screen.getByLabelText("setup.step.token.label");
+  const verifyButton = () => screen.getByText("setup.step.token.verify");
+  const rejectWith = (status: number, code?: string) =>
+    Promise.reject({ response: { status, data: code ? { detail: "Setup access denied.", code } : {} } });
+
+  it("keeps the Verify button disabled until a token is entered", () => {
+    renderWizard();
+    expect(verifyButton()).toBeDisabled();
+    expect(screen.queryByText("setup.step.provider.testAndContinue")).not.toBeInTheDocument();
+    expect(mockVerifySetupToken).not.toHaveBeenCalled();
+  });
+
+  it("blocks progress until verify-token resolves, then stores the token and advances", async () => {
+    let resolveVerify!: () => void;
+    mockVerifySetupToken.mockReturnValueOnce(new Promise<void>((resolve) => { resolveVerify = resolve; }));
+    renderWizard();
+
+    fireEvent.change(tokenInput(), { target: { value: "tok" } });
+    fireEvent.click(verifyButton());
+
+    expect(await screen.findByText("setup.step.test.pending")).toBeInTheDocument();
+    expect(screen.queryByText("setup.step.provider.testAndContinue")).not.toBeInTheDocument();
+    expect(mockSetSetupToken).not.toHaveBeenCalled();
+
+    resolveVerify();
+
+    expect(await screen.findByText("setup.step.provider.testAndContinue")).toBeInTheDocument();
+    expect(mockVerifySetupToken).toHaveBeenCalledWith("tok");
+    expect(mockSetSetupToken).toHaveBeenCalledWith("tok");
+  });
+
+  it("shows the invalid-token message on 403 and does not advance or store the token", async () => {
+    mockVerifySetupToken.mockImplementationOnce(() => rejectWith(403, "setup_forbidden"));
+    renderWizard();
+
+    fireEvent.change(tokenInput(), { target: { value: "wrong" } });
+    fireEvent.click(verifyButton());
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("setup.step.token.invalid");
+    expect(tokenInput()).toHaveAttribute("aria-invalid", "true");
+    expect(tokenInput()).toHaveAttribute("aria-describedby", expect.stringContaining(alert.id));
+    expect(mockClearSetupToken).toHaveBeenCalled();
+    expect(mockSetSetupToken).not.toHaveBeenCalled();
+    expect(screen.queryByText("setup.step.provider.testAndContinue")).not.toBeInTheDocument();
+  });
+
+  it("shows the too-many-attempts message on 429 and does not advance", async () => {
+    mockVerifySetupToken.mockImplementationOnce(() => rejectWith(429));
+    renderWizard();
+
+    fireEvent.change(tokenInput(), { target: { value: "tok" } });
+    fireEvent.click(verifyButton());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("setup.step.token.tooManyAttempts");
+    expect(screen.queryByText("setup.step.token.invalid")).not.toBeInTheDocument();
+    expect(mockSetSetupToken).not.toHaveBeenCalled();
+  });
+
+  it("shows the generic failure when verification cannot reach the server", async () => {
+    mockVerifySetupToken.mockImplementationOnce(() => Promise.reject(new Error("network down")));
+    renderWizard();
+
+    fireEvent.change(tokenInput(), { target: { value: "tok" } });
+    fireEvent.click(verifyButton());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("setup.step.token.failed");
+    expect(mockClearSetupToken).not.toHaveBeenCalled();
+  });
+
+  it("returns to the token step with the invalid message on a setup-gate 403, then resumes where it left off", async () => {
+    renderWizard();
+    await passSetupToken("setup.step.provider.testAndContinue");
+
+    const listener = mockOnSetupForbidden.mock.calls[mockOnSetupForbidden.mock.calls.length - 1][0];
+    act(() => listener());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("setup.step.token.invalid");
+    expect(tokenInput()).toHaveValue("");
+    expect(screen.queryByText("setup.step.provider.testAndContinue")).not.toBeInTheDocument();
+
+    await passSetupToken("setup.step.provider.testAndContinue");
+  });
+
+  it("returns to the token step when a database test is gated", async () => {
+    renderWizard("needs_infrastructure");
+    await passSetupToken("setup.welcome.start");
+    fireEvent.click(screen.getByText("setup.welcome.start"));
+    fireEvent.click(screen.getByText("setup.step.database.postgresql"));
+    fireEvent.change(screen.getByPlaceholderText("setup.step.database.url.placeholder"), {
+      target: { value: "postgresql://u:p@h/db" }
+    });
+    (testDatabaseConnection as jest.Mock).mockImplementationOnce(() => {
+      const listener = mockOnSetupForbidden.mock.calls[mockOnSetupForbidden.mock.calls.length - 1][0];
+      act(() => listener());
+      return rejectWith(403, "setup_forbidden");
+    });
+
+    fireEvent.click(screen.getByText("setup.step.database.test"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("setup.step.token.invalid");
+    expect(screen.queryByText("setup.step.database.test")).not.toBeInTheDocument();
+  });
+
+  it("translates connection codes instead of showing the server message", async () => {
+    renderWizard("needs_infrastructure");
+    await passSetupToken("setup.welcome.start");
+    fireEvent.click(screen.getByText("setup.welcome.start"));
+    fireEvent.click(screen.getByText("setup.step.database.postgresql"));
+    fireEvent.change(screen.getByPlaceholderText("setup.step.database.url.placeholder"), {
+      target: { value: "mysql://u:p@h/db" }
+    });
+
+    (testDatabaseConnection as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      message: "server text one",
+      code: "unsupported_url_scheme"
+    });
+    fireEvent.click(screen.getByText("setup.step.database.test"));
+    expect(await screen.findByText("setup.step.connection.unsupportedScheme")).toBeInTheDocument();
+    expect(screen.queryByText("server text one")).not.toBeInTheDocument();
+
+    (testDatabaseConnection as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      message: "server text two",
+      code: "connection_failed"
+    });
+    fireEvent.click(screen.getByText("setup.step.database.test"));
+    expect(await screen.findByText("setup.step.database.test.failed")).toBeInTheDocument();
+    expect(screen.queryByText("server text two")).not.toBeInTheDocument();
+  });
+
+  it("unsubscribes from the setup gate on unmount", () => {
+    const unsubscribe = jest.fn();
+    mockOnSetupForbidden.mockReturnValue(unsubscribe);
+    const { unmount } = renderWizard();
+
+    unmount();
+
+    expect(unsubscribe).toHaveBeenCalled();
+  });
+
+  it("clears the setup token once the admin account is created", async () => {
+    await submitRegister("a".repeat(72));
+    await screen.findByText("setup.step.done.title");
+
+    expect(mockClearSetupToken).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("setup gate on the regulations path", () => {
+  const forbidden = () =>
+    Promise.reject({ response: { status: 403, data: { detail: "Setup access denied.", code: "setup_forbidden" } } });
+  const regulationsWithOneInactive = () =>
+    Promise.resolve({
+      data: [
+        { id: "GDPR", display_name: "GDPR", region: "EU", is_active: true, is_builtin: true },
+        { id: "KVKK", display_name: "KVKK", region: "TR", is_active: false, is_builtin: true }
+      ]
+    });
+  const activationCalls = () =>
+    mockPatch.mock.calls.filter((c) => String(c[0]).startsWith("/api/regulations/"));
+
+  async function reachRegulationsStep() {
+    mockGet.mockImplementation((url: string) =>
+      url === "/api/regulations" ? regulationsWithOneInactive() : Promise.resolve({ data: { installed: true } })
+    );
+    render(
+      <SetupWizard
+        startPhase="needs_application_setup"
+        initialProvider="anthropic"
+        initialModel="m"
+        version="1"
+        onComplete={jest.fn()}
+      />
+    );
+    await passSetupToken("setup.step.provider.testAndContinue");
+    fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
+    return screen.findByText("setup.nav.next");
+  }
+
+  it("does not open the regulations step when listing regulations is gated", async () => {
+    mockGet.mockImplementation((url: string) =>
+      url === "/api/regulations" ? forbidden() : Promise.resolve({ data: { installed: true } })
+    );
+    render(
+      <SetupWizard
+        startPhase="needs_application_setup"
+        initialProvider="anthropic"
+        initialModel="m"
+        version="1"
+        onComplete={jest.fn()}
+      />
+    );
+    await passSetupToken("setup.step.provider.testAndContinue");
+
+    fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
+
+    expect(await screen.findByText("setup.step.provider.testAndContinue")).not.toBeDisabled();
+    expect(mockGet).toHaveBeenCalledWith("/api/regulations");
+    expect(screen.queryByText("setup.step.regulations")).not.toBeInTheDocument();
+  });
+
+  it("does not advance to the whisper step when an activation is gated", async () => {
+    mockPatch.mockImplementation((url: string) =>
+      String(url).startsWith("/api/regulations/") ? forbidden() : Promise.resolve({ data: {} })
+    );
+    fireEvent.click(await reachRegulationsStep());
+
+    await expect(
+      screen.findByText("setup.step.whisper.installAndContinue", {}, { timeout: 300 })
+    ).rejects.toThrow();
+    expect(activationCalls()).toEqual([["/api/regulations/KVKK/activate", { is_active: true }]]);
+    expect(screen.getByText("setup.step.regulations")).toBeInTheDocument();
+  });
+
+  it("still advances to the whisper step when an activation fails for another reason", async () => {
+    mockPatch.mockImplementation((url: string) =>
+      String(url).startsWith("/api/regulations/")
+        ? Promise.reject({ response: { status: 500, data: { detail: "boom" } } })
+        : Promise.resolve({ data: {} })
+    );
+    fireEvent.click(await reachRegulationsStep());
+
+    expect(await screen.findByText("setup.step.whisper.installAndContinue")).toBeInTheDocument();
+    expect(activationCalls()).toHaveLength(1);
+  });
+});
+
+it("translates a rejected unsupported-scheme database test (HTTP 400)", async () => {
+  render(
+    <SetupWizard
+      startPhase="needs_infrastructure"
+      initialProvider="anthropic"
+      initialModel="m"
+      version="1"
+      onComplete={jest.fn()}
+    />
+  );
+  await passSetupToken("setup.welcome.start");
+  fireEvent.click(screen.getByText("setup.welcome.start"));
+  fireEvent.click(screen.getByText("setup.step.database.postgresql"));
+  fireEvent.change(screen.getByPlaceholderText("setup.step.database.url.placeholder"), {
+    target: { value: "mysql://u:p@h/db" }
+  });
+  (testDatabaseConnection as jest.Mock).mockImplementationOnce(() =>
+    Promise.reject({
+      response: { status: 400, data: { detail: "Unsupported connection URL scheme.", code: "unsupported_url_scheme" } }
+    })
+  );
+
+  fireEvent.click(screen.getByText("setup.step.database.test"));
+
+  expect(await screen.findByText("setup.step.connection.unsupportedScheme")).toBeInTheDocument();
+  expect(screen.queryByText("Unsupported connection URL scheme.")).not.toBeInTheDocument();
 });

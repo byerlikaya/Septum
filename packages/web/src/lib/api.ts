@@ -75,10 +75,67 @@ export function clearAuthToken(): void {
   localStorage.removeItem(AUTH_TOKEN_KEY);
 }
 
+// The setup token gates the first-run wizard. It lives in sessionStorage
+// only: never in localStorage, a URL, or a log line.
+const SETUP_TOKEN_KEY = "septum_setup_token";
+export const SETUP_TOKEN_HEADER = "X-Setup-Token";
+const SETUP_FORBIDDEN_CODE = "setup_forbidden";
+
+export function getSetupToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage.getItem(SETUP_TOKEN_KEY);
+}
+
+export function setSetupToken(token: string): void {
+  window.sessionStorage.setItem(SETUP_TOKEN_KEY, token);
+}
+
+export function clearSetupToken(): void {
+  window.sessionStorage.removeItem(SETUP_TOKEN_KEY);
+}
+
+type SetupForbiddenListener = () => void;
+const setupForbiddenListeners = new Set<SetupForbiddenListener>();
+
+/** Subscribe to a setup-gate rejection. Returns the unsubscribe function. */
+export function onSetupForbidden(listener: SetupForbiddenListener): () => void {
+  setupForbiddenListeners.add(listener);
+  return () => {
+    setupForbiddenListeners.delete(listener);
+  };
+}
+
+function handleSetupForbidden(): void {
+  clearSetupToken();
+  setupForbiddenListeners.forEach((listener) => listener());
+}
+
+declare module "axios" {
+  interface AxiosRequestConfig {
+    /** Set on the verify call itself, where a 403 is the answer rather than a gate event. */
+    skipSetupForbidden?: boolean;
+  }
+}
+
+/**
+ * Checks a candidate setup token against the server. Resolves on 204;
+ * rejects with the axios error (403 invalid, 429 rate-limited) otherwise.
+ */
+export async function verifySetupToken(token: string): Promise<void> {
+  await api.post("/api/setup/verify-token", undefined, {
+    headers: { [SETUP_TOKEN_HEADER]: token },
+    skipSetupForbidden: true,
+  });
+}
+
 api.interceptors.request.use((config) => {
   const token = getAuthToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  const setupToken = getSetupToken();
+  if (setupToken && !config.headers[SETUP_TOKEN_HEADER]) {
+    config.headers[SETUP_TOKEN_HEADER] = setupToken;
   }
   return config;
 });
@@ -86,6 +143,13 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (
+      error.response?.status === 403 &&
+      error.response.data?.code === SETUP_FORBIDDEN_CODE &&
+      !error.config?.skipSetupForbidden
+    ) {
+      handleSetupForbidden();
+    }
     if (error.response?.status === 401 && typeof window !== "undefined") {
       clearAuthToken();
       if (!window.location.pathname.startsWith("/login")) {
@@ -141,6 +205,8 @@ export function streamSSE(
       const headers: Record<string, string> = {};
       const token = getAuthToken();
       if (token) headers.Authorization = `Bearer ${token}`;
+      const setupToken = getSetupToken();
+      if (setupToken) headers[SETUP_TOKEN_HEADER] = setupToken;
       let init: RequestInit = { headers, signal: controller.signal };
       if (options?.method === "POST" || body !== undefined) {
         headers["Content-Type"] = "application/json";
@@ -153,6 +219,7 @@ export function streamSSE(
       const res = await fetch(`${baseURL}${url}`, init);
       if (!res.ok) {
         const payload = (await res.json().catch(() => null)) as { code?: string } | null;
+        if (res.status === 403 && payload?.code === SETUP_FORBIDDEN_CODE) handleSetupForbidden();
         options?.onHttpError?.(payload?.code ?? null);
         return;
       }

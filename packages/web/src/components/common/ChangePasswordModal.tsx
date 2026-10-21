@@ -7,6 +7,7 @@ import {
   extractErrorDetail,
   setAuthToken,
 } from "@/lib/api";
+import { translateTransientAuthError } from "@/lib/apiErrors";
 import { useI18n } from "@/lib/i18n";
 import { exceedsPasswordByteLimit, passwordTooLongMessage } from "@/lib/password";
 import { Modal } from "@/components/common/Modal";
@@ -76,6 +77,11 @@ export function ChangePasswordModal({
       onSuccess?.();
       onClose();
     } catch (err) {
+      const transient = translateTransientAuthError(err, t);
+      if (transient) {
+        setError(transient);
+        return;
+      }
       const detail = extractErrorDetail(err);
       if (detail?.toLowerCase().includes("current")) {
         setError(t("auth.changePassword.wrongCurrent"));
