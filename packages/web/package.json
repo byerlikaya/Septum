@@ -6,9 +6,9 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "NODE_OPTIONS=--max_old_space_size=4096 next dev",
+    "dev": "NODE_OPTIONS='--max_old_space_size=4096 --require ./scripts/xff-preload.cjs' next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "NODE_OPTIONS='--require ./scripts/xff-preload.cjs' next start",
     "lint": "eslint .",
     "test": "jest"
   },
