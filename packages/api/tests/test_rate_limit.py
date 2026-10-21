@@ -626,6 +626,26 @@ class TestFrontendErrorIntake:
         assert codes == [204, 204, 429]
 
 
+async def test_password_checks_run_off_the_event_loop(limiter, isolated_db, monkeypatch):
+    import threading
+
+    from septum_api.routers import auth as auth_router
+
+    loop_thread = threading.get_ident()
+    seen: list[int] = []
+    real = auth_router.verify_password_or_dummy
+
+    def recording(password, stored_hash):
+        seen.append(threading.get_ident())
+        return real(password, stored_hash)
+
+    monkeypatch.setattr(auth_router, "verify_password_or_dummy", recording)
+    await _create_victim(isolated_db)
+    async with _client(PROXY) as client:
+        assert await _login(client, "192.0.2.9", VICTIM_PASSWORD) == 200
+    assert seen and all(ident != loop_thread for ident in seen)
+
+
 async def test_setup_status_is_capped_at_its_own_limit(limiter, isolated_db, monkeypatch):
     from septum_api.routers import setup
 

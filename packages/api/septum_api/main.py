@@ -2,7 +2,6 @@ from __future__ import annotations
 
 """FastAPI application entrypoint for Septum."""
 
-import asyncio
 import logging
 import warnings
 
@@ -29,6 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.openapi.docs import get_redoc_html  # noqa: E402
 from fastapi.openapi.utils import get_openapi  # noqa: E402
 from fastapi.responses import HTMLResponse, JSONResponse  # noqa: E402
+from prometheus_client import Counter  # noqa: E402
 from septum_core.model_integrity import (
     ModelRefusal,
     parse_model_spec,
@@ -180,9 +180,13 @@ async def _stored_model_settings() -> tuple[dict[str, str] | None, str | None]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan handler — initialise database if already configured."""
-    from .services.auth import warm_dummy_password_hash
+    from .services.auth import (
+        run_password_work,
+        shutdown_password_executor,
+        warm_dummy_password_hash,
+    )
 
-    await asyncio.to_thread(warm_dummy_password_hash)
+    await run_password_work(warm_dummy_password_hash)
     config = bootstrap.get_config()
     if not bootstrap.needs_setup():
         url = build_database_url(config.database_url, config.db_path)
@@ -199,7 +203,10 @@ async def lifespan(app: FastAPI):
                 name="septum-model-warmup",
                 daemon=True,
             ).start()
-    yield
+    try:
+        yield
+    finally:
+        shutdown_password_executor()
 
 
 from .middleware.rate_limit import (
@@ -208,6 +215,7 @@ from .middleware.rate_limit import (
     get_limiter,
     rate_limited_handler,
 )
+from .services.auth import PASSWORD_BUSY_RETRY_AFTER_SECONDS, PasswordWorkBusy
 
 limiter = get_limiter()
 
@@ -340,6 +348,23 @@ default_rate_limit = DefaultRateLimit(bootstrap.get_config().rate_limit)
 for _r in _all_routers:
     app.include_router(_r, dependencies=[Depends(default_rate_limit)])
 
+
+
+PASSWORD_WORK_REFUSED = Counter(
+    "septum_password_work_refused_total",
+    "Login, register and change-password requests refused because the bcrypt queue was full",
+)
+
+
+@app.exception_handler(PasswordWorkBusy)
+async def password_work_busy_handler(request: Request, exc: PasswordWorkBusy) -> JSONResponse:
+    """503 with Retry-After when the bcrypt queue is full; no error log row, only a counter."""
+    PASSWORD_WORK_REFUSED.inc()
+    return JSONResponse(
+        status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": "Server is busy, try again shortly.", "code": "server_busy"},
+        headers={"Retry-After": str(PASSWORD_BUSY_RETRY_AFTER_SECONDS)},
+    )
 
 
 @app.exception_handler(HTTPException)

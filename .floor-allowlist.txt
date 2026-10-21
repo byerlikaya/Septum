@@ -1,3 +1,4 @@
 path:packages/api/tests/test_migrations.py
 path:packages/web/src/hooks/__tests__/useChatStream.test.tsx
 path:packages/api/septum_api/main.py
+path:packages/api/septum_api/services/auth.py

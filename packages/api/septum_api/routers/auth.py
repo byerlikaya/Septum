@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..middleware.rate_limit import (
     check_login_failures,
+    get_rate_limit_key,
     record_login_failure,
     route_limit,
 )
@@ -18,6 +19,7 @@ from ..services.auth import (
     WeakPasswordError,
     create_access_token,
     hash_password,
+    run_password_work,
     validate_password_strength,
     verify_password,
     verify_password_or_dummy,
@@ -99,7 +101,7 @@ async def register(
 
     user = User(
         email=payload.email,
-        hashed_password=hash_password(payload.password),
+        hashed_password=await run_password_work(hash_password, payload.password, lane="public"),
         role="admin",
     )
     db.add(user)
@@ -127,7 +129,13 @@ async def login(
     user = result.scalar_one_or_none()
 
     stored_hash = user.hashed_password if user is not None else None
-    if not verify_password_or_dummy(payload.password, stored_hash):
+    if not await run_password_work(
+        verify_password_or_dummy,
+        payload.password,
+        stored_hash,
+        lane="public",
+        identity=get_rate_limit_key(request),
+    ):
         await record_login_failure(request, payload.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -168,7 +176,13 @@ async def change_password(
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """Rotate the caller's own password and return a fresh JWT."""
-    if not verify_password(payload.current_password, current_user.hashed_password):
+    if not await run_password_work(
+        verify_password,
+        payload.current_password,
+        current_user.hashed_password,
+        lane="account",
+        identity=f"user:{current_user.id}",
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect",
@@ -176,7 +190,9 @@ async def change_password(
 
     require_strong_password(payload.new_password)
 
-    current_user.hashed_password = hash_password(payload.new_password)
+    current_user.hashed_password = await run_password_work(
+        hash_password, payload.new_password, lane="account", identity=f"user:{current_user.id}"
+    )
     db.add(current_user)
     await db.commit()
     await db.refresh(current_user)

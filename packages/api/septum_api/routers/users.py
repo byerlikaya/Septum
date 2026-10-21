@@ -8,11 +8,12 @@ from typing import List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, EmailStr
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.user import User
-from ..services.auth import hash_password
+from ..services.auth import hash_password, run_password_work
 from ..utils.auth_dependency import require_interactive_session, require_role
 from ..utils.db_helpers import get_or_404
 from .auth import require_strong_password
@@ -108,12 +109,20 @@ async def create_user(
 
     user = User(
         email=payload.email,
-        hashed_password=hash_password(payload.password),
+        hashed_password=await run_password_work(hash_password, payload.password),
         role=payload.role,
         is_active=payload.is_active,
     )
     db.add(user)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # A concurrent create won the unique email between the check and the insert.
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already registered",
+        ) from None
     await db.refresh(user)
 
     return UserItemResponse.model_validate(user)
@@ -194,7 +203,7 @@ async def reset_password(
     require_strong_password(payload.new_password)
 
     target = await get_or_404(db, User, user_id, "User not found")
-    target.hashed_password = hash_password(payload.new_password)
+    target.hashed_password = await run_password_work(hash_password, payload.new_password)
     db.add(target)
     await db.commit()
     await db.refresh(target)
