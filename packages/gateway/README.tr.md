@@ -60,8 +60,16 @@ asyncio.run(consumer.run_forever())
 | `SEPTUM_GATEWAY_ANTHROPIC_API_KEY` / `ANTHROPIC_API_KEY` | — | Envelope içinde anahtar yoksa kullanılan varsayılan Anthropic anahtarı |
 | `SEPTUM_GATEWAY_OPENAI_API_KEY` / `OPENAI_API_KEY` | — | Varsayılan OpenAI anahtarı |
 | `SEPTUM_GATEWAY_OPENROUTER_API_KEY` / `OPENROUTER_API_KEY` | — | Varsayılan OpenRouter anahtarı |
-| `SEPTUM_GATEWAY_TIMEOUT_SECONDS` | `30` | İstek başına HTTP zaman aşımı |
+| `SEPTUM_GATEWAY_TIMEOUT_SECONDS` | `30` | Tek bir upstream denemesi için toplam süre sınırı; isteğin tamamını kapsar |
 | `SEPTUM_GATEWAY_MAX_ATTEMPTS` | `3` | Geçici hatalarda yeniden deneme tavanı |
+
+Varsayılanlarla bir isteğin en kötü süresi: 3 deneme × 30 sn, artı en fazla 10 sn'de sınırlanmış iki `Retry-After` beklemesi, yaklaşık 110 sn. API tarafındaki `SEPTUM_GATEWAY_CLIENT_TIMEOUT_SECONDS` (varsayılan 120) bu sınırın üstünde kalmalıdır; buradaki değerlerden birini artırdığınızda onu da artırın.
+
+## Kuyruk
+
+Kuyruk girdileri işlendikten sonra onaylanır ve silinir. Compose dosyalarındaki kuyruk Redis'i kalıcılık kapalı çalışır (`--save ""`, `--appendonly no`); anlık görüntü ya da append-only dosya yazmaz ve veri volume'u yoktur. Kuyruk Redis'i yeniden başlarsa işlenmekte olan istekler başarısız olur ve çağıranlar bir hata alır. Kuyruk Redis'i ayrıca belleğini `SEPTUM_QUEUE_REDIS_MAXMEMORY` ile sınırlar (varsayılan `256mb`) ve dolduğunda yeni yazmaları reddeder; bu yüzden kuyruktaki mesajlar hiçbir zaman tahliye edilmez.
+
+Kuyruk bağlantısı, URL `rediss://` değilse ve Redis dinleyicisi TLS sonlandırmıyorsa düz metindir. `rediss://` kullanıldığında istemci sertifikayı ve host adını doğrular.
 
 ## Lisans
 
