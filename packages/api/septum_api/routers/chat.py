@@ -137,7 +137,12 @@ from ..services.sanitizer_factory import (
 )
 from ..services.text_normalizer import TextNormalizer
 from ..utils.auth_dependency import get_current_user
-from ..utils.db_helpers import detect_language, get_owned_or_404, load_settings
+from ..utils.db_helpers import (
+    detect_language,
+    document_language,
+    get_owned_or_404,
+    load_settings,
+)
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -1172,6 +1177,18 @@ async def _run_llm_and_deanonymize(
     return result
 
 
+def query_language(message: str, document: Optional[Document]) -> str:
+    """Detect a chat query's language, with the targeted document's language as context.
+
+    Both chat endpoints call this so a short or ambiguous query resolves
+    the same way: a confident detection wins, otherwise the document's
+    language (a valid override first, see ``document_language``) is used
+    when the query's script allows it. Without a document the detector's own fallbacks apply.
+    """
+    context = document_language(document) if document is not None else None
+    return detect_language(message, context_language=context)
+
+
 class AnalyzeQueryRequest(BaseModel):
     """Pre-flight payload for the disambiguation picker."""
 
@@ -1219,8 +1236,14 @@ async def chat_analyze_query(
     real-world entities match the query."""
 
     settings = await load_settings(db)
-    base_language = "en"
-    language = detect_language(body.message, fallback=base_language)
+    target_document = (
+        await get_owned_or_404(
+            db, Document, body.document_ids[0], user, "Document not found."
+        )
+        if body.document_ids
+        else None
+    )
+    language = query_language(body.message, target_document)
     anon_map = AnonymizationMap(document_id=0, language=language)
     await _sanitize_query(body.message, language, settings, anon_map, db)
 
@@ -1373,12 +1396,7 @@ async def chat_ask(
                 else None
             )
 
-            base_language = (
-                (document.language_override or document.detected_language)
-                if document
-                else "en"
-            )
-            language = detect_language(message_text, fallback=base_language)
+            language = query_language(message_text, document)
 
             # The document whose map seeds the query map; part of the
             # numbering fingerprint a retry is checked against.

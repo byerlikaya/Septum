@@ -78,6 +78,7 @@ from .services.error_logger import (
 from .services.llm_errors import GatewayStartupError
 from .services.llm_router import GatewayClientProtocol, set_gateway_client_factory
 from .utils.auth_dependency import setup_window_open
+from .utils.db_helpers import ensure_language_profiles_loaded
 from .utils.device import get_device
 
 MODEL_WARMUP_OPT_OUT_ENV = "SEPTUM_DISABLE_MODEL_WARMUP"
@@ -320,7 +321,10 @@ async def lifespan(app: FastAPI):
     parse_int_default_flags()
     parse_float_default_flags()
     async with _gateway_client_installed(flags["USE_GATEWAY_DEFAULT"]):
-        await run_password_work(warm_dummy_password_hash)
+        await asyncio.gather(
+            run_password_work(warm_dummy_password_hash),
+            asyncio.to_thread(ensure_language_profiles_loaded),
+        )
         config = bootstrap.get_config()
         if not bootstrap.needs_setup():
             url = build_database_url(config.database_url, config.db_path)

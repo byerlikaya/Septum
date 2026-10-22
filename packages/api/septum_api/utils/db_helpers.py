@@ -1,16 +1,30 @@
 """Shared database and validation helpers for Septum routers."""
 from __future__ import annotations
 
+import logging
+import os
 import re
-from typing import Any, Optional, Type, TypeVar
+import threading
+from functools import lru_cache
+from typing import Any, FrozenSet, List, Optional, Type, TypeVar
 
 from fastapi import HTTPException, status
+from langdetect import detect_langs, detector_factory
+from langdetect.lang_detect_exception import ErrorCode, LangDetectException
+from septum_core.language_resolution import (
+    detection_sample,
+    iso_language_code,
+    language_table_codes,
+    resolve_language,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.settings import AppSettings
 
 T = TypeVar("T")
+
+logger = logging.getLogger(__name__)
 
 
 async def get_or_404(
@@ -84,13 +98,133 @@ async def load_settings(db: AsyncSession) -> AppSettings:
     return settings
 
 
-def detect_language(text: str, fallback: str = "en") -> str:
-    """Detect the language of text using langdetect, with fallback."""
+_language_profiles_lock = threading.Lock()
+_loaded_language_factory: Optional[object] = None
+
+
+def ensure_language_profiles_loaded() -> None:
+    """Load langdetect's language profiles exactly once, thread-safely.
+
+    ``langdetect`` publishes its global factory before the profiles are
+    loaded and has no lock, so two first calls in parallel can see an
+    empty factory and fail with "Need to load profiles". The lifespan
+    calls this at startup; :func:`detect_language` calls it as well so
+    tests and scripts that skip the lifespan are covered. Relies on
+    langdetect 1.0.9 internals (``detector_factory._factory``), pinned in
+    ``requirements.txt``.
+    """
+    global _loaded_language_factory
+    if (
+        _loaded_language_factory is not None
+        and _loaded_language_factory is detector_factory._factory
+    ):
+        return
+    with _language_profiles_lock:
+        if (
+            _loaded_language_factory is None
+            or _loaded_language_factory is not detector_factory._factory
+        ):
+            detector_factory.init_factory()
+            _require_complete_profiles(detector_factory._factory)
+            _loaded_language_factory = detector_factory._factory
+
+
+def _require_complete_profiles(factory: Any) -> None:
+    """Raise unless ``factory`` holds one language per bundled profile file.
+
+    ``load_profile`` publishes the factory before it reads the files, so a
+    load that failed midway leaves a short language list that later calls
+    would use silently. The short factory is discarded so a later call
+    loads afresh instead of reusing it. Relies on langdetect 1.0.9 internals
+    (``detector_factory._factory``, ``PROFILES_DIRECTORY``), pinned in
+    ``requirements.txt``.
+    """
+    expected = len(_profile_names(detector_factory.PROFILES_DIRECTORY))
+    loaded = len(factory.get_lang_list()) if factory is not None else 0
+    if expected == 0 or loaded != expected:
+        detector_factory._factory = None
+        raise LangDetectException(
+            ErrorCode.NeedLoadProfileError,
+            f"langdetect loaded {loaded} of {expected} language profiles",
+        )
+
+
+def _profile_names(directory: str) -> List[str]:
+    """Names of the profile files ``load_profile`` reads from ``directory``."""
+    return [
+        name
+        for name in os.listdir(directory)
+        if not name.startswith(".") and os.path.isfile(os.path.join(directory, name))
+    ]
+
+
+@lru_cache(maxsize=4)
+def _supported_codes(directory: str) -> FrozenSet[str]:
+    """Canonical codes of the profiles in ``directory`` plus septum-core's table keys."""
+    profiles = (code for code in map(iso_language_code, _profile_names(directory)) if code)
+    return frozenset(profiles) | language_table_codes()
+
+
+def supported_language_codes() -> FrozenSet[str]:
+    """ISO 639 codes Septum knows: those detection can produce and those its tables key.
+
+    ``zh-cn`` and ``zh-tw`` profiles count as ``zh``; a language with a
+    table entry but no detection profile (``az``) is known too.
+    """
+    return _supported_codes(detector_factory.PROFILES_DIRECTORY)
+
+
+def supported_language_code(code: Optional[str]) -> Optional[str]:
+    """``code`` canonicalized if it is a supported ISO 639 code, else ``None``."""
+    return iso_language_code(code, supported_language_codes())
+
+
+def document_language(document: Any) -> Optional[str]:
+    """The document's language: a valid override first, then a valid detected code.
+
+    A stored value that is malformed or names a language detection does
+    not support (written before the override was validated) is treated as
+    absent rather than used as a language.
+    """
+    return supported_language_code(document.language_override) or supported_language_code(
+        document.detected_language
+    )
+
+
+def detect_language(
+    text: str,
+    fallback: str = "en",
+    context_language: Optional[str] = None,
+) -> str:
+    """Detect the ISO 639-1 language of ``text``.
+
+    langdetect's ranked guesses go through
+    :func:`septum_core.language_resolution.resolve_language`, which
+    canonicalizes region tags (``zh-cn`` -> ``zh``) and, for a weak or
+    script-contradicted guess, prefers ``context_language`` (the language
+    of the document a query targets), then the script-implied language,
+    then ``fallback``. Both langdetect and the script check read the same
+    bounded :func:`~septum_core.language_resolution.detection_sample`.
+    Text langdetect finds no features in (empty, digits only) resolves the
+    same way with no guesses; every other langdetect error propagates.
+    """
+    ensure_language_profiles_loaded()
+    sample = detection_sample(text)
     try:
-        from langdetect import detect
-        return detect(text)
-    except Exception:
-        return fallback
+        candidates = [(guess.lang, guess.prob) for guess in detect_langs(sample)]
+    except LangDetectException as exc:
+        if exc.get_code() != ErrorCode.CantDetectError:
+            raise
+        candidates = []
+    language = resolve_language(
+        sample, candidates, context_language=context_language, default=fallback
+    )
+    if not candidates and any(ch.isalpha() for ch in sample):
+        logger.warning(
+            "Language detection found no features in lettered text; fell back to %s",
+            language,
+        )
+    return language
 
 
 def validate_regex(pattern: str) -> Optional[str]:

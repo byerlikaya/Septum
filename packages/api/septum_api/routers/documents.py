@@ -77,6 +77,7 @@ from ..utils.db_helpers import (
     detect_language,
     get_owned_or_404,
     load_settings,
+    supported_language_code,
 )
 
 
@@ -434,8 +435,9 @@ def _detect_document_language(file_format: str, ingestion_result: Any) -> str:
     """Detect document language from ingestion result."""
     if file_format == "audio" and ingestion_result.metadata:
         whisper_lang = ingestion_result.metadata.get("detected_language")
-        if isinstance(whisper_lang, str) and whisper_lang.strip():
-            return whisper_lang.strip().lower()
+        code = supported_language_code(whisper_lang) if isinstance(whisper_lang, str) else None
+        if code is not None:
+            return code
     return detect_language(ingestion_result.text)
 
 
@@ -696,8 +698,8 @@ async def upload_document(
                     ingester_kwargs=ingester_kwargs,
                 )
                 set_progress(doc_id, 1)
-                bg_doc.detected_language = _detect_document_language(
-                    file_format, ingestion_result
+                bg_doc.detected_language = await asyncio.to_thread(
+                    _detect_document_language, file_format, ingestion_result
                 )
                 bg_doc.ocr_confidence = ingestion_result.confidence
                 # Flush these two fields immediately so they cannot become
@@ -1176,8 +1178,8 @@ async def reprocess_document(
                 )
                 set_progress(doc_id, 1)
 
-                bg_doc.detected_language = _detect_document_language(
-                    file_format, ingestion_result
+                bg_doc.detected_language = await asyncio.to_thread(
+                    _detect_document_language, file_format, ingestion_result
                 )
                 bg_doc.ocr_confidence = ingestion_result.confidence
                 await bg_db.commit()
