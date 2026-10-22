@@ -30,6 +30,9 @@ function failedDocument(overrides: Partial<Document>): Document {
     needs_reprocessing: false,
     missing_entity_types: [],
     sanitized_policy_known: true,
+    sanitized_language: "en",
+    override_refused_language: null,
+    override_refused_reason: null,
     ...overrides,
   };
 }
@@ -69,6 +72,9 @@ it("uses the unknown-policy wording without listing types when the policy is unr
         completedDocument({
           needs_reprocessing: true,
           sanitized_policy_known: false,
+          sanitized_language: "en",
+          override_refused_language: null,
+          override_refused_reason: null,
           missing_entity_types: ["EMAIL"],
         }),
       ]}
@@ -191,4 +197,122 @@ it("shows the selection column and bulk toolbar when a bulk handler is given", (
   fireEvent.click(screen.getAllByRole("checkbox")[1]);
   fireEvent.click(screen.getByText("documents.bulk.delete"));
   expect(onBulkDelete).toHaveBeenCalledWith([doc.id]);
+});
+
+describe("masking language and refused override", () => {
+  it("shows the masking language when it differs from the displayed language", () => {
+    render(
+      <DocumentList
+        documents={[completedDocument({ detected_language: "en", sanitized_language: "tr" })]}
+        {...handlers}
+      />
+    );
+    expect(screen.getByText("documents.table.maskedAs:tr")).toBeInTheDocument();
+    expect(screen.queryByText("documents.table.maskingUnknown")).not.toBeInTheDocument();
+  });
+
+  it("omits the masked-as badge when the masking language matches the displayed language", () => {
+    render(
+      <DocumentList
+        documents={[completedDocument({ detected_language: "en", language_override: "de", sanitized_language: "de" })]}
+        {...handlers}
+      />
+    );
+    expect(screen.queryByText(/documents\.table\.maskedAs/)).not.toBeInTheDocument();
+  });
+
+  it("warns that the masking language is unknown for a completed document with null sanitized_language", () => {
+    render(
+      <DocumentList documents={[completedDocument({ sanitized_language: null })]} {...handlers} />
+    );
+    expect(screen.getByText("documents.table.maskingUnknown")).toBeInTheDocument();
+    expect(screen.queryByText(/documents\.table\.maskedAs/)).not.toBeInTheDocument();
+  });
+
+  it("does not show the unknown warning while a document is still processing", () => {
+    render(
+      <DocumentList
+        documents={[failedDocument({ ingestion_status: "processing", sanitized_language: null })]}
+        {...handlers}
+      />
+    );
+    expect(screen.queryByText("documents.table.maskingUnknown")).not.toBeInTheDocument();
+  });
+
+  it("announces a refused override in an accessible note", () => {
+    render(
+      <DocumentList
+        documents={[completedDocument({ sanitized_language: "en", override_refused_language: "ru", override_refused_reason: "script_mismatch" })]}
+        {...handlers}
+      />
+    );
+    const note = screen.getByRole("note");
+    expect(note).toHaveTextContent("documents.table.overrideRefused:ru");
+  });
+
+  it("hides the refused-override note when no override was refused", () => {
+    render(<DocumentList documents={[completedDocument({ sanitized_language: "en" })]} {...handlers} />);
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
+  });
+});
+
+describe("masking language accessibility", () => {
+  it("hides the decorative icon of the refused-override note from assistive technology", () => {
+    render(
+      <DocumentList
+        documents={[completedDocument({ sanitized_language: "en", override_refused_language: "ru", override_refused_reason: "script_mismatch" })]}
+        {...handlers}
+      />
+    );
+    const icons = screen.getByRole("note").querySelectorAll("svg");
+    expect(icons).toHaveLength(1);
+    icons.forEach((icon) => expect(icon).toHaveAttribute("aria-hidden", "true"));
+  });
+
+  it("hides the decorative icon of the unknown masking language warning", () => {
+    render(
+      <DocumentList documents={[completedDocument({ sanitized_language: null })]} {...handlers} />
+    );
+    const warning = screen.getByText("documents.table.maskingUnknown").parentElement as HTMLElement;
+    const icons = warning.querySelectorAll("svg");
+    expect(icons).toHaveLength(1);
+    expect(icons[0]).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("renders one note per document that has a refused override", () => {
+    render(
+      <DocumentList
+        documents={[
+          completedDocument({ id: 1, sanitized_language: "en", override_refused_language: "ru", override_refused_reason: "script_mismatch" }),
+          completedDocument({ id: 2, sanitized_language: "en" }),
+          completedDocument({ id: 3, sanitized_language: "en", override_refused_language: "ko", override_refused_reason: "script_mismatch" }),
+        ]}
+        {...handlers}
+      />
+    );
+    const notes = screen.getAllByRole("note");
+    expect(notes).toHaveLength(2);
+    expect(notes[0]).toHaveTextContent("documents.table.overrideRefused:ru");
+    expect(notes[1]).toHaveTextContent("documents.table.overrideRefused:ko");
+  });
+
+  it("treats a region-tagged stored language as the same base language as its masking language", () => {
+    render(
+      <DocumentList
+        documents={[completedDocument({ detected_language: "zh-cn", language_override: null, sanitized_language: "zh" })]}
+        {...handlers}
+      />
+    );
+    expect(screen.queryByText(/documents\.table\.maskedAs/)).not.toBeInTheDocument();
+  });
+
+  it("still shows the masking language when the base languages differ", () => {
+    render(
+      <DocumentList
+        documents={[completedDocument({ detected_language: "en", language_override: null, sanitized_language: "zh" })]}
+        {...handlers}
+      />
+    );
+    expect(screen.getByText("documents.table.maskedAs:zh")).toBeInTheDocument();
+  });
 });

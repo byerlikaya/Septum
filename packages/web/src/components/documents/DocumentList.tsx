@@ -9,6 +9,7 @@ import {
   FileSpreadsheet,
   FileText,
   FileWarning,
+  Info,
   RefreshCw,
   Trash2,
   Eye,
@@ -19,6 +20,7 @@ import type { Document, IngestionStatus } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { INGESTION_ERROR_KEYS, translateErrorCode } from "@/lib/apiErrors";
 import { getDocumentDisplayName } from "@/lib/utils";
+import { baseLanguageCode } from "@/lib/languageCode";
 import { SkeletonTableRows } from "@/components/common/Skeleton";
 
 interface DocumentListProps {
@@ -103,6 +105,39 @@ function ReprocessNeededBadge({ doc }: { doc: Document }) {
       <span>{t("documents.stale.badge")}</span>
       <span className="sr-only">{detail}</span>
     </span>
+  );
+}
+
+function MaskingLanguageBadge({ doc }: { doc: Document }) {
+  const t = useI18n();
+  if (doc.sanitized_language === null) {
+    if (doc.ingestion_status !== "completed") return null;
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-amber-300">
+        <TriangleAlert className="h-3 w-3" aria-hidden="true" />
+        <span>{t("documents.table.maskingUnknown")}</span>
+      </span>
+    );
+  }
+  const displayedLanguage = doc.language_override ?? doc.detected_language;
+  if (baseLanguageCode(doc.sanitized_language) === baseLanguageCode(displayedLanguage)) return null;
+  return (
+    <span className="rounded-full bg-slate-900 px-2 py-0.5">
+      {t("documents.table.maskedAs", { lang: doc.sanitized_language })}
+    </span>
+  );
+}
+
+function RefusedOverrideNotice({ lang }: { lang: string }) {
+  const t = useI18n();
+  return (
+    <div
+      role="note"
+      className="mt-1 flex items-start gap-1.5 rounded-md border border-sky-800/60 bg-sky-950/40 px-2 py-1 text-[11px] leading-relaxed text-sky-200"
+    >
+      <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+      <span>{t("documents.table.overrideRefused", { lang })}</span>
+    </div>
   );
 }
 
@@ -355,6 +390,7 @@ export function DocumentList({
                             {t("documents.table.languageLabel")}:{" "}
                             {doc.language_override ?? doc.detected_language}
                           </span>
+                          <MaskingLanguageBadge doc={doc} />
                           {doc.active_regulation_ids.length > 0 && (
                             <span className="rounded-full bg-slate-900 px-2 py-0.5">
                               {t("documents.table.regulationsLabel")}:{" "}
@@ -362,6 +398,9 @@ export function DocumentList({
                             </span>
                           )}
                         </div>
+                        {doc.override_refused_language && (
+                          <RefusedOverrideNotice lang={doc.override_refused_language} />
+                        )}
                       </div>
                     </div>
                   </td>

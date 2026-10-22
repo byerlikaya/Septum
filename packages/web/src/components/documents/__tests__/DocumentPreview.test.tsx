@@ -48,7 +48,10 @@ function spreadsheetDocument(): Document {
     active_regulation_ids: [],
     needs_reprocessing: false,
     missing_entity_types: [],
-    sanitized_policy_known: true
+    sanitized_policy_known: true,
+    sanitized_language: "en",
+    override_refused_language: null,
+    override_refused_reason: null
   };
 }
 
