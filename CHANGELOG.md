@@ -25,6 +25,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 ### 2026-10-22
 
 - Added an offline retrieval benchmark with a hand-authored English, Turkish and Simplified Chinese evaluation set. It measures Recall@5/10, MRR, nDCG@10, latency and a chunk-boundary PII leak check against the production chunker, FAISS and BM25 stores, and its MiniLM baseline is published in the benchmark docs so that upcoming chunking, embedding and reranking changes can be compared against it.
+- Docker images now use Node.js 26.12.1, which includes the October 2026 Node.js security release (Brotli decoder, HTTP keep-alive, TLS hostname checks, bundled undici and c-ares). Rebuild existing web and standalone images.
 
 ### 2026-10-21
 

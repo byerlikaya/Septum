@@ -52,7 +52,7 @@ RUN chmod -R go-w /app/packages \
     && pip install --no-warn-script-location -e /app/packages/api
 
 # ── Stage 2: build Next.js frontend ──
-FROM node:26-alpine@sha256:6f08a523443ddedf52941874c203475b0ad503e859ad70cb26ab8be9a517dbd5 AS frontend-builder
+FROM node:26-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS frontend-builder
 
 # Pass --build-arg VERSION=<x.y.z> to stamp a release version;
 # defaults to 0.0.0-dev when it is not given.
@@ -69,7 +69,7 @@ RUN mkdir -p public \
     && chmod -R go-w public .next/standalone .next/static
 
 # ── Stage 3: combined runtime ──
-FROM node:26-slim@sha256:0d1e33586362bb9e608c4e751e7a9e7edb55c9ac11461ed5666af696cc461dd4 AS node-donor
+FROM node:26-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec AS node-donor
 
 FROM python:3.13-slim@sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f AS runtime
 
