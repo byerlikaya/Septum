@@ -31,7 +31,7 @@ from ..errors import ContentFreeError
 from ..models.document import Chunk, Document
 from ..models.settings import AppSettings
 from ..utils.text_utils import normalize_unicode
-from .anonymization_map import AnonymizationMap
+from .anonymization_map import PLACEHOLDER_PATTERN, AnonymizationMap
 from .document_anon_store import (
     document_map_lock,
     load_persisted_document_map,
@@ -42,9 +42,6 @@ from .sanitizer_factory import create_sanitizer
 if TYPE_CHECKING:
     from .sanitizer import PIISanitizer
 
-# Index digits are capped: real placeholder indexes are small, and an
-# unbounded run of digits from untrusted text would make ``int()`` raise.
-_PLACEHOLDER_RE = re.compile(r"\[([A-Z][A-Z_]*)_([0-9]{1,9})\]")
 _SPAN_EDGE_CHARS = " \t\r\n.,;:!?()[]{}\"'"
 
 
@@ -60,7 +57,7 @@ def _known_placeholders(anon_map: AnonymizationMap) -> set[str]:
 def all_placeholders_known(text: str, anon_map: AnonymizationMap) -> bool:
     """Return whether every placeholder-shaped token in ``text`` resolves in ``anon_map``."""
     known = _known_placeholders(anon_map)
-    return all(m.group(0) in known for m in _PLACEHOLDER_RE.finditer(text))
+    return all(m.group(0) in known for m in PLACEHOLDER_PATTERN.finditer(text))
 
 
 def reserve_placeholder_counters(
@@ -77,7 +74,7 @@ def reserve_placeholder_counters(
     sources: List[str] = list(_known_placeholders(anon_map))
     sources.extend(t for t in extra_texts if t)
     for source in sources:
-        for match in _PLACEHOLDER_RE.finditer(source):
+        for match in PLACEHOLDER_PATTERN.finditer(source):
             entity_type, index = match.group(1), int(match.group(2))
             if anon_map.token_counter.get(entity_type, 0) < index:
                 anon_map.token_counter[entity_type] = index

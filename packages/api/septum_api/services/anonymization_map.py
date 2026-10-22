@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from septum_core.anonymization_map import (  # noqa: F401
+    PLACEHOLDER_PATTERN,
     SANITIZER_STOPWORDS,
     AnonymizationMap,
 )
 
-__all__ = ["AnonymizationMap", "SANITIZER_STOPWORDS"]
+__all__ = ["AnonymizationMap", "PLACEHOLDER_PATTERN", "SANITIZER_STOPWORDS"]
