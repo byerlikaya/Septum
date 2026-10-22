@@ -133,6 +133,16 @@ def test_registry_override_matches_region_tag():
     assert registry._resolve_model_ids("zh-cn") == ["org/model"]
 
 
+def test_min_span_length_lookup_canonicalizes_region_tag():
+    text = "李明 来了"
+    raw = [{"entity_group": "PER", "start": 0, "end": 2, "score": 0.99}]
+    spans = Detector._from_ner_results(raw, text, "zh-cn")
+    assert [(s.start, s.end) for s in spans] == [(0, 2)]
+    latin = [{"entity_group": "PER", "start": 0, "end": 2, "score": 0.99}]
+    assert len(Detector._from_ner_results(latin, "Li came", "zh-cn")) == 1
+    assert Detector._from_ner_results(latin, "Li came", "en") == []
+
+
 def test_threshold_boundary_is_inclusive():
     text = "Gracias por todo"
     assert LOW_CONFIDENCE_THRESHOLD == 0.8
@@ -403,6 +413,16 @@ def test_malformed_context_or_candidate_is_treated_as_absent():
     assert resolve_language("Hello there", [("evil\nFORGED", 1.0)]) == "en"
     with pytest.raises(ValueError):
         resolve_language("Hello there", [], default="evil\nFORGED")
+
+
+def test_cjk_name_keeps_the_two_glyph_floor_in_a_latin_language_document():
+    text = "Signed by 王伟 today"
+    raw = [{"entity_group": "PER", "start": 10, "end": 12, "score": 0.99}]
+    spans = Detector._from_ner_results(raw, text, "en")
+    assert [(s.start, s.end) for s in spans] == [(10, 12)]
+    thai = "ลงนาม กา วันนี้"
+    raw_thai = [{"entity_group": "PER", "start": 6, "end": 8, "score": 0.99}]
+    assert len(Detector._from_ner_results(raw_thai, thai, "de")) == 1
 
 
 @pytest.mark.parametrize(
