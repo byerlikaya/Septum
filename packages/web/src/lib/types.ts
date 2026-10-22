@@ -84,6 +84,12 @@ export interface Document {
   missing_entity_types: string[];
   /** False for legacy documents with no recorded sanitization policy. */
   sanitized_policy_known: boolean;
+  /** Language the stored chunks were masked in; null when unknown and the document needs reprocessing. */
+  sanitized_language: string | null;
+  /** ISO code of a language override the last processing run ignored because it did not match the script. */
+  override_refused_language: string | null;
+  /** Reason the override was refused; currently only "script_mismatch". */
+  override_refused_reason: string | null;
 }
 
 export interface DocumentListResponse {

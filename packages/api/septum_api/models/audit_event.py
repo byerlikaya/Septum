@@ -10,7 +10,7 @@ counts.
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import JSON, DateTime, Integer, String
+from sqlalchemy import JSON, DateTime, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from . import Base
@@ -20,6 +20,11 @@ class AuditEvent(Base):
     """Immutable record of a privacy-relevant system event."""
 
     __tablename__ = "audit_events"
+    __table_args__ = (
+        # Latest event of one type per document: seek (document_id, event_type),
+        # take max(id) from the index without reading the document's other events.
+        Index("ix_audit_events_document_event_id", "document_id", "event_type", "id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -32,9 +37,7 @@ class AuditEvent(Base):
     session_id: Mapped[Optional[str]] = mapped_column(
         String(128), nullable=True, index=True
     )
-    document_id: Mapped[Optional[int]] = mapped_column(
-        Integer, nullable=True, index=True
-    )
+    document_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     regulation_ids: Mapped[List[str]] = mapped_column(
         JSON, nullable=False, default=list
     )

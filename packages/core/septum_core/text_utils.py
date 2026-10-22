@@ -17,6 +17,8 @@ import re
 import unicodedata
 from typing import Dict
 
+from .language_resolution import canonical_language_code
+
 _WHITESPACE_RUN = re.compile(r"\s+")
 
 # Locale-specific character transformations for case folding.
@@ -54,7 +56,8 @@ def locale_lower(text: str, language: str = "en") -> str:
 
     Args:
         text: Input text to lowercase
-        language: ISO 639-1 language code (e.g., "en", "tr", "de")
+        language: ISO 639-1 language code (e.g., "en", "tr", "de"); region
+            tags such as ``tr-TR`` resolve to their base code
 
     Returns:
         Lowercased text with locale-specific transformations applied.
@@ -63,7 +66,7 @@ def locale_lower(text: str, language: str = "en") -> str:
     transformations for languages where ``str.lower()`` is insufficient.
     Falls back to standard lowercasing for unlisted languages.
     """
-    transform = _LOCALE_CASING_RULES.get(language)
+    transform = _LOCALE_CASING_RULES.get(canonical_language_code(language))
     if transform is not None:
         return text.translate(transform).lower()
     return text.lower()
@@ -104,7 +107,7 @@ def strip_possessive_suffix(text: str, language: str = "en") -> str:
     if not text or len(text) < 3:
         return text
 
-    for suffix in _POSSESSIVE_SUFFIXES.get(language, []):
+    for suffix in _POSSESSIVE_SUFFIXES.get(canonical_language_code(language), []):
         if text.endswith(suffix):
             return text[: -len(suffix)]
 

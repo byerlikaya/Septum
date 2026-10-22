@@ -46,7 +46,8 @@ Step by step:
    memory only — it never touches the queue or the gateway process.
 8. **Audit log.** A compliance event is written: who asked, which
    documents were touched, how many entities of which types were
-   masked. The event itself contains zero raw PII.
+   masked. The event itself contains no document text; it can include the
+   original file name of a document.
 
 The same masking pipeline runs on the user's message, not just the
 retrieved chunks. A typed `"Send the discharge plan to Elif Demir at e.demir@example.com"`
@@ -155,9 +156,10 @@ What gets recorded:
 - **Latency, model, provider** for cloud calls
 - **User id, session id** — who, in which session
 
-What does *not* get recorded: the actual PII, the document text, the
-prompt content, the LLM response. Audit events are PII-free by
-contract; that's what makes them safe to ship to a third-party SIEM.
+What does *not* get recorded: the actual PII values, the document text,
+the prompt content, the LLM response. The original file name of a
+document can be recorded, and it may itself contain personal data, so
+review audit exports before you share them with a third party.
 
 What you can do with it:
 
@@ -172,10 +174,10 @@ What you can do with it:
   the relevant slice. Splunk HEC payloads are ready to ship to a
   collector; JSON suits custom downstream processors; CSV opens in
   Excel for ad-hoc investigations.
-- **Retention policy.** Rolling window with two cap modes — by age
-  (drop events older than N days) and by count (drop the oldest once
-  the file exceeds M rows). Atomic in-place rewrite, no read-side
-  downtime.
+- **Retention settings.** `SEPTUM_AUDIT_RETENTION_DAYS` and
+  `SEPTUM_AUDIT_RETENTION_MAX_RECORDS` are read by the audit module, but
+  retention is not applied automatically yet: nothing prunes audit
+  records on its own.
 
 The audit module runs in the **internet-facing zone** by design — it
 needs to talk to your SIEM but should never see raw PII. Because

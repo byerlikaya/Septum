@@ -32,6 +32,7 @@ from typing import Dict
 from transformers import pipeline  # noqa: E402
 
 from .device import get_device
+from .language_resolution import canonical_language_code
 from .model_integrity import ensure_model_snapshot
 
 
@@ -150,7 +151,7 @@ class NERModelRegistry:
         :class:`~septum_core.model_integrity.ModelIntegrityError` instead of
         loading anything unverified.
         """
-        lang = (language or "en").lower()
+        lang = canonical_language_code(language) or "en"
         model_ids = self._resolve_model_ids(lang)
 
         # Fast path — every model already loaded.
@@ -194,6 +195,7 @@ class NERModelRegistry:
         id (current behaviour) or several to opt into an ensemble. Each id
         is a manifest model or ``org/name@<40-hex commit>``.
         """
+        language = canonical_language_code(language)
         override = (self._overrides.get(language) or "").strip()
         if override:
             ids = [m.strip() for m in override.split(",") if m.strip()]

@@ -140,6 +140,7 @@ class _Env:
                 active_regulation_ids=["hipaa"],
                 sanitized_entity_types=snapshot,
                 sanitized_policy_digest=digest,
+                sanitized_language="en",
                 ingestion_status=status,
                 chunk_count=len(chunk_texts),
                 user_id=self.user.id,
@@ -683,7 +684,7 @@ class TestRemaskCache:
 
         cache = RemaskCache(max_entries=2)
         amap = AnonymizationMap(document_id=1, language="en")
-        keys = [RemaskCache.key(doc, chunk, "d", "t") for doc, chunk in ((1, 1), (1, 2), (2, 3))]
+        keys = [RemaskCache.key(doc, chunk, "d", "t", "en") for doc, chunk in ((1, 1), (1, 2), (2, 3))]
         for k in keys:
             cache.put(k, "text")
 
@@ -694,7 +695,7 @@ class TestRemaskCache:
         assert cache.get(keys[2], amap) == "text"
 
     async def test_pipeline_run_forgets_the_document(self, env: _Env) -> None:
-        remask_cache.put(remask_cache.key(7, 1, "d", "t"), "text")
+        remask_cache.put(remask_cache.key(7, 1, "d", "t", "en"), "text")
 
         await dp.erase_document_artifacts(7)
 

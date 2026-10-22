@@ -11,6 +11,7 @@ import {
   ChevronUp,
   FileText,
   MessageSquare,
+  Languages,
 } from "lucide-react";
 import { fetchAuditEvents } from "@/lib/api";
 import type { AuditEvent, AuditListResponse } from "@/lib/types";
@@ -27,6 +28,7 @@ const EVENT_TYPES = [
   "deanonymization_performed",
   "document_uploaded",
   "document_deleted",
+  "document_language_changed",
   "regulation_changed",
 ] as const;
 
@@ -75,6 +77,8 @@ function EventIcon({ type, source }: { type: string; source?: string }) {
     return <FileUp className={`${cls} text-emerald-400`} />;
   if (type === "document_deleted")
     return <Trash2 className={`${cls} text-rose-400`} />;
+  if (type === "document_language_changed")
+    return <Languages className={`${cls} text-sky-400`} />;
   if (type === "regulation_changed")
     return <Shield className={`${cls} text-violet-400`} />;
   return <FileText className={`${cls} text-slate-400`} />;
@@ -86,6 +90,7 @@ function accentBorder(type: string): string {
     case "deanonymization_performed": return "border-l-blue-500";
     case "document_uploaded": return "border-l-emerald-500";
     case "document_deleted": return "border-l-rose-500";
+    case "document_language_changed": return "border-l-sky-500";
     case "regulation_changed": return "border-l-violet-500";
     default: return "border-l-slate-600";
   }
@@ -99,6 +104,8 @@ function EventCard({ event, t, onViewDocument }: { event: AuditEvent; t: ReturnT
   const maskedQuery = extra.masked_query as string | undefined;
   const placeholderSamples = extra.placeholder_samples as string[] | undefined;
   const strategy = extra.strategy as string | undefined;
+  const previousOverride = extra.previous_override as string | null | undefined;
+  const newOverride = extra.override as string | null | undefined;
 
   const typeKey = `audit.eventType.${event.event_type}` as Parameters<typeof t>[0];
   const typeLabel = t(typeKey);
@@ -133,6 +140,10 @@ function EventCard({ event, t, onViewDocument }: { event: AuditEvent; t: ReturnT
         return docName
           ? t("audit.desc.deleted").replace("{doc}", docName)
           : t("audit.desc.deletedGeneric");
+      case "document_language_changed":
+        return t("audit.desc.languageChanged")
+          .replace("{previous}", previousOverride || t("audit.desc.languageAutomatic"))
+          .replace("{new}", newOverride || t("audit.desc.languageAutomatic"));
       case "regulation_changed":
         return regs.length > 0
           ? t("audit.desc.regChanged").replace("{regs}", regs.join(", "))

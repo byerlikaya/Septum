@@ -32,6 +32,7 @@ from .anonymization_map import SANITIZER_STOPWORDS, AnonymizationMap
 from .config import SeptumCoreConfig
 from .date_grammar import find_dates
 from .date_grammar import warm_up as warm_up_date_grammar
+from .language_resolution import canonical_language_code, script_min_span_length
 from .model_integrity import ModelIntegrityError
 from .national_ids import IBANValidator
 from .ner_model_registry import NERModelRegistry
@@ -1730,9 +1731,11 @@ class Detector:
         to word boundaries to prevent mid-word replacements caused by
         subword tokenisation.
 
-        Minimum span length is language-aware: 2 characters for CJK +
-        Thai (ZH / JA / KO / TH names routinely run 2–3 glyphs, e.g.
-        "李明", "王芳"), 3 characters everywhere else (Latin scripts
+        Minimum span length follows each span's own script first: a span
+        written in a script whose rule sets a floor (Han, Hangul, kana,
+        Thai — names routinely run 2–3 glyphs, e.g. "李明", "王芳") keeps
+        that floor in a document of any language. Other spans use the
+        document language's floor, 3 characters by default (Latin scripts
         produce too many 2-letter false positives otherwise).
 
         LOCATION entities pass through a conservative multi-word-or-high-
@@ -1740,8 +1743,8 @@ class Detector:
         specific single-token mis-fires that motivated the earlier full
         suppression. See ``_map_ner_label`` for the rationale.
         """
-        min_span_len = _NER_MIN_SPAN_LEN_PER_LANGUAGE.get(
-            language, _NER_DEFAULT_MIN_SPAN_LEN
+        language_floor = _NER_MIN_SPAN_LEN_PER_LANGUAGE.get(
+            canonical_language_code(language), _NER_DEFAULT_MIN_SPAN_LEN
         )
         spans: List[DetectedSpan] = []
         for item in raw_results:
@@ -1764,6 +1767,8 @@ class Detector:
             start, end = Detector._snap_to_word_boundaries(text, start, end)
 
             span_text = text[start:end].strip()
+            script_floor = script_min_span_length(span_text)
+            min_span_len = script_floor if script_floor is not None else language_floor
             if len(span_text) < min_span_len:
                 continue
 

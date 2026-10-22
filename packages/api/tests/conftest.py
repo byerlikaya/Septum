@@ -12,6 +12,8 @@ from typing import AsyncIterator
 
 import pytest
 
+pytest_plugins = ["document_env_fixtures"]
+
 # No test reaches the Hugging Face Hub or any non-local host. HF_HUB_OFFLINE
 # must be set before anything imports huggingface_hub (it is read once, at
 # import); socket connects to non-loopback addresses fail loudly. A test that

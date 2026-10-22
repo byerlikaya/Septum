@@ -60,7 +60,8 @@ async def _fresh_document(env: dict[str, Any]) -> int:
             file_format="pdf", detected_language="en", encrypted_path="/x",
             file_size_bytes=1, active_regulation_ids=[], ingestion_status="completed",
             sanitized_entity_types=snapshot.entity_types,
-            sanitized_policy_digest=snapshot.digest, user_id=env["user"].id,
+            sanitized_policy_digest=snapshot.digest, sanitized_language="en",
+            user_id=env["user"].id,
         )
         session.add(doc)
         await session.commit()

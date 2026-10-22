@@ -14,7 +14,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 from uuid import uuid4
 
 from fastapi import (
@@ -28,12 +28,14 @@ from fastapi import (
     status,
 )
 from langdetect import DetectorFactory
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from septum_core.model_integrity import ModelRefusal
-from sqlalchemy import select, update
+from sqlalchemy import Select, func, select, update
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import defer, selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 from ..database import get_db
 from ..errors import public_error_text
@@ -46,6 +48,11 @@ from ..models.settings import AppSettings
 from ..models.spreadsheet_schema import SpreadsheetColumn, SpreadsheetSchema
 from ..models.user import User
 from ..request_limits import MAX_DOCUMENT_ID, MAX_PROGRESS_IDS
+from ..services.audit_logger import (
+    DOCUMENT_LANGUAGE_CHANGED,
+    OVERRIDE_REFUSAL_REASONS,
+    language_override_event,
+)
 from ..services.document_anon_store import (
     DocumentMapErasureError,
     DocumentMapLockHandle,
@@ -77,6 +84,8 @@ from ..utils.db_helpers import (
     detect_language,
     get_owned_or_404,
     load_settings,
+    override_fits_text,
+    supported_language_code,
 )
 
 
@@ -174,22 +183,75 @@ class DocumentResponse(BaseModel):
     needs_reprocessing: bool = False
     missing_entity_types: List[str] = []
     sanitized_policy_known: bool = True
+    sanitized_language: Optional[str] = None
+    override_refused_language: Optional[str] = None
+    override_refused_reason: Optional[str] = None
+
+
+async def _override_refusals(
+    db: AsyncSession, documents: Union[Sequence[int], Select]
+) -> Dict[int, Tuple[str, str]]:
+    """Per document, the override the pipeline last refused and the reason code.
+
+    Reported only while the document's latest override event is that refusal.
+    ``documents`` is a list of ids or a select of ``Document.id`` (the
+    list endpoint passes its owner-scoped query, so no id is bound per
+    document). One query picks the latest ``document_language_changed``
+    event per document in SQL. Derived from the audit trail, so no column
+    is needed: a later ``PATCH`` writes a newer event and the refusal stops
+    being reported. Only reason codes in ``OVERRIDE_REFUSAL_REASONS`` are
+    reported.
+    """
+    if not isinstance(documents, Select) and not documents:
+        return {}
+    latest = (
+        select(func.max(AuditEvent.id).label("id"))
+        .where(
+            AuditEvent.event_type == DOCUMENT_LANGUAGE_CHANGED,
+            AuditEvent.document_id.in_(documents),
+        )
+        .group_by(AuditEvent.document_id)
+        .subquery()
+    )
+    rows = await db.execute(
+        select(AuditEvent.document_id, AuditEvent.extra).join(
+            latest, AuditEvent.id == latest.c.id
+        )
+    )
+    refusals: Dict[int, Tuple[str, str]] = {}
+    for document_id, extra in rows.all():
+        if not isinstance(extra, dict):
+            continue
+        reason = extra.get("reason")
+        previous = extra.get("previous_override")
+        if not isinstance(reason, str) or not isinstance(previous, str):
+            continue
+        refused = supported_language_code(previous)
+        if reason in OVERRIDE_REFUSAL_REASONS and refused:
+            refusals[document_id] = (refused, reason)
+    return refusals
 
 
 def _document_response(
-    document: Document, current: Optional[PolicySnapshot]
+    document: Document,
+    current: Optional[PolicySnapshot],
+    refusal: Optional[Tuple[str, str]] = None,
 ) -> DocumentResponse:
     """Serialize ``document`` with its staleness against the ``current`` policy.
 
     ``current`` may be ``None`` only for a document that is not completed
-    (just uploaded or claimed for reprocessing).
+    (just uploaded or claimed for reprocessing). ``refusal`` is the
+    ``(language, reason)`` of an override the last run refused.
     """
     staleness = document_staleness(document, current)
+    refused_language, refused_reason = refusal or (None, None)
     return DocumentResponse.model_validate(document).model_copy(
         update={
             "needs_reprocessing": staleness.needs_reprocessing,
             "missing_entity_types": staleness.missing_entity_types,
             "sanitized_policy_known": staleness.sanitized_policy_known,
+            "override_refused_language": refused_language,
+            "override_refused_reason": refused_reason,
         }
     )
 
@@ -203,7 +265,8 @@ async def _single_document_response(
         if document.ingestion_status == "completed"
         else None
     )
-    return _document_response(document, current)
+    refusals = await _override_refusals(db, [document.id])
+    return _document_response(document, current, refusals.get(document.id))
 
 
 class DocumentListResponse(BaseModel):
@@ -213,9 +276,25 @@ class DocumentListResponse(BaseModel):
 
 
 class LanguageUpdatePayload(BaseModel):
-    """Request body for overriding a document's language."""
+    """Request body for overriding a document's language.
 
-    language: str
+    Accepts a BCP 47-style tag (``tr``, ``zh-CN``, ``pt_BR``) for a
+    language detection supports; the stored override is its ISO 639 base
+    code.
+    """
+
+    language: str = Field(
+        max_length=35, pattern=r"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})*$"
+    )
+
+    @field_validator("language")
+    @classmethod
+    def _supported(cls, value: str) -> str:
+        """Reject languages detection and masking do not support; return the base code."""
+        code = supported_language_code(value)
+        if code is None:
+            raise ValueError("language not supported")
+        return code
 
 
 class SpreadsheetColumnPayload(BaseModel):
@@ -434,8 +513,9 @@ def _detect_document_language(file_format: str, ingestion_result: Any) -> str:
     """Detect document language from ingestion result."""
     if file_format == "audio" and ingestion_result.metadata:
         whisper_lang = ingestion_result.metadata.get("detected_language")
-        if isinstance(whisper_lang, str) and whisper_lang.strip():
-            return whisper_lang.strip().lower()
+        code = supported_language_code(whisper_lang) if isinstance(whisper_lang, str) else None
+        if code is not None:
+            return code
     return detect_language(ingestion_result.text)
 
 
@@ -696,8 +776,8 @@ async def upload_document(
                     ingester_kwargs=ingester_kwargs,
                 )
                 set_progress(doc_id, 1)
-                bg_doc.detected_language = _detect_document_language(
-                    file_format, ingestion_result
+                bg_doc.detected_language = await asyncio.to_thread(
+                    _detect_document_language, file_format, ingestion_result
                 )
                 bg_doc.ocr_confidence = ingestion_result.confidence
                 # Flush these two fields immediately so they cannot become
@@ -811,8 +891,9 @@ async def list_documents(
     result = await db.execute(stmt)
     docs = list(result.scalars().all())
     current = await current_policy_snapshot(db)
+    refusals = await _override_refusals(db, _scope_to_owner(select(Document.id), user))
     return DocumentListResponse(
-        items=[_document_response(d, current) for d in docs]
+        items=[_document_response(d, current, refusals.get(d.id)) for d in docs]
     )
 
 
@@ -947,6 +1028,25 @@ async def get_document_raw(
     )
 
 
+_DOCUMENT_COLUMNS_BUT_TEXT = [
+    column.key
+    for column in sa_inspect(Document).column_attrs
+    if column.key != "transcription_text"
+]
+
+
+async def _require_acting_user(db: AsyncSession, user: User) -> None:
+    """Share-lock the acting user's row, or roll back with 401 if it is gone."""
+    acting = await db.execute(
+        select(User.id).where(User.id == user.id).with_for_update(read=True)
+    )
+    if acting.scalar_one_or_none() is None:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive"
+        )
+
+
 @router.patch(
     "/{document_id}/language",
     response_model=DocumentResponse,
@@ -958,14 +1058,52 @@ async def update_document_language(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin", "editor")),
 ) -> DocumentResponse:
-    """Override the detected language for a document."""
-    document = await get_owned_or_404(
-        db, Document, document_id, user, "Document not found."
-    )
+    """Override the detected language for a document.
 
+    The language is checked against the document's extracted text: one its
+    script contradicts is refused with 422. A document still being
+    processed has no text yet; its override is accepted and the pipeline
+    applies the same check (and clears an override it refuses). The
+    override takes effect through reprocessing or chat re-masking, since
+    staleness compares it with the language the document was masked in.
+    The change is audited (user id and the two codes) in the same
+    transaction, and the acting user is re-read under a lock so a user
+    deleted meanwhile cannot leave an audit row naming it.
+    """
+    # The text is read once, after the flush below; the lookup skips it.
+    document = await get_owned_or_404(
+        db, Document, document_id, user, "Document not found.",
+        options=(defer(Document.transcription_text),),
+    )
+    # The acting user is locked before the document row: ``delete_user``
+    # deletes the user and its ``ON DELETE CASCADE`` then locks documents,
+    # so taking them in the same order rules out a deadlock on PostgreSQL.
+    await _require_acting_user(db, user)
+    previous_override = supported_language_code(document.language_override)
     document.language_override = payload.language
+    db.add(language_override_event(document.id, user.id, previous_override, payload.language))
+    await db.flush()
+    # The flush's UPDATE holds the document row's write lock (PostgreSQL) or
+    # the database write lock (SQLite), so no further write can land until
+    # commit, and this plain read sees any text committed before the lock:
+    # an override is never stored unchecked, and no second lock is needed.
+    text = (
+        await db.execute(
+            select(Document.transcription_text).where(Document.id == document.id)
+        )
+    ).scalar_one_or_none()
+    if text and not override_fits_text(payload.language, text):
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="language does not match the document's script",
+        )
+    # Re-checked under the write lock: SQLite has no row locks, so the check
+    # above did not hold the user; on PostgreSQL the share lock is still held.
+    await _require_acting_user(db, user)
     await db.commit()
-    await db.refresh(document)
+    await db.refresh(document, attribute_names=_DOCUMENT_COLUMNS_BUT_TEXT)
+    set_committed_value(document, "transcription_text", text)
     return await _single_document_response(db, document)
 
 
@@ -1176,8 +1314,8 @@ async def reprocess_document(
                 )
                 set_progress(doc_id, 1)
 
-                bg_doc.detected_language = _detect_document_language(
-                    file_format, ingestion_result
+                bg_doc.detected_language = await asyncio.to_thread(
+                    _detect_document_language, file_format, ingestion_result
                 )
                 bg_doc.ocr_confidence = ingestion_result.confidence
                 await bg_db.commit()

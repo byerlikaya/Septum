@@ -30,8 +30,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..errors import ContentFreeError
 from ..models.document import Chunk, Document
 from ..models.settings import AppSettings
+from ..utils.db_helpers import document_language, effective_masking_language
 from ..utils.text_utils import normalize_unicode
-from .anonymization_map import AnonymizationMap
+from .anonymization_map import PLACEHOLDER_PATTERN, AnonymizationMap
 from .document_anon_store import (
     document_map_lock,
     load_persisted_document_map,
@@ -42,9 +43,6 @@ from .sanitizer_factory import create_sanitizer
 if TYPE_CHECKING:
     from .sanitizer import PIISanitizer
 
-# Index digits are capped: real placeholder indexes are small, and an
-# unbounded run of digits from untrusted text would make ``int()`` raise.
-_PLACEHOLDER_RE = re.compile(r"\[([A-Z][A-Z_]*)_([0-9]{1,9})\]")
 _SPAN_EDGE_CHARS = " \t\r\n.,;:!?()[]{}\"'"
 
 
@@ -60,7 +58,7 @@ def _known_placeholders(anon_map: AnonymizationMap) -> set[str]:
 def all_placeholders_known(text: str, anon_map: AnonymizationMap) -> bool:
     """Return whether every placeholder-shaped token in ``text`` resolves in ``anon_map``."""
     known = _known_placeholders(anon_map)
-    return all(m.group(0) in known for m in _PLACEHOLDER_RE.finditer(text))
+    return all(m.group(0) in known for m in PLACEHOLDER_PATTERN.finditer(text))
 
 
 def reserve_placeholder_counters(
@@ -77,7 +75,7 @@ def reserve_placeholder_counters(
     sources: List[str] = list(_known_placeholders(anon_map))
     sources.extend(t for t in extra_texts if t)
     for source in sources:
-        for match in _PLACEHOLDER_RE.finditer(source):
+        for match in PLACEHOLDER_PATTERN.finditer(source):
             entity_type, index = match.group(1), int(match.group(2))
             if anon_map.token_counter.get(entity_type, 0) < index:
                 anon_map.token_counter[entity_type] = index
@@ -298,7 +296,7 @@ async def _working_copy(
         return working
     working = AnonymizationMap(
         document_id=document.id,
-        language=document.language_override or document.detected_language or "en",
+        language=document_language(document) or "en",
     )
     rows = await db.execute(
         select(Chunk.sanitized_text).where(Chunk.document_id == document.id)
@@ -331,6 +329,10 @@ async def _gate_and_merge(
     added entities meanwhile): the attempt is discarded and redone on the
     new copy, so no placeholder number is ever reused or overwritten. The
     row is checked before the sanitizer runs and again under the lock.
+    Texts are masked in the document's effective masking language (see
+    :func:`effective_masking_language`), not the language the map was built
+    in, and the written map carries that language so every later reader
+    (chat's unified map, :func:`mask_known_entities`) sees the same value.
     Returns the gated texts and whether the map was written.
     """
     if sanitizer is None and any(texts):
@@ -341,8 +343,10 @@ async def _gate_and_merge(
         if base is None and require_existing_map:
             raise DocumentMapMissingError(f"Document {document.id} has no anonymization map")
         working = await _working_copy(db, document, base, texts)
+        language = effective_masking_language(document)
+        working.language = language
         gated = await gate_untrusted_texts(
-            texts, working, db, settings, sanitizer=sanitizer
+            texts, working, db, settings, language=language, sanitizer=sanitizer
         )
         async with document_map_lock(document.id) as lock:
             await _require_row(db, document)
@@ -353,7 +357,11 @@ async def _gate_and_merge(
                 )
             if not _same_map(current, base):
                 continue
-            changed = base is None or not _same_map(working, base)
+            changed = (
+                base is None
+                or not _same_map(working, base)
+                or base.language != working.language
+            )
             written = bool(changed and working.entity_map)
             if written:
                 await lock.ensure_held()

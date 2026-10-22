@@ -274,14 +274,14 @@ const HOME_LAYOUT = {
         title: "Audit trail and SIEM export",
         icon: FEATURE_ICONS.audit,
         details:
-          "Append-only compliance log of detection events. Events hold entity types and counts, never raw PII. Export as JSON, CSV or Splunk HEC.",
+          "Append-only compliance log of detection events. Events hold entity types, counts, masked placeholder examples and language codes, never document text. They can include the original file name. Export as JSON, CSV or Splunk HEC.",
         link: "/architecture",
       },
       {
         title: "Encrypted at rest",
         icon: FEATURE_ICONS.lock,
         details:
-          "Uploaded files and the anonymization map are stored with AES-256-GCM. The map is never sent to the frontend, the cloud or logs.",
+          "Uploaded files, the anonymization map and the search indexes are stored with AES-256-GCM. The database holds extracted text, so keep it on an encrypted volume. The map is never sent to the frontend, the cloud or logs.",
         link: "/architecture",
       },
     ],
@@ -357,14 +357,14 @@ const HOME_LAYOUT = {
         title: "Denetim kaydı ve SIEM dışa aktarımı",
         icon: FEATURE_ICONS.audit,
         details:
-          "Tespit olaylarının yalnızca eklenebilen uyumluluk kaydı. Olaylar varlık tiplerini ve sayılarını tutar, ham PII'yı asla. JSON, CSV veya Splunk HEC olarak dışa aktarılır.",
+          "Tespit olaylarının yalnızca eklenebilen uyumluluk kaydı. Olaylar varlık tiplerini, sayıları, maskelenmiş yer tutucu örneklerini ve dil kodlarını tutar; doküman metnini asla. Orijinal dosya adını içerebilir. JSON, CSV veya Splunk HEC olarak dışa aktarılır.",
         link: "/tr/architecture",
       },
       {
         title: "Diskte şifreli saklama",
         icon: FEATURE_ICONS.lock,
         details:
-          "Yüklenen dosyalar ve anonimleştirme haritası AES-256-GCM ile şifrelenir. Harita asla ön yüze, buluta veya günlüklere gönderilmez.",
+          "Yüklenen dosyalar, anonimleştirme haritası ve arama indeksleri AES-256-GCM ile şifrelenir. Veritabanı çıkarılan metni tutar; bu yüzden onu şifreli bir birimde tutun. Harita asla ön yüze, buluta veya günlüklere gönderilmez.",
         link: "/tr/architecture",
       },
     ],
@@ -722,12 +722,12 @@ export default defineConfig({
   ],
 
   // Source files that must never be published: the root README (the repo
-  // landing page, not a site page), local-only working notes, and the ADR
-  // directory. Paths are relative to docs/.
+  // landing page, not a site page), local-only working notes (root-level
+  // files whose names start with a capital letter; every published page is
+  // lowercase), and the ADR directory. Paths are relative to docs/.
   srcExclude: [
     "**/README.md",
-    "**/HANDOVER.md",
-    "**/SESSION_STATE.md",
+    "[A-Z]*.md",
     "adr/**",
   ],
 

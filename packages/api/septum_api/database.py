@@ -236,6 +236,7 @@ async def init_db() -> None:
         async with eng.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         await _sqlite_ensure_columns(eng)
+        await _sqlite_ensure_indexes(eng)
         await _sqlite_purge_orphan_child_rows(eng)
 
     await _seed_defaults(sm)
@@ -374,6 +375,10 @@ async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:
             "documents",
             "ALTER TABLE documents ADD COLUMN sanitized_policy_digest VARCHAR(64)",
         ),
+        (
+            "documents",
+            "ALTER TABLE documents ADD COLUMN sanitized_language VARCHAR",
+        ),
     ]
 
     async with eng.begin() as conn:
@@ -383,6 +388,26 @@ async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:
             existing = {row[1] for row in cols}
             if col_name not in existing:
                 await conn.execute(text(ddl))
+
+
+async def _sqlite_ensure_indexes(eng: AsyncEngine) -> None:
+    """Bring an existing SQLite database's indexes in line with the models.
+
+    ``create_all`` only creates the indexes of tables it creates and never
+    drops one, so indexes added to an existing table are created here and
+    superseded ones dropped. Creates run before drops, so a replacement
+    exists before the index it supersedes goes; dropping loses no data.
+    """
+    statements: list[str] = [
+        "CREATE INDEX IF NOT EXISTS ix_audit_events_document_event_id "
+        "ON audit_events (document_id, event_type, id)",
+        # Superseded by ix_audit_events_document_event_id (same leading column).
+        "DROP INDEX IF EXISTS ix_audit_events_document_id",
+    ]
+
+    async with eng.begin() as conn:
+        for ddl in statements:
+            await conn.execute(text(ddl))
 
 
 def build_default_app_settings() -> AppSettings:

@@ -831,7 +831,9 @@ def _build_cases(
         doc = docs[doc_key] if doc_key is not None else None
         fallback = doc.meta.lang if doc is not None else query.lang
         text = fill_query(query.text, doc_key, fallback, doc.values if doc is not None else {})
-        lang = detect_language(text, fallback=fallback)
+        lang = detect_language(
+            text, fallback=fallback, context_language=doc.meta.lang if doc is not None else None
+        )
         gold = resolve_gold_spans(query, doc.filled) if doc is not None else []
         variants: dict[tuple[str, str], str] = {("raw", "doc"): text, ("raw", "auto"): text}
         if doc is not None:

@@ -38,6 +38,7 @@ from ..database import build_default_app_settings
 from ..models.document import Document
 from ..models.regulation import CustomRecognizer, NonPiiRule, RegulationRuleset
 from ..models.settings import AppSettings
+from ..utils.db_helpers import effective_masking_language
 
 _CUSTOM_DEFINITION_COLUMNS = (
     CustomRecognizer.entity_type,
@@ -236,6 +237,10 @@ def document_staleness(
     not completed (no policy read is needed then). The policy is known only
     when both the entity types and the digest were recorded; an unknown
     policy reports no missing types, since every type would be listed.
+    A completed document is also outdated when the language it was masked
+    in (``sanitized_language``, ``None`` when unknown) is not the language
+    it should be masked in now (:func:`effective_masking_language`): an
+    override set during processing or before a reprocess is picked up.
     """
     recorded = document.sanitized_entity_types
     known = recorded is not None and document.sanitized_policy_digest is not None
@@ -247,8 +252,13 @@ def document_staleness(
         return DocumentStaleness(needs_reprocessing=True, sanitized_policy_known=False)
     recorded_set = set(recorded)
     missing = [t for t in current.entity_types if t not in recorded_set]
+    language_moved = document.sanitized_language != effective_masking_language(document)
     return DocumentStaleness(
-        needs_reprocessing=bool(missing) or document.sanitized_policy_digest != current.digest,
+        needs_reprocessing=(
+            bool(missing)
+            or document.sanitized_policy_digest != current.digest
+            or language_moved
+        ),
         missing_entity_types=missing,
     )
 

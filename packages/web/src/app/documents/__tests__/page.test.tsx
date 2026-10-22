@@ -80,7 +80,10 @@ function makeDoc(id: number, needsReprocessing: boolean): Document {
     active_regulation_ids: [],
     needs_reprocessing: needsReprocessing,
     missing_entity_types: needsReprocessing ? ["EMAIL"] : [],
-    sanitized_policy_known: true
+    sanitized_policy_known: true,
+    sanitized_language: "en",
+    override_refused_language: null,
+    override_refused_reason: null
   };
 }
 

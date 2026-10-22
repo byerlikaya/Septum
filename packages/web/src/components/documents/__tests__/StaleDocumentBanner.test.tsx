@@ -39,6 +39,9 @@ function staleDocument(overrides: Partial<Document> = {}): Document {
     needs_reprocessing: true,
     missing_entity_types: ["EMAIL"],
     sanitized_policy_known: true,
+    sanitized_language: "en",
+    override_refused_language: null,
+    override_refused_reason: null,
     ...overrides,
   };
 }

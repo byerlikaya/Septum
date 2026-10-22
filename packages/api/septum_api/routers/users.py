@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.user import User
+from ..services.audit_logger import forget_user_in_audit_events
 from ..services.auth import hash_password, run_password_work
 from ..utils.auth_dependency import require_interactive_session, require_role
 from ..utils.db_helpers import get_or_404
@@ -231,4 +232,6 @@ async def delete_user(
             )
 
     await db.delete(target)
+    await db.flush()
+    await forget_user_in_audit_events(db, target.id)
     await db.commit()

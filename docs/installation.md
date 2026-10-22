@@ -370,6 +370,10 @@ New Prometheus series:
 
 `ERROR_LOG_RETENTION_DAYS` (default `90`) deletes older error log rows once a day. `0` keeps them indefinitely and logs a warning at startup. Answers 401 or 403 to a caller with no login or API key are counted but not stored, so they cannot fill the table. Other rows draw on a budget per user, API key or client address: 60 a minute, or 20 a minute for server errors. Rows past the budget are counted only. Rows record the route template (for example `/api/documents/{document_id}`), not the concrete URL.
 
+### Audit event retention
+
+Audit events in the API database have no age limit. Deleting a document deletes its events; events not tied to a document stay. Events hold entity types, counts, masked placeholders and language codes, plus the original file name of the document they concern, which can itself contain personal data. Events that record the acting user (a language override change stores the user id) keep the event but drop the id when that user is deleted. Septum does not prune or export these events on its own; if your policy needs a time limit, prune the `audit_events` table on your own schedule.
+
 ### Gateway routing and fail-closed behaviour
 
 When gateway routing is on, cloud LLM calls go through the gateway queue and never directly from the API. Routing is on when the stored `use_gateway` setting is on, or when `USE_GATEWAY_DEFAULT=true` forces it. The environment variable wins over a stored off: it is read on every call and nothing is written to the database. Setting `USE_GATEWAY_DEFAULT` to false or leaving it unset makes the stored value decide, as before. The API applies these rules:
@@ -431,7 +435,7 @@ The compose files declare named Docker volumes so your data survives container r
 | `septum-audit-log` | `/var/log/septum` | Audit log files (full stack and gateway file) |
 | `septum-mcp-scan` | `/data/scan` | MCP scan directory, mounted read-only (full stack and air-gapped file) |
 
-**Backup.** A consistent backup means two things: a PostgreSQL dump *and* the encrypted volumes (uploads + anon-maps + vector/BM25 indexes). The encryption key lives in `septum-data/config.json` — lose it and every encrypted volume becomes unreadable.
+**Backup.** A consistent backup means two things: a PostgreSQL dump *and* the encrypted volumes (uploads + anon-maps + vector/BM25 indexes). The encryption key lives in `septum-data/config.json` — lose it and every encrypted volume becomes unreadable. A database dump contains the extracted document text, so protect backups like the data itself.
 
 ```bash
 # Dump Postgres (full stack only)

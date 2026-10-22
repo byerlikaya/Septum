@@ -58,6 +58,8 @@ class Document(Base):
     sanitized_policy_digest: Mapped[Optional[str]] = mapped_column(
         String(64), nullable=True
     )
+    # Language code the pipeline masked the document with; NULL = unknown.
+    sanitized_language: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
