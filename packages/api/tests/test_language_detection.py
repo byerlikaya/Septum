@@ -551,6 +551,75 @@ def test_profile_check_rejects_an_empty_profile_directory(monkeypatch, tmp_path)
     assert detector_factory._factory is None
 
 
+@pytest.mark.parametrize(
+    "bad",
+    ["evil\nFORGED", "en US", "tr ", "x" * 36, "e", "english-language-name-that-is-long", "zh-", ""],
+)
+async def test_language_override_payload_rejects_malformed_tags_with_422(bad):
+    from types import SimpleNamespace
+
+    from httpx import ASGITransport, AsyncClient
+
+    from septum_api.database import get_db
+    from septum_api.main import app
+    from septum_api.utils.auth_dependency import get_current_user
+
+    async def _no_db():
+        yield None
+
+    app.dependency_overrides[get_db] = _no_db
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=1, role="editor")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.patch("/api/documents/1/language", json={"language": bad})
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"][0]["loc"] == ["body", "language"]
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+async def test_language_override_is_stored_as_its_base_code(monkeypatch):
+    from types import SimpleNamespace
+
+    from septum_api.models.document import Document
+    from septum_api.routers import documents as documents_router
+
+    document = Document(
+        id=1, language_override=None, detected_language="en", transcription_text=None,
+        ingestion_status="processing", sanitized_policy_digest="d",
+    )
+
+    async def _owned(_db, _model, _pk, _user, _detail, **_kwargs):
+        return document
+
+    async def _response(_db, doc):
+        return doc.language_override
+
+    async def _noop(*_args, **_kwargs):
+        return None
+
+    added: list = []
+    async def _execute(statement):
+        selected = statement.selected_columns[0].key
+        value = {"transcription_text": None, "id": 3}[selected]
+        return SimpleNamespace(scalar_one_or_none=lambda: value)
+
+    db = SimpleNamespace(
+        commit=_noop, refresh=_noop, flush=_noop, add=added.append, execute=_execute
+    )
+    monkeypatch.setattr(documents_router, "get_owned_or_404", _owned)
+    monkeypatch.setattr(documents_router, "_single_document_response", _response)
+    for tag, stored in (("zh-CN", "zh"), ("pt_BR", "pt"), ("TR", "tr"), ("az", "az")):
+        payload = documents_router.LanguageUpdatePayload(language=tag)
+        result = await documents_router.update_document_language(
+            1, payload, db=db, user=SimpleNamespace(id=3)
+        )
+        assert (result, document.language_override) == (stored, stored)
+    assert document.sanitized_policy_digest == "d"
+    assert [event.extra["override"] for event in added] == ["zh", "pt", "tr", "az"]
+
+
 def test_stored_junk_override_is_ignored_and_never_logged(monkeypatch, caplog):
     import logging
     from types import SimpleNamespace
@@ -609,6 +678,31 @@ async def test_pii_gate_fresh_map_uses_the_document_language(override, detected,
     document = SimpleNamespace(id=5, language_override=override, detected_language=detected)
     working = await pii_gate._working_copy(_ChunkDb(), document, None, ["text"])
     assert working.language == expected
+
+
+async def test_unsupported_language_override_is_rejected_with_422():
+    from types import SimpleNamespace
+
+    from httpx import ASGITransport, AsyncClient
+
+    from septum_api.database import get_db
+    from septum_api.main import app
+    from septum_api.utils.auth_dependency import get_current_user
+
+    async def _no_db():
+        yield None
+
+    app.dependency_overrides[get_db] = _no_db
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=1, role="editor")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            for tag in ("tur", "zho", "xx", "tlh-Latn"):
+                resp = await client.patch("/api/documents/1/language", json={"language": tag})
+                assert resp.status_code == 422, (tag, resp.text)
+                assert "language not supported" in resp.json()["detail"][0]["msg"]
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_current_user, None)
 
 
 def test_supported_codes_come_from_the_profile_files(monkeypatch, tmp_path):
@@ -698,6 +792,37 @@ def test_whisper_language_falls_back_to_text_detection_when_invalid_or_unsupport
         assert _detect_document_language("audio", result) == "tr"
     supported = SimpleNamespace(text=text, metadata={"detected_language": "de"})
     assert _detect_document_language("audio", supported) == "de"
+
+
+async def test_reprocess_keeps_the_override_and_masks_in_it(env, monkeypatch):
+    from types import SimpleNamespace
+
+    from septum_api.routers import documents as documents_router
+    from septum_api.services import document_pipeline
+    from septum_api.utils.db_helpers import document_language
+
+    doc_id, _ = await env.add_document()
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "TR"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["language_override"] == "tr"
+
+    async def _ingest(**_kwargs):
+        text = "The tenant paid the deposit before moving into the warehouse hall."
+        return SimpleNamespace(text=text, confidence=None, metadata=None)
+
+    seen: dict = {}
+
+    async def _run(self, db, document, *_args, **_kwargs):
+        seen["stored"] = (document.language_override, document.detected_language)
+        seen["masking"] = document_language(document)
+
+    monkeypatch.setattr(documents_router._INGESTION_ROUTER, "ingest", _ingest)
+    monkeypatch.setattr(document_pipeline.DocumentPipeline, "run", _run)
+    resp = await env.client.post(f"/api/documents/{doc_id}/reprocess")
+    assert resp.status_code == 200, resp.text
+    assert seen == {"stored": ("tr", "en"), "masking": "tr"}
+    stored = await env.document(doc_id)
+    assert stored.language_override == "tr"
 
 
 async def test_ingestion_audit_event_records_the_override_language(monkeypatch):
@@ -843,6 +968,57 @@ async def _needs_reprocessing(test_env, doc_id):
     return resp.json()["needs_reprocessing"]
 
 
+async def test_staleness_follows_the_recorded_masking_language(env):
+    from sqlalchemy import select
+
+    from septum_api.models.audit_event import AuditEvent
+    from septum_api.services.policy_snapshot import current_policy_snapshot
+
+    doc_id, _ = await env.add_document()
+    async with env.session_maker() as session:
+        snapshot = await current_policy_snapshot(session)
+    await _set_digest(env, doc_id, snapshot.digest)
+    async with env.session_maker() as session:
+        from septum_api.models.document import Document
+
+        row = await session.get(Document, doc_id)
+        row.sanitized_entity_types = snapshot.entity_types
+        await session.commit()
+
+    await _record_language(env, doc_id, language=None)
+    assert await _needs_reprocessing(env, doc_id) is True
+
+    await _record_language(env, doc_id, language="en")
+    assert await _needs_reprocessing(env, doc_id) is False
+
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "en"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["needs_reprocessing"] is False
+
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "de"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["needs_reprocessing"] is True
+    stored = await env.document(doc_id)
+    assert stored.sanitized_policy_digest == snapshot.digest
+
+    await _record_language(env, doc_id, language="de")
+    assert await _needs_reprocessing(env, doc_id) is False
+
+    async with env.session_maker() as session:
+        events = (
+            await session.execute(
+                select(AuditEvent)
+                .where(AuditEvent.event_type == "document_language_changed")
+                .order_by(AuditEvent.id)
+            )
+        ).scalars().all()
+    assert [e.extra for e in events] == [
+        {"user_id": env.user.id, "previous_override": None, "override": "en"},
+        {"user_id": env.user.id, "previous_override": "en", "override": "de"},
+    ]
+    assert all(e.document_id == doc_id for e in events)
+
+
 async def test_override_set_during_processing_or_before_pickup_leaves_the_document_stale(env):
     from septum_api.services.policy_snapshot import current_policy_snapshot
 
@@ -869,6 +1045,35 @@ async def test_override_set_during_processing_or_before_pickup_leaves_the_docume
     assert await _needs_reprocessing(env, doc_id) is True
     await _record_language(env, doc_id, language="tr")
     assert await _needs_reprocessing(env, doc_id) is False
+
+
+async def test_language_patch_and_its_audit_row_commit_together(env, monkeypatch):
+    from sqlalchemy import func, select
+
+    from septum_api.models.audit_event import AuditEvent
+    from septum_api.routers import documents as documents_router
+
+    doc_id, _ = await env.add_document()
+
+    def _broken_event(*_args, **_kwargs):
+        raise RuntimeError("audit row could not be built")
+
+    monkeypatch.setattr(documents_router, "language_override_event", _broken_event)
+    with pytest.raises(RuntimeError):
+        await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "de"})
+    assert (await env.document(doc_id)).language_override is None
+
+    monkeypatch.undo()
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "de"})
+    assert resp.status_code == 200, resp.text
+    async with env.session_maker() as session:
+        count = (
+            await session.execute(
+                select(func.count()).select_from(AuditEvent)
+                .where(AuditEvent.event_type == "document_language_changed")
+            )
+        ).scalar_one()
+    assert ((await env.document(doc_id)).language_override, count) == ("de", 1)
 
 
 async def test_remask_after_a_correction_uses_the_new_language(monkeypatch):
@@ -1137,6 +1342,170 @@ def test_every_detectable_language_has_a_script_rule():
     assert codes - set(_REQUIRED_SCRIPTS) == set()
 
 
+async def test_pipeline_records_the_masking_language_it_used(monkeypatch):
+    import contextlib
+    from types import SimpleNamespace
+
+    from septum_api.services import document_pipeline
+
+    seen: list[str] = []
+
+    class _Composer:
+        async def compose_with_snapshot(self, _db, _settings):
+            return None, SimpleNamespace(entity_types=["X"], digest="d")
+
+    class _Sanitizer:
+        def sanitize(self, text, language, _anon_map):
+            seen.append(language)
+            return SimpleNamespace(
+                entity_count=0, entity_type_counts={}, detected_spans=[], sanitized_text=text
+            )
+
+    added: list = []
+    stored: dict = {}
+
+    class _Db:
+        async def commit(self):
+            return None
+
+        async def refresh(self, _row):
+            return None
+
+        async def scalar(self, _statement):
+            return 1
+
+        async def execute(self, _statement):
+            return SimpleNamespace(rowcount=1, scalar_one_or_none=lambda: stored["override"])
+
+        def add(self, row):
+            added.append(row)
+
+    class _Lock:
+        async def ensure_held(self):
+            return None
+
+    @contextlib.asynccontextmanager
+    async def _map_lock(_document_id):
+        yield _Lock()
+
+    async def _noop(*_args, **_kwargs):
+        return None
+
+    async def _sanitizer(*_args, **_kwargs):
+        return _Sanitizer()
+
+    async def _persist(*_args, **_kwargs):
+        return []
+
+    class _Normalizer:
+        async def normalize(self, _db, text):
+            return text
+
+    async def _chunks(_format, text):
+        return [SimpleNamespace(text=text, index=0, source_page=None, section_title=None)]
+
+    monkeypatch.setattr(document_pipeline, "PolicyComposer", _Composer)
+    monkeypatch.setattr(document_pipeline, "create_sanitizer", _sanitizer)
+    monkeypatch.setattr(document_pipeline, "TextNormalizer", _Normalizer)
+    monkeypatch.setattr(document_pipeline, "document_map_lock", _map_lock)
+    monkeypatch.setattr(document_pipeline, "set_document_map", _noop)
+    monkeypatch.setattr(document_pipeline, "replace_index_for_document", _noop)
+    monkeypatch.setattr(document_pipeline, "recompute_relationships_for_document", _noop)
+    pipeline = document_pipeline.DocumentPipeline(SimpleNamespace())
+    monkeypatch.setattr(pipeline, "_build_chunks", _chunks)
+    monkeypatch.setattr(pipeline, "_persist_chunks", _persist)
+
+    han = "合同双方应当按照约定全面履行自己的义务。"
+    cases = (
+        ("tr", "en", "Gecikmiş ödemelere hangi faiz uygulanır?", "tr"),
+        (None, "de", "Hello there", "de"),
+        ("en", "zh", han, "zh"),
+        (None, None, "Hello there", "en"),
+    )
+    for override, detected, text, expected in cases:
+        seen.clear()
+        document = SimpleNamespace(
+            id=9, language_override=override, detected_language=detected,
+            active_regulation_ids=[], original_filename="a.pdf",
+            sanitized_language=None, ingestion_status="processing",
+        )
+        added.clear()
+        stored["override"] = override
+        await pipeline.run(_Db(), document, "pdf", text, None)
+        assert seen == [expected]
+        assert document.sanitized_language == expected
+        assert document.ingestion_status == "completed"
+        refused = override is not None and expected != override
+        assert document.language_override == (None if refused else override)
+        assert [row.extra for row in added] == (
+            [{"user_id": None, "previous_override": override, "override": None,
+              "reason": "script_mismatch"}]
+            if refused else []
+        )
+
+
+async def test_patch_refuses_an_override_the_document_script_contradicts(env):
+    from sqlalchemy import func, select
+
+    from septum_api.models.audit_event import AuditEvent
+
+    doc_id, _ = await env.add_document()
+    await _record_language(env, doc_id, language="zh", transcription="合同双方应当按照约定全面履行自己的义务，李明负责交付。" * 3)
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "ru"})
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"] == "language does not match the document's script"
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "ja"})
+    assert resp.status_code == 422, resp.text
+    assert (await env.document(doc_id)).language_override is None
+
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "zh-TW"})
+    assert resp.status_code == 200, resp.text
+    async with env.session_maker() as session:
+        count = (
+            await session.execute(
+                select(func.count()).select_from(AuditEvent)
+                .where(AuditEvent.event_type == "document_language_changed")
+            )
+        ).scalar_one()
+    assert count == 1
+
+
+async def test_patch_before_the_text_exists_is_accepted(env):
+    doc_id, _ = await env.add_document(status="processing")
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "ru"})
+    assert resp.status_code == 200, resp.text
+    assert (await env.document(doc_id)).language_override == "ru"
+
+
+async def test_patch_by_a_user_deleted_meanwhile_writes_nothing(env):
+    from sqlalchemy import delete as sa_delete
+    from sqlalchemy import func, select
+
+    from septum_api.main import app
+    from septum_api.models.audit_event import AuditEvent
+    from septum_api.models.user import User
+    from septum_api.utils.auth_dependency import get_current_user
+
+    doc_id, _ = await env.add_document()
+    async with env.session_maker() as session:
+        actor = User(email="admin@example.com", hashed_password="x", role="admin")
+        session.add(actor)
+        await session.commit()
+        await session.execute(sa_delete(User).where(User.id == actor.id))
+        await session.commit()
+    # The request authenticated before the deletion, so only the
+    # in-transaction user check can stop it.
+    app.dependency_overrides[get_current_user] = lambda: actor
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "de"})
+    app.dependency_overrides[get_current_user] = lambda: env.user
+    assert resp.status_code == 401, resp.text
+    async with env.session_maker() as session:
+        count = (
+            await session.execute(select(func.count()).select_from(AuditEvent))
+        ).scalar_one()
+    assert ((await env.document(doc_id)).language_override, count) == (None, 0)
+
+
 def test_effective_masking_language_reads_no_text():
     from types import SimpleNamespace
 
@@ -1184,9 +1553,447 @@ async def _language_events(test_env):
         return list(rows.scalars())
 
 
+async def test_auto_clear_does_not_overwrite_a_newer_override(env):
+    from septum_api.models.document import Document
+    from septum_api.services.document_pipeline import DocumentPipeline
+
+    doc_id, _ = await env.add_document()
+    await _refused_override_row(env, doc_id, "ru")
+    async with env.session_maker() as session:
+        judged = await session.get(Document, doc_id)
+    assert judged.language_override == "ru"
+
+    await _refused_override_row(env, doc_id, "de")
+    async with env.session_maker() as session:
+        session.add(judged)
+        await DocumentPipeline._clear_refused_override(session, judged, "The tenant paid the deposit before moving in.")
+        await session.commit()
+
+    assert (await env.document(doc_id)).language_override == "de"
+    assert await _language_events(env) == []
+
+
+async def test_auto_clear_and_its_audit_row_commit_or_roll_back_together(env):
+    from septum_api.models.document import Document
+    from septum_api.services.document_pipeline import DocumentPipeline
+
+    doc_id, _ = await env.add_document()
+    await _refused_override_row(env, doc_id, "ru")
+
+    async with env.session_maker() as session:
+        document = await session.get(Document, doc_id)
+        await DocumentPipeline._clear_refused_override(session, document, "The tenant paid the deposit before moving in.")
+        await session.rollback()
+    assert (await env.document(doc_id)).language_override == "ru"
+    assert await _language_events(env) == []
+
+    async with env.session_maker() as session:
+        document = await session.get(Document, doc_id)
+        await DocumentPipeline._clear_refused_override(session, document, "The tenant paid the deposit before moving in.")
+        await session.commit()
+    assert (await env.document(doc_id)).language_override is None
+    assert await _language_events(env) == [
+        {"user_id": None, "previous_override": "ru", "override": None, "reason": "script_mismatch"}
+    ]
+
+
+async def test_auto_clear_ignores_an_override_that_was_honoured(env):
+    from septum_api.models.document import Document
+    from septum_api.services.document_pipeline import DocumentPipeline
+
+    doc_id, _ = await env.add_document()
+    await _refused_override_row(env, doc_id, "ru")
+    async with env.session_maker() as session:
+        document = await session.get(Document, doc_id)
+        await DocumentPipeline._clear_refused_override(session, document, "Арендатор внёс залог до въезда.")
+        await session.commit()
+    assert (await env.document(doc_id)).language_override == "ru"
+    assert await _language_events(env) == []
+
+
+async def test_override_patched_after_the_language_decision_is_judged_at_completion(env):
+    from septum_api.models.document import Document
+    from septum_api.services.document_pipeline import DocumentPipeline
+    from septum_api.services.policy_snapshot import current_policy_snapshot
+
+    final_text = "The tenant paid the deposit before moving into the warehouse hall."
+    doc_id, _ = await env.add_document(status="processing")
+    async with env.session_maker() as session:
+        judged = await session.get(Document, doc_id)
+    assert judged.language_override is None
+
+    # A PATCH accepted while the document had no text yet lands after the run decided.
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "ru"})
+    assert resp.status_code == 200, resp.text
+    async with env.session_maker() as session:
+        session.add(judged)
+        await DocumentPipeline._clear_refused_override(session, judged, final_text)
+        await session.commit()
+    assert (await env.document(doc_id)).language_override is None
+    assert (await _language_events(env))[-1] == {
+        "user_id": None, "previous_override": "ru", "override": None, "reason": "script_mismatch",
+    }
+
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "de"})
+    assert resp.status_code == 200, resp.text
+    async with env.session_maker() as session:
+        judged = await session.get(Document, doc_id)
+        await DocumentPipeline._clear_refused_override(session, judged, final_text)
+        snapshot = await current_policy_snapshot(session)
+        judged.sanitized_entity_types = snapshot.entity_types
+        judged.sanitized_policy_digest = snapshot.digest
+        judged.sanitized_language = "en"
+        judged.transcription_text = final_text
+        judged.ingestion_status = "completed"
+        await session.commit()
+    stored = await env.document(doc_id)
+    assert stored.language_override == "de"
+    assert await _needs_reprocessing(env, doc_id) is True
+
+
+async def test_document_response_reports_the_masked_language_and_a_refused_override(env):
+    from septum_api.models.document import Document
+    from septum_api.services.document_pipeline import DocumentPipeline
+
+    doc_id, _ = await env.add_document()
+    await _record_language(env, doc_id, language="en")
+    await _refused_override_row(env, doc_id, "ru")
+    async with env.session_maker() as session:
+        document = await session.get(Document, doc_id)
+        await DocumentPipeline._clear_refused_override(session, document, "The tenant paid.")
+        await session.commit()
+
+    body = (await env.client.get(f"/api/documents/{doc_id}")).json()
+    assert (body["sanitized_language"], body["override_refused_language"], body["override_refused_reason"]) == (
+        "en", "ru", "script_mismatch",
+    )
+    listed = (await env.client.get("/api/documents")).json()["items"]
+    assert [(d["id"], d["override_refused_language"]) for d in listed] == [(doc_id, "ru")]
+
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "de"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert (body["language_override"], body["override_refused_language"], body["override_refused_reason"]) == (
+        "de", None, None,
+    )
+
+
+async def test_override_refusals_use_one_query_and_report_only_the_latest_event(env):
+    from sqlalchemy import event
+
+    from septum_api.models.audit_event import AuditEvent
+    from septum_api.routers.documents import _override_refusals
+    from septum_api.services.audit_logger import build_document_event
+
+    ids = [(await env.add_document())[0] for _ in range(4)]
+    refused, repatched, plain, untouched = ids
+
+    def _refusal(document_id, language):
+        return build_document_event(
+            document_id=document_id, event_type="document_language_changed",
+            extra={"user_id": None, "previous_override": language, "override": None,
+                   "reason": "script_mismatch"},
+        )
+
+    def _patch(document_id, language):
+        return build_document_event(
+            document_id=document_id, event_type="document_language_changed",
+            extra={"user_id": 1, "previous_override": None, "override": language},
+        )
+
+    async with env.session_maker() as session:
+        session.add_all([
+            _refusal(refused, "ru"),
+            _refusal(repatched, "ru"), _patch(repatched, "de"),
+            _patch(plain, "tr"),
+            build_document_event(document_id=untouched, event_type="document_uploaded"),
+        ])
+        await session.commit()
+
+        statements: list[str] = []
+
+        def _count(conn, cursor, statement, parameters, context, executemany):
+            statements.append(statement)
+
+        sync_engine = session.bind.sync_engine
+        event.listen(sync_engine, "before_cursor_execute", _count)
+        try:
+            result = await _override_refusals(session, ids)
+            empty = await _override_refusals(session, [])
+        finally:
+            event.remove(sync_engine, "before_cursor_execute", _count)
+
+    assert result == {refused: ("ru", "script_mismatch")}
+    assert empty == {}
+    assert len(statements) == 1
+    assert AuditEvent.__tablename__ in statements[0]
+
+
+async def test_document_without_audit_events_reports_no_refusal(env):
+    doc_id, _ = await env.add_document()
+    body = (await env.client.get(f"/api/documents/{doc_id}")).json()
+    assert (body["override_refused_language"], body["override_refused_reason"]) == (None, None)
+    listed = (await env.client.get("/api/documents")).json()["items"]
+    assert [(d["override_refused_language"], d["override_refused_reason"]) for d in listed] == [(None, None)]
+
+
+async def test_refusal_resets_after_a_later_patch_back_to_the_same_code(env):
+    from septum_api.models.document import Document
+    from septum_api.services.document_pipeline import DocumentPipeline
+
+    doc_id, _ = await env.add_document()
+    await _refused_override_row(env, doc_id, "ru")
+    async with env.session_maker() as session:
+        document = await session.get(Document, doc_id)
+        await DocumentPipeline._clear_refused_override(session, document, "The tenant paid.")
+        await session.commit()
+    body = (await env.client.get(f"/api/documents/{doc_id}")).json()
+    assert body["override_refused_language"] == "ru"
+
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "ru"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["language_override"] == "ru"
+    assert resp.json()["override_refused_language"] is None
+
+
+async def test_patch_judges_text_committed_between_its_read_and_its_write(env, monkeypatch):
+    from sqlalchemy import func, select
+    from sqlalchemy import inspect as sa_inspect
+
+    from septum_api.models.audit_event import AuditEvent
+    from septum_api.models.document import Document
+    from septum_api.routers import documents as documents_router
+
+    doc_id, _ = await env.add_document(status="processing")
+    real_lookup = documents_router.get_owned_or_404
+
+    async def _text_lands_after_the_read(*args, **kwargs):
+        document = await real_lookup(*args, **kwargs)
+        assert "transcription_text" in sa_inspect(document).unloaded
+        async with env.session_maker() as other:
+            row = await other.get(Document, doc_id)
+            row.transcription_text = "合同双方应当按照约定全面履行自己的义务，李明负责交付。" * 3
+            await other.commit()
+        return document
+
+    monkeypatch.setattr(documents_router, "get_owned_or_404", _text_lands_after_the_read)
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "ru"})
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"] == "language does not match the document's script"
+    async with env.session_maker() as session:
+        events = (
+            await session.execute(select(func.count()).select_from(AuditEvent))
+        ).scalar_one()
+    assert ((await env.document(doc_id)).language_override, events) == (None, 0)
+
+
+async def test_unknown_refusal_reason_is_not_reported(env):
+    from septum_api.routers.documents import _override_refusals
+    from septum_api.services.audit_logger import build_document_event
+
+    known, unknown = [(await env.add_document())[0] for _ in range(2)]
+    async with env.session_maker() as session:
+        for document_id, reason in ((known, "script_mismatch"), (unknown, "<b>free text</b>")):
+            session.add(build_document_event(
+                document_id=document_id, event_type="document_language_changed",
+                extra={"user_id": None, "previous_override": "ru", "override": None, "reason": reason},
+            ))
+        await session.commit()
+        assert await _override_refusals(session, [known, unknown]) == {known: ("ru", "script_mismatch")}
+
+    body = (await env.client.get(f"/api/documents/{unknown}")).json()
+    assert (body["override_refused_language"], body["override_refused_reason"]) == (None, None)
+
+
+async def test_list_refusals_are_scoped_by_a_subquery_not_bound_ids(env):
+    from sqlalchemy import event, select
+
+    from septum_api.models.document import Document
+    from septum_api.routers.documents import _override_refusals, _scope_to_owner
+    from septum_api.services.audit_logger import build_document_event
+
+    mine, *_others = [(await env.add_document())[0] for _ in range(5)]
+    async with env.session_maker() as session:
+        session.add(build_document_event(
+            document_id=mine, event_type="document_language_changed",
+            extra={"user_id": None, "previous_override": "ru", "override": None,
+                   "reason": "script_mismatch"},
+        ))
+        session.add(build_document_event(
+            document_id=mine + 1000, event_type="document_language_changed",
+            extra={"user_id": None, "previous_override": "de", "override": None,
+                   "reason": "script_mismatch"},
+        ))
+        await session.commit()
+
+        seen: list = []
+
+        def _params(conn, cursor, statement, parameters, context, executemany):
+            seen.append(parameters)
+
+        sync_engine = session.bind.sync_engine
+        event.listen(sync_engine, "before_cursor_execute", _params)
+        try:
+            result = await _override_refusals(
+                session, _scope_to_owner(select(Document.id), env.user)
+            )
+        finally:
+            event.remove(sync_engine, "before_cursor_execute", _params)
+
+    assert result == {mine: ("ru", "script_mismatch")}
+    assert [tuple(params) for params in seen] == [("document_language_changed", env.user.id)]
+
+
+async def test_list_refusals_are_scoped_to_the_caller_unless_admin(env):
+    from septum_api.main import app
+    from septum_api.models.document import Document
+    from septum_api.models.user import User
+    from septum_api.services.audit_logger import build_document_event
+    from septum_api.utils.auth_dependency import get_current_user
+
+    mine, _ = await env.add_document()
+    theirs, _ = await env.add_document()
+    async with env.session_maker() as session:
+        other = User(email="other@example.com", hashed_password="x", role="editor")
+        admin = User(email="admin@example.com", hashed_password="x", role="admin")
+        session.add_all([other, admin])
+        await session.flush()
+        row = await session.get(Document, theirs)
+        row.user_id = other.id
+        for document_id, language in ((mine, "ru"), (theirs, "ko")):
+            session.add(build_document_event(
+                document_id=document_id, event_type="document_language_changed",
+                extra={"user_id": None, "previous_override": language, "override": None,
+                       "reason": "script_mismatch"},
+            ))
+        await session.commit()
+        admin_user = admin
+
+    async def _listed():
+        items = (await env.client.get("/api/documents")).json()["items"]
+        return {d["id"]: d["override_refused_language"] for d in items}
+
+    assert await _listed() == {mine: "ru"}
+    app.dependency_overrides[get_current_user] = lambda: admin_user
+    try:
+        assert await _listed() == {mine: "ru", theirs: "ko"}
+    finally:
+        app.dependency_overrides[get_current_user] = lambda: env.user
+
+
+async def test_patch_reads_the_acting_user_before_it_writes_the_document(env):
+    from sqlalchemy import event
+
+    from septum_api.database import get_db
+    from septum_api.main import app
+
+    doc_id, _ = await env.add_document()
+    statements: list[str] = []
+
+    def _record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(" ".join(statement.split()).lower())
+
+    session_gen = app.dependency_overrides[get_db]()
+    session = await session_gen.__anext__()
+    sync_engine = session.bind.sync_engine
+    await session_gen.aclose()
+    event.listen(sync_engine, "before_cursor_execute", _record)
+    try:
+        resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "de"})
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _record)
+    assert resp.status_code == 200, resp.text
+
+    def _first(prefix):
+        return next(i for i, sql in enumerate(statements) if sql.startswith(prefix))
+
+    user_read = _first("select users.id from users")
+    document_write = _first("update documents set language_override")
+    assert user_read < document_write
+    assert not any(
+        "for update" in sql and "transcription_text" in sql for sql in statements
+    )
+
+
+async def test_malformed_refusal_events_report_null_instead_of_failing(env):
+    from septum_api.routers.documents import _override_refusals
+    from septum_api.services.audit_logger import build_document_event
+
+    listed, scalar, nested, good = [(await env.add_document())[0] for _ in range(4)]
+    async with env.session_maker() as session:
+        for document_id, extra in (
+            (listed, {"reason": ["script_mismatch"], "previous_override": "ru"}),
+            (scalar, {"reason": "script_mismatch", "previous_override": ["ru"]}),
+            (good, {"reason": "script_mismatch", "previous_override": "ru"}),
+        ):
+            session.add(build_document_event(
+                document_id=document_id, event_type="document_language_changed", extra=extra,
+            ))
+        event_row = build_document_event(
+            document_id=nested, event_type="document_language_changed", extra={},
+        )
+        event_row.extra = ["script_mismatch", "ru"]
+        session.add(event_row)
+        await session.commit()
+        assert await _override_refusals(session, [listed, scalar, nested, good]) == {
+            good: ("ru", "script_mismatch")
+        }
+
+    resp = await env.client.get("/api/documents")
+    assert resp.status_code == 200, resp.text
+    refused = {d["id"]: d["override_refused_reason"] for d in resp.json()["items"]}
+    assert refused == {listed: None, scalar: None, nested: None, good: "script_mismatch"}
+
+
+async def test_patch_locks_follow_the_postgres_order_and_the_user_is_rechecked_before_commit(env, monkeypatch):
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    doc_id, _ = await env.add_document()
+    compiled: list[str] = []
+    real_execute = AsyncSession.execute
+
+    async def _spy(self, statement, *args, **kwargs):
+        if hasattr(statement, "compile"):
+            compiled.append(" ".join(str(statement.compile(dialect=postgresql.dialect())).split()).lower())
+        return await real_execute(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(AsyncSession, "execute", _spy)
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "de"})
+    assert resp.status_code == 200, resp.text
+
+    user_reads = [i for i, sql in enumerate(compiled) if sql.startswith("select users.id")]
+    assert len(user_reads) == 2
+    assert all(compiled[i].endswith("for share") for i in user_reads)
+    text_reads = [i for i, sql in enumerate(compiled) if "documents.transcription_text" in sql
+                  and sql.startswith("select documents.transcription_text")]
+    assert len(text_reads) == 1
+    assert "for update" not in compiled[text_reads[0]]
+    assert user_reads[0] < text_reads[0] < user_reads[1]
+
+
 def test_sample_stripping_uses_the_same_patterns_as_langdetect():
     from langdetect.detector import Detector as LangDetector
     from septum_core.language_resolution import _MAIL_RE, _URL_RE
 
     assert _URL_RE.pattern == LangDetector.URL_RE.pattern
     assert _MAIL_RE.pattern == LangDetector.MAIL_RE.pattern
+
+
+async def test_patch_response_carries_the_same_transcription_text(env):
+    text = "The tenant paid the deposit before moving into the warehouse hall."
+    doc_id, _ = await env.add_document()
+    await _record_language(env, doc_id, language="en", transcription=text)
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "de"})
+    assert resp.status_code == 200, resp.text
+    fetched = (await env.client.get(f"/api/documents/{doc_id}")).json()
+    assert resp.json()["transcription_text"] == fetched["transcription_text"] == text
+
+
+async def test_patch_response_text_is_null_when_the_document_has_none_yet(env):
+    doc_id, _ = await env.add_document(status="processing")
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "de"})
+    assert resp.status_code == 200, resp.text
+    fetched = (await env.client.get(f"/api/documents/{doc_id}")).json()
+    assert resp.json()["transcription_text"] is None and fetched["transcription_text"] is None
+    assert resp.json()["language_override"] == fetched["language_override"] == "de"

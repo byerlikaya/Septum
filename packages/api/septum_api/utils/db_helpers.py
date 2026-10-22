@@ -6,7 +6,7 @@ import os
 import re
 import threading
 from functools import lru_cache
-from typing import Any, FrozenSet, List, Optional, Tuple, Type, TypeVar
+from typing import Any, FrozenSet, List, Optional, Sequence, Tuple, Type, TypeVar
 
 from fastapi import HTTPException, status
 from langdetect import detect_langs, detector_factory
@@ -49,15 +49,17 @@ async def get_owned_or_404(
     pk: int,
     user: Any,
     detail: str = "Resource not found.",
+    options: Sequence[Any] = (),
 ) -> T:
     """Fetch a row by primary key, asserting ownership.
 
     Returns 404 (never 403) on ownership mismatch so non-owner users
     cannot enumerate which IDs exist for other users. ``admin`` role
     bypasses the check by design — the system operator can read any
-    artifact for support purposes.
+    artifact for support purposes. ``options`` are loader options for the
+    select (for example ``defer`` of a large column).
     """
-    result = await db.execute(select(model).where(model.id == pk))
+    result = await db.execute(select(model).options(*options).where(model.id == pk))
     row = result.scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)

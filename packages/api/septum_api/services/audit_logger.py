@@ -16,6 +16,13 @@ from ..models.audit_event import AuditEvent
 
 logger = logging.getLogger(__name__)
 
+DOCUMENT_LANGUAGE_CHANGED = "document_language_changed"
+
+# ``extra.reason`` of a ``document_language_changed`` event the pipeline
+# writes when it clears an override. Readers report only these codes.
+OVERRIDE_REFUSED_SCRIPT_MISMATCH = "script_mismatch"
+OVERRIDE_REFUSAL_REASONS = frozenset({OVERRIDE_REFUSED_SCRIPT_MISMATCH})
+
 
 async def _persist(db: AsyncSession, event: AuditEvent) -> Optional[AuditEvent]:
     """Add and commit an audit event, logging errors without raising.
@@ -105,6 +112,51 @@ async def log_deanonymization(
     )
 
 
+def build_document_event(
+    *,
+    document_id: int,
+    event_type: str,
+    document_name: Optional[str] = None,
+    extra: Optional[Dict[str, Any]] = None,
+) -> AuditEvent:
+    """Build, without persisting, a document event for the caller's transaction.
+
+    For changes whose audit row must commit or fail together with the
+    change itself; unlike :func:`log_document_event` nothing is swallowed.
+    """
+    merged_extra: Dict[str, Any] = dict(extra or {})
+    if document_name:
+        merged_extra["document_name"] = document_name
+    return AuditEvent(
+        event_type=event_type,
+        document_id=document_id,
+        regulation_ids=[],
+        entity_types_detected={},
+        entity_count=0,
+        extra=merged_extra,
+    )
+
+
+def language_override_event(
+    document_id: int,
+    user_id: Optional[int],
+    previous: Optional[str],
+    new: Optional[str],
+    reason: Optional[str] = None,
+) -> AuditEvent:
+    """Build the audit row of a language override change (codes only).
+
+    ``user_id`` is ``None`` when the pipeline cleared the override, with
+    ``reason`` naming why (one of :data:`OVERRIDE_REFUSAL_REASONS`).
+    """
+    extra: Dict[str, Any] = {"user_id": user_id, "previous_override": previous, "override": new}
+    if reason is not None:
+        extra["reason"] = reason
+    return build_document_event(
+        document_id=document_id, event_type=DOCUMENT_LANGUAGE_CHANGED, extra=extra
+    )
+
+
 async def log_document_event(
     db: AsyncSession,
     *,
@@ -114,19 +166,13 @@ async def log_document_event(
     extra: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Record a document lifecycle event (uploaded, deleted)."""
-    merged_extra: Dict[str, Any] = extra or {}
-    if document_name:
-        merged_extra["document_name"] = document_name
-
     await _persist(
         db,
-        AuditEvent(
-            event_type=event_type,
+        build_document_event(
             document_id=document_id,
-            regulation_ids=[],
-            entity_types_detected={},
-            entity_count=0,
-            extra=merged_extra,
+            event_type=event_type,
+            document_name=document_name,
+            extra=extra,
         ),
     )
 

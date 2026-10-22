@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,9 +13,17 @@ from ..models.document import Chunk as DocumentChunk
 from ..models.document import Document
 from ..models.entity_detection import EntityDetection
 from ..models.settings import AppSettings
-from ..utils.db_helpers import masking_language
+from ..utils.db_helpers import (
+    masking_language,
+    override_fits_text,
+    supported_language_code,
+)
 from .anonymization_map import AnonymizationMap
-from .audit_logger import log_pii_detected
+from .audit_logger import (
+    OVERRIDE_REFUSED_SCRIPT_MISMATCH,
+    language_override_event,
+    log_pii_detected,
+)
 from .bm25_retriever import BM25Retriever
 from .chunking_strategy import (
     Chunk as SemanticChunk,
@@ -35,6 +43,8 @@ from .sanitizer import ResolvedSpan
 from .sanitizer_factory import DOCUMENT_SANITIZER_ENABLE_OLLAMA, create_sanitizer
 from .text_normalizer import TextNormalizer
 from .vector_store import VectorStore
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentDeletedDuringIngestionError(RuntimeError):
@@ -168,6 +178,7 @@ class DocumentPipeline:
         # this same string, which staleness later re-judges
         # (``effective_masking_language``), so the two always agree.
         transcription_text = "\n\n".join(raw_texts_for_index)
+        judged_override = supported_language_code(document.language_override)
         language, language_source = masking_language(document, transcription_text)
         anon_map = AnonymizationMap(document_id=document.id, language=language)
 
@@ -318,10 +329,65 @@ class DocumentPipeline:
         document.sanitized_entity_types = policy_snapshot.entity_types
         document.sanitized_policy_digest = policy_snapshot.digest
         document.sanitized_language = language
+        await self._clear_refused_override(
+            db, document, transcription_text,
+            judged=(judged_override, language_source == "override"),
+        )
         document.ingestion_status = "completed"
         document.ingestion_error = None
         document.ingestion_error_code = None
         await db.commit()
+
+    @staticmethod
+    async def _clear_refused_override(
+        db: AsyncSession,
+        document: Document,
+        transcription_text: str,
+        judged: Optional[Tuple[Optional[str], bool]] = None,
+    ) -> None:
+        """Clear the stored override if this run's text contradicts its script.
+
+        Staleness reads the override without the text, so a contradicted
+        override left in place would keep the document outdated after every
+        run. The value is re-read here rather than taken from the start of
+        the run: a ``PATCH`` accepted while the document had no text yet was
+        never checked, so whatever is stored now is judged against the final
+        text. One that fits is kept (if it is not the language this run
+        used, the document is stale). The clear only matches the value
+        judged, so a ``PATCH`` landing in between is never overwritten, and
+        it is audited in the same transaction. ``judged`` is the run's own
+        ``(override, fits)`` verdict on the same text, reused when the stored
+        override is still that one.
+        """
+        current = (
+            await db.execute(
+                select(Document.language_override).where(Document.id == document.id)
+            )
+        ).scalar_one_or_none()
+        code = supported_language_code(current)
+        if code is None:
+            return
+        if judged is not None and judged[0] == code:
+            fits = judged[1]
+        else:
+            fits = override_fits_text(code, transcription_text)
+        if fits:
+            return
+        result = await db.execute(
+            update(Document)
+            .where(Document.id == document.id, Document.language_override == current)
+            .values(language_override=None)
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            return
+        logger.warning("Language override %s contradicts document script; cleared", code)
+        document.language_override = None
+        db.add(
+            language_override_event(
+                document.id, None, code, None, reason=OVERRIDE_REFUSED_SCRIPT_MISMATCH
+            )
+        )
 
     async def _build_chunks(
         self,
