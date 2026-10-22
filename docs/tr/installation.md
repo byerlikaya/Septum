@@ -370,6 +370,10 @@ Yeni Prometheus serileri:
 
 `ERROR_LOG_RETENTION_DAYS` (varsayılan `90`) eski hata günlüğü satırlarını günde bir kez siler. `0` bunları süresiz tutar ve başlangıçta bir uyarı yazar. Oturumu ya da API anahtarı olmayan bir istemciye verilen 401 veya 403 yanıtları sayılır ama saklanmaz; böylece tabloyu dolduramazlar. Diğer satırlar kullanıcı, API anahtarı ya da istemci adresi başına bir bütçeden düşer: dakikada 60, sunucu hataları için dakikada 20. Bütçeyi aşan satırlar yalnızca sayılır. Satırlar, somut URL yerine route şablonunu kaydeder (örneğin `/api/documents/{document_id}`).
 
+### Denetim olayı saklama
+
+API veritabanındaki denetim olaylarının yaş sınırı yoktur. Bir belge silindiğinde olayları da silinir; bir belgeye bağlı olmayan olaylar kalır. Olaylar varlık türlerini, sayıları, maskelenmiş yer tutucuları ve dil kodlarını, ayrıca ilgili belgenin özgün dosya adını tutar; dosya adı da kişisel veri içerebilir. İşlemi yapan kullanıcıyı kaydeden olaylar (bir dil geçersiz kılma değişikliği kullanıcı kimliğini saklar) o kullanıcı silindiğinde korunur, yalnızca kimlik kaldırılır. Septum bu olayları kendiliğinden budamaz ya da dışa aktarmaz; ilkeniz bir süre sınırı gerektiriyorsa `audit_events` tablosunu kendi takviminizle budayın.
+
 ### Gateway yönlendirmesi ve hata durumunda kapalı davranış
 
 Gateway yönlendirmesi açıkken bulut LLM çağrıları gateway kuyruğu üzerinden gider; API bunları asla doğrudan yapmaz. Yönlendirme, saklanan `use_gateway` ayarı açıksa ya da `USE_GATEWAY_DEFAULT=true` onu zorluyorsa açıktır. Ortam değişkeni saklanan kapalı değeri geçersiz kılar: her çağrıda okunur ve veritabanına hiçbir şey yazılmaz. `USE_GATEWAY_DEFAULT` değerini false yapmak ya da hiç ayarlamamak, saklanan değerin eskisi gibi belirleyici olmasını sağlar. API şu kuralları uygular:
@@ -433,7 +437,7 @@ Compose dosyaları, container yeniden başlatmaları ve yeniden derlemeler aras�
 | `septum-audit-log` | `/var/log/septum` | Denetim log dosyaları (tam yığın ve gateway dosyası) |
 | `septum-mcp-scan` | `/data/scan` | MCP tarama dizini, salt okunur bağlanır (tam yığın ve air-gapped dosyası) |
 
-**Yedekleme.** Tutarlı bir yedek iki parçadan oluşur: bir PostgreSQL dump ve şifreli volume'lar (uploads + anon-maps + vector/BM25 indeksleri). Şifreleme anahtarı `septum-data/config.json` dosyasındadır — bu anahtarı kaybederseniz şifreli tüm volume'lar okunamaz hale gelir.
+**Yedekleme.** Tutarlı bir yedek iki parçadan oluşur: bir PostgreSQL dump ve şifreli volume'lar (uploads + anon-maps + vector/BM25 indeksleri). Şifreleme anahtarı `septum-data/config.json` dosyasındadır — bu anahtarı kaybederseniz şifreli tüm volume'lar okunamaz hale gelir. Veritabanı dökümü çıkarılmış doküman metnini içerir; yedekleri de veri kadar koruyun.
 
 ```bash
 # Postgres dump'ı al (yalnızca tam yığın)

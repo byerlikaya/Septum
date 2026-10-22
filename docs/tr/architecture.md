@@ -377,7 +377,7 @@ Next.js tarafında modern en iyi uygulamalar takip edilir:
 - Ham PII asla log'lanmaz ve buluta gönderilmez.
 - Anonymization map (placeholder'lar → gerçek değerler) bellekte, opsiyonel olarak Redis'te ve diskte AES-256-GCM şifreli olarak saklanır. Asla frontend'e, buluta veya log'lara gönderilmez.
 - Dosya tipleri uzantıya göre değil, içerik imzasına göre tespit edilir.
-- Yüklenen dosyalar diskte AES-256-GCM ile şifreli saklanır; çözme işlemi yalnızca önizleme sırasında ve bellek içinde yapılır.
+- Yüklenen dosyalar diskte AES-256-GCM ile şifreli saklanır; orijinal dosya önizlemesi dosyayı yalnızca bellekte çözer. Önizlemenin gösterdiği çıkarılmış metin (`documents.transcription_text`, `chunks.raw_text`) veritabanında düz metin olarak saklanır; veritabanını da veri kadar koruyun.
 - Birden fazla regülasyon aynı anda aktifken her zaman **en kısıtlayıcı maskeleme** politikası uygulanır.
 - İsteğe bağlı **JWT kimlik doğrulama** (`POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`): her kullanıcının bir **rolü** vardır (`admin`, `editor`, `viewer`); oturum açıldığında dokümanlar ve sohbet oturumları ilgili kullanıcıya göre filtrelenir; hassas ayar güncellemeleri `admin` rolü gerektirir.
 
@@ -405,7 +405,7 @@ Septum, bir modelin adı Hugging Face'te çözülüyor diye o modeli yüklemez. 
 Septum, GDPR, KVKK ve diğer regülasyon uyumluluğu için **salt-ekleme denetim kaydı** tutar:
 
 - **İzlenen olaylar:** PII tespiti (varlık tipi ve sayısı bazında), placeholder geri yazma, doküman yükleme ve silme, regülasyon değişiklikleri.
-- **Ham PII saklanmaz:** Denetim olayları yalnızca varlık tipi adlarını ve sayılarını kaydeder — orijinal değerleri asla içermez.
+- **Doküman metni saklanmaz:** Denetim olayları yalnızca varlık tipi adlarını ve sayılarını kaydeder; orijinal değerleri ve doküman metnini asla içermez. Olaylar ilgili dokümanın orijinal dosya adını içerebilir.
 - **Entity köken bağlantısı:** her `EntityDetection` satırı, onu üreten `AuditEvent`'a `audit_event_id` FK'ıyla bağlıdır; böylece dashboard bir audit log girdisinden tam o olayın kapsadığı entity'lere sıçrayabilir.
 - **REST API:**
   - `GET /api/audit` — sayfalı; olay tipi, doküman, oturum, tarih aralığı ve **entity tipi** bazında filtrelenebilir (entity tipi filtresi `entity_detections.audit_event_id` üzerinde `EXISTS` correlated subquery ile çalışır).

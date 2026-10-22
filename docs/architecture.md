@@ -482,7 +482,7 @@ The Next.js side follows these conventions:
 - Raw PII is never logged and never sent to the cloud.
 - The anonymisation map (placeholders → real values) is cached in memory, optionally in Redis, and persisted encrypted on disk with AES-256-GCM. It is never sent to the frontend, cloud, or logs.
 - File types are detected by content signature, not by extension.
-- Uploaded files are stored encrypted on disk with AES-256-GCM; decryption happens only in memory during preview.
+- Uploaded files are stored encrypted on disk with AES-256-GCM; the original-file preview decrypts them only in memory. The extracted text the preview shows (`documents.transcription_text`, `chunks.raw_text`) is stored as plaintext in the database, so protect the database like the data itself.
 - When multiple regulations are active at the same time, Septum always applies the **most restrictive** masking policy.
 - Optional **JWT authentication** (`POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`): each user has a **role** (`admin`, `editor`, or `viewer`); documents and chat sessions are scoped to the signed-in user when a token is present; sensitive settings updates require `admin`.
 
@@ -510,7 +510,7 @@ Septum does not load a model just because its name resolves on Hugging Face. Eac
 Septum maintains an **append-only audit trail** for GDPR, KVKK, and other regulation compliance:
 
 - **Events tracked:** PII detection (per entity type and count), placeholder restoration (de-anonymisation), document upload/delete, regulation changes.
-- **No raw PII stored:** Audit events record entity type names and counts only — never original values.
+- **No document text stored:** Audit events record entity type names and counts, never original values or document text. They can include the original file name of the document concerned.
 - **Entity provenance link:** each `EntityDetection` row carries an `audit_event_id` FK back to the `AuditEvent` that produced it, so the dashboard can jump from a log entry to the exact entities it covered.
 - **REST API:**
   - `GET /api/audit` — paginated, filterable by event type, document, session, date range, and **entity type** (matches events whose linked detections include the given type via an `EXISTS` correlated subquery on `entity_detections.audit_event_id`).

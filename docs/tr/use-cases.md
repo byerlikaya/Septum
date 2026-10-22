@@ -42,7 +42,7 @@ Tipik bir sorgu: *"Mühendislik organizasyonunun H1 değerlendirmelerinde yükse
 4. Maskelenmiş prompt ve parçalar bulut LLM'e iletilir. Model şunu görür: `"[PERSON_NAME_1], 2023'te [DIAGNOSIS_1] tanısı aldı ve [MEDICATION_1] kullanmaya başladı…"` — klinik açıdan anlamlı yapı, hastanın adı ve kimlik bilgileri yerine placeholder'lar. Teşhis ve ilaç placeholder'ları yalnızca 2. adımda kurulan Layer 3 açıkken oluşur.
 5. De-anonimleştirilmiş özet hekimin hasta görünümünde belirir.
 
-**Neden iş görür.** HIPAA denetimleri teknik korumalara önem verir (`§ 164.312`) — Septum bunları sağlar: dinlenmedeki şifreleme, denetim kontrolleri, erişim kontrolleri, iletim güvenliği. Semantik katman sayesinde LLM hastanın kim olduğunu öğrenmeden teşhisler ve ilaçlar üzerinde mantık yürütmeye devam edebilir.
+**Neden iş görür.** HIPAA denetimleri teknik korumalara önem verir (`§ 164.312`) — Septum bunları sağlar: yüklenen dosyalar, anonimleştirme haritaları ve arama indeksleri için dinlenmedeki şifreleme (veritabanı çıkarılan metni tutar ve şifreli bir birimde durmalıdır), denetim kontrolleri, erişim kontrolleri, iletim güvenliği. Semantik katman sayesinde LLM hastanın kim olduğunu öğrenmeden teşhisler ve ilaçlar üzerinde mantık yürütmeye devam edebilir.
 
 ## Serbest sohbet — yazdığınız metni de maskelemek
 

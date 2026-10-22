@@ -88,8 +88,10 @@ summarisation in this context is undeniable.
 5. The de-anonymised summary appears in the attending's chart view.
 
 **Why it lands.** HIPAA audits care about technical safeguards
-(`§ 164.312`) — Septum provides them: encryption at rest, audit
-controls, access controls, transmission security. The semantic layer
+(`§ 164.312`) — Septum provides them: encryption at rest for uploaded
+files, anonymization maps and search indexes (the database holds
+extracted text and belongs on an encrypted volume), audit controls,
+access controls, transmission security. The semantic layer
 means the LLM can still reason about diagnoses and medications
 without learning who the patient is.
 

@@ -25,6 +25,8 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 ### 2026-10-22
 
 - Added an offline retrieval benchmark with a hand-authored English, Turkish and Simplified Chinese evaluation set. It measures Recall@5/10, MRR, nDCG@10, latency and a chunk-boundary PII leak check against the production chunker, FAISS and BM25 stores, and its MiniLM baseline is published in the benchmark docs so that upcoming chunking, embedding and reranking changes can be compared against it.
+- Language detection is now script-aware and bounded, so Chinese documents and queries are no longer misread as zh-cn or ko and sent to a model that cannot read them; two-glyph CJK and Thai names keep their minimum span length. A manual language override must now be a supported code that fits the document's script (otherwise 422), is honoured at ingestion and in chat re-masking, and its changes are audited. Upgrading adds a `sanitized_language` column, so existing documents show "needs reprocessing" until they are reprocessed.
+- Unexpected language-detection errors now fail document ingestion instead of silently falling back to English, and analyze-query returns 404 for a document id the caller does not own.
 
 ### 2026-10-21
 

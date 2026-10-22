@@ -118,9 +118,10 @@ Policy composition rules still apply — the most restrictive rule wins.
   <img src="../assets/23-audit-trail.png" alt="Audit trail" width="900" />
 </p>
 
-Append-only compliance log with entity detection metrics. No raw PII
-in audit events — only entity types, counts, regulation ids, and
-timestamps. JSON / CSV / Splunk HEC export available via
+Append-only compliance log with entity detection metrics. Audit events
+hold entity types, counts, regulation ids, and timestamps, never
+document text; they can include the original file name. JSON / CSV /
+Splunk HEC export available via
 `/api/audit/export`.
 
 ---

@@ -121,8 +121,8 @@ kazanır.
 </p>
 
 Salt-ekleme uyumluluk günlüğü ve varlık tespit metrikleri. Denetim
-olaylarında ham PII yoktur — yalnızca varlık tipi, adet, regülasyon id
-ve zaman damgası tutulur. `/api/audit/export` üzerinden JSON / CSV /
+olaylarında doküman metni yoktur — varlık tipi, adet, regülasyon id ve
+zaman damgası tutulur; orijinal dosya adı yer alabilir. `/api/audit/export` üzerinden JSON / CSV /
 Splunk HEC export alabilirsiniz.
 
 ---

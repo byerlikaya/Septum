@@ -19,7 +19,7 @@ Adım adım:
 5. **Onay mekanizması.** Üç panel açılır: maskelenmiş prompt'unuz, getirilen parçalar ve buluta gidecek hazır istek. Onaylar ya da reddedersiniz — aşağıdaki [Onay mekanizması](#onay-mekanizması) bölümüne bakın.
 6. **Bulut LLM çağrısı.** Maskeli prompt, internet-facing bölgedeki `septum-gateway` tarafından seçtiğiniz sağlayıcıya iletilir: Anthropic, OpenAI, OpenRouter ya da yerel Ollama.
 7. **Yerel de-anonimleştirme.** Cevap placeholder'larla geri döner; air-gapped bölgedeki `septum-core`, doküman başına tutulan anonimleştirme haritasından gerçek değerleri yerine koyar. Düz PII yalnızca bellekte yeniden oluşturulur — ne kuyruğa ne gateway sürecine değer.
-8. **Denetim kaydı.** Bir uyumluluk olayı yazılır: kim sordu, hangi dokümanlara dokunuldu, hangi tipten kaç varlık maskelendi. Olay kaydı ham PII içermez.
+8. **Denetim kaydı.** Bir uyumluluk olayı yazılır: kim sordu, hangi dokümanlara dokunuldu, hangi tipten kaç varlık maskelendi. Olay kaydı doküman metni içermez; dokümanın orijinal dosya adını içerebilir.
 
 Aynı maskeleme hattı sadece getirilen parçalar üzerinde değil, kullanıcının yazdığı mesaj üzerinde de çalışır. Yazdığınız `"Taburculuk planını Elif Demir'e e.demir@example.com adresinden iletelim"` ifadesi, retrieval başlamadan önce `"Taburculuk planını [PERSON_NAME_1]'e [EMAIL_ADDRESS_1] adresinden iletelim"` haline gelir. Bulut sağlayıcılarının orijinali görmemesi gerçek anlamıyla bir garantidir.
 
@@ -102,14 +102,14 @@ Kayda neler düşer:
 - **Bulut çağrıları için gecikme, model, sağlayıcı**
 - **Kullanıcı id, oturum id** — kim, hangi oturumda
 
-Kayda neler düşmez: ham PII'nin kendisi, doküman metni, prompt içeriği ya da LLM cevabı. Denetim olayları sözleşme gereği PII'siz tutulur; üçüncü taraf bir SIEM'e güvenle gönderilebilmesinin sebebi tam olarak budur.
+Kayda neler düşmez: ham PII değerleri, doküman metni, prompt içeriği ya da LLM cevabı. Dokümanın orijinal dosya adı kayda düşebilir ve kişisel veri içerebilir; denetim dışa aktarımlarını üçüncü taraflarla paylaşmadan önce bunu gözden geçirin.
 
 Kayıtla yapılabilecekler:
 
 - **Panel üzerinden filtreleme.** Regülasyon, varlık tipi, kullanıcı, tarih aralığı bazında. Arayüz, tespit sayılarındaki sıçramaları öne çıkarır; alışılmadık bir hareket bir bakışta fark edilir.
 - **Varlıklara odaklan.** Herhangi bir denetim satırından "Varlıklara odaklan" düğmesiyle ilgili dokümanı yalnız o olayın tespitleri vurgulanmış halde açın — bir dakika içinde ne işaretlendiğini ve neden işaretlendiğini görürsünüz.
 - **Dışa aktarma.** `GET /api/audit/export?format=json|csv|splunk` ile ilgili dilim dışarı çekilir. Splunk HEC payload'ları doğrudan toplayıcıya gönderilebilir; JSON özel işleme hatları için, CSV ad-hoc incelemelerde Excel açılışı için uygundur.
-- **Saklama politikası.** Yaş ve sayı olmak üzere iki kapasite kuralı bulunan kayan pencere. Yerinde, atomik yeniden yazım — okuma tarafında kesinti olmaz.
+- **Saklama ayarları.** `SEPTUM_AUDIT_RETENTION_DAYS` ve `SEPTUM_AUDIT_RETENTION_MAX_RECORDS` denetim modülü tarafından okunur, ancak saklama henüz otomatik uygulanmaz: denetim kayıtlarını kendiliğinden silen bir mekanizma yoktur.
 
 Audit modülü tasarım gereği **internet-facing bölgede** koşar — SIEM ile konuşması gerekir ama ham PII'yi asla görmemelidir. Olaylar üreticide (`septum-api`) zaten temizlendiği için audit host'u tehlikeye düşse bile sıfır kişisel veri sızar.
 
