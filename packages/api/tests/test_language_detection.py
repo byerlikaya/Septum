@@ -1257,6 +1257,53 @@ def test_masking_language_script_contradicted_override_falls_back_to_detected_or
     assert masking_language(undetected, han) == ("en", "detected")
 
 
+async def test_deleting_a_user_unlinks_it_from_audit_events(router_client):
+    from sqlalchemy import select
+
+    from septum_api.database import get_db
+    from septum_api.main import app
+    from septum_api.models.audit_event import AuditEvent
+    from septum_api.services.audit_logger import build_document_event
+    from tests.test_users_router import _auth, _bootstrap_admin, _create_user
+
+    admin_token = await _bootstrap_admin(router_client)
+    leaving = await _create_user(router_client, admin_token, "leaving@example.com")
+    staying = await _create_user(router_client, admin_token, "staying@example.com")
+
+    async def _session_run(work):
+        session_gen = app.dependency_overrides[get_db]()
+        session = await session_gen.__anext__()
+        try:
+            return await work(session)
+        finally:
+            await session_gen.aclose()
+
+    async def _seed(session):
+        for user_id in (leaving["id"], staying["id"]):
+            session.add(build_document_event(
+                document_id=1, event_type="document_language_changed",
+                extra={"user_id": user_id, "previous_override": None, "override": "de"},
+            ))
+        session.add(build_document_event(
+            document_id=1, event_type="document_uploaded", extra={"user_id": leaving["id"]},
+        ))
+        await session.commit()
+
+    await _session_run(_seed)
+    resp = await router_client.delete(f"/api/users/{leaving['id']}", headers=_auth(admin_token))
+    assert resp.status_code == 204, resp.text
+
+    async def _read(session):
+        rows = await session.execute(select(AuditEvent).order_by(AuditEvent.id))
+        return [(e.event_type, e.extra) for e in rows.scalars()]
+
+    assert await _session_run(_read) == [
+        ("document_language_changed", {"user_id": None, "previous_override": None, "override": "de"}),
+        ("document_language_changed", {"user_id": staying["id"], "previous_override": None, "override": "de"}),
+        ("document_uploaded", {"user_id": leaving["id"]}),
+    ]
+
+
 async def test_remask_writes_the_effective_language_into_the_persisted_map(monkeypatch):
     import contextlib
     from types import SimpleNamespace
@@ -1609,6 +1656,33 @@ async def test_auto_clear_ignores_an_override_that_was_honoured(env):
         await session.commit()
     assert (await env.document(doc_id)).language_override == "ru"
     assert await _language_events(env) == []
+
+
+async def test_forget_user_counts_and_keeps_other_keys(env):
+    from sqlalchemy import select
+
+    from septum_api.models.audit_event import AuditEvent
+    from septum_api.services.audit_logger import (
+        build_document_event,
+        forget_user_in_audit_events,
+    )
+
+    async with env.session_maker() as session:
+        for user_id in (7, 8, 7):
+            session.add(build_document_event(
+                document_id=1, event_type="document_language_changed",
+                extra={"user_id": user_id, "override": "de"},
+            ))
+        await session.commit()
+        assert await forget_user_in_audit_events(session, 7) == 2
+        await session.commit()
+        assert await forget_user_in_audit_events(session, 7) == 0
+        rows = await session.execute(select(AuditEvent.extra).order_by(AuditEvent.id))
+        assert list(rows.scalars()) == [
+            {"user_id": None, "override": "de"},
+            {"user_id": 8, "override": "de"},
+            {"user_id": None, "override": "de"},
+        ]
 
 
 async def test_override_patched_after_the_language_decision_is_judged_at_completion(env):
