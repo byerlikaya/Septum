@@ -5,8 +5,9 @@ until the document is reprocessed. The result for one chunk depends only on
 the stored chunk text, the policy and the document map, and every
 placeholder it introduces is persisted in that map, so it can be reused:
 the key is ``(document id, chunk id, policy cache key, hash of the stored
-text)``, and a hit is used only while the current document map still knows
-every placeholder in it. Entries hold masked text only, never an original.
+text, masking language)``, and a hit is used only while the current
+document map still knows every placeholder in it. Entries hold masked
+text only, never an original.
 
 The policy part is :attr:`PolicySnapshot.cache_key` (digest and entity
 types), not the staleness digest alone: that one leaves the types out, and
@@ -31,7 +32,7 @@ from .pii_gate import all_placeholders_known
 REMASK_CACHE_MAX_ENTRIES = 4096
 REMASK_CACHE_MAX_CHARS = 8_000_000
 
-_Key = Tuple[int, int, str, str]
+_Key = Tuple[int, int, str, str, str]
 
 
 class RemaskCache:
@@ -48,10 +49,16 @@ class RemaskCache:
         self._entries: "OrderedDict[_Key, str]" = OrderedDict()
 
     @staticmethod
-    def key(document_id: int, chunk_id: int, policy_key: str, stored_text: str) -> _Key:
-        """Return the cache key of one stored chunk under one policy."""
+    def key(
+        document_id: int, chunk_id: int, policy_key: str, stored_text: str, language: str
+    ) -> _Key:
+        """Return the cache key of one stored chunk under one policy and masking language.
+
+        The language is part of the key so text re-masked in a language the
+        document has since been corrected away from is never served.
+        """
         text_hash = hashlib.sha256(stored_text.encode("utf-8")).hexdigest()
-        return (document_id, chunk_id, policy_key, text_hash)
+        return (document_id, chunk_id, policy_key, text_hash, language)
 
     def get(self, key: _Key, anon_map: AnonymizationMap) -> Optional[str]:
         """Return the cached text if its placeholders all resolve in ``anon_map``."""

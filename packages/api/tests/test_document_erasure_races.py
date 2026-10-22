@@ -305,7 +305,7 @@ async def test_gate_refuses_to_write_the_map_under_a_lost_lock(
     async def _create_sanitizer(db, settings, enable_ollama=False):
         return object()
 
-    async def _gate(texts, working, db, settings, sanitizer=None):
+    async def _gate(texts, working, db, settings, language=None, sanitizer=None):
         working.add_entity("Bob Jones", "PERSON")
         return list(texts)
 

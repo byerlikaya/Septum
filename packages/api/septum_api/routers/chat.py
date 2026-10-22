@@ -140,6 +140,7 @@ from ..utils.auth_dependency import get_current_user
 from ..utils.db_helpers import (
     detect_language,
     document_language,
+    effective_masking_language,
     get_owned_or_404,
     load_settings,
 )
@@ -413,8 +414,11 @@ async def _resanitize_outdated_chunks(
         if doc_map is None:
             raise DocumentMapMissingError(f"Document {doc.id} has no anonymization map")
         misses: list[tuple[Chunk, tuple]] = []
+        language = effective_masking_language(doc)
         for c in doc_chunks:
-            key = remask_cache.key(doc.id, c.id, current.cache_key, c.sanitized_text or "")
+            key = remask_cache.key(
+                doc.id, c.id, current.cache_key, c.sanitized_text or "", language
+            )
             hit = remask_cache.get(key, doc_map)
             if hit is None:
                 misses.append((c, key))

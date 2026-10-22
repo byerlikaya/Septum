@@ -591,6 +591,26 @@ class _ChunkDb:
         return _ChunkRows()
 
 
+@pytest.mark.parametrize(
+    ("override", "detected", "expected"),
+    [
+        ("tr", "en", "tr"),
+        (None, "zh-cn", "zh"),
+        ("not a language!", "de", "de"),
+        ("../etc", "junk value", "en"),
+        (None, None, "en"),
+    ],
+)
+async def test_pii_gate_fresh_map_uses_the_document_language(override, detected, expected):
+    from types import SimpleNamespace
+
+    from septum_api.services import pii_gate
+
+    document = SimpleNamespace(id=5, language_override=override, detected_language=detected)
+    working = await pii_gate._working_copy(_ChunkDb(), document, None, ["text"])
+    assert working.language == expected
+
+
 def test_supported_codes_come_from_the_profile_files(monkeypatch, tmp_path):
     from langdetect import detector_factory
 
@@ -851,6 +871,62 @@ async def test_override_set_during_processing_or_before_pickup_leaves_the_docume
     assert await _needs_reprocessing(env, doc_id) is False
 
 
+async def test_remask_after_a_correction_uses_the_new_language(monkeypatch):
+    import contextlib
+    from types import SimpleNamespace
+
+    from septum_api.services import pii_gate
+
+    seen: list = []
+    working = SimpleNamespace(language="en", entity_map={})
+
+    async def _noop(*_args, **_kwargs):
+        return None
+
+    async def _load(_document_id):
+        return working
+
+    async def _working(*_args):
+        return working
+
+    async def _gate(texts, _map, _db, _settings, language=None, sanitizer=None):
+        seen.append(language)
+        return list(texts)
+
+    class _Lock:
+        async def ensure_held(self):
+            return None
+
+    @contextlib.asynccontextmanager
+    async def _map_lock(_document_id):
+        yield _Lock()
+
+    monkeypatch.setattr(pii_gate, "_require_row", _noop)
+    monkeypatch.setattr(pii_gate, "load_persisted_document_map", _load)
+    monkeypatch.setattr(pii_gate, "_working_copy", _working)
+    monkeypatch.setattr(pii_gate, "gate_untrusted_texts", _gate)
+    monkeypatch.setattr(pii_gate, "document_map_lock", _map_lock)
+    monkeypatch.setattr(pii_gate, "_same_map", lambda a, b: True)
+
+    corrected = SimpleNamespace(
+        id=4, language_override="de", detected_language="en",
+        transcription_text="Hans Müller wohnt in Berlin.",
+    )
+    contradicting = SimpleNamespace(
+        id=4, language_override="en", detected_language="zh-cn",
+        transcription_text="李明负责交付合同。",
+    )
+    legacy = SimpleNamespace(
+        id=4, language_override=None, detected_language="tur", transcription_text="Some text",
+    )
+    await pii_gate.remask_document_texts(None, None, corrected, ["Hans Müller wohnt in Berlin."], object())
+    await pii_gate.remask_document_texts(None, None, contradicting, ["李明负责交付合同。"], object())
+    await pii_gate.remask_document_texts(None, None, legacy, ["Some text"], object())
+    # The read path trusts the stored override: a script-contradicting one is
+    # refused at PATCH time and cleared by the pipeline, never re-judged here.
+    assert seen == ["de", "en", "en"]
+
+
 @pytest.mark.parametrize(
     ("text", "override", "detected", "expected", "source"),
     [
@@ -918,6 +994,30 @@ async def test_ingestion_ignores_an_override_that_contradicts_the_script(
         assert "李明" not in message and "合同" not in message
 
 
+async def test_language_change_leaves_the_cache_alone_and_the_key_carries_the_language(
+    env, monkeypatch
+):
+    from septum_api.services.anonymization_map import AnonymizationMap
+    from septum_api.services.remask_cache import RemaskCache, remask_cache
+
+    forgotten: list[int] = []
+    monkeypatch.setattr(remask_cache, "forget_document", lambda doc_id: forgotten.append(doc_id))
+    doc_id, _ = await env.add_document()
+    for language in ("de", "DE", "tr"):
+        resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": language})
+        assert resp.status_code == 200, resp.text
+    assert forgotten == []
+
+    keys = {RemaskCache.key(doc_id, 1, "p", "text", language) for language in ("en", "de", "en")}
+    assert len(keys) == 2
+    cache = RemaskCache()
+    cache.put(RemaskCache.key(doc_id, 1, "p", "text", "en"), "[PERSON_NAME_1] signed.")
+    known = AnonymizationMap(document_id=doc_id, language="de")
+    known.add_entity("Ahmet", "PERSON_NAME")
+    assert cache.get(RemaskCache.key(doc_id, 1, "p", "text", "de"), known) is None
+    assert cache.get(RemaskCache.key(doc_id, 1, "p", "text", "en"), known) == "[PERSON_NAME_1] signed."
+
+
 @pytest.mark.parametrize(
     ("override", "detected", "expected"),
     [
@@ -950,6 +1050,58 @@ def test_masking_language_script_contradicted_override_falls_back_to_detected_or
     assert masking_language(detected, han) == ("zh", "detected")
     undetected = SimpleNamespace(language_override="en", detected_language=None)
     assert masking_language(undetected, han) == ("en", "detected")
+
+
+async def test_remask_writes_the_effective_language_into_the_persisted_map(monkeypatch):
+    import contextlib
+    from types import SimpleNamespace
+
+    from septum_api.services import pii_gate
+    from septum_api.services.anonymization_map import AnonymizationMap
+
+    stored = AnonymizationMap(document_id=4, language="en")
+    stored.add_entity("Hans Müller", "PERSON_NAME")
+    written: list = []
+
+    async def _noop(*_args, **_kwargs):
+        return None
+
+    async def _load(_document_id):
+        return stored
+
+    async def _gate(texts, _map, _db, _settings, language=None, sanitizer=None):
+        return list(texts)
+
+    async def _write(_document_id, anon_map):
+        written.append(anon_map.language)
+
+    class _Lock:
+        async def ensure_held(self):
+            return None
+
+    @contextlib.asynccontextmanager
+    async def _map_lock(_document_id):
+        yield _Lock()
+
+    monkeypatch.setattr(pii_gate, "_require_row", _noop)
+    monkeypatch.setattr(pii_gate, "load_persisted_document_map", _load)
+    monkeypatch.setattr(pii_gate, "gate_untrusted_texts", _gate)
+    monkeypatch.setattr(pii_gate, "document_map_lock", _map_lock)
+    monkeypatch.setattr(pii_gate, "set_document_map", _write)
+
+    corrected = SimpleNamespace(
+        id=4, language_override="de", detected_language="en",
+        transcription_text="Hans Müller wohnt in Berlin.",
+    )
+    _, changed = await pii_gate.remask_document_texts(None, None, corrected, ["[PERSON_NAME_1] wohnt."], object())
+    assert (changed, written) == (True, ["de"])
+
+    written.clear()
+    same = SimpleNamespace(
+        id=4, language_override=None, detected_language="en", transcription_text="Hans lives here.",
+    )
+    _, changed = await pii_gate.remask_document_texts(None, None, same, ["[PERSON_NAME_1] lives."], object())
+    assert (changed, written) == (False, [])
 
 
 @pytest.mark.parametrize(

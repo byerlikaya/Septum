@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..errors import ContentFreeError
 from ..models.document import Chunk, Document
 from ..models.settings import AppSettings
+from ..utils.db_helpers import document_language, effective_masking_language
 from ..utils.text_utils import normalize_unicode
 from .anonymization_map import PLACEHOLDER_PATTERN, AnonymizationMap
 from .document_anon_store import (
@@ -295,7 +296,7 @@ async def _working_copy(
         return working
     working = AnonymizationMap(
         document_id=document.id,
-        language=document.language_override or document.detected_language or "en",
+        language=document_language(document) or "en",
     )
     rows = await db.execute(
         select(Chunk.sanitized_text).where(Chunk.document_id == document.id)
@@ -328,6 +329,10 @@ async def _gate_and_merge(
     added entities meanwhile): the attempt is discarded and redone on the
     new copy, so no placeholder number is ever reused or overwritten. The
     row is checked before the sanitizer runs and again under the lock.
+    Texts are masked in the document's effective masking language (see
+    :func:`effective_masking_language`), not the language the map was built
+    in, and the written map carries that language so every later reader
+    (chat's unified map, :func:`mask_known_entities`) sees the same value.
     Returns the gated texts and whether the map was written.
     """
     if sanitizer is None and any(texts):
@@ -338,8 +343,10 @@ async def _gate_and_merge(
         if base is None and require_existing_map:
             raise DocumentMapMissingError(f"Document {document.id} has no anonymization map")
         working = await _working_copy(db, document, base, texts)
+        language = effective_masking_language(document)
+        working.language = language
         gated = await gate_untrusted_texts(
-            texts, working, db, settings, sanitizer=sanitizer
+            texts, working, db, settings, language=language, sanitizer=sanitizer
         )
         async with document_map_lock(document.id) as lock:
             await _require_row(db, document)
@@ -350,7 +357,11 @@ async def _gate_and_merge(
                 )
             if not _same_map(current, base):
                 continue
-            changed = base is None or not _same_map(working, base)
+            changed = (
+                base is None
+                or not _same_map(working, base)
+                or base.language != working.language
+            )
             written = bool(changed and working.entity_map)
             if written:
                 await lock.ensure_held()
