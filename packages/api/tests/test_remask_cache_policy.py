@@ -99,6 +99,7 @@ async def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[
             active_regulation_ids=[], ingestion_status="completed", chunk_count=1,
             sanitized_entity_types=[],
             sanitized_policy_digest=build_policy_snapshot([], []).digest,
+            sanitized_language="en",
             user_id=user.id,
         )
         session.add(doc)
@@ -318,3 +319,30 @@ async def test_map_erased_before_the_remask_is_document_changed(
     [event] = [e for e in events if e["type"] == "error"]
     assert event["code"] == chat_module.DOCUMENT_CHANGED
     assert not env["prompts"]
+
+
+async def _align_with_current_policy(env: dict[str, Any], **changes: Any) -> None:
+    from septum_api.services.policy_snapshot import current_policy_snapshot
+
+    async with env["sm"]() as session:
+        snapshot = await current_policy_snapshot(session)
+        await session.execute(
+            update(Document)
+            .where(Document.id == env["doc_id"])
+            .values(
+                sanitized_entity_types=snapshot.entity_types,
+                sanitized_policy_digest=snapshot.digest,
+                **changes,
+            )
+        )
+        await session.commit()
+
+
+async def test_unrecorded_masking_language_is_stale_through_the_chat_path(env: dict[str, Any]) -> None:
+    await _align_with_current_policy(env, sanitized_language="en")
+    await _ask(env)
+    assert _chunk_sanitize_calls(env) == 0
+
+    await _align_with_current_policy(env, sanitized_language=None)
+    await _ask(env)
+    assert _chunk_sanitize_calls(env) == 1

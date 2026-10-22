@@ -62,6 +62,7 @@ class ChatEnv:
                 active_regulation_ids=[],
                 sanitized_entity_types=[],
                 sanitized_policy_digest=(await current_policy_snapshot(session)).digest,
+                sanitized_language="en",
                 ingestion_status="completed",
                 chunk_count=len(chunk_texts),
                 user_id=owner.id if owner is not None else None,

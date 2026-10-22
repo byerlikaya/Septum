@@ -175,6 +175,7 @@ class DocumentResponse(BaseModel):
     needs_reprocessing: bool = False
     missing_entity_types: List[str] = []
     sanitized_policy_known: bool = True
+    sanitized_language: Optional[str] = None
 
 
 def _document_response(

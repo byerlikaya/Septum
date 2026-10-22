@@ -616,6 +616,57 @@ def test_legacy_unsupported_override_is_ignored_on_read():
     assert document_language(SimpleNamespace(language_override="TR", detected_language="en")) == "tr"
 
 
+async def test_ingestion_pipeline_masks_in_the_override_language(monkeypatch):
+    from types import SimpleNamespace
+
+    from septum_api.services import document_pipeline
+
+    seen: dict = {}
+
+    class _Stop(Exception):
+        pass
+
+    class _Map:
+        def __init__(self, document_id, language):
+            seen["map_language"] = language
+
+    class _Composer:
+        async def compose_with_snapshot(self, _db, _settings):
+            return None, None
+
+    class _Sanitizer:
+        def sanitize(self, _text, language, _anon_map):
+            seen["detector_language"] = language
+            raise _Stop
+
+    async def _sanitizer(*_args, **_kwargs):
+        return _Sanitizer()
+
+    class _Normalizer:
+        async def normalize(self, _db, text):
+            return text
+
+    async def _chunks(_format, text):
+        return [SimpleNamespace(text=text, index=0)]
+
+    monkeypatch.setattr(document_pipeline, "AnonymizationMap", _Map)
+    monkeypatch.setattr(document_pipeline, "PolicyComposer", _Composer)
+    monkeypatch.setattr(document_pipeline, "create_sanitizer", _sanitizer)
+    monkeypatch.setattr(document_pipeline, "TextNormalizer", _Normalizer)
+    pipeline = document_pipeline.DocumentPipeline(SimpleNamespace())
+    monkeypatch.setattr(pipeline, "_build_chunks", _chunks)
+    document = SimpleNamespace(id=9, language_override="tr", detected_language="en")
+    with pytest.raises(_Stop):
+        await pipeline.run(None, document, "pdf", "Ahmet Yılmaz", None)
+    assert seen == {"map_language": "tr", "detector_language": "tr"}
+
+    seen.clear()
+    legacy = SimpleNamespace(id=9, language_override="tur", detected_language="en")
+    with pytest.raises(_Stop):
+        await pipeline.run(None, legacy, "pdf", "Ahmet Yılmaz", None)
+    assert seen == {"map_language": "en", "detector_language": "en"}
+
+
 def test_whisper_language_falls_back_to_text_detection_when_invalid_or_unsupported():
     from types import SimpleNamespace
 
@@ -627,6 +678,105 @@ def test_whisper_language_falls_back_to_text_detection_when_invalid_or_unsupport
         assert _detect_document_language("audio", result) == "tr"
     supported = SimpleNamespace(text=text, metadata={"detected_language": "de"})
     assert _detect_document_language("audio", supported) == "de"
+
+
+async def test_ingestion_audit_event_records_the_override_language(monkeypatch):
+    import contextlib
+    from types import SimpleNamespace
+
+    from septum_api.services import document_pipeline
+
+    audit: dict = {}
+
+    class _Stop(Exception):
+        pass
+
+    class _Composer:
+        async def compose_with_snapshot(self, _db, _settings):
+            return None, None
+
+    class _Sanitizer:
+        def sanitize(self, text, _language, _anon_map):
+            return SimpleNamespace(
+                entity_count=1,
+                entity_type_counts={"PERSON_NAME": 1},
+                detected_spans=[],
+                sanitized_text=text,
+            )
+
+    added: list = []
+    stored: dict = {}
+
+    class _Db:
+        async def commit(self):
+            return None
+
+        async def refresh(self, _row):
+            return None
+
+        async def scalar(self, _statement):
+            return 1
+
+        async def execute(self, _statement):
+            return SimpleNamespace(rowcount=1, scalar_one_or_none=lambda: stored["override"])
+
+        def add(self, row):
+            added.append(row)
+
+    class _Lock:
+        async def ensure_held(self):
+            return None
+
+    @contextlib.asynccontextmanager
+    async def _map_lock(_document_id):
+        yield _Lock()
+
+    async def _noop(*_args, **_kwargs):
+        return None
+
+    async def _sanitizer(*_args, **_kwargs):
+        return _Sanitizer()
+
+    async def _persist(*_args, **_kwargs):
+        return []
+
+    async def _log(_db, **kwargs):
+        audit.update(kwargs["extra"])
+        raise _Stop
+
+    class _Normalizer:
+        async def normalize(self, _db, text):
+            return text
+
+    async def _chunks(_format, text):
+        return [SimpleNamespace(text=text, index=0, source_page=None, section_title=None)]
+
+    monkeypatch.setattr(document_pipeline, "PolicyComposer", _Composer)
+    monkeypatch.setattr(document_pipeline, "create_sanitizer", _sanitizer)
+    monkeypatch.setattr(document_pipeline, "TextNormalizer", _Normalizer)
+    monkeypatch.setattr(document_pipeline, "document_map_lock", _map_lock)
+    monkeypatch.setattr(document_pipeline, "set_document_map", _noop)
+    monkeypatch.setattr(document_pipeline, "replace_index_for_document", _noop)
+    monkeypatch.setattr(document_pipeline, "recompute_relationships_for_document", _noop)
+    monkeypatch.setattr(document_pipeline, "log_pii_detected", _log)
+    pipeline = document_pipeline.DocumentPipeline(SimpleNamespace())
+    monkeypatch.setattr(pipeline, "_build_chunks", _chunks)
+    monkeypatch.setattr(pipeline, "_persist_chunks", _persist)
+
+    def _document(override):
+        return SimpleNamespace(
+            id=9, language_override=override, detected_language="en",
+            active_regulation_ids=[], original_filename="a.pdf",
+        )
+
+    for override, expected in (("tr", "tr"), ("tur", "en"), (None, "en")):
+        audit.clear()
+        with pytest.raises(_Stop):
+            await pipeline.run(_Db(), _document(override), "pdf", "Ahmet Yılmaz", None)
+        source = "override" if override == expected else "detected"
+        assert audit == {
+            "source": "document_ingestion", "language": expected, "language_source": source,
+        }
 
 
 def test_supported_codes_cache_is_keyed_by_directory(monkeypatch, tmp_path):
@@ -673,6 +823,158 @@ async def _needs_reprocessing(test_env, doc_id):
     return resp.json()["needs_reprocessing"]
 
 
+async def test_override_set_during_processing_or_before_pickup_leaves_the_document_stale(env):
+    from septum_api.services.policy_snapshot import current_policy_snapshot
+
+    doc_id, _ = await env.add_document(status="processing")
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "de"})
+    assert resp.status_code == 200, resp.text
+
+    # The run that was already in flight finishes with the language it started with.
+    async with env.session_maker() as session:
+        snapshot = await current_policy_snapshot(session)
+    await _set_digest(env, doc_id, snapshot.digest)
+    async with env.session_maker() as session:
+        from septum_api.models.document import Document
+
+        row = await session.get(Document, doc_id)
+        row.sanitized_entity_types = snapshot.entity_types
+        await session.commit()
+    await _record_language(env, doc_id, language="en", status="completed")
+    assert await _needs_reprocessing(env, doc_id) is True
+
+    # A reprocess that has been queued but not picked up yet changes nothing either.
+    resp = await env.client.patch(f"/api/documents/{doc_id}/language", json={"language": "tr"})
+    assert resp.status_code == 200, resp.text
+    assert await _needs_reprocessing(env, doc_id) is True
+    await _record_language(env, doc_id, language="tr")
+    assert await _needs_reprocessing(env, doc_id) is False
+
+
+@pytest.mark.parametrize(
+    ("text", "override", "detected", "expected", "source"),
+    [
+        ("合同双方应当按照约定全面履行自己的义务，李明负责交付。", "en", "zh-cn", "zh", "detected"),
+        ("Ahmet Yılmaz İstanbul'da yaşıyor ve Ankara'da çalışıyor.", "az", "tr", "az", "override"),
+        ("The tenant paid the deposit before moving in.", "de", "en", "de", "override"),
+    ],
+)
+async def test_ingestion_ignores_an_override_that_contradicts_the_script(
+    monkeypatch, caplog, text, override, detected, expected, source
+):
+    import logging
+    from types import SimpleNamespace
+
+    from septum_api.services import document_pipeline
+    from septum_api.utils import db_helpers
+
+    seen: dict = {}
+
+    class _Stop(Exception):
+        pass
+
+    class _Map:
+        def __init__(self, document_id, language):
+            seen["map_language"] = language
+
+    class _Composer:
+        async def compose_with_snapshot(self, _db, _settings):
+            return None, None
+
+    class _Sanitizer:
+        def sanitize(self, _text, language, _anon_map):
+            seen["detector_language"] = language
+            raise _Stop
+
+    async def _sanitizer(*_args, **_kwargs):
+        return _Sanitizer()
+
+    class _Normalizer:
+        async def normalize(self, _db, value):
+            return value
+
+    async def _chunks(_format, value):
+        return [SimpleNamespace(text=value, index=0)]
+
+    monkeypatch.setattr(document_pipeline, "AnonymizationMap", _Map)
+    monkeypatch.setattr(document_pipeline, "PolicyComposer", _Composer)
+    monkeypatch.setattr(document_pipeline, "create_sanitizer", _sanitizer)
+    monkeypatch.setattr(document_pipeline, "TextNormalizer", _Normalizer)
+    pipeline = document_pipeline.DocumentPipeline(SimpleNamespace())
+    monkeypatch.setattr(pipeline, "_build_chunks", _chunks)
+    document = SimpleNamespace(id=9, language_override=override, detected_language=detected)
+    with caplog.at_level(logging.WARNING, logger=db_helpers.__name__):
+        with pytest.raises(_Stop):
+            await pipeline.run(None, document, "pdf", text, None)
+    assert seen == {"map_language": expected, "detector_language": expected}
+    assert db_helpers.masking_language(document, text) == (expected, source)
+    records = [r.getMessage() for r in caplog.records if r.name == db_helpers.__name__]
+    if source == "detected":
+        assert records and all(f"override {override}" in m for m in records)
+    else:
+        assert records == []
+    for message in records:
+        assert not any(word in message for word in text.split()[:3])
+        assert "李明" not in message and "合同" not in message
+
+
+@pytest.mark.parametrize(
+    ("override", "detected", "expected"),
+    [
+        (None, "tr", ("tr", "detected")),
+        (None, None, ("en", "detected")),
+        (None, "junk!", ("en", "detected")),
+        (None, "zz-unsupported", ("en", "detected")),
+        ("de", "tr", ("de", "override")),
+        ("junk!", "tr", ("tr", "detected")),
+        ("junk!", None, ("en", "detected")),
+        ("TR-tr", "en", ("tr", "override")),
+    ],
+)
+def test_masking_language_fallback_chain(override, detected, expected):
+    from types import SimpleNamespace
+
+    from septum_api.utils.db_helpers import masking_language
+
+    document = SimpleNamespace(language_override=override, detected_language=detected)
+    assert masking_language(document, "Gecikmiş ödemelere hangi faiz uygulanır?") == expected
+
+
+def test_masking_language_script_contradicted_override_falls_back_to_detected_or_en():
+    from types import SimpleNamespace
+
+    from septum_api.utils.db_helpers import masking_language
+
+    han = "合同双方应当按照约定全面履行自己的义务。"
+    detected = SimpleNamespace(language_override="en", detected_language="zh-cn")
+    assert masking_language(detected, han) == ("zh", "detected")
+    undetected = SimpleNamespace(language_override="en", detected_language=None)
+    assert masking_language(undetected, han) == ("en", "detected")
+
+
+@pytest.mark.parametrize(
+    ("override", "text", "honoured"),
+    [
+        ("zh", "[PERSON_NAME_1]和[PERSON_NAME_2]签署了[ORGANIZATION_NAME_1]的合同，[PERSON_NAME_3]见证。", True),
+        ("en", "[PERSON_NAME_1]和[PERSON_NAME_2]签署了[ORGANIZATION_NAME_1]的合同，[PERSON_NAME_3]见证。", False),
+        ("zh", "The contract was signed by 王伟 and 李娜 in the presence of the lessor.", True),
+        ("ru", "وقع أحمد العقد مع الشركة في الرياض", False),
+        ("ar", "The tenant paid the deposit before moving in.", False),
+        ("de", "Арендатор внёс залог до въезда в помещение.", False),
+        ("en", "合同双方应当按照约定全面履行自己的义务，李明负责交付。", False),
+        ("en", "Gecikmiş ödemelere hangi faiz uygulanır?", True),
+    ],
+)
+def test_override_script_guard(override, text, honoured):
+    from types import SimpleNamespace
+
+    from septum_api.utils.db_helpers import masking_language
+
+    document = SimpleNamespace(language_override=override, detected_language="tr")
+    expected = (override, "override") if honoured else ("tr", "detected")
+    assert masking_language(document, text) == expected
+
+
 def test_every_detectable_language_has_a_script_rule():
     from langdetect import detector_factory
     from septum_core.language_resolution import _REQUIRED_SCRIPTS, iso_language_code
@@ -681,6 +983,32 @@ def test_every_detectable_language_has_a_script_rule():
 
     codes = {iso_language_code(name) for name in _profile_names(detector_factory.PROFILES_DIRECTORY)}
     assert codes - set(_REQUIRED_SCRIPTS) == set()
+
+
+def test_effective_masking_language_reads_no_text():
+    from types import SimpleNamespace
+
+    from septum_api.utils.db_helpers import effective_masking_language
+
+    class _Untouchable(SimpleNamespace):
+        @property
+        def transcription_text(self):
+            raise AssertionError("the read path must not scan the text")
+
+    assert effective_masking_language(_Untouchable(language_override="de", detected_language="tr")) == "de"
+    assert effective_masking_language(_Untouchable(language_override="tur", detected_language="tr")) == "tr"
+    assert effective_masking_language(_Untouchable(language_override=None, detected_language=None)) == "en"
+
+
+def test_override_check_reads_only_the_capped_head():
+    from septum_core.language_resolution import DETECTION_RAW_CAP_CHARS
+
+    from septum_api.utils.db_helpers import override_fits_text
+
+    beyond = "[PERSON_NAME_1] " * (DETECTION_RAW_CAP_CHARS // 16 + 1) + "合同双方应当按照约定全面履行自己的义务"
+    assert override_fits_text("zh", beyond)
+    latin_head = "x " * (DETECTION_RAW_CAP_CHARS // 2) + "合同双方应当按照约定全面履行自己的义务"
+    assert not override_fits_text("zh", latin_head)
 
 
 async def _refused_override_row(test_env, doc_id, override):

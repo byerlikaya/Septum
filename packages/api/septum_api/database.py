@@ -374,6 +374,10 @@ async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:
             "documents",
             "ALTER TABLE documents ADD COLUMN sanitized_policy_digest VARCHAR(64)",
         ),
+        (
+            "documents",
+            "ALTER TABLE documents ADD COLUMN sanitized_language VARCHAR",
+        ),
     ]
 
     async with eng.begin() as conn:

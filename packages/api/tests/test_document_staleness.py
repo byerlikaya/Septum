@@ -140,6 +140,7 @@ class _Env:
                 active_regulation_ids=["hipaa"],
                 sanitized_entity_types=snapshot,
                 sanitized_policy_digest=digest,
+                sanitized_language="en",
                 ingestion_status=status,
                 chunk_count=len(chunk_texts),
                 user_id=self.user.id,

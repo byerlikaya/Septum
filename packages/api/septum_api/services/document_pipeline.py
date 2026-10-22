@@ -13,6 +13,7 @@ from ..models.document import Chunk as DocumentChunk
 from ..models.document import Document
 from ..models.entity_detection import EntityDetection
 from ..models.settings import AppSettings
+from ..utils.db_helpers import masking_language
 from .anonymization_map import AnonymizationMap
 from .audit_logger import log_pii_detected
 from .bm25_retriever import BM25Retriever
@@ -133,8 +134,6 @@ class DocumentPipeline:
                 on_progress(pct)
 
         remask_cache.forget_document(document.id)
-        detected_language = document.detected_language
-        anon_map = AnonymizationMap(document_id=document.id, language=detected_language)
 
         # Ollama semantic detection stays off at ingestion (coreference is
         # handled at masking time via the blocklist); the Ollama validation
@@ -153,23 +152,39 @@ class DocumentPipeline:
         semantic_chunks = await self._build_chunks(file_format, ingested_text)
 
         normalizer = TextNormalizer()
+        raw_texts_for_index: List[str] = [
+            await normalizer.normalize(db, semantic_chunk.text)
+            for semantic_chunk in semantic_chunks
+        ]
+        # ``transcription_text`` powers the local document-preview UI,
+        # which renders the ORIGINAL text with the per-entity highlight
+        # overlays so the user can verify what was detected and where.
+        # That preview never leaves the air-gapped zone, so it is safe
+        # — and useful — to show the raw form here even though every
+        # other on-disk surface (chunks, anon_map, indexes) keeps PII
+        # masked or hashed. Concatenating the per-chunk raw text keeps
+        # the preview in sync with the chunk boundaries used for
+        # entity offset highlighting. The masking language is decided on
+        # this same string, which staleness later re-judges
+        # (``effective_masking_language``), so the two always agree.
+        transcription_text = "\n\n".join(raw_texts_for_index)
+        language, language_source = masking_language(document, transcription_text)
+        anon_map = AnonymizationMap(document_id=document.id, language=language)
 
         stored_chunks: List[SemanticChunk] = []
-        raw_texts_for_index: List[str] = []
         total_entities = 0
         aggregate_type_counts: Dict[str, int] = {}
         per_chunk_spans: Dict[int, List[ResolvedSpan]] = {}
 
         num_chunks = max(len(semantic_chunks), 1)
-        for chunk_idx, semantic_chunk in enumerate(semantic_chunks):
+        for chunk_idx, (semantic_chunk, normalized_raw) in enumerate(
+            zip(semantic_chunks, raw_texts_for_index)
+        ):
             _emit(int((chunk_idx + 1) * 90 / num_chunks))
-            raw_text = semantic_chunk.text
-            normalized_raw = await normalizer.normalize(db, raw_text)
-            raw_texts_for_index.append(normalized_raw)
             sanitize_result = await asyncio.to_thread(
                 sanitizer.sanitize,
                 normalized_raw,
-                detected_language,
+                language,
                 anon_map,
             )
             total_entities += sanitize_result.entity_count
@@ -197,16 +212,7 @@ class DocumentPipeline:
                 )
             )
 
-        # ``transcription_text`` powers the local document-preview UI,
-        # which renders the ORIGINAL text with the per-entity highlight
-        # overlays so the user can verify what was detected and where.
-        # That preview never leaves the air-gapped zone, so it is safe
-        # — and useful — to show the raw form here even though every
-        # other on-disk surface (chunks, anon_map, indexes) keeps PII
-        # masked or hashed. Concatenating the per-chunk raw text keeps
-        # the preview in sync with the chunk boundaries used for
-        # entity offset highlighting.
-        document.transcription_text = "\n\n".join(raw_texts_for_index)
+        document.transcription_text = transcription_text
         document.ocr_confidence = ingestion_confidence
 
         chunks = await self._persist_chunks(
@@ -277,7 +283,11 @@ class DocumentPipeline:
                 regulation_ids=list(document.active_regulation_ids or []),
                 entity_type_counts=aggregate_type_counts,
                 total_count=total_entities,
-                extra={"source": "document_ingestion", "language": detected_language},
+                extra={
+                    "source": "document_ingestion",
+                    "language": language,
+                    "language_source": language_source,
+                },
                 document_name=document.original_filename,
                 placeholder_samples=placeholder_samples,
             )
@@ -307,6 +317,7 @@ class DocumentPipeline:
 
         document.sanitized_entity_types = policy_snapshot.entity_types
         document.sanitized_policy_digest = policy_snapshot.digest
+        document.sanitized_language = language
         document.ingestion_status = "completed"
         document.ingestion_error = None
         document.ingestion_error_code = None

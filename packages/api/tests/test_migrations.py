@@ -144,6 +144,35 @@ def test_revision_019_adds_nullable_policy_digest_and_is_idempotent(
     assert "sanitized_policy_digest" not in after_downgrade
 
 
+def test_revision_020_adds_nullable_sanitized_language_and_is_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "at_019.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.upgrade(cfg, "019")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    before = {c["name"] for c in sa.inspect(engine).get_columns("documents")}
+
+    command.upgrade(cfg, "020")
+    columns = {c["name"]: c for c in sa.inspect(engine).get_columns("documents")}
+
+    command.stamp(cfg, "019")
+    command.upgrade(cfg, "020")
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+    after_rerun = [c["name"] for c in sa.inspect(engine).get_columns("documents")]
+
+    command.downgrade(cfg, "019")
+    after_downgrade = {c["name"] for c in sa.inspect(engine).get_columns("documents")}
+    engine.dispose()
+
+    assert "sanitized_language" not in before
+    assert columns["sanitized_language"]["nullable"] is True
+    assert after_rerun.count("sanitized_language") == 1
+    assert "sanitized_language" not in after_downgrade
+
+
 @pytest.mark.skipif(
     not os.getenv("SEPTUM_TEST_POSTGRES_URL"),
     reason="SEPTUM_TEST_POSTGRES_URL not set",

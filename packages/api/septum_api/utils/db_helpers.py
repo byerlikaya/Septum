@@ -6,16 +6,18 @@ import os
 import re
 import threading
 from functools import lru_cache
-from typing import Any, FrozenSet, List, Optional, Type, TypeVar
+from typing import Any, FrozenSet, List, Optional, Tuple, Type, TypeVar
 
 from fastapi import HTTPException, status
 from langdetect import detect_langs, detector_factory
 from langdetect.lang_detect_exception import ErrorCode, LangDetectException
+from septum_core.anonymization_map import PLACEHOLDER_PATTERN
 from septum_core.language_resolution import (
     detection_sample,
     iso_language_code,
     language_table_codes,
     resolve_language,
+    script_permits_override,
 )
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -189,6 +191,46 @@ def document_language(document: Any) -> Optional[str]:
     return supported_language_code(document.language_override) or supported_language_code(
         document.detected_language
     )
+
+
+def override_fits_text(language: str, text: Optional[str]) -> bool:
+    """Whether a user-chosen ``language`` is plausible for ``text`` on script grounds.
+
+    Judged on the head, middle and tail of the text
+    (:func:`~septum_core.language_resolution.override_sample`), at most
+    :data:`~septum_core.language_resolution.DETECTION_RAW_CAP_CHARS`
+    characters on any document size. Placeholder tokens are blanked first:
+    their Latin letters would vouch for any Latin-script language.
+    """
+    return script_permits_override(text or "", language, PLACEHOLDER_PATTERN)
+
+
+def masking_language(document: Any, text: str) -> Tuple[str, str]:
+    """The language to mask ``document``'s ``text`` in, and its source.
+
+    ``(override, "override")`` when the supported override fits ``text``
+    (:func:`override_fits_text`); otherwise ``(detected or "en",
+    "detected")``, with a codes-only warning when an override was refused.
+    """
+    override = supported_language_code(document.language_override)
+    detected = supported_language_code(document.detected_language) or "en"
+    if override is None:
+        return detected, "detected"
+    if override_fits_text(override, text):
+        return override, "override"
+    logger.warning(
+        "Language override %s contradicts document script; using %s", override, detected
+    )
+    return detected, "detected"
+
+
+def effective_masking_language(document: Any) -> str:
+    """The language ``document`` should be masked in now, without reading its text.
+
+    The override's script is checked where it can change (``PATCH
+    /language`` and the pipeline, which clears one its text contradicts).
+    """
+    return document_language(document) or "en"
 
 
 def detect_language(
