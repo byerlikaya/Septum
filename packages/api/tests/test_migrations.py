@@ -173,6 +173,45 @@ def test_revision_020_adds_nullable_sanitized_language_and_is_idempotent(
     assert "sanitized_language" not in after_downgrade
 
 
+def test_revision_021_replaces_single_column_document_index_and_is_reversible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "at_020.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.upgrade(cfg, "020")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+
+    def indexes() -> dict[str, list[str]]:
+        return {i["name"]: i["column_names"] for i in sa.inspect(engine).get_indexes("audit_events")}
+
+    before = indexes()
+
+    command.upgrade(cfg, "021")
+    after_upgrade = indexes()
+
+    command.stamp(cfg, "020")
+    command.upgrade(cfg, "021")
+    command.check(cfg)
+    after_rerun = indexes()
+
+    command.downgrade(cfg, "020")
+    after_downgrade = indexes()
+
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+    after_reupgrade = indexes()
+    engine.dispose()
+
+    single, composite = "ix_audit_events_document_id", "ix_audit_events_document_event_id"
+    composite_columns = ["document_id", "event_type", "id"]
+    assert single in before and composite not in before
+    assert single not in after_upgrade and after_upgrade[composite] == composite_columns
+    assert single not in after_rerun and after_rerun[composite] == composite_columns
+    assert after_downgrade[single] == ["document_id"] and composite not in after_downgrade
+    assert single not in after_reupgrade and after_reupgrade[composite] == composite_columns
+
+
 @pytest.mark.skipif(
     not os.getenv("SEPTUM_TEST_POSTGRES_URL"),
     reason="SEPTUM_TEST_POSTGRES_URL not set",
