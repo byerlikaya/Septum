@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 import pytest
+import spreadsheet_dedupe_cases as dedupe_cases
 import sqlalchemy as sa
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import septum_api.database as database
@@ -221,3 +225,73 @@ async def test_existing_sqlite_with_single_column_document_index_loses_it_once(
     with engine.connect() as conn:
         assert conn.execute(sa.text("SELECT COUNT(*) FROM audit_events")).scalar_one() == 1
     engine.dispose()
+
+
+@contextmanager
+def _counting_dedupe_statements() -> Iterator[list[str]]:
+    """Record every spreadsheet dedupe statement any engine executes meanwhile."""
+    seen: list[str] = []
+
+    def _record(conn, cursor, statement, parameters, context, executemany) -> None:
+        if statement in database._SPREADSHEET_DEDUPE_STATEMENTS:
+            seen.append(statement)
+
+    event.listen(sa.Engine, "before_cursor_execute", _record)
+    try:
+        yield seen
+    finally:
+        event.remove(sa.Engine, "before_cursor_execute", _record)
+
+
+async def test_existing_sqlite_with_duplicate_spreadsheet_rows_is_deduped_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    db_path = tmp_path / "pre_unique_schema.db"
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(sa.text("DROP INDEX uq_spreadsheet_schemas_document_id"))
+        conn.execute(sa.text("DROP INDEX uq_spreadsheet_columns_schema_id_index"))
+        conn.execute(
+            sa.text("CREATE INDEX ix_spreadsheet_schemas_document_id ON spreadsheet_schemas (document_id)")
+        )
+        conn.execute(
+            sa.text("CREATE INDEX ix_spreadsheet_columns_schema_id ON spreadsheet_columns (schema_id)")
+        )
+        dedupe_cases.seed(conn)
+    engine.dispose()
+
+    with caplog.at_level("WARNING", logger=database.logger.name), _counting_dedupe_statements() as first_run:
+        await _init_db_at(db_path, monkeypatch)
+    first_log = caplog.text
+    caplog.clear()
+    with caplog.at_level("WARNING", logger=database.logger.name), _counting_dedupe_statements() as second_run:
+        await _init_db_at(db_path, monkeypatch)
+
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        stored = dedupe_cases.stored(conn)
+        indexes = dedupe_cases.spreadsheet_indexes(conn)
+    engine.dispose()
+
+    assert stored == dedupe_cases.EXPECTED
+    assert dedupe_cases.EXPECTED_LOG in first_log
+    assert "Spreadsheet schema dedupe" not in caplog.text
+    assert len(first_run) == len(database._SPREADSHEET_DEDUPE_STATEMENTS)
+    assert second_run == []
+    assert indexes == dedupe_cases.UNIQUE_INDEXES
+
+
+async def test_fresh_sqlite_has_unique_spreadsheet_indexes_without_a_dedupe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "fresh_unique.db"
+    with _counting_dedupe_statements() as seen:
+        await _init_db_at(db_path, monkeypatch)
+
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        indexes = dedupe_cases.spreadsheet_indexes(conn)
+    engine.dispose()
+    assert indexes == dedupe_cases.UNIQUE_INDEXES
+    assert seen == []

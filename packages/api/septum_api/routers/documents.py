@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from septum_core.model_integrity import ModelRefusal
 from sqlalchemy import Select, func, select, update
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy.exc import InvalidRequestError
+from sqlalchemy.exc import IntegrityError, InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
@@ -415,6 +415,62 @@ async def _read_schema(
     return result.scalar_one() if required else result.scalar_one_or_none()
 
 
+async def _lock_and_read_schema(
+    db: AsyncSession, document_id: int, *, required: bool = False
+) -> Optional[SpreadsheetSchema]:
+    """Take the schema row's write lock, then re-read the schema.
+
+    The no-op write makes concurrent updates of an existing schema
+    serialise. A schema that does not exist yet has no row to lock; its
+    first creation is guarded by the unique index on ``document_id``.
+    """
+    await db.execute(
+        update(SpreadsheetSchema)
+        .where(SpreadsheetSchema.document_id == document_id)
+        .values(updated_at=datetime.now(timezone.utc))
+    )
+    return await _read_schema(db, document_id, required=required)
+
+
+_SCHEMA_UNIQUE_INDEX = "uq_spreadsheet_schemas_document_id"
+_UNIQUE_VIOLATION_SQLSTATE = "23505"
+# SQLite names the indexed column, not the index, and has no constraint field.
+_SQLITE_SCHEMA_CONFLICT = "UNIQUE constraint failed: spreadsheet_schemas.document_id"
+
+
+def _is_schema_conflict(exc: IntegrityError) -> bool:
+    """Return whether ``exc`` is a second schema row for one document.
+
+    PostgreSQL reports the SQLSTATE and the violated index on the driver
+    error; SQLite only in its message.
+    """
+    sqlstate = getattr(exc.orig, "sqlstate", None)
+    if sqlstate is not None:
+        constraint = getattr(exc.orig.__cause__, "constraint_name", None)
+        return sqlstate == _UNIQUE_VIOLATION_SQLSTATE and constraint == _SCHEMA_UNIQUE_INDEX
+    return _SQLITE_SCHEMA_CONFLICT in str(exc.orig)
+
+
+async def _insert_schema_unless_raced(
+    db: AsyncSession, schema: SpreadsheetSchema
+) -> bool:
+    """Insert ``schema`` (and its columns) inside a savepoint.
+
+    Returns ``False`` when a concurrent writer committed the document's
+    schema first: the savepoint is rolled back and the caller re-reads the
+    winner. Any other integrity error is raised.
+    """
+    try:
+        async with db.begin_nested():
+            db.add(schema)
+            await db.flush()
+    except IntegrityError as exc:
+        if not _is_schema_conflict(exc):
+            raise
+        return False
+    return True
+
+
 def _resulting_semantic_label(
     existing: SpreadsheetColumn, update: Optional[SpreadsheetColumnUpdate]
 ) -> Optional[str]:
@@ -459,6 +515,27 @@ def _check_update_fits_schema(
         )
 
 
+async def _schema_for_update(
+    db: AsyncSession, document_id: int, payload: SpreadsheetSchemaUpdatePayload
+) -> Tuple[SpreadsheetSchema, Dict[int, SpreadsheetColumn]]:
+    """Return the schema an update writes to, with its columns by index.
+
+    A stored schema is locked, re-read and the update checked against it.
+    Without one the update creates it, with no columns yet; if a concurrent
+    writer created it first, that schema is locked, re-read and checked
+    instead, as if this update had arrived after it.
+    """
+    schema = await _lock_and_read_schema(db, document_id)
+    if schema is None:
+        created = SpreadsheetSchema(document_id=document_id)
+        if await _insert_schema_unless_raced(db, created):
+            return created, {}
+        schema = await _lock_and_read_schema(db, document_id, required=True)
+    columns_by_index = {col.index: col for col in schema.columns}
+    _check_update_fits_schema(payload, columns_by_index)
+    return schema, columns_by_index
+
+
 @router.put(
     "/{document_id}/schema",
     response_model=SpreadsheetSchemaResponse,
@@ -479,7 +556,9 @@ async def update_spreadsheet_schema(
     client: new columns get the server-generated ``COLUMN_<index+1>``.
     Once a schema exists the update may only touch its existing columns, and
     may not leave more labelled columns than ``MAX_SCHEMA_LABELED_COLUMNS``;
-    both are refused with HTTP 422 before the gate runs.
+    both are refused with HTTP 422 before the gate runs. A first create that
+    loses to a concurrent one is applied to the winner's schema under the
+    same rules, as if it had arrived after it.
     """
 
     document = await get_owned_or_404(
@@ -502,23 +581,7 @@ async def update_spreadsheet_schema(
             if c.semantic_label:
                 c.semantic_label = next(gated_labels)
 
-    # No-op write: takes the schema row's write lock so concurrent PUTs
-    # serialise. Only when the row exists; a concurrent first create is not covered.
-    await db.execute(
-        update(SpreadsheetSchema)
-        .where(SpreadsheetSchema.document_id == document_id)
-        .values(updated_at=datetime.now(timezone.utc))
-    )
-    schema = await _read_schema(db, document_id)
-    columns_by_index: Dict[int, SpreadsheetColumn] = {}
-    if schema is not None:
-        columns_by_index = {col.index: col for col in schema.columns}
-        _check_update_fits_schema(payload, columns_by_index)
-    else:
-        # If no schema exists yet but the client is sending one, create it.
-        schema = SpreadsheetSchema(document_id=document_id)
-        db.add(schema)
-        await db.flush()
+    schema, columns_by_index = await _schema_for_update(db, document_id, payload)
 
     for col_payload in payload.columns:
         existing = columns_by_index.get(col_payload.index)
@@ -682,7 +745,8 @@ async def _ensure_spreadsheet_schema(
     """Create a generic spreadsheet schema for the document if one does not exist.
 
     The schema is derived from ingestion metadata and uses generic technical
-    labels (e.g., ``COLUMN_1``) without storing any raw header text.
+    labels (e.g., ``COLUMN_1``) without storing any raw header text. A schema
+    a concurrent update created first is kept, as if it had existed already.
     """
 
     # Check if a schema already exists.
@@ -715,7 +779,7 @@ async def _ensure_spreadsheet_schema(
         )
         for idx in range(max_columns)
     ]
-    db.add(schema)
+    await _insert_schema_unless_raced(db, schema)
     await db.commit()
 
 

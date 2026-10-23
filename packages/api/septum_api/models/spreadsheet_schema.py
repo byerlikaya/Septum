@@ -11,7 +11,7 @@ that describe their role in a generic, regulation-agnostic way.
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from . import Base
@@ -27,13 +27,16 @@ def generated_technical_label(index: int) -> str:
 
 
 class SpreadsheetSchema(Base):
-    """Represents the schema for a tabular document."""
+    """Represents the schema for a tabular document; at most one per document."""
 
     __tablename__ = "spreadsheet_schemas"
+    __table_args__ = (
+        Index("uq_spreadsheet_schemas_document_id", "document_id", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     document_id: Mapped[int] = mapped_column(
-        ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+        ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utc_now, nullable=False
@@ -48,13 +51,16 @@ class SpreadsheetSchema(Base):
 
 
 class SpreadsheetColumn(Base):
-    """Represents a single column within a spreadsheet schema."""
+    """Represents a single column within a spreadsheet schema; one row per index."""
 
     __tablename__ = "spreadsheet_columns"
+    __table_args__ = (
+        Index("uq_spreadsheet_columns_schema_id_index", "schema_id", "index", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     schema_id: Mapped[int] = mapped_column(
-        ForeignKey("spreadsheet_schemas.id", ondelete="CASCADE"), nullable=False, index=True
+        ForeignKey("spreadsheet_schemas.id", ondelete="CASCADE"), nullable=False
     )
 
     # Zero-based column index within the tabular document.
