@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from septum_queue import FileQueueBackend, Message, QueueError, QueueSession
 
 
