@@ -44,7 +44,11 @@ from ..models.document import Document
 from ..models.entity_detection import EntityDetection
 from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
-from ..models.spreadsheet_schema import SpreadsheetColumn, SpreadsheetSchema
+from ..models.spreadsheet_schema import (
+    SpreadsheetColumn,
+    SpreadsheetSchema,
+    generated_technical_label,
+)
 from ..models.user import User
 from ..request_limits import MAX_DOCUMENT_ID, MAX_PROGRESS_IDS
 from ..services.audit_logger import (
@@ -415,7 +419,7 @@ async def update_spreadsheet_schema(
             new_col = SpreadsheetColumn(
                 schema_id=schema.id,
                 index=col_payload.index,
-                technical_label=f"COLUMN_{col_payload.index + 1}",
+                technical_label=generated_technical_label(col_payload.index),
                 semantic_label=col_payload.semantic_label,
                 is_numeric=col_payload.is_numeric,
             )
@@ -606,7 +610,7 @@ async def _ensure_spreadsheet_schema(
     schema.columns = [
         SpreadsheetColumn(
             index=idx,
-            technical_label=f"COLUMN_{idx + 1}",
+            technical_label=generated_technical_label(idx),
             semantic_label=None,
             is_numeric=None,
         )

@@ -67,7 +67,7 @@ from ..middleware.rate_limit import route_limit
 from ..models.document import Chunk, Document
 from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
-from ..models.spreadsheet_schema import SpreadsheetSchema
+from ..models.spreadsheet_schema import SpreadsheetSchema, generated_technical_label
 from ..models.user import User
 from ..request_limits import (
     MAX_CHAT_MESSAGE_CHARS,
@@ -923,9 +923,10 @@ async def _schema_column_descriptions(
 ) -> List[str]:
     """Return the spreadsheet column descriptions for the cloud prompt.
 
-    Column labels are gated against the turn's request-local ``anon_map``
+    Semantic labels are gated against the turn's request-local ``anon_map``
     before use, so a label stored before write-time gating existed (or any
-    raw value in it) never reaches the cloud LLM unmasked.
+    raw value in it) never reaches the cloud LLM unmasked. A column without
+    one is shown by its generated technical label, never the stored one.
     """
     if document_id is None:
         return []
@@ -939,14 +940,14 @@ async def _schema_column_descriptions(
         return []
     columns = list(schema.columns)
     labels = await gate_untrusted_texts(
-        [c.semantic_label or c.technical_label or "" for c in columns],
+        [(c.semantic_label or "").strip() for c in columns],
         anon_map,
         db,
         settings,
     )
     descriptions: List[str] = []
     for column, label in zip(columns, labels):
-        description = f"index {column.index} → {label}"
+        description = f"index {column.index} → {label or generated_technical_label(column.index)}"
         if column.is_numeric:
             description += " (numeric)"
         descriptions.append(description)

@@ -17,6 +17,7 @@ from typing import Any, Dict, List
 
 from openpyxl import load_workbook  # type: ignore[import]
 
+from ...models.spreadsheet_schema import generated_technical_label
 from ...utils.crypto import decrypt
 from .base import BaseIngester, IngestionResult
 
@@ -70,7 +71,7 @@ class XlsxIngester(BaseIngester):
                 if header_cells is None:
                     # First non-empty row is treated as the header; replace the
                     # original header text with generic, non-PII column labels.
-                    header_cells = [f"COLUMN_{idx + 1}" for idx, _ in enumerate(raw_values)]
+                    header_cells = [generated_technical_label(idx) for idx in range(len(raw_values))]
                     rows_text.append("\t".join(header_cells))
                     continue
 
