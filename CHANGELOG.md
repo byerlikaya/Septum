@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-10-24
+
+- Chat now builds the pattern of known values once per document map for a turn instead of once per retrieved chunk, so masking 20 chunks against a map of 2000 known values takes about 13 ms instead of 94 ms; the masked text is unchanged.
+
 ### 2026-10-23
 
 - The PII gate that checks spreadsheet labels and other untrusted text before it reaches the cloud prompt now builds its pattern of known values once per batch instead of once per text, so gating 1024 labels against a map of 2000 known values takes about 0.04 s instead of 4.7 s; the masking result is unchanged.
