@@ -39,6 +39,24 @@ MAX_LLM_MODEL_LENGTH = 128
 MAX_PROGRESS_IDS = 200
 """Most document ids one processing-progress request may ask about."""
 
+MAX_SHEET_COLUMNS = 16_384
+"""Most columns a spreadsheet can hold (the xlsx ceiling, XFD)."""
+
+MAX_SCHEMA_LABELED_COLUMNS = 1024
+"""Most columns of one document's schema that may carry a semantic label.
+
+A schema update that would leave more labelled columns is refused with HTTP
+422 before the PII gate runs. A chat turn gates and describes at most this
+many labelled columns, in index order, so rows stored before the bound
+cannot raise the per-turn NER cost either.
+"""
+
+MAX_SCHEMA_LABEL_CHARS = 128
+"""Longest semantic column label an editor may type."""
+
+MAX_TECHNICAL_LABEL_CHARS = 64
+"""Longest technical column label a client may send."""
+
 MAX_DOCUMENT_ID = 2**31 - 1
 """Largest value ``documents.id`` (a 32-bit integer column) can hold."""
 
@@ -55,6 +73,10 @@ __all__ = [
     "MAX_PRE_APPROVED_CHUNK_CHARS",
     "MAX_PROGRESS_IDS",
     "MAX_RETRY_DOCUMENTS",
+    "MAX_SCHEMA_LABELED_COLUMNS",
+    "MAX_SCHEMA_LABEL_CHARS",
     "MAX_SESSION_ID_LENGTH",
+    "MAX_SHEET_COLUMNS",
+    "MAX_TECHNICAL_LABEL_CHARS",
     "TOP_K_RETRIEVAL_MAX_CAP",
 ]

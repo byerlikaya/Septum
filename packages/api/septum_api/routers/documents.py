@@ -12,7 +12,7 @@ import asyncio
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -50,7 +50,14 @@ from ..models.spreadsheet_schema import (
     generated_technical_label,
 )
 from ..models.user import User
-from ..request_limits import MAX_DOCUMENT_ID, MAX_PROGRESS_IDS
+from ..request_limits import (
+    MAX_DOCUMENT_ID,
+    MAX_PROGRESS_IDS,
+    MAX_SCHEMA_LABEL_CHARS,
+    MAX_SCHEMA_LABELED_COLUMNS,
+    MAX_SHEET_COLUMNS,
+    MAX_TECHNICAL_LABEL_CHARS,
+)
 from ..services.audit_logger import (
     DOCUMENT_LANGUAGE_CHANGED,
     OVERRIDE_REFUSAL_REASONS,
@@ -316,14 +323,46 @@ class SpreadsheetSchemaResponse(BaseModel):
     columns: List[SpreadsheetColumnPayload]
 
 
+class SpreadsheetColumnUpdate(BaseModel):
+    """A column mapping a client may store; bounds are enforced before any gate work.
+
+    Kept apart from :class:`SpreadsheetColumnPayload` so the response model
+    still renders labels stored before these bounds existed.
+    """
+
+    index: int = Field(ge=0, le=MAX_SHEET_COLUMNS - 1)
+    technical_label: str = Field(max_length=MAX_TECHNICAL_LABEL_CHARS)
+    semantic_label: Optional[str] = Field(
+        default=None, max_length=MAX_SCHEMA_LABEL_CHARS
+    )
+    is_numeric: Optional[bool] = None
+
+
 class SpreadsheetSchemaUpdatePayload(BaseModel):
     """Request payload for updating a spreadsheet schema.
 
     The document id comes from the path parameter; the body only carries the
-    per-column mappings that should be applied.
+    per-column mappings that should be applied. Each column index may appear
+    once per payload.
     """
 
-    columns: List[SpreadsheetColumnPayload]
+    columns: List[SpreadsheetColumnUpdate]
+
+    @field_validator("columns")
+    @classmethod
+    def _bounded_and_unique(
+        cls, columns: List[SpreadsheetColumnUpdate]
+    ) -> List[SpreadsheetColumnUpdate]:
+        """Reject duplicate indexes and more labelled columns than the gate budget allows."""
+        indexes = [column.index for column in columns]
+        if len(set(indexes)) != len(indexes):
+            raise ValueError("column indexes must be unique")
+        labelled = sum(1 for column in columns if column.semantic_label)
+        if labelled > MAX_SCHEMA_LABELED_COLUMNS:
+            raise ValueError(
+                f"at most {MAX_SCHEMA_LABELED_COLUMNS} columns may carry a semantic label"
+            )
+        return columns
 
 
 @router.get(
@@ -340,12 +379,7 @@ async def get_spreadsheet_schema(
 
     await get_owned_or_404(db, Document, document_id, user, "Document not found.")
 
-    schema_result = await db.execute(
-        select(SpreadsheetSchema)
-        .options(selectinload(SpreadsheetSchema.columns))
-        .where(SpreadsheetSchema.document_id == document_id)
-    )
-    schema = schema_result.scalar_one_or_none()
+    schema = await _read_schema(db, document_id)
     if schema is None:
         # Return an empty schema response rather than 404 so the frontend
         # can initialise mappings lazily.
@@ -361,6 +395,68 @@ async def get_spreadsheet_schema(
         for col in schema.columns
     ]
     return SpreadsheetSchemaResponse(document_id=document_id, columns=columns_payload)
+
+
+async def _read_schema(
+    db: AsyncSession, document_id: int, *, required: bool = False
+) -> Optional[SpreadsheetSchema]:
+    """Return the document's schema and columns, re-read from the database.
+
+    ``populate_existing`` replaces objects already in the session, so a
+    re-read after the PII gate sees writes committed while the gate ran.
+    ``required`` makes a missing schema an error instead of ``None``.
+    """
+    result = await db.execute(
+        select(SpreadsheetSchema)
+        .options(selectinload(SpreadsheetSchema.columns))
+        .where(SpreadsheetSchema.document_id == document_id)
+        .execution_options(populate_existing=True)
+    )
+    return result.scalar_one() if required else result.scalar_one_or_none()
+
+
+def _resulting_semantic_label(
+    existing: SpreadsheetColumn, update: Optional[SpreadsheetColumnUpdate]
+) -> Optional[str]:
+    """Return the semantic label a column holds after an update.
+
+    A technical label that differs from the stored one is never applied, so
+    the stored label stays (the update loop skips such a column).
+    """
+    if update is None or update.technical_label != existing.technical_label:
+        return existing.semantic_label
+    return update.semantic_label
+
+
+def _check_update_fits_schema(
+    payload: SpreadsheetSchemaUpdatePayload,
+    columns_by_index: Dict[int, SpreadsheetColumn],
+) -> None:
+    """Refuse an update that adds columns or leaves too many labelled columns.
+
+    Runs before the PII gate, so an over-limit update costs no NER work. A
+    column whose technical label differs from the payload keeps its stored
+    label, as the update loop does.
+    """
+    payload_by_index = {col.index: col for col in payload.columns}
+    if any(index not in columns_by_index for index in payload_by_index):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Column index is not part of the document's spreadsheet.",
+        )
+    labelled_after_update = sum(
+        1
+        for index, existing in columns_by_index.items()
+        if _resulting_semantic_label(existing, payload_by_index.get(index))
+    )
+    if labelled_after_update > MAX_SCHEMA_LABELED_COLUMNS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"At most {MAX_SCHEMA_LABELED_COLUMNS} columns may carry a "
+                "semantic label."
+            ),
+        )
 
 
 @router.put(
@@ -381,11 +477,19 @@ async def update_spreadsheet_schema(
     user-typed and end up in the cloud prompt, so they pass the PII gate
     before they are stored. ``technical_label`` is never taken from the
     client: new columns get the server-generated ``COLUMN_<index+1>``.
+    Once a schema exists the update may only touch its existing columns, and
+    may not leave more labelled columns than ``MAX_SCHEMA_LABELED_COLUMNS``;
+    both are refused with HTTP 422 before the gate runs.
     """
 
     document = await get_owned_or_404(
         db, Document, document_id, user, "Document not found."
     )
+    schema = await _read_schema(db, document_id)
+    if schema is not None:
+        _check_update_fits_schema(
+            payload, {col.index: col for col in schema.columns}
+        )
     typed_labels = [
         c.semantic_label for c in payload.columns if c.semantic_label
     ]
@@ -398,20 +502,23 @@ async def update_spreadsheet_schema(
             if c.semantic_label:
                 c.semantic_label = next(gated_labels)
 
-    schema_result = await db.execute(
-        select(SpreadsheetSchema)
-        .options(selectinload(SpreadsheetSchema.columns))
+    # No-op write: takes the schema row's write lock so concurrent PUTs
+    # serialise. Only when the row exists; a concurrent first create is not covered.
+    await db.execute(
+        update(SpreadsheetSchema)
         .where(SpreadsheetSchema.document_id == document_id)
+        .values(updated_at=datetime.now(timezone.utc))
     )
-    schema = schema_result.scalar_one_or_none()
-    if schema is None:
+    schema = await _read_schema(db, document_id)
+    columns_by_index: Dict[int, SpreadsheetColumn] = {}
+    if schema is not None:
+        columns_by_index = {col.index: col for col in schema.columns}
+        _check_update_fits_schema(payload, columns_by_index)
+    else:
         # If no schema exists yet but the client is sending one, create it.
         schema = SpreadsheetSchema(document_id=document_id)
         db.add(schema)
         await db.flush()
-        columns_by_index = {}
-    else:
-        columns_by_index = {col.index: col for col in schema.columns}
 
     for col_payload in payload.columns:
         existing = columns_by_index.get(col_payload.index)
@@ -426,23 +533,15 @@ async def update_spreadsheet_schema(
             db.add(new_col)
             continue
 
-        # Ensure technical labels stay aligned; if they differ, keep the
-        # existing value to avoid accidental schema drift.
-        if existing.technical_label != col_payload.technical_label:
-            continue
-
-        existing.semantic_label = col_payload.semantic_label
-        existing.is_numeric = col_payload.is_numeric
+        existing.semantic_label = _resulting_semantic_label(existing, col_payload)
+        # A mismatched technical label leaves the column untouched.
+        if existing.technical_label == col_payload.technical_label:
+            existing.is_numeric = col_payload.is_numeric
 
     await db.commit()
 
     # Reload and return the updated schema.
-    refreshed = await db.execute(
-        select(SpreadsheetSchema)
-        .options(selectinload(SpreadsheetSchema.columns))
-        .where(SpreadsheetSchema.document_id == document_id)
-    )
-    schema = refreshed.scalar_one()
+    schema = await _read_schema(db, document_id, required=True)
     columns_payload = [
         SpreadsheetColumnPayload(
             index=col.index,

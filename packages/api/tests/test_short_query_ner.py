@@ -139,7 +139,7 @@ async def test_schema_descriptions_gate_only_semantic_labels(
         ]
     )
 
-    assert gated == [["", "Ali Veli", "", "City", ""]]
+    assert gated == [["Ali Veli", "City"]]
     assert descriptions == [
         "index 0 → COLUMN_1",
         "index 1 → <Ali Veli> (numeric)",

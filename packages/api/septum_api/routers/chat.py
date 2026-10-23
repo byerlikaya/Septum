@@ -67,13 +67,19 @@ from ..middleware.rate_limit import route_limit
 from ..models.document import Chunk, Document
 from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
-from ..models.spreadsheet_schema import SpreadsheetSchema, generated_technical_label
+from ..models.spreadsheet_schema import (
+    SpreadsheetColumn,
+    SpreadsheetSchema,
+    generated_technical_label,
+)
 from ..models.user import User
 from ..request_limits import (
     MAX_CHAT_MESSAGE_CHARS,
     MAX_CONTEXT_CHUNKS,
     MAX_PRE_APPROVED_CHUNK_CHARS,
     MAX_RETRY_DOCUMENTS,
+    MAX_SCHEMA_LABEL_CHARS,
+    MAX_SCHEMA_LABELED_COLUMNS,
     MAX_SESSION_ID_LENGTH,
     TOP_K_RETRIEVAL_MAX_CAP,
     DocumentId,
@@ -915,6 +921,11 @@ def _encode_sse(payload: dict[str, Any]) -> bytes:
     return f"data: {data}\n\n".encode("utf-8")
 
 
+def _stored_label(column: SpreadsheetColumn) -> str:
+    """Return a stored semantic label stripped and cut to the label limit."""
+    return (column.semantic_label or "").strip()[:MAX_SCHEMA_LABEL_CHARS]
+
+
 async def _schema_column_descriptions(
     db: AsyncSession,
     document_id: Optional[int],
@@ -925,8 +936,10 @@ async def _schema_column_descriptions(
 
     Semantic labels are gated against the turn's request-local ``anon_map``
     before use, so a label stored before write-time gating existed (or any
-    raw value in it) never reaches the cloud LLM unmasked. A column without
-    one is shown by its generated technical label, never the stored one.
+    raw value in it) never reaches the cloud LLM unmasked. Only the first
+    ``MAX_SCHEMA_LABELED_COLUMNS`` labelled columns, in index order, are gated
+    and shown by their label; the rest, like a column without one, are shown
+    by its generated technical label, never the stored one.
     """
     if document_id is None:
         return []
@@ -938,15 +951,18 @@ async def _schema_column_descriptions(
     schema = schema_result.scalar_one_or_none()
     if schema is None or not schema.columns:
         return []
-    columns = list(schema.columns)
-    labels = await gate_untrusted_texts(
-        [(c.semantic_label or "").strip() for c in columns],
-        anon_map,
-        db,
-        settings,
-    )
+    labelled = [c for c in schema.columns if _stored_label(c)][
+        :MAX_SCHEMA_LABELED_COLUMNS
+    ]
+    gated: List[str] = []
+    if labelled:
+        gated = await gate_untrusted_texts(
+            [_stored_label(c) for c in labelled], anon_map, db, settings
+        )
+    label_by_index = {c.index: label for c, label in zip(labelled, gated)}
     descriptions: List[str] = []
-    for column, label in zip(columns, labels):
+    for column in schema.columns:
+        label = label_by_index.get(column.index)
         description = f"index {column.index} → {label or generated_technical_label(column.index)}"
         if column.is_numeric:
             description += " (numeric)"
