@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-10-24
+
+- The file queue backend now returns a claimed message to the queue when decoding it fails with an unexpected error, instead of leaving it stuck in `processing/` until the next restart.
+
 ### 2026-10-23
 
 - Each document now has at most one spreadsheet schema and one row per column: two simultaneous first saves of a column mapping, or a save racing document ingestion, previously could create a second schema and make that document fail with a server error. Upgrading removes existing duplicates (columns of a duplicate schema move to the oldest one; for a column stored twice, the labelled row is kept) and logs how many rows changed.
