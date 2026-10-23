@@ -83,6 +83,16 @@ describe("AuditLogTable document name", () => {
     expect(screen.queryByText(/Deleted document/)).not.toBeInTheDocument();
   });
 
+  it("does not render a stale masked_query stored in extra", async () => {
+    const event = deanonEvent(5, "current.pdf");
+    event.extra = { ...event.extra, masked_query: "stale masked question" };
+    mockEvents([event]);
+    render(<AuditLogTable />);
+
+    expect(await screen.findByText(/"current\.pdf"/)).toBeInTheDocument();
+    expect(screen.queryByText(/stale masked question/)).not.toBeInTheDocument();
+  });
+
   it("translates the deleted-document label in every locale", () => {
     const locales: Record<string, string>[] = [enMessages, trMessages];
     for (const messages of locales) {

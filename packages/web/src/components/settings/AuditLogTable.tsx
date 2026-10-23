@@ -102,7 +102,6 @@ function EventCard({ event, t, onViewDocument }: { event: AuditEvent; t: ReturnT
   const docName = event.document_name
     ?? (event.document_id ? t("audit.card.deletedDocument", { id: event.document_id }) : undefined);
   const source = extra.source as string | undefined;
-  const maskedQuery = extra.masked_query as string | undefined;
   const placeholderSamples = extra.placeholder_samples as string[] | undefined;
   const strategy = extra.strategy as string | undefined;
   const previousOverride = extra.previous_override as string | null | undefined;
@@ -171,18 +170,6 @@ function EventCard({ event, t, onViewDocument }: { event: AuditEvent; t: ReturnT
           <p className="mt-1 text-[13px] leading-relaxed text-slate-300">
             {buildDescription()}
           </p>
-
-          {/* Masked query preview */}
-          {maskedQuery && (
-            <div className="mt-2 rounded-md bg-slate-800/60 px-3 py-2">
-              <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                {t("audit.card.maskedQuery")}
-              </div>
-              <p className="text-xs text-slate-400 italic">
-                &ldquo;{maskedQuery}&rdquo;
-              </p>
-            </div>
-          )}
 
           {/* Placeholder samples */}
           {placeholderSamples && placeholderSamples.length > 0 && (
