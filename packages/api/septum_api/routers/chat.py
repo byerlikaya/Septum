@@ -934,12 +934,14 @@ async def _schema_column_descriptions(
 ) -> List[str]:
     """Return the spreadsheet column descriptions for the cloud prompt.
 
-    Semantic labels are gated against the turn's request-local ``anon_map``
-    before use, so a label stored before write-time gating existed (or any
-    raw value in it) never reaches the cloud LLM unmasked. Only the first
-    ``MAX_SCHEMA_LABELED_COLUMNS`` labelled columns, in index order, are gated
-    and shown by their label; the rest, like a column without one, are shown
-    by its generated technical label, never the stored one.
+    Only the first ``MAX_SCHEMA_LABELED_COLUMNS`` columns, in index order, are
+    described; a single summary entry states how many further columns are
+    omitted. Semantic labels are gated against the turn's request-local
+    ``anon_map`` before use, so a label stored before write-time gating existed
+    (or any raw value in it) never reaches the cloud LLM unmasked. Only the
+    labelled columns that are described are gated and shown by their label; the
+    rest, like a column without one, are shown by their generated technical
+    label, never the stored one.
     """
     if document_id is None:
         return []
@@ -951,9 +953,9 @@ async def _schema_column_descriptions(
     schema = schema_result.scalar_one_or_none()
     if schema is None or not schema.columns:
         return []
-    labelled = [c for c in schema.columns if _stored_label(c)][
-        :MAX_SCHEMA_LABELED_COLUMNS
-    ]
+    ordered = sorted(schema.columns, key=lambda c: c.index)
+    described = ordered[:MAX_SCHEMA_LABELED_COLUMNS]
+    labelled = [c for c in described if _stored_label(c)]
     gated: List[str] = []
     if labelled:
         gated = await gate_untrusted_texts(
@@ -961,12 +963,15 @@ async def _schema_column_descriptions(
         )
     label_by_index = {c.index: label for c, label in zip(labelled, gated)}
     descriptions: List[str] = []
-    for column in schema.columns:
+    for column in described:
         label = label_by_index.get(column.index)
         description = f"index {column.index} → {label or generated_technical_label(column.index)}"
         if column.is_numeric:
             description += " (numeric)"
         descriptions.append(description)
+    omitted = len(ordered) - len(described)
+    if omitted:
+        descriptions.append(PromptCatalog.spreadsheet_schema_omitted_columns(omitted))
     return descriptions
 
 

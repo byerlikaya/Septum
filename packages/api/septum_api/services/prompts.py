@@ -234,6 +234,11 @@ class PromptCatalog:
         )
 
     @staticmethod
+    def spreadsheet_schema_omitted_columns(count: int) -> str:
+        """Schema entry that tells the LLM how many columns the schema does not describe."""
+        return f"{count} further columns are not described"
+
+    @staticmethod
     def placeholder_list_instruction(placeholders: list[str]) -> str:
         """Instruction to guide the LLM when the query references anonymised placeholders."""
         return (

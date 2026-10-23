@@ -46,9 +46,9 @@ MAX_SCHEMA_LABELED_COLUMNS = 1024
 """Most columns of one document's schema that may carry a semantic label.
 
 A schema update that would leave more labelled columns is refused with HTTP
-422 before the PII gate runs. A chat turn gates and describes at most this
-many labelled columns, in index order, so rows stored before the bound
-cannot raise the per-turn NER cost either.
+422 before the PII gate runs. A chat turn describes at most this many columns,
+in index order, and gates only the labelled ones among them, so rows stored
+before the bound cannot raise the per-turn NER cost or the prompt size either.
 """
 
 MAX_SCHEMA_LABEL_CHARS = 128

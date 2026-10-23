@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-10-24
+
+- A chat turn over a spreadsheet now describes at most 1024 columns in the prompt and summarises the rest in one line; a very wide sheet previously added hundreds of kilobytes of schema text to every turn and to the approval preview.
+
 ### 2026-10-23
 
 - Each document now has at most one spreadsheet schema and one row per column: two simultaneous first saves of a column mapping, or a save racing document ingestion, previously could create a second schema and make that document fail with a server error. Upgrading removes existing duplicates (columns of a duplicate schema move to the oldest one; for a column stored twice, the labelled row is kept) and logs how many rows changed.
