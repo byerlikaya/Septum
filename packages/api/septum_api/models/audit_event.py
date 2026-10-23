@@ -11,9 +11,20 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import JSON, DateTime, Index, Integer, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from . import Base
+
+# ``extra`` keys audit events no longer hold: filenames and masked chat
+# questions can carry personal data.
+RETIRED_AUDIT_EXTRA_KEYS = frozenset({"document_name", "masked_query"})
+
+
+def without_retired_keys(extra: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Return ``extra`` without :data:`RETIRED_AUDIT_EXTRA_KEYS` (unchanged if it has none)."""
+    if isinstance(extra, dict) and not RETIRED_AUDIT_EXTRA_KEYS.isdisjoint(extra):
+        return {k: v for k, v in extra.items() if k not in RETIRED_AUDIT_EXTRA_KEYS}
+    return extra
 
 
 class AuditEvent(Base):
@@ -46,3 +57,9 @@ class AuditEvent(Base):
     )
     entity_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     extra: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+
+    @validates("extra")
+    def _drop_retired_keys(self, _key: str, extra: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Writer-side guard on every constructor and attribute assignment (Core insert/update and
+        in-place mutation flushed with ``flag_modified`` bypass ``@validates``)."""
+        return without_retired_keys(extra)
