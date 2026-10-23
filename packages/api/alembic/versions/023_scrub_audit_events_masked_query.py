@@ -26,7 +26,7 @@ _BATCH = 1000
 # Python check below tells apart.
 _POSTGRES_CANDIDATES = (
     "SELECT id, CAST(extra AS TEXT) FROM audit_events "
-    f"WHERE id > :after AND strpos(CAST(extra AS TEXT), '\"{_KEY}\"') > 0 "
+    "WHERE id > :after AND strpos(CAST(extra AS TEXT), '\"masked_query\"') > 0 "
     "ORDER BY id LIMIT :batch"
 )
 _POSTGRES_UPDATE = "UPDATE audit_events SET extra = CAST(:extra AS json) WHERE id = :id"

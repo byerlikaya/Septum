@@ -425,15 +425,19 @@ async def _sqlite_scrub_retired_audit_keys(eng: AsyncEngine) -> None:
     only the first of duplicate keys, so the update repeats until no row
     changes. The PostgreSQL counterparts are Alembic revisions 022 and 023.
     """
-    paths = [f"'$.{key}'" for key in sorted(RETIRED_AUDIT_EXTRA_KEYS)]
-    holds_one = " OR ".join(f"json_type(extra, {path}) IS NOT NULL" for path in paths)
+    # Static SQL; the JSON paths are bound. ``strict`` fails loudly if a key
+    # is added to RETIRED_AUDIT_EXTRA_KEYS without a placeholder here.
+    paths = dict(
+        zip(("p0", "p1"), (f"$.{key}" for key in sorted(RETIRED_AUDIT_EXTRA_KEYS)), strict=True)
+    )
     scrub = text(
-        f"UPDATE audit_events SET extra = json_remove(extra, {', '.join(paths)}) "
-        f"WHERE CASE WHEN json_valid(extra) THEN {holds_one} END"
+        "UPDATE audit_events SET extra = json_remove(extra, :p0, :p1) "
+        "WHERE CASE WHEN json_valid(extra) "
+        "THEN json_type(extra, :p0) IS NOT NULL OR json_type(extra, :p1) IS NOT NULL END"
     )
     async with eng.begin() as conn:
         for _ in range(_AUDIT_SCRUB_MAX_PASSES + 1):
-            if (await conn.execute(scrub)).rowcount == 0:
+            if (await conn.execute(scrub, paths)).rowcount == 0:
                 return
     raise RuntimeError(
         f"audit_events still hold retired keys after {_AUDIT_SCRUB_MAX_PASSES} scrub passes; "
