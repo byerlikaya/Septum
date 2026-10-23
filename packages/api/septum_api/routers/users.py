@@ -7,17 +7,20 @@ from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, EmailStr
-from sqlalchemy import func, select
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
+from ..models.document import Document
 from ..models.user import User
 from ..services.audit_logger import forget_user_in_audit_events
 from ..services.auth import hash_password, run_password_work
 from ..utils.auth_dependency import require_interactive_session, require_role
 from ..utils.db_helpers import get_or_404
 from .auth import require_strong_password
+from .documents import erase_document, refuse_while_processing
 
 router = APIRouter(
     prefix="/api/users",
@@ -221,17 +224,69 @@ async def delete_user(
     current_user: User = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    """Delete a user after erasing every stored copy of each of their documents.
+
+    A document still being ingested refuses the whole delete with 409
+    before anything is erased. Each document is then erased exactly like
+    ``DELETE /api/documents/{id}`` and committed on its own, so a failed
+    erasure returns 500 with the user and the remaining documents in place;
+    a retry finishes the job. The user row goes last, in one statement that
+    deletes it only while no document is left: one uploaded meanwhile
+    refuses with 409 instead of losing its row to the cascade with its files
+    left behind. Chat sessions and API keys go with the row through their
+    ``ON DELETE CASCADE`` foreign keys.
+    """
     target = await get_or_404(db, User, user_id, "User not found")
     _forbid_self(current_user, target.id, "delete")
+    await _refuse_last_active_admin(db, target)
 
+    documents = (
+        await db.scalars(
+            select(Document).where(Document.user_id == user_id).order_by(Document.id)
+        )
+    ).all()
+    for document in documents:
+        refuse_while_processing(document)
+    for document in documents:
+        await erase_document(db, document)
+
+    target = await db.scalar(
+        select(User)
+        .where(User.id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    await _refuse_last_active_admin(db, target)
+
+    # One statement checks and deletes, so no engine can slip a document in
+    # between: SQLite runs it under its write lock, and on Postgres the row
+    # lock above already holds back uploads that reference this user.
+    deleted = await db.execute(
+        sa_delete(User)
+        .where(
+            User.id == user_id,
+            ~exists().where(Document.user_id == user_id),
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if deleted.rowcount == 0:
+        if await db.scalar(select(User.id).where(User.id == user_id)) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A document was added to this account during the deletion. Try again.",
+        )
+    await forget_user_in_audit_events(db, user_id)
+    await db.commit()
+
+
+async def _refuse_last_active_admin(db: AsyncSession, target: User) -> None:
+    """Raise 409 if ``target`` is the last active administrator."""
     if target.role == "admin" and target.is_active:
         if await _count_active_admins(db, exclude_id=target.id) == 0:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot delete the last active administrator",
             )
-
-    await db.delete(target)
-    await db.flush()
-    await forget_user_in_audit_events(db, target.id)
-    await db.commit()

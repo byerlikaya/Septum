@@ -77,6 +77,8 @@ from .services.error_logger import (
 )
 from .services.llm_errors import GatewayStartupError
 from .services.llm_router import GatewayClientProtocol, set_gateway_client_factory
+from .services.orphan_artifacts import sweep_orphan_artifacts
+from .services.source_files import SOURCE_FILE_DIR
 from .utils.auth_dependency import setup_window_open
 from .utils.db_helpers import ensure_language_profiles_loaded
 from .utils.device import get_device
@@ -177,6 +179,14 @@ async def _reset_orphaned_processing_docs() -> None:
         if result.rowcount > 0:
             await db.commit()
             logger.info("Reset %d orphaned processing documents to failed", result.rowcount)
+
+
+async def _sweep_orphan_artifacts_once() -> None:
+    """Run the orphaned artifact sweep; a failure is logged and retried next startup, never fatal."""
+    try:
+        await sweep_orphan_artifacts(get_session_maker(), SOURCE_FILE_DIR)
+    except Exception as exc:
+        logger.error("Orphaned artifact sweep failed: %s", type(exc).__name__)
 
 
 async def _stored_model_settings() -> tuple[dict[str, str] | None, str | None]:
@@ -332,6 +342,7 @@ async def lifespan(app: FastAPI):
             await init_db()
             await _reset_orphaned_processing_docs()
             sweep_stale_temp_files()
+            await _sweep_orphan_artifacts_once()
             if os.getenv(MODEL_WARMUP_OPT_OUT_ENV) == "1":
                 logger.info("Model warmup disabled by %s", MODEL_WARMUP_OPT_OUT_ENV)
             else:

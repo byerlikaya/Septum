@@ -33,6 +33,7 @@ from uuid import uuid4
 
 from ..utils.crypto import decrypt, encrypt
 from .anonymization_map import AnonymizationMap
+from .index_file_io import document_ids_in, parse_document_id
 from .redis_client import (
     get_redis,
     redis_configured,
@@ -52,6 +53,7 @@ _ANON_MAP_DIR = Path(
     os.getenv("ANON_MAP_STORAGE_DIR", "./anon_maps")
 ).resolve()
 
+_REDIS_MAP_PREFIX = "anon_map:"
 _REDIS_TTL = 86400  # 24 hours
 # Outlives any Redis map copy a racing backfill could still write after
 # the erasure, so that copy is never trusted.
@@ -111,6 +113,32 @@ def _map_path(document_id: int) -> Path:
     return _ANON_MAP_DIR / f"{document_id}.enc"
 
 
+def disk_map_document_ids() -> set[int]:
+    """Return the ids of every document that has an encrypted map file on disk."""
+    return document_ids_in(_ANON_MAP_DIR, "", ".enc")
+
+
+async def redis_map_document_ids() -> set[int]:
+    """Return the ids of every document whose map is cached in Redis.
+
+    Empty without Redis. A configured Redis that cannot be reached raises
+    :class:`DocumentMapErasureError`, so a caller hunting leftovers never
+    mistakes an unreadable tier for an empty one.
+    """
+    if not redis_configured():
+        return set()
+    client = await get_redis()
+    if client is None:
+        raise DocumentMapErasureError("Redis is configured but unavailable")
+    prefix = _REDIS_MAP_PREFIX.encode("ascii")
+    ids: set[int] = set()
+    async for key in client.scan_iter(match=prefix + b"*"):
+        document_id = parse_document_id(key[len(prefix):].decode("ascii", "replace"))
+        if document_id is not None:
+            ids.add(document_id)
+    return ids
+
+
 def sweep_stale_temp_files() -> int:
     """Remove temp files a crashed atomic write left in the map directory.
 
@@ -140,7 +168,9 @@ def sweep_stale_temp_files() -> int:
 
 
 @contextlib.asynccontextmanager
-async def document_map_lock(document_id: int) -> AsyncIterator[DocumentMapLockHandle]:
+async def document_map_lock(
+    document_id: int, *, wait_seconds: float = _LOCK_WAIT_SECONDS
+) -> AsyncIterator[DocumentMapLockHandle]:
     """Serialise read-modify-write of a document map.
 
     Callers that extend a stored map after ingestion (inline chunk edits,
@@ -150,6 +180,9 @@ async def document_map_lock(document_id: int) -> AsyncIterator[DocumentMapLockHa
     serialised too. Inside the lock, read the map with
     :func:`load_persisted_document_map` and call
     :meth:`DocumentMapLockHandle.ensure_held` right before writing it.
+
+    ``wait_seconds`` bounds the wait for another worker's Redis lock
+    before :class:`DocumentMapLockTimeout` is raised.
 
     A Redis lock found expired on release raises
     :class:`DocumentMapLockLost` — unless the body already raised, in which
@@ -168,7 +201,7 @@ async def document_map_lock(document_id: int) -> AsyncIterator[DocumentMapLockHa
         lock = client.lock(
             f"anon_map_lock:{document_id}",
             timeout=_LOCK_TIMEOUT_SECONDS,
-            blocking_timeout=_LOCK_WAIT_SECONDS,
+            blocking_timeout=wait_seconds,
         )
         if not await lock.acquire():
             raise DocumentMapLockTimeout(
@@ -195,7 +228,7 @@ async def document_map_lock(document_id: int) -> AsyncIterator[DocumentMapLockHa
 
 
 def _redis_key(document_id: int) -> str:
-    return f"anon_map:{document_id}"
+    return f"{_REDIS_MAP_PREFIX}{document_id}"
 
 
 def _version_key(document_id: int) -> str:

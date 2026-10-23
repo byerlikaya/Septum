@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-10-23
+
+- Deleting a user now erases every stored copy of their documents (encrypted source files, anonymization maps on disk and in Redis, FAISS and BM25 indexes) instead of only the database rows; the delete returns 409 while one of their documents is still being processed and 500, safe to retry, if a copy cannot be erased. On startup, Septum also erases leftovers that no document row points to anymore, such as those of users deleted before this fix, but skips the sweep when the documents table is empty, and a failed upload no longer leaves its encrypted file behind.
+
 ### 2026-10-22
 
 - Added an offline retrieval benchmark with a hand-authored English, Turkish and Simplified Chinese evaluation set. It measures Recall@5/10, MRR, nDCG@10, latency and a chunk-boundary PII leak check against the production chunker, FAISS and BM25 stores, and its MiniLM baseline is published in the benchmark docs so that upcoming chunking, embedding and reranking changes can be compared against it.

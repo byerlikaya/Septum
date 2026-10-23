@@ -32,7 +32,12 @@ from .chunking_strategy import (
     SlidingWindowChunker,
     StructuredDocumentChunker,
 )
-from .document_anon_store import document_map_lock, pop_document_map, set_document_map
+from .document_anon_store import (
+    DocumentMapErasureError,
+    document_map_lock,
+    pop_document_map,
+    set_document_map,
+)
 from .entity_index_service import (
     recompute_relationships_for_document,
     replace_index_for_document,
@@ -73,6 +78,23 @@ class ArtifactErasureError(RuntimeError):
     @property
     def label(self) -> str:
         return _ARTIFACT_TIER_LABELS.get(self.tier, self.tier)
+
+
+def log_artifact_erasure_failure(document_id: int, exc: ArtifactErasureError) -> None:
+    """Log a failed erasure by document id, tier and error class only.
+
+    A map erasure failure is skipped: :func:`pop_document_map` already
+    logged it with the tiers that still hold the map.
+    """
+    if isinstance(exc.error, DocumentMapErasureError):
+        return
+    logger.error(
+        "Could not erase document_id=%s tier=%s error=%s errno=%s",
+        document_id,
+        exc.tier,
+        type(exc.error).__name__,
+        getattr(exc.error, "errno", None),
+    )
 
 
 async def erase_document_artifacts(

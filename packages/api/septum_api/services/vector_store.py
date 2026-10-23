@@ -54,7 +54,7 @@ import numpy as np
 from cryptography.exceptions import InvalidTag
 
 from ..utils.crypto import decrypt, encrypt
-from .index_file_io import discard_index_file, index_io_error
+from .index_file_io import discard_index_file, document_ids_in, index_io_error
 
 _log = logging.getLogger(__name__)
 
@@ -365,6 +365,10 @@ class VectorStore:
             show_progress_bar=False,
         ).astype("float32")
         return _normalize_embeddings(embeddings)
+
+    def stored_document_ids(self) -> set[int]:
+        """Return the ids of every document that has a stored FAISS index."""
+        return document_ids_in(self.base_dir, "doc_", ".faiss.enc")
 
     def _index_path(self, document_id: int) -> Path:
         """Return the filesystem path for a document's encrypted FAISS index."""
