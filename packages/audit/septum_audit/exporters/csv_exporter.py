@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import csv
-import json
 from io import StringIO
 from typing import Iterable, Iterator
 
-from ..events import AuditRecord
+from ..events import AuditRecord, dumps_safe
 from .base import BaseExporter
 
 _HEADER = ["id", "timestamp", "source", "event_type", "correlation_id", "attributes"]
@@ -43,7 +42,7 @@ class CsvExporter(BaseExporter):
                     record.source,
                     record.event_type,
                     record.correlation_id or "",
-                    json.dumps(record.attributes, separators=(",", ":")),
+                    dumps_safe(record.attributes, max_depth=None),
                 ]
             )
             yield buffer.getvalue()

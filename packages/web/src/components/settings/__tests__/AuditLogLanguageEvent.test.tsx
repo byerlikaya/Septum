@@ -30,6 +30,7 @@ function languageEvent(extra: Record<string, unknown>): AuditEvent {
     event_type: "document_language_changed",
     session_id: null,
     document_id: 7,
+    document_name: null,
     regulation_ids: [],
     entity_types_detected: {},
     entity_count: 0,

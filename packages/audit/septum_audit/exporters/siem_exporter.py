@@ -6,10 +6,9 @@ Reference: https://docs.splunk.com/Documentation/Splunk/latest/Data/Formatevents
 
 from __future__ import annotations
 
-import json
 from typing import Iterable, Iterator
 
-from ..events import AuditRecord
+from ..events import AuditRecord, dumps_safe
 from .base import BaseExporter
 
 
@@ -64,4 +63,4 @@ class SplunkHecExporter(BaseExporter):
             }
             if self._index is not None:
                 envelope["index"] = self._index
-            yield json.dumps(envelope, separators=(",", ":")) + "\n"
+            yield dumps_safe(envelope, max_depth=None) + "\n"
