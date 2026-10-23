@@ -372,7 +372,9 @@ New Prometheus series:
 
 ### Audit event retention
 
-Audit events in the API database have no age limit. Deleting a document deletes its events; events not tied to a document stay. Events hold entity types, counts, masked placeholders and language codes, plus the original file name of the document they concern, which can itself contain personal data. Events that record the acting user (a language override change stores the user id) keep the event but drop the id when that user is deleted. Septum does not prune or export these events on its own; if your policy needs a time limit, prune the `audit_events` table on your own schedule.
+Audit events in the API database have no age limit. Deleting a document deletes its events; events not tied to a document stay. Events hold entity types, counts, masked placeholders and language codes, and the id of the document they concern, not its file name (the audit view resolves the current name when it is read, or shows "Deleted document #id", only for events that outlive their document). Events that record the acting user (a language override change stores the user id) keep the event but drop the id when that user is deleted. Septum does not prune or export these events on its own; if your policy needs a time limit, prune the `audit_events` table on your own schedule.
+
+Upgrading removes file names from older events. On PostgreSQL, run `VACUUM FULL audit_events` after upgrading to rewrite the table without the old row versions (it locks the table while it runs); backups and WAL archives taken before the upgrade still contain the names.
 
 ### Gateway routing and fail-closed behaviour
 

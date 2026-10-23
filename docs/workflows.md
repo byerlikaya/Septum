@@ -46,8 +46,8 @@ Step by step:
    memory only — it never touches the queue or the gateway process.
 8. **Audit log.** A compliance event is written: who asked, which
    documents were touched, how many entities of which types were
-   masked. The event itself contains no document text; it can include the
-   original file name of a document.
+   masked. The event itself contains no document text and no document file
+   name; it keeps only the document id.
 
 The same masking pipeline runs on the user's message, not just the
 retrieved chunks. A typed `"Send the discharge plan to Elif Demir at e.demir@example.com"`
@@ -157,9 +157,8 @@ What gets recorded:
 - **User id, session id** — who, in which session
 
 What does *not* get recorded: the actual PII values, the document text,
-the prompt content, the LLM response. The original file name of a
-document can be recorded, and it may itself contain personal data, so
-review audit exports before you share them with a third party.
+the LLM response. `septum-api` chat audit events may record the masked
+query.
 
 What you can do with it:
 

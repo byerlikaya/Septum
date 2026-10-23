@@ -19,7 +19,7 @@ Adım adım:
 5. **Onay mekanizması.** Üç panel açılır: maskelenmiş prompt'unuz, getirilen parçalar ve buluta gidecek hazır istek. Onaylar ya da reddedersiniz — aşağıdaki [Onay mekanizması](#onay-mekanizması) bölümüne bakın.
 6. **Bulut LLM çağrısı.** Maskeli prompt, internet-facing bölgedeki `septum-gateway` tarafından seçtiğiniz sağlayıcıya iletilir: Anthropic, OpenAI, OpenRouter ya da yerel Ollama.
 7. **Yerel de-anonimleştirme.** Cevap placeholder'larla geri döner; air-gapped bölgedeki `septum-core`, doküman başına tutulan anonimleştirme haritasından gerçek değerleri yerine koyar. Düz PII yalnızca bellekte yeniden oluşturulur — ne kuyruğa ne gateway sürecine değer.
-8. **Denetim kaydı.** Bir uyumluluk olayı yazılır: kim sordu, hangi dokümanlara dokunuldu, hangi tipten kaç varlık maskelendi. Olay kaydı doküman metni içermez; dokümanın orijinal dosya adını içerebilir.
+8. **Denetim kaydı.** Bir uyumluluk olayı yazılır: kim sordu, hangi dokümanlara dokunuldu, hangi tipten kaç varlık maskelendi. Olay kaydı ne doküman metni ne de dosya adı içerir; yalnızca doküman id'sini tutar.
 
 Aynı maskeleme hattı sadece getirilen parçalar üzerinde değil, kullanıcının yazdığı mesaj üzerinde de çalışır. Yazdığınız `"Taburculuk planını Elif Demir'e e.demir@example.com adresinden iletelim"` ifadesi, retrieval başlamadan önce `"Taburculuk planını [PERSON_NAME_1]'e [EMAIL_ADDRESS_1] adresinden iletelim"` haline gelir. Bulut sağlayıcılarının orijinali görmemesi gerçek anlamıyla bir garantidir.
 
@@ -102,7 +102,7 @@ Kayda neler düşer:
 - **Bulut çağrıları için gecikme, model, sağlayıcı**
 - **Kullanıcı id, oturum id** — kim, hangi oturumda
 
-Kayda neler düşmez: ham PII değerleri, doküman metni, prompt içeriği ya da LLM cevabı. Dokümanın orijinal dosya adı kayda düşebilir ve kişisel veri içerebilir; denetim dışa aktarımlarını üçüncü taraflarla paylaşmadan önce bunu gözden geçirin.
+Kayda neler düşmez: ham PII değerleri, doküman metni ya da LLM cevabı. `septum-api` sohbet denetim olayları maskelenmiş sorguyu kaydedebilir.
 
 Kayıtla yapılabilecekler:
 

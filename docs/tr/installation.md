@@ -372,7 +372,9 @@ Yeni Prometheus serileri:
 
 ### Denetim olayı saklama
 
-API veritabanındaki denetim olaylarının yaş sınırı yoktur. Bir belge silindiğinde olayları da silinir; bir belgeye bağlı olmayan olaylar kalır. Olaylar varlık türlerini, sayıları, maskelenmiş yer tutucuları ve dil kodlarını, ayrıca ilgili belgenin özgün dosya adını tutar; dosya adı da kişisel veri içerebilir. İşlemi yapan kullanıcıyı kaydeden olaylar (bir dil geçersiz kılma değişikliği kullanıcı kimliğini saklar) o kullanıcı silindiğinde korunur, yalnızca kimlik kaldırılır. Septum bu olayları kendiliğinden budamaz ya da dışa aktarmaz; ilkeniz bir süre sınırı gerektiriyorsa `audit_events` tablosunu kendi takviminizle budayın.
+API veritabanındaki denetim olaylarının yaş sınırı yoktur. Bir belge silindiğinde olayları da silinir; bir belgeye bağlı olmayan olaylar kalır. Olaylar varlık türlerini, sayıları, maskelenmiş yer tutucuları ve dil kodlarını, ayrıca ilgili belgenin kimliğini tutar, dosya adını tutmaz (denetim görünümü güncel adı okunurken çözer ya da "Silinmiş doküman #id" gösterir; yalnızca belgesinden uzun yaşayan olaylar için). İşlemi yapan kullanıcıyı kaydeden olaylar (bir dil geçersiz kılma değişikliği kullanıcı kimliğini saklar) o kullanıcı silindiğinde korunur, yalnızca kimlik kaldırılır. Septum bu olayları kendiliğinden budamaz ya da dışa aktarmaz; ilkeniz bir süre sınırı gerektiriyorsa `audit_events` tablosunu kendi takviminizle budayın.
+
+Yükseltme, eski olaylardaki dosya adlarını kaldırır. PostgreSQL'de yükseltmeden sonra tabloyu eski satır sürümleri olmadan yeniden yazmak için `VACUUM FULL audit_events` çalıştırın (çalışırken tabloyu kilitler); yükseltmeden önce alınan yedekler ve WAL arşivleri adları hâlâ içerir.
 
 ### Gateway yönlendirmesi ve hata durumunda kapalı davranış
 

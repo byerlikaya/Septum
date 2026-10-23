@@ -25,6 +25,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 ### 2026-10-23
 
 - Deleting a user now erases every stored copy of their documents (encrypted source files, anonymization maps on disk and in Redis, FAISS and BM25 indexes) instead of only the database rows; the delete returns 409 while one of their documents is still being processed and 500, safe to retry, if a copy cannot be erased. On startup, Septum also erases leftovers that no document row points to anymore, such as those of users deleted before this fix, but skips the sweep when the documents table is empty, and a failed upload no longer leaves its encrypted file behind.
+- Audit events no longer store the original file name of a document, since file names can carry personal data: the audit view resolves the current name when it is read and shows "Deleted document #id" once the document is gone, and upgrading removes the names from existing events (PostgreSQL migration, SQLite on startup). Old names may remain in database free space and in earlier backups; on PostgreSQL, `VACUUM FULL audit_events` rewrites the table without them.
 
 ### 2026-10-22
 
