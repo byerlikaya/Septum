@@ -29,6 +29,11 @@ from typing import AsyncIterator, Mapping, Protocol, runtime_checkable
 
 from .models import Message
 
+MAX_ENTRY_BYTES = 16 * 1024 * 1024
+"""Largest raw entry a backend decodes. Producers publish a few MB at most (50 chunks of
+at most 20k characters, JSON-escaped), so this only trips on a hostile or corrupt entry;
+such an entry is quarantined before any decode."""
+
 
 class QueueError(Exception):
     """Base exception for queue backend failures."""

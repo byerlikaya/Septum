@@ -16,6 +16,7 @@ import pytest
 fakeredis = pytest.importorskip("fakeredis.aioredis")
 
 from septum_queue import Message, RedisStreamsQueueBackend  # noqa: E402
+from septum_queue.base import MAX_ENTRY_BYTES  # noqa: E402
 
 
 @pytest.fixture()
@@ -184,6 +185,89 @@ class TestMalformedEntries:
         assert json.loads(survivors[0][1][b"data"]) == {"ok": True}
         assert "Dropping malformed entry" in caplog.text
         assert "secret-sentinel" not in caplog.text
+
+
+UNDECODABLE_REDIS_DATA = {
+    "deep_nesting": b'{"id":"p","attributes":' + b"[" * 20000 + b"]" * 20000 + b"}",
+    "long_int": b'{"id":"p","attributes":{"n":' + b"1" * 5000 + b"}}",
+    "oversized": b'{"id":"p","blob":"' + b"a" * (MAX_ENTRY_BYTES + 1) + b'"}',
+}
+
+
+class TestUndecodableEntries:
+    @pytest.mark.parametrize("label", sorted(UNDECODABLE_REDIS_DATA))
+    async def test_undecodable_entry_is_quarantined_and_next_message_delivered(
+        self,
+        backend: RedisStreamsQueueBackend,
+        caplog: pytest.LogCaptureFixture,
+        label: str,
+    ):
+        await backend._redis.xadd(backend._stream, {b"data": UNDECODABLE_REDIS_DATA[label]})
+        await backend.publish({"id": "good"})
+
+        received = await _drain_all(backend)
+
+        assert [m.payload for m in received] == [{"id": "good"}]
+        assert await backend._redis.xlen(backend._stream) == 1
+        pending = await backend._redis.xpending(backend._stream, "gateway")
+        assert pending["pending"] == 1
+        assert "Dropping malformed entry" in caplog.text
+        assert "[[[" not in caplog.text
+        assert "aaaa" not in caplog.text
+        assert "1111" not in caplog.text
+
+    @pytest.mark.parametrize(
+        ("label", "reason"),
+        [
+            ("deep_nesting", "RecursionError"),
+            ("long_int", "ValueError"),
+            ("oversized", "data exceeds the entry size limit"),
+        ],
+    )
+    async def test_drop_log_carries_reason_only(
+        self,
+        backend: RedisStreamsQueueBackend,
+        caplog: pytest.LogCaptureFixture,
+        label: str,
+        reason: str,
+    ):
+        await backend._redis.xadd(backend._stream, {b"data": UNDECODABLE_REDIS_DATA[label]})
+
+        await _drain_all(backend)
+
+        assert f": {reason}" in caplog.text
+
+    async def test_entry_of_exactly_the_size_cap_is_still_decoded(
+        self, backend: RedisStreamsQueueBackend
+    ):
+        head, tail = b'{"blob":"', b'"}'
+        data = head + b"a" * (MAX_ENTRY_BYTES - len(head) - len(tail)) + tail
+        assert len(data) == MAX_ENTRY_BYTES
+        await backend._redis.xadd(backend._stream, {b"data": data})
+
+        received = await _drain_all(backend)
+
+        assert len(received) == 1
+        assert len(received[0].payload["blob"]) == MAX_ENTRY_BYTES - len(head) - len(tail)
+
+    async def test_drop_log_truncates_long_entry_id(
+        self,
+        backend: RedisStreamsQueueBackend,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        long_id = "1-" + "9" * 150
+
+        async def _no_op(*_ids: str) -> None:
+            return None
+
+        monkeypatch.setattr(backend, "_ack_and_delete", _no_op)
+
+        result = await backend._decode_entries([(long_id, {b"data": b"not json"})])
+
+        assert result == []
+        assert repr(long_id)[:64] in caplog.text
+        assert "9" * 100 not in caplog.text
 
 
 @pytest.fixture()
