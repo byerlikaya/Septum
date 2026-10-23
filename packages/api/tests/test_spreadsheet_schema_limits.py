@@ -1,5 +1,7 @@
 """Bounds on the spreadsheet schema PUT body, the schema a PUT may touch, and the chat turn.
 
+Also the race-safe first create of a document's schema (PUT and ingestion).
+
 Body bounds are 422s raised before the handler runs. The bounds that need the
 stored schema (existing columns only, labelled-column budget) are 422s raised
 in the handler before the PII gate. The gate is replaced by a spy: these tests
@@ -36,7 +38,9 @@ from septum_api.routers import documents as documents_router
 from septum_api.services.policy_snapshot import current_policy_snapshot
 from septum_api.utils.auth_dependency import get_current_user
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import selectinload
 
 SchemaRow = tuple[int, str, Optional[str]]
 
@@ -456,6 +460,218 @@ class TestConcurrentUpdates:
         assert second.status_code == 200, second.text
         assert first_response.status_code == 422, first_response.text
         assert await env.stored_labelled_count() == 600
+
+
+_BOTH_BACKENDS = pytest.mark.parametrize("backend", ["sqlite", "postgresql"], indirect=True)
+
+
+async def _stored_schemas(env: _Env, doc: int) -> list[list[tuple[int, Optional[str]]]]:
+    """Return each stored schema of ``doc`` as its (index, semantic_label) rows."""
+    async with env.session_maker() as session:
+        schemas = (
+            await session.scalars(
+                select(SpreadsheetSchema)
+                .options(selectinload(SpreadsheetSchema.columns))
+                .where(SpreadsheetSchema.document_id == doc)
+            )
+        ).all()
+        return [[(c.index, c.semantic_label) for c in schema.columns] for schema in schemas]
+
+
+def _hold_first_creates(
+    monkeypatch: pytest.MonkeyPatch, backend: str
+) -> list[bool]:
+    """Make two concurrent PUTs both see no schema before either creates one.
+
+    Only on PostgreSQL: on SQLite the first PUT's lock write holds the
+    database write lock, so the second waits there and sees the first's
+    schema. Returns the ``required`` flag of every lock-and-read call.
+    """
+    real = documents_router._lock_and_read_schema
+    calls: list[bool] = []
+    both_empty = asyncio.Event()
+    empty_reads = 0
+
+    async def _held(db, document_id, *, required=False):
+        nonlocal empty_reads
+        calls.append(required)
+        schema = await real(db, document_id, required=required)
+        if schema is None and backend == "postgresql":
+            empty_reads += 1
+            if empty_reads == 2:
+                both_empty.set()
+            # Failure guard only: a regression must fail, not hang the run.
+            await asyncio.wait_for(both_empty.wait(), 10)
+        return schema
+
+    monkeypatch.setattr(documents_router, "_lock_and_read_schema", _held)
+    return calls
+
+
+class TestConcurrentFirstCreate:
+    """Unique indexes make the first create of a document's schema race-safe."""
+
+    @_BOTH_BACKENDS
+    async def test_concurrent_first_puts_with_the_same_columns_both_succeed(
+        self, env: _Env, backend: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        doc = await env.add_document()
+        calls = _hold_first_creates(monkeypatch, backend)
+
+        first, second = await asyncio.gather(
+            _put(env, doc, _payload(range(3), lambda i: f"A{i}")),
+            _put(env, doc, _payload(range(3), lambda i: f"B{i}")),
+        )
+
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+        [columns] = await _stored_schemas(env, doc)
+        assert [index for index, _ in columns] == [0, 1, 2]
+        assert {label[0] for _, label in columns} in ({"A"}, {"B"})
+        # On PostgreSQL the loser's insert hit the unique index and re-read the winner.
+        assert calls.count(True) == (1 if backend == "postgresql" else 0)
+
+    @_BOTH_BACKENDS
+    async def test_concurrent_first_puts_with_other_columns_resolve_as_if_sequential(
+        self, env: _Env, backend: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        doc = await env.add_document()
+        _hold_first_creates(monkeypatch, backend)
+        payloads = [_payload([0, 1]), _payload([2])]
+
+        responses = await asyncio.gather(*(_put(env, doc, p) for p in payloads))
+
+        statuses = [r.status_code for r in responses]
+        assert sorted(statuses) == [200, 422], [r.text for r in responses]
+        winner = payloads[statuses.index(200)]
+        [columns] = await _stored_schemas(env, doc)
+        assert columns == [(c["index"], c["semantic_label"]) for c in winner]
+
+    @_BOTH_BACKENDS
+    async def test_ingestion_create_losing_to_a_put_keeps_the_put_schema(
+        self, env: _Env, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        doc = await env.add_document()
+        real = documents_router._insert_schema_unless_raced
+        results: list[bool] = []
+
+        async def _put_wins_first(db, schema):
+            await env.add_schema(doc, [(0, "COLUMN_1", "Salary")])
+            results.append(await real(db, schema))
+            return results[-1]
+
+        monkeypatch.setattr(documents_router, "_insert_schema_unless_raced", _put_wins_first)
+        async with env.session_maker() as session:
+            await documents_router._ensure_spreadsheet_schema(
+                session, doc, {"sheets": [{"column_count": 3}]}
+            )
+            assert not session.in_transaction()
+            assert await session.scalar(select(func.count(Document.id))) == 1
+
+        assert results == [False]
+        assert await _stored_schemas(env, doc) == [[(0, "Salary")]]
+
+    @_BOTH_BACKENDS
+    @pytest.mark.parametrize(
+        ("stored", "update", "status"),
+        [
+            pytest.param(_plain_columns(2), _payload([1]), 200, id="fits"),
+            pytest.param(_plain_columns(1), _payload([1]), 422, id="new-column"),
+            pytest.param(
+                _labelled_columns(MAX_SCHEMA_LABELED_COLUMNS)
+                + [(MAX_SCHEMA_LABELED_COLUMNS, f"COLUMN_{MAX_SCHEMA_LABELED_COLUMNS + 1}", None)],
+                _payload([MAX_SCHEMA_LABELED_COLUMNS]),
+                422,
+                id="over-label-budget",
+            ),
+        ],
+    )
+    async def test_put_losing_the_create_is_rechecked_against_the_winner(
+        self,
+        env: _Env,
+        monkeypatch: pytest.MonkeyPatch,
+        stored: list[SchemaRow],
+        update: list[dict[str, Any]],
+        status: int,
+    ) -> None:
+        # The winner commits while the PUT is in the gate; the PUT's locked
+        # read is made stale, so its insert hits the unique index.
+        doc = await env.add_document()
+        real_lock = documents_router._lock_and_read_schema
+        lock_calls: list[bool] = []
+
+        async def _gate(db, settings, document, texts, sanitizer=None):
+            await env.add_schema(doc, stored)
+            return list(texts)
+
+        async def _stale_first(db, document_id, *, required=False):
+            lock_calls.append(required)
+            schema = await real_lock(db, document_id, required=required)
+            return None if len(lock_calls) == 1 else schema
+
+        monkeypatch.setattr(documents_router, "gate_document_texts", _gate)
+        monkeypatch.setattr(documents_router, "_lock_and_read_schema", _stale_first)
+        resp = await _put(env, doc, update)
+
+        assert resp.status_code == status, resp.text
+        assert lock_calls == [False, True]
+        expected = [(index, semantic) for index, _, semantic in stored]
+        if status == 200:
+            expected = [(index, "L1" if index == 1 else semantic) for index, semantic in expected]
+        assert await _stored_schemas(env, doc) == [expected]
+
+    @pytest.mark.parametrize("backend", ["postgresql"], indirect=True)
+    async def test_put_create_losing_to_ingestion_applies_to_the_ingested_schema(
+        self, env: _Env, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # PostgreSQL only: on SQLite the PUT holds the write lock by then, so
+        # ingestion could not commit in between.
+        doc = await env.add_document()
+        real = documents_router._insert_schema_unless_raced
+        ingested = False
+
+        async def _ingestion_wins_first(db, schema):
+            nonlocal ingested
+            if not ingested:
+                ingested = True
+                async with env.session_maker() as session:
+                    await documents_router._ensure_spreadsheet_schema(
+                        session, doc, {"sheets": [{"column_count": 3}]}
+                    )
+            return await real(db, schema)
+
+        monkeypatch.setattr(
+            documents_router, "_insert_schema_unless_raced", _ingestion_wins_first
+        )
+        resp = await _put(env, doc, _payload([1]))
+
+        assert resp.status_code == 200, resp.text
+        assert await _stored_schemas(env, doc) == [[(0, None), (1, "L1"), (2, None)]]
+
+    @_BOTH_BACKENDS
+    async def test_other_integrity_errors_are_raised(self, env: _Env) -> None:
+        doc = await env.add_document()
+        schema = SpreadsheetSchema(document_id=doc)
+        schema.columns = [
+            SpreadsheetColumn(index=0, technical_label="COLUMN_1"),
+            SpreadsheetColumn(index=0, technical_label="COLUMN_1"),
+        ]
+
+        async with env.session_maker() as session:
+            with pytest.raises(IntegrityError):
+                await documents_router._insert_schema_unless_raced(session, schema)
+
+        assert await _stored_schemas(env, doc) == []
+
+    @_BOTH_BACKENDS
+    async def test_second_schema_for_a_document_is_refused(self, env: _Env) -> None:
+        doc = await env.add_document()
+        await env.add_schema(doc, _plain_columns(1))
+
+        with pytest.raises(IntegrityError):
+            await env.add_schema(doc, _plain_columns(1))
+
+        assert await _stored_schemas(env, doc) == [[(0, None)]]
 
 
 class TestTechnicalLabelMismatch:

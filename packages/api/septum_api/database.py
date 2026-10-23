@@ -42,6 +42,7 @@ from .models.settings import AppSettings
 from .models.spreadsheet_schema import SpreadsheetColumn, SpreadsheetSchema
 from .models.text_normalization import TextNormalizationRule
 from .models.user import User
+from .request_limits import MAX_SCHEMA_LABELED_COLUMNS
 
 # Every ORM model, imported here so ``Base.metadata`` is complete for both
 # SQLite ``create_all`` and Alembic regardless of application import order.
@@ -236,6 +237,7 @@ async def init_db() -> None:
         async with eng.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         await _sqlite_ensure_columns(eng)
+        await _sqlite_ensure_unique_spreadsheet_indexes(eng)
         await _sqlite_ensure_indexes(eng)
         await _sqlite_scrub_retired_audit_keys(eng)
         await _sqlite_purge_orphan_child_rows(eng)
@@ -389,6 +391,97 @@ async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:
             existing = {row[1] for row in cols}
             if col_name not in existing:
                 await conn.execute(text(ddl))
+
+
+# Same statements as Alembic revision 024, for SQLite databases it never
+# migrates. Columns of a document's other schemas move to its oldest (lowest
+# id) one; those schemas are deleted; per (schema_id, index) the row kept has a
+# non-blank label first, then ``is_numeric`` set, then the lowest id.
+_SPREADSHEET_DEDUPE_STATEMENTS: tuple[str, ...] = (
+    "UPDATE spreadsheet_columns SET schema_id = ("
+    "SELECT MIN(keeper.id) FROM spreadsheet_schemas keeper "
+    "JOIN spreadsheet_schemas own ON own.document_id = keeper.document_id "
+    "WHERE own.id = spreadsheet_columns.schema_id) "
+    "WHERE schema_id IN ("
+    "SELECT dup.id FROM spreadsheet_schemas dup WHERE dup.id > ("
+    "SELECT MIN(k.id) FROM spreadsheet_schemas k WHERE k.document_id = dup.document_id))",
+    "DELETE FROM spreadsheet_schemas WHERE id > ("
+    "SELECT MIN(k.id) FROM spreadsheet_schemas k "
+    "WHERE k.document_id = spreadsheet_schemas.document_id)",
+    "DELETE FROM spreadsheet_columns WHERE id IN ("
+    "SELECT id FROM (SELECT id, ROW_NUMBER() OVER ("
+    'PARTITION BY schema_id, "index" '
+    "ORDER BY CASE WHEN TRIM(COALESCE(semantic_label, '')) <> '' THEN 0 ELSE 1 END, "
+    "CASE WHEN is_numeric IS NOT NULL THEN 0 ELSE 1 END, id"
+    ") AS position FROM spreadsheet_columns) ranked WHERE position > 1)",
+)
+# Any non-empty label counts, as in the update handler's budget check.
+_SPREADSHEET_OVER_LABEL_BUDGET = (
+    "SELECT COUNT(*) FROM (SELECT schema_id FROM spreadsheet_columns "
+    "WHERE semantic_label IS NOT NULL AND semantic_label <> '' "
+    "GROUP BY schema_id HAVING COUNT(*) > :budget) over_budget"
+)
+_SPREADSHEET_UNIQUE_INDEXES = (
+    *SpreadsheetSchema.__table__.indexes,
+    *SpreadsheetColumn.__table__.indexes,
+)
+_SPREADSHEET_SUPERSEDED_INDEXES = (
+    "DROP INDEX IF EXISTS ix_spreadsheet_schemas_document_id",
+    "DROP INDEX IF EXISTS ix_spreadsheet_columns_schema_id",
+)
+
+
+async def _sqlite_ensure_unique_spreadsheet_indexes(eng: AsyncEngine) -> None:
+    """Deduplicate spreadsheet schemas and columns, then make them unique.
+
+    Runs only while one of the unique indexes is missing (a database created
+    before they existed); once both exist no duplicate can be stored. Dedupe,
+    index creation and the drop of the single-column indexes they supersede
+    share one transaction. Deleted rows: schema rows whose columns were first
+    moved to the document's oldest schema, and every row but one per column
+    slot. Two rows of one slot that both carry a label lose one of the
+    labels. A merged schema may end up with more labelled columns than an
+    update may leave; such documents are counted in the log and need labels
+    cleared before a further update is accepted.
+    """
+    names = [index.name for index in _SPREADSHEET_UNIQUE_INDEXES]
+    async with eng.begin() as conn:
+        present = (
+            await conn.execute(
+                text(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' "
+                    "AND name IN (:first, :second)"
+                ),
+                dict(zip(("first", "second"), names, strict=True)),
+            )
+        ).scalar_one()
+        if present == len(names):
+            return
+        moved, schemas, columns = [
+            (await conn.execute(text(ddl))).rowcount for ddl in _SPREADSHEET_DEDUPE_STATEMENTS
+        ]
+        over_budget = 0
+        if moved or schemas or columns:
+            over_budget = (
+                await conn.execute(
+                    text(_SPREADSHEET_OVER_LABEL_BUDGET),
+                    {"budget": MAX_SCHEMA_LABELED_COLUMNS},
+                )
+            ).scalar_one()
+        for index in _SPREADSHEET_UNIQUE_INDEXES:
+            await conn.run_sync(index.create, checkfirst=True)
+        for ddl in _SPREADSHEET_SUPERSEDED_INDEXES:
+            await conn.execute(text(ddl))
+    if moved or schemas or columns:
+        logger.warning(
+            "Spreadsheet schema dedupe: moved %d columns, deleted %d duplicate "
+            "schemas and %d duplicate columns; %d documents exceed the labelled "
+            "column budget",
+            moved,
+            schemas,
+            columns,
+            over_budget,
+        )
 
 
 async def _sqlite_ensure_indexes(eng: AsyncEngine) -> None:

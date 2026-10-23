@@ -6,23 +6,32 @@ at a throwaway database; the test leaves it migrated to head.
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import importlib.util
 import json
 import os
 import pkgutil
+import shutil
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, Callable, Iterator
 
 import pytest
+import spreadsheet_dedupe_cases as dedupe_cases
 import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
 from audit_scrub_cases import CAP_VALUES, MASKED_QUERY_ROWS, SCRUB_ROWS, duplicated
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import create_async_engine
 
+import septum_api.database as database
 import septum_api.models as models_package
 from septum_api.database import REGISTERED_MODELS
 from septum_api.models import Base
+from septum_api.request_limits import MAX_SCHEMA_LABELED_COLUMNS
 
 _API_ROOT = Path(__file__).resolve().parents[1]
 
@@ -382,6 +391,187 @@ def test_revision_023_matches_the_shared_cases_on_sqlite(
     assert after_first == [expected for _, expected in rows]
     assert after_rerun == after_first
     assert after_downgrade == after_first
+
+
+# Runs a sync callable on a connection inside a transaction and returns its result.
+Run = Callable[[Callable[[sa.Connection], Any]], Any]
+
+
+def _assert_dedupe_cycle(cfg: Config, run: Run, caplog: pytest.LogCaptureFixture) -> None:
+    """Seed duplicates at 023, upgrade, re-run, enforce, downgrade, upgrade again."""
+    command.upgrade(cfg, "023")
+    run(dedupe_cases.seed)
+
+    with caplog.at_level("WARNING", logger="alembic.runtime.migration"):
+        command.upgrade(cfg, "024")
+    after_upgrade = run(dedupe_cases.stored)
+    schemas_after_upgrade = run(dedupe_cases.schema_count)
+    indexes_after_upgrade = run(dedupe_cases.spreadsheet_indexes)
+
+    command.stamp(cfg, "023")
+    command.upgrade(cfg, "024")
+    after_rerun = run(dedupe_cases.stored)
+
+    with pytest.raises(sa.exc.IntegrityError):
+        run(lambda conn: dedupe_cases.insert_schemas(conn, [(99, 1)]))
+    with pytest.raises(sa.exc.IntegrityError):
+        run(lambda conn: dedupe_cases.insert_columns(conn, [(None, 1, 0, None, None)]))
+
+    command.downgrade(cfg, "023")
+    indexes_after_downgrade = run(dedupe_cases.spreadsheet_indexes)
+    after_downgrade = run(dedupe_cases.stored)
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+    indexes_after_reupgrade = run(dedupe_cases.spreadsheet_indexes)
+
+    assert after_upgrade == dedupe_cases.EXPECTED
+    assert schemas_after_upgrade == 3
+    assert after_rerun == after_upgrade
+    assert after_downgrade == after_upgrade
+    assert dedupe_cases.EXPECTED_LOG in caplog.text
+    assert indexes_after_upgrade == dedupe_cases.UNIQUE_INDEXES
+    assert indexes_after_downgrade == dedupe_cases.SUPERSEDED_INDEXES
+    assert indexes_after_reupgrade == dedupe_cases.UNIQUE_INDEXES
+
+
+def _sqlite_runner(engine: sa.Engine) -> Run:
+    def run(fn: Callable[[sa.Connection], Any]) -> Any:
+        with engine.begin() as conn:
+            return fn(conn)
+
+    return run
+
+
+@pytest.fixture(scope="module")
+def sqlite_at_023(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A SQLite database migrated to 023 once, copied by each test that needs one."""
+    path = tmp_path_factory.mktemp("template") / "at_023.db"
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{path}")
+        command.upgrade(_alembic_config(), "023")
+    return path
+
+
+@pytest.fixture
+def at_023(
+    sqlite_at_023: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[Config, sa.Engine]]:
+    """Alembic config and engine of a fresh copy of the 023 template."""
+    db_path = tmp_path / "at_023.db"
+    shutil.copyfile(sqlite_at_023, db_path)
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    try:
+        yield _alembic_config(), engine
+    finally:
+        engine.dispose()
+
+
+def test_revision_024_dedupes_spreadsheet_schemas_and_enforces_uniqueness_on_sqlite(
+    at_023: tuple[Config, sa.Engine], caplog: pytest.LogCaptureFixture
+) -> None:
+    cfg, engine = at_023
+    _assert_dedupe_cycle(cfg, _sqlite_runner(engine), caplog)
+
+
+def test_revision_024_counts_documents_a_merge_leaves_over_the_label_budget(
+    at_023: tuple[Config, sa.Engine], caplog: pytest.LogCaptureFixture
+) -> None:
+    cfg, engine = at_023
+    with engine.begin() as conn:
+        dedupe_cases.insert_schemas(conn, [(1, 1), (2, 1)])
+        dedupe_cases.insert_columns(
+            conn, [(None, 1 + i // 600, i, f"L{i}", None) for i in range(1200)]
+        )
+
+    with caplog.at_level("WARNING", logger="alembic.runtime.migration"):
+        command.upgrade(cfg, "024")
+    with engine.connect() as conn:
+        labelled = conn.execute(
+            sa.text("SELECT COUNT(*) FROM spreadsheet_columns WHERE schema_id = 1")
+        ).scalar_one()
+
+    assert labelled == 1200
+    assert (
+        "moved 600 columns, deleted 1 duplicate schemas and 0 duplicate columns; "
+        "1 documents exceed the labelled column budget"
+    ) in caplog.text
+
+
+def test_revision_024_is_noop_on_a_database_without_duplicates(
+    at_023: tuple[Config, sa.Engine], caplog: pytest.LogCaptureFixture
+) -> None:
+    cfg, engine = at_023
+    with engine.begin() as conn:
+        dedupe_cases.insert_schemas(conn, [(1, 1)])
+        dedupe_cases.insert_columns(conn, [(None, 1, 0, "Salary", None), (None, 1, 1, None, None)])
+        before = dedupe_cases.stored(conn)
+
+    with caplog.at_level("WARNING", logger="alembic.runtime.migration"):
+        command.upgrade(cfg, "head")
+    with engine.connect() as conn:
+        after = dedupe_cases.stored(conn)
+
+    assert after == before
+    assert "Spreadsheet schema dedupe" not in caplog.text
+
+
+def _whitespace_normalised(statement: str) -> str:
+    return " ".join(statement.split())
+
+
+def test_sqlite_startup_dedupe_matches_revision_024() -> None:
+    """The two copies (revisions stay frozen) must not drift apart."""
+    filename = "024_unique_spreadsheet_schema_rows.py"
+    spec = importlib.util.spec_from_file_location(filename, _API_ROOT / "alembic" / "versions" / filename)
+    revision = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(revision)
+
+    assert [_whitespace_normalised(q) for q in database._SPREADSHEET_DEDUPE_STATEMENTS] == [
+        _whitespace_normalised(q) for q in revision._DEDUPE_STATEMENTS
+    ]
+    assert _whitespace_normalised(database._SPREADSHEET_OVER_LABEL_BUDGET) == _whitespace_normalised(
+        revision._OVER_LABEL_BUDGET
+    )
+    assert revision._LABEL_BUDGET == MAX_SCHEMA_LABELED_COLUMNS
+
+
+async def _postgres_run(url: sa.URL, fn: Callable[[sa.Connection], Any], **engine_kwargs: Any) -> Any:
+    engine = create_async_engine(url, **engine_kwargs)
+    try:
+        async with engine.begin() as conn:
+            return await conn.run_sync(fn)
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.skipif(
+    not os.getenv("SEPTUM_TEST_POSTGRES_URL"),
+    reason="SEPTUM_TEST_POSTGRES_URL not set",
+)
+def test_revision_024_dedupes_spreadsheet_schemas_on_postgres(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Runs in its own database, so the shared one stays at head."""
+    base = make_url(os.environ["SEPTUM_TEST_POSTGRES_URL"])
+    name = f"dedupe_{uuid.uuid4().hex[:12]}"
+
+    def _admin(statement: str) -> None:
+        asyncio.run(
+            _postgres_run(
+                base, lambda conn: conn.execute(sa.text(statement)), isolation_level="AUTOCOMMIT"
+            )
+        )
+
+    _admin(f'CREATE DATABASE "{name}"')
+    try:
+        url = base.set(database=name)
+        monkeypatch.setenv("DATABASE_URL", url.render_as_string(hide_password=False))
+        _assert_dedupe_cycle(
+            _alembic_config(), lambda fn: asyncio.run(_postgres_run(url, fn)), caplog
+        )
+    finally:
+        _admin(f'DROP DATABASE "{name}" WITH (FORCE)')
 
 
 @pytest.mark.skipif(
