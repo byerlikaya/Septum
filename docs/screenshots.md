@@ -120,7 +120,7 @@ Policy composition rules still apply — the most restrictive rule wins.
 
 Append-only compliance log with entity detection metrics. Audit events
 hold entity types, counts, regulation ids, and timestamps, never
-document text or file names; the audit view shows the current document
+document text, file names or chat questions; the audit view shows the current document
 name, or "Deleted document #id" once the document is gone. JSON / CSV /
 Splunk HEC export available via
 `/api/audit/export`.

@@ -102,7 +102,7 @@ Kayda neler düşer:
 - **Bulut çağrıları için gecikme, model, sağlayıcı**
 - **Kullanıcı id, oturum id** — kim, hangi oturumda
 
-Kayda neler düşmez: ham PII değerleri, doküman metni ya da LLM cevabı. `septum-api` sohbet denetim olayları maskelenmiş sorguyu kaydedebilir.
+Kayda neler düşmez: ham PII değerleri, doküman metni, maskelenmiş hâli dahil soru ve LLM cevabı. Eski sürümlerin kaydettiği maskelenmiş sorular yükseltme sırasında silinir.
 
 Kayıtla yapılabilecekler:
 
