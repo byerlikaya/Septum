@@ -34,7 +34,7 @@ Septum, yüklenen bir dosyayı aranabilir ve anonimleştirilmiş içeriğe dön�
 
 4. **Üç katmanlı PII tespiti** — Üç detektör sırayla çalışır ve çıktıları birleştirilir:
    - **Presidio** — regex desenleri ve algoritmik validator'lar (TCKN checksum, Aadhaar Verhoeff, NRIC/FIN, CPF, NINO, CNPJ, My Number ve diğerleri).
-   - **NER** — `PERSON_NAME`, `LOCATION`, `ORGANIZATION_NAME` için XLM-RoBERTa transformer.
+   - **NER** — `PERSON_NAME`, `LOCATION`, `ORGANIZATION_NAME` için dil grubuna göre seçilen transformer modeli. Kapsam dillere göre değişir; bkz. [NER model kapsamı](#ner-model-kapsamı).
    - **Ollama** — desenlerin yakalayamadığı, bağlama bağlı PII için opsiyonel semantik katman. Varsayılan olarak kapalıdır; Ayarlar → Gizlilik ve Anonimleştirme → *Ollama semantik tespit* seçeneğinden açılır. Yeni kurulumdaki varsayılanı `USE_OLLAMA_SEMANTIC_LAYER_DEFAULT` belirler; bu değer ayar kaydı oluşturulurken bir kez okunur.
 
    Üç detektörün bulduğu çakışan span'ler birleştirilir; coreference çözümlenerek "Elif" ile "Hanım Demir" aynı placeholder numarasına bağlanır.
@@ -46,6 +46,24 @@ Septum, yüklenen bir dosyayı aranabilir ve anonimleştirilmiş içeriğe dön�
    - **Şifreli saklama** — Orijinal dosya AES-256-GCM ile mühürlenerek diske yazılır; air-gapped bölge dışında asla deşifre edilmez.
 
 7. **Arama hazır** — FAISS, BM25 ve şifreli dosya yazımı tamamlandığında doküman `ingestion_status="completed"` olarak işaretlenir ve sohbet üzerinden sorgulanabilir hale gelir.
+
+## NER model kapsamı
+
+NER katmanı, her dil için bir model çalıştırır (Türkçe için iki model). Model, 3. adımda tespit edilen dile göre seçilir. Kapsam diller arasında eşit değildir:
+
+| Dil | Model | Not |
+|:---|:---|:---|
+| `tr` | `akdeniz27/xlm-roberta-base-turkish-ner` + `savasy/bert-base-turkish-ner-cased` | İki model; span'leri birleştirilir |
+| `en`, `ar`, `es`, `fr`, `pt`, `hi`, `bn`, `ur`, `vi` | `Davlan/xlm-roberta-base-wikiann-ner` | Tek model |
+| `zh`, `ja`, `ko`, `de`, `it`, `nl`, `pl`, `ru` | `Davlan/bert-base-multilingual-cased-ner-hrl` | Çince, Japonca, Korece ve Rusça'da recall sınırlıdır |
+| `th` | `Davlan/xlm-roberta-base-wikiann-ner` | Tayca NER fiilen yoktur (aşağıya bakın) |
+| Diğer diller | `Davlan/bert-base-multilingual-cased-ner-hrl` | Yedek model |
+
+**Uzun metinler.** Varsayılan modeller tek geçişte en fazla 512 token okur; bu sayı özel token'lar dahildir, yani yaklaşık 510 token metin demektir. Daha uzun metinler örtüşen pencerelere bölünür; her pencere taranır ve sonuçlar tek bir konum kümesinde birleştirilir. Regex ve Presidio katmanları metnin tamamını her zaman tarar.
+
+**İsteğe bağlı Çince model.** `gyr66/Ernie-3.0-base-chinese-finetuned-ner` modeli, `zh` için Ayarlar → NER Modelleri bölümünden seçilebilir. Hiçbir zaman varsayılan değildir. Yayıncısı Hugging Face Hub'da lisans beyan etmez; etkinleştirmeden önce bu modeli kullanma hakkınızı kendiniz doğrulayın.
+
+**Zayıf kapsam.** Tayca NER fiilen yoktur: Tayca isimler ve yerler esas olarak regex ve Presidio katmanlarıyla yakalanır. Çince, Japonca, Korece ve Rusça'da NER recall'u sınırlıdır. Varsayılan Çince model, Septum'un kendi Çince test dokümanlarında daha az isim ve yeri maskesiz bıraktığı için seçilmiştir; kamuya açık WikiANN Çince setinde ise başka bir model daha yüksek skor alır. Bu diller için NER katmanına tek başına güvenmeyin. Onay mekanizması açıksa metni, buluta gönderilmeden önce orada gözden geçirin.
 
 <p align="center">
   <a href="./index.md"><strong>🏠 Ana Sayfa</strong></a>
