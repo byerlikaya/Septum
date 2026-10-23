@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import re
+from functools import cached_property
 from typing import TYPE_CHECKING, Iterable, List, Optional, Sequence, Tuple
 
 from fastapi import HTTPException, status
@@ -81,27 +82,88 @@ def reserve_placeholder_counters(
                 anon_map.token_counter[entity_type] = index
 
 
-def _mask_known_originals(
-    text: str, anon_map: AnonymizationMap, known: set[str]
-) -> str:
-    """Replace known originals with their placeholders in one regex pass.
+def _map_snapshot(anon_map: AnonymizationMap) -> Tuple[dict, dict, dict]:
+    """Copy the three maps that known placeholders and originals are read from."""
+    return (
+        dict(anon_map.entity_map),
+        dict(anon_map.placeholder_lookup),
+        dict(anon_map.token_to_placeholder),
+    )
 
-    Known placeholders are part of the alternation (tried first) and are
-    emitted unchanged, so an original can never be substituted inside an
-    existing placeholder. Originals without letters need digit boundaries
-    (see :func:`_original_alternative`).
+
+class _MaskState:
+    """Masking state for one snapshot of an anonymization map.
+
+    Building the originals alternation costs time proportional to the number
+    of entities, so a gate call reuses one state across texts. The state
+    keeps a copy of the map it was built from: :meth:`is_current` compares
+    that copy with the live map, so a state is rebuilt whenever the map has
+    changed, however it changed. Patterns compile on first use.
     """
-    originals = [o for o in anon_map.entity_map if o]
+
+    def __init__(self, anon_map: AnonymizationMap) -> None:
+        self._entity_map, self._placeholder_lookup, self._token_to_placeholder = _map_snapshot(
+            anon_map
+        )
+        self.known: set[str] = _known_placeholders(anon_map)
+
+    def is_current(self, anon_map: AnonymizationMap) -> bool:
+        """Return whether ``anon_map`` still holds the entries this state was built from."""
+        return (
+            self._entity_map == anon_map.entity_map
+            and self._placeholder_lookup == anon_map.placeholder_lookup
+            and self._token_to_placeholder == anon_map.token_to_placeholder
+        )
+
+    @cached_property
+    def originals_pattern(self) -> Optional[re.Pattern[str]]:
+        """Pattern matching known placeholders and originals, or ``None`` without originals."""
+        return _originals_pattern(self._entity_map, self.known)
+
+    @cached_property
+    def protect_pattern(self) -> Optional[re.Pattern[str]]:
+        """Pattern matching known placeholders, or ``None`` when there are none."""
+        if not self.known:
+            return None
+        return re.compile("|".join(re.escape(p) for p in sorted(self.known, key=len, reverse=True)))
+
+    def protected_ranges(self, text: str) -> List[Tuple[int, int]]:
+        """Return ``(start, end)`` offsets of known placeholders in ``text``."""
+        if self.protect_pattern is None:
+            return []
+        return [m.span() for m in self.protect_pattern.finditer(text)]
+
+    def placeholder_for(self, match: re.Match[str]) -> str:
+        """Return the replacement for one originals match: known placeholders stay as they are."""
+        original = match.group(0)
+        return original if original in self.known else self._entity_map[original]
+
+
+def _originals_pattern(entity_map: dict, known: set[str]) -> Optional[re.Pattern[str]]:
+    """Compile the alternation that matches known placeholders and originals.
+
+    Known placeholders are tried first and are emitted unchanged, so an
+    original can never be substituted inside an existing placeholder.
+    Returns ``None`` when the map has no originals.
+    """
+    originals = [o for o in entity_map if o]
     if not originals:
-        return text
+        return None
     alternatives = [re.escape(a) for a in sorted(known, key=len, reverse=True)] + [
         _original_alternative(o) for o in sorted(originals, key=len, reverse=True)
     ]
-    pattern = re.compile("|".join(alternatives))
-    return pattern.sub(
-        lambda m: m.group(0) if m.group(0) in known else anon_map.entity_map[m.group(0)],
-        text,
-    )
+    return re.compile("|".join(alternatives))
+
+
+def _mask_known_originals(text: str, state: _MaskState) -> str:
+    """Replace known originals with their placeholders in one regex pass.
+
+    Originals without letters need digit boundaries (see
+    :func:`_original_alternative`).
+    """
+    if state.originals_pattern is None:
+        return text
+    return state.originals_pattern.sub(state.placeholder_for, text)
 
 
 def _original_alternative(original: str) -> str:
@@ -130,18 +192,8 @@ def mask_known_entities(text: str, anon_map: AnonymizationMap) -> str:
     """
     if not text:
         return text
-    masked = _mask_known_originals(text, anon_map, _known_placeholders(anon_map))
+    masked = _mask_known_originals(text, _MaskState(anon_map))
     return anon_map.apply_blocklist(masked, language=anon_map.language)
-
-
-def _protected_ranges(text: str, known: set[str]) -> List[Tuple[int, int]]:
-    """Return ``(start, end)`` offsets of known placeholders in ``text``."""
-    if not known:
-        return []
-    pattern = re.compile(
-        "|".join(re.escape(p) for p in sorted(known, key=len, reverse=True))
-    )
-    return [m.span() for m in pattern.finditer(text)]
 
 
 def _outside_ranges(
@@ -177,19 +229,24 @@ def _gate_one(
     anon_map: AnonymizationMap,
     sanitizer: "PIISanitizer",
     language: str,
+    state: Optional[_MaskState] = None,
 ) -> str:
-    """Mask one untrusted text against ``anon_map``, registering new entities."""
+    """Mask one untrusted text against ``anon_map``, registering new entities.
+
+    ``state`` must be current for ``anon_map`` (see :meth:`_MaskState.is_current`);
+    when it is omitted a fresh one is built.
+    """
     if not text:
         return text
-    masked = _mask_known_originals(
-        normalize_unicode(text), anon_map, _known_placeholders(anon_map)
-    )
+    if state is None:
+        state = _MaskState(anon_map)
+    masked = _mask_known_originals(normalize_unicode(text), state)
     masked = anon_map.apply_blocklist(masked, language=language)
 
     result = sanitizer.sanitize(
         masked, language, AnonymizationMap(document_id=0, language=language)
     )
-    protected = _protected_ranges(masked, _known_placeholders(anon_map))
+    protected = state.protected_ranges(masked)
     pieces: List[Tuple[int, int, str]] = []
     for span in sorted(result.detected_spans, key=lambda s: s.start):
         for p_start, p_end in _outside_ranges(span.start, span.end, protected):
@@ -237,9 +294,17 @@ async def gate_untrusted_texts(
     if sanitizer is None:
         sanitizer = await create_sanitizer(db, settings, enable_ollama=False)
     lang = language or anon_map.language
-    return await asyncio.to_thread(
-        lambda: [_gate_one(t, anon_map, sanitizer, lang) for t in texts]
-    )
+
+    def gate_all() -> List[str]:
+        state: Optional[_MaskState] = None
+        gated: List[str] = []
+        for text in texts:
+            if text and (state is None or not state.is_current(anon_map)):
+                state = _MaskState(anon_map)
+            gated.append(_gate_one(text, anon_map, sanitizer, lang, state))
+        return gated
+
+    return await asyncio.to_thread(gate_all)
 
 
 _MAP_MERGE_ATTEMPTS = 3
