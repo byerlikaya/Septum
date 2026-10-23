@@ -590,7 +590,7 @@ class TestTechnicalLabel:
             stored = (await session.execute(select(SpreadsheetColumn.technical_label))).scalars().all()
         assert stored == ["COLUMN_3"]
 
-    async def test_legacy_raw_labels_are_gated_in_the_prompt(self, env: _Env) -> None:
+    async def test_legacy_raw_labels_never_reach_the_prompt(self, env: _Env) -> None:
         await env.set_require_approval(False)
         doc = await env.add_document(["[PERSON_NAME_1] earns 10."])
         await _store_known_map(doc)
@@ -605,7 +605,9 @@ class TestTechnicalLabel:
         prompt = env.prompts[-1]
         _assert_masked(prompt)
         assert KNOWN_NAME not in prompt
-        assert "index 0 → Paid to [PERSON_NAME_1]" in prompt
+        assert "Paid to" not in prompt
+        assert "index 0 → COLUMN_1" in prompt
+        assert "index 1 → Bonus for " in prompt
         assert NAME in answer
 
 

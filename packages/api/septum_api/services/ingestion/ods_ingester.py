@@ -17,6 +17,7 @@ from typing import Any, Dict, List
 
 import pandas as pd
 
+from ...models.spreadsheet_schema import generated_technical_label
 from ...utils.crypto import decrypt
 from .base import BaseIngester, IngestionResult
 
@@ -61,7 +62,7 @@ class OdsIngester(BaseIngester):
 
                 # Use generic, non-PII column labels for the header row so that
                 # schema information is preserved without leaking raw header text.
-                header_cells = [f"COLUMN_{idx + 1}" for idx, _ in enumerate(df.columns)]
+                header_cells = [generated_technical_label(idx) for idx in range(len(df.columns))]
                 if header_cells:
                     rows_text.append("\t".join(header_cells))
 

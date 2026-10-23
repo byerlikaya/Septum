@@ -21,6 +21,11 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def generated_technical_label(index: int) -> str:
+    """Return the server-generated technical label of the column at zero-based ``index``."""
+    return f"COLUMN_{index + 1}"
+
+
 class SpreadsheetSchema(Base):
     """Represents the schema for a tabular document."""
 

@@ -2,19 +2,11 @@
 
 from __future__ import annotations
 
-from ner_fakes import NAME, FakePipeline, document
+from ner_fakes import NAME, FakePipeline, StubRegistry, document
 from septum_core.anonymization_map import AnonymizationMap
 from septum_core.config import SeptumCoreConfig
 from septum_core.detector import Detector
 from septum_core.ner_model_registry import _WindowedNERPipeline
-
-
-class _StubRegistry:
-    def __init__(self, pipe: _WindowedNERPipeline) -> None:
-        self._pipe = pipe
-
-    def get_pipelines(self, language: str) -> list[_WindowedNERPipeline]:
-        return [self._pipe]
 
 
 def test_long_text_gives_one_person_span_at_original_offsets() -> None:
@@ -26,7 +18,7 @@ def test_long_text_gives_one_person_span_at_original_offsets() -> None:
     fake = FakePipeline(max_positions=514, model_max_length=512)
     detector = Detector(
         SeptumCoreConfig(use_presidio_layer=False, use_ner_layer=True),
-        ner_registry=_StubRegistry(_WindowedNERPipeline(fake, None)),
+        ner_registry=StubRegistry(_WindowedNERPipeline(fake, None)),
     )
 
     result = detector.sanitize(text, "en", AnonymizationMap(document_id=0, language="en"))
