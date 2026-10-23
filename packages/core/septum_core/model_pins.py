@@ -34,6 +34,17 @@ def _pin(
     return ModelPin(repo_id, revision, kind, MappingProxyType(files))
 
 
+# Pinned models never fetched by default; the air-gap fetch skips them unless
+# named with --only. Value: why. Hand-kept, so the pin generator preserves it.
+OPT_IN_MODELS: Mapping[str, str] = MappingProxyType(
+    {
+        "gyr66/Ernie-3.0-base-chinese-finetuned-ner": (
+            "no licence declared on the Hub"
+        ),
+    }
+)
+
+
 # --- file names repeated across the pins (generated) ---
 _CONFIG_JSON = "config.json"
 _INFERENCE_JSON = "inference.json"
@@ -85,19 +96,6 @@ MODEL_PINS: Mapping[str, ModelPin] = MappingProxyType(
                 _SPECIAL_TOKENS_MAP_JSON: "378eb3bf733eb16e65792d7e3fda5b8a4631387ca04d2015199c4d4f22ae554d",
                 _TOKENIZER_JSON: "2a0d7366dd7780ea36cc42431dd74cd79289b783ab01acd33013fcc96865a8e9",
                 _TOKENIZER_CONFIG_JSON: "2a29b4422dd3e2b3311e0b5026f27f884f4c0b0ca566e8cd598025cf873f493d",
-            },
-        ),
-        "Babelscape/wikineural-multilingual-ner": _pin(
-            "Babelscape/wikineural-multilingual-ner",
-            "bed6ee7a45d2827b6c90a4fd7983f0241ae0a5c1",
-            "hf-transformers",
-            {
-                _CONFIG_JSON: "8bd6d9c4ba8fce84407876a7711090363259313bb94a3e5ae350d5f6d287092f",
-                _MODEL_SAFETENSORS: "34b3e27fbcd0b54c45cc08ffc7b4e07a7a301480b65cd6430bbbd34daa00f6a3",
-                _SPECIAL_TOKENS_MAP_JSON: "303df45a03609e4ead04bc3dc1536d0ab19b5358db685b6f3da123d05ec200e3",
-                _TOKENIZER_JSON: "511a5c79d1bf8fa398ca411a9ca9b57285e5d77ed3950a4f94751f3951f46966",
-                _TOKENIZER_CONFIG_JSON: "36ce1a5d3254656a75f62114f41eed8d9bf57f5e10714c3a2139787cae84fb74",
-                _VOCAB_TXT: "fe0fda7c425b48c516fc8f160d594c8022a0808447475c1a7c6d6479763f310c",
             },
         ),
         "akdeniz27/convbert-base-turkish-cased-ner": _pin(
@@ -196,6 +194,32 @@ MODEL_PINS: Mapping[str, ModelPin] = MappingProxyType(
                 _INFERENCE_JSON: "b81929eeaff8e52db0fafb49c9fbfc5bc0572f81641fe0179cc52096323fb4d4",
                 _INFERENCE_PDIPARAMS: "0de2bcf996cf553e2b848dd7b1769dafffc6917b1ccdf55c1d8efe7909fbf743",
                 _INFERENCE_YML: "8d5120d0e1a30a9df7ed46aa9119da3796ed066777089d1c1d705f132d5e90f9",
+            },
+        ),
+        "Davlan/bert-base-multilingual-cased-ner-hrl": _pin(
+            "Davlan/bert-base-multilingual-cased-ner-hrl",
+            "e756de7f7b8f64fea0c3d7c3872f1322fab747b1",
+            "hf-transformers",
+            {
+                _CONFIG_JSON: "ef78f60dc875b5e0f753fa3e2af22149fd2507c7b189d48a72b467e343e6ce07",
+                _MODEL_SAFETENSORS: "5cff81bec8c8efca8549b3d843f9b94a404e2a747c71c7343261dcfe9b2ba86c",
+                _SPECIAL_TOKENS_MAP_JSON: "303df45a03609e4ead04bc3dc1536d0ab19b5358db685b6f3da123d05ec200e3",
+                _TOKENIZER_CONFIG_JSON: "91ac1b72b75113bf4d6ea69cf70932484fc4bc28394a6be4069f10f123293398",
+                _VOCAB_TXT: "fe0fda7c425b48c516fc8f160d594c8022a0808447475c1a7c6d6479763f310c",
+            },
+        ),
+        "gyr66/Ernie-3.0-base-chinese-finetuned-ner": _pin(
+            "gyr66/Ernie-3.0-base-chinese-finetuned-ner",
+            "3f3c3fa40cf87298586dbbed55fd7ca1988719a8",
+            "hf-transformers",
+            {
+                "added_tokens.json": "dde4965a25781752ad118fe065b02a8f9127b86edb0da1902fa3a2487b113fed",
+                _CONFIG_JSON: "a0d5cff7bd198fdb7bc3c474c6f1fa2969a70085158d5073839b65a29a302b42",
+                _MODEL_SAFETENSORS: "ff1eb75663877384e996e1939a7bcd93a6c1a2a855f977af53386c266dae1326",
+                _SPECIAL_TOKENS_MAP_JSON: "5d5b662e421ea9fac075174bb0688ee0d9431699900b90662acd44b2a350503a",
+                _TOKENIZER_JSON: "f3d63a058a8cc3eae5411f981a6bc7a15e31ecd05e1098bdfa1d853172931917",
+                _TOKENIZER_CONFIG_JSON: "a656d39765143fa3fad23f8d9454c5203a3cb5bd3ce88804b7fdd4bb8ca791f5",
+                _VOCAB_TXT: "79674fbe2f21d5724d49449b72588ac56e313e7f7dfba56b1832a95a05361cb0",
             },
         ),
     }
