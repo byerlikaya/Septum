@@ -5,9 +5,11 @@
     python -m septum_api.cli.models fetch --offline-check
     python -m septum_api.cli.models fetch --user-pin org/name@<40-hex commit>
 
-``fetch`` downloads every manifest model at its pinned revision and verifies
-the SHA256 of each file, then installs the Whisper model(s) through the
-registry-verified path. ``--offline-check`` sets ``HF_HUB_OFFLINE=1`` and only
+``fetch`` downloads every default manifest model at its pinned revision and
+verifies the SHA256 of each file, then installs the Whisper model(s) through
+the registry-verified path. Opt-in models (``OPT_IN_MODELS`` in
+``septum_core.model_pins``, for example a model with no declared licence) are
+skipped unless named with ``--only``. ``--offline-check`` sets ``HF_HUB_OFFLINE=1`` and only
 verifies what is already cached, never touching the network. Each model prints
 one line: ``ok``, ``fetched`` or ``failed`` with its coded reason. Exit status
 is 0 when every model is ok or fetched, 1 when any failed, 2 on bad usage or
@@ -143,11 +145,17 @@ def _whisper_names(args: argparse.Namespace, selective: bool) -> list[str]:
 
 
 def _run_fetch(args: argparse.Namespace) -> int:
-    from septum_core.model_pins import MODEL_PINS
+    from septum_core.model_pins import MODEL_PINS, OPT_IN_MODELS
 
     _print_cache_roots()
     selective = bool(args.only or args.user_pin)
-    pins = [MODEL_PINS[repo] for repo in args.only] if selective else list(MODEL_PINS.values())
+    if selective:
+        pins = [MODEL_PINS[repo] for repo in args.only]
+    else:
+        pins = [pin for pin in MODEL_PINS.values() if pin.repo_id not in OPT_IN_MODELS]
+        for repo, reason in OPT_IN_MODELS.items():
+            if repo in MODEL_PINS:
+                print(f"skipped  {'opt-in':<22} {repo}  {reason}; fetch with --only {repo}")
 
     failures = sum(
         _report(pin.kind, pin.repo_id, partial(_fetch_pin_entry, pin)) for pin in pins
@@ -201,7 +209,10 @@ def _build_parser() -> argparse.ArgumentParser:
     fetch.add_argument(
         "--offline-check",
         action="store_true",
-        help="verify cached files only (HF_HUB_OFFLINE=1); no network; exit 1 if any is missing or mismatched",
+        help=(
+            "verify cached files only (HF_HUB_OFFLINE=1); no network; "
+            "exit 1 if any is missing or mismatched"
+        ),
     )
     return parser
 
