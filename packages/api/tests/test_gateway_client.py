@@ -10,15 +10,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from septum_gateway.forwarder import _MAX_RETRY_AFTER_SECONDS, BaseForwarder
-from septum_queue import (
-    FileQueueBackend,
-    QueueTimeoutError,
-    RequestEnvelope,
-    ResponseEnvelope,
-)
-
 from septum_api.models.settings import AppSettings
+from septum_api.services import gateway_client as gateway_module
 from septum_api.services.gateway_client import (
     CLIENT_TIMEOUT_ENV,
     DEFAULT_CLIENT_TIMEOUT_SECONDS,
@@ -28,7 +21,18 @@ from septum_api.services.gateway_client import (
     GatewayClient,
     client_timeout_from_env,
 )
-from septum_api.services.llm_errors import LLM_UNAVAILABLE, GatewayStartupError, LLMRouterError
+from septum_api.services.llm_errors import (
+    LLM_UNAVAILABLE,
+    GatewayStartupError,
+    LLMRouterError,
+)
+from septum_gateway.forwarder import _MAX_RETRY_AFTER_SECONDS, BaseForwarder
+from septum_queue import (
+    FileQueueBackend,
+    QueueTimeoutError,
+    RequestEnvelope,
+    ResponseEnvelope,
+)
 
 
 def _settings(**overrides) -> AppSettings:
@@ -85,6 +89,71 @@ async def _fake_gateway(request_queue: FileQueueBackend, response_queue: FileQue
         await response_queue.publish(response.to_dict())
         await request_queue.ack(message.id)
         return
+
+
+class _NoopQueue:
+    """Queue stand-in whose calls return at once; subclasses override what they need."""
+
+    async def publish(self, payload) -> str:
+        return "entry-id"
+
+    async def consume(self, *, batch_size: int, block_ms: int):
+        return
+        yield
+
+    async def ack(self, message_id: str) -> None:
+        return None
+
+    async def nack(self, message_id: str, *, requeue: bool = True) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+
+class _HangingQueue(_NoopQueue):
+    """Publish or consume never returns while ``hang`` is set; the gate is never set."""
+
+    def __init__(self, *, hang: bool) -> None:
+        self._hang = hang
+        self._gate = asyncio.Event()
+
+    async def publish(self, payload) -> str:
+        if self._hang:
+            await self._gate.wait()
+        return "entry-id"
+
+    async def consume(self, *, batch_size: int, block_ms: int):
+        if self._hang:
+            await self._gate.wait()
+        return
+        yield
+
+
+class _SlowReadQueue(_NoopQueue):
+    """Read ends by itself after ``block_ms``; records any cancellation."""
+
+    def __init__(self) -> None:
+        self.reads = 0
+        self.cancelled = False
+
+    async def consume(self, *, batch_size: int, block_ms: int):
+        self.reads += 1
+        try:
+            await asyncio.sleep(block_ms / 1000)
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+        return
+        yield
+
+
+class _RaisingReadQueue(_NoopQueue):
+    """Read fails with a builtin TimeoutError, not a queue timeout."""
+
+    async def consume(self, *, batch_size: int, block_ms: int):
+        raise TimeoutError("socket stalled")
+        yield
 
 
 class TestGatewayClient:
@@ -466,7 +535,8 @@ class TestBlockingReadCap:
     async def test_default_client_caps_the_first_read(self):
         queue = _RecordingQueue()
         client = GatewayClient(request_queue=None, response_queue=queue)
-        waiter = asyncio.create_task(client._await_response("cid"))
+        deadline = time.monotonic() + DEFAULT_CLIENT_TIMEOUT_SECONDS
+        waiter = asyncio.create_task(client._await_response("cid", deadline))
         await asyncio.sleep(0.05)
         waiter.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -486,7 +556,7 @@ class TestBlockingReadCap:
         )
 
         with pytest.raises(QueueTimeoutError):
-            await client._await_response("cid")
+            await client._await_response("cid", clock[0] + 0.35)
 
         assert queue.block_ms[:3] == [100, 100, 100]
         assert max(queue.block_ms) <= 100
@@ -545,3 +615,53 @@ class TestMalformedReplies:
         assert len(list((topic_dir / "done").iterdir())) == 2
         assert "malformed gateway reply" in caplog.text
         assert GATEWAY_TEXT_SENTINEL not in caplog.text
+
+
+class TestOverallRequestDeadline:
+    """A queue call that never returns must not hold the chat request past the client timeout."""
+
+    @pytest.mark.parametrize("hang_on", ["publish", "consume"])
+    async def test_hung_queue_call_raises_queue_timeout(
+        self, hang_on: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(gateway_module, "TIMEOUT_BACKSTOP_GRACE_SECONDS", 0.2)
+        client = GatewayClient(
+            request_queue=_HangingQueue(hang=hang_on == "publish"),
+            response_queue=_HangingQueue(hang=hang_on == "consume"),
+            timeout_seconds=0.05,
+        )
+        async with asyncio.timeout(5):
+            with pytest.raises(QueueTimeoutError):
+                await client.complete(
+                    settings=_settings(),
+                    messages=[{"role": "user", "content": "hi"}],
+                )
+
+    async def test_normal_timeout_does_not_cancel_the_in_flight_read(self):
+        response_queue = _SlowReadQueue()
+        client = GatewayClient(
+            request_queue=_HangingQueue(hang=False),
+            response_queue=response_queue,
+            timeout_seconds=0.05,
+        )
+        async with asyncio.timeout(2):
+            with pytest.raises(QueueTimeoutError):
+                await client.complete(
+                    settings=_settings(),
+                    messages=[{"role": "user", "content": "hi"}],
+                )
+        assert response_queue.reads >= 1
+        assert response_queue.cancelled is False
+
+    async def test_queue_timeout_error_from_the_backend_is_not_relabelled(self):
+        client = GatewayClient(
+            request_queue=_HangingQueue(hang=False),
+            response_queue=_RaisingReadQueue(),
+            timeout_seconds=5,
+        )
+        with pytest.raises(TimeoutError) as exc_info:
+            await client.complete(
+                settings=_settings(),
+                messages=[{"role": "user", "content": "hi"}],
+            )
+        assert not isinstance(exc_info.value, QueueTimeoutError)
