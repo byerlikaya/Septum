@@ -17,8 +17,8 @@ from .config import AuditConfig
 from .consumer import AuditConsumer
 from .events import LedgerIntegrityError
 from .retention import RetentionPolicy, pin_ahead_seconds
-from .status import RetentionStatus, write_status
 from .sink import JsonlFileSink
+from .status import RetentionStatus, write_status
 
 logger = logging.getLogger(__name__)
 

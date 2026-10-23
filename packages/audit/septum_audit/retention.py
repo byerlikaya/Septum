@@ -11,7 +11,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any, Iterator
 
-from .anchor import RetentionAnchor, accepted_links, anchor_path, new_anchor, read_anchor, write_anchor
+from .anchor import (
+    RetentionAnchor,
+    accepted_links,
+    anchor_path,
+    new_anchor,
+    read_anchor,
+    write_anchor,
+)
 from .events import (
     GENESIS_PREV_HASH,
     AuditRecord,
@@ -21,7 +28,7 @@ from .events import (
     parse_record,
     short_id,
 )
-from .fsutil import nonblank, create_tmp, fsync_dir, locked, open_ledger_file, sibling
+from .fsutil import create_tmp, fsync_dir, locked, nonblank, open_ledger_file, sibling
 
 _RECORD_FIELDS = frozenset(f.name for f in dataclasses.fields(AuditRecord))
 _READ_BLOCK = 1 << 20
