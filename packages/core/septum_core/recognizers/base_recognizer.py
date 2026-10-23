@@ -16,7 +16,11 @@ from typing import Callable, Final, List, Optional
 from presidio_analyzer import Pattern, PatternRecognizer, RecognizerResult
 from presidio_analyzer.nlp_engine import NlpArtifacts
 
+from ..text_boundaries import word_bounded
+
 logger = logging.getLogger(__name__)
+
+EMAIL_PATTERN: Final[str] = word_bounded(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[A-Za-z]{2,}")
 
 
 @dataclass(frozen=True)

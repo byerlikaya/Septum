@@ -11,7 +11,11 @@ from typing import List
 
 from presidio_analyzer import EntityRecognizer
 
-from ..base_recognizer import RegexPatternConfig, ValidatedPatternRecognizer
+from ..base_recognizer import (
+    EMAIL_PATTERN,
+    RegexPatternConfig,
+    ValidatedPatternRecognizer,
+)
 
 
 def _tax_file_number_recognizer() -> EntityRecognizer:
@@ -43,7 +47,7 @@ def _email_recognizer() -> EntityRecognizer:
         entity_type="EMAIL_ADDRESS",
         config=RegexPatternConfig(
             name="australia_pa_email",
-            pattern=r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[A-Za-z]{2,}\b",
+            pattern=EMAIL_PATTERN,
             score=0.8,
         ),
     )
