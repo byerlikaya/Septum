@@ -357,6 +357,8 @@ export interface AuditEvent {
   event_type: string;
   session_id: string | null;
   document_id: number | null;
+  /** Current name of the referenced document; null when none is referenced or it was deleted. */
+  document_name: string | null;
   regulation_ids: string[];
   entity_types_detected: Record<string, number>;
   entity_count: number;
