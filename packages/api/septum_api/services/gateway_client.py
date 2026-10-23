@@ -59,6 +59,10 @@ ORPHAN_AGE_TIMEOUT_MULTIPLIER = 2
 # (``RedisStreamsQueueBackend.from_url``: 30 s), or the read itself fails;
 # the wait loop re-issues reads until the client deadline.
 MAX_BLOCK_MS = 25_000
+# Slack after the client deadline before the backstop cancels a queue call that stalls.
+# The client enforces its own deadline, so the backstop only fires when a call never
+# returns; a cancelled queue call returns promptly.
+TIMEOUT_BACKSTOP_GRACE_SECONDS = 2.0
 GATEWAY_FAILED_MESSAGE = "The gateway could not complete the language model call."
 GATEWAY_INVALID_REPLY_MESSAGE = "The gateway returned an unusable reply."
 
@@ -132,9 +136,17 @@ class GatewayClient:
         envelope = self._build_envelope(
             settings, list(messages), temperature, max_tokens
         )
-        await self._request_queue.publish(envelope.to_dict())
-
-        response = await self._await_response(envelope.correlation_id)
+        deadline = time.monotonic() + self._timeout_seconds
+        try:
+            async with asyncio.timeout_at(
+                deadline + TIMEOUT_BACKSTOP_GRACE_SECONDS
+            ) as backstop:
+                await self._request_queue.publish(envelope.to_dict())
+                response = await self._await_response(envelope.correlation_id, deadline)
+        except TimeoutError:
+            if not backstop.expired():
+                raise
+            raise self._timeout_error(envelope.correlation_id) from None
         if response.error is not None:
             logger.warning("Gateway reported a failed provider call")
             raise LLMRouterError(GATEWAY_FAILED_MESSAGE, code=LLM_UNAVAILABLE)
@@ -166,7 +178,7 @@ class GatewayClient:
             max_tokens=max_tokens,
         )
 
-    async def _await_response(self, correlation_id: str) -> ResponseEnvelope:
+    async def _await_response(self, correlation_id: str, deadline: float) -> ResponseEnvelope:
         """Consume the response topic until we see our correlation id.
 
         Replies for other in-flight requests are re-queued so another
@@ -177,7 +189,6 @@ class GatewayClient:
         dropped too. Each blocking read is capped at ``max_block_ms`` so it
         ends before the queue client's socket timeout.
         """
-        deadline = time.monotonic() + self._timeout_seconds
         while True:
             remaining_ms = int((deadline - time.monotonic()) * 1000)
             if remaining_ms <= 0:
@@ -206,7 +217,11 @@ class GatewayClient:
                 await self._response_queue.nack(message.id, requeue=True)
                 await asyncio.sleep(0.01)
 
-        raise QueueTimeoutError(
+        raise self._timeout_error(correlation_id)
+
+    def _timeout_error(self, correlation_id: str) -> QueueTimeoutError:
+        """Build the timeout raised when no reply arrives within the client deadline."""
+        return QueueTimeoutError(
             f"gateway did not reply within {self._timeout_seconds}s "
             f"(correlation_id={correlation_id})"
         )
