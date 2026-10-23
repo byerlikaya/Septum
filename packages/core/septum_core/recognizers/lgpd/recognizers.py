@@ -13,7 +13,11 @@ from typing import List
 
 from presidio_analyzer import EntityRecognizer
 
-from ..base_recognizer import RegexPatternConfig, ValidatedPatternRecognizer
+from ..base_recognizer import (
+    EMAIL_PATTERN,
+    RegexPatternConfig,
+    ValidatedPatternRecognizer,
+)
 
 # FUTURE: move to DB. Single hard-coded context preamble for the
 # Brazilian civil-identity document (Registro Geral).
@@ -69,7 +73,7 @@ def _email_recognizer() -> EntityRecognizer:
         entity_type="EMAIL_ADDRESS",
         config=RegexPatternConfig(
             name="lgpd_email",
-            pattern=r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[A-Za-z]{2,}\b",
+            pattern=EMAIL_PATTERN,
             score=0.8,
         ),
     )

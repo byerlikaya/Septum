@@ -10,6 +10,7 @@ These functions are stateless and operate on lists of ``DetectedSpan`` objects.
 from typing import List, Set
 
 from .spans import DetectedSpan
+from .text_boundaries import is_script_break
 
 # Entity-type priority used as a tiebreaker inside ``_dedup_simple``.
 # Higher number wins when two spans cover exactly the same offsets.
@@ -156,13 +157,13 @@ def expand_person_name_spans(
         return spans
 
     def _find_token_start(idx: int) -> int:
-        while idx > 0 and not text[idx - 1].isspace():
+        while idx > 0 and not text[idx - 1].isspace() and not is_script_break(text, idx):
             idx -= 1
         return idx
 
     def _find_token_end(idx: int) -> int:
         n = len(text)
-        while idx < n and not text[idx].isspace():
+        while idx < n and not text[idx].isspace() and not is_script_break(text, idx):
             idx += 1
         return idx
 

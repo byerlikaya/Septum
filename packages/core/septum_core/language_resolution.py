@@ -76,6 +76,12 @@ class _ScriptRule:
     implied_language: Optional[str] = None
     min_share: float = MIN_SCRIPT_SHARE
     min_span_len: Optional[int] = None
+    # False for scripts written without spaces between words: a word
+    # boundary there falls between any two glyphs (see text_boundaries).
+    inter_word_spaces: bool = True
+    # True where NER recall is near zero, so an NER hit snaps to the whole
+    # unspaced run around it instead of the glyph edge.
+    snap_whole_run: bool = False
 
 
 # When several scripts are present, a script with fewer compatible
@@ -103,12 +109,15 @@ _SCRIPT_RULES: Dict[str, _ScriptRule] = {
         # short Japanese phrase ("血圧計の電池交換方法") is about 10% kana.
         min_share=0.1,
         min_span_len=2,
+        inter_word_spaces=False,
     ),
     "Thai": _ScriptRule(
         ranges=((0x0E00, 0x0E7F),),
         implied_language="th",
         compatible_languages=frozenset({"th"}),
         min_span_len=2,
+        inter_word_spaces=False,
+        snap_whole_run=True,
     ),
     "Han": _ScriptRule(
         ranges=(
@@ -118,6 +127,7 @@ _SCRIPT_RULES: Dict[str, _ScriptRule] = {
         implied_language="zh",
         compatible_languages=frozenset({"zh", "ja", "ko"}),
         min_span_len=2,
+        inter_word_spaces=False,
     ),
     "Greek": _ScriptRule(
         ranges=((0x0370, 0x03FF), (0x1F00, 0x1FFF)),
@@ -204,6 +214,28 @@ _SCRIPT_PATTERNS: Dict[str, re.Pattern[str]] = {
     )
     for script, rule in _SCRIPT_RULES.items()
 }
+
+
+def unspaced_script_ranges() -> Tuple[Tuple[int, int], ...]:
+    """Code-point ranges of the table scripts written without spaces between words."""
+    return tuple(
+        span
+        for rule in _SCRIPT_RULES.values()
+        if not rule.inter_word_spaces
+        for span in rule.ranges
+    )
+
+
+_WHOLE_RUN_PATTERNS: Tuple[re.Pattern[str], ...] = tuple(
+    _SCRIPT_PATTERNS[script]
+    for script, rule in _SCRIPT_RULES.items()
+    if rule.snap_whole_run
+)
+
+
+def snaps_whole_run(text: str) -> bool:
+    """Whether ``text`` contains a script whose NER spans snap to the whole unspaced run."""
+    return any(pattern.search(text) for pattern in _WHOLE_RUN_PATTERNS)
 
 
 def _required_scripts() -> Dict[str, FrozenSet[str]]:

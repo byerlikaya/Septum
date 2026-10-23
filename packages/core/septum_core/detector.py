@@ -24,7 +24,7 @@ imports any network client, so it can run inside an air-gapped zone.
 import logging
 import re
 import threading
-from typing import Dict, List, Optional
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
 from presidio_analyzer import AnalyzerEngine, EntityRecognizer, RecognizerResult
 
@@ -32,7 +32,11 @@ from .anonymization_map import SANITIZER_STOPWORDS, AnonymizationMap
 from .config import SeptumCoreConfig
 from .date_grammar import find_dates
 from .date_grammar import warm_up as warm_up_date_grammar
-from .language_resolution import canonical_language_code, script_min_span_length
+from .language_resolution import (
+    canonical_language_code,
+    script_min_span_length,
+    snaps_whole_run,
+)
 from .model_integrity import ModelIntegrityError
 from .national_ids import IBANValidator
 from .ner_model_registry import NERModelRegistry
@@ -47,6 +51,13 @@ from .span_processing import (
 )
 from .spans import DetectedSpan, ResolvedSpan, SanitizeResult
 from .suffix_list import use_bundled_suffix_list
+from .text_boundaries import (
+    is_unspaced_char,
+    snap_between,
+    snap_span,
+    space_boundaries,
+    word_count,
+)
 from .text_utils import normalize_for_comparison, normalize_unicode
 
 use_bundled_suffix_list()
@@ -205,6 +216,20 @@ _NER_MIN_SPAN_LEN_PER_LANGUAGE: Dict[str, int] = {
     "ko": 2,
     "th": 2,
 }
+
+# A single unspaced glyph tagged as a person (e.g. the surname in "老王")
+# passes the span-length floor only at this confidence.
+# Trade-off: a lone glyph the model scores lower (明 of 小明 at 0.85) is dropped.
+_NER_SINGLE_GLYPH_PERSON_MIN_SCORE = 0.95
+
+class _NerGroup(NamedTuple):
+    """One raw NER group after label mapping and the score floor."""
+
+    entity_type: str
+    start: int
+    end: int
+    score: float
+
 
 _UPPER_WORD_RE = re.compile(r"\b\w{2,}\b")
 
@@ -1701,21 +1726,49 @@ class Detector:
         return spans
 
     @staticmethod
-    def _snap_to_word_boundaries(text: str, start: int, end: int) -> tuple[int, int]:
-        """Expand a span to cover the full word(s) it touches.
+    def _merge_touching_ner_groups(
+        raw_results: List[dict],
+    ) -> List[_NerGroup]:
+        """Map and score-filter raw NER groups, then join same-type groups that touch.
 
-        Subword-tokenisation models can produce spans that begin or end
-        mid-word (e.g. "kara" inside "Ankara"). This helper expands the
-        boundaries outward to the nearest whitespace / punctuation so the
-        replacement never breaks a word.
+        A model can tag the glyphs of one name as separate groups (B-PER,
+        B-PER for a two-glyph name); joined, the name clears the span-length
+        floor that each glyph alone would fail. The joined group keeps the
+        higher score. Empty groups (``end <= start``) are dropped.
         """
-        _BOUNDARY_CHARS = frozenset(" \t\n\r.,;:!?()[]{}\"'/-")
-        while start > 0 and text[start - 1] not in _BOUNDARY_CHARS:
-            start -= 1
-        n = len(text)
-        while end < n and text[end] not in _BOUNDARY_CHARS:
-            end += 1
-        return start, end
+        groups: List[_NerGroup] = []
+        for item in raw_results:
+            start, end = int(item["start"]), int(item["end"])
+            if end <= start:
+                continue
+            entity = item.get("entity_group") or item.get("entity")
+            if not entity:
+                continue
+            entity_type = Detector._map_ner_label(entity)
+            if entity_type is None:
+                continue
+            score = float(item.get("score", 0.0))
+            if score < _NER_MIN_SCORE_PER_TYPE.get(entity_type, _NER_DEFAULT_MIN_SCORE):
+                continue
+            groups.append(_NerGroup(entity_type, start, end, score))
+
+        merged: List[_NerGroup] = []
+        for group in sorted(groups, key=lambda g: (g.start, g.end)):
+            last = merged[-1] if merged else None
+            if last is not None and last.entity_type == group.entity_type and last.end == group.start:
+                merged[-1] = last._replace(end=group.end, score=max(last.score, group.score))
+            else:
+                merged.append(group)
+        return merged
+
+    @staticmethod
+    def _snap(
+        text: str, start: int, end: int, whole_run: bool, boundaries: List[int]
+    ) -> Tuple[int, int]:
+        """Snap a span to the whole unspaced run (``boundaries`` from ``space_boundaries``) or to its word edges."""
+        if whole_run:
+            return snap_between(boundaries, len(text), start, end)
+        return snap_span(text, start, end)
 
     @staticmethod
     def _from_ner_results(
@@ -1736,7 +1789,13 @@ class Detector:
         Thai — names routinely run 2–3 glyphs, e.g. "李明", "王芳") keeps
         that floor in a document of any language. Other spans use the
         document language's floor, 3 characters by default (Latin scripts
-        produce too many 2-letter false positives otherwise).
+        produce too many 2-letter false positives otherwise). Touching
+        same-type groups are joined first; a lone unspaced glyph passes as a
+        person only at ``_NER_SINGLE_GLYPH_PERSON_MIN_SCORE``.
+
+        A group in a script flagged ``snap_whole_run`` in the script table
+        snaps to the whole unspaced run and counts words by whitespace. The
+        choice follows the script of the group, not the document language.
 
         LOCATION entities pass through a conservative multi-word-or-high-
         score gate (same shape as ORGANIZATION_NAME) to drop the locale-
@@ -1746,30 +1805,27 @@ class Detector:
         language_floor = _NER_MIN_SPAN_LEN_PER_LANGUAGE.get(
             canonical_language_code(language), _NER_DEFAULT_MIN_SPAN_LEN
         )
+        groups = Detector._merge_touching_ner_groups(raw_results)
+        ascii_text = text.isascii()
+        whole_runs = [
+            not ascii_text and snaps_whole_run(text[start:end])
+            for _, start, end, _ in groups
+        ]
+        boundaries = space_boundaries(text) if any(whole_runs) else []
         spans: List[DetectedSpan] = []
-        for item in raw_results:
-            entity = item.get("entity_group") or item.get("entity")
-            start = int(item["start"])
-            end = int(item["end"])
-            score = float(item.get("score", 0.0))
-            if not entity:
-                continue
-            entity_type = Detector._map_ner_label(entity)
-            if entity_type is None:
-                continue
-
-            min_score = _NER_MIN_SCORE_PER_TYPE.get(
-                entity_type, _NER_DEFAULT_MIN_SCORE
-            )
-            if score < min_score:
-                continue
-
-            start, end = Detector._snap_to_word_boundaries(text, start, end)
+        for (entity_type, start, end, score), whole_run in zip(groups, whole_runs):
+            start, end = Detector._snap(text, start, end, whole_run, boundaries)
 
             span_text = text[start:end].strip()
             script_floor = script_min_span_length(span_text)
             min_span_len = script_floor if script_floor is not None else language_floor
-            if len(span_text) < min_span_len:
+            single_glyph_person = (
+                entity_type == "PERSON_NAME"
+                and len(span_text) == 1
+                and is_unspaced_char(span_text)
+                and score >= _NER_SINGLE_GLYPH_PERSON_MIN_SCORE
+            )
+            if len(span_text) < min_span_len and not single_glyph_person:
                 continue
 
             single_word_floor = _NER_SINGLE_WORD_MIN_SCORE_PER_TYPE.get(
@@ -1780,10 +1836,8 @@ class Detector:
                 # German form headers, …) are the dominant FP shape for
                 # multilingual XLM-RoBERTa on ORG/LOC. Multi-word spans
                 # bypass; single tokens must clear a higher floor.
-                if (
-                    len(span_text.split()) < 2
-                    and score < single_word_floor
-                ):
+                words = len(span_text.split()) if whole_run else word_count(span_text)
+                if words < 2 and score < single_word_floor:
                     continue
 
             spans.append(
