@@ -6,7 +6,7 @@ All functions commit in a separate session so audit failures never block
 the main request pipeline. Raw PII values are never stored — only entity
 type names, counts, and masked placeholder examples. Documents are named
 by id only: their filename (which can carry personal data) is resolved at
-read time by the audit router.
+read time by the audit router. Chat questions are not stored, not even masked.
 """
 
 import logging
@@ -55,7 +55,6 @@ async def log_pii_detected(
     total_count: int,
     session_id: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
-    masked_query: Optional[str] = None,
     placeholder_samples: Optional[List[str]] = None,
 ) -> Optional[AuditEvent]:
     """Record a PII detection event (document upload or chat query).
@@ -66,8 +65,6 @@ async def log_pii_detected(
     audit log entry to the exact highlighted entities.
     """
     merged_extra: Dict[str, Any] = dict(extra or {})
-    if masked_query:
-        merged_extra["masked_query"] = masked_query[:200]
     if placeholder_samples:
         merged_extra["placeholder_samples"] = placeholder_samples[:5]
 
