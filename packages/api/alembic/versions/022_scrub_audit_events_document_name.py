@@ -47,7 +47,8 @@ _SQLITE = (
     "UPDATE audit_events SET extra = json_remove(extra, '$.document_name') "
     "WHERE CASE WHEN json_valid(extra) THEN json_type(extra, '$.document_name') END IS NOT NULL"
 )
-# One pass per duplicate ``document_name`` key in a single row.
+# Passes that may still change rows (one per duplicate ``document_name`` key in a single row);
+# one more pass confirms nothing is left.
 _SQLITE_MAX_PASSES = 100
 
 
@@ -118,7 +119,7 @@ def upgrade() -> None:
     if bind.dialect.name == "postgresql":
         scrub_postgres(bind)
     else:
-        for _ in range(_SQLITE_MAX_PASSES):
+        for _ in range(_SQLITE_MAX_PASSES + 1):
             if bind.execute(sa.text(_SQLITE)).rowcount == 0:
                 return
         raise RuntimeError(

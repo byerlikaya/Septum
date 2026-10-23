@@ -823,7 +823,6 @@ export const enMessages = {
   "audit.card.types": "types",
   "audit.card.total": "total",
   "audit.card.events": "events",
-  "audit.card.maskedQuery": "Your question was sent to the LLM as",
   "audit.card.focusEntities": "Focus on these entities",
   "audit.card.focusEntitiesHint": "Open the document with only this event's detected entities highlighted",
 

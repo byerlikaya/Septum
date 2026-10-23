@@ -838,7 +838,6 @@ export const trMessages: Record<string, string> = {
   "audit.card.types": "tür",
   "audit.card.total": "toplam",
   "audit.card.events": "olay",
-  "audit.card.maskedQuery": "Sorunuz LLM'e şu şekilde gönderildi",
   "audit.card.focusEntities": "Bu varlıklara odaklan",
   "audit.card.focusEntitiesHint": "Dokümanı yalnızca bu olayın tespit ettiği varlıklar vurgulanmış şekilde aç",
 

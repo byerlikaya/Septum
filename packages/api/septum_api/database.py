@@ -30,7 +30,7 @@ from .env_flags import (
 )
 from .models import Base
 from .models.api_key import ApiKey
-from .models.audit_event import AuditEvent
+from .models.audit_event import RETIRED_AUDIT_EXTRA_KEYS, AuditEvent
 from .models.chat_session import ChatMessage, ChatSession
 from .models.document import Chunk, Document
 from .models.document_relationship import DocumentRelationship
@@ -237,7 +237,7 @@ async def init_db() -> None:
             await conn.run_sync(Base.metadata.create_all)
         await _sqlite_ensure_columns(eng)
         await _sqlite_ensure_indexes(eng)
-        await _sqlite_scrub_audit_document_names(eng)
+        await _sqlite_scrub_retired_audit_keys(eng)
         await _sqlite_purge_orphan_child_rows(eng)
 
     await _seed_defaults(sm)
@@ -411,32 +411,36 @@ async def _sqlite_ensure_indexes(eng: AsyncEngine) -> None:
             await conn.execute(text(ddl))
 
 
-# One pass per duplicate ``document_name`` key in a single row.
+# Passes that may still change rows (one per duplicate retired key in a single row);
+# one more pass confirms nothing is left.
 _AUDIT_SCRUB_MAX_PASSES = 100
 
 
-async def _sqlite_scrub_audit_document_names(eng: AsyncEngine) -> None:
-    """Remove the ``document_name`` key that older audit events stored in ``extra``.
+async def _sqlite_scrub_retired_audit_keys(eng: AsyncEngine) -> None:
+    """Remove the retired keys older audit events stored in ``extra``.
 
-    Filenames can carry personal data, so audit events no longer store
-    them (the audit router resolves the current name at read time). Other
-    ``extra`` keys are kept. Idempotent: only rows still holding the key
-    are rewritten; rows whose ``extra`` is not valid JSON are left alone so
-    one bad row cannot stop startup. ``json_remove`` drops only the first of
-    duplicate keys, so the update repeats until no row changes. The
-    PostgreSQL counterpart is Alembic revision 022.
+    Other ``extra`` keys are kept. Idempotent: only rows still holding a
+    retired key are rewritten; rows whose ``extra`` is not valid JSON are
+    left alone so one bad row cannot stop startup. ``json_remove`` drops
+    only the first of duplicate keys, so the update repeats until no row
+    changes. The PostgreSQL counterparts are Alembic revisions 022 and 023.
     """
+    # Static SQL; the JSON paths are bound. ``strict`` fails loudly if a key
+    # is added to RETIRED_AUDIT_EXTRA_KEYS without a placeholder here.
+    paths = dict(
+        zip(("p0", "p1"), (f"$.{key}" for key in sorted(RETIRED_AUDIT_EXTRA_KEYS)), strict=True)
+    )
     scrub = text(
-        "UPDATE audit_events SET extra = json_remove(extra, '$.document_name') "
+        "UPDATE audit_events SET extra = json_remove(extra, :p0, :p1) "
         "WHERE CASE WHEN json_valid(extra) "
-        "THEN json_type(extra, '$.document_name') END IS NOT NULL"
+        "THEN json_type(extra, :p0) IS NOT NULL OR json_type(extra, :p1) IS NOT NULL END"
     )
     async with eng.begin() as conn:
-        for _ in range(_AUDIT_SCRUB_MAX_PASSES):
-            if (await conn.execute(scrub)).rowcount == 0:
+        for _ in range(_AUDIT_SCRUB_MAX_PASSES + 1):
+            if (await conn.execute(scrub, paths)).rowcount == 0:
                 return
     raise RuntimeError(
-        f"audit_events still hold document_name after {_AUDIT_SCRUB_MAX_PASSES} scrub passes; "
+        f"audit_events still hold retired keys after {_AUDIT_SCRUB_MAX_PASSES} scrub passes; "
         "inspect or repair the rows, then restart"
     )
 
