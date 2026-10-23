@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 
 import pytest
+from audit_scrub_cases import SCRUB_ROWS
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, select, text
@@ -284,6 +285,45 @@ async def test_sqlite_startup_scrub_removes_only_the_name_and_is_idempotent(
     ]
     assert after_rerun[3] == "not json"
     assert after_rerun == before_rerun
+
+
+# The shared cases plus malformed text, which only SQLite can hold.
+_RAW_SQLITE_ROWS = [(stored, sqlite) for stored, _, sqlite in SCRUB_ROWS] + [("not json", "not json")]
+
+
+async def test_sqlite_startup_scrub_matches_the_shared_cases(engine) -> None:
+    async with engine.begin() as conn:
+        for stored, _ in _RAW_SQLITE_ROWS:
+            await conn.execute(
+                text(
+                    "INSERT INTO audit_events (created_at, event_type, regulation_ids, "
+                    "entity_types_detected, entity_count, extra) "
+                    "VALUES ('2026-01-01', 'pii_detected', '[]', '{}', 0, :extra)"
+                ),
+                {"extra": stored},
+            )
+
+    for _ in range(2):
+        await database._sqlite_scrub_audit_document_names(engine)
+        async with engine.connect() as conn:
+            stored = (await conn.execute(text("SELECT extra FROM audit_events ORDER BY id"))).scalars().all()
+        assert stored == [expected for _, expected in _RAW_SQLITE_ROWS]
+
+
+async def test_sqlite_startup_scrub_raises_instead_of_stopping_with_names_left(
+    engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(database, "_AUDIT_SCRUB_MAX_PASSES", 1)
+    async with engine.begin() as conn:
+        await conn.execute(text(
+            "INSERT INTO audit_events (created_at, event_type, regulation_ids, "
+            "entity_types_detected, entity_count, extra) VALUES ('2026-01-01', 'pii_detected', "
+            "'[]', '{}', 0, '{\"document_name\":\"Jane\",\"document_name\":\"Doe\"}')"
+        ))
+
+    with pytest.raises(RuntimeError) as raised:
+        await database._sqlite_scrub_audit_document_names(engine)
+    assert "Jane" not in str(raised.value) and "Doe" not in str(raised.value)
 
 
 async def test_init_db_scrubs_stale_names_on_sqlite(
