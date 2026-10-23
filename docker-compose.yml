@@ -265,7 +265,7 @@ services:
     ports:
       - "${SEPTUM_AUDIT_BIND:-127.0.0.1}:8002:8002"
     volumes:
-      - septum-audit-log:/var/log/septum
+      - septum-audit-log:/var/log/septum:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health')"]

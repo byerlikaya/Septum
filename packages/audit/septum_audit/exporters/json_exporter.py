@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Iterable, Iterator
 
-from ..events import AuditRecord
+from ..events import AuditRecord, dumps_safe
 from .base import BaseExporter
 
 
@@ -14,4 +14,6 @@ class JsonExporter(BaseExporter):
 
     def iter_chunks(self, records: Iterable[AuditRecord]) -> Iterator[str]:
         for record in records:
-            yield record.to_json() + "\n"
+            # Strict JSON: non-finite numbers from legacy lines are rendered as strings.
+            # No depth cap: an export must reproduce what was stored.
+            yield dumps_safe(record.to_dict(), max_depth=None) + "\n"
