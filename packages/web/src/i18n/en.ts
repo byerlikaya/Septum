@@ -817,6 +817,7 @@ export const enMessages = {
   "audit.eventDesc.document_language_changed": "The processing language of a document was changed.",
   "audit.eventDesc.regulation_changed": "Privacy regulation settings were activated or deactivated.",
   "audit.card.document": "Document",
+  "audit.card.deletedDocument": "Deleted document #{id}",
   "audit.card.entitiesFound": "entities detected",
   "audit.card.details": "Entity breakdown",
   "audit.card.types": "types",

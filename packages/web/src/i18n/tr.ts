@@ -832,6 +832,7 @@ export const trMessages: Record<string, string> = {
   "audit.eventDesc.document_language_changed": "Bir dokümanın işleme dili değiştirildi.",
   "audit.eventDesc.regulation_changed": "Gizlilik regülasyonu ayarları etkinleştirildi veya devre dışı bırakıldı.",
   "audit.card.document": "Doküman",
+  "audit.card.deletedDocument": "Silinmiş doküman #{id}",
   "audit.card.entitiesFound": "varlık tespit edildi",
   "audit.card.details": "Varlık dökümü",
   "audit.card.types": "tür",

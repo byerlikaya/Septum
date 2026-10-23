@@ -321,7 +321,6 @@ class DocumentPipeline:
                     "language": language,
                     "language_source": language_source,
                 },
-                document_name=document.original_filename,
                 placeholder_samples=placeholder_samples,
             )
             if audit_event is not None and detection_rows:
