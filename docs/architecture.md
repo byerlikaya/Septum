@@ -510,7 +510,7 @@ Septum does not load a model just because its name resolves on Hugging Face. Eac
 Septum maintains an **append-only audit trail** for GDPR, KVKK, and other regulation compliance:
 
 - **Events tracked:** PII detection (per entity type and count), placeholder restoration (de-anonymisation), document upload/delete, regulation changes.
-- **No document text stored:** Audit events record entity type names and counts, never original values or document text. They hold the document id, not its file name; the audit view resolves the current name at read time and shows "Deleted document #id" if the document no longer exists.
+- **No document text stored:** Audit events record entity type names and counts, never original values or document text. They hold the document id, not its file name, and never the chat question; the audit view resolves the current name at read time and shows "Deleted document #id" if the document no longer exists.
 - **Entity provenance link:** each `EntityDetection` row carries an `audit_event_id` FK back to the `AuditEvent` that produced it, so the dashboard can jump from a log entry to the exact entities it covered.
 - **REST API:**
   - `GET /api/audit` — paginated, filterable by event type, document, session, date range, and **entity type** (matches events whose linked detections include the given type via an `EXISTS` correlated subquery on `entity_detections.audit_event_id`).

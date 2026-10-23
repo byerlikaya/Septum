@@ -122,7 +122,7 @@ kazanır.
 
 Salt-ekleme uyumluluk günlüğü ve varlık tespit metrikleri. Denetim
 olaylarında doküman metni yoktur — varlık tipi, adet, regülasyon id ve
-zaman damgası tutulur; dosya adı tutulmaz, denetim görünümü dokümanın güncel adını, doküman silinmişse "Silinmiş doküman #id" ifadesini gösterir. `/api/audit/export` üzerinden JSON / CSV /
+zaman damgası tutulur; dosya adı ve sohbet sorusu tutulmaz, denetim görünümü dokümanın güncel adını, doküman silinmişse "Silinmiş doküman #id" ifadesini gösterir. `/api/audit/export` üzerinden JSON / CSV /
 Splunk HEC export alabilirsiniz.
 
 ---

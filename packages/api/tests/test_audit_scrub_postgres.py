@@ -15,7 +15,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from audit_scrub_cases import REWRITTEN, SCRUB_ROWS
+from audit_scrub_cases import MASKED_QUERY_ROWS, REWRITTEN, SCRUB_ROWS
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -26,23 +26,20 @@ POSTGRES_URL = os.getenv("SEPTUM_TEST_POSTGRES_URL", "")
 
 pytestmark = pytest.mark.skipif(not POSTGRES_URL, reason="SEPTUM_TEST_POSTGRES_URL not set")
 
-_REVISION = (
-    Path(__file__).resolve().parents[1]
-    / "alembic"
-    / "versions"
-    / "022_scrub_audit_events_document_name.py"
-)
+_VERSIONS = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+_DOCUMENT_NAME = "022_scrub_audit_events_document_name.py"
+_MASKED_QUERY = "023_scrub_audit_events_masked_query.py"
 
 
-def _revision():
-    spec = importlib.util.spec_from_file_location("revision_022", _REVISION)
+def _revision(filename: str):
+    spec = importlib.util.spec_from_file_location(filename.removesuffix(".py"), _VERSIONS / filename)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-async def _scrub(db, batch: int | None = None) -> int:
-    module = _revision()
+async def _scrub(db, batch: int | None = None, filename: str = _DOCUMENT_NAME) -> int:
+    module = _revision(filename)
     if batch is not None:
         module._BATCH = batch
     return await db.run_sync(lambda session: module.scrub_postgres(session.connection()))
@@ -131,6 +128,35 @@ async def test_postgres_scrub_aborts_on_a_row_beyond_the_parser_depth_limit(sess
 
         with pytest.raises(RuntimeError) as raised:
             await _scrub(db)
+        message = str(raised.value)
+        assert message.startswith("audit event ") and "re-run the upgrade" in message
+        assert "Jane" not in message
+
+
+@pytest.mark.parametrize("batch", [None, 2])
+async def test_postgres_masked_query_scrub_after_022_and_idempotent(session_maker, batch):
+    """022 then 023, as on a real upgrade: no retired key is left, everything else stays."""
+    async with session_maker() as db:
+        await _insert(db, [stored for stored, _, _ in MASKED_QUERY_ROWS])
+
+        await _scrub(db, batch)
+        rewritten = await _scrub(db, batch, _MASKED_QUERY)
+        await db.commit()
+        after_first = await _stored(db)
+        assert await _scrub(db, batch, _MASKED_QUERY) == 0
+        await db.commit()
+
+        assert rewritten == 12
+        assert after_first == [postgres for _, postgres, _ in MASKED_QUERY_ROWS]
+        assert await _stored(db) == after_first
+
+
+async def test_postgres_masked_query_scrub_aborts_beyond_the_parser_depth_limit(session_maker):
+    async with session_maker() as db:
+        await _insert(db, ['{"masked_query": "Hi Jane", "d": ' + _nested(12_000) + "}"])
+
+        with pytest.raises(RuntimeError) as raised:
+            await _scrub(db, filename=_MASKED_QUERY)
         message = str(raised.value)
         assert message.startswith("audit event ") and "re-run the upgrade" in message
         assert "Jane" not in message

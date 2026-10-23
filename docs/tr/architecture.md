@@ -405,7 +405,7 @@ Septum, bir modelin adı Hugging Face'te çözülüyor diye o modeli yüklemez. 
 Septum, GDPR, KVKK ve diğer regülasyon uyumluluğu için **salt-ekleme denetim kaydı** tutar:
 
 - **İzlenen olaylar:** PII tespiti (varlık tipi ve sayısı bazında), placeholder geri yazma, doküman yükleme ve silme, regülasyon değişiklikleri.
-- **Doküman metni saklanmaz:** Denetim olayları yalnızca varlık tipi adlarını ve sayılarını kaydeder; orijinal değerleri ve doküman metnini asla içermez. Olaylar dosya adını değil doküman id'sini tutar; denetim görünümü güncel adı okuma anında çözer, doküman artık yoksa "Silinmiş doküman #id" gösterir.
+- **Doküman metni saklanmaz:** Denetim olayları yalnızca varlık tipi adlarını ve sayılarını kaydeder; orijinal değerleri ve doküman metnini asla içermez. Olaylar dosya adını değil doküman id'sini tutar, sohbet sorusunu hiçbir zaman tutmaz; denetim görünümü güncel adı okuma anında çözer, doküman artık yoksa "Silinmiş doküman #id" gösterir.
 - **Entity köken bağlantısı:** her `EntityDetection` satırı, onu üreten `AuditEvent`'a `audit_event_id` FK'ıyla bağlıdır; böylece dashboard bir audit log girdisinden tam o olayın kapsadığı entity'lere sıçrayabilir.
 - **REST API:**
   - `GET /api/audit` — sayfalı; olay tipi, doküman, oturum, tarih aralığı ve **entity tipi** bazında filtrelenebilir (entity tipi filtresi `entity_detections.audit_event_id` üzerinde `EXISTS` correlated subquery ile çalışır).

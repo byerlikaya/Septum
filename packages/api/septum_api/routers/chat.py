@@ -1679,11 +1679,6 @@ async def chat_ask(
                     total_count=entity_count,
                     session_id=session_id,
                     extra={"source": "chat_query"},
-                    masked_query=(
-                        sanitized_query
-                        if sanitized_query != request.message
-                        else None
-                    ),
                 )
 
             if rag_mode == "none":

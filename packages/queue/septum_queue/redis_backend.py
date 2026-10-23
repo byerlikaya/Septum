@@ -29,7 +29,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, AsyncIterator, Mapping
 
-from .base import QueueBackend, QueueError
+from .base import MAX_ENTRY_BYTES, QueueBackend, QueueError
 from .models import Message
 
 logger = logging.getLogger(__name__)
@@ -271,7 +271,10 @@ class RedisStreamsQueueBackend(QueueBackend):
             payload, reason = _decode_payload(fields)
             if payload is None:
                 logger.warning(
-                    "Dropping malformed entry %s from %s: %s", raw_id, self._stream, reason
+                    "Dropping malformed entry %s from %s: %s",
+                    repr(raw_id)[:64],
+                    self._stream,
+                    reason,
                 )
                 malformed.append(raw_id)
                 continue
@@ -344,11 +347,13 @@ def _decode_payload(fields) -> tuple[dict | None, str]:
     data = (fields.get(b"data") or fields.get("data")) if hasattr(fields, "get") else None
     if data is None:
         return None, "missing data field"
+    if len(data) > MAX_ENTRY_BYTES:
+        return None, "data exceeds the entry size limit"
     try:
         text = data.decode("utf-8") if isinstance(data, bytes) else str(data)
         payload = json.loads(text)
-    except (UnicodeDecodeError, ValueError):
-        return None, "data is not UTF-8 JSON"
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+        return None, type(exc).__name__
     if not isinstance(payload, dict):
         return None, "data is not a JSON object"
     return payload, ""

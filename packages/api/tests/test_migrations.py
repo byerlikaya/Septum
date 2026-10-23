@@ -18,7 +18,7 @@ import pytest
 import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
-from audit_scrub_cases import SCRUB_ROWS
+from audit_scrub_cases import CAP_VALUES, MASKED_QUERY_ROWS, SCRUB_ROWS, duplicated
 
 import septum_api.models as models_package
 from septum_api.database import REGISTERED_MODELS
@@ -267,7 +267,8 @@ def test_revision_022_scrubs_audit_document_names_idempotently(
 
     assert after_upgrade == scrubbed
     assert after_downgrade == scrubbed
-    assert after_reupgrade == scrubbed
+    # Head includes 023, which removes masked_query too.
+    assert after_reupgrade == [{"source": "chat_query"}, *scrubbed[1:]]
 
 
 def test_revision_022_matches_the_shared_cases_on_sqlite(
@@ -297,21 +298,49 @@ def test_revision_022_matches_the_shared_cases_on_sqlite(
     assert after_rerun == after_first
 
 
-def test_revision_022_raises_instead_of_stopping_with_names_left_on_sqlite(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    db_path = tmp_path / "at_021_cap.db"
+_CAP_REVISIONS = pytest.mark.parametrize(
+    ("previous", "filename", "key"),
+    [
+        ("021", "022_scrub_audit_events_document_name.py", "document_name"),
+        ("022", "023_scrub_audit_events_masked_query.py", "masked_query"),
+    ],
+)
+
+
+def _capped_revision(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, previous: str, filename: str):
+    """Migrate a fresh SQLite database to ``previous``; load ``filename`` with its cap at 2."""
+    db_path = tmp_path / f"at_{previous}_cap.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
-    command.upgrade(_alembic_config(), "021")
-    spec = importlib.util.spec_from_file_location(
-        "revision_022", _API_ROOT / "alembic" / "versions" / "022_scrub_audit_events_document_name.py"
-    )
+    command.upgrade(_alembic_config(), previous)
+    spec = importlib.util.spec_from_file_location(filename, _API_ROOT / "alembic" / "versions" / filename)
     revision = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(revision)
-    monkeypatch.setattr(revision, "_SQLITE_MAX_PASSES", 1)
-    engine = sa.create_engine(f"sqlite:///{db_path}")
+    monkeypatch.setattr(revision, "_SQLITE_MAX_PASSES", 2)
+    return revision, sa.create_engine(f"sqlite:///{db_path}")
+
+
+@_CAP_REVISIONS
+def test_revision_sqlite_removes_duplicates_up_to_the_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, previous: str, filename: str, key: str
+) -> None:
+    revision, engine = _capped_revision(tmp_path, monkeypatch, previous, filename)
     with engine.begin() as conn:
-        _insert_audit_extras(conn, ['{"document_name":"Jane","document_name":"Doe"}'])
+        _insert_audit_extras(conn, [duplicated(key, 2)])
+        monkeypatch.setattr(revision, "op", SimpleNamespace(get_bind=lambda: conn))
+        revision.upgrade()
+        stored = conn.execute(sa.text("SELECT extra FROM audit_events")).scalar_one()
+    engine.dispose()
+
+    assert stored == '{"k":1}'
+
+
+@_CAP_REVISIONS
+def test_revision_sqlite_raises_past_the_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, previous: str, filename: str, key: str
+) -> None:
+    revision, engine = _capped_revision(tmp_path, monkeypatch, previous, filename)
+    with engine.begin() as conn:
+        _insert_audit_extras(conn, [duplicated(key, 3)])
         monkeypatch.setattr(revision, "op", SimpleNamespace(get_bind=lambda: conn))
         with pytest.raises(RuntimeError) as raised:
             revision.upgrade()
@@ -319,7 +348,40 @@ def test_revision_022_raises_instead_of_stopping_with_names_left_on_sqlite(
 
     message = str(raised.value)
     assert "re-run the upgrade" in message
-    assert "Jane" not in message and "Doe" not in message
+    assert not any(value in message for value in CAP_VALUES)
+
+
+def test_revision_023_matches_the_shared_cases_on_sqlite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rows stored before 022, then 022 and 023 run, as on a real upgrade."""
+    rows = [(stored, sqlite) for stored, _, sqlite in MASKED_QUERY_ROWS] + [("not json", "not json")]
+    db_path = tmp_path / "at_021_cases_023.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.upgrade(cfg, "021")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        _insert_audit_extras(conn, [stored for stored, _ in rows])
+
+    def stored() -> list[str]:
+        with engine.connect() as conn:
+            return conn.execute(sa.text("SELECT extra FROM audit_events ORDER BY id")).scalars().all()
+
+    command.upgrade(cfg, "023")
+    after_first = stored()
+    command.stamp(cfg, "022")
+    command.upgrade(cfg, "023")
+    after_rerun = stored()
+    command.downgrade(cfg, "022")
+    after_downgrade = stored()
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+    engine.dispose()
+
+    assert after_first == [expected for _, expected in rows]
+    assert after_rerun == after_first
+    assert after_downgrade == after_first
 
 
 @pytest.mark.skipif(
