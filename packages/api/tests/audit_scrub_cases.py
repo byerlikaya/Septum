@@ -1,11 +1,11 @@
 """Stored ``audit_events.extra`` texts and what each scrub must leave behind.
 
-Shared by the SQLite startup scrub, Alembic revision 022 on SQLite and
-revision 022 on PostgreSQL. Each row is ``(stored, postgres, sqlite)``: the
+Shared by the SQLite startup scrub and Alembic revisions 022 and 023 on
+SQLite and PostgreSQL. Each row is ``(stored, postgres, sqlite)``: the
 raw json text inserted, then the exact text expected after each engine's
 scrub. PostgreSQL rewrites in Python (spaced separators, ASCII-escaped
 strings); SQLite's ``json_remove`` writes compact text and keeps raw
-characters. Rows without a top-level ``document_name`` stay byte-for-byte.
+characters. Rows without a top-level retired key stay byte-for-byte.
 """
 
 from __future__ import annotations
@@ -59,3 +59,24 @@ SCRUB_ROWS: list[tuple[str, str, str]] = [
 ]
 
 REWRITTEN = sum(1 for stored, postgres, _ in SCRUB_ROWS if stored != postgres)
+
+# The same cases for revision 023, with the key substituted, plus one row
+# holding both retired keys. Expected text is what 022 then 023 leave, as on
+# a real upgrade; the SQLite startup scrub removes both keys at once.
+MASKED_QUERY_ROWS: list[tuple[str, str, str]] = [
+    tuple(text.replace("document_name", "masked_query") for text in row) for row in SCRUB_ROWS
+] + [
+    (
+        '{"document_name": "Jane.pdf", "source": "chat_query", "masked_query": "q", "z": 2}',
+        '{"source": "chat_query", "z": 2}',
+        '{"source":"chat_query","z":2}',
+    ),
+]
+
+# Values a pass-cap error message must never repeat.
+CAP_VALUES = ("Jane", "Doe", "Roe")
+
+
+def duplicated(key: str, count: int) -> str:
+    """A stored ``extra`` text repeating ``key`` ``count`` times, then ``"k": 1``."""
+    return "{" + ",".join(f'"{key}":"{value}"' for value in CAP_VALUES[:count]) + ',"k":1}'
