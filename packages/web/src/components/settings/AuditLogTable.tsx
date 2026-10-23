@@ -99,7 +99,8 @@ function accentBorder(type: string): string {
 function EventCard({ event, t, onViewDocument }: { event: AuditEvent; t: ReturnType<typeof useI18n>; onViewDocument?: (documentId: number, auditEventId?: number) => void }) {
   const [expanded, setExpanded] = useState(false);
   const extra = event.extra || {};
-  const docName = extra.document_name as string | undefined;
+  const docName = event.document_name
+    ?? (event.document_id ? t("audit.card.deletedDocument", { id: event.document_id }) : undefined);
   const source = extra.source as string | undefined;
   const maskedQuery = extra.masked_query as string | undefined;
   const placeholderSamples = extra.placeholder_samples as string[] | undefined;
@@ -119,34 +120,32 @@ function EventCard({ event, t, onViewDocument }: { event: AuditEvent; t: ReturnT
         const entitySummary = entities
           .map(([type, count]) => `${count} ${type.toLowerCase().replace(/_/g, " ")}`)
           .join(", ");
+        const entityText = entitySummary || String(event.entity_count);
         if (source === "chat_query") {
           return docName
-            ? t("audit.desc.piiChat").replace("{doc}", docName).replace("{entities}", entitySummary || String(event.entity_count))
-            : t("audit.desc.piiChatNoDoc").replace("{entities}", entitySummary || String(event.entity_count));
+            ? t("audit.desc.piiChat", { doc: docName, entities: entityText })
+            : t("audit.desc.piiChatNoDoc", { entities: entityText });
         }
         return docName
-          ? t("audit.desc.piiDoc").replace("{doc}", docName).replace("{entities}", entitySummary || String(event.entity_count))
-          : t("audit.desc.piiDocGeneric").replace("{count}", String(event.entity_count));
+          ? t("audit.desc.piiDoc", { doc: docName, entities: entityText })
+          : t("audit.desc.piiDocGeneric", { count: event.entity_count });
       }
       case "deanonymization_performed":
         return docName
-          ? t("audit.desc.deanon").replace("{doc}", docName).replace("{count}", String(event.entity_count)).replace("{strategy}", strategy || "simple")
-          : t("audit.desc.deanonGeneric").replace("{count}", String(event.entity_count));
+          ? t("audit.desc.deanon", { doc: docName, count: event.entity_count, strategy: strategy || "simple" })
+          : t("audit.desc.deanonGeneric", { count: event.entity_count });
       case "document_uploaded":
-        return docName
-          ? t("audit.desc.uploaded").replace("{doc}", docName)
-          : t("audit.desc.uploadedGeneric");
+        return docName ? t("audit.desc.uploaded", { doc: docName }) : t("audit.desc.uploadedGeneric");
       case "document_deleted":
-        return docName
-          ? t("audit.desc.deleted").replace("{doc}", docName)
-          : t("audit.desc.deletedGeneric");
+        return docName ? t("audit.desc.deleted", { doc: docName }) : t("audit.desc.deletedGeneric");
       case "document_language_changed":
-        return t("audit.desc.languageChanged")
-          .replace("{previous}", previousOverride || t("audit.desc.languageAutomatic"))
-          .replace("{new}", newOverride || t("audit.desc.languageAutomatic"));
+        return t("audit.desc.languageChanged", {
+          previous: previousOverride || t("audit.desc.languageAutomatic"),
+          new: newOverride || t("audit.desc.languageAutomatic"),
+        });
       case "regulation_changed":
         return regs.length > 0
-          ? t("audit.desc.regChanged").replace("{regs}", regs.join(", "))
+          ? t("audit.desc.regChanged", { regs: regs.join(", ") })
           : t("audit.desc.regChangedGeneric");
       default:
         return "";

@@ -7,7 +7,7 @@ delete operations are exposed.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -16,22 +16,34 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.audit_event import AuditEvent
+from ..models.document import Document
 from ..models.entity_detection import EntityDetection
 from ..models.user import User
 from ..utils.auth_dependency import require_role
-from .documents import EntityDetectionListResponse, EntityDetectionResponse
+from .documents import (
+    EntityDetectionListResponse,
+    EntityDetectionResponse,
+    _scope_to_owner,
+)
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
 
 class AuditEventResponse(BaseModel):
-    """Serialized audit event for API responses."""
+    """Serialized audit event for API responses.
+
+    ``document_name`` is the referenced document's current name, looked up
+    when the event is read (events never store it). It is ``None`` when the
+    event names no document (``document_id`` 0 or ``None``) or when that
+    document no longer exists.
+    """
 
     id: int
     created_at: datetime
     event_type: str
     session_id: Optional[str]
     document_id: Optional[int]
+    document_name: Optional[str] = None
     regulation_ids: List[str]
     entity_types_detected: Dict[str, int]
     entity_count: int
@@ -77,7 +89,7 @@ async def list_audit_events(
     date_to: Optional[datetime] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    _user: User = Depends(require_role("admin")),
+    user: User = Depends(require_role("admin")),
 ) -> AuditListResponse:
     """List audit events with optional filters and pagination."""
     stmt = select(AuditEvent)
@@ -115,7 +127,7 @@ async def list_audit_events(
     events = result.scalars().all()
 
     return AuditListResponse(
-        items=[_to_response(e) for e in events],
+        items=await _to_responses(db, events, user),
         total=total,
         page=page,
         page_size=page_size,
@@ -126,7 +138,7 @@ async def list_audit_events(
 async def get_document_compliance_report(
     document_id: int,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    user: User = Depends(require_role("admin")),
 ) -> ComplianceReportResponse:
     """Generate a compliance report for a specific document."""
     stmt = (
@@ -156,7 +168,7 @@ async def get_document_compliance_report(
         total_entities_detected=total_entities,
         entity_type_breakdown=type_breakdown,
         regulation_ids_used=sorted(regulation_ids),
-        events=[_to_response(e) for e in events],
+        events=await _to_responses(db, events, user),
     )
 
 
@@ -189,7 +201,7 @@ async def get_event_entity_detections(
 async def get_session_audit(
     session_id: str,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    user: User = Depends(require_role("admin")),
 ) -> List[AuditEventResponse]:
     """Get all audit events for a chat session."""
     stmt = (
@@ -199,7 +211,7 @@ async def get_session_audit(
     )
     result = await db.execute(stmt)
     events = result.scalars().all()
-    return [_to_response(e) for e in events]
+    return await _to_responses(db, events, user)
 
 
 class DetectionMetricsResponse(BaseModel):
@@ -273,15 +285,47 @@ async def get_detection_metrics(
     )
 
 
-def _to_response(event: AuditEvent) -> AuditEventResponse:
+async def _to_responses(
+    db: AsyncSession,
+    events: Sequence[AuditEvent],
+    user: User,
+) -> List[AuditEventResponse]:
+    """Serialize events with their documents' current names, in one query.
+
+    The lookup is scoped like the documents endpoints, so a caller only
+    learns names of documents it may see; deleted documents get no name.
+    """
+    ids = {e.document_id for e in events if e.document_id}
+    names: Dict[int, str] = {}
+    if ids:
+        stmt = _scope_to_owner(
+            select(Document.id, Document.original_filename).where(Document.id.in_(ids)),
+            user,
+        )
+        names = dict((await db.execute(stmt)).all())
+    return [_to_response(e, names) for e in events]
+
+
+_RETIRED_EXTRA_KEY = "document_name"
+
+
+def _public_extra(extra: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Drop a filename the scrub skipped (malformed JSON, or 022 not yet applied)."""
+    if isinstance(extra, dict) and _RETIRED_EXTRA_KEY in extra:
+        return {k: v for k, v in extra.items() if k != _RETIRED_EXTRA_KEY}
+    return extra
+
+
+def _to_response(event: AuditEvent, names: Dict[int, str]) -> AuditEventResponse:
     return AuditEventResponse(
         id=event.id,
         created_at=event.created_at,
         event_type=event.event_type,
         session_id=event.session_id,
         document_id=event.document_id,
+        document_name=names.get(event.document_id),
         regulation_ids=event.regulation_ids or [],
         entity_types_detected=event.entity_types_detected or {},
         entity_count=event.entity_count,
-        extra=event.extra,
+        extra=_public_extra(event.extra),
     )

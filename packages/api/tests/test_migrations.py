@@ -7,14 +7,18 @@ at a throwaway database; the test leaves it migrated to head.
 from __future__ import annotations
 
 import importlib
+import importlib.util
+import json
 import os
 import pkgutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
+from audit_scrub_cases import SCRUB_ROWS
 
 import septum_api.models as models_package
 from septum_api.database import REGISTERED_MODELS
@@ -192,6 +196,7 @@ def test_revision_021_replaces_single_column_document_index_and_is_reversible(
 
     command.stamp(cfg, "020")
     command.upgrade(cfg, "021")
+    command.upgrade(cfg, "head")
     command.check(cfg)
     after_rerun = indexes()
 
@@ -210,6 +215,111 @@ def test_revision_021_replaces_single_column_document_index_and_is_reversible(
     assert single not in after_rerun and after_rerun[composite] == composite_columns
     assert after_downgrade[single] == ["document_id"] and composite not in after_downgrade
     assert single not in after_reupgrade and after_reupgrade[composite] == composite_columns
+
+
+def _insert_audit_extras(conn: sa.Connection, extras: list[str | None]) -> None:
+    for extra in extras:
+        conn.execute(
+            sa.text(
+                "INSERT INTO audit_events (created_at, event_type, regulation_ids, "
+                "entity_types_detected, entity_count, extra) "
+                "VALUES ('2026-01-01', 'pii_detected', '[]', '{}', 0, :extra)"
+            ),
+            {"extra": extra},
+        )
+
+
+def _audit_extras(conn: sa.Connection) -> list[dict | None]:
+    rows = conn.execute(sa.text("SELECT extra FROM audit_events ORDER BY id")).scalars()
+    return [None if raw is None else json.loads(raw) for raw in rows]
+
+
+def test_revision_022_scrubs_audit_document_names_idempotently(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "at_021.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.upgrade(cfg, "021")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        _insert_audit_extras(conn, [
+            json.dumps({"document_name": "Jane Doe CV.pdf", "source": "chat_query", "masked_query": "q"}),
+            json.dumps({"document_name": None, "strategy": "simple"}),
+            json.dumps({"strategy": "simple"}),
+            None,
+        ])
+    scrubbed = [{"source": "chat_query", "masked_query": "q"}, {"strategy": "simple"}, {"strategy": "simple"}, None]
+
+    command.upgrade(cfg, "022")
+    with engine.connect() as conn:
+        after_upgrade = _audit_extras(conn)
+    command.stamp(cfg, "021")
+    command.upgrade(cfg, "022")
+    command.downgrade(cfg, "021")
+    with engine.connect() as conn:
+        after_downgrade = _audit_extras(conn)
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+    with engine.connect() as conn:
+        after_reupgrade = _audit_extras(conn)
+    engine.dispose()
+
+    assert after_upgrade == scrubbed
+    assert after_downgrade == scrubbed
+    assert after_reupgrade == scrubbed
+
+
+def test_revision_022_matches_the_shared_cases_on_sqlite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rows = [(stored, sqlite) for stored, _, sqlite in SCRUB_ROWS] + [("not json", "not json")]
+    db_path = tmp_path / "at_021_cases.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.upgrade(cfg, "021")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        _insert_audit_extras(conn, [stored for stored, _ in rows])
+
+    def stored() -> list[str]:
+        with engine.connect() as conn:
+            return conn.execute(sa.text("SELECT extra FROM audit_events ORDER BY id")).scalars().all()
+
+    command.upgrade(cfg, "022")
+    after_first = stored()
+    command.stamp(cfg, "021")
+    command.upgrade(cfg, "022")
+    after_rerun = stored()
+    engine.dispose()
+
+    assert after_first == [expected for _, expected in rows]
+    assert after_rerun == after_first
+
+
+def test_revision_022_raises_instead_of_stopping_with_names_left_on_sqlite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "at_021_cap.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    command.upgrade(_alembic_config(), "021")
+    spec = importlib.util.spec_from_file_location(
+        "revision_022", _API_ROOT / "alembic" / "versions" / "022_scrub_audit_events_document_name.py"
+    )
+    revision = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(revision)
+    monkeypatch.setattr(revision, "_SQLITE_MAX_PASSES", 1)
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        _insert_audit_extras(conn, ['{"document_name":"Jane","document_name":"Doe"}'])
+        monkeypatch.setattr(revision, "op", SimpleNamespace(get_bind=lambda: conn))
+        with pytest.raises(RuntimeError) as raised:
+            revision.upgrade()
+    engine.dispose()
+
+    message = str(raised.value)
+    assert "re-run the upgrade" in message
+    assert "Jane" not in message and "Doe" not in message
 
 
 @pytest.mark.skipif(
