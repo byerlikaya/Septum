@@ -155,3 +155,13 @@ def document(count: int, name_at: list[int] | None = None) -> tuple[str, list[tu
         offsets.append((pos, pos + len(token)))
         pos += len(token) + 1
     return text, offsets
+
+
+class StubRegistry:
+    """Hands the detector one fixed pipeline for every language."""
+
+    def __init__(self, pipe) -> None:
+        self._pipe = pipe
+
+    def get_pipelines(self, language: str) -> list:
+        return [self._pipe]

@@ -159,19 +159,9 @@ _SEMANTIC_VALIDATION_PASSTHROUGH_TYPES: frozenset[str] = frozenset(
     }
 )
 
-# Minimum text length before the NER layer kicks in. The threshold
-# was originally 50 to avoid transformer hallucinations on tiny page
-# fragments, but that silently disabled NER on chat queries (typically
-# 20–40 chars), so a question like "Ahmet Çelik Antalya'da mı oturuyor?"
-# left ``query_entries=0`` in the anon_map, the entity-routing layer
-# had nothing to match against the index, and the auto-RAG intent
-# classifier was free to wrongly tag the turn as a general-chat
-# request — RAG never ran and the LLM answered from its own knowledge.
-# Lowering the floor to 20 keeps the noise guard for sub-20-char
-# fragments (where NER mis-fires are common) while restoring
-# entity detection on short user questions.
-_MIN_TEXT_LENGTH_FOR_NER = 20
-_MIN_TEXT_LENGTH_FOR_SEMANTIC_ALIAS = 80
+# The semantic alias layer resolves later mentions of an entity, which needs
+# a few sentences; twelve words is about 80 characters of Latin prose.
+_MIN_WORDS_FOR_SEMANTIC_ALIAS = 12
 
 # Per-entity-type minimum confidence for keeping a transformer NER
 # detection. Septum is privacy-first: an over-redaction is a recoverable
@@ -1399,6 +1389,7 @@ class Detector:
             return SanitizeResult(sanitized_text=text, entity_count=0)
 
         normalized_text = normalize_unicode(text)
+        stripped = normalized_text.strip()
         spans: List[DetectedSpan] = []
 
         if self._config.use_presidio_layer:
@@ -1413,9 +1404,9 @@ class Detector:
             )
             spans.extend(self._from_presidio_results(presidio_results))
 
-        text_len = len(normalized_text.strip())
-
-        if self._config.use_ner_layer and text_len >= _MIN_TEXT_LENGTH_FOR_NER:
+        # NER runs on text of any length: a short chat question or chunk can
+        # hold a name, and any length floor would leave it raw.
+        if self._config.use_ner_layer and stripped:
             ner_pipelines = self._ner_registry.get_pipelines(language)
             titlecased = _titlecase_upper_segments(normalized_text)
             ner_spans: List[DetectedSpan] = []
@@ -1479,7 +1470,7 @@ class Detector:
         if (
             self._config.use_semantic_detection
             and port_enabled
-            and text_len >= _MIN_TEXT_LENGTH_FOR_SEMANTIC_ALIAS
+            and word_count(stripped) >= _MIN_WORDS_FOR_SEMANTIC_ALIAS
         ):
             try:
                 semantic_spans = self._semantic_port.detect_aliases(
