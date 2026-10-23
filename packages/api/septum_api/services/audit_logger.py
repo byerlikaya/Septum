@@ -4,7 +4,9 @@ from __future__ import annotations
 
 All functions commit in a separate session so audit failures never block
 the main request pipeline. Raw PII values are never stored — only entity
-type names, counts, and masked placeholder examples.
+type names, counts, and masked placeholder examples. Documents are named
+by id only: their filename (which can carry personal data) is resolved at
+read time by the audit router.
 """
 
 import logging
@@ -53,7 +55,6 @@ async def log_pii_detected(
     total_count: int,
     session_id: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
-    document_name: Optional[str] = None,
     masked_query: Optional[str] = None,
     placeholder_samples: Optional[List[str]] = None,
 ) -> Optional[AuditEvent]:
@@ -64,9 +65,7 @@ async def log_pii_detected(
     this is the provenance trail the dashboard uses to jump from an
     audit log entry to the exact highlighted entities.
     """
-    merged_extra: Dict[str, Any] = extra or {}
-    if document_name:
-        merged_extra["document_name"] = document_name
+    merged_extra: Dict[str, Any] = dict(extra or {})
     if masked_query:
         merged_extra["masked_query"] = masked_query[:200]
     if placeholder_samples:
@@ -93,13 +92,8 @@ async def log_deanonymization(
     entity_count: int,
     strategy: str,
     session_id: Optional[str] = None,
-    document_name: Optional[str] = None,
 ) -> None:
     """Record a de-anonymization event."""
-    extra: Dict[str, Any] = {"strategy": strategy}
-    if document_name:
-        extra["document_name"] = document_name
-
     await _persist(
         db,
         AuditEvent(
@@ -109,7 +103,7 @@ async def log_deanonymization(
             regulation_ids=[],
             entity_types_detected={},
             entity_count=entity_count,
-            extra=extra,
+            extra={"strategy": strategy},
         ),
     )
 
@@ -118,7 +112,6 @@ def build_document_event(
     *,
     document_id: int,
     event_type: str,
-    document_name: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
 ) -> AuditEvent:
     """Build, without persisting, a document event for the caller's transaction.
@@ -126,16 +119,13 @@ def build_document_event(
     For changes whose audit row must commit or fail together with the
     change itself; unlike :func:`log_document_event` nothing is swallowed.
     """
-    merged_extra: Dict[str, Any] = dict(extra or {})
-    if document_name:
-        merged_extra["document_name"] = document_name
     return AuditEvent(
         event_type=event_type,
         document_id=document_id,
         regulation_ids=[],
         entity_types_detected={},
         entity_count=0,
-        extra=merged_extra,
+        extra=dict(extra or {}),
     )
 
 
@@ -164,7 +154,6 @@ async def log_document_event(
     *,
     document_id: int,
     event_type: str,
-    document_name: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Record a document lifecycle event (uploaded, deleted)."""
@@ -173,7 +162,6 @@ async def log_document_event(
         build_document_event(
             document_id=document_id,
             event_type=event_type,
-            document_name=document_name,
             extra=extra,
         ),
     )
