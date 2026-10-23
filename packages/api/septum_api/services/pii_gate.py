@@ -183,17 +183,36 @@ def _original_alternative(original: str) -> str:
     return f"{before}{escaped}{after}"
 
 
-def mask_known_entities(text: str, anon_map: AnonymizationMap) -> str:
-    """Mask every original ``anon_map`` knows, then apply its token blocklist.
+class KnownEntityMasker:
+    """Mask known originals of one anonymization map across many texts.
 
-    Deterministic, no model inference. Existing placeholders are left intact
-    even when a short original (for example a word also used as an entity
-    type name) occurs inside them.
+    The masking state is built on the first text that needs it and reused for
+    the rest. Each call checks it with :meth:`_MaskState.is_current`, so a map
+    changed between calls is picked up without a stale mask.
     """
-    if not text:
-        return text
-    masked = _mask_known_originals(text, _MaskState(anon_map))
-    return anon_map.apply_blocklist(masked, language=anon_map.language)
+
+    def __init__(self, anon_map: AnonymizationMap) -> None:
+        self._anon_map = anon_map
+        self._state: Optional[_MaskState] = None
+
+    def mask(self, text: str) -> str:
+        """Mask every original the map knows, then apply its token blocklist.
+
+        Deterministic, no model inference. Existing placeholders are left intact
+        even when a short original (for example a word also used as an entity
+        type name) occurs inside them.
+        """
+        if not text:
+            return text
+        if self._state is None or not self._state.is_current(self._anon_map):
+            self._state = _MaskState(self._anon_map)
+        masked = _mask_known_originals(text, self._state)
+        return self._anon_map.apply_blocklist(masked, language=self._anon_map.language)
+
+
+def mask_known_entities(text: str, anon_map: AnonymizationMap) -> str:
+    """Mask one ``text`` against ``anon_map``; see :meth:`KnownEntityMasker.mask`."""
+    return KnownEntityMasker(anon_map).mask(text)
 
 
 def _outside_ranges(
@@ -490,6 +509,7 @@ __all__ = [
     "DocumentGoneError",
     "DocumentMapConflictError",
     "DocumentMapMissingError",
+    "KnownEntityMasker",
     "all_placeholders_known",
     "gate_document_texts",
     "gate_untrusted_texts",

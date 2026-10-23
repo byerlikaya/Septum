@@ -210,3 +210,59 @@ async def test_concurrent_gate_calls_match_each_call_run_alone() -> None:
         assert out_b == alone_b
         assert map_a.entity_map == {"Alpha Co": "[ORGANIZATION_1]"}
         assert map_b.entity_map == {"Beta Co": "[LOCATION_1]"}
+
+
+def _second_document_map() -> AnonymizationMap:
+    amap = AnonymizationMap(document_id=1, language="en")
+    amap.add_entity("Acme Corp", "ORGANIZATION")
+    amap.add_entity("Acme", "ORGANIZATION")
+    amap.add_entity("Jane Roe", "PERSON_NAME")
+    amap.add_entity("3/15", "DATE")
+    return amap
+
+
+_CHUNK_TEXTS = [
+    "Acme Corp and Acme met Jane Roe Jr on 13/150 and 3/15.",
+    "Jane Roe Jr only, plus Person101 and Acct1234.",
+    "No known values here.",
+    "",
+    "Acme Corp Holdings and 3/15 again.",
+]
+
+
+def test_masker_compiles_originals_pattern_once_for_many_chunks(
+    compile_calls: list[int],
+) -> None:
+    masker = pii_gate.KnownEntityMasker(_overlapping_map())
+    texts = [f"Acme Corp, Jane Roe and 3/15 in chunk {i}." for i in range(20)]
+
+    masked = [masker.mask(text) for text in texts]
+
+    assert len(compile_calls) == 1
+    assert masked == [pii_gate.mask_known_entities(t, _overlapping_map()) for t in texts]
+
+
+def test_masker_matches_per_chunk_masking_across_two_document_maps() -> None:
+    maps = {0: _overlapping_map(), 1: _second_document_map()}
+    reference_maps = {0: _overlapping_map(), 1: _second_document_map()}
+    maskers: dict[int, pii_gate.KnownEntityMasker] = {}
+    chunk_plan = [(doc_id, text) for text in _CHUNK_TEXTS for doc_id in (0, 1)] * 3
+
+    for doc_id, text in chunk_plan:
+        masker = maskers.setdefault(id(maps[doc_id]), pii_gate.KnownEntityMasker(maps[doc_id]))
+        expected = pii_gate.mask_known_entities(text, reference_maps[doc_id])
+        assert masker.mask(text) == expected
+
+    assert maps[0].entity_map == reference_maps[0].entity_map
+    assert maps[1].entity_map == reference_maps[1].entity_map
+
+
+def test_masker_picks_up_entities_added_between_calls(compile_calls: list[int]) -> None:
+    amap = _overlapping_map()
+    masker = pii_gate.KnownEntityMasker(amap)
+
+    assert masker.mask("Plain text with Acme Corp.") == "Plain text with [ORGANIZATION_2]."
+    placeholder = amap.add_entity("Zed Q", "PERSON_NAME")
+    assert masker.mask("Zed Q and Acme Corp.") == f"{placeholder} and [ORGANIZATION_2]."
+
+    assert len(compile_calls) == 2
