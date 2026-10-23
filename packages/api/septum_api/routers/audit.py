@@ -15,7 +15,7 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models.audit_event import AuditEvent
+from ..models.audit_event import AuditEvent, without_retired_keys
 from ..models.document import Document
 from ..models.entity_detection import EntityDetection
 from ..models.user import User
@@ -306,16 +306,6 @@ async def _to_responses(
     return [_to_response(e, names) for e in events]
 
 
-_RETIRED_EXTRA_KEY = "document_name"
-
-
-def _public_extra(extra: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Drop a filename the scrub skipped (malformed JSON, or 022 not yet applied)."""
-    if isinstance(extra, dict) and _RETIRED_EXTRA_KEY in extra:
-        return {k: v for k, v in extra.items() if k != _RETIRED_EXTRA_KEY}
-    return extra
-
-
 def _to_response(event: AuditEvent, names: Dict[int, str]) -> AuditEventResponse:
     return AuditEventResponse(
         id=event.id,
@@ -327,5 +317,6 @@ def _to_response(event: AuditEvent, names: Dict[int, str]) -> AuditEventResponse
         regulation_ids=event.regulation_ids or [],
         entity_types_detected=event.entity_types_detected or {},
         entity_count=event.entity_count,
-        extra=_public_extra(event.extra),
+        # Legacy rows the scrub skipped (malformed JSON, or 022/023 not yet applied).
+        extra=without_retired_keys(event.extra),
     )

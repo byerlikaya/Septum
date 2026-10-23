@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 
 import pytest
-from audit_scrub_cases import SCRUB_ROWS
+from audit_scrub_cases import CAP_VALUES, MASKED_QUERY_ROWS, SCRUB_ROWS, duplicated
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, select, text
@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from septum_api import database
 from septum_api.database import get_db
 from septum_api.models import Base
-from septum_api.models.audit_event import AuditEvent
+from septum_api.models.audit_event import RETIRED_AUDIT_EXTRA_KEYS, AuditEvent
 from septum_api.models.document import Document
 from septum_api.models.user import User
 from septum_api.routers import audit as audit_router
@@ -40,28 +40,33 @@ _BUILDERS = (
 )
 
 
+_RETIRED_KEYS = sorted(RETIRED_AUDIT_EXTRA_KEYS)
+
+
+@pytest.mark.parametrize("key", _RETIRED_KEYS)
 @pytest.mark.parametrize("name", _BUILDERS)
-def test_builders_take_no_document_name(name: str) -> None:
-    assert "document_name" not in inspect.signature(getattr(audit_logger, name)).parameters
+def test_builders_take_no_retired_key(name: str, key: str) -> None:
+    assert key not in inspect.signature(getattr(audit_logger, name)).parameters
 
 
-# Files allowed to name the retired key: the read-side strip and the scrub.
-_KEY_ALLOWED = {Path("routers/audit.py"), Path("database.py")}
+# The one file allowed to spell the retired keys: where they are defined.
+_KEY_ALLOWED = {Path("models/audit_event.py")}
 
 
-def test_no_writer_names_a_document_name_key() -> None:
+@pytest.mark.parametrize("key", _RETIRED_KEYS)
+def test_no_writer_names_a_retired_key(key: str) -> None:
     offenders = []
     for path in _API_SOURCE.rglob("*.py"):
         relative = path.relative_to(_API_SOURCE)
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Constant) and node.value == "document_name":
+            if isinstance(node, ast.Constant) and node.value == key:
                 if relative not in _KEY_ALLOWED:
                     offenders.append(f"{relative}:{node.lineno}")
             elif isinstance(node, ast.Call):
                 func = node.func
                 called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
                 if called in _BUILDERS + ("AuditEvent",) and any(
-                    k.arg == "document_name" for k in node.keywords
+                    k.arg == key for k in node.keywords
                 ):
                     offenders.append(f"{relative}:{node.lineno}")
     assert offenders == []
@@ -113,8 +118,9 @@ def _document(name: str) -> Document:
 async def _seed(session_maker) -> tuple[int, int]:
     """Store a live and a deleted document plus events naming each, id 0 and none.
 
-    The second live event still carries a stale ``extra.document_name``, as
-    a row the scrub has not reached would.
+    The second live event still carries stale ``extra.document_name`` and
+    ``extra.masked_query`` keys, as a row the scrub has not reached would; it
+    is inserted as raw SQL because the model drops those keys on write.
     """
     async with session_maker() as db:
         live, gone = _document("renamed.pdf"), _document("gone.pdf")
@@ -125,11 +131,18 @@ async def _seed(session_maker) -> tuple[int, int]:
             db.add(audit_logger.build_document_event(
                 document_id=document_id, event_type="document_uploaded", extra={"k": "v"},
             ))
-        db.add(AuditEvent(
-            event_type="pii_detected", document_id=live_id, regulation_ids=[],
-            entity_types_detected={}, entity_count=0,
-            extra={"k": "v", "document_name": "Jane Doe CV.pdf"},
-        ))
+        await db.flush()
+        await db.execute(
+            text(
+                "INSERT INTO audit_events (created_at, event_type, document_id, regulation_ids, "
+                "entity_types_detected, entity_count, extra) "
+                "VALUES ('2026-01-01', 'pii_detected', :doc, '[]', '{}', 0, :extra)"
+            ),
+            {
+                "doc": live_id,
+                "extra": json.dumps({"k": "v", "document_name": "Jane Doe CV.pdf", "masked_query": "Hi [PERSON_1]"}),
+            },
+        )
         await db.delete(gone)
         await db.commit()
     return live_id, gone_id
@@ -243,52 +256,10 @@ async def test_report_and_session_endpoints_return_null_without_a_live_document(
     ]
 
 
-async def test_sqlite_startup_scrub_removes_only_the_name_and_is_idempotent(
-    engine, session_maker
-) -> None:
-    async with session_maker() as db:
-        db.add_all([
-            AuditEvent(
-                event_type="pii_detected", document_id=1, regulation_ids=[],
-                entity_types_detected={}, entity_count=1,
-                extra={"document_name": "Jane Doe CV.pdf", "source": "document_ingestion", "language": "en"},
-            ),
-            AuditEvent(
-                event_type="regulation_changed", regulation_ids=[],
-                entity_types_detected={}, entity_count=0, extra={"action": "activated"},
-            ),
-            AuditEvent(
-                event_type="regulation_changed", regulation_ids=[],
-                entity_types_detected={}, entity_count=0, extra=None,
-            ),
-        ])
-        await db.commit()
-    async with engine.begin() as conn:
-        await conn.execute(text(
-            "INSERT INTO audit_events (created_at, event_type, regulation_ids, "
-            "entity_types_detected, entity_count, extra) "
-            "VALUES ('2026-01-01', 'pii_detected', '[]', '{}', 0, 'not json')"
-        ))
-
-    await database._sqlite_scrub_audit_document_names(engine)
-    async with engine.connect() as conn:
-        before_rerun = (await conn.execute(text("SELECT extra FROM audit_events ORDER BY id"))).scalars().all()
-    await database._sqlite_scrub_audit_document_names(engine)
-    async with engine.connect() as conn:
-        after_rerun = (await conn.execute(text("SELECT extra FROM audit_events ORDER BY id"))).scalars().all()
-
-    assert [None if raw in (None, "not json") else json.loads(raw) for raw in after_rerun] == [
-        {"source": "document_ingestion", "language": "en"},
-        {"action": "activated"},
-        None,
-        None,
-    ]
-    assert after_rerun[3] == "not json"
-    assert after_rerun == before_rerun
-
-
-# The shared cases plus malformed text, which only SQLite can hold.
-_RAW_SQLITE_ROWS = [(stored, sqlite) for stored, _, sqlite in SCRUB_ROWS] + [("not json", "not json")]
+# The shared cases plus malformed text (only SQLite can hold it) and SQL NULL.
+_RAW_SQLITE_ROWS = [
+    (stored, sqlite) for stored, _, sqlite in SCRUB_ROWS + MASKED_QUERY_ROWS
+] + [("not json", "not json"), (None, None)]
 
 
 async def test_sqlite_startup_scrub_matches_the_shared_cases(engine) -> None:
@@ -304,38 +275,72 @@ async def test_sqlite_startup_scrub_matches_the_shared_cases(engine) -> None:
             )
 
     for _ in range(2):
-        await database._sqlite_scrub_audit_document_names(engine)
+        await database._sqlite_scrub_retired_audit_keys(engine)
         async with engine.connect() as conn:
             stored = (await conn.execute(text("SELECT extra FROM audit_events ORDER BY id"))).scalars().all()
         assert stored == [expected for _, expected in _RAW_SQLITE_ROWS]
 
 
-async def test_sqlite_startup_scrub_raises_instead_of_stopping_with_names_left(
-    engine, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(database, "_AUDIT_SCRUB_MAX_PASSES", 1)
+async def _insert_raw_extra(engine, extra: str) -> None:
     async with engine.begin() as conn:
-        await conn.execute(text(
-            "INSERT INTO audit_events (created_at, event_type, regulation_ids, "
-            "entity_types_detected, entity_count, extra) VALUES ('2026-01-01', 'pii_detected', "
-            "'[]', '{}', 0, '{\"document_name\":\"Jane\",\"document_name\":\"Doe\"}')"
-        ))
+        await conn.execute(
+            text(
+                "INSERT INTO audit_events (created_at, event_type, regulation_ids, "
+                "entity_types_detected, entity_count, extra) "
+                "VALUES ('2026-01-01', 'pii_detected', '[]', '{}', 0, :extra)"
+            ),
+            {"extra": extra},
+        )
+
+
+@pytest.mark.parametrize("key", sorted(RETIRED_AUDIT_EXTRA_KEYS))
+async def test_sqlite_startup_scrub_removes_duplicates_up_to_the_cap(
+    engine, monkeypatch: pytest.MonkeyPatch, key: str
+) -> None:
+    monkeypatch.setattr(database, "_AUDIT_SCRUB_MAX_PASSES", 2)
+    await _insert_raw_extra(engine, duplicated(key, 2))
+
+    await database._sqlite_scrub_retired_audit_keys(engine)
+
+    async with engine.connect() as conn:
+        assert (await conn.execute(text("SELECT extra FROM audit_events"))).scalar_one() == '{"k":1}'
+
+
+@pytest.mark.parametrize("key", sorted(RETIRED_AUDIT_EXTRA_KEYS))
+async def test_sqlite_startup_scrub_raises_past_the_cap(
+    engine, monkeypatch: pytest.MonkeyPatch, key: str
+) -> None:
+    monkeypatch.setattr(database, "_AUDIT_SCRUB_MAX_PASSES", 2)
+    await _insert_raw_extra(engine, duplicated(key, 3))
 
     with pytest.raises(RuntimeError) as raised:
-        await database._sqlite_scrub_audit_document_names(engine)
-    assert "Jane" not in str(raised.value) and "Doe" not in str(raised.value)
+        await database._sqlite_scrub_retired_audit_keys(engine)
+    assert not any(value in str(raised.value) for value in CAP_VALUES)
+
+
+async def test_audit_event_never_stores_a_retired_key(session_maker) -> None:
+    """Writer-side guard on the model: every ORM write path drops retired keys."""
+    async with session_maker() as db:
+        db.add(AuditEvent(
+            event_type="pii_detected", regulation_ids=[], entity_types_detected={}, entity_count=0,
+            extra={"document_name": "Jane Doe CV.pdf", "masked_query": "Hi Jane", "k": 1},
+        ))
+        db.add(audit_logger.build_document_event(
+            document_id=1, event_type="document_uploaded", extra={"masked_query": "q", "k": 2},
+        ))
+        await db.commit()
+
+    async with session_maker() as db:
+        raw = (await db.execute(text("SELECT extra FROM audit_events ORDER BY id"))).scalars().all()
+    assert [json.loads(r) for r in raw] == [{"k": 1}, {"k": 2}]
 
 
 async def test_init_db_scrubs_stale_names_on_sqlite(
     monkeypatch: pytest.MonkeyPatch, engine, session_maker
 ) -> None:
-    async with session_maker() as db:
-        db.add(AuditEvent(
-            event_type="pii_detected", document_id=1, regulation_ids=[],
-            entity_types_detected={}, entity_count=1,
-            extra={"document_name": "Jane Doe CV.pdf", "source": "chat_query"},
-        ))
-        await db.commit()
+    await _insert_raw_extra(
+        engine, '{"document_name": "Jane Doe CV.pdf", "source": "chat_query", "masked_query": "Hi Jane"}'
+    )
 
     async def _no_seed(*_args, **_kwargs):
         return None

@@ -157,8 +157,8 @@ What gets recorded:
 - **User id, session id** — who, in which session
 
 What does *not* get recorded: the actual PII values, the document text,
-the LLM response. `septum-api` chat audit events may record the masked
-query.
+the question, even in masked form, and the LLM response. Masked questions
+that older versions stored are removed when you upgrade.
 
 What you can do with it:
 
