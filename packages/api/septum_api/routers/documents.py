@@ -15,7 +15,6 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
-from uuid import uuid4
 
 from fastapi import (
     APIRouter,
@@ -54,7 +53,6 @@ from ..services.audit_logger import (
     language_override_event,
 )
 from ..services.document_anon_store import (
-    DocumentMapErasureError,
     DocumentMapLockHandle,
     DocumentMapLockLost,
     document_map_lock,
@@ -63,6 +61,7 @@ from ..services.document_pipeline import (
     ArtifactErasureError,
     DocumentPipeline,
     erase_document_artifacts,
+    log_artifact_erasure_failure,
 )
 from ..services.error_logger import log_backend_error, report_error_log_failure
 from ..services.ingestion.audio_ingester import AudioIngester
@@ -78,6 +77,7 @@ from ..services.policy_snapshot import (
     current_policy_snapshot,
     document_staleness,
 )
+from ..services.source_files import SOURCE_FILE_DIR, new_source_file_name
 from ..utils.auth_dependency import get_current_user, require_role
 from ..utils.crypto import decrypt, encrypt
 from ..utils.db_helpers import (
@@ -111,8 +111,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 
-_DOC_STORAGE_DIR = Path(os.getenv("DOCUMENT_STORAGE_DIR", "./documents")).resolve()
-_DOC_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+_DOC_STORAGE_DIR = SOURCE_FILE_DIR
 
 
 _MIME_TO_FORMAT: dict[str, str] = {
@@ -730,30 +729,39 @@ async def upload_document(
     file_format = _mime_to_format(mime_type)
 
     encrypted_bytes = encrypt(raw_bytes)
-    safe_name = f"{uuid4().hex}"
-    encrypted_path = _DOC_STORAGE_DIR / safe_name
+    encrypted_path = _DOC_STORAGE_DIR / new_source_file_name()
     encrypted_path.write_bytes(encrypted_bytes)
+    try:
+        active_reg_ids = await _snapshot_active_regulations(db)
 
-    active_reg_ids = await _snapshot_active_regulations(db)
-
-    document = Document(
-        filename=str(encrypted_path.name),
-        original_filename=file.filename or "",
-        file_type=mime_type,
-        file_format=file_format,
-        detected_language="en",
-        language_override=None,
-        encrypted_path=str(encrypted_path),
-        file_size_bytes=len(raw_bytes),
-        transcription_text=None,
-        ocr_confidence=0.0,
-        active_regulation_ids=active_reg_ids,
-        ingestion_status="processing",
-        ingestion_error=None,
-        user_id=current_user.id,
-    )
-    db.add(document)
-    await db.commit()
+        document = Document(
+            filename=str(encrypted_path.name),
+            original_filename=file.filename or "",
+            file_type=mime_type,
+            file_format=file_format,
+            detected_language="en",
+            language_override=None,
+            encrypted_path=str(encrypted_path),
+            file_size_bytes=len(raw_bytes),
+            transcription_text=None,
+            ocr_confidence=0.0,
+            active_regulation_ids=active_reg_ids,
+            ingestion_status="processing",
+            ingestion_error=None,
+            user_id=current_user.id,
+        )
+        db.add(document)
+        await db.commit()
+    except BaseException:
+        # No row will ever point at the file, so it must not outlive the failure.
+        try:
+            encrypted_path.unlink(missing_ok=True)
+        except OSError as unlink_exc:
+            logger.error(
+                "Could not remove the source file of a failed upload: %s",
+                type(unlink_exc).__name__,
+            )
+        raise
     await db.refresh(document)
 
     async def _run_full_background(doc_id: int) -> None:
@@ -1136,23 +1144,43 @@ async def delete_document(
     document = await get_owned_or_404(
         db, Document, document_id, user, "Document not found."
     )
-    _refuse_while_processing(document)
+    refuse_while_processing(document)
+    if not await erase_document(db, document):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
 
+
+class _DocumentGone(Exception):
+    """A concurrent delete removed the row while the map lock was awaited."""
+
+
+async def erase_document(db: AsyncSession, document: Document) -> bool:
+    """Erase every stored copy of ``document`` under its map lock, then delete its row.
+
+    Returns ``False`` when a concurrent delete removed the row while this
+    call waited for the lock, ``True`` once the erasure and the row delete
+    are committed. Raises 409 if the document is (again) being processed
+    and 500 if a stored copy survives or the lock was lost before the
+    commit; in both cases the row stays so the delete can be retried. A
+    lock that expires on release after the commit is logged only.
+    """
+    document_id = document.id
     committed = False
     try:
         async with document_map_lock(document_id) as lock:
             try:
                 await db.refresh(document)
             except InvalidRequestError:
-                # A concurrent delete removed the row while this request
-                # waited for the lock.
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Document not found.",
-                ) from None
-            _refuse_while_processing(document)
+                # Raised inside the lock so a lock lost meanwhile is only
+                # logged, as for any other failed body.
+                raise _DocumentGone from None
+            refuse_while_processing(document)
             await _erase_document_locked(db, document, lock)
             committed = True
+    except _DocumentGone:
+        return False
     except DocumentMapLockLost:
         if not committed:
             raise
@@ -1162,6 +1190,7 @@ async def delete_document(
             "Map lock of document_id=%s expired after a committed delete",
             document_id,
         )
+    return True
 
 
 async def _erase_document_locked(
@@ -1179,22 +1208,14 @@ async def _erase_document_locked(
     try:
         await erase_document_artifacts(document_id, source_path=document.encrypted_path)
     except ArtifactErasureError as exc:
-        error = exc.error
-        if not isinstance(error, DocumentMapErasureError):
-            logger.error(
-                "Could not erase document_id=%s tier=%s error=%s errno=%s",
-                document_id,
-                exc.tier,
-                type(error).__name__,
-                getattr(error, "errno", None),
-            )
+        log_artifact_erasure_failure(document_id, exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(
                 "The document's stored data could not be fully erased; "
                 "the document was not deleted. Try again."
             ),
-        ) from error
+        ) from exc.error
 
     from sqlalchemy import delete as sa_delete
     await db.execute(
@@ -1219,7 +1240,7 @@ async def _erase_document_locked(
     await db.commit()
 
 
-def _refuse_while_processing(document: Document) -> None:
+def refuse_while_processing(document: Document) -> None:
     """Raise 409 if the document is still being ingested."""
     if document.ingestion_status == "processing":
         raise _processing_conflict()
@@ -1252,7 +1273,7 @@ async def reprocess_document(
     document = await get_owned_or_404(
         db, Document, document_id, user, "Document not found."
     )
-    _refuse_while_processing(document)
+    refuse_while_processing(document)
 
     encrypted_path = Path(document.encrypted_path)
     if not encrypted_path.exists():
