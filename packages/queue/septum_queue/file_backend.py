@@ -150,6 +150,32 @@ class _PassState:
     claims: int = 0
 
 
+def _log_failure_after_cancel(task: asyncio.Future) -> None:
+    """Log a failed call that finished after its caller was cancelled, by type only."""
+    if task.cancelled() or task.exception() is None:
+        return
+    logger.error(
+        "Queue operation failed after the caller was cancelled: %s",
+        type(task.exception()).__name__,
+    )
+
+
+async def _run_shielded(awaitable, on_cancel_done=None):
+    """Await a queue thread call; a cancellation returns at once and the call still runs.
+
+    The inner task is created before the first await, so the thread is submitted even
+    when the caller is cancelled first. A cancelled caller raises ``CancelledError``
+    immediately and never waits for a stalled thread. The call's result is then
+    discarded; ``on_cancel_done`` (default: log a failure by type) runs when it finishes.
+    """
+    task = asyncio.ensure_future(awaitable)
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        task.add_done_callback(on_cancel_done or _log_failure_after_cancel)
+        raise
+
+
 def _fsync_dir(path: Path) -> None:
     """Best-effort fsync of a directory entry so a rename survives a crash.
 
@@ -208,6 +234,7 @@ class FileQueueBackend(QueueBackend):
         # ``incoming/`` for the next consume cycle.
         self._reclaim_orphans()
         self._closed = False
+        self._background: set[asyncio.Task] = set()
 
     def _reclaim_orphans(self) -> None:
         try:
@@ -291,9 +318,7 @@ class FileQueueBackend(QueueBackend):
             for name in names:
                 if yielded >= batch_size:
                     return
-                if not await asyncio.to_thread(self._claim, name, state):
-                    continue
-                message = await asyncio.to_thread(self._load_claimed, name)
+                message = await self._claim_and_load(name, state)
                 if message is None:
                     # Quarantined entries do not count toward batch_size. Check the
                     # deadline here too, so a backlog of bad entries cannot overrun it.
@@ -311,6 +336,49 @@ class FileQueueBackend(QueueBackend):
                 if deadline is not None and self._clock() >= deadline:
                     return
                 await asyncio.sleep(0.05)
+
+    async def _claim_and_load(self, name: str, state: _PassState) -> Message | None:
+        """Claim and decode one entry in a thread; ``None`` when it is not delivered.
+
+        A cancelled caller raises ``CancelledError`` at once. The thread finishes on its
+        own, and an entry it claimed is handed back to ``incoming/`` in the background.
+        That holds only while the event loop runs: a ``close()`` or loop shutdown can
+        leave one entry in ``processing/``, which ``_reclaim_orphans`` returns at the
+        next start.
+        """
+        return await _run_shielded(
+            asyncio.to_thread(self._claim_and_load_sync, name, state),
+            on_cancel_done=self._hand_back_when_done,
+        )
+
+    def _claim_and_load_sync(self, name: str, state: _PassState) -> Message | None:
+        """Claim one entry and decode it; runs in a worker thread."""
+        if not self._claim(name, state):
+            return None
+        return self._load_claimed(name)
+
+    def _hand_back_when_done(self, task: asyncio.Future[Message | None]) -> None:
+        """Start the hand-back of a claim that finished after its consumer was cancelled."""
+        if task.cancelled() or task.exception() is not None:
+            _log_failure_after_cancel(task)
+            return
+        message = task.result()
+        if message is None:
+            return
+        background = asyncio.ensure_future(self._hand_back(message.id))
+        self._background.add(background)
+        background.add_done_callback(self._background.discard)
+
+    async def _hand_back(self, message_id: str) -> None:
+        """Return a claimed entry to ``incoming/``; a failure is logged, never raised."""
+        try:
+            await _run_shielded(asyncio.to_thread(self._nack_sync, message_id, True))
+        except Exception as exc:
+            logger.error(
+                "Could not hand back queue message %s after cancellation: %s",
+                repr(message_id)[:64],
+                type(exc).__name__,
+            )
 
     def _incoming_names(self) -> list[str]:
         """Sorted ``.json`` names in ``incoming/``, read once per consume pass."""
@@ -524,7 +592,7 @@ class FileQueueBackend(QueueBackend):
     async def ack(self, message_id: str) -> None:
         """Move a claimed message from ``processing/`` to ``done/``."""
         self._ensure_open()
-        await asyncio.to_thread(self._ack_sync, message_id)
+        await _run_shielded(asyncio.to_thread(self._ack_sync, message_id))
 
     def _ack_sync(self, message_id: str) -> None:
         src = self._processing / message_id
@@ -537,7 +605,7 @@ class FileQueueBackend(QueueBackend):
     async def nack(self, message_id: str, *, requeue: bool = True) -> None:
         """Return a claimed message to ``incoming/`` or drop it."""
         self._ensure_open()
-        await asyncio.to_thread(self._nack_sync, message_id, requeue)
+        await _run_shielded(asyncio.to_thread(self._nack_sync, message_id, requeue))
 
     def _nack_sync(self, message_id: str, requeue: bool) -> None:
         src = self._processing / message_id
