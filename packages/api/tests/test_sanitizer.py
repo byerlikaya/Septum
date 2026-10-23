@@ -15,6 +15,7 @@ from septum_api.services.sanitizer import (
     PIISanitizer,
     _PRESIDIO_ENTITY_ALIASES,
     _PRESIDIO_REVERSE_ALIASES,
+    is_span_boundary,
 )
 
 
@@ -1008,3 +1009,10 @@ def test_gdpr_still_masks_date_of_birth_with_context(
     assert "1980-08-15" not in result.sanitized_text
     assert "[DATE_OF_BIRTH_1]" in result.sanitized_text
     assert "2024-03-15" in result.sanitized_text
+
+
+def test_ollama_span_boundary_is_script_aware() -> None:
+    assert is_span_boundary("请联系张伟在北京", 3, 5)
+    assert is_span_boundary("Ankara'da yaşıyor", 0, 6)
+    assert not is_span_boundary("Ankara yaşıyor", 1, 6)
+    assert not is_span_boundary("ABC张伟", 1, 3)

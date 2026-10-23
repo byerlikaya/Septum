@@ -63,14 +63,13 @@ from septum_core.ner_model_registry import NERModelRegistry
 from septum_core.ports import SemanticDetectionPort
 from septum_core.regulations.composer import ComposedPolicy
 from septum_core.spans import DetectedSpan, ResolvedSpan, SanitizeResult
+from septum_core.text_boundaries import is_span_boundary
 
 from ..models.settings import AppSettings
 from .ollama_client import call_ollama_sync, extract_json_array
 from .prompts import PromptCatalog
 
 logger = logging.getLogger(__name__)
-
-_OLLAMA_BOUNDARY_CHARS: frozenset[str] = frozenset(" \t\n\r.,;:!?()[]{}\"'/-")
 
 _OLLAMA_ID_LIKE_TYPES: frozenset[str] = frozenset({"BIOMETRIC_ID", "DNA_PROFILE"})
 
@@ -79,17 +78,6 @@ _OLLAMA_HEADING_PRONE_TYPES: frozenset[str] = frozenset({
     "ETHNICITY", "POLITICAL_OPINION", "SEXUAL_ORIENTATION",
     "BIOMETRIC_ID", "DNA_PROFILE",
 })
-
-
-def _is_span_at_word_boundary(text: str, start: int, end: int) -> bool:
-    """Verify the substring ``text[start:end]`` aligns to whitespace/punctuation."""
-    if start < 0 or end > len(text) or start >= end:
-        return False
-    if start > 0 and text[start - 1] not in _OLLAMA_BOUNDARY_CHARS:
-        return False
-    if end < len(text) and text[end] not in _OLLAMA_BOUNDARY_CHARS:
-        return False
-    return True
 
 
 def _is_heading_like(text: str) -> bool:
@@ -265,7 +253,7 @@ class OllamaSemanticAdapter:
                 continue
             end_idx = idx + len(text_str)
 
-            if not _is_span_at_word_boundary(normalized_text, idx, end_idx):
+            if not is_span_boundary(normalized_text, idx, end_idx):
                 continue
             if text_lower.count(search_lower) > 1:
                 continue
@@ -317,7 +305,7 @@ class OllamaSemanticAdapter:
                 continue
             end_idx = idx + len(text_str)
 
-            if not _is_span_at_word_boundary(normalized_text, idx, end_idx):
+            if not is_span_boundary(normalized_text, idx, end_idx):
                 continue
             if normalized_text.lower().count(text_str.lower()) > 1:
                 continue
