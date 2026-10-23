@@ -25,6 +25,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 ### 2026-10-23
 
 - Deleting a user now erases every stored copy of their documents (encrypted source files, anonymization maps on disk and in Redis, FAISS and BM25 indexes) instead of only the database rows; the delete returns 409 while one of their documents is still being processed and 500, safe to retry, if a copy cannot be erased. On startup, Septum also erases leftovers that no document row points to anymore, such as those of users deleted before this fix, but skips the sweep when the documents table is empty, and a failed upload no longer leaves its encrypted file behind.
+- septum-audit now enforces SEPTUM_AUDIT_RETENTION_DAYS and SEPTUM_AUDIT_RETENTION_MAX_RECORDS, which were read but never applied before, by pruning the oldest records of the audit ledger while an unsigned anchor keeps its hash chain verifiable. The health endpoint now reports retention and consumer state, returns 503 when retention is halted, failed, blocked, stale or missing or the consumer is failing, and no longer exposes the sink path. Malformed producer values are normalised and flagged instead of dropped, and upgrading operators should note that the audit API mounts the log volume read-only and that only one worker process may write a given ledger.
 
 ### 2026-10-22
 
