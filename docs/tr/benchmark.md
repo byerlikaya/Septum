@@ -22,7 +22,7 @@ Benchmark, 17 hazır regülasyonun tamamı aktifken **beş bağımsız veri kayn
 
 1. **Septum sentetik korpusu** — 16 dilde (ar, de, en, es, fr, hi, it, ja, ko, nl, pl, pt, ru, th, tr, zh), 23 varlık tipi üzerinde algoritmik olarak üretilmiş **3.468 PII değeri**. Kamuya açık hiçbir veri kümesinin taşımadığı checksum'lı kimlikleri (geçerli Luhn, IBAN MOD-97, TCKN) kapsayabilmenin yegâne yolu budur. Korpusa ayrıca Ollama'nın kendine özgü katkısını ölçmek için 31 dokümanlık semantik-bağlamsal bir alt küme (DIAGNOSIS / MEDICATION / RELIGION / POLITICAL_OPINION / ETHNICITY / SEXUAL_ORIENTATION — toplam 60 varlık) eklenmiştir. Seed sabit olduğundan sonuçlar bire bir tekrarlanabilir.
 2. **Microsoft [presidio-evaluator](https://github.com/microsoft/presidio-research)** — 200 sentetik Faker cümlesinden oluşan, Presidio ekibinin referans olarak benimsediği PII değerlendirme çerçevesi. Septum'un 17 regülasyonunun hiçbirinde PII sayılmayan etiketler (DATE_TIME / TIME / TITLE / SEX / CARDISSUER / NRP) varlık eşlemesinin dışında bırakılır; böylece recall, kategori uyumsuzluğunu değil maskeleme kalitesini yansıtır.
-3. **[Babelscape/wikineural](https://huggingface.co/datasets/Babelscape/wikineural)** — 9 dilde 50'şer Wikipedia cümlesinden oluşan kenara ayrılmış (held-out) küme. Bir uyarı gerekir: Septum'un kullandığı XLM-RoBERTa NER modelleri, akraba [WikiANN korpusu](https://huggingface.co/datasets/unimelb-nlp/wikiann) üzerinde eğitildiğinden, buradaki sayılar katı bir OOD testi değil, üst sınıra yakın değerler olarak okunmalıdır.
+3. **[Babelscape/wikineural](https://huggingface.co/datasets/Babelscape/wikineural)** — 9 dilde 50'şer Wikipedia cümlesinden oluşan kenara ayrılmış (held-out) *veri kümesi*. Burada yalnızca değerlendirme verisi olarak kullanılır; kaldırılan Babelscape wikineural *modeli* ile aynı şey değildir. Bir uyarı gerekir: önceki NER setindeki XLM-RoBERTa NER modelleri, akraba [WikiANN korpusu](https://huggingface.co/datasets/unimelb-nlp/wikiann) üzerinde eğitildiğinden, buradaki sayılar katı bir OOD testi değil, üst sınıra yakın değerler olarak okunmalıdır.
 4. **[ai4privacy/pii-masking-300k](https://huggingface.co/datasets/ai4privacy/pii-masking-300k)** — 6 dilde (en/de/fr/es/it/nl) 50'şer validation cümlesi. Sıfırdan ve PII odağıyla kurulmuş modern bir veri kümesi; Septum'un kullandığı modeller bu veri üzerinde eğitilmediğinden, benchmark'ın gerçek bir out-of-distribution testine en çok yaklaştığı kaynak burasıdır.
 5. **[CoNLL-2003](https://aclanthology.org/W03-0419/)** — klasik İngilizce haber alanının kenara ayrılmış test setinden 200 cümle. Septum'la ilgili hiçbir eğitim korpusunda yer almaz.
 6. **[DFKI-SLT/few-nerd](https://huggingface.co/datasets/DFKI-SLT/few-nerd)** (supervised split) — çok alanlı Wikipedia NER verisi; etki alanları arası dayanıklılık probu olarak kullanılır. Bu kümeden yalnızca person / organization / location etiketleri Septum'un PII kategorilerine karşılık düşer.
@@ -36,12 +36,14 @@ Benchmark, 17 hazır regülasyonun tamamı aktifken **beş bağımsız veri kayn
   <a href="#septum--benchmark-sonuçları"><img src="../assets/benchmark-layer-comparison.svg" alt="Hat katmanına göre tespit doğruluğu" width="820" /></a>
 </p>
 
+> **Önceki NER model seti ile ölçülmüştür.** NER varsayılanları sonradan değişti. Önceki set, de, it, nl, pl ve ru için ve listelenmemiş tüm diller için yedek olarak Babelscape wikineural modelini kullanıyordu; XLM-RoBERTa WikiANN en, ar, zh, es, fr, pt, hi, bn, ur, vi ve ja için kullanılıyordu; Türkçe'nin kendi modelleri vardı. Davlan mBERT-hrl artık zh, ja, ko, de, it, nl, pl, ru ve yedek dil için kullanılıyor; wikineural modeli artık kullanılmıyor. NER katmanına bağlı sayılar — NER ve Birleşik satırları, Ollama ablation testi, dış veri kümeleri, dil bazlı kırılım, erişim çalıştırmaları ve sızıntı ölçümü — önceki set ile ölçüldü. Bu diller yeniden ölçülmedi; mevcut varsayılanlar için yeni bir sayı yoktur. Aşağıdaki Babelscape/wikineural satırı değerlendirme verisidir, kaldırılan model değil. Güncel dil eşlemesi için bkz. [Doküman İşleme](document-ingestion.md#ner-model-kapsamı).
+
 ## Septum sentetik korpusu (katman bazında)
 
 | Katman | Varlık | Tip | Precision | Recall | F1 |
 |:---|:---:|:---:|:---:|:---:|:---:|
 | **Presidio (L1)** — örüntü + doğrulayıcı (kontrollü + genişletilmiş + adversarial) | 1.710 | 20 | %100 | %96,4 | %98,2 |
-| **NER (L2)** — XLM-RoBERTa + BÜYÜK HARF normalizasyonu (16 dil) | 840 | 3 | %99,9 | %90,8 | %95,1 |
+| **NER (L2, önceki NER seti)** — XLM-RoBERTa + BÜYÜK HARF normalizasyonu (16 dil) | 840 | 3 | %99,9 | %90,8 | %95,1 |
 | **Ollama (L3)** — aya-expanse:8b (takma ad + semantik-bağlamsal) | 918 | 9 | %99,9 | %90,6 | %95,0 |
 | **Birleşik** | **3.468** | **23** | **%99,9** | **%93,5** | **%96,6** |
 
@@ -53,11 +55,11 @@ Benchmark, 17 hazır regülasyonun tamamı aktifken **beş bağımsız veri kayn
 
 | Kaynak | Varlık | Tip | Precision | Recall | F1 |
 |:---|:---:|:---:|:---:|:---:|:---:|
-| **Microsoft presidio-evaluator** (EN, sentetik Faker, 200 cümle) | 326 | 11 | %98,2 | %66,6 | %79,3 |
-| **Babelscape/wikineural** (9 dil × 50 = 450 cümle, kenara ayrılmış Wikipedia NER) | 634 | 3 | %95,5 | %76,5 | %84,9 |
-| **ai4privacy/pii-masking-300k** (6 dil, gerçek OOD — eğitim verisinde yer almaz) | 1.456 | 12 | %96,4 | %54,5 | %69,6 |
-| **CoNLL-2003** (EN haber, 372 PER/ORG/LOC puanlandı + 35 MISC bilinçli olarak hariç) | 372 | 3 | %97,9 | %37,4 | %54,1 |
-| **DFKI-SLT/few-nerd** (çok alanlı Wikipedia, 200 test cümlesi) | 361 | 3 | %95,7 | %68,4 | %79,8 |
+| **Microsoft presidio-evaluator** (EN, sentetik Faker, 200 cümle; önceki NER seti) | 326 | 11 | %98,2 | %66,6 | %79,3 |
+| **Babelscape/wikineural** veri kümesi (9 dil × 50 = 450 cümle, kenara ayrılmış Wikipedia NER; önceki NER seti) | 634 | 3 | %95,5 | %76,5 | %84,9 |
+| **ai4privacy/pii-masking-300k** (6 dil, gerçek OOD — eğitim verisinde yer almaz; önceki NER seti) | 1.456 | 12 | %96,4 | %54,5 | %69,6 |
+| **CoNLL-2003** (EN haber, 372 PER/ORG/LOC puanlandı + 35 MISC bilinçli olarak hariç; önceki NER seti) | 372 | 3 | %97,9 | %37,4 | %54,1 |
+| **DFKI-SLT/few-nerd** (çok alanlı Wikipedia, 200 test cümlesi; önceki NER seti) | 361 | 3 | %95,7 | %68,4 | %79,8 |
 
 CoNLL-2003'teki recall'un bir bölümü yapısal nedenlere bağlıdır: 407 gold varlığın 35'i (**%8,6**) MISC sınıfındadır — milliyet, olay adı, eser başlığı gibi. Bu etiketler Septum'un 17 regülasyonunun hiçbirinde PII sayılmadığından skorlamanın dışında tutulur. Tabloda görünen %54,1, MISC çıkarıldıktan *sonraki* recall değeridir ve iki etkenin bileşkesidir: (a) Septum'un, serbest haber metninde tek başına geçen yer adlarını tek başına PII saymama tercihi ([GDPR Art. 4(1)](https://gdpr-info.eu/art-4-gdpr/) gerekçesi); (b) kısa, tek kelimelik atıflarda devreye giren dar tanımlı LOCATION / ORGANIZATION filtreleri. Ai4Privacy ise farklı bir şey söylüyor: mevcut regülasyon paketlerinin doğrudan hedeflemediği USERNAME ve ince taneli adres alt tiplerinde gerçek açıkların bulunduğunu. Bu, bir yuvarlama hatası değil; harekete geçilmesi gereken bir sinyaldir.
 
@@ -80,7 +82,7 @@ Adversarial paket, kasıtlı olarak gerçek bir kullanıcının ya da saldırgan
   <a href="#septum--benchmark-sonuçları"><img src="../assets/benchmark-per-language.svg" alt="Tam Ollama hattında dil bazlı tespit doğruluğu — 16 dil" width="900" /></a>
 </p>
 
-F1, Latin alfabesi kullanan dillerde (EN %98,3, DE %100, ES %100, FR %95,8, IT %100, NL %100, PL %98,6, PT %97,1, RU %100, TR %96,8) birbirine yakın ve oldukça yüksek seyrediyor; Arapça (%92,3) ve Hintçe'de (%100) de güçlü kalıyor. Gerçek zayıf noktalar CJK ve Tayca kanadındadır: **Tayca %87,1, Korece %83,3, Japonca %65,4, Çince %54,2**. CJK için asgari aralık uzunluğu eşiği artık dile duyarlı (ZH / JA / KO / TH için 2 glif, diğer dillerde 3 karakter); bu tek değişiklik Çince'yi %44,4'ten %54,2'ye taşıdı. Kalan açığı kapatmak dil başına NER ince ayarı gerektiriyor; bu, yol haritasında duran bir hedeftir — bugün çözülmüş bir kazanım olarak sunulmuyor.
+Önceki NER model seti ile ölçülen F1, Latin alfabesi kullanan dillerde (EN %98,3, DE %100, ES %100, FR %95,8, IT %100, NL %100, PL %98,6, PT %97,1, RU %100, TR %96,8) birbirine yakın ve oldukça yüksek seyrediyor; Arapça (%92,3) ve Hintçe'de (%100) de güçlü kalıyor. Gerçek zayıf noktalar CJK ve Tayca kanadındadır: **Tayca %87,1, Korece %83,3, Japonca %65,4, Çince %54,2**. CJK için asgari aralık uzunluğu eşiği artık dile duyarlı (ZH / JA / KO / TH için 2 glif, diğer dillerde 3 karakter); bu tek değişiklik Çince'yi %44,4'ten %54,2'ye taşıdı. Kalan açığı kapatmak dil başına NER ince ayarı gerektiriyor; bu, yol haritasında duran bir hedeftir — bugün çözülmüş bir kazanım olarak sunulmuyor.
 
 > NER (L2), otomatik başlık-harfi normalizasyonu sayesinde tıbbi ve hukuki dokümanlarda sık görülen BÜYÜK HARFLİ isimleri de yakalar; kurum adlarını da tanır. LOCATION çıktısı dar tanımlı bir filtreden geçirilir (çok kelimeli **veya** güven skoru ≥ 0,95); böylece "Doğum" ya da Almanca form başlıkları gibi ortak isim kaynaklı yalancı pozitifler elenirken "İstanbul" ve "Berlin" gibi gerçek yer adları geçişini korur. Ollama (L3), adayları doğrular ve takma adları toparlar. Veri kümesi; boşluklu IBAN, noktalı telefon gibi zorlayıcı formatları da kapsadığından Presidio'nun recall değerini gerçek dünyadaki seviyeye yaklaştırır. Testi kendi ortamınızda da çalıştırabilirsiniz:
 > [`pytest packages/api/tests/benchmark_detection.py -v -s`](../packages/api/tests/benchmark_detection.py)
@@ -89,16 +91,17 @@ F1, Latin alfabesi kullanan dillerde (EN %98,3, DE %100, ES %100, FR %95,8, IT %
 
 **Hiçbir PII tespit sistemi %100 doğru değildir.** Septum'un benchmark'ı, nerede güçlü, nerede zayıf olduğu konusunda şeffaf kalmayı tercih eder:
 
-- **LOCATION çıktısı, çok-kelimeli-veya-yüksek-skor filtresinden geçer** (ORGANIZATION_NAME ile aynı mimari yaklaşım). Çok dilli XLM-RoBERTa modelleri, Septum'un desteklediği her dilde, ortak isimlerde ve form alan başlıklarında rastgele tek token'lık LOC yalancı pozitifleri üretir (Türkçe "Doğum", Almanca form başlıkları vb.). Bu yalancı pozitifleri dil başına stopword listesiyle tek tek takip etmek 50'den fazla lokalde ölçeklenmez. Filtre, 0,95 güven skorunun altındaki tek token'lık aralıkları eler; "İstanbul" ve "Berlin" gibi gerçek yer adları tipik olarak 0,97 ve üzeri skor aldığı için geçer, "New York" gibi çok kelimeli yer adları ise skor kapısına hiç takılmaz. Yapılandırılmış adres PII'si buna ek olarak Presidio'nun `StructuralAddressRecognizer`'ı ve regülasyon bazlı POSTAL_ADDRESS / STREET_ADDRESS tanıyıcıları tarafından yakalanır.
+- **LOCATION çıktısı, çok-kelimeli-veya-yüksek-skor filtresinden geçer** (ORGANIZATION_NAME ile aynı mimari yaklaşım). Çok dilli NER modelleri, Septum'un desteklediği her dilde, ortak isimlerde ve form alan başlıklarında rastgele tek token'lık LOC yalancı pozitifleri üretir (Türkçe "Doğum", Almanca form başlıkları vb.). Bu yalancı pozitifleri dil başına stopword listesiyle tek tek takip etmek 50'den fazla lokalde ölçeklenmez. Filtre, 0,95 güven skorunun altındaki tek token'lık aralıkları eler; "İstanbul" ve "Berlin" gibi gerçek yer adları tipik olarak 0,97 ve üzeri skor aldığı için geçer, "New York" gibi çok kelimeli yer adları ise skor kapısına hiç takılmaz. Yapılandırılmış adres PII'si buna ek olarak Presidio'nun `StructuralAddressRecognizer`'ı ve regülasyon bazlı POSTAL_ADDRESS / STREET_ADDRESS tanıyıcıları tarafından yakalanır.
 - **37 regülasyon varlık tipinin tamamı tespit edilebilir.** 21'i Presidio, 3'ü NER, 9'u Ollama tarafından; geri kalanı ise üst tip kapsamıyla (FIRST_NAME → PERSON_NAME, CITY → LOCATION vb.).
 - **Aktif benchmark kapsamı:** 16 dilde 3.468 değer üzerinden 23 varlık tipi.
 - **Semantik tipler** (DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION) yalnızca Ollama katmanı tarafından yakalanır; bu tiplerin devrede olması için yerel bir LLM'in çalışır durumda bulunması şarttır.
 - **Bağlama bağlı tanıyıcılar** (DATE_OF_BIRTH, PASSPORT_NUMBER, SSN, TAX_ID), yalancı pozitif oranını düşürebilmek için değerin yakınında bağlam anahtar kelimesi arar; anahtar kelime listeleri 8'den fazla dili kapsar.
 - **Zorlayıcı formatlar** (boşluklu TCKN, noktalı telefon), kontrollü format testlerine kıyasla daha düşük tespit oranı verir. Benchmark bu durumu olduğu gibi raporlar.
+- **NER kapsamı dengesizdir.** Tayca NER fiilen yoktur; Çince, Japonca, Korece ve Rusça'da NER recall'u sınırlıdır. Bkz. [Doküman İşleme](document-ingestion.md#ner-model-kapsamı).
 
 **Onay mekanizması güvenlik ağı işlevi görür.** LLM'e gönderilmeden önce tam olarak ne gideceğini görür, gerektiğinde reddedersiniz. Otomatik tespit riski düşürür; son kararı veren insan denetimi ise riski tümüyle ortadan kaldırır.
 
-Benchmark modelleri: NER, Türkçe için [`akdeniz27/xlm-roberta-base-turkish-ner`](https://huggingface.co/akdeniz27/xlm-roberta-base-turkish-ner), diğer diller için [`Davlan/xlm-roberta-base-wikiann-ner`](https://huggingface.co/Davlan/xlm-roberta-base-wikiann-ner) kullanır. Ollama katmanı [`aya-expanse:8b`](https://ollama.com/library/aya-expanse) üzerinde çalışır. Daha büyük Ollama modelleri semantik tespiti genelde iyileştirir; bedeli artan gecikmedir.
+Benchmark modelleri (önceki NER seti): NER, Türkçe için [`akdeniz27/xlm-roberta-base-turkish-ner`](https://huggingface.co/akdeniz27/xlm-roberta-base-turkish-ner), diğer diller için [`Davlan/xlm-roberta-base-wikiann-ner`](https://huggingface.co/Davlan/xlm-roberta-base-wikiann-ner) modelini kullanıyordu; de, it, nl, pl ve ru için ve listelenmemiş diller için yedek olarak ise Babelscape wikineural modeli kullanılıyordu. Güncel dil bazlı modeller [Doküman İşleme](document-ingestion.md#ner-model-kapsamı) sayfasındadır. Ollama katmanı [`aya-expanse:8b`](https://ollama.com/library/aya-expanse) üzerinde çalışır. Daha büyük Ollama modelleri semantik tespiti genelde iyileştirir; bedeli artan gecikmedir.
 
 ## Ollama model karşılaştırması (K3 katmanı)
 
@@ -127,7 +130,7 @@ fakat ~3× artan çağrı maliyeti ingest pipeline'ında baskın olur.
 
 ## Erişim (retrieval) benchmark'ı
 
-Bu benchmark PII tespitini değil erişimi (retrieval) ölçer. Her soru için arama yığını, cevabı içeren chunk'ı döndürüyor mu sorusunu sorar; bunu bir kez ham soruyla, bir kez de maskelenmiş soruyla yapar. Parçalama, embedding modeli ve reranker değişikliklerinin karşılaştırılacağı temel ölçüm budur.
+Bu benchmark PII tespitini değil erişimi (retrieval) ölçer. Sanitizer'ın NER katmanı açık çalıştığı için bu bölümdeki sayılar ve sızıntı ölçümü önceki NER model setiyle kaydedilmiştir (üstteki nota bakın). Her soru için arama yığını, cevabı içeren chunk'ı döndürüyor mu sorusunu sorar; bunu bir kez ham soruyla, bir kez de maskelenmiş soruyla yapar. Parçalama, embedding modeli ve reranker değişikliklerinin karşılaştırılacağı temel ölçüm budur.
 
 Çalıştırma belge parçalayıcıyı, chunk başına sanitizer'ı, FAISS vektör deposunu ve BM25 indeksini kullanır. Dense, BM25 ve hybrid erişim, üretimdeki VectorStore ve BM25 kodunu çağırır; buna `VectorStore.hybrid_search` de dahildir. auto_rag, chat'in belgeler arası aramasını yansıtır: aynı ilgililik eşiği ve belge başına aday sayısı kullanılır; bir parite testi eşiği, belge başına aday sayısını ve aday üst sınırını chat'in uygulamasına karşı sabitler. Benchmark belge bazlı aramaları sıralı (serial) çalıştırır, üretimde ise eşzamanlı (concurrent) çalışırlar; bu nedenle auto_rag gecikmesi bir üst sınırdır. LLM çağrılmaz; çalışma sabitlenmiş (pinned) bir embedder ile çevrimdışı yürür.
 

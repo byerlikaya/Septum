@@ -173,10 +173,15 @@ What you can do with it:
   the relevant slice. Splunk HEC payloads are ready to ship to a
   collector; JSON suits custom downstream processors; CSV opens in
   Excel for ad-hoc investigations.
-- **Retention settings.** `SEPTUM_AUDIT_RETENTION_DAYS` and
-  `SEPTUM_AUDIT_RETENTION_MAX_RECORDS` are read by the audit module, but
-  retention is not applied automatically yet: nothing prunes audit
-  records on its own.
+- **Retention settings.** `SEPTUM_AUDIT_RETENTION_DAYS` (age cap) and
+  `SEPTUM_AUDIT_RETENTION_MAX_RECORDS` (count cap) prune only the
+  `septum-audit` JSONL ledger; an unset cap keeps everything. Pruning runs at
+  startup and then once per effective interval (the configured
+  `SEPTUM_AUDIT_RETENTION_INTERVAL_SECONDS`, default 3600, or longer when a pass
+  is slow). `/health` returns 200 for `ok`, `disabled` and `not_reported`, and
+  503 for `halted`, `failed`, `blocked`, `stale`, `missing` and `unreadable`;
+  `halted` means restore the ledger and its anchor from a verified copy. Full reference:
+  [installation guide](installation#audit-event-retention).
 
 The audit module runs in the **internet-facing zone** by design — it
 needs to talk to your SIEM but should never see raw PII. Because

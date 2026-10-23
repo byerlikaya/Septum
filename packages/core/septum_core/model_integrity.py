@@ -221,6 +221,18 @@ def require_pin(repo_id: str) -> ModelPin:
     return pin
 
 
+def repo_id_of(spec: str) -> str:
+    """The Hub repo id of a model spec, without any ``@<commit>`` suffix.
+
+    Raises :class:`UnpinnedModelError` for a spec that is not ``org/name``
+    optionally followed by a 40-hex commit.
+    """
+    match = _SPEC_RE.match(spec.strip())
+    if match is None:
+        raise UnpinnedModelError(spec)
+    return match["repo"]
+
+
 def parse_model_spec(spec: str) -> ModelPin | tuple[str, str]:
     """Resolve ``spec`` to its manifest pin, or to ``(repo_id, revision)`` if user-pinned.
 

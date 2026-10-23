@@ -212,6 +212,9 @@ services:
        "--factory", "--host", "0.0.0.0", "--port", "8002"]
     ports:
       - "${SEPTUM_AUDIT_BIND:-127.0.0.1}:8002:8002"
+    # The API only reads the ledger and its sidecars; read-only mount enforces that.
+    volumes:
+      - septum-audit-log:/var/log/septum:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health')"]
       interval: 30s
