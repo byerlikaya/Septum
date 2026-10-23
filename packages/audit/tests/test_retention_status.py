@@ -94,14 +94,7 @@ async def test_worker_tick_records_halt_in_the_status_sidecar(tmp_path: Path):
     target.write_text(old.to_json() + "\nnot-json\n", encoding="utf-8")
     sink = JsonlFileSink(target)
 
-    task = asyncio.create_task(worker_module._retention_loop(sink, RetentionPolicy(max_age_days=1), interval_seconds=0))
-    for _ in range(1000):
-        status = read_status(target)
-        if status is not None and status.state == "halted":
-            break
-        await asyncio.sleep(0)
-    task.cancel()
-    await asyncio.wait({task})
+    await _run_one_tick(target, sink)
 
     status = read_status(target)
     assert status is not None

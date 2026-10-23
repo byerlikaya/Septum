@@ -85,18 +85,23 @@ async def test_failure_in_real_sink_is_logged_and_next_run_succeeds(
             raise OSError("transient")
         return real_rewrite(*args, **kwargs)
 
+    class _Stop(Exception):
+        pass
+
+    sleeps = 0
+
+    async def _two_runs(_seconds: float) -> None:
+        nonlocal sleeps
+        sleeps += 1
+        if sleeps == 2:
+            raise _Stop
+
     monkeypatch.setattr(sink_module, "rewrite_jsonl_locked", _fail_first)
+    monkeypatch.setattr(worker_module, "asyncio", SimpleNamespace(sleep=_two_runs, to_thread=asyncio.to_thread))
 
     with caplog.at_level(logging.ERROR, logger="septum_audit.worker"):
-        task = asyncio.create_task(
-            worker_module._retention_loop(sink, RetentionPolicy(max_age_days=1), interval_seconds=0)
-        )
-        for _ in range(1000):
-            if len(attempts) >= 2 and not list(sink.read_all()):
-                break
-            await asyncio.sleep(0)
-        task.cancel()
-        await asyncio.wait({task})
+        with pytest.raises(_Stop):
+            await worker_module._retention_loop(sink, RetentionPolicy(max_age_days=1), interval_seconds=0)
 
     assert len(attempts) == 2
     assert list(sink.read_all()) == []
