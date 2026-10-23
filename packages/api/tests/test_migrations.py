@@ -7,6 +7,7 @@ at a throwaway database; the test leaves it migrated to head.
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import pkgutil
 from pathlib import Path
@@ -192,6 +193,7 @@ def test_revision_021_replaces_single_column_document_index_and_is_reversible(
 
     command.stamp(cfg, "020")
     command.upgrade(cfg, "021")
+    command.upgrade(cfg, "head")
     command.check(cfg)
     after_rerun = indexes()
 
@@ -210,6 +212,79 @@ def test_revision_021_replaces_single_column_document_index_and_is_reversible(
     assert single not in after_rerun and after_rerun[composite] == composite_columns
     assert after_downgrade[single] == ["document_id"] and composite not in after_downgrade
     assert single not in after_reupgrade and after_reupgrade[composite] == composite_columns
+
+
+def _insert_audit_extras(conn: sa.Connection, extras: list[str | None]) -> None:
+    for extra in extras:
+        conn.execute(
+            sa.text(
+                "INSERT INTO audit_events (created_at, event_type, regulation_ids, "
+                "entity_types_detected, entity_count, extra) "
+                "VALUES ('2026-01-01', 'pii_detected', '[]', '{}', 0, :extra)"
+            ),
+            {"extra": extra},
+        )
+
+
+def _audit_extras(conn: sa.Connection) -> list[dict | None]:
+    rows = conn.execute(sa.text("SELECT extra FROM audit_events ORDER BY id")).scalars()
+    return [None if raw is None else json.loads(raw) for raw in rows]
+
+
+def test_revision_022_scrubs_audit_document_names_idempotently(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "at_021.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.upgrade(cfg, "021")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        _insert_audit_extras(conn, [
+            json.dumps({"document_name": "Jane Doe CV.pdf", "source": "chat_query", "masked_query": "q"}),
+            json.dumps({"document_name": None, "strategy": "simple"}),
+            json.dumps({"strategy": "simple"}),
+            None,
+        ])
+    scrubbed = [{"source": "chat_query", "masked_query": "q"}, {"strategy": "simple"}, {"strategy": "simple"}, None]
+
+    command.upgrade(cfg, "022")
+    with engine.connect() as conn:
+        after_upgrade = _audit_extras(conn)
+    command.stamp(cfg, "021")
+    command.upgrade(cfg, "022")
+    command.downgrade(cfg, "021")
+    with engine.connect() as conn:
+        after_downgrade = _audit_extras(conn)
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+    with engine.connect() as conn:
+        after_reupgrade = _audit_extras(conn)
+    engine.dispose()
+
+    assert after_upgrade == scrubbed
+    assert after_downgrade == scrubbed
+    assert after_reupgrade == scrubbed
+
+
+def test_revision_022_leaves_malformed_sqlite_extra_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "at_021_malformed.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.upgrade(cfg, "021")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        _insert_audit_extras(conn, ["not json", json.dumps({"document_name": "x.pdf", "k": 1})])
+
+    command.upgrade(cfg, "022")
+    with engine.connect() as conn:
+        raw = conn.execute(sa.text("SELECT extra FROM audit_events ORDER BY id")).scalars().all()
+    engine.dispose()
+
+    assert raw[0] == "not json"
+    assert json.loads(raw[1]) == {"k": 1}
 
 
 @pytest.mark.skipif(

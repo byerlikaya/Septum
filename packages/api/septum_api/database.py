@@ -237,6 +237,7 @@ async def init_db() -> None:
             await conn.run_sync(Base.metadata.create_all)
         await _sqlite_ensure_columns(eng)
         await _sqlite_ensure_indexes(eng)
+        await _sqlite_scrub_audit_document_names(eng)
         await _sqlite_purge_orphan_child_rows(eng)
 
     await _seed_defaults(sm)
@@ -408,6 +409,26 @@ async def _sqlite_ensure_indexes(eng: AsyncEngine) -> None:
     async with eng.begin() as conn:
         for ddl in statements:
             await conn.execute(text(ddl))
+
+
+async def _sqlite_scrub_audit_document_names(eng: AsyncEngine) -> None:
+    """Remove the ``document_name`` key that older audit events stored in ``extra``.
+
+    Filenames can carry personal data, so audit events no longer store
+    them (the audit router resolves the current name at read time). Other
+    ``extra`` keys are kept. Idempotent: only rows still holding the key
+    are rewritten; rows whose ``extra`` is not valid JSON are left alone so
+    one bad row cannot stop startup. The PostgreSQL counterpart is Alembic
+    revision 022.
+    """
+    async with eng.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE audit_events SET extra = json_remove(extra, '$.document_name') "
+                "WHERE CASE WHEN json_valid(extra) "
+                "THEN json_type(extra, '$.document_name') END IS NOT NULL"
+            )
+        )
 
 
 def build_default_app_settings() -> AppSettings:
