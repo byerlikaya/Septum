@@ -12,8 +12,7 @@ read time by the audit router. Chat questions are not stored, not even masked.
 import logging
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import JSON, cast, func, literal_column, update
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Text, cast, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.audit_event import AuditEvent
@@ -171,34 +170,42 @@ USER_REFERENCING_EVENT_TYPES = (DOCUMENT_LANGUAGE_CHANGED,)
 async def forget_user_in_audit_events(db: AsyncSession, user_id: int) -> int:
     """Set ``extra.user_id`` to null in every audit event that names ``user_id``.
 
-    One ``UPDATE`` in the caller's transaction (no commit), so a user
-    deletion and the unlinking of its audit trail commit together. Callers
-    delete the user row first: a concurrent language ``PATCH`` re-reads its
-    user under a lock, so it either commits before this statement runs and
-    is unlinked by it, or finds the user gone and writes nothing. Returns
-    the number of events changed.
+    Runs in the caller's transaction (no commit), so a user deletion and
+    the unlinking of its audit trail commit together. Callers delete the
+    user row first: a concurrent language ``PATCH`` re-reads its user under
+    a lock, so it either commits before this runs and is unlinked by it, or
+    finds the user gone and writes nothing. Returns the number of events
+    changed, each written back with only ``user_id`` changed.
+
+    SQL reads no key of ``extra`` (PostgreSQL rejects stored ``\\u0000`` and
+    lone-surrogate escapes, and a non-integer cast aborts): it pre-filters
+    on text and :func:`_names_user` decides. Rows the app never writes, such
+    as a number outside the float range or extreme nesting, may still fail
+    when the ORM parses them.
     """
-    if db.get_bind().dialect.name == "postgresql":
-        unlinked = cast(
-            func.jsonb_set(
-                cast(AuditEvent.extra, JSONB),
-                literal_column("'{user_id}'"),
-                literal_column("'null'::jsonb"),
-            ),
-            JSON,
-        )
-    else:
-        unlinked = func.json_set(AuditEvent.extra, "$.user_id", func.json("null"))
-    result = await db.execute(
-        update(AuditEvent)
+    rows = await db.execute(
+        select(AuditEvent.id, AuditEvent.extra)
         .where(
             AuditEvent.event_type.in_(USER_REFERENCING_EVENT_TYPES),
-            AuditEvent.extra["user_id"].as_integer() == user_id,
+            cast(AuditEvent.extra, Text).like(f"%{user_id}%"),
         )
-        .values(extra=unlinked)
-        .execution_options(synchronize_session=False)
+        .order_by(AuditEvent.id)
+        .with_for_update()
     )
-    return result.rowcount
+    unlinked = [
+        {"id": event_id, "extra": {**extra, "user_id": None}}
+        for event_id, extra in rows
+        if _names_user(extra, user_id)
+    ]
+    if unlinked:
+        await db.execute(update(AuditEvent), unlinked)
+    return len(unlinked)
+
+
+def _names_user(extra: Any, user_id: int) -> bool:
+    """Whether ``extra.user_id`` is ``user_id`` as an integer or its decimal string."""
+    value = extra.get("user_id") if isinstance(extra, dict) else None
+    return (type(value) is int and value == user_id) or value == str(user_id)
 
 
 async def log_regulation_change(
