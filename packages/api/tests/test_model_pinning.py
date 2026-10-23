@@ -1150,3 +1150,40 @@ def test_warmup_skips_the_whisper_check_when_whisper_is_not_installed(
     [record] = [r for r in caplog.records if r.name == main_module.logger.name]
     assert "ner_model_unpinned" in record.getMessage()
     assert "whisper_model_not_allowed" not in record.getMessage()
+
+
+def test_default_fetch_skips_opt_in_models_and_says_so(
+    cli_env, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    from septum_core.model_pins import OPT_IN_MODELS
+
+    monkeypatch.setattr(cli_models, "_whisper_names", lambda args, selective: [])
+
+    code = cli_models.main(["fetch"])
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert cli_env["calls"] and not set(cli_env["calls"]) & set(OPT_IN_MODELS)
+    for repo in OPT_IN_MODELS:
+        assert "skipped  opt-in" in out and f"--only {repo}" in out
+
+
+def test_only_still_fetches_an_opt_in_model(cli_env) -> None:
+    from septum_core.model_pins import OPT_IN_MODELS
+
+    repo = next(iter(OPT_IN_MODELS))
+
+    code = cli_models.main(["fetch", "--only", repo])
+
+    assert code == 0
+    assert cli_env["calls"] == [repo]
+
+
+def test_opt_in_models_are_pinned_and_outside_every_default_map() -> None:
+    from septum_core.model_pins import MODEL_PINS, OPT_IN_MODELS
+    from septum_core.ner_model_registry import NERModelRegistry
+
+    defaults = {m for models in NERModelRegistry().DEFAULT_MODEL_MAP.values() for m in models}
+
+    assert set(OPT_IN_MODELS) <= set(MODEL_PINS)
+    assert not set(OPT_IN_MODELS) & defaults
