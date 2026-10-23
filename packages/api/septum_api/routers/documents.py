@@ -15,7 +15,6 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
-from uuid import uuid4
 
 from fastapi import (
     APIRouter,
@@ -78,6 +77,7 @@ from ..services.policy_snapshot import (
     current_policy_snapshot,
     document_staleness,
 )
+from ..services.source_files import SOURCE_FILE_DIR, new_source_file_name
 from ..utils.auth_dependency import get_current_user, require_role
 from ..utils.crypto import decrypt, encrypt
 from ..utils.db_helpers import (
@@ -111,8 +111,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 
-_DOC_STORAGE_DIR = Path(os.getenv("DOCUMENT_STORAGE_DIR", "./documents")).resolve()
-_DOC_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+_DOC_STORAGE_DIR = SOURCE_FILE_DIR
 
 
 _MIME_TO_FORMAT: dict[str, str] = {
@@ -730,30 +729,39 @@ async def upload_document(
     file_format = _mime_to_format(mime_type)
 
     encrypted_bytes = encrypt(raw_bytes)
-    safe_name = f"{uuid4().hex}"
-    encrypted_path = _DOC_STORAGE_DIR / safe_name
+    encrypted_path = _DOC_STORAGE_DIR / new_source_file_name()
     encrypted_path.write_bytes(encrypted_bytes)
+    try:
+        active_reg_ids = await _snapshot_active_regulations(db)
 
-    active_reg_ids = await _snapshot_active_regulations(db)
-
-    document = Document(
-        filename=str(encrypted_path.name),
-        original_filename=file.filename or "",
-        file_type=mime_type,
-        file_format=file_format,
-        detected_language="en",
-        language_override=None,
-        encrypted_path=str(encrypted_path),
-        file_size_bytes=len(raw_bytes),
-        transcription_text=None,
-        ocr_confidence=0.0,
-        active_regulation_ids=active_reg_ids,
-        ingestion_status="processing",
-        ingestion_error=None,
-        user_id=current_user.id,
-    )
-    db.add(document)
-    await db.commit()
+        document = Document(
+            filename=str(encrypted_path.name),
+            original_filename=file.filename or "",
+            file_type=mime_type,
+            file_format=file_format,
+            detected_language="en",
+            language_override=None,
+            encrypted_path=str(encrypted_path),
+            file_size_bytes=len(raw_bytes),
+            transcription_text=None,
+            ocr_confidence=0.0,
+            active_regulation_ids=active_reg_ids,
+            ingestion_status="processing",
+            ingestion_error=None,
+            user_id=current_user.id,
+        )
+        db.add(document)
+        await db.commit()
+    except BaseException:
+        # No row will ever point at the file, so it must not outlive the failure.
+        try:
+            encrypted_path.unlink(missing_ok=True)
+        except OSError as unlink_exc:
+            logger.error(
+                "Could not remove the source file of a failed upload: %s",
+                type(unlink_exc).__name__,
+            )
+        raise
     await db.refresh(document)
 
     async def _run_full_background(doc_id: int) -> None:

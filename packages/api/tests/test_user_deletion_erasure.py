@@ -19,7 +19,7 @@ from septum_api.models.document import Document
 from septum_api.models.user import User
 from septum_api.routers import documents as documents_module
 from septum_api.routers import users as users_module
-from septum_api.services import document_anon_store
+from septum_api.services import document_anon_store, orphan_artifacts, source_files
 from septum_api.services.anonymization_map import AnonymizationMap
 from septum_api.services.bm25_retriever import BM25Retriever
 from septum_api.services.document_anon_store import (
@@ -420,6 +420,261 @@ async def test_document_inserted_right_before_the_user_delete_refuses(world: _Wo
     assert await world.row(Document, inserted[0]) is not None
 
 
+def _age(path: Path) -> None:
+    old = time.time() - orphan_artifacts.SOURCE_MIN_AGE_SECONDS - 60
+    os.utime(path, (old, old))
+
+
+async def _sweep(world: _World) -> orphan_artifacts.OrphanSweepResult:
+    return await orphan_artifacts.sweep_orphan_artifacts(world.session_maker, world.sources)
+
+
+async def _live_document(world: _World) -> Document:
+    """A document with all its artifacts, so the sweep's empty-table guard does not apply."""
+    owner = await world.add_user(f"owner-{uuid4().hex}@example.com")
+    live = await world.add_document(owner)
+    _age(Path(live.encrypted_path))
+    return live
+
+
+async def test_sweep_erases_only_orphans(world: _World, redis_client) -> None:
+    live = await _live_document(world)
+    orphan_id = live.id + 100
+    await write_artifacts(orphan_id)
+    old_orphan = world.sources / uuid4().hex
+    old_orphan.write_bytes(b"ciphertext")
+    _age(old_orphan)
+    young_orphan = world.sources / uuid4().hex
+    young_orphan.write_bytes(b"ciphertext")
+    unrelated = world.sources / "README"
+    unrelated.write_bytes(b"x")
+    _age(unrelated)
+
+    result = await _sweep(world)
+
+    assert (result.documents, result.source_files, result.failures) == (1, 1, 0)
+    assert await stored_tiers(orphan_id, redis_client) == set()
+    expected = ALL_DISK_TIERS | ({"map_redis"} if redis_client is not None else set())
+    assert await stored_tiers(live.id, redis_client) == expected
+    assert Path(live.encrypted_path).exists()
+    assert not old_orphan.exists()
+    assert young_orphan.exists()
+    assert unrelated.exists()
+
+
+async def test_sweep_erases_nothing_when_the_documents_table_is_empty(
+    world: _World, caplog: pytest.LogCaptureFixture
+) -> None:
+    await write_artifacts(3)
+    orphan = world.sources / uuid4().hex
+    orphan.write_bytes(b"ciphertext")
+    _age(orphan)
+
+    with caplog.at_level(logging.ERROR, logger=orphan_artifacts.__name__):
+        result = await _sweep(world)
+
+    assert (result.documents, result.source_files, result.held_back) == (0, 0, 2)
+    assert await stored_tiers(3) == ALL_DISK_TIERS
+    assert orphan.exists()
+    assert "documents table is empty but 1 stored document ids and 1 source files" in caplog.text
+    assert str(world.tmp) not in caplog.text
+
+
+async def test_sweep_skips_a_document_created_before_it_takes_the_lock(
+    world: _World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    live = await _live_document(world)
+    orphan_id = 42
+    await write_artifacts(orphan_id)
+    real_lock = orphan_artifacts.document_map_lock
+
+    @contextlib.asynccontextmanager
+    async def _row_appears_first(document_id: int, **kwargs: Any):
+        async with world.session_maker() as session:
+            session.add(
+                Document(
+                    id=document_id,
+                    filename="x",
+                    original_filename="x.pdf",
+                    file_type="application/pdf",
+                    file_format="pdf",
+                    detected_language="en",
+                    encrypted_path=str(world.sources / "x"),
+                    file_size_bytes=1,
+                    ingestion_status="processing",
+                    user_id=live.user_id,
+                )
+            )
+            await session.commit()
+        async with real_lock(document_id, **kwargs) as lock:
+            yield lock
+
+    monkeypatch.setattr(orphan_artifacts, "document_map_lock", _row_appears_first)
+
+    result = await _sweep(world)
+
+    assert (result.documents, result.failures) == (0, 0)
+    assert await stored_tiers(orphan_id) == ALL_DISK_TIERS
+
+
+@pytest.mark.parametrize(
+    ("failure", "error"),
+    [
+        ("timeout", "DocumentMapLockTimeout"),
+        ("lost", "DocumentMapLockLost"),
+    ],
+    ids=["timeout", "lost"],
+)
+async def test_sweep_erases_nothing_without_the_lock(
+    world: _World,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    failure: str,
+    error: str,
+) -> None:
+    await _live_document(world)
+    await write_artifacts(9)
+    monkeypatch.setattr(orphan_artifacts, "document_map_lock", _stub_lock(failure))
+
+    with caplog.at_level(logging.ERROR, logger=orphan_artifacts.__name__):
+        result = await _sweep(world)
+
+    assert (result.documents, result.failures) == (0, 1)
+    assert await stored_tiers(9) == ALL_DISK_TIERS
+    assert f"document_id=9 tier=map_lock error={error}" in caplog.text
+
+
+async def test_sweep_logs_a_real_unlink_failure_without_paths_and_continues(
+    world: _World, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    await _live_document(world)
+    await write_artifacts(7)
+    orphan = world.sources / uuid4().hex
+    orphan.write_bytes(b"ciphertext")
+    _age(orphan)
+    monkeypatch.setattr(Path, "unlink", _unlink_failing_for(".bm25.enc"))
+
+    with caplog.at_level(logging.INFO):
+        result = await _sweep(world)
+
+    assert (result.documents, result.source_files, result.failures) == (0, 1, 1)
+    assert BM25Retriever()._index_path(7).exists()
+    assert not orphan.exists()
+    assert "document_id=7 tier=bm25_index error=PermissionError" in caplog.text
+    assert str(world.tmp) not in caplog.text
+    assert RAW_NAME not in caplog.text
+
+
+async def test_sweep_with_an_unreachable_map_cache(
+    world: _World, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    live = await _live_document(world)
+    await write_artifacts(5)
+    _unreachable_redis(monkeypatch)
+
+    with caplog.at_level(logging.ERROR):
+        result = await _sweep(world)
+
+    # One failure for the unreadable cache listing, one for orphan 5's map,
+    # which pop_document_map cannot confirm erased from the cache tier.
+    assert (result.documents, result.source_files, result.failures) == (0, 0, 2)
+    assert "tier=anonymization_map_cache" in caplog.text
+    assert await stored_tiers(5) == set()
+    assert await stored_tiers(live.id) == ALL_DISK_TIERS
+
+
+async def test_oversized_or_foreign_ids_are_skipped(
+    world: _World, fake_redis: Any
+) -> None:
+    await _live_document(world)
+    await fake_redis.set("anon_map:" + "9" * 5000, b"x")
+    await fake_redis.set("anon_map:not-a-number", b"x")
+    await fake_redis.set("anon_map:99999999999", b"x")
+    await fake_redis.set("anon_map:007", b"x")
+    (VectorStore().base_dir / f"doc_{'9' * 30}.faiss.enc").write_bytes(b"x")
+    (VectorStore().base_dir / "doc_0.faiss.enc").write_bytes(b"x")
+    (VectorStore().base_dir / "doc_007.faiss.enc").write_bytes(b"x")
+
+    assert await document_anon_store.redis_map_document_ids() == {1}
+    assert VectorStore().stored_document_ids() == {1}
+    result = await _sweep(world)
+
+    assert result.failures == 0
+    assert await fake_redis.exists("anon_map:" + "9" * 5000)
+
+
+async def test_sweep_finds_nothing_on_an_empty_store(world: _World) -> None:
+    result = await _sweep(world)
+
+    assert (result.documents, result.source_files, result.failures, result.held_back) == (0, 0, 0, 0)
+    async with world.session_maker() as session:
+        assert (await session.scalars(select(Document))).all() == []
+
+
+@pytest.fixture
+def started_lifespan(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    """Run the lifespan's configured branch with every startup step stubbed and recorded."""
+    from septum_api import main
+
+    calls: list[Any] = []
+
+    async def _record(name: str) -> None:
+        calls.append(name)
+
+    sentinel = object()
+    monkeypatch.setattr(main.bootstrap, "needs_setup", lambda: False)
+    monkeypatch.setattr(main, "initialize_engine", lambda _url: calls.append("initialize_engine"))
+    monkeypatch.setattr(main, "init_db", lambda: _record("init_db"))
+    monkeypatch.setattr(main, "_reset_orphaned_processing_docs", lambda: _record("reset"))
+    monkeypatch.setattr(main, "sweep_stale_temp_files", lambda: calls.append("temp_sweep"))
+    monkeypatch.setattr(main, "get_session_maker", lambda: sentinel)
+    monkeypatch.setattr(main, "_announce_setup_token", lambda: _record("announce"))
+    monkeypatch.setattr(main, "_error_log_retention_loop", lambda: _record("retention"))
+    monkeypatch.setenv(main.MODEL_WARMUP_OPT_OUT_ENV, "1")
+    calls.append(sentinel)
+    return calls
+
+
+async def test_lifespan_sweeps_the_real_storage_dir_after_init_db(
+    started_lifespan: list[Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from septum_api import main
+
+    sentinel = started_lifespan.pop(0)
+
+    async def _sweep_stub(session_maker: Any, source_dir: Path) -> None:
+        started_lifespan.append(("sweep", session_maker, source_dir))
+
+    monkeypatch.setattr(main, "sweep_orphan_artifacts", _sweep_stub)
+
+    async with main.lifespan(main.app):
+        pass
+
+    sweep = next(c for c in started_lifespan if isinstance(c, tuple))
+    assert sweep == ("sweep", sentinel, source_files.SOURCE_FILE_DIR)
+    assert started_lifespan.index("init_db") < started_lifespan.index(sweep)
+
+
+async def test_lifespan_survives_a_failing_sweep(
+    started_lifespan: list[Any], monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from septum_api import main
+    from sqlalchemy.exc import OperationalError
+
+    async def _broken_sweep(*_args: Any) -> None:
+        raise OperationalError("SELECT documents.id FROM /secret/db", {}, Exception("locked"))
+
+    monkeypatch.setattr(main, "sweep_orphan_artifacts", _broken_sweep)
+
+    with caplog.at_level(logging.ERROR):
+        async with main.lifespan(main.app):
+            started_lifespan.append("serving")
+
+    assert "serving" in started_lifespan
+    assert "Orphaned artifact sweep failed: OperationalError" in caplog.text
+    assert "/secret/db" not in caplog.text
+
+
 async def test_user_removed_during_the_erasure_returns_404(
     world: _World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -465,3 +720,108 @@ async def test_last_admin_rule_is_checked_again_after_the_erasure(
     assert resp.status_code == 409
     assert "last active administrator" in resp.text
     assert await world.row(User, target.id) is not None
+
+
+_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00"
+    b"\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02\xfe\xa7\x35\x81\x84"
+    b"\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+async def test_upload_whose_row_cannot_be_committed_leaves_no_source_file(
+    world: _World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    storage = world.tmp / "uploads"
+    storage.mkdir()
+    monkeypatch.setattr(documents_module, "_DOC_STORAGE_DIR", storage)
+    # The uploader was deleted meanwhile: the row's user foreign key fails.
+    world.acting = User(id=9999, email="gone@example.com", hashed_password="x", role="editor")
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test"
+    ) as client:
+        resp = await client.post(
+            "/api/documents/upload", files={"file": ("scan.png", _PNG, "image/png")}
+        )
+
+    assert resp.status_code == 500
+    assert list(storage.iterdir()) == []
+    async with world.session_maker() as session:
+        assert (await session.scalars(select(Document))).all() == []
+
+
+async def test_sweep_waits_only_briefly_for_a_map_lock(
+    world: _World, fake_redis: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _live_document(world)
+    await write_artifacts(77)
+    waits: list[Any] = []
+
+    class _RecordingLock(_HeldLock):
+        def __init__(self, *_args: Any, **kwargs: Any) -> None:
+            waits.append(kwargs.get("blocking_timeout"))
+
+    monkeypatch.setattr(fake_redis, "lock", _RecordingLock, raising=False)
+
+    result = await _sweep(world)
+
+    assert result.documents == 1
+    assert waits == [orphan_artifacts.SWEEP_LOCK_WAIT_SECONDS]
+    assert orphan_artifacts.SWEEP_LOCK_WAIT_SECONDS < document_anon_store._LOCK_WAIT_SECONDS
+
+
+async def test_sweep_keeps_a_file_referenced_only_by_its_stored_path(world: _World) -> None:
+    owner = await world.add_user("owner@example.com")
+    stored = world.sources / uuid4().hex
+    stored.write_bytes(b"ciphertext")
+    _age(stored)
+    async with world.session_maker() as session:
+        session.add(
+            Document(
+                filename="legacy-name",
+                original_filename="old.pdf",
+                file_type="application/pdf",
+                file_format="pdf",
+                detected_language="en",
+                encrypted_path=str(stored),
+                file_size_bytes=10,
+                ingestion_status="completed",
+                user_id=owner.id,
+            )
+        )
+        await session.commit()
+    hex_dir = world.sources / uuid4().hex
+    hex_dir.mkdir()
+    os.utime(hex_dir, (time.time() - 3600, time.time() - 3600))
+
+    result = await _sweep(world)
+
+    assert (result.source_files, result.failures) == (0, 0)
+    assert stored.exists()
+    assert hex_dir.is_dir()
+
+
+async def test_sweep_skips_a_source_file_that_vanishes_while_listed(
+    world: _World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _live_document(world)
+    vanishing = world.sources / uuid4().hex
+    vanishing.write_bytes(b"ciphertext")
+    orphan = world.sources / uuid4().hex
+    orphan.write_bytes(b"ciphertext")
+    _age(vanishing)
+    _age(orphan)
+    real_stat = Path.stat
+
+    def _stat(self: Path, *args: Any, **kwargs: Any):
+        if self.name == vanishing.name:
+            raise FileNotFoundError(2, "No such file", str(self))
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", _stat)
+
+    result = await _sweep(world)
+
+    assert (result.source_files, result.failures) == (1, 0)
+    assert not orphan.exists()
