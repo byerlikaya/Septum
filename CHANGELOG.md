@@ -25,6 +25,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 ### 2026-10-26
 
 - Fresh installs no longer fail to load the spaCy English model: preshed 3.0.14, released on 2026-10-25 and pulled in by spaCy, makes model loading raise an OverflowError, so septum-core now excludes that release and the API requirements pin preshed 3.0.13.
+- Document ingestion no longer hangs forever when the OCR worker process crashes (for example on a native-library segfault): the page now falls back to empty OCR text with the existing warning, and the next page starts a fresh worker. Shutting the API down also no longer waits on a busy OCR worker.
 
 ### 2026-10-24
 

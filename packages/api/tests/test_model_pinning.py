@@ -7,8 +7,10 @@ No test touches the network: every fetch goes through a mocked
 """
 
 import ast
+import concurrent.futures
 import json
 import logging
+import multiprocessing
 import os
 import pickle
 from pathlib import Path
@@ -242,14 +244,29 @@ def test_every_refusal_is_a_model_refusal_that_survives_pickling(exc: ModelRefus
     assert (clone.code, str(clone), vars(clone)) == (exc.code, str(exc), vars(exc))
 
 
-def test_integrity_error_crosses_a_real_process_pool_unchanged() -> None:
-    import multiprocessing as mp
+_WORKER_TIMEOUT_SECONDS = 600
 
+
+def _run_in_spawned_worker(fn, *args, timeout: float = _WORKER_TIMEOUT_SECONDS):
+    """Run ``fn(*args)`` in a one-process spawn pool and return its result.
+
+    A worker that dies hard raises ``BrokenProcessPool`` and a worker that
+    never answers raises ``TimeoutError``, so neither can hang the suite.
+    """
+    executor = concurrent.futures.ProcessPoolExecutor(
+        max_workers=1, mp_context=multiprocessing.get_context("spawn")
+    )
+    try:
+        return executor.submit(fn, *args).result(timeout=timeout)
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
+def test_integrity_error_crosses_a_real_process_pool_unchanged() -> None:
     from septum_core.model_integrity import require_pin
 
-    with mp.get_context("spawn").Pool(1) as pool:
-        with pytest.raises(ModelIntegrityError) as exc:
-            pool.apply(require_pin, (UNPINNED,))
+    with pytest.raises(ModelIntegrityError) as exc:
+        _run_in_spawned_worker(require_pin, UNPINNED)
 
     assert (exc.value.model_id, exc.value.reason) == (UNPINNED, "model has no pin")
 
@@ -262,8 +279,10 @@ def test_worker_integrity_failure_reaches_the_caller_unchanged(
     sent = ModelIntegrityError("PaddlePaddle/UVDoc", INTEGRITY_REASON)
 
     class _Pool:
-        def apply(self, fn, args):
-            raise pickle.loads(pickle.dumps(sent))
+        def submit(self, fn, *args):
+            future: concurrent.futures.Future = concurrent.futures.Future()
+            future.set_exception(pickle.loads(pickle.dumps(sent)))
+            return future
 
     monkeypatch.setattr(paddle_provider, "_get_ocr_pool", lambda: _Pool())
 
@@ -280,8 +299,10 @@ def test_other_worker_failures_still_yield_no_results(monkeypatch: pytest.Monkey
     import numpy as np
 
     class _Pool:
-        def apply(self, fn, args):
-            raise RuntimeError("worker crashed")
+        def submit(self, fn, *args):
+            future: concurrent.futures.Future = concurrent.futures.Future()
+            future.set_exception(RuntimeError("worker crashed"))
+            return future
 
     monkeypatch.setattr(paddle_provider, "_get_ocr_pool", lambda: _Pool())
 
@@ -1049,12 +1070,9 @@ def _build_engine_offline_by_construction(
 
 @pytest.mark.real_network
 def test_ocr_engine_is_built_without_paddlex_lookup_or_network() -> None:
-    import multiprocessing as mp
-
     names = dict(paddle_provider.PaddleOcrProvider._MODEL_NAMES)
 
-    with mp.get_context("spawn").Pool(1) as pool:
-        built, attempts = pool.apply(_build_engine_offline_by_construction, (names,))
+    built, attempts = _run_in_spawned_worker(_build_engine_offline_by_construction, names)
 
     assert built == sorted(
         f"{prefix}_model_{part}" for prefix in names for part in ("dir", "name")
