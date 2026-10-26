@@ -22,6 +22,83 @@ All notable changes to this project are documented here in a high‑level, date�
 
 ## Unreleased
 
+## v3.0.0 — 2026-10-26 — Script-aware detection and network lockdown
+
+Detection is now script-aware: each text's language is checked against its
+script, space-free text such as Chinese, Japanese and Thai is masked to exact
+glyphs, and short inputs reach the NER layer. The setup wizard needs a
+one-time token, rate limits are on by default, published ports bind to
+loopback, and the air-gapped stack runs on an internal network with no route
+out. Erasure and audit retention are enforced: deleting a user removes every
+stored copy, and retention limits prune the audit ledger. The NER layer drops
+the wikineural model, whose licence forbids commercial use, for a multilingual
+mBERT default. Queue, OCR and gateway robustness fixes complete the release.
+
+Breaking changes (details in the dated entries below):
+
+- The setup wizard and its endpoints, including first-admin registration, need
+  a one-time setup token. The API prints it in its log while setup is open; set
+  `SEPTUM_SETUP_TOKEN` (at least 32 characters, at least 10 distinct) to choose
+  it yourself.
+- Rate limits are enforced by default: 600 requests per minute, and 30 per
+  minute for chat, counted per signed-in user. Check that automated clients
+  stay within them.
+- Published ports (API, MCP, Ollama, audit and gateway health) bind to
+  127.0.0.1 by default, so hosts other than this machine no longer reach them.
+- `docker-compose.gateway.yml` refuses to start until `SEPTUM_GATEWAY_REDIS_BIND`
+  is set to the gateway host's private or VPN address; its Redis port is the
+  one published port with no loopback default. The full-stack and air-gapped
+  compose files use a fixed subnet (`172.28.70.0/24` by default); if it collides
+  with a host network, set `SEPTUM_SUBNET`.
+- The dashboard strips client-sent forwarding headers and honours them only
+  from proxies listed in `SEPTUM_TRUSTED_PROXIES`, and the API takes the client
+  address from `X-Forwarded-For` only when the peer is in
+  `FORWARDED_ALLOW_IPS`. The `/metrics` endpoint is no longer served on the
+  dashboard port, so scrape it from the API service.
+- The air-gapped stack runs on an internal network with no route out, and its
+  API, Postgres and Redis ports are no longer published. The host Ollama relay
+  is removed; Ollama now runs inside the zone and its models are loaded by a
+  one-off pull service. Upgrade: set the `SEPTUM_QUEUE_*_PASSWORD` variables,
+  which are now required, and remove the old queue Redis data volume as
+  described in the installation guide.
+- Gateway routing fails closed: when it is required and no gateway queue is
+  configured, requests are refused instead of going to the cloud provider, and
+  `USE_GATEWAY_DEFAULT=true` without a queue stops startup. Upgrade: configure
+  the gateway queue before enabling gateway routing.
+- Error logs are bounded and kept for 90 days (`ERROR_LOG_RETENTION_DAYS`).
+  Failed logins and other unauthenticated rejections are counted in metrics
+  only and no longer appear in Error Logs.
+- Boolean and number `*_DEFAULT` environment flags are strict. Booleans accept
+  only true, false, 1, 0, yes, no, on and off; integers must be whole numbers
+  and `RAG_RELEVANCE_THRESHOLD_DEFAULT` must be a finite number from 0.0 to 1.0.
+  Upgrade: fix any mistyped value, because an invalid one stops API startup and
+  the error names the variable.
+- Audit retention is applied: `SEPTUM_AUDIT_RETENTION_DAYS` and
+  `SEPTUM_AUDIT_RETENTION_MAX_RECORDS` prune the oldest ledger records. Upgrade:
+  if either variable is set, check it first, since records beyond it are
+  removed; unset or empty means no pruning, and an invalid value refuses
+  startup. The audit API mounts the log volume read-only, and only one worker
+  may write a ledger.
+- Upgrade: audit events no longer keep original file names or chat questions,
+  and upgrading removes both from existing events. Old values can remain in
+  database free space and backups; on PostgreSQL, `VACUUM FULL audit_events`
+  rewrites the table without them.
+- Upgrade: air-gapped installs must run `python -m septum_api.cli.models fetch`
+  on a connected host and copy the models over, because wikineural is gone. A
+  saved NER override naming it is refused, so change it in Settings first.
+  Existing documents are re-masked on next use.
+- Upgrade: a manual language override must be a supported code that matches the
+  document's script, otherwise the request gets 422. Documents show "needs
+  reprocessing" until they are reprocessed after the `sanitized_language` column
+  is added.
+- Upgrade: deleting a user now erases every stored copy of their documents, and
+  startup sweeps copies that no document row points to any more.
+- Upgrade: spreadsheet column-mapping updates are bounded and refused with 422
+  beyond 1024 labelled columns or 128 characters per label. Duplicate schemas
+  left by earlier races are merged on upgrade.
+- Upgrade: rebuild the web and standalone images (Node.js 26.12.1), and
+  reinstall the API requirements, which pin preshed 3.0.13.
+
 ### 2026-10-26
 
 - Fresh installs no longer fail to load the spaCy English model: preshed 3.0.14, released on 2026-10-25 and pulled in by spaCy, makes model loading raise an OverflowError, so septum-core now excludes that release and the API requirements pin preshed 3.0.13.
