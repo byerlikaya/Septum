@@ -198,7 +198,7 @@ services:
   # and `*-cloud` model tags cannot reach a cloud. Models come from the
   # ollama-pull one-off below.
   ollama:
-    image: ollama/ollama:0.40.7@sha256:2e6cc92ffa43b4b1a2e70e315407e00ac97ec125afc71277d73c7efe01c4f31b
+    image: ollama/ollama:0.40.9@sha256:5c6707fcf2e1a30cffe2ecb7e315584fc87747c389327e4bc711c4959aa1eecc
     container_name: septum-ollama
     networks: [zone]
     volumes:
@@ -220,7 +220,7 @@ services:
   # internet at all: copy a connected host's ~/.ollama/models into the
   # <project>_ollama-data volume instead.
   ollama-pull:
-    image: ollama/ollama:0.40.7@sha256:2e6cc92ffa43b4b1a2e70e315407e00ac97ec125afc71277d73c7efe01c4f31b
+    image: ollama/ollama:0.40.9@sha256:5c6707fcf2e1a30cffe2ecb7e315584fc87747c389327e4bc711c4959aa1eecc
     environment:
       OLLAMA_HOST: 127.0.0.1:11434
     entrypoint:
