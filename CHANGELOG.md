@@ -28,6 +28,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ### 2026-10-24
 
+- A chat turn over a spreadsheet now describes at most 1024 columns in the prompt and summarises the rest in one line; a very wide sheet previously added hundreds of kilobytes of schema text to every turn and to the approval preview.
 - The file queue backend now returns a claimed message to the queue when decoding it fails with an unexpected error, instead of leaving it stuck in `processing/` until the next restart.
 
 ### 2026-10-23

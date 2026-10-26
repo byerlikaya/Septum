@@ -745,11 +745,11 @@ class TestChatBudget:
 
         assert len(env.gate_calls) == 1
         assert env.gate_calls[0] == [f"L{i}" for i in range(MAX_SCHEMA_LABELED_COLUMNS)]
-        assert len(descriptions) == MAX_SCHEMA_LABELED_COLUMNS + 76
-        assert descriptions[MAX_SCHEMA_LABELED_COLUMNS] == (
-            f"index {MAX_SCHEMA_LABELED_COLUMNS} → "
-            f"COLUMN_{MAX_SCHEMA_LABELED_COLUMNS + 1}"
+        assert len(descriptions) == MAX_SCHEMA_LABELED_COLUMNS + 1
+        assert descriptions[MAX_SCHEMA_LABELED_COLUMNS - 1] == (
+            f"index {MAX_SCHEMA_LABELED_COLUMNS - 1} → L{MAX_SCHEMA_LABELED_COLUMNS - 1}"
         )
+        assert descriptions[-1] == "76 further columns are not described"
 
     async def test_interleaved_blank_labels_are_skipped_and_not_counted(
         self, env: _Env
@@ -769,12 +769,55 @@ class TestChatBudget:
 
         descriptions = await _describe(env, doc)
 
-        assert env.gate_calls == [[f"L{i}" for i in range(0, 2047, 2)]]
+        last = MAX_SCHEMA_LABELED_COLUMNS - 1
+        assert env.gate_calls == [[f"L{i}" for i in range(0, last, 2)]]
         assert descriptions[0] == "index 0 → L0"
         assert descriptions[1] == "index 1 → COLUMN_2"
         assert descriptions[3] == "index 3 → COLUMN_4"
-        assert descriptions[2046] == "index 2046 → L2046"
-        assert descriptions[2048] == "index 2048 → COLUMN_2049"
+        assert descriptions[last - 1] == f"index {last - 1} → L{last - 1}"
+        assert descriptions[last] == f"index {last} → COLUMN_{last + 1}"
+        assert descriptions[-1] == "1026 further columns are not described"
+
+    async def test_more_columns_than_the_cap_are_described_up_to_the_cap(
+        self, env: _Env
+    ) -> None:
+        doc = await env.add_document()
+        await env.add_schema(doc, _plain_columns(MAX_SCHEMA_LABELED_COLUMNS + 5))
+
+        descriptions = await _describe(env, doc)
+
+        assert len(descriptions) == MAX_SCHEMA_LABELED_COLUMNS + 1
+        assert descriptions[MAX_SCHEMA_LABELED_COLUMNS - 1] == (
+            f"index {MAX_SCHEMA_LABELED_COLUMNS - 1} → COLUMN_{MAX_SCHEMA_LABELED_COLUMNS}"
+        )
+        assert descriptions[-1] == "5 further columns are not described"
+        assert env.gate_calls == []
+
+    async def test_columns_within_the_cap_have_no_summary(self, env: _Env) -> None:
+        doc = await env.add_document()
+        await env.add_schema(doc, _plain_columns(MAX_SCHEMA_LABELED_COLUMNS))
+
+        descriptions = await _describe(env, doc)
+
+        assert len(descriptions) == MAX_SCHEMA_LABELED_COLUMNS
+        assert all(d.startswith("index ") for d in descriptions)
+
+    async def test_labels_beyond_the_described_columns_are_not_gated_or_shown(
+        self, env: _Env
+    ) -> None:
+        doc = await env.add_document()
+        columns = [
+            (i, f"COLUMN_{i + 1}", f"L{i}" if i in (1023, 1024, 1030) else None)
+            for i in range(MAX_SCHEMA_LABELED_COLUMNS + 7)
+        ]
+        await env.add_schema(doc, columns)
+
+        descriptions = await _describe(env, doc)
+
+        assert env.gate_calls == [["L1023"]]
+        assert descriptions[-2] == "index 1023 → L1023"
+        assert descriptions[-1] == "7 further columns are not described"
+        assert not any("L1024" in d or "L1030" in d for d in descriptions)
 
     async def test_schema_without_labels_gates_nothing(self, env: _Env) -> None:
         doc = await env.add_document()
