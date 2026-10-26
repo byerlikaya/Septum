@@ -489,10 +489,11 @@ class TestCancelledConsumer:
     async def test_cancelled_ack_or_nack_queued_behind_busy_worker_is_not_stranded(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
     ):
+        monkeypatch.setattr(
+            file_backend_module, "ThreadPoolExecutor", lambda **_kwargs: _SubmitCountingPool()
+        )
         backend = FileQueueBackend(tmp_path, topic="t")
-        loop = asyncio.get_running_loop()
-        pool = _SubmitCountingPool()
-        loop.set_default_executor(pool)
+        pool = backend._executor
         release = threading.Event()
         finished = threading.Event()
         _signal_after(monkeypatch, FileQueueBackend, _STAGE[operation], finished)
