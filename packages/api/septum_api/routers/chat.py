@@ -118,8 +118,8 @@ from ..services.pii_gate import (
     DocumentGoneError,
     DocumentMapConflictError,
     DocumentMapMissingError,
+    KnownEntityMasker,
     gate_untrusted_texts,
-    mask_known_entities,
     remask_document_texts,
     reserve_placeholder_counters,
 )
@@ -1886,6 +1886,7 @@ async def chat_ask(
                     # and must not reach the cloud LLM.
                     document_labels: dict[int, int] = {}
                     prev_doc_id: Optional[int] = None
+                    maskers: dict[int, KnownEntityMasker] = {}
                     for c in chunks:
                         header = ""
                         if (
@@ -1902,7 +1903,10 @@ async def chat_ask(
                         )
                         chunk_map = anon_maps.get(c.document_id, anon_map)
                         # Chunks were analysed at ingestion; the map is the source of truth here.
-                        masked_chunk = mask_known_entities(chunk_text, chunk_map)
+                        masker = maskers.get(id(chunk_map))
+                        if masker is None:
+                            masker = maskers[id(chunk_map)] = KnownEntityMasker(chunk_map)
+                        masked_chunk = masker.mask(chunk_text)
                         chunk_remap = per_doc_remap.get(c.document_id)
                         if chunk_remap:
                             masked_chunk = _apply_chunk_placeholder_remap(
