@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-10-26
+
+- Fresh installs no longer fail to load the spaCy English model: preshed 3.0.14, released on 2026-10-25 and pulled in by spaCy, makes model loading raise an OverflowError, so septum-core now excludes that release and the API requirements pin preshed 3.0.13.
+
 ### 2026-10-24
 
 - A chat turn over a spreadsheet now describes at most 1024 columns in the prompt and summarises the rest in one line; a very wide sheet previously added hundreds of kilobytes of schema text to every turn and to the approval preview.
