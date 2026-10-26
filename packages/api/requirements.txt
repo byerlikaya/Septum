@@ -21,7 +21,7 @@ langchain-experimental==0.4.2
 faiss-cpu==1.15.1
 langdetect==1.0.9
 lingua-language-detector==2.2.0
-pymupdf==1.28.2
+pymupdf==2.0
 python-docx==1.2.0
 openpyxl==3.1.5
 odfpy==1.4.1
