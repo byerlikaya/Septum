@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """PaddleOCR-based OCR provider with layout analysis.
 
 OCR inference runs in a **persistent subprocess** so that PaddlePaddle's
@@ -12,10 +10,14 @@ hash-verified before PaddleOCR sees it, and handed over as a local model
 directory, so PaddleX never downloads a model on its own.
 """
 
+from __future__ import annotations
+
 import atexit
 import logging
 import multiprocessing as mp
 import re
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from typing import Any, Dict, List, Mapping, Tuple
 
 import numpy as np  # type: ignore[import]
@@ -99,11 +101,11 @@ def _paddle_ocr_predict(
 # Persistent subprocess pool (module-level, shared across all providers)
 # ---------------------------------------------------------------------------
 
-_ocr_pool: mp.pool.Pool | None = None
+_ocr_pool: ProcessPoolExecutor | None = None
 _ocr_pool_lock = mp.Lock()
 
 
-def _get_ocr_pool() -> mp.pool.Pool:
+def _get_ocr_pool() -> ProcessPoolExecutor:
     """Return the long-lived OCR worker pool, creating it on first call."""
     global _ocr_pool
     if _ocr_pool is not None:
@@ -111,18 +113,39 @@ def _get_ocr_pool() -> mp.pool.Pool:
     with _ocr_pool_lock:
         if _ocr_pool is not None:
             return _ocr_pool
-        ctx = mp.get_context("spawn")
-        _ocr_pool = ctx.Pool(1)
+        _ocr_pool = ProcessPoolExecutor(
+            max_workers=1, mp_context=mp.get_context("spawn")
+        )
         return _ocr_pool
 
 
-def shutdown_ocr_pool() -> None:
-    """Terminate the OCR subprocess pool and release ~1.5 GB of memory."""
+def _discard_ocr_pool(pool: ProcessPoolExecutor) -> None:
+    """Forget a pool whose worker died, so the next call starts a fresh one."""
     global _ocr_pool
-    if _ocr_pool is not None:
-        _ocr_pool.terminate()
-        _ocr_pool.join()
-        _ocr_pool = None
+    with _ocr_pool_lock:
+        if _ocr_pool is pool:
+            _ocr_pool = None
+    pool.shutdown(wait=False, cancel_futures=True)
+
+
+def _terminate_workers(pool: ProcessPoolExecutor) -> None:
+    """Kill workers now; ``_processes`` is private and only used before Python 3.14."""
+    terminate = getattr(pool, "terminate_workers", None)
+    if terminate is not None:
+        terminate()
+        return
+    for process in list((getattr(pool, "_processes", None) or {}).values()):
+        process.terminate()
+
+
+def shutdown_ocr_pool() -> None:
+    """Terminate the OCR pool (~1.5 GB) without waiting on a busy worker."""
+    global _ocr_pool
+    with _ocr_pool_lock:
+        pool, _ocr_pool = _ocr_pool, None
+    if pool is not None:
+        pool.shutdown(wait=False, cancel_futures=True)
+        _terminate_workers(pool)
 
 
 atexit.register(shutdown_ocr_pool)
@@ -217,18 +240,18 @@ class PaddleOcrProvider(OcrProvider):
         """
         pool = _get_ocr_pool()
         try:
-            return pool.apply(
+            return pool.submit(
                 _paddle_ocr_predict,
-                (
-                    image_array.tobytes(),
-                    image_array.shape,
-                    str(image_array.dtype),
-                    dict(self._MODEL_NAMES),
-                ),
-            )
+                image_array.tobytes(),
+                image_array.shape,
+                str(image_array.dtype),
+                dict(self._MODEL_NAMES),
+            ).result()
         except ModelIntegrityError:
             raise
         except Exception as exc:
+            if isinstance(exc, BrokenProcessPool):
+                _discard_ocr_pool(pool)
             logger.warning(
                 "PaddleOCR subprocess failed (image shape=%s): %s",
                 image_array.shape,
