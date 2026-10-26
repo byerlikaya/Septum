@@ -63,6 +63,7 @@ import stat
 import time
 import uuid
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncIterator, Literal, Mapping
@@ -75,6 +76,13 @@ logger = logging.getLogger(__name__)
 _SAFE_TOPIC_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 _READ_CHUNK_BYTES = 64 * 1024
+
+# Worker threads per backend instance. One consumer pass issues its calls one at a time,
+# so the backend's concurrency is one consumer plus the publishers in flight (a few
+# concurrent chat requests) plus rare hand-backs. Four covers that without queueing,
+# and a stalled disk can pin at most four threads, never the shared default executor.
+_IO_WORKERS = 4
+_IO_THREAD_PREFIX = "septum-queue-file"
 
 # Seconds a refused entry is left alone before it is tried again.
 _REFUSAL_COOLDOWN_SECONDS = 60
@@ -220,6 +228,10 @@ class FileQueueBackend(QueueBackend):
             self._dead_letter,
         ):
             directory.mkdir(parents=True, exist_ok=True)
+        # Threads start on first submit, so construction and import spawn none.
+        self._executor = ThreadPoolExecutor(
+            max_workers=_IO_WORKERS, thread_name_prefix=_IO_THREAD_PREFIX
+        )
         self._clock = clock
         # name -> clock time until which a refused entry is left alone. Pruned to the
         # names still listed in incoming/ on every pass, so it cannot grow unbounded.
@@ -264,14 +276,22 @@ class FileQueueBackend(QueueBackend):
         if self._closed:
             raise QueueError("FileQueueBackend has been closed")
 
+    def _submit(self, fn, *args) -> asyncio.Future:
+        """Start one blocking filesystem call on this backend's own pool.
+
+        Submission happens here, synchronously, so a call made after ``close()``
+        raises ``QueueError`` at once instead of reaching a shut-down pool.
+        """
+        self._ensure_open()
+        return asyncio.get_running_loop().run_in_executor(self._executor, fn, *args)
+
     async def publish(self, payload: Mapping[str, object]) -> str:
         """Atomically place a new payload in ``incoming/``.
 
         The filename is ``{monotonic_ns}-{uuid4hex}.json`` so FIFO
         ordering falls out of a lexicographic directory scan.
         """
-        self._ensure_open()
-        return await asyncio.to_thread(self._publish_sync, dict(payload))
+        return await self._submit(self._publish_sync, dict(payload))
 
     def _publish_sync(self, payload: dict[str, object]) -> str:
         # ``time.time_ns`` is a wall-clock counter that survives process
@@ -314,7 +334,7 @@ class FileQueueBackend(QueueBackend):
         yielded = 0
         while yielded < batch_size:
             state = _PassState()
-            names = await asyncio.to_thread(self._incoming_names)
+            names = await self._submit(self._incoming_names)
             for name in names:
                 if yielded >= batch_size:
                     return
@@ -347,7 +367,7 @@ class FileQueueBackend(QueueBackend):
         next start.
         """
         return await _run_shielded(
-            asyncio.to_thread(self._claim_and_load_sync, name, state),
+            self._submit(self._claim_and_load_sync, name, state),
             on_cancel_done=self._hand_back_when_done,
         )
 
@@ -391,7 +411,13 @@ class FileQueueBackend(QueueBackend):
     async def _hand_back(self, message_id: str) -> None:
         """Return a claimed entry to ``incoming/``; a failure is logged, never raised."""
         try:
-            await _run_shielded(asyncio.to_thread(self._nack_sync, message_id, True))
+            await _run_shielded(self._submit(self._nack_sync, message_id, True))
+        except QueueError as exc:
+            logger.warning(
+                "Could not hand back queue message %s after cancellation: %s",
+                repr(message_id)[:64],
+                type(exc).__name__,
+            )
         except Exception as exc:
             logger.error(
                 "Could not hand back queue message %s after cancellation: %s",
@@ -611,7 +637,7 @@ class FileQueueBackend(QueueBackend):
     async def ack(self, message_id: str) -> None:
         """Move a claimed message from ``processing/`` to ``done/``."""
         self._ensure_open()
-        await _run_shielded(asyncio.to_thread(self._ack_sync, message_id))
+        await _run_shielded(self._submit(self._ack_sync, message_id))
 
     def _ack_sync(self, message_id: str) -> None:
         src = self._processing / message_id
@@ -624,7 +650,7 @@ class FileQueueBackend(QueueBackend):
     async def nack(self, message_id: str, *, requeue: bool = True) -> None:
         """Return a claimed message to ``incoming/`` or drop it."""
         self._ensure_open()
-        await _run_shielded(asyncio.to_thread(self._nack_sync, message_id, requeue))
+        await _run_shielded(self._submit(self._nack_sync, message_id, requeue))
 
     def _nack_sync(self, message_id: str, requeue: bool) -> None:
         src = self._processing / message_id
@@ -647,9 +673,26 @@ class FileQueueBackend(QueueBackend):
         _fsync_dir(self._dead_letter)
 
     async def close(self) -> None:
-        """Mark the backend closed so subsequent operations error out.
+        """Mark the backend closed so subsequent operations raise ``QueueError``.
 
         Directories are left in place — they are the durable queue
         state and the next process instance reuses them.
+
+        The worker pool is shut down with ``wait=False``, so ``close()`` returns
+        even while a call is stuck on a stalled filesystem. The trade-offs:
+
+        * Calls already admitted keep running and are not cancelled. A queued
+          ack or nack still lands once a worker frees up; cancelling queued
+          work would turn it into a ``CancelledError`` for a caller that never
+          cancelled.
+        * A claim whose consumer was cancelled and that finishes after
+          ``close()`` cannot be handed back. The entry stays in ``processing/``
+          and ``_reclaim_orphans`` returns it at the next start.
+        * A stuck thread still blocks interpreter exit, because
+          ``ThreadPoolExecutor`` joins its workers at exit. ``close()`` cannot
+          change that without abandoning the pool's threads.
+
+        Calling ``close()`` again is a no-op.
         """
         self._closed = True
+        self._executor.shutdown(wait=False)
