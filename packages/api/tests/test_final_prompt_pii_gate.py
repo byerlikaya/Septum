@@ -21,10 +21,7 @@ from typing import Any, AsyncIterator, Optional
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from septum_core.spans import ResolvedSpan, SanitizeResult
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
+from sanitizer_doubles import PatternSanitizer, literal
 from septum_api.database import build_default_app_settings, get_db
 from septum_api.main import app
 from septum_api.models import Base
@@ -40,6 +37,8 @@ from septum_api.services.llm_router import LLMRouter
 from septum_api.services.policy_snapshot import current_policy_snapshot
 from septum_api.services.sanitizer import PIISanitizer
 from septum_api.utils.auth_dependency import get_current_user
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 NAME = "Michael Thompson"
 IBAN = "DE89370400440532013000"
@@ -434,23 +433,6 @@ class TestDeanonScope:
         assert OTHER_NAME not in answer
 
 
-class _SpanSanitizer:
-    """Sanitizer double that reports fixed substrings as entities."""
-
-    def __init__(self, targets: list[tuple[str, str]]) -> None:
-        self._targets = targets
-
-    def sanitize(self, text: str, language: str, anon_map: AnonymizationMap) -> SanitizeResult:
-        spans = []
-        for value, entity_type in self._targets:
-            start = text.find(value)
-            if start >= 0:
-                spans.append(
-                    ResolvedSpan(start, start + len(value), entity_type, "[X_1]", 1.0)
-                )
-        return SanitizeResult(sanitized_text=text, entity_count=len(spans), detected_spans=spans)
-
-
 class TestGateUnit:
     def test_numeric_original_needs_digit_boundaries(self) -> None:
         amap = AnonymizationMap(document_id=0, language="en")
@@ -506,7 +488,7 @@ class TestGateUnit:
         amap.placeholder_lookup = {"[PERSON_NAME_1]": KNOWN_NAME}
 
         out = pii_gate._gate_one(
-            f"Ask {NAME}.", amap, _SpanSanitizer([(NAME, "PERSON_NAME")]), "en"
+            f"Ask {NAME}.", amap, PatternSanitizer(literal(NAME, "PERSON_NAME")), "en"
         )
 
         assert out == "Ask [PERSON_NAME_2]."
@@ -519,7 +501,7 @@ class TestGateUnit:
         out = pii_gate._gate_one(
             "Thompson [PERSON_NAME_1] wrote.",
             amap,
-            _SpanSanitizer([("Thompson [PERSON_NAME_1]", "PERSON_NAME")]),
+            PatternSanitizer(literal("Thompson [PERSON_NAME_1]", "PERSON_NAME")),
             "en",
         )
 
@@ -529,7 +511,7 @@ class TestGateUnit:
         amap = AnonymizationMap(document_id=0, language="en")
 
         out = pii_gate._gate_one(
-            "See [JANE_ROE_7].", amap, _SpanSanitizer([("JANE_ROE", "PERSON_NAME")]), "en"
+            "See [JANE_ROE_7].", amap, PatternSanitizer(literal("JANE_ROE", "PERSON_NAME")), "en"
         )
 
         assert "JANE_ROE" not in out
@@ -538,7 +520,7 @@ class TestGateUnit:
         amap = AnonymizationMap(document_id=0, language="en")
         amap.add_entity(KNOWN_NAME, "PERSON_NAME")
 
-        out = pii_gate._gate_one(f"Ask {KNOWN_NAME}.", amap, _SpanSanitizer([]), "en")
+        out = pii_gate._gate_one(f"Ask {KNOWN_NAME}.", amap, PatternSanitizer(), "en")
 
         assert out == "Ask [PERSON_NAME_1]."
 

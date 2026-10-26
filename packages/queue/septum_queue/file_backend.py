@@ -352,10 +352,29 @@ class FileQueueBackend(QueueBackend):
         )
 
     def _claim_and_load_sync(self, name: str, state: _PassState) -> Message | None:
-        """Claim one entry and decode it; runs in a worker thread."""
+        """Claim one entry and decode it; runs in a worker thread.
+
+        An unexpected failure after the claim returns the entry to ``incoming/``
+        before the original exception propagates.
+        """
         if not self._claim(name, state):
             return None
-        return self._load_claimed(name)
+        try:
+            return self._load_claimed(name)
+        except Exception:
+            self._hand_back_after_load_failure(name)
+            raise
+
+    def _hand_back_after_load_failure(self, name: str) -> None:
+        """Requeue a claimed entry after a load failure; a failure here is logged, never raised."""
+        try:
+            self._nack_sync(name, True)
+        except Exception as exc:
+            logger.error(
+                "Could not hand back queue message %s after a load failure: %s",
+                repr(name)[:64],
+                type(exc).__name__,
+            )
 
     def _hand_back_when_done(self, task: asyncio.Future[Message | None]) -> None:
         """Start the hand-back of a claim that finished after its consumer was cancelled."""

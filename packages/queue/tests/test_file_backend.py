@@ -367,8 +367,8 @@ class TestCancelledConsumer:
                     with pytest.raises(RuntimeError):
                         await consumer
 
-            assert len(list((tmp_path / "t" / "processing").iterdir())) == 1
-            assert list((tmp_path / "t" / "incoming").iterdir()) == []
+            assert list((tmp_path / "t" / "processing").iterdir()) == []
+            assert len(list((tmp_path / "t" / "incoming").iterdir())) == 1
             if cancelled:
                 assert "RuntimeError" in caplog.text
             assert "boom" not in caplog.text
