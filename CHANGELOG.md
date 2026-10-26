@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-10-26
+
+- Fresh installs no longer fail to load the spaCy English model: preshed 3.0.14, released on 2026-10-25 and pulled in by spaCy, makes model loading raise an OverflowError, so septum-core now excludes that release and the API requirements pin preshed 3.0.13.
+
 ### 2026-10-24
 
 - The file queue backend now returns a claimed message to the queue when decoding it fails with an unexpected error, instead of leaving it stuck in `processing/` until the next restart.

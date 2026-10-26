@@ -37,6 +37,9 @@ dependencies = [
     # presidio-anonymizer that accepts a patched cryptography.
     "cryptography>=50.0.0",
     "spacy>=3.8.16",
+    # preshed 3.0.14 breaks spacy.load of the shipped models (OverflowError in
+    # Tokenizer.rules); exclude it so the resolver keeps 3.0.13 or a later fix.
+    "preshed!=3.0.14",
     "pydantic>=2.10",
     "regex>=2024.11.6",
     # CLDR month names for the shared date grammar; bundled data, no network.
