@@ -571,6 +571,51 @@ async def test_nack_requeue_mints_fresh_filename(tmp_path: Path) -> None:
     assert len(incoming_names) == 1
 
 
+@pytest.mark.asyncio
+async def test_unexpected_load_failure_hands_entry_back_and_propagates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend = FileQueueBackend(tmp_path, topic="loadfail")
+    await backend.publish({"id": "p"})
+
+    def boom(path):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(FileQueueBackend, "_read_entry", staticmethod(boom))
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await _consume_all(backend)
+
+    assert list((tmp_path / "loadfail" / "processing").iterdir()) == []
+    assert _incoming_count(tmp_path, "loadfail") == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_hand_back_logs_type_only_and_still_propagates_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    backend = FileQueueBackend(tmp_path, topic="handfail")
+    await backend.publish({"id": "p"})
+
+    def boom(path):
+        raise RuntimeError("boom")
+
+    def refuse(self, message_id, requeue):
+        raise OSError("refused /secret-sentinel")
+
+    monkeypatch.setattr(FileQueueBackend, "_read_entry", staticmethod(boom))
+    monkeypatch.setattr(FileQueueBackend, "_nack_sync", refuse)
+
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(RuntimeError, match="boom"):
+            await _consume_all(backend)
+
+    assert "Could not hand back queue message" in caplog.text
+    assert "OSError" in caplog.text
+    assert "secret-sentinel" not in caplog.text
+    assert _incoming_count(tmp_path, "handfail") == 0
+
+
 async def _consume_all(backend: FileQueueBackend) -> list:
     return [m async for m in backend.consume(batch_size=5, block_ms=0)]
 
