@@ -554,7 +554,7 @@ class HeuristicPersonNameRecognizer(BaseCustomRecognizer):
         # alone on a line immediately after a colon. Very narrow pattern to
         # avoid false positives. Language-agnostic.
         self._pattern_after_label = re.compile(
-            r":\s*\n\s*([^\W\d_]{2,20})\s*(?:\n|$)",
+            r":[^\S\n]*+\n\s*+([^\W\d_]{2,20})[^\S\n]*+(?:\n|$)",
             re.UNICODE,
         )
 
@@ -629,14 +629,14 @@ class StructuralAddressRecognizer(BaseCustomRecognizer):
         self._structural_cue = re.compile(
             rf"(?:(?:{abbr_pattern})\b\.?)"
             r"|"
-            r"(?:[A-Za-z]+\s*[:./]\s*\d+)",
+            r"(?:(?<![A-Za-z])[A-Za-z]++\s*+[:./]\s*+\d+)",
             re.IGNORECASE | re.UNICODE,
         )
         self._numeric_density = re.compile(
             r"\d+",
         )
         self._label_value = re.compile(
-            r"^(\S[^:\n]{1,40})\s*:\s*(.+)$",
+            r"^(\S[^:\n]{1,40}+)\s*+:\s*+(.+)$",
             re.MULTILINE | re.UNICODE,
         )
 
@@ -870,7 +870,8 @@ class CoordinatesRecognizer(BaseCustomRecognizer):
             supported_language="en",
         )
         self._decimal_pattern = re.compile(
-            r"-?\d{1,3}\.\d{3,8}\s*[°]?\s*[NSns]?\s*[,/;\s]\s*-?\d{1,3}\.\d{3,8}\s*[°]?\s*[EWew]?"
+            r"-?\d{1,3}\.\d{3,8}(?:\s*+°)?+(?:\s*+[NSns])?+(?>\s*+[,/;]\s*+|\s++)"
+            r"-?\d{1,3}\.\d{3,8}\s*+°?\s*+[EWew]?"
         )
         self._dms_pattern = re.compile(
             r"\d{1,3}°\s*\d{1,2}[′']\s*\d{1,2}(?:\.\d+)?[″\"]\s*[NSns]\s*"
@@ -935,7 +936,7 @@ class DeviceIDRecognizer(BaseCustomRecognizer):
             re.IGNORECASE,
         )
         self._serial_pattern = re.compile(
-            r"(?:serial\s*(?:number|no|#)?|s/n)\s*[=:]\s*[A-Za-z0-9]{8,20}",
+            r"(?:serial(?:\s*+(?:number|no|#))?|s/n)\s*+[=:]\s*+[A-Za-z0-9]{8,20}",
             re.IGNORECASE,
         )
 
