@@ -35,10 +35,10 @@ def _import_fastapi():
 
 def create_app(config: GatewayConfig | None = None) -> Any:
     """Build the FastAPI app. Kept as a factory so tests can pass a fixed config."""
-    FastAPI = _import_fastapi()
+    fastapi_cls = _import_fastapi()
     cfg = config or GatewayConfig.from_env()
 
-    app = FastAPI(
+    app = fastapi_cls(
         title="Septum Gateway",
         description=(
             "Internet-facing LLM forwarder for Septum. Consumes masked "
