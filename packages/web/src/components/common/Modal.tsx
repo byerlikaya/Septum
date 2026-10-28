@@ -16,7 +16,7 @@ export interface ModalProps {
   submitting: boolean;
   errorMessage?: string | null;
   onClose: () => void;
-  onSubmit: (event: React.FormEvent) => void;
+  onSubmit: (event: React.SubmitEvent<HTMLFormElement>) => void;
   children: ReactNode;
 }
 
@@ -32,7 +32,7 @@ export function Modal({
   onClose,
   onSubmit,
   children,
-}: ModalProps) {
+}: Readonly<ModalProps>) {
   const titleId = useId();
   const containerRef = useRef<HTMLFormElement>(null);
   useEscapeToClose(open && !submitting, onClose);

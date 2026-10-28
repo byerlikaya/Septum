@@ -15,7 +15,7 @@ export function NumberField({
   value,
   onBlur,
   saving
-}: NumberFieldProps) {
+}: Readonly<NumberFieldProps>) {
   return (
     <div className="space-y-1.5">
       <label className="text-xs font-medium text-slate-200">

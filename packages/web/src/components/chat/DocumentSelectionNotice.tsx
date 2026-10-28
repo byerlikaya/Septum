@@ -8,7 +8,7 @@ interface DocumentSelectionNoticeProps {
   trimmedCount: number;
 }
 
-export function DocumentSelectionNotice({ selectedCount, trimmedCount }: DocumentSelectionNoticeProps) {
+export function DocumentSelectionNotice({ selectedCount, trimmedCount }: Readonly<DocumentSelectionNoticeProps>) {
   const t = useI18n();
   const atLimit = selectedCount >= MAX_CHAT_DOCUMENTS;
   if (!atLimit && trimmedCount === 0) return null;

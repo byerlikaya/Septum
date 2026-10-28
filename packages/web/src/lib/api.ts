@@ -30,11 +30,10 @@ import { hardNavigate } from "./navigation";
 // at build time points the dashboard at a backend on a different
 // origin (split deployment); trailing slashes are stripped so callers
 // can keep concatenating ``${baseURL}/api/...`` cleanly.
-export function resolveBaseURL(value: string | undefined): string {
-  const raw = value ?? "";
-  let end = raw.length;
-  while (end > 0 && raw[end - 1] === "/") end--;
-  return raw.slice(0, end);
+export function resolveBaseURL(value: string = ""): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === "/") end--;
+  return value.slice(0, end);
 }
 
 export const baseURL = resolveBaseURL(process.env.NEXT_PUBLIC_API_BASE_URL);
@@ -563,9 +562,10 @@ export function streamChatAsk(
       if (!res.ok) {
         const text = await res.text();
         const detail = text.length > 200 ? `${text.slice(0, 200)}…` : text;
+        const detailSuffix = detail ? ` — ${detail}` : "";
         onEvent({
           type: "error",
-          message: `HTTP ${res.status}: ${res.statusText}${detail ? ` — ${detail}` : ""}`
+          message: `HTTP ${res.status}: ${res.statusText}${detailSuffix}`
         });
         return;
       }

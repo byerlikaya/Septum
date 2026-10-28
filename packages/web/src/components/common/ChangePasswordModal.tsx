@@ -27,7 +27,7 @@ export function ChangePasswordModal({
   open,
   onClose,
   onSuccess,
-}: ChangePasswordModalProps) {
+}: Readonly<ChangePasswordModalProps>) {
   const t = useI18n();
   const [current, setCurrent] = useState<string>("");
   const [next, setNext] = useState<string>("");
@@ -47,7 +47,7 @@ export function ChangePasswordModal({
     }
   }
 
-  const handleSubmit = async (e: React.FormEvent): Promise<void> => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
     if (next !== confirm) {
       setError(t("auth.changePassword.mismatch"));

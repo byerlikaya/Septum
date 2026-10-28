@@ -21,6 +21,21 @@ export function generateId(): string {
   return `msg-${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
+function attachDebugData(finishedId: string, debug: DebugData) {
+  return (prev: ChatMessage[]): ChatMessage[] =>
+    prev.map((m) => (m.id === finishedId ? { ...m, debugData: debug } : m));
+}
+
+function approveRetriedRejections(lastUserText: { current: string }) {
+  return (prev: ChatMessage[]): ChatMessage[] =>
+    prev.map((m) =>
+      m.approvalData?.decision === "rejected" &&
+      m.approvalData?.original_user_message === lastUserText.current
+        ? { ...m, approvalData: { ...m.approvalData, decision: "approved" as const } }
+        : m
+    );
+}
+
 export interface UseChatStreamOptions {
   documentIds: number[];
   requireApproval: boolean;
@@ -89,10 +104,10 @@ export function useChatStream({
   const [debugOpen, setDebugOpen] = useState(false);
   const abortRef = useRef<{ abort: () => void } | null>(null);
   const pendingAssistantIdRef = useRef<string | null>(null);
-  const [pendingAssistantId, setPendingAssistantIdState] = useState<string | null>(null);
-  const setPendingAssistantId = useCallback((id: string | null) => {
+  const [pendingAssistantId, setPendingAssistantId] = useState<string | null>(null);
+  const updatePendingAssistantId = useCallback((id: string | null) => {
     pendingAssistantIdRef.current = id;
-    setPendingAssistantIdState(id);
+    setPendingAssistantId(id);
   }, []);
   const currentDebugIdRef = useRef<string | null>(null);
   const streamedContentRef = useRef<string>("");
@@ -129,7 +144,7 @@ export function useChatStream({
           { id: assistantId, role: "assistant", content: "" }
         ]);
       }
-      setPendingAssistantId(assistantId);
+      updatePendingAssistantId(assistantId);
       streamedContentRef.current = "";
       lastUserTextRef.current = text;
       isRetryRef.current = isRetry;
@@ -214,7 +229,7 @@ export function useChatStream({
             }
             setStreaming(false);
             const finishedId = pendingAssistantIdRef.current;
-            setPendingAssistantId(null);
+            updatePendingAssistantId(null);
             const debugId = currentDebugIdRef.current;
 
             // Fetch debug data, persist on assistant message, then notify
@@ -228,11 +243,7 @@ export function useChatStream({
                     masked_answer: payload.masked_answer,
                   };
                   if (finishedId) {
-                    setMessages((prev) =>
-                      prev.map((m) =>
-                        m.id === finishedId ? { ...m, debugData: debug } : m
-                      )
-                    );
+                    setMessages(attachDebugData(finishedId, debug));
                   }
                 } catch {
                   // debug data unavailable
@@ -241,14 +252,7 @@ export function useChatStream({
 
               // Convert rejected to approved if this was a retry
               if (isRetryRef.current) {
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.approvalData?.decision === "rejected" &&
-                    m.approvalData?.original_user_message === lastUserTextRef.current
-                      ? { ...m, approvalData: { ...m.approvalData, decision: "approved" as const } }
-                      : m
-                  )
-                );
+                setMessages(approveRetriedRejections(lastUserTextRef));
               }
 
               const approvalData = getApprovalData?.() ?? undefined;
@@ -280,7 +284,7 @@ export function useChatStream({
             const targetId = pendingAssistantIdRef.current;
             const errorMessage = translateErrorCode(event.code, t, CHAT_STREAM_ERROR_KEYS) ?? event.message;
             setStreaming(false);
-            setPendingAssistantId(null);
+            updatePendingAssistantId(null);
             setStreamError(errorMessage);
             setMessages((prev) =>
               prev.map((m) =>
@@ -318,7 +322,7 @@ export function useChatStream({
     },
     [
       streaming,
-      setPendingAssistantId,
+      updatePendingAssistantId,
       documentIds,
       requireApproval,
       deanonEnabled,
@@ -374,8 +378,8 @@ export function useChatStream({
       abortRef.current = null;
     }
     setStreaming(false);
-    setPendingAssistantId(null);
-  }, [setPendingAssistantId]);
+    updatePendingAssistantId(null);
+  }, [updatePendingAssistantId]);
 
   const handleOpenDebug = useCallback(async (debugId: string, finalAnswer: string) => {
     try {

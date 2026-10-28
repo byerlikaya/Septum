@@ -6,7 +6,7 @@ interface DataTableProps {
   className?: string;
 }
 
-export function DataTable({ headers, children, className }: DataTableProps) {
+export function DataTable({ headers, children, className }: Readonly<DataTableProps>) {
   return (
     <div className="w-full overflow-x-auto">
       <table

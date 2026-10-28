@@ -1,25 +1,14 @@
 import { useI18n } from "@/lib/i18n";
-import type { AppSettingsResponse } from "@/lib/types";
 import type { SettingsTabProps } from "./types";
 import { FieldHint } from "./FieldHint";
 import { SavingIndicator } from "./SavingIndicator";
 import { ToggleField } from "./ToggleField";
 
-function onLocalFieldChange<K extends keyof AppSettingsResponse>(
-  current: AppSettingsResponse,
-  key: K,
-  value: AppSettingsResponse[K] | string
-): void {
-  void current;
-  void key;
-  void value;
-}
-
 export function PrivacyTab({
   settings,
   onChange,
   isSaving
-}: SettingsTabProps) {
+}: Readonly<SettingsTabProps>) {
   const t = useI18n();
   return (
     <div className="space-y-6">
@@ -38,7 +27,6 @@ export function PrivacyTab({
           description={t("settings.privacy.deanon.description")}
           checked={settings.deanon_enabled}
           onToggle={async (value) => {
-            onLocalFieldChange(settings, "deanon_enabled", value);
             await onChange("deanon_enabled", value);
           }}
           saving={isSaving("deanon_enabled")}
@@ -49,7 +37,6 @@ export function PrivacyTab({
           description={t("settings.privacy.requireApproval.description")}
           checked={settings.require_approval}
           onToggle={async (value) => {
-            onLocalFieldChange(settings, "require_approval", value);
             await onChange("require_approval", value);
           }}
           saving={isSaving("require_approval")}
@@ -80,7 +67,6 @@ export function PrivacyTab({
           description={t("settings.privacy.showJson.description")}
           checked={settings.show_json_output}
           onToggle={async (value) => {
-            onLocalFieldChange(settings, "show_json_output", value);
             await onChange("show_json_output", value);
           }}
           saving={isSaving("show_json_output")}
@@ -100,7 +86,6 @@ export function PrivacyTab({
             description={t("settings.privacy.layers.presidio.description")}
             checked={settings.use_presidio_layer}
             onToggle={async (value) => {
-              onLocalFieldChange(settings, "use_presidio_layer", value);
               await onChange("use_presidio_layer", value);
             }}
             saving={isSaving("use_presidio_layer")}
@@ -110,7 +95,6 @@ export function PrivacyTab({
             description={t("settings.privacy.layers.ner.description")}
             checked={settings.use_ner_layer}
             onToggle={async (value) => {
-              onLocalFieldChange(settings, "use_ner_layer", value);
               await onChange("use_ner_layer", value);
             }}
             saving={isSaving("use_ner_layer")}
@@ -120,7 +104,6 @@ export function PrivacyTab({
             description={t("settings.privacy.layers.ollamaValidation.description")}
             checked={settings.use_ollama_validation_layer}
             onToggle={async (value) => {
-              onLocalFieldChange(settings, "use_ollama_validation_layer", value);
               await onChange("use_ollama_validation_layer", value);
             }}
             saving={isSaving("use_ollama_validation_layer")}
@@ -130,7 +113,6 @@ export function PrivacyTab({
             description={t("settings.privacy.layers.ollama.description")}
             checked={settings.use_ollama_layer}
             onToggle={async (value) => {
-              onLocalFieldChange(settings, "use_ollama_layer", value);
               await onChange("use_ollama_layer", value);
             }}
             saving={isSaving("use_ollama_layer")}
@@ -140,7 +122,6 @@ export function PrivacyTab({
             description={t("settings.privacy.layers.ollamaSemantic.description")}
             checked={settings.use_ollama_semantic_layer}
             onToggle={async (value) => {
-              onLocalFieldChange(settings, "use_ollama_semantic_layer", value);
               await onChange("use_ollama_semantic_layer", value);
             }}
             saving={isSaving("use_ollama_semantic_layer")}

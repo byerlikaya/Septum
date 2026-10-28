@@ -20,7 +20,7 @@ export function DocumentUploader({
   disabled = false,
   onFilesSelected,
   onFilesRejected,
-}: DocumentUploaderProps) {
+}: Readonly<DocumentUploaderProps>) {
   const t = useI18n();
   const handleDrop = useCallback(
     (acceptedFiles: File[], fileRejections: FileRejection[]) => {

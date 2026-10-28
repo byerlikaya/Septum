@@ -17,7 +17,7 @@ export function DocumentSelector({
   isLoading,
   selectedIds,
   onSelectionChange
-}: DocumentSelectorProps) {
+}: Readonly<DocumentSelectorProps>) {
   const t = useI18n();
   const atLimit = selectedIds.size >= MAX_CHAT_DOCUMENTS;
 
@@ -36,6 +36,21 @@ export function DocumentSelector({
     (d) => d.ingestion_status === "completed" && d.chunk_count > 0
   );
 
+  const renderSelectorPlaceholder = () => {
+    if (isLoading) {
+      return (
+        <p className="px-2 py-4 text-sm text-slate-500">
+          {t("documents.table.loading")}
+        </p>
+      );
+    }
+    return (
+      <p className="px-2 py-4 text-sm text-slate-500">
+        {t("chat.documentSelector.empty")}
+      </p>
+    );
+  };
+
   return (
     <div className="flex h-full flex-col border-r border-slate-800 bg-slate-900/30">
       <div className="shrink-0 border-b border-slate-800 px-3 py-3">
@@ -47,14 +62,8 @@ export function DocumentSelector({
         </p>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        {isLoading ? (
-          <p className="px-2 py-4 text-sm text-slate-500">
-            {t("documents.table.loading")}
-          </p>
-        ) : readyDocuments.length === 0 ? (
-          <p className="px-2 py-4 text-sm text-slate-500">
-            {t("chat.documentSelector.empty")}
-          </p>
+        {isLoading || readyDocuments.length === 0 ? (
+          renderSelectorPlaceholder()
         ) : (
           <ul className="space-y-1">
             {readyDocuments.map((doc) => (

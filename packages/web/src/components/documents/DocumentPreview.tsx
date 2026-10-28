@@ -55,6 +55,19 @@ function selectDetections(
   );
 }
 
+function previewMaxWidthClass(hasSideBySide: boolean, hasDetections: boolean, isTabular: boolean): string {
+  if (hasSideBySide && hasDetections) return "max-w-7xl";
+  if (hasSideBySide) return "max-w-6xl";
+  if (hasDetections && !isTabular) return "max-w-5xl";
+  return "max-w-4xl";
+}
+
+function sanitizedGridColumnsClass(isTabular: boolean, hasDetections: boolean): string {
+  if (isTabular) return "md:grid-cols-2";
+  if (hasDetections) return "md:grid-cols-[1fr_17rem]";
+  return "md:grid-cols-1";
+}
+
 export function DocumentPreview({
   document,
   open,
@@ -62,7 +75,7 @@ export function DocumentPreview({
   highlightEntityType = null,
   auditEventId = null,
   onReprocessed,
-}: DocumentPreviewProps): ReactElement | null {
+}: Readonly<DocumentPreviewProps>): ReactElement | null {
   const t = useI18n();
   const canEditSchema = canEditDocuments(useCurrentUser());
   const [chunks, setChunks] = useState<Chunk[]>([]);
@@ -365,7 +378,7 @@ export function DocumentPreview({
   };
 
   const handleSaveSchema = async (): Promise<void> => {
-    if (!document || !schema || !schema.columns.length) {
+    if (!document || !schema?.columns.length) {
       return;
     }
     try {
@@ -396,11 +409,8 @@ export function DocumentPreview({
   const loadingText = t("preview.document.loading");
   const emptyText = t("preview.document.empty");
 
-  const pdfSrc = rawObjectUrl
-    ? pdfPage != null
-      ? `${rawObjectUrl}#toolbar=1&page=${pdfPage}`
-      : `${rawObjectUrl}#toolbar=1`
-    : null;
+  const pdfHash = pdfPage != null ? `#toolbar=1&page=${pdfPage}` : "#toolbar=1";
+  const pdfSrc = rawObjectUrl ? `${rawObjectUrl}${pdfHash}` : null;
 
   const renderOriginalDocument = () => {
     if (rawLoadError) {
@@ -543,6 +553,15 @@ export function DocumentPreview({
     </div>
   );
 
+  const renderPlainSanitizedText = () => {
+    if (combinedText) return combinedText;
+    return (
+      <span className="text-slate-400">
+        {emptyText}
+      </span>
+    );
+  };
+
   const renderSanitizedContent = () => (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
@@ -575,13 +594,7 @@ export function DocumentPreview({
               </span>
             );
           })
-        ) : combinedText ? (
-          combinedText
-        ) : (
-          <span className="text-slate-400">
-            {emptyText}
-          </span>
-        )}
+        ) : renderPlainSanitizedText()}
       </div>
     </div>
   );
@@ -589,15 +602,7 @@ export function DocumentPreview({
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-2 sm:p-4">
       <div
-        className={`relative flex max-h-[95dvh] w-full flex-col sm:max-h-[85vh] rounded-lg border border-slate-800 bg-slate-950 shadow-xl ${
-          hasSideBySide && detections.length > 0
-            ? "max-w-7xl"
-            : hasSideBySide
-              ? "max-w-6xl"
-              : detections.length > 0 && !isTabularDocument
-                ? "max-w-5xl"
-                : "max-w-4xl"
-        }`}
+        className={`relative flex max-h-[95dvh] w-full flex-col sm:max-h-[85vh] rounded-lg border border-slate-800 bg-slate-950 shadow-xl ${previewMaxWidthClass(hasSideBySide, detections.length > 0, isTabularDocument)}`}
       >
         <div className="flex items-start justify-between gap-2 border-b border-slate-800 bg-slate-900/80 px-4 py-3">
           <div className="min-w-0">
@@ -750,13 +755,7 @@ export function DocumentPreview({
                 </div>
               )}
               <div
-                className={`grid h-full gap-4 ${
-                  isTabularDocument
-                    ? "md:grid-cols-2"
-                    : detections.length > 0
-                      ? "md:grid-cols-[1fr_17rem]"
-                      : "md:grid-cols-1"
-                }`}
+                className={`grid h-full gap-4 ${sanitizedGridColumnsClass(isTabularDocument, detections.length > 0)}`}
               >
                 {renderSanitizedContent()}
 

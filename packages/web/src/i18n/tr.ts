@@ -673,7 +673,7 @@ export const trMessages: Record<string, string> = {
   "regulations.custom.helpBanner.intro":
     "Özel kurallar 17 yerleşik regülasyon paketinin üzerine ek tespit getirir. Verinin şekline uygun yöntemi seçin:",
   "regulations.custom.helpBanner.regex":
-    "Yapısal desenler. Örnek: \\bPRJ-\\d{4}-\\d{5}\\b — PRJ-2024-04829 gibi dahili proje kodlarını yakalar. Mikrosaniye maliyet.",
+    String.raw`Yapısal desenler. Örnek: \bPRJ-\d{4}-\d{5}\b — PRJ-2024-04829 gibi dahili proje kodlarını yakalar. Mikrosaniye maliyet.`,
   "regulations.custom.helpBanner.keyword":
     "Kısa, literal string listesi. Örnek: Project Bluebird, Operation Halcyon — kod adları ve takım içi etiketler için ideal.",
   "regulations.custom.helpBanner.llm":
@@ -717,7 +717,7 @@ export const trMessages: Record<string, string> = {
   "regulations.panel.field.detectionMethod": "Tespit Yöntemi",
   "regulations.panel.method.regex.title": "Regex Deseni",
   "regulations.panel.method.regex.description": "Gelişmiş desenler",
-  "regulations.panel.method.regex.placeholder": "[A-Z]{2}-\\d{4}",
+  "regulations.panel.method.regex.placeholder": String.raw`[A-Z]{2}-\d{4}`,
   "regulations.panel.method.regex.helper":
     "Python regex ile uyumlu olmalıdır; backend, kaydetmeden önce deseni doğrular.",
   "regulations.panel.method.keyword.title": "Anahtar Kelime Listesi",
@@ -784,7 +784,7 @@ export const trMessages: Record<string, string> = {
   "regulations.nonPii.helpBanner.intro":
     "Non-PII kuralları tespitleri BASTIRIR — bir recognizer maskelememesi gereken bir şeyi maskeliyorsa kullanın (test verisi, sayfa altlıkları, boilerplate ifadeler). Her kural, recognizer eşleşse bile maskelenmemesi gereken metni tanımlar.",
   "regulations.nonPii.helpBanner.regex":
-    "Metni desene uyan her span'i bastırır. Örnek: ^Sayfa \\d+/\\d+$ — NER'in ORG sandığı PDF sayfa-numarası altlıklarını düşürür.",
+    String.raw`Metni desene uyan her span'i bastırır. Örnek: ^Sayfa \d+/\d+$ — NER'in ORG sandığı PDF sayfa-numarası altlıklarını düşürür.`,
   "regulations.nonPii.helpBanner.token":
     "Listedeki kelimelerden birine eşit metni olan span'leri bastırır (büyük/küçük harf duyarsız). Örnek: pattern = \"Test Kullanıcı\" — dev export'larındaki yer-tutucu isimleri korur.",
   "regulations.nonPii.helpBanner.scopeHint":

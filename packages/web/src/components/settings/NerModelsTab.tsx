@@ -30,9 +30,8 @@ interface NerDefaultsResponse {
 
 export function NerModelsTab({
   settings,
-  onChange,
-  isSaving
-}: SettingsTabProps) {
+  onChange
+}: Readonly<SettingsTabProps>) {
   const t = useI18n();
   const [defaults, setDefaults] = useState<Record<string, string[]>>({});
   const [suggestions, setSuggestions] = useState<Record<string, NerModelSuggestion[]>>({});
@@ -152,9 +151,32 @@ export function NerModelsTab({
     JSON.stringify(localOverrides) !==
     JSON.stringify(settings.ner_model_overrides ?? {});
 
-  void isSaving;
-
   const entries = Object.entries(defaults);
+
+  const renderDefaultsPlaceholder = () => {
+    if (defaultsLoading) {
+      return (
+        <tr>
+          <td
+            colSpan={3}
+            className="px-3 py-3 text-center text-[11px] text-slate-400"
+          >
+            {t("settings.common.loading")}
+          </td>
+        </tr>
+      );
+    }
+    return (
+      <tr>
+        <td
+          colSpan={3}
+          className="px-3 py-3 text-center text-[11px] text-slate-400"
+        >
+          {t("settings.ner.defaultsEmpty")}
+        </td>
+      </tr>
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -184,24 +206,8 @@ export function NerModelsTab({
             t("settings.ner.table.actions")
           ]}
         >
-          {defaultsLoading ? (
-            <tr>
-              <td
-                colSpan={3}
-                className="px-3 py-3 text-center text-[11px] text-slate-400"
-              >
-                {t("settings.common.loading")}
-              </td>
-            </tr>
-          ) : entries.length === 0 ? (
-            <tr>
-              <td
-                colSpan={3}
-                className="px-3 py-3 text-center text-[11px] text-slate-400"
-              >
-                {t("settings.ner.defaultsEmpty")}
-              </td>
-            </tr>
+          {defaultsLoading || entries.length === 0 ? (
+            renderDefaultsPlaceholder()
           ) : (
             entries.map(([lang, defaultModels]) => {
               const fieldErrorId = `ner-override-${lang}-message`;

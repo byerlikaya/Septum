@@ -20,7 +20,7 @@ export default function DisambiguationModal({
   onPick,
   onUseAll,
   onCancel,
-}: Props) {
+}: Readonly<Props>) {
   const t = useI18n();
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);

@@ -5,7 +5,7 @@ interface BlockingLoaderProps {
   label: string;
 }
 
-export function BlockingLoader({ visible, label }: BlockingLoaderProps) {
+export function BlockingLoader({ visible, label }: Readonly<BlockingLoaderProps>) {
   if (!visible) {
     return null;
   }

@@ -44,20 +44,18 @@ function NavLink({
   pathname,
   errorLogCount,
   onClick
-}: {
+}: Readonly<{
   item: NavItemDef;
   pathname: string;
   errorLogCount: number;
   onClick?: () => void;
-}) {
+}>) {
   const t = useI18n();
 
+  const activeHref = item.href.endsWith("/") ? item.href : `${item.href}/`;
   const isActive = item.exact
     ? pathname === item.href
-    : pathname === item.href ||
-      pathname?.startsWith(
-        item.href.endsWith("/") ? item.href : `${item.href}/`
-      );
+    : pathname === item.href || pathname?.startsWith(activeHref);
 
   const label = t(`sidebar.${item.label.toLowerCase()}` as never);
 
@@ -120,7 +118,7 @@ interface SidebarProps {
   currentUser: AuthUser | null;
 }
 
-export function Sidebar({ currentUser }: SidebarProps) {
+export function Sidebar({ currentUser }: Readonly<SidebarProps>) {
   const pathname = usePathname();
   const t = useI18n();
   const [isNavOpen, setIsNavOpen] = useState<boolean>(false);

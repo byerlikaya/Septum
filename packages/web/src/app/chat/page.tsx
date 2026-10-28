@@ -151,7 +151,7 @@ export default function ChatPage() {
               const remaining = new Set(processingIds);
               for (let attempt = 0; attempt < 30 && remaining.size > 0; attempt++) {
                 await new Promise((r) => setTimeout(r, 2000));
-                for (const docId of [...remaining]) {
+                for (const docId of remaining) {
                   try {
                     const { data } = await api.get<Document>(`/api/documents/${docId}`);
                     if (data.ingestion_status !== "processing") {

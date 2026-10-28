@@ -40,11 +40,17 @@ function installFailureKind(err: unknown): AudioHealthError {
     : "installFailed";
 }
 
+function whisperModelClass(status: AudioHealth["whisper_model"] | undefined): string {
+  if (status === "ok") return "text-emerald-300";
+  if (status === "missing") return "text-amber-300";
+  return "text-slate-300";
+}
+
 export function IngestionTab({
   settings,
   onChange,
   isSaving
-}: SettingsTabProps) {
+}: Readonly<SettingsTabProps>) {
   const [audioHealth, setAudioHealth] = useState<AudioHealth | null>(null);
   const [audioHealthStatus, setAudioHealthStatus] = useState<
     "idle" | "loading" | "ready" | "error"
@@ -163,13 +169,7 @@ export function IngestionTab({
           <p className="text-[11px] text-slate-300">
             {t("settings.ingestion.audioHealth.whisperModelLabel")}&nbsp;
             <span
-              className={
-                audioHealth?.whisper_model === "ok"
-                  ? "text-emerald-300"
-                  : audioHealth?.whisper_model === "missing"
-                  ? "text-amber-300"
-                  : "text-slate-300"
-              }
+              className={whisperModelClass(audioHealth?.whisper_model)}
             >
               {audioHealthStatus === "loading"
                 ? t("settings.ingestion.audioHealth.checking")
@@ -185,7 +185,7 @@ export function IngestionTab({
               {t(AUDIO_HEALTH_ERROR_KEYS[audioHealthError])}
             </p>
           )}
-          {audioHealth && audioHealth.ffmpeg === "missing" && (
+          {audioHealth?.ffmpeg === "missing" && (
             <p className="text-[11px] text-slate-400">
               {t("settings.ingestion.audioHealth.ffmpegHint")}{" "}
               <span className="font-mono">brew install ffmpeg</span>
@@ -247,7 +247,7 @@ export function IngestionTab({
               const value = event.target.value.trim() || null;
               await onChange(
                 "default_audio_language",
-                value ? value : null
+                value || null
               );
             }}
           >

@@ -23,6 +23,12 @@ type LLMProviderTabProps = SettingsTabProps & {
   localTestStatus: TestStatus;
 };
 
+function providerKeyField(provider: string): "anthropic_api_key" | "openai_api_key" | "openrouter_api_key" {
+  if (provider === "anthropic") return "anthropic_api_key";
+  if (provider === "openai") return "openai_api_key";
+  return "openrouter_api_key";
+}
+
 export function LLMProviderTab({
   settings,
   onChange,
@@ -162,15 +168,11 @@ export function LLMProviderTab({
               data-lpignore="true"
               style={{ WebkitTextSecurity: "disc" } as React.CSSProperties}
               className="w-full rounded-md border border-border bg-slate-950/50 px-2.5 py-1.5 text-xs text-slate-50 outline-hidden transition focus:border-sky-500"
-              placeholder={settings[`has_${settings.llm_provider === "openrouter" ? "openrouter" : settings.llm_provider}_key` as keyof typeof settings] ? "••••••••" : t("settings.llm.apiKey.placeholder")}
+              placeholder={settings[`has_${settings.llm_provider}_key` as keyof typeof settings] ? "••••••••" : t("settings.llm.apiKey.placeholder")}
               onBlur={async (e) => {
                 const value = e.target.value.trim();
                 if (!value) return;
-                const keyField = settings.llm_provider === "anthropic"
-                  ? "anthropic_api_key" as const
-                  : settings.llm_provider === "openai"
-                    ? "openai_api_key" as const
-                    : "openrouter_api_key" as const;
+                const keyField = providerKeyField(settings.llm_provider);
                 await onChange(keyField, value);
               }}
             />

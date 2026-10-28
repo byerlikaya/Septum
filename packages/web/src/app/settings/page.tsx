@@ -218,6 +218,16 @@ export default function SettingsPage() {
     }
   };
 
+  const renderSettingsBody = () => {
+    if (loading) return <SkeletonFormFields fields={4} />;
+    if (error) return <ErrorWithRetry message={error} onRetry={fetchSettings} />;
+    return (
+      <div className="flex flex-col gap-4">
+        {renderTabContent()}
+      </div>
+    );
+  };
+
   return (
     <div className="flex min-h-full md:h-full min-w-0 flex-col gap-4">
       <header className="shrink-0 border-b border-slate-800 pb-4 text-slate-50">
@@ -276,15 +286,7 @@ export default function SettingsPage() {
               {t("settings.common.saved")}
             </div>
           )}
-          {loading ? (
-            <SkeletonFormFields fields={4} />
-          ) : error ? (
-            <ErrorWithRetry message={error} onRetry={fetchSettings} />
-          ) : (
-            <div className="flex flex-col gap-4">
-              {renderTabContent()}
-            </div>
-          )}
+          {renderSettingsBody()}
         </div>
       </div>
     </div>
@@ -303,7 +305,7 @@ function SettingsTabButton({
   description,
   active,
   onClick
-}: TabButtonProps) {
+}: Readonly<TabButtonProps>) {
   return (
     <button
       type="button"

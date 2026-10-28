@@ -71,7 +71,7 @@ export function UserFormModal(props: UserFormModalProps) {
     }
   }
 
-  const handleSubmit = async (e: React.FormEvent): Promise<void> => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
     if (props.mode === "create" && exceedsPasswordByteLimit(password)) {
       setLocalError(passwordTooLongMessage(t));

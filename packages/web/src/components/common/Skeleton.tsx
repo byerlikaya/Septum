@@ -4,7 +4,7 @@ interface SkeletonProps {
   className?: string;
 }
 
-export function Skeleton({ className = "h-4 w-full" }: SkeletonProps) {
+export function Skeleton({ className = "h-4 w-full" }: Readonly<SkeletonProps>) {
   return (
     <div
       className={`animate-pulse rounded bg-slate-800 ${className}`}
@@ -13,11 +13,11 @@ export function Skeleton({ className = "h-4 w-full" }: SkeletonProps) {
   );
 }
 
-export function SkeletonLine({ width = "w-full" }: { width?: string }) {
+export function SkeletonLine({ width = "w-full" }: Readonly<{ width?: string }>) {
   return <Skeleton className={`h-4 ${width}`} />;
 }
 
-export function SkeletonTableRows({ rows = 4 }: { rows?: number }) {
+export function SkeletonTableRows({ rows = 4 }: Readonly<{ rows?: number }>) {
   return (
     <div className="space-y-3" aria-hidden="true">
       {Array.from({ length: rows }).map((_, i) => (
@@ -43,7 +43,7 @@ export function SkeletonCard() {
   );
 }
 
-export function SkeletonFormFields({ fields = 3 }: { fields?: number }) {
+export function SkeletonFormFields({ fields = 3 }: Readonly<{ fields?: number }>) {
   return (
     <div className="space-y-5" aria-hidden="true">
       {Array.from({ length: fields }).map((_, i) => (
