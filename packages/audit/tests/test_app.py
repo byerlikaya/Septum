@@ -77,6 +77,14 @@ def test_export_csv_returns_flat_rows_with_attributes_cell():
     assert json.loads(rows[1][5]) == {"k": "v"}
 
 
+def test_export_format_parameter_keeps_public_name_in_openapi():
+    with _build() as client:
+        spec = client.get("/openapi.json").json()
+    params = spec["paths"]["/api/audit/export"]["get"]["parameters"]
+    names = [p["name"] for p in params if p["in"] == "query"]
+    assert names == ["format"]
+
+
 def test_export_siem_wraps_records_in_hec_envelope():
     records = [
         AuditRecord(
