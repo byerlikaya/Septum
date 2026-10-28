@@ -16,7 +16,7 @@ function extractJson(text: string): string | null {
     return trimmed;
   }
   // ```json ... ``` or ``` ... ```
-  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const codeBlockMatch = trimmed.match(/```(?:json)?([\s\S]*?)```/);
   if (codeBlockMatch) {
     return codeBlockMatch[1].trim();
   }
@@ -35,8 +35,8 @@ function markdownToStructured(content: string): { summary: string; key_points: s
   const keyPoints: string[] = [];
   let summary = "";
   for (const line of lines) {
-    const bulletMatch = line.match(/^[-*]\s+(.+)$/);
-    const numMatch = line.match(/^\d+\.\s+(.+)$/);
+    const bulletMatch = line.match(/^[-*]\s+(\S.*)$/);
+    const numMatch = line.match(/^\d+\.\s+(\S.*)$/);
     if (bulletMatch) keyPoints.push(bulletMatch[1].replace(/\*\*(.+?)\*\*/g, "$1"));
     else if (numMatch) keyPoints.push(numMatch[1].replace(/\*\*(.+?)\*\*/g, "$1"));
     else if (!line.startsWith("#") && line.length > 20) summary = summary ? `${summary} ${line}` : line;
