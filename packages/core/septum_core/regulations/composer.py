@@ -65,8 +65,7 @@ class PolicyComposer:
 
         for reg in active_regs:
             regulation_ids.append(reg.id)
-            for et in reg.entity_types or []:
-                entity_types_set.add(et)
+            entity_types_set.update(reg.entity_types or [])
 
         for custom in active_custom:
             if custom.is_active:
