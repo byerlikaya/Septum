@@ -127,7 +127,7 @@ async def redis_map_document_ids() -> set[int]:
     """
     if not redis_configured():
         return set()
-    client = await get_redis()
+    client = get_redis()
     if client is None:
         raise DocumentMapErasureError("Redis is configured but unavailable")
     prefix = _REDIS_MAP_PREFIX.encode("ascii")
@@ -192,7 +192,7 @@ async def document_map_lock(
     if lock_guard is None:
         lock_guard = _map_write_locks[document_id] = asyncio.Lock()
     async with lock_guard:
-        client = await get_redis()
+        client = get_redis()
         if client is None:
             yield DocumentMapLockHandle(document_id)
             return
@@ -517,7 +517,7 @@ async def pop_document_map(document_id: int) -> None:
     disk_error: OSError | None = None
 
     # Tier 2: Redis
-    client = await get_redis()
+    client = get_redis()
     if client is None:
         if redis_configured():
             failed_tiers.append("redis")

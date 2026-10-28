@@ -135,7 +135,7 @@ class _FakeDeanonymizer:
     def __init__(self, settings: Any) -> None:
         self._settings = settings
 
-    async def deanonymize(self, text: str, anon_map: Any, **kwargs: Any) -> str:
+    def deanonymize(self, text: str, anon_map: Any, **kwargs: Any) -> str:
         return text.replace(PLACEHOLDER, RAW_VALUE)
 
 

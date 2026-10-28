@@ -27,6 +27,16 @@ describe("resolveBaseURL", () => {
       "https://api.septum.example",
     );
   });
+
+  it("keeps interior slashes and finishes quickly on a long slash run", () => {
+    const interior = "/".repeat(50000) + "a";
+    const started = Date.now();
+    expect(resolveBaseURL(interior)).toBe(interior);
+    expect(resolveBaseURL("https://api.septum.example" + "/".repeat(50000))).toBe(
+      "https://api.septum.example",
+    );
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
 });
 
 describe("getChatDebug", () => {

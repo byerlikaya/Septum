@@ -41,13 +41,13 @@ class AuditEventResponse(BaseModel):
     id: int
     created_at: datetime
     event_type: str
-    session_id: Optional[str]
-    document_id: Optional[int]
+    session_id: Optional[str] = None
+    document_id: Optional[int] = None
     document_name: Optional[str] = None
     regulation_ids: List[str]
     entity_types_detected: Dict[str, int]
     entity_count: int
-    extra: Optional[Dict[str, Any]]
+    extra: Optional[Dict[str, Any]] = None
 
 
 class AuditListResponse(BaseModel):

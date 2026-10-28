@@ -178,17 +178,17 @@ class DocumentResponse(BaseModel):
     file_type: str
     file_format: str
     detected_language: str
-    language_override: Optional[str]
+    language_override: Optional[str] = None
     uploaded_at: datetime
     encrypted_path: str
     chunk_count: int
     entity_count: int
     ingestion_status: str
-    ingestion_error: Optional[str]
+    ingestion_error: Optional[str] = None
     ingestion_error_code: Optional[str] = None
     file_size_bytes: int
-    transcription_text: Optional[str]
-    ocr_confidence: Optional[float]
+    transcription_text: Optional[str] = None
+    ocr_confidence: Optional[float] = None
     active_regulation_ids: List[str]
     needs_reprocessing: bool = False
     missing_entity_types: List[str] = []

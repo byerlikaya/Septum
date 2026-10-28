@@ -133,7 +133,7 @@ async def test_redis_failure_logs_class_only(
         async def get(self, key):
             raise ConnectionError(f"redis://:{SECRET}@cache:6379 unreachable")
 
-    async def _get_redis():
+    def _get_redis():
         return _FailingRedis()
 
     monkeypatch.setattr(redis_client, "get_redis", _get_redis)

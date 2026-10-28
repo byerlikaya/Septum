@@ -4,7 +4,7 @@ import pytest
 
 from septum_api.models.settings import AppSettings
 from septum_api.services.anonymization_map import AnonymizationMap
-from septum_api.services.deanonymizer import Deanonymizer
+from septum_api.services.deanonymizer import Deanonymizer, DeAnonymizer
 
 
 def _base_settings(strategy: str, enabled: bool = True) -> AppSettings:
@@ -50,7 +50,7 @@ async def test_deanonymizer_simple_strategy_replaces_placeholders() -> None:
     assert placeholder == "[PERSON_NAME_1]"
 
     text = "Hello [PERSON_NAME_1], welcome!"
-    result = await deanonymizer.deanonymize(text, anon_map=amap)
+    result = deanonymizer.deanonymize(text, anon_map=amap)
 
     assert result == "Hello Alice, welcome!"
 
@@ -66,7 +66,7 @@ async def test_deanonymizer_simple_replaces_short_form_person_alias() -> None:
     amap.add_entity("Ayşe Kaya", "PERSON_NAME")
     # Map has [PERSON_NAME_1], [PERSON_NAME_2]; LLM often returns [PERSON_1], [PERSON_2].
     text = "- [PERSON_1]\n- [PERSON_2]"
-    result = await deanonymizer.deanonymize(text, anon_map=amap)
+    result = deanonymizer.deanonymize(text, anon_map=amap)
 
     assert result == "- Ahmet Yılmaz\n- Ayşe Kaya"
 
@@ -81,7 +81,7 @@ async def test_deanonymizer_disabled_returns_original_text() -> None:
     amap.add_entity("Alice", "PERSON_NAME")
 
     text = "Hello [PERSON_NAME_1]"
-    result = await deanonymizer.deanonymize(text, anon_map=amap)
+    result = deanonymizer.deanonymize(text, anon_map=amap)
 
     assert result == text
 
@@ -97,8 +97,17 @@ async def test_deanonymizer_round_trips_date_placeholders() -> None:
     assert amap.add_entity("2024-04-02", "DATE") == "[DATE_2]"
 
     text = "Admitted [DATE_1], follow-up on [DATE_2]; discharge matches [DATE_1]."
-    result = await deanonymizer.deanonymize(text, anon_map=amap)
+    result = deanonymizer.deanonymize(text, anon_map=amap)
 
     assert result == (
         "Admitted 2024-03-15, follow-up on 2024-04-02; discharge matches 2024-03-15."
     )
+
+
+async def test_sync_wrapper_works_inside_a_running_event_loop() -> None:
+    """The sync wrapper must not start its own loop: it is callable from async code."""
+    result = DeAnonymizer().deanonymize(
+        "Contact [PERSON_1] today.", {"[PERSON_1]": "Jane Example"}
+    )
+
+    assert result == "Contact Jane Example today."

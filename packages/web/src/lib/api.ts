@@ -31,7 +31,10 @@ import { hardNavigate } from "./navigation";
 // origin (split deployment); trailing slashes are stripped so callers
 // can keep concatenating ``${baseURL}/api/...`` cleanly.
 export function resolveBaseURL(value: string | undefined): string {
-  return (value ?? "").replace(/\/+$/, "");
+  const raw = value ?? "";
+  let end = raw.length;
+  while (end > 0 && raw[end - 1] === "/") end--;
+  return raw.slice(0, end);
 }
 
 export const baseURL = resolveBaseURL(process.env.NEXT_PUBLIC_API_BASE_URL);

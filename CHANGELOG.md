@@ -22,6 +22,13 @@ All notable changes to this project are documented here in a high‑level, date�
 
 ## Unreleased
 
+### 2026-10-28
+
+- PII detection can no longer be stalled by crafted text. Several recognizers and the PDF table field extraction slowed sharply on long runs of letters, spaces or blank lines, so one long line in an upload or chat message could block the API for a long time. They now run in linear time; the recognizers detect the same things as before, and table field extraction differs only when a whitespace-only line is followed by a line starting with a colon, which now yields a field.
+- The synchronous de-anonymizer helper no longer fails when called from inside a running event loop.
+- Optional fields in the audit, chunk, document and error-log API responses now default to null, so the OpenAPI schema no longer marks them as required. Response contents are unchanged.
+- Two dashboard text parsers (the JSON output panel and the API base URL) no longer slow down on long whitespace or slash runs, and a list marker followed only by whitespace is no longer shown as a key point.
+
 ## v3.0.0 — 2026-10-26 — Script-aware detection and network lockdown
 
 Detection is now script-aware: each text's language is checked against its
