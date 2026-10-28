@@ -88,13 +88,12 @@ function SortIcon({
   );
 }
 
-function ReprocessNeededBadge({ doc }: { doc: Document }) {
+function ReprocessNeededBadge({ doc }: Readonly<{ doc: Document }>) {
   const t = useI18n();
-  const detail = !doc.sanitized_policy_known
-    ? t("documents.stale.unknownPolicy")
-    : doc.missing_entity_types.length > 0
-      ? t("documents.stale.tooltip", { types: doc.missing_entity_types.join(", ") })
-      : t("documents.stale.outdatedPolicy");
+  let detail: string;
+  if (!doc.sanitized_policy_known) detail = t("documents.stale.unknownPolicy");
+  else if (doc.missing_entity_types.length > 0) detail = t("documents.stale.tooltip", { types: doc.missing_entity_types.join(", ") });
+  else detail = t("documents.stale.outdatedPolicy");
   return (
     <span
       role="status"
@@ -108,7 +107,7 @@ function ReprocessNeededBadge({ doc }: { doc: Document }) {
   );
 }
 
-function MaskingLanguageBadge({ doc }: { doc: Document }) {
+function MaskingLanguageBadge({ doc }: Readonly<{ doc: Document }>) {
   const t = useI18n();
   if (doc.sanitized_language === null) {
     if (doc.ingestion_status !== "completed") return null;
@@ -128,7 +127,7 @@ function MaskingLanguageBadge({ doc }: { doc: Document }) {
   );
 }
 
-function RefusedOverrideNotice({ lang }: { lang: string }) {
+function RefusedOverrideNotice({ lang }: Readonly<{ lang: string }>) {
   const t = useI18n();
   return (
     <div
@@ -152,7 +151,7 @@ export function DocumentList({
   onPreview,
   onBulkDelete,
   onBulkReprocess,
-}: DocumentListProps) {
+}: Readonly<DocumentListProps>) {
   const t = useI18n();
 
   const [filterStatus, setFilterStatus] = useState<IngestionStatus | "all">("all");

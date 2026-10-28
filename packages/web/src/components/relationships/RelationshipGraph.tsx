@@ -113,7 +113,7 @@ interface FilenameOverlayItem {
 // information, while hover-on-demand keeps the count-only view clean.
 const LABEL_VISIBILITY_ZOOM_THRESHOLD = 1.6;
 
-export default function RelationshipGraph({ graph }: Props) {
+export default function RelationshipGraph({ graph }: Readonly<Props>) {
   const t = useI18n();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cyRef = useRef<Core | null>(null);
@@ -359,6 +359,16 @@ export default function RelationshipGraph({ graph }: Props) {
     cy.zoom({ level: cy.zoom() / 1.25, position: cy.pan() });
   };
 
+  const renderSidePanel = () => {
+    if (selectedEdge) return <ActiveEdgePanel edge={selectedEdge} />;
+    if (hoveredNode) return <NodePanel node={hoveredNode} />;
+    return (
+      <p className="text-xs text-slate-500">
+        {t("relationships.selectionHint")}
+      </p>
+    );
+  };
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
       <div className="relative min-w-0 overflow-hidden rounded-lg border border-slate-800 bg-slate-950/60">
@@ -463,22 +473,14 @@ export default function RelationshipGraph({ graph }: Props) {
         </ul>
 
         <div className="mt-6 border-t border-slate-800 pt-4">
-          {selectedEdge ? (
-            <ActiveEdgePanel edge={selectedEdge} />
-          ) : hoveredNode ? (
-            <NodePanel node={hoveredNode} />
-          ) : (
-            <p className="text-xs text-slate-500">
-              {t("relationships.selectionHint")}
-            </p>
-          )}
+          {renderSidePanel()}
         </div>
       </aside>
     </div>
   );
 }
 
-function ActiveEdgePanel({ edge }: { edge: SelectedEdgeState }) {
+function ActiveEdgePanel({ edge }: Readonly<{ edge: SelectedEdgeState }>) {
   const t = useI18n();
   const sortedTypes = Object.entries(edge.shared_entity_types).sort(
     (a, b) => b[1] - a[1],
@@ -534,7 +536,7 @@ function ActiveEdgePanel({ edge }: { edge: SelectedEdgeState }) {
   );
 }
 
-function NodePanel({ node }: { node: SelectedNodeState }) {
+function NodePanel({ node }: Readonly<{ node: SelectedNodeState }>) {
   const t = useI18n();
   return (
     <div className="space-y-2">

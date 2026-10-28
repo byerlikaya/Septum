@@ -7,7 +7,7 @@ interface DeanonymizationBannerProps {
   visible: boolean;
 }
 
-export function DeanonymizationBanner({ visible }: DeanonymizationBannerProps) {
+export function DeanonymizationBanner({ visible }: Readonly<DeanonymizationBannerProps>) {
   const t = useI18n();
 
   if (!visible) return <></>;

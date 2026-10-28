@@ -328,7 +328,7 @@ export default function DocumentsPage() {
 
   const handleReprocessed = useCallback((updated: Document): void => {
     setDocuments((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
-    setPreviewDoc((prev) => (prev && prev.id === updated.id ? updated : prev));
+    setPreviewDoc((prev) => (prev?.id === updated.id ? updated : prev));
   }, []);
 
   const handleReprocessAll = useCallback(async () => {

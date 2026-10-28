@@ -7,6 +7,7 @@ import json
 import math
 import os
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any, Iterator
@@ -141,8 +142,8 @@ def verify_ledger(path: str | os.PathLike[str]) -> None:
     except FileNotFoundError:
         return
     with fh:
-        for _ in _scan(fh, accepted_links(earlier), allow_legacy=_legacy_allowed(earlier)):
-            pass
+        # Drain the scan: consuming it runs every ledger check.
+        deque(_scan(fh, accepted_links(earlier), allow_legacy=_legacy_allowed(earlier)), maxlen=0)
 
 
 def rewrite_jsonl_locked(

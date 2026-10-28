@@ -70,7 +70,6 @@ def _classify_strength(score: float) -> str:
 
 @router.get(
     "/graph",
-    response_model=RelationshipGraph,
     status_code=status.HTTP_200_OK,
 )
 async def get_relationship_graph(

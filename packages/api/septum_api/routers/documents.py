@@ -14,7 +14,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from fastapi import (
     APIRouter,
@@ -119,6 +119,9 @@ except ImportError:  # pragma: no cover - environment-dependent
 
 logger = logging.getLogger(__name__)
 
+_DOCUMENT_NOT_FOUND = "Document not found."
+_AUDIO_MPEG_MIME = "audio/mpeg"
+
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 
@@ -135,7 +138,7 @@ _MIME_TO_FORMAT: dict[str, str] = {
     "image/jpg": "image",
     "image/tiff": "image",
     "image/bmp": "image",
-    "audio/mpeg": "audio",
+    _AUDIO_MPEG_MIME: "audio",
     "audio/mp3": "audio",
     "audio/wav": "audio",
     "audio/x-wav": "audio",
@@ -199,7 +202,7 @@ class DocumentResponse(BaseModel):
 
 
 async def _override_refusals(
-    db: AsyncSession, documents: Union[Sequence[int], Select]
+    db: AsyncSession, documents: Sequence[int] | Select
 ) -> Dict[int, Tuple[str, str]]:
     """Per document, the override the pipeline last refused and the reason code.
 
@@ -367,7 +370,6 @@ class SpreadsheetSchemaUpdatePayload(BaseModel):
 
 @router.get(
     "/{document_id}/schema",
-    response_model=SpreadsheetSchemaResponse,
     status_code=status.HTTP_200_OK,
 )
 async def get_spreadsheet_schema(
@@ -377,7 +379,7 @@ async def get_spreadsheet_schema(
 ) -> SpreadsheetSchemaResponse:
     """Return the spreadsheet schema for a document, if any."""
 
-    await get_owned_or_404(db, Document, document_id, user, "Document not found.")
+    await get_owned_or_404(db, Document, document_id, user, _DOCUMENT_NOT_FOUND)
 
     schema = await _read_schema(db, document_id)
     if schema is None:
@@ -538,7 +540,6 @@ async def _schema_for_update(
 
 @router.put(
     "/{document_id}/schema",
-    response_model=SpreadsheetSchemaResponse,
     status_code=status.HTTP_200_OK,
 )
 async def update_spreadsheet_schema(
@@ -562,7 +563,7 @@ async def update_spreadsheet_schema(
     """
 
     document = await get_owned_or_404(
-        db, Document, document_id, user, "Document not found."
+        db, Document, document_id, user, _DOCUMENT_NOT_FOUND
     )
     schema = await _read_schema(db, document_id)
     if schema is not None:
@@ -720,9 +721,9 @@ def _detect_mime_type(raw_bytes: bytes, fallback_mime_type: Optional[str] = None
     if raw_bytes.startswith(b"fLaC"):
         return "audio/flac"
     if raw_bytes.startswith(b"ID3"):
-        return "audio/mpeg"
+        return _AUDIO_MPEG_MIME
     if len(raw_bytes) > 2 and raw_bytes[0] == 0xFF and (raw_bytes[1] & 0xE0) == 0xE0:
-        return "audio/mpeg"
+        return _AUDIO_MPEG_MIME
     if len(raw_bytes) > 12 and raw_bytes[4:8] == b"ftyp":
         return "audio/mp4"
     if raw_bytes.startswith(b"PK") and b"vnd.oasis.opendocument.spreadsheet" in raw_bytes[:4000]:
@@ -849,7 +850,6 @@ _MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(500 * 1024 * 1024)))
 
 @router.post(
     "/upload",
-    response_model=DocumentResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def upload_document(
@@ -1047,7 +1047,6 @@ async def get_processing_progress(
 
 @router.get(
     "",
-    response_model=DocumentListResponse,
     status_code=status.HTTP_200_OK,
 )
 async def list_documents(
@@ -1074,7 +1073,6 @@ async def list_documents(
 
 @router.get(
     "/{document_id}",
-    response_model=DocumentResponse,
     status_code=status.HTTP_200_OK,
 )
 async def get_document(
@@ -1084,7 +1082,7 @@ async def get_document(
 ) -> DocumentResponse:
     """Return metadata for a single document."""
     document = await get_owned_or_404(
-        db, Document, document_id, user, "Document not found."
+        db, Document, document_id, user, _DOCUMENT_NOT_FOUND
     )
     return await _single_document_response(db, document)
 
@@ -1101,7 +1099,7 @@ async def get_anon_summary(
     """Return a privacy-safe summary of the anonymization map (entity types and counts only)."""
     from ..services.document_anon_store import get_document_map
 
-    await get_owned_or_404(db, Document, document_id, user, "Document not found.")
+    await get_owned_or_404(db, Document, document_id, user, _DOCUMENT_NOT_FOUND)
     anon_map = await get_document_map(document_id)
     if anon_map is None:
         return {"document_id": document_id, "entities": {}, "total": 0}
@@ -1141,7 +1139,6 @@ class EntityDetectionListResponse(BaseModel):
 
 @router.get(
     "/{document_id}/entity-detections",
-    response_model=EntityDetectionListResponse,
     status_code=status.HTTP_200_OK,
 )
 async def get_entity_detections(
@@ -1152,7 +1149,7 @@ async def get_entity_detections(
     user: User = Depends(get_current_user),
 ) -> EntityDetectionListResponse:
     """Return per-entity detection records with positions for a document."""
-    await get_owned_or_404(db, Document, document_id, user, "Document not found.")
+    await get_owned_or_404(db, Document, document_id, user, _DOCUMENT_NOT_FOUND)
 
     stmt = (
         select(EntityDetection)
@@ -1185,7 +1182,7 @@ async def get_document_raw(
     from fastapi.responses import Response
 
     document = await get_owned_or_404(
-        db, Document, document_id, user, "Document not found."
+        db, Document, document_id, user, _DOCUMENT_NOT_FOUND
     )
     encrypted_path = Path(document.encrypted_path)
     if not encrypted_path.exists():
@@ -1224,7 +1221,6 @@ async def _require_acting_user(db: AsyncSession, user: User) -> None:
 
 @router.patch(
     "/{document_id}/language",
-    response_model=DocumentResponse,
     status_code=status.HTTP_200_OK,
 )
 async def update_document_language(
@@ -1247,7 +1243,7 @@ async def update_document_language(
     """
     # The text is read once, after the flush below; the lookup skips it.
     document = await get_owned_or_404(
-        db, Document, document_id, user, "Document not found.",
+        db, Document, document_id, user, _DOCUMENT_NOT_FOUND,
         options=(defer(Document.transcription_text),),
     )
     # The acting user is locked before the document row: ``delete_user``
@@ -1285,7 +1281,6 @@ async def update_document_language(
 @router.delete(
     "/{document_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_model=None,
 )
 async def delete_document(
     document_id: int,
@@ -1309,13 +1304,13 @@ async def delete_document(
     delete was committed is logged and the delete still succeeds.
     """
     document = await get_owned_or_404(
-        db, Document, document_id, user, "Document not found."
+        db, Document, document_id, user, _DOCUMENT_NOT_FOUND
     )
     refuse_while_processing(document)
     if not await erase_document(db, document):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found.",
+            detail=_DOCUMENT_NOT_FOUND,
         )
 
 
@@ -1422,7 +1417,6 @@ def _processing_conflict() -> HTTPException:
 
 @router.post(
     "/{document_id}/reprocess",
-    response_model=DocumentResponse,
     status_code=status.HTTP_200_OK,
 )
 async def reprocess_document(
@@ -1438,7 +1432,7 @@ async def reprocess_document(
     cannot both start a pipeline run.
     """
     document = await get_owned_or_404(
-        db, Document, document_id, user, "Document not found."
+        db, Document, document_id, user, _DOCUMENT_NOT_FOUND
     )
     refuse_while_processing(document)
 

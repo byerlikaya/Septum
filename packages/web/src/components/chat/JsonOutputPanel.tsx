@@ -16,7 +16,7 @@ function extractJson(text: string): string | null {
     return trimmed;
   }
   // ```json ... ``` or ``` ... ```
-  const codeBlockMatch = trimmed.match(/```(?:json)?([\s\S]*?)```/);
+  const codeBlockMatch = /```(?:json)?([\s\S]*?)```/.exec(trimmed);
   if (codeBlockMatch) {
     return codeBlockMatch[1].trim();
   }
@@ -35,8 +35,8 @@ function markdownToStructured(content: string): { summary: string; key_points: s
   const keyPoints: string[] = [];
   let summary = "";
   for (const line of lines) {
-    const bulletMatch = line.match(/^[-*]\s+(\S.*)$/);
-    const numMatch = line.match(/^\d+\.\s+(\S.*)$/);
+    const bulletMatch = /^[-*]\s+(\S.*)$/.exec(line);
+    const numMatch = /^\d+\.\s+(\S.*)$/.exec(line);
     if (bulletMatch) keyPoints.push(bulletMatch[1].replace(/\*\*(.+?)\*\*/g, "$1"));
     else if (numMatch) keyPoints.push(numMatch[1].replace(/\*\*(.+?)\*\*/g, "$1"));
     else if (!line.startsWith("#") && line.length > 20) summary = summary ? `${summary} ${line}` : line;
@@ -45,7 +45,7 @@ function markdownToStructured(content: string): { summary: string; key_points: s
   return { summary: summary || content.slice(0, 300), key_points: keyPoints };
 }
 
-export function JsonOutputPanel({ content, visible }: JsonOutputPanelProps) {
+export function JsonOutputPanel({ content, visible }: Readonly<JsonOutputPanelProps>) {
   const t = useI18n();
   if (!visible) return <></>;
 
@@ -65,6 +65,17 @@ export function JsonOutputPanel({ content, visible }: JsonOutputPanelProps) {
       fallbackStructured = markdownToStructured(content);
     }
   }
+
+  const renderParsedOutput = () => {
+    if (parsed === null) {
+      return <p className="text-slate-500">{t("chat.json.empty")}</p>;
+    }
+    return (
+      <pre className="overflow-x-auto whitespace-pre-wrap break-all text-slate-300">
+        {JSON.stringify(parsed, null, 2)}
+      </pre>
+    );
+  };
 
   return (
     <div className="rounded-lg border border-slate-700 bg-slate-900/60 p-3 font-mono text-xs">
@@ -93,12 +104,8 @@ export function JsonOutputPanel({ content, visible }: JsonOutputPanelProps) {
             </pre>
           </details>
         </div>
-      ) : parsed !== null ? (
-        <pre className="overflow-x-auto whitespace-pre-wrap break-all text-slate-300">
-          {JSON.stringify(parsed, null, 2)}
-        </pre>
       ) : (
-        <p className="text-slate-500">{t("chat.json.empty")}</p>
+        renderParsedOutput()
       )}
     </div>
   );

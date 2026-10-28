@@ -55,7 +55,7 @@ export function HighlightedText({
   detections,
   activeEntityType,
   activeDetectionId,
-}: HighlightedTextProps) {
+}: Readonly<HighlightedTextProps>) {
   const segments = useMemo(() => buildSegments(text, detections), [text, detections]);
 
   return (

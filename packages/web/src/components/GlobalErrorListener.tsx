@@ -7,6 +7,15 @@ import { sendFrontendError } from "@/lib/api";
  * Registers global window.onerror and window.onunhandledrejection to report
  * runtime errors and unhandled promise rejections to the backend error log.
  */
+function rejectionMessage(reason: unknown): string {
+  if (typeof reason === "object" && reason !== null && "message" in reason) return String(reason.message);
+  return String(reason);
+}
+
+function rejectionStack(reason: unknown): string | undefined {
+  return reason instanceof Error ? reason.stack : undefined;
+}
+
 export function GlobalErrorListener(): null {
   useEffect(() => {
     const route = typeof window !== "undefined" ? window.location.pathname : "";
@@ -17,19 +26,11 @@ export function GlobalErrorListener(): null {
       const message =
         event instanceof ErrorEvent
           ? event.message
-          : String(
-              typeof (event as PromiseRejectionEvent).reason === "object" &&
-                (event as PromiseRejectionEvent).reason !== null &&
-                "message" in (event as PromiseRejectionEvent).reason
-                ? (event as PromiseRejectionEvent).reason.message
-                : (event as PromiseRejectionEvent).reason
-            );
+          : rejectionMessage((event as PromiseRejectionEvent).reason);
       const stack =
         event instanceof ErrorEvent
           ? undefined
-          : (event as PromiseRejectionEvent).reason instanceof Error
-            ? (event as PromiseRejectionEvent).reason.stack
-            : undefined;
+          : rejectionStack((event as PromiseRejectionEvent).reason);
 
       sendFrontendError({
         message: message.slice(0, 2000),

@@ -30,7 +30,7 @@ export function OllamaModelCombobox({
   baseUrl,
   placeholder = "llama3.2:3b",
   className = "",
-}: OllamaModelComboboxProps) {
+}: Readonly<OllamaModelComboboxProps>) {
   const t = useI18n();
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState(value);
@@ -112,6 +112,29 @@ export function OllamaModelCombobox({
   const baseCls =
     "w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus-within:border-sky-500 focus-within:ring-1 focus-within:ring-sky-500";
 
+  const renderEmptyState = () => {
+    if (loading) {
+      return (
+        <div className="px-3 py-2 text-xs text-slate-500 flex items-center gap-2">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          {t("ollama.models.loading")}
+        </div>
+      );
+    }
+    if (models.length === 0) {
+      return (
+        <div className="px-3 py-2 text-xs text-slate-500">
+          {t("ollama.models.empty")}
+        </div>
+      );
+    }
+    return (
+      <div className="px-3 py-2 text-xs text-slate-500">
+        {t("ollama.models.noMatch")}
+      </div>
+    );
+  };
+
   return (
     <div ref={containerRef} className={`relative ${className}`}>
       <div className={baseCls + " flex items-center gap-1"}>
@@ -165,19 +188,8 @@ export function OllamaModelCombobox({
                 </span>
               </button>
             ))
-          ) : loading ? (
-            <div className="px-3 py-2 text-xs text-slate-500 flex items-center gap-2">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              {t("ollama.models.loading")}
-            </div>
-          ) : models.length === 0 ? (
-            <div className="px-3 py-2 text-xs text-slate-500">
-              {t("ollama.models.empty")}
-            </div>
           ) : (
-            <div className="px-3 py-2 text-xs text-slate-500">
-              {t("ollama.models.noMatch")}
-            </div>
+            renderEmptyState()
           )}
         </div>
       )}

@@ -57,7 +57,7 @@ function DetectionMethodButton({
   description,
   active,
   onClick
-}: DetectionMethodButtonProps) {
+}: Readonly<DetectionMethodButtonProps>) {
   return (
     <button
       type="button"
@@ -81,7 +81,7 @@ export function CustomRuleBuilderPanel({
   onClose,
   onSaved,
   onDeleted
-}: CustomRuleBuilderPanelProps) {
+}: Readonly<CustomRuleBuilderPanelProps>) {
   const t = useI18n();
   const [form, setForm] = useState<CustomRuleFormState | null>(null);
   const [ephemeralId, setEphemeralId] = useState<number | undefined>(undefined);
@@ -99,8 +99,7 @@ export function CustomRuleBuilderPanel({
     rule: CustomRuleBuilderPanelProps["rule"];
   } | null>(null);
   if (
-    syncedInputs === null ||
-    syncedInputs.open !== open ||
+    syncedInputs?.open !== open ||
     syncedInputs.mode !== mode ||
     syncedInputs.rule !== rule
   ) {
@@ -395,6 +394,22 @@ export function CustomRuleBuilderPanel({
     }
   };
 
+  const saveButtonLabel = (): string => {
+    if (saving) return t("regulations.panel.button.savePending");
+    if (isCreateMode) return t("regulations.panel.button.saveCreate");
+    return t("regulations.panel.button.saveEdit");
+  };
+
+  const testStatusClass = (): string => {
+    if (testStatus.state === "success") {
+      return "border-emerald-500/50 bg-emerald-950/30 text-emerald-100";
+    }
+    if (testStatus.state === "error") {
+      return "border-red-500/50 bg-red-950/30 text-red-100";
+    }
+    return "border-slate-600 bg-slate-900 text-slate-100";
+  };
+
   return (
     <div className="fixed inset-0 z-40 flex items-stretch justify-end bg-black/40">
       <div className="h-full w-full max-w-md overflow-y-auto border-l border-border bg-slate-950 p-4 text-xs text-slate-50 shadow-xl">
@@ -652,24 +667,14 @@ export function CustomRuleBuilderPanel({
                 disabled={saving}
                 className="rounded-md bg-sky-600 px-3 py-1 text-[11px] font-medium text-white shadow-xs hover:bg-sky-500 disabled:opacity-60"
               >
-                {saving
-                  ? t("regulations.panel.button.savePending")
-                  : isCreateMode
-                  ? t("regulations.panel.button.saveCreate")
-                  : t("regulations.panel.button.saveEdit")}
+                {saveButtonLabel()}
               </button>
             </div>
           </div>
 
           {testStatus.state !== "idle" && (
             <div
-              className={`mt-1 rounded-md border px-2 py-1.5 text-[11px] ${
-                testStatus.state === "success"
-                  ? "border-emerald-500/50 bg-emerald-950/30 text-emerald-100"
-                  : testStatus.state === "error"
-                  ? "border-red-500/50 bg-red-950/30 text-red-100"
-                  : "border-slate-600 bg-slate-900 text-slate-100"
-              }`}
+              className={`mt-1 rounded-md border px-2 py-1.5 text-[11px] ${testStatusClass()}`}
             >
               {testStatus.state === "pending"
                 ? t("regulations.panel.test.pending")

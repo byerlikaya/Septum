@@ -108,7 +108,7 @@ class RedisStreamsQueueBackend(QueueBackend):
                 f"unsupported queue URL scheme {scheme!r}; expected "
                 "'redis://', 'rediss://', or 'unix://'."
             )
-        Redis = _load_redis_async()
+        redis_cls = _load_redis_async()
         kwargs: dict[str, object] = {
             "decode_responses": False,
             "socket_timeout": socket_timeout,
@@ -118,7 +118,7 @@ class RedisStreamsQueueBackend(QueueBackend):
         if scheme == "rediss":
             kwargs["ssl_cert_reqs"] = ssl_cert_reqs
             kwargs["ssl_check_hostname"] = True
-        client = Redis.from_url(url, **kwargs)
+        client = redis_cls.from_url(url, **kwargs)
         return cls(
             client,
             topic=topic,
@@ -352,7 +352,7 @@ def _decode_payload(fields) -> tuple[dict | None, str]:
     try:
         text = data.decode("utf-8") if isinstance(data, bytes) else str(data)
         payload = json.loads(text)
-    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:
         return None, type(exc).__name__
     if not isinstance(payload, dict):
         return None, "data is not a JSON object"

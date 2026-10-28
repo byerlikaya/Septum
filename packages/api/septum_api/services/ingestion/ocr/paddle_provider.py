@@ -27,8 +27,8 @@ from .base import OcrProvider
 
 logger = logging.getLogger(__name__)
 
-_CURRENCY_SUFFIX = re.compile(r"(\d)[εε€¢º£¥₺#tbも](?=\s|$)", re.IGNORECASE)
-_CURRENCY_STANDALONE = re.compile(r"[εε€¢º£¥₺も]")
+_CURRENCY_SUFFIX = re.compile(r"(\d)[ε€¢º£¥₺#tbも](?=\s|$)", re.IGNORECASE)
+_CURRENCY_STANDALONE = re.compile(r"[ε€¢º£¥₺も]")
 
 # ---------------------------------------------------------------------------
 # Subprocess worker — runs in a long-lived child process
@@ -134,7 +134,7 @@ def _terminate_workers(pool: ProcessPoolExecutor) -> None:
     if terminate is not None:
         terminate()
         return
-    for process in list((getattr(pool, "_processes", None) or {}).values()):
+    for process in (getattr(pool, "_processes", None) or {}).values():
         process.terminate()
 
 

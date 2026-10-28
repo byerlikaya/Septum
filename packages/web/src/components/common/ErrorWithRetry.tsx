@@ -8,7 +8,7 @@ interface ErrorWithRetryProps {
   onRetry: () => void;
 }
 
-export function ErrorWithRetry({ message, onRetry }: ErrorWithRetryProps) {
+export function ErrorWithRetry({ message, onRetry }: Readonly<ErrorWithRetryProps>) {
   const t = useI18n();
 
   return (

@@ -181,6 +181,13 @@ export default function UsersPage() {
     [fetchUsers, t]
   );
 
+  const renderUsersPlaceholder = () => {
+    if (loading) {
+      return <p className="p-4 text-sm text-slate-400">{t("users.loading")}</p>;
+    }
+    return <p className="p-4 text-sm text-slate-400">{t("users.empty")}</p>;
+  };
+
   return (
     <div className="min-w-0 space-y-6 md:h-full md:overflow-y-auto">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -216,10 +223,8 @@ export default function UsersPage() {
       {error && <ErrorAlert message={error} />}
 
       <div className="overflow-hidden rounded-lg border border-border/80">
-        {loading ? (
-          <p className="p-4 text-sm text-slate-400">{t("users.loading")}</p>
-        ) : users.length === 0 ? (
-          <p className="p-4 text-sm text-slate-400">{t("users.empty")}</p>
+        {loading || users.length === 0 ? (
+          renderUsersPlaceholder()
         ) : (
           <DataTable
             headers={[

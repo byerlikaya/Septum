@@ -31,7 +31,6 @@ class TextNormalizationRulePayload(BaseModel):
 
 @router.get(
     "",
-    response_model=List[TextNormalizationRulePayload],
     status_code=status.HTTP_200_OK,
 )
 async def list_rules(
@@ -60,7 +59,6 @@ async def list_rules(
 
 @router.post(
     "",
-    response_model=TextNormalizationRulePayload,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_interactive_session)],
 )
@@ -100,7 +98,6 @@ async def create_rule(
 
 @router.patch(
     "/{rule_id}",
-    response_model=TextNormalizationRulePayload,
     status_code=status.HTTP_200_OK,
     dependencies=[Depends(require_interactive_session)],
 )
@@ -149,7 +146,6 @@ async def update_rule(
 @router.delete(
     "/{rule_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_model=None,
     dependencies=[Depends(require_interactive_session)],
 )
 async def delete_rule(

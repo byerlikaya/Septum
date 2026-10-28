@@ -71,7 +71,7 @@ class ComplianceReportResponse(BaseModel):
     events: List[AuditEventResponse]
 
 
-@router.get("", response_model=AuditListResponse)
+@router.get("")
 async def list_audit_events(
     db: AsyncSession = Depends(get_db),
     event_type: Optional[str] = Query(None),
@@ -134,7 +134,7 @@ async def list_audit_events(
     )
 
 
-@router.get("/{document_id}/report", response_model=ComplianceReportResponse)
+@router.get("/{document_id}/report")
 async def get_document_compliance_report(
     document_id: int,
     db: AsyncSession = Depends(get_db),
@@ -174,7 +174,6 @@ async def get_document_compliance_report(
 
 @router.get(
     "/{event_id}/entity-detections",
-    response_model=EntityDetectionListResponse,
 )
 async def get_event_entity_detections(
     event_id: int,
@@ -197,7 +196,7 @@ async def get_event_entity_detections(
     return EntityDetectionListResponse(items=items, total=len(items))
 
 
-@router.get("/session/{session_id}", response_model=List[AuditEventResponse])
+@router.get("/session/{session_id}")
 async def get_session_audit(
     session_id: str,
     db: AsyncSession = Depends(get_db),
@@ -226,7 +225,7 @@ class DetectionMetricsResponse(BaseModel):
     detection_coverage: Dict[str, float]
 
 
-@router.get("/metrics", response_model=DetectionMetricsResponse)
+@router.get("/metrics")
 async def get_detection_metrics(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(require_role("admin")),

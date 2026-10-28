@@ -10,7 +10,7 @@ export function ToggleSwitch({
   onChange,
   disabled,
   ariaLabel
-}: ToggleSwitchProps) {
+}: Readonly<ToggleSwitchProps>) {
   return (
     <button
       type="button"

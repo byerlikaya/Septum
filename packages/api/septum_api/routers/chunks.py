@@ -37,9 +37,11 @@ async def _ensure_chunk_owner(db: AsyncSession, chunk: Chunk, user: User) -> Non
     parent_user_id = parent.scalar_one_or_none()
     if parent_user_id != user.id:
         raise HTTPException(
-            status_code=_status.HTTP_404_NOT_FOUND, detail="Chunk not found."
+            status_code=_status.HTTP_404_NOT_FOUND, detail=_CHUNK_NOT_FOUND
         )
 from ..utils.text_utils import normalize_unicode
+
+_CHUNK_NOT_FOUND = "Chunk not found."
 
 router = APIRouter(prefix="/api/chunks", tags=["chunks"])
 
@@ -99,7 +101,6 @@ class ChunkUpdateRequest(BaseModel):
 
 @router.get(
     "",
-    response_model=ChunkListResponse,
     status_code=status.HTTP_200_OK,
 )
 async def list_chunks(
@@ -134,7 +135,6 @@ async def list_chunks(
 
 @router.get(
     "/{chunk_id}",
-    response_model=ChunkResponse,
     status_code=status.HTTP_200_OK,
 )
 async def get_chunk(
@@ -143,14 +143,13 @@ async def get_chunk(
     user: User = Depends(get_current_user),
 ) -> ChunkResponse:
     """Return a single sanitized chunk by id."""
-    chunk = await get_or_404(db, Chunk, chunk_id, "Chunk not found.")
+    chunk = await get_or_404(db, Chunk, chunk_id, _CHUNK_NOT_FOUND)
     await _ensure_chunk_owner(db, chunk, user)
     return ChunkResponse.model_validate(chunk)
 
 
 @router.patch(
     "/{chunk_id}",
-    response_model=ChunkResponse,
     status_code=status.HTTP_200_OK,
 )
 async def update_chunk(
@@ -165,11 +164,11 @@ async def update_chunk(
     stored: ``sanitized_text`` never holds raw PII, and entities first seen
     here are added to the document's (encrypted) anonymization map.
     """
-    chunk = await get_or_404(db, Chunk, chunk_id, "Chunk not found.")
+    chunk = await get_or_404(db, Chunk, chunk_id, _CHUNK_NOT_FOUND)
     await _ensure_chunk_owner(db, chunk, user)
 
     if payload.sanitized_text is not None:
-        document = await get_or_404(db, Document, chunk.document_id, "Chunk not found.")
+        document = await get_or_404(db, Document, chunk.document_id, _CHUNK_NOT_FOUND)
         settings = await load_settings(db)
         [masked] = await gate_document_texts(
             db, settings, document, [normalize_unicode(payload.sanitized_text)]
@@ -188,7 +187,6 @@ async def update_chunk(
 @router.delete(
     "/{chunk_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_model=None,
 )
 async def delete_chunk(
     chunk_id: int,
@@ -196,7 +194,7 @@ async def delete_chunk(
     user: User = Depends(require_role("admin", "editor")),
 ) -> None:
     """Delete a chunk."""
-    chunk = await get_or_404(db, Chunk, chunk_id, "Chunk not found.")
+    chunk = await get_or_404(db, Chunk, chunk_id, _CHUNK_NOT_FOUND)
     await _ensure_chunk_owner(db, chunk, user)
 
     await db.delete(chunk)
@@ -205,7 +203,6 @@ async def delete_chunk(
 
 @router.post(
     "/search",
-    response_model=ChunkSearchResponse,
     status_code=status.HTTP_200_OK,
 )
 async def search_chunks(

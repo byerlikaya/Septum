@@ -122,12 +122,20 @@ def create_app(
     sink: AuditSink | None = None,
 ) -> Any:
     """Build the FastAPI app. The caller may inject a sink for tests."""
-    FastAPI, Depends, Header, HTTPException, Query, StreamingResponse, JSONResponse = _import_fastapi()
+    (
+        fastapi_cls,
+        depends_fn,
+        header_fn,
+        http_exception_cls,
+        query_fn,
+        streaming_response_cls,
+        json_response_cls,
+    ) = _import_fastapi()
     cfg = config or AuditConfig.from_env()
     active_sink: AuditSink = sink if sink is not None else JsonlFileSink(cfg.sink_path)
     started_at = time.time()
 
-    app = FastAPI(
+    app = fastapi_cls(
         title="Septum Audit",
         description=(
             "Internet-facing compliance audit trail for Septum. Persists "
@@ -138,7 +146,7 @@ def create_app(
     )
 
     def _require_export_token(
-        authorization: str | None = Header(default=None),
+        authorization: str | None = header_fn(default=None),
     ) -> None:
         """Reject /api/audit/export when SEPTUM_AUDIT_EXPORT_TOKEN is unset
         or the caller's bearer token does not match.
@@ -150,7 +158,7 @@ def create_app(
         import hmac
 
         if not cfg.export_token:
-            raise HTTPException(
+            raise http_exception_cls(
                 status_code=503,
                 detail=(
                     "Audit export is disabled. Set SEPTUM_AUDIT_EXPORT_TOKEN "
@@ -158,10 +166,10 @@ def create_app(
                 ),
             )
         if not authorization or not authorization.lower().startswith("bearer "):
-            raise HTTPException(status_code=401, detail="Missing bearer token.")
+            raise http_exception_cls(status_code=401, detail="Missing bearer token.")
         presented = authorization.split(" ", 1)[1].strip()
         if not hmac.compare_digest(presented, cfg.export_token):
-            raise HTTPException(status_code=401, detail="Invalid bearer token.")
+            raise http_exception_cls(status_code=401, detail="Invalid bearer token.")
 
     @app.get("/health")
     async def health() -> Any:
@@ -181,7 +189,7 @@ def create_app(
             asyncio.to_thread(_consumer_state, ledger, now),
         )
         healthy = retention_ok and consumer_ok
-        return JSONResponse(
+        return json_response_cls(
             {
                 "status": "ok" if healthy else "degraded",
                 "service": "septum-audit",
@@ -194,14 +202,15 @@ def create_app(
             status_code=200 if healthy else 503,
         )
 
-    @app.get("/api/audit/export", dependencies=[Depends(_require_export_token)])
+    @app.get("/api/audit/export", dependencies=[depends_fn(_require_export_token)])
     async def export(
-        format: ExportFormat = Query(  # noqa: A002 (FastAPI param name)
+        export_format: ExportFormat = query_fn(
             "jsonl",
+            alias="format",
             description="Export format. One of: jsonl, csv, siem.",
         ),
     ) -> Any:
-        exporter = _EXPORTERS[format]()
+        exporter = _EXPORTERS[export_format]()
         filename = f"septum-audit.{exporter.file_extension}"
         iterator = iter(exporter.iter_chunks(active_sink.read_all()))
         try:
@@ -209,8 +218,8 @@ def create_app(
             first = await asyncio.to_thread(next, iterator, _CHUNKS_DONE)
         except Exception as exc:
             logger.error("audit export failed before streaming began: error=%s", type(exc).__name__)
-            raise HTTPException(status_code=500, detail="Audit export failed.") from None
-        return StreamingResponse(
+            raise http_exception_cls(status_code=500, detail="Audit export failed.") from None
+        return streaming_response_cls(
             _stream_chunks(first, iterator),
             media_type=exporter.content_type,
             headers={

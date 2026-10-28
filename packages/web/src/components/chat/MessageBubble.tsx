@@ -17,7 +17,7 @@ export function MessageBubble({
   isThinking = false,
   onDebugClick,
   onApprovalClick,
-}: MessageBubbleProps) {
+}: Readonly<MessageBubbleProps>) {
   const isUser = message.role === "user";
   const { copied, copy } = useCopyToClipboard();
   const t = useI18n();

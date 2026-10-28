@@ -48,7 +48,7 @@ interface RuleHelpBannerProps {
 
 const DOCS_URL = "https://github.com/byerlikaya/Septum/blob/main/docs/custom-rules.md";
 
-function RuleHelpBanner({ tone, intro, bullets, footer, docsLabel }: RuleHelpBannerProps) {
+function RuleHelpBanner({ tone, intro, bullets, footer, docsLabel }: Readonly<RuleHelpBannerProps>) {
   const palette = HELP_BANNER_PALETTE[tone];
   return (
     <div className={`rounded-lg border px-4 py-3 text-[11px] ${palette.container}`}>
@@ -231,6 +231,36 @@ export default function RegulationsPage() {
 
   const handleRuleDeleted = (id: number): void => {
     setCustomRecognizers((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const renderCustomPlaceholder = () => {
+    if (customLoading) {
+      return (
+        <div className="flex items-center justify-center py-8 text-xs text-slate-400">
+          {t("regulations.custom.loading")}
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center justify-center px-4 py-8 text-xs text-slate-500">
+        {t("regulations.custom.empty")}
+      </div>
+    );
+  };
+
+  const renderNonPiiPlaceholder = () => {
+    if (nonPiiLoading) {
+      return (
+        <div className="flex items-center justify-center py-8 text-xs text-slate-400">
+          {t("regulations.nonPii.loading" as never)}
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center justify-center px-4 py-8 text-xs text-slate-500">
+        {t("regulations.nonPii.empty" as never)}
+      </div>
+    );
   };
 
   const tabs: { id: Tab; label: string; count?: number }[] = [
@@ -436,14 +466,8 @@ export default function RegulationsPage() {
             {customError && <ErrorAlert message={customError} className="text-xs" />}
 
             <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-950/60">
-              {customLoading ? (
-                <div className="flex items-center justify-center py-8 text-xs text-slate-400">
-                  {t("regulations.custom.loading")}
-                </div>
-              ) : customRecognizers.length === 0 ? (
-                <div className="flex items-center justify-center px-4 py-8 text-xs text-slate-500">
-                  {t("regulations.custom.empty")}
-                </div>
+              {customLoading || customRecognizers.length === 0 ? (
+                renderCustomPlaceholder()
               ) : (
                 <DataTable
                   headers={[
@@ -509,14 +533,8 @@ export default function RegulationsPage() {
             {nonPiiError && <ErrorAlert message={nonPiiError} className="text-xs" />}
 
             <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-950/60">
-              {nonPiiLoading ? (
-                <div className="flex items-center justify-center py-8 text-xs text-slate-400">
-                  {t("regulations.nonPii.loading" as never)}
-                </div>
-              ) : nonPiiRules.length === 0 ? (
-                <div className="flex items-center justify-center px-4 py-8 text-xs text-slate-500">
-                  {t("regulations.nonPii.empty" as never)}
-                </div>
+              {nonPiiLoading || nonPiiRules.length === 0 ? (
+                renderNonPiiPlaceholder()
               ) : (
                 <DataTable
                   headers={[

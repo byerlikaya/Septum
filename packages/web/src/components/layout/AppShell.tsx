@@ -50,7 +50,7 @@ function getServerAuthToken(): undefined {
   return undefined;
 }
 
-export function AppShell({ children }: AppShellProps) {
+export function AppShell({ children }: Readonly<AppShellProps>) {
   const pathname = usePathname();
   const router = useRouter();
   const t = useI18n();

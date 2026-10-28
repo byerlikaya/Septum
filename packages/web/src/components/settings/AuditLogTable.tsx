@@ -65,7 +65,7 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-function EventIcon({ type, source }: { type: string; source?: string }) {
+function EventIcon({ type, source }: Readonly<{ type: string; source?: string }>) {
   const cls = "h-4.5 w-4.5";
   if (type === "pii_detected" && source === "chat_query")
     return <MessageSquare className={`${cls} text-amber-400`} />;
@@ -96,7 +96,7 @@ function accentBorder(type: string): string {
   }
 }
 
-function EventCard({ event, t, onViewDocument }: { event: AuditEvent; t: ReturnType<typeof useI18n>; onViewDocument?: (documentId: number, auditEventId?: number) => void }) {
+function EventCard({ event, t, onViewDocument }: Readonly<{ event: AuditEvent; t: ReturnType<typeof useI18n>; onViewDocument?: (documentId: number, auditEventId?: number) => void }>) {
   const [expanded, setExpanded] = useState(false);
   const extra = event.extra || {};
   const docName = event.document_name
@@ -241,7 +241,7 @@ function EventCard({ event, t, onViewDocument }: { event: AuditEvent; t: ReturnT
   );
 }
 
-export function AuditLogTable({ pageSize = 50, onViewDocument }: AuditLogTableProps) {
+export function AuditLogTable({ pageSize = 50, onViewDocument }: Readonly<AuditLogTableProps>) {
   const t = useI18n();
   const [items, setItems] = useState<AuditEvent[]>([]);
   const [total, setTotal] = useState(0);

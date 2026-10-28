@@ -152,7 +152,7 @@ class LLMRouter:
                 "Circuit breaker open for %s, skipping to Ollama fallback",
                 provider_key,
             )
-            text = await self._fallback_via_ollama(messages, temperature, max_tokens)
+            text = await self._fallback_via_ollama(messages)
         else:
             try:
                 text = await self._dispatch_cloud_call(
@@ -179,7 +179,7 @@ class LLMRouter:
                         )
                     except Exception as log_exc:
                         logger.warning("on_cloud_failure callback failed: %s", type(log_exc).__name__)
-                text = await self._fallback_via_ollama(messages, temperature, max_tokens)
+                text = await self._fallback_via_ollama(messages)
 
         for chunk in _chunk_text(text):
             yield chunk
@@ -238,8 +238,6 @@ class LLMRouter:
     async def _fallback_via_ollama(
         self,
         messages: Sequence[ChatMessage],
-        temperature: float,
-        max_tokens: int | None,
     ) -> str:
         """Attempt to answer via local Ollama when cloud LLM calls fail.
 

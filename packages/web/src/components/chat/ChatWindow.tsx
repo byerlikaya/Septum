@@ -36,7 +36,7 @@ export function ChatWindow({
   onRejectedPersist,
   onUploadFiles,
   initialMessages,
-}: ChatWindowProps) {
+}: Readonly<ChatWindowProps>) {
   const t = useI18n();
   const [input, setInput] = useState("");
   const [outputMode, setOutputMode] = useState<OutputMode>("chat");
@@ -304,7 +304,7 @@ export function ChatWindow({
             onChange={(event) => {
               const files = Array.from(event.target.files ?? []);
               if (files.length > 0 && onUploadFiles) {
-                void onUploadFiles(files);
+                onUploadFiles(files);
               }
               event.target.value = "";
             }}

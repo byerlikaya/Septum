@@ -25,7 +25,7 @@ export function PasswordResetModal({
   onClose,
   onSubmit,
   errorMessage,
-}: PasswordResetModalProps) {
+}: Readonly<PasswordResetModalProps>) {
   const t = useI18n();
   const [newPassword, setNewPassword] = useState<string>("");
   const [confirmPassword, setConfirmPassword] = useState<string>("");
@@ -43,7 +43,7 @@ export function PasswordResetModal({
     }
   }
 
-  const handleSubmit = async (e: React.FormEvent): Promise<void> => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
       setLocalError(t("auth.changePassword.mismatch"));

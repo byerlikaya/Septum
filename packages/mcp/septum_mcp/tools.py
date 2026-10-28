@@ -207,6 +207,7 @@ def _scan_file_max_size() -> int:
     return max(1, value)
 
 
+_TEXT_MUST_BE_NON_EMPTY = "'text' must be a non-empty string."
 _SCAN_PATH_UNAVAILABLE = "file_path not found or not permitted"
 _SCAN_READ_FAILED = "file_path could not be read"
 
@@ -343,7 +344,7 @@ def _err(message: str) -> Dict[str, Any]:
     return {"ok": False, "error": message}
 
 
-def _require_string(value: Any, name: str) -> Optional[str]:
+def _require_string(value: Any) -> Optional[str]:
     if not isinstance(value, str):
         return None
     if not value.strip():
@@ -382,11 +383,11 @@ def mask_text(
     subset without breaking existing clients.
     """
     _ = regulations  # reserved for future scoped-regulation support
-    raw_text = _require_string(text, "text")
+    raw_text = _require_string(text)
     if raw_text is None:
-        return _err("'text' must be a non-empty string.")
+        return _err(_TEXT_MUST_BE_NON_EMPTY)
 
-    lang = _require_string(language, "language") or "en"
+    lang = _require_string(language) or "en"
     try:
         result = engine.mask(raw_text, language=lang)
     except Exception as exc:  # pragma: no cover - defensive
@@ -466,10 +467,10 @@ def unmask_response(
     original that happens to spell another placeholder would otherwise
     be restored too without ever being counted.
     """
-    raw_text = _require_string(text, "text")
+    raw_text = _require_string(text)
     if raw_text is None:
-        return _err("'text' must be a non-empty string.")
-    sid = _require_string(session_id, "session_id")
+        return _err(_TEXT_MUST_BE_NON_EMPTY)
+    sid = _require_string(session_id)
     if sid is None:
         return _err("'session_id' must be a non-empty string.")
 
@@ -513,11 +514,11 @@ def detect_pii(
     like editor highlights can point at exact character offsets.
     """
     _ = regulations
-    raw_text = _require_string(text, "text")
+    raw_text = _require_string(text)
     if raw_text is None:
-        return _err("'text' must be a non-empty string.")
+        return _err(_TEXT_MUST_BE_NON_EMPTY)
 
-    lang = _require_string(language, "language") or "en"
+    lang = _require_string(language) or "en"
     try:
         result = engine.mask(raw_text, language=lang)
     except Exception as exc:  # pragma: no cover - defensive
@@ -567,7 +568,7 @@ def scan_file(
     and a ``session_id`` are returned so the caller can unmask a
     downstream LLM response later.
     """
-    path = _require_string(file_path, "file_path")
+    path = _require_string(file_path)
     if path is None:
         return _err("'file_path' must be a non-empty string.")
 
@@ -584,7 +585,7 @@ def scan_file(
         return _err("file_path is empty or contains no extractable text.")
 
     do_mask = bool(mask)
-    lang = _require_string(language, "language") or "en"
+    lang = _require_string(language) or "en"
     try:
         result = engine.mask(read_result.text, language=lang)
     except Exception as exc:  # pragma: no cover - defensive
@@ -657,7 +658,7 @@ def get_session_map(engine: SeptumEngine, *, session_id: Any) -> Dict[str, Any]:
     raw PII and must never be forwarded to a remote system. MCP
     clients display this in a developer-tools panel.
     """
-    sid = _require_string(session_id, "session_id")
+    sid = _require_string(session_id)
     if sid is None:
         return _err("'session_id' must be a non-empty string.")
 

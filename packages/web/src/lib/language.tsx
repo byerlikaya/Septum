@@ -66,7 +66,7 @@ function writeLanguage(next: AppLanguage): void {
   languageListeners.forEach((listener) => listener());
 }
 
-export function LanguageProvider(props: LanguageProviderProps) {
+export function LanguageProvider(props: Readonly<LanguageProviderProps>) {
   const { children } = props;
   const language = useSyncExternalStore(
     subscribeToLanguage,

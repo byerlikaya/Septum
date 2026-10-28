@@ -27,7 +27,7 @@ function formatDate(iso: string): string {
 
 export function ErrorLogTable({
   pageSize = 50
-}: ErrorLogTableProps) {
+}: Readonly<ErrorLogTableProps>) {
   const t = useI18n();
   const [items, setItems] = useState<ErrorLogItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -127,6 +127,13 @@ export function ErrorLogTable({
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  const renderEmptyOrLoading = () => {
+    if (loading) {
+      return <p className="text-sm text-slate-400">{t("errorLogs.loading")}</p>;
+    }
+    return <p className="text-sm text-slate-400">{t("errorLogs.empty")}</p>;
+  };
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -160,10 +167,8 @@ export function ErrorLogTable({
         </button>
       </div>
 
-      {loading ? (
-        <p className="text-sm text-slate-400">{t("errorLogs.loading")}</p>
-      ) : items.length === 0 ? (
-        <p className="text-sm text-slate-400">{t("errorLogs.empty")}</p>
+      {loading || items.length === 0 ? (
+        renderEmptyOrLoading()
       ) : (
         <>
           <div className="overflow-x-auto rounded-lg border border-slate-700">

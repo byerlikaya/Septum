@@ -44,7 +44,7 @@ export function ApprovalModal({
   readOnly = false,
   decision,
   onRetry,
-}: ApprovalModalProps) {
+}: Readonly<ApprovalModalProps>) {
   const t = useI18n();
   const [editedTexts, setEditedTexts] = useState<string[]>([]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -97,7 +97,7 @@ export function ApprovalModal({
     [sessionId, assembledPrompt, chunks]
   );
   const [synced, setSynced] = useState<{ open: boolean; key: string } | null>(null);
-  if (synced === null || synced.open !== open || synced.key !== syncKey) {
+  if (synced?.open !== open || synced?.key !== syncKey) {
     setSynced({ open, key: syncKey });
     if (open) {
       setEditedTexts(chunks.map((c) => c.text));

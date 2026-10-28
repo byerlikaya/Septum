@@ -12,7 +12,7 @@ interface StaleDocumentBannerProps {
   onReprocessed?: (updated: Document) => void;
 }
 
-export function StaleDocumentBanner({ doc, onReprocessed }: StaleDocumentBannerProps) {
+export function StaleDocumentBanner({ doc, onReprocessed }: Readonly<StaleDocumentBannerProps>) {
   const t = useI18n();
   const currentUser = useCurrentUser();
   const canReprocess = canEditDocuments(currentUser);

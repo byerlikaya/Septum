@@ -22,6 +22,9 @@ from ..utils.db_helpers import get_or_404
 from .auth import require_strong_password
 from .documents import erase_document, refuse_while_processing
 
+_EMAIL_ALREADY_REGISTERED = "Email already registered"
+_USER_NOT_FOUND = "User not found"
+
 router = APIRouter(
     prefix="/api/users",
     tags=["users"],
@@ -86,7 +89,7 @@ def _forbid_self(current_user: User, target_id: int, action: str) -> None:
         )
 
 
-@router.get("", response_model=List[UserItemResponse])
+@router.get("")
 async def list_users(
     _admin: User = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
@@ -96,7 +99,7 @@ async def list_users(
     return [UserItemResponse.model_validate(u) for u in users]
 
 
-@router.post("", response_model=UserItemResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_user(
     payload: UserCreateRequest,
     _admin: User = Depends(require_role("admin")),
@@ -108,7 +111,7 @@ async def create_user(
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Email already registered",
+            detail=_EMAIL_ALREADY_REGISTERED,
         )
 
     user = User(
@@ -125,31 +128,31 @@ async def create_user(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Email already registered",
+            detail=_EMAIL_ALREADY_REGISTERED,
         ) from None
     await db.refresh(user)
 
     return UserItemResponse.model_validate(user)
 
 
-@router.get("/{user_id}", response_model=UserItemResponse)
+@router.get("/{user_id}")
 async def get_user(
     user_id: int,
     _admin: User = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
 ) -> UserItemResponse:
-    user = await get_or_404(db, User, user_id, "User not found")
+    user = await get_or_404(db, User, user_id, _USER_NOT_FOUND)
     return UserItemResponse.model_validate(user)
 
 
-@router.patch("/{user_id}", response_model=UserItemResponse)
+@router.patch("/{user_id}")
 async def update_user(
     user_id: int,
     payload: UserUpdateRequest,
     current_user: User = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
 ) -> UserItemResponse:
-    target = await get_or_404(db, User, user_id, "User not found")
+    target = await get_or_404(db, User, user_id, _USER_NOT_FOUND)
     updates = payload.model_dump(exclude_unset=True)
 
     role_changing = "role" in updates and updates["role"] != target.role
@@ -185,7 +188,7 @@ async def update_user(
         if dupe.scalar_one_or_none() is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Email already registered",
+                detail=_EMAIL_ALREADY_REGISTERED,
             )
 
     for field, value in updates.items():
@@ -197,7 +200,7 @@ async def update_user(
     return UserItemResponse.model_validate(target)
 
 
-@router.post("/{user_id}/reset-password", response_model=UserItemResponse)
+@router.post("/{user_id}/reset-password")
 async def reset_password(
     user_id: int,
     payload: PasswordResetRequest,
@@ -206,7 +209,7 @@ async def reset_password(
 ) -> UserItemResponse:
     require_strong_password(payload.new_password)
 
-    target = await get_or_404(db, User, user_id, "User not found")
+    target = await get_or_404(db, User, user_id, _USER_NOT_FOUND)
     target.hashed_password = await run_password_work(hash_password, payload.new_password)
     db.add(target)
     await db.commit()
@@ -217,7 +220,6 @@ async def reset_password(
 @router.delete(
     "/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_model=None,
 )
 async def delete_user(
     user_id: int,
@@ -236,7 +238,7 @@ async def delete_user(
     left behind. Chat sessions and API keys go with the row through their
     ``ON DELETE CASCADE`` foreign keys.
     """
-    target = await get_or_404(db, User, user_id, "User not found")
+    target = await get_or_404(db, User, user_id, _USER_NOT_FOUND)
     _forbid_self(current_user, target.id, "delete")
     await _refuse_last_active_admin(db, target)
 
@@ -257,7 +259,7 @@ async def delete_user(
         .execution_options(populate_existing=True)
     )
     if target is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_USER_NOT_FOUND)
     await _refuse_last_active_admin(db, target)
 
     # One statement checks and deletes, so no engine can slip a document in
@@ -273,7 +275,7 @@ async def delete_user(
     )
     if deleted.rowcount == 0:
         if await db.scalar(select(User.id).where(User.id == user_id)) is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_USER_NOT_FOUND)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A document was added to this account during the deletion. Try again.",

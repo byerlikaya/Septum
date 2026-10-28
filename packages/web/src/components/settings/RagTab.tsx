@@ -6,14 +6,14 @@ export function RagTab({
   settings,
   onChange,
   isSaving
-}: SettingsTabProps) {
+}: Readonly<SettingsTabProps>) {
   const t = useI18n();
   const handleNumberBlur = async (
     key: keyof SettingsUpdatePayload,
     rawValue: string,
     fallback: number
   ): Promise<void> => {
-    const value = parseInt(rawValue, 10);
+    const value = Number.parseInt(rawValue, 10);
     if (Number.isNaN(value)) {
       await onChange(key, fallback);
       return;
@@ -26,7 +26,7 @@ export function RagTab({
     rawValue: string,
     fallback: number
   ): Promise<void> => {
-    const value = parseFloat(rawValue);
+    const value = Number.parseFloat(rawValue);
     if (Number.isNaN(value) || value < 0 || value > 1) {
       await onChange(key, fallback);
       return;

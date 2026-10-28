@@ -193,7 +193,6 @@ async def _get_custom_or_404(
 
 @router.get(
     "",
-    response_model=List[RegulationRulesetResponse],
     status_code=status.HTTP_200_OK,
 )
 async def list_regulation_rulesets(
@@ -214,7 +213,6 @@ async def list_regulation_rulesets(
 
 @router.patch(
     "/{ruleset_id}/activate",
-    response_model=RegulationRulesetResponse,
     status_code=status.HTTP_200_OK,
     dependencies=[Depends(require_interactive_session)],
 )
@@ -239,7 +237,6 @@ async def activate_regulation_ruleset(
 
 @router.get(
     "/{ruleset_id}/entities",
-    response_model=List[str],
     status_code=status.HTTP_200_OK,
 )
 async def get_regulation_entities(
@@ -254,7 +251,6 @@ async def get_regulation_entities(
 
 @router.get(
     "/custom",
-    response_model=List[CustomRecognizerResponse],
     status_code=status.HTTP_200_OK,
 )
 async def list_custom_recognizers(
@@ -269,7 +265,6 @@ async def list_custom_recognizers(
 
 @router.post(
     "/custom",
-    response_model=CustomRecognizerResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_interactive_session)],
 )
@@ -314,7 +309,6 @@ async def create_custom_recognizer(
 
 @router.patch(
     "/custom/{recognizer_id}",
-    response_model=CustomRecognizerResponse,
     status_code=status.HTTP_200_OK,
     dependencies=[Depends(require_interactive_session)],
 )
@@ -350,7 +344,6 @@ async def update_custom_recognizer(
 @router.delete(
     "/custom/{recognizer_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_model=None,
     dependencies=[Depends(require_interactive_session)],
 )
 async def delete_custom_recognizer(
@@ -366,7 +359,6 @@ async def delete_custom_recognizer(
 
 @router.post(
     "/custom/{recognizer_id}/test",
-    response_model=CustomRecognizerTestResponse,
     status_code=status.HTTP_200_OK,
 )
 async def test_custom_recognizer(
@@ -415,7 +407,6 @@ async def test_custom_recognizer(
 
 @router.get(
     "/non-pii",
-    response_model=List[NonPiiRuleResponse],
     status_code=status.HTTP_200_OK,
 )
 async def list_non_pii_rules(
@@ -430,7 +421,6 @@ async def list_non_pii_rules(
 
 @router.post(
     "/non-pii",
-    response_model=NonPiiRuleResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_interactive_session)],
 )
@@ -465,7 +455,6 @@ async def create_non_pii_rule(
 
 @router.patch(
     "/non-pii/{rule_id}",
-    response_model=NonPiiRuleResponse,
     status_code=status.HTTP_200_OK,
     dependencies=[Depends(require_interactive_session)],
 )
@@ -506,7 +495,6 @@ async def update_non_pii_rule(
 @router.delete(
     "/non-pii/{rule_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_model=None,
     dependencies=[Depends(require_interactive_session)],
 )
 async def delete_non_pii_rule(

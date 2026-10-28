@@ -655,7 +655,7 @@ export const enMessages = {
   "regulations.custom.helpBanner.intro":
     "Custom rules add detection on top of the 17 built-in regulation packs. Pick the method that matches the shape of the data:",
   "regulations.custom.helpBanner.regex":
-    "Structural patterns. Example: \\bPRJ-\\d{4}-\\d{5}\\b matches an internal project code like PRJ-2024-04829. Microsecond cost.",
+    String.raw`Structural patterns. Example: \bPRJ-\d{4}-\d{5}\b matches an internal project code like PRJ-2024-04829. Microsecond cost.`,
   "regulations.custom.helpBanner.keyword":
     "A short list of literal strings. Example: Project Bluebird, Operation Halcyon — useful for codenames and team-internal labels.",
   "regulations.custom.helpBanner.llm":
@@ -699,7 +699,7 @@ export const enMessages = {
   "regulations.panel.field.detectionMethod": "Detection Method",
   "regulations.panel.method.regex.title": "Regex Pattern",
   "regulations.panel.method.regex.description": "Advanced patterns",
-  "regulations.panel.method.regex.placeholder": "[A-Z]{2}-\\d{4}",
+  "regulations.panel.method.regex.placeholder": String.raw`[A-Z]{2}-\d{4}`,
   "regulations.panel.method.regex.helper":
     "Must be compatible with Python regex; the backend validates the pattern before saving.",
   "regulations.panel.method.keyword.title": "Keyword List",
@@ -765,7 +765,7 @@ export const enMessages = {
   "regulations.nonPii.helpBanner.intro":
     "Non-PII rules SUPPRESS detections — use them when a recognizer is masking something it shouldn't (test data, page footers, boilerplate phrases). Each rule defines what should NEVER be masked even if a recognizer matched it.",
   "regulations.nonPii.helpBanner.regex":
-    "Suppress every span whose text matches the pattern. Example: ^Sayfa \\d+/\\d+$ — drops PDF page-number footers that NER misclassifies as ORG.",
+    String.raw`Suppress every span whose text matches the pattern. Example: ^Sayfa \d+/\d+$ — drops PDF page-number footers that NER misclassifies as ORG.`,
   "regulations.nonPii.helpBanner.token":
     "Suppress spans whose text equals one of the listed words (case-insensitive). Example: pattern = \"Test Kullanıcı\" — keeps dev-export placeholder names visible.",
   "regulations.nonPii.helpBanner.scopeHint":

@@ -27,7 +27,7 @@ export function ChatHistory({
   onRenameSession,
   onExportSession,
   onExportSessionPDF,
-}: ChatHistoryProps) {
+}: Readonly<ChatHistoryProps>) {
   const t = useI18n();
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState("");

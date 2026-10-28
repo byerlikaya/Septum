@@ -26,7 +26,7 @@ const SETUP_PROBE_MAX_RETRY_AFTER_MS = 60_000;
 function retryDelayMs(err: unknown): number {
   const response = (err as { response?: { headers?: Record<string, unknown> } }).response;
   const raw = response?.headers?.["retry-after"];
-  if (raw === undefined || raw === null || String(raw).trim() === "") {
+  if (raw === undefined || raw === null || (typeof raw === "string" && raw.trim() === "")) {
     return SETUP_PROBE_DELAY_MS;
   }
   const seconds = Number(raw);
@@ -56,7 +56,7 @@ async function probeSetup(isCancelled: () => boolean): Promise<SetupProbe> {
   return { kind: "unavailable" };
 }
 
-export function SetupGuard({ children }: SetupGuardProps) {
+export function SetupGuard({ children }: Readonly<SetupGuardProps>) {
   const t = useI18n();
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [settings, setSettings] = useState<AppSettingsResponse | null>(null);

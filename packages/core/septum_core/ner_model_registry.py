@@ -46,6 +46,10 @@ from .ner_windowing import (
 
 logger = logging.getLogger(__name__)
 
+_ERNIE_CLUENER_MODEL_ID = "gyr66/Ernie-3.0-base-chinese-finetuned-ner"
+_DAVLAN_MBERT_NER_MODEL_ID = "Davlan/bert-base-multilingual-cased-ner-hrl"
+_DAVLAN_XLMR_WIKIANN_MODEL_ID = "Davlan/xlm-roberta-base-wikiann-ner"
+
 # Model-native entity labels mapped to the CoNLL tags the detector reads, or
 # to an entity tag ``_map_ner_label`` accepts (EMAIL). Only listed labels are
 # kept. A model absent from this table already emits CoNLL tags and runs
@@ -54,7 +58,7 @@ MODEL_LABEL_MAPS: Dict[str, Dict[str, str]] = {
     # gyr66 Ernie-3.0 CLUENER labels. QQ, vx, mobile, position, game, book,
     # movie and scene have no detector entity here and are dropped; Presidio
     # covers phone numbers.
-    "gyr66/Ernie-3.0-base-chinese-finetuned-ner": {
+    _ERNIE_CLUENER_MODEL_ID: {
         "name": "PER",
         "address": "LOC",
         "company": "ORG",
@@ -293,24 +297,24 @@ class NERModelRegistry:
             ],
             "zh": [
                 {
-                    "model_id": "Davlan/bert-base-multilingual-cased-ner-hrl",
+                    "model_id": _DAVLAN_MBERT_NER_MODEL_ID,
                     "label": "Davlan mBERT NER HRL (default)",
                     "description": "Multilingual; zh is one of its ten training languages. AFL-3.0.",
                 },
                 {
-                    "model_id": "Davlan/xlm-roberta-base-wikiann-ner",
+                    "model_id": _DAVLAN_XLMR_WIKIANN_MODEL_ID,
                     "label": "Davlan XLM-RoBERTa WikiANN",
                     "description": "Scores higher than the default on the public WikiANN zh set, but leaves more names and places unmasked on Septum's own Chinese test documents.",
                 },
                 {
-                    "model_id": "gyr66/Ernie-3.0-base-chinese-finetuned-ner",
-                    "label": _preset_label("gyr66/Ernie-3.0-base-chinese-finetuned-ner", "gyr66 Ernie-3.0 CLUENER"),
+                    "model_id": _ERNIE_CLUENER_MODEL_ID,
+                    "label": _preset_label(_ERNIE_CLUENER_MODEL_ID, "gyr66 Ernie-3.0 CLUENER"),
                     "description": "Opt-in only. The Hub page declares no licence; confirm usage rights before enabling.",
                 },
             ],
             "en": [
                 {
-                    "model_id": "Davlan/xlm-roberta-base-wikiann-ner",
+                    "model_id": _DAVLAN_XLMR_WIKIANN_MODEL_ID,
                     "label": "Davlan XLM-RoBERTa WikiANN (default)",
                     "description": "Multilingual, 20+ languages.",
                 },
@@ -343,27 +347,27 @@ class NERModelRegistry:
             # supporting ar, as, bn, ca, en, es, eu, fr, gu, hi, id, ig, mr,
             # pa, pt, sw, ur, vi, yo, zh. It is also the only model here with
             # any Thai recall, which is why th uses it.
-            "en": ["Davlan/xlm-roberta-base-wikiann-ner"],
-            "ar": ["Davlan/xlm-roberta-base-wikiann-ner"],
-            "es": ["Davlan/xlm-roberta-base-wikiann-ner"],
-            "fr": ["Davlan/xlm-roberta-base-wikiann-ner"],
-            "pt": ["Davlan/xlm-roberta-base-wikiann-ner"],
-            "hi": ["Davlan/xlm-roberta-base-wikiann-ner"],
-            "bn": ["Davlan/xlm-roberta-base-wikiann-ner"],
-            "ur": ["Davlan/xlm-roberta-base-wikiann-ner"],
-            "vi": ["Davlan/xlm-roberta-base-wikiann-ner"],
+            "en": [_DAVLAN_XLMR_WIKIANN_MODEL_ID],
+            "ar": [_DAVLAN_XLMR_WIKIANN_MODEL_ID],
+            "es": [_DAVLAN_XLMR_WIKIANN_MODEL_ID],
+            "fr": [_DAVLAN_XLMR_WIKIANN_MODEL_ID],
+            "pt": [_DAVLAN_XLMR_WIKIANN_MODEL_ID],
+            "hi": [_DAVLAN_XLMR_WIKIANN_MODEL_ID],
+            "bn": [_DAVLAN_XLMR_WIKIANN_MODEL_ID],
+            "ur": [_DAVLAN_XLMR_WIKIANN_MODEL_ID],
+            "vi": [_DAVLAN_XLMR_WIKIANN_MODEL_ID],
             # hrl is the zh default and general fallback; it leaks less than the
             # wikiann model on Septum's own zh documents.
-            "zh": ["Davlan/bert-base-multilingual-cased-ner-hrl"],
-            "ja": ["Davlan/bert-base-multilingual-cased-ner-hrl"],
-            "de": ["Davlan/bert-base-multilingual-cased-ner-hrl"],
-            "it": ["Davlan/bert-base-multilingual-cased-ner-hrl"],
-            "nl": ["Davlan/bert-base-multilingual-cased-ner-hrl"],
-            "pl": ["Davlan/bert-base-multilingual-cased-ner-hrl"],
-            "ru": ["Davlan/bert-base-multilingual-cased-ner-hrl"],
-            "ko": ["Davlan/bert-base-multilingual-cased-ner-hrl"],
-            "th": ["Davlan/xlm-roberta-base-wikiann-ner"],
-            "fallback": ["Davlan/bert-base-multilingual-cased-ner-hrl"],
+            "zh": [_DAVLAN_MBERT_NER_MODEL_ID],
+            "ja": [_DAVLAN_MBERT_NER_MODEL_ID],
+            "de": [_DAVLAN_MBERT_NER_MODEL_ID],
+            "it": [_DAVLAN_MBERT_NER_MODEL_ID],
+            "nl": [_DAVLAN_MBERT_NER_MODEL_ID],
+            "pl": [_DAVLAN_MBERT_NER_MODEL_ID],
+            "ru": [_DAVLAN_MBERT_NER_MODEL_ID],
+            "ko": [_DAVLAN_MBERT_NER_MODEL_ID],
+            "th": [_DAVLAN_XLMR_WIKIANN_MODEL_ID],
+            "fallback": [_DAVLAN_MBERT_NER_MODEL_ID],
         }
     )
 

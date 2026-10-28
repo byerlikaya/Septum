@@ -22,7 +22,7 @@ export const metadata = {
   description: "Privacy-first AI middleware"
 } as const;
 
-export default function RootLayout(props: RootLayoutProps) {
+export default function RootLayout(props: Readonly<RootLayoutProps>) {
   const { children } = props;
 
   return (

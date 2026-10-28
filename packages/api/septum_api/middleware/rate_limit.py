@@ -113,7 +113,7 @@ class RateLimited(HTTPException):
         )
 
 
-async def rate_limited_handler(request: Request, exc: RateLimited) -> JSONResponse:
+async def rate_limited_handler(_request: Request, exc: RateLimited) -> JSONResponse:
     """Answer a :class:`RateLimited` without writing an error log row."""
     return JSONResponse(
         {"error": f"Rate limit exceeded: {exc.detail}"},

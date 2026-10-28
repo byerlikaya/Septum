@@ -11,9 +11,9 @@ export function useCurrentUser(): AuthUser | null {
   return useContext(CurrentUserContext);
 }
 
-const DOCUMENT_EDITOR_ROLES: readonly UserRole[] = ["admin", "editor"];
+const DOCUMENT_EDITOR_ROLES: ReadonlySet<UserRole> = new Set<UserRole>(["admin", "editor"]);
 
 /** Mirrors the server rule for document mutations (reprocess, delete): admin or editor only. Unknown user fails closed. */
 export function canEditDocuments(user: AuthUser | null): boolean {
-  return user !== null && DOCUMENT_EDITOR_ROLES.includes(user.role);
+  return user !== null && DOCUMENT_EDITOR_ROLES.has(user.role);
 }
