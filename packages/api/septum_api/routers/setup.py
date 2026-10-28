@@ -139,7 +139,7 @@ class InfrastructureUpdateRequest(BaseModel):
 # GET /api/setup/status
 # ---------------------------------------------------------------------------
 
-@router.get("/status", response_model=SetupStatusResponse)
+@router.get("/status")
 @route_limit("120/minute", fail_open=True)
 async def setup_status() -> SetupStatusResponse:
     """Return the current setup phase — works without a database."""
@@ -195,7 +195,10 @@ def _connection_failed(kind: str, exc: BaseException) -> TestConnectionResponse:
     )
 
 
-@router.post("/test-database", response_model=TestConnectionResponse)
+@router.post(
+    "/test-database",
+    responses={400: {"description": "Database URL is missing or has an unsupported scheme."}},
+)
 async def test_database(
     body: TestDatabaseRequest,
     _: None = Depends(require_infrastructure_setup),
@@ -229,7 +232,10 @@ def _get_redis_module():
     return aioredis
 
 
-@router.post("/test-redis", response_model=TestConnectionResponse)
+@router.post(
+    "/test-redis",
+    responses={400: {"description": "Redis URL is missing or has an unsupported scheme."}},
+)
 async def test_redis(
     body: TestRedisRequest,
     _: None = Depends(require_infrastructure_setup),
@@ -260,7 +266,7 @@ INITIALIZE_FAILED_MESSAGE = "Infrastructure initialisation failed"
 _initialize_lock = asyncio.Lock()
 
 
-@router.post("/initialize", response_model=InitializeResponse)
+@router.post("/initialize")
 async def initialize(
     body: InitializeRequest,
     _: None = Depends(require_infrastructure_setup),
@@ -339,7 +345,7 @@ def _mask_url(url: str) -> str:
 # GET /api/setup/infrastructure
 # ---------------------------------------------------------------------------
 
-@router.get("/infrastructure", response_model=InfrastructureResponse)
+@router.get("/infrastructure")
 async def get_infrastructure(
     _user: User = Depends(require_role("admin")),
 ) -> InfrastructureResponse:
@@ -362,7 +368,6 @@ async def get_infrastructure(
 
 @router.patch(
     "/infrastructure",
-    response_model=InitializeResponse,
     dependencies=[Depends(require_interactive_session)],
 )
 async def update_infrastructure(
@@ -431,7 +436,7 @@ class WhisperStatusResponse(BaseModel):
     message: str = ""
 
 
-@router.get("/whisper-status", response_model=WhisperStatusResponse)
+@router.get("/whisper-status")
 async def whisper_status(
     model: str = "base",
     _: User | None = Depends(require_admin_or_bootstrap),

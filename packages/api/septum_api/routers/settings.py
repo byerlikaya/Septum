@@ -260,7 +260,6 @@ class WhisperInstallResponse(BaseModel):
 
 @router.get(
     "",
-    response_model=SettingsResponse,
     status_code=status.HTTP_200_OK,
 )
 async def get_settings_endpoint(
@@ -279,7 +278,6 @@ async def get_settings_endpoint(
 
 @router.patch(
     "",
-    response_model=SettingsResponse,
     status_code=status.HTTP_200_OK,
     dependencies=[Depends(require_interactive_session)],
 )
@@ -327,7 +325,6 @@ async def update_settings_endpoint(
 
 @router.post(
     "/test-llm",
-    response_model=TestConnectionResponse,
     status_code=status.HTTP_200_OK,
 )
 async def test_llm_connection_endpoint(
@@ -402,7 +399,6 @@ async def test_llm_connection_endpoint(
 
 @router.post(
     "/test-local-models",
-    response_model=TestConnectionResponse,
     status_code=status.HTTP_200_OK,
 )
 async def test_local_models_endpoint(
@@ -488,7 +484,6 @@ _OLLAMA_PROBE_URLS = [
 
 @router.get(
     "/ollama-probe",
-    response_model=OllamaProbeResponse,
     status_code=status.HTTP_200_OK,
 )
 async def ollama_probe_endpoint(
@@ -541,7 +536,6 @@ def _format_size(size_bytes: int) -> str:
 
 @router.get(
     "/ollama-models",
-    response_model=OllamaModelsResponse,
     status_code=status.HTTP_200_OK,
 )
 async def list_ollama_models_endpoint(
@@ -606,7 +600,6 @@ class NerDefaultsResponse(BaseModel):
 
 @router.get(
     "/ner-defaults",
-    response_model=NerDefaultsResponse,
     status_code=status.HTTP_200_OK,
 )
 async def get_ner_defaults(
@@ -641,7 +634,10 @@ class OllamaPullRequest(BaseModel):
     base_url: Optional[str] = None
 
 
-@router.post("/ollama-pull")
+@router.post(
+    "/ollama-pull",
+    responses={400: {"description": "Ollama base URL is not configured."}},
+)
 async def ollama_pull_endpoint(
     payload: OllamaPullRequest,
     db: AsyncSession = Depends(get_db),
@@ -710,7 +706,6 @@ async def ollama_pull_endpoint(
 
 @router.get(
     "/ingestion/health",
-    response_model=AudioPipelineHealthResponse,
     status_code=status.HTTP_200_OK,
 )
 async def get_ingestion_health_endpoint(
@@ -788,7 +783,6 @@ async def get_ingestion_health_endpoint(
 
 @router.post(
     "/ingestion/install-whisper-model",
-    response_model=WhisperInstallResponse,
     status_code=status.HTTP_200_OK,
 )
 async def install_whisper_model_endpoint(

@@ -379,7 +379,7 @@ def _app_version() -> str:
     for parent in Path(__file__).resolve().parents:
         try:
             return (parent / "VERSION").read_text().strip()
-        except (FileNotFoundError, OSError):
+        except OSError:
             continue
     return "0.0.0-dev"
 

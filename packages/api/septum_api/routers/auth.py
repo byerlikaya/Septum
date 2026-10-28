@@ -121,7 +121,7 @@ async def _insert_first_admin(db: AsyncSession, email: str, hashed_password: str
     return result.rowcount == 1
 
 
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", status_code=status.HTTP_201_CREATED)
 @route_limit("3/minute", fail_open=False, ipv6_site_limit=_IPV6_SITE_AUTH_LIMIT)
 async def register(
     request: Request,
@@ -155,7 +155,7 @@ async def register(
     return TokenResponse(access_token=token)
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login")
 @route_limit("5/minute", fail_open=False, ipv6_site_limit=_IPV6_SITE_AUTH_LIMIT)
 async def login(
     request: Request,
@@ -194,7 +194,7 @@ async def login(
     return TokenResponse(access_token=token)
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me")
 async def me(
     current_user: User = Depends(get_current_user),
 ) -> UserResponse:
@@ -209,7 +209,6 @@ async def me(
 
 @router.post(
     "/change-password",
-    response_model=TokenResponse,
     dependencies=[Depends(require_interactive_session)],
 )
 @route_limit("5/minute", fail_open=False)

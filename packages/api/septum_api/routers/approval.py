@@ -39,6 +39,8 @@ from .chat import (
 
 router = APIRouter(prefix="/api/approval", tags=["approval"])
 
+_SESSION_NOT_FOUND = "Approval session not found."
+
 MAX_SECTION_TITLE_CHARS = 512
 MAX_REJECT_REASON_CHARS = 512
 # Below the approval modal's own debounce, so normal editing never hits it;
@@ -163,7 +165,6 @@ def _get_gate() -> ApprovalGate:
 
 @router.get(
     "/{session_id}",
-    response_model=ApprovalSessionStatus,
     status_code=status.HTTP_200_OK,
 )
 async def get_session_status(
@@ -185,13 +186,13 @@ async def get_session_status(
     except (ApprovalSessionNotFoundError, ApprovalSessionForbiddenError):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Approval session not found.",
+            detail=_SESSION_NOT_FOUND,
         ) from None
     session = await gate.get_session_snapshot(session_id)
     if session is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Approval session not found.",
+            detail=_SESSION_NOT_FOUND,
         )
 
     return ApprovalSessionStatus(
@@ -205,7 +206,6 @@ async def get_session_status(
 
 @router.post(
     "/{session_id}/approve",
-    response_model=ApprovalDecisionResponse,
     status_code=status.HTTP_200_OK,
 )
 async def approve_session(
@@ -226,7 +226,7 @@ async def approve_session(
     except (ApprovalSessionNotFoundError, ApprovalSessionForbiddenError):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Approval session not found.",
+            detail=_SESSION_NOT_FOUND,
         ) from None
 
     return ApprovalDecisionResponse.from_domain(session_id, decision)
@@ -234,7 +234,6 @@ async def approve_session(
 
 @router.post(
     "/{session_id}/reject",
-    response_model=ApprovalDecisionResponse,
     status_code=status.HTTP_200_OK,
 )
 async def reject_session(
@@ -252,7 +251,7 @@ async def reject_session(
     except (ApprovalSessionNotFoundError, ApprovalSessionForbiddenError):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Approval session not found.",
+            detail=_SESSION_NOT_FOUND,
         ) from None
 
     return ApprovalDecisionResponse.from_domain(session_id, decision)
@@ -260,7 +259,6 @@ async def reject_session(
 
 @router.post(
     "/{session_id}/preview-prompt",
-    response_model=PreviewPromptResponse,
     status_code=status.HTTP_200_OK,
 )
 async def preview_prompt(

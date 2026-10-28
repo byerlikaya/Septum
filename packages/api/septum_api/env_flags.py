@@ -12,7 +12,7 @@ import re
 
 _ENV_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _ENV_FALSE_VALUES = frozenset({"0", "false", "no", "off"})
-_ENV_INT_PATTERN = re.compile(r"-?[0-9]{1,18}", re.ASCII)
+_ENV_INT_PATTERN = re.compile(r"-?\d{1,18}", re.ASCII)
 
 
 class EnvFlagError(ValueError):

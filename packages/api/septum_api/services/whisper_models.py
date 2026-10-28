@@ -55,6 +55,7 @@ _MAX_CONTENT_LENGTH_DIGITS = 20
 _READ_TIMEOUT_SECONDS = 30.0
 _DEADLINE_BASE_SECONDS = 600.0
 _DEADLINE_MIN_BYTES_PER_SECOND = 1_000_000
+_INSTALL_IN_PROGRESS = "Model install already in progress"
 
 _thread_locks: dict[str, threading.Lock] = {}
 _thread_locks_guard = threading.Lock()
@@ -217,7 +218,7 @@ def _install_lock(target: WhisperTarget, *, wait: bool) -> Iterator[None]:
     with _thread_locks_guard:
         thread_lock = _thread_locks.setdefault(str(target.path), threading.Lock())
     if not thread_lock.acquire(blocking=wait):
-        raise WhisperInstallBusy("Model install already in progress")
+        raise WhisperInstallBusy(_INSTALL_IN_PROGRESS)
     try:
         target.path.parent.mkdir(parents=True, exist_ok=True)
         lock_path = target.path.with_name(target.path.name + ".lock")
@@ -225,7 +226,7 @@ def _install_lock(target: WhisperTarget, *, wait: bool) -> Iterator[None]:
             try:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
             except BlockingIOError:
-                raise WhisperInstallBusy("Model install already in progress") from None
+                raise WhisperInstallBusy(_INSTALL_IN_PROGRESS) from None
             try:
                 yield
             finally:
@@ -330,7 +331,7 @@ def install_whisper_file(
             _download(target, progress)
             return
         if not _download_slot.acquire(blocking=False):
-            raise WhisperInstallBusy("Model install already in progress")
+            raise WhisperInstallBusy(_INSTALL_IN_PROGRESS)
         try:
             _download(target, progress)
         finally:

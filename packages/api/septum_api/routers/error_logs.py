@@ -57,7 +57,7 @@ class ErrorLogListResponse(BaseModel):
     page_size: int
 
 
-@router.get("", response_model=ErrorLogListResponse)
+@router.get("")
 async def list_error_logs(
     page: int = 1,
     page_size: int = 50,
@@ -110,7 +110,7 @@ async def list_error_logs(
     )
 
 
-@router.get("/{log_id}", response_model=ErrorLogDetailOut)
+@router.get("/{log_id}")
 async def get_error_log(
     log_id: int,
     db: AsyncSession = Depends(get_db),
@@ -153,7 +153,7 @@ class FrontendErrorIn(BaseModel):
     extra: Optional[dict[str, Any]] = None
 
 
-@router.post("/frontend", status_code=204, response_model=None)
+@router.post("/frontend", status_code=204)
 # Per /48, twice the per-client 60/hour: room for a second browser on the
 # same site, while 65 536 rotating /64s cannot each get their own 60/hour.
 @route_limit("60/hour", fail_open=False, ipv6_site_limit="120/hour")
@@ -214,7 +214,7 @@ async def ingest_frontend_error(
     )
 
 
-@router.delete("", status_code=204, response_model=None)
+@router.delete("", status_code=204)
 async def clear_error_logs(
     source: Optional[str] = None,
     db: AsyncSession = Depends(get_db),

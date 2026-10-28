@@ -602,6 +602,7 @@ async def _unify_turn_placeholders(
     return doc_maps, per_doc_remap, query_remap, unified_map
 
 
+_DOCUMENT_NOT_FOUND = "Document not found."
 THEME_SNIPPET_LEN = 400
 MIN_CHUNKS_FOR_LAST = 6
 _DEFAULT_RELEVANCE_THRESHOLD = 0.35
@@ -748,7 +749,7 @@ async def _retrieve_chunks(
         chunk_id_order = [cid for cid, _ in filtered]
         stmt = select(Chunk).where(Chunk.id.in_(chunk_id_order))
         db_result = await db.execute(stmt)
-        base_chunks = list(db_result.scalars().all())
+        base_chunks = db_result.scalars().all()
         # Preserve retrieval order (by normalized score desc) rather than
         # the DB's natural order so the highest-scoring chunks appear first
         # in the approval modal.
@@ -836,7 +837,7 @@ async def _retrieve_chunks_all_documents(
 
     stmt = select(Chunk).where(Chunk.id.in_(chunk_ids))
     db_result = await db.execute(stmt)
-    base_chunks = list(db_result.scalars().all())
+    base_chunks = db_result.scalars().all()
 
     order_index = {cid: idx for idx, (cid, _, _) in enumerate(filtered)}
     chunks = sorted(
@@ -1169,11 +1170,12 @@ async def _run_llm_and_deanonymize(
     # leaks ``[PERSON_NAME_1]`` literals to the user).
     answer_placeholders = sorted(set(_PLACEHOLDER_PATTERN.findall(masked_answer)))
     residual_placeholders = sorted(set(_PLACEHOLDER_PATTERN.findall(deanonymized)))
-    map_placeholders = (
-        set(anon_map.placeholder_lookup.keys())
-        if anon_map.placeholder_lookup
-        else (set(anon_map.entity_map.values()) if anon_map.entity_map else set())
-    )
+    if anon_map.placeholder_lookup:
+        map_placeholders = set(anon_map.placeholder_lookup.keys())
+    elif anon_map.entity_map:
+        map_placeholders = set(anon_map.entity_map.values())
+    else:
+        map_placeholders = set()
     if answer_placeholders or residual_placeholders:
         logger.info(
             "chat deanon session_id=%s strategy=%s map_size=%s "
@@ -1248,7 +1250,6 @@ class AnalyzeQueryResponse(BaseModel):
 
 @router.post(
     "/analyze_query",
-    response_model=AnalyzeQueryResponse,
     status_code=status.HTTP_200_OK,
 )
 async def chat_analyze_query(
@@ -1264,7 +1265,7 @@ async def chat_analyze_query(
     settings = await load_settings(db)
     target_document = (
         await get_owned_or_404(
-            db, Document, body.document_ids[0], user, "Document not found."
+            db, Document, body.document_ids[0], user, _DOCUMENT_NOT_FOUND
         )
         if body.document_ids
         else None
@@ -1345,9 +1346,12 @@ async def chat_analyze_query(
     cluster_payload.sort(key=lambda c: c.score, reverse=True)
 
     requires = len(cluster_lists) > 1
-    narrowed = [d for ids in cluster_lists for d in ids] if requires else (
-        cluster_lists[0] if cluster_lists else []
-    )
+    if requires:
+        narrowed = [d for ids in cluster_lists for d in ids]
+    elif cluster_lists:
+        narrowed = cluster_lists[0]
+    else:
+        narrowed = []
 
     return AnalyzeQueryResponse(
         requires_disambiguation=requires,
@@ -1389,7 +1393,7 @@ async def chat_ask(
     requested_documents: dict[int, Document] = {}
     for did in document_ids_list:
         requested_documents[did] = await get_owned_or_404(
-            db, Document, did, current_user, "Document not found."
+            db, Document, did, current_user, _DOCUMENT_NOT_FOUND
         )
     # A retry's chunks name the documents they were offered from; the ids
     # pass the same owner check so they can never widen access.
@@ -1401,7 +1405,7 @@ async def chat_ask(
     }
     for did in sorted(retry_ids):
         retry_documents[did] = requested_documents.get(did) or await get_owned_or_404(
-            db, Document, did, current_user, "Document not found."
+            db, Document, did, current_user, _DOCUMENT_NOT_FOUND
         )
 
     async def event_stream() -> AsyncGenerator[bytes, None]:
@@ -1938,16 +1942,13 @@ async def chat_ask(
                 if rag_mode != "none"
                 else regulation_names
             )
-            column_descriptions = (
-                await _schema_column_descriptions(
-                    db,
-                    document.id if document is not None else None,
-                    anon_map,
-                    settings,
+            if rag_mode != "none":
+                column_document_id = document.id if document is not None else None
+                column_descriptions = await _schema_column_descriptions(
+                    db, column_document_id, anon_map, settings
                 )
-                if rag_mode != "none"
-                else []
-            )
+            else:
+                column_descriptions = []
             if require_approval:
                 # Build the exact masked prompt that would be sent to the
                 # cloud LLM right now so the approval modal can show it
@@ -2188,7 +2189,6 @@ async def chat_ask(
 
 @router.get(
     "/debug/{debug_id}",
-    response_model=ChatDebugResponse,
     status_code=status.HTTP_200_OK,
 )
 async def chat_debug(

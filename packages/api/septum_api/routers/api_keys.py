@@ -62,7 +62,6 @@ class ApiKeyCreatedResponse(ApiKeyResponse):
 
 @router.post(
     "",
-    response_model=ApiKeyCreatedResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_role("admin"))],
 )
@@ -95,7 +94,7 @@ async def create_api_key_endpoint(
     )
 
 
-@router.get("", response_model=list[ApiKeyResponse])
+@router.get("")
 async def list_api_keys(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

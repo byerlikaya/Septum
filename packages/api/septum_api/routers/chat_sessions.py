@@ -122,7 +122,7 @@ async def list_sessions(
     return results
 
 
-@router.post("", response_model=ChatSessionDetailResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_session(
     payload: CreateSessionPayload,
     db: AsyncSession = Depends(get_db),
@@ -151,7 +151,7 @@ async def create_session(
     )
 
 
-@router.get("/{session_id}", response_model=ChatSessionDetailResponse)
+@router.get("/{session_id}")
 async def get_session(
     session_id: int,
     db: AsyncSession = Depends(get_db),
@@ -182,7 +182,7 @@ async def get_session(
     )
 
 
-@router.patch("/{session_id}", response_model=ChatSessionResponse)
+@router.patch("/{session_id}")
 async def update_session(
     session_id: int,
     payload: UpdateSessionPayload,
@@ -229,7 +229,7 @@ async def update_session(
     )
 
 
-@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_session(
     session_id: int,
     db: AsyncSession = Depends(get_db),
@@ -241,7 +241,7 @@ async def delete_session(
     await db.commit()
 
 
-@router.post("/{session_id}/messages", response_model=ChatMessageResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/{session_id}/messages", status_code=status.HTTP_201_CREATED)
 async def add_message(
     session_id: int,
     payload: AddMessagePayload,
@@ -271,7 +271,6 @@ async def add_message(
 @router.post(
     "/{session_id}/convert-rejected",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_model=None,
 )
 async def convert_rejected_to_approved(
     session_id: int,
@@ -294,7 +293,6 @@ async def convert_rejected_to_approved(
 @router.delete(
     "/{session_id}/messages/{message_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_model=None,
 )
 async def delete_message(
     session_id: int,

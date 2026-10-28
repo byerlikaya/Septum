@@ -141,7 +141,7 @@ class PdfIngester(BaseIngester):
 
             try:
                 extractor = TableFieldExtractor()
-                fields, tables = extractor.extract_from_pdf(tmp_path)
+                fields, _ = extractor.extract_from_pdf(tmp_path)
 
                 if fields:
                     fields_text_raw = "\n".join(
