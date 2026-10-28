@@ -182,7 +182,7 @@ def get_config() -> BootstrapConfig:
     config = BootstrapConfig()
 
     # Apply persisted values from config.json
-    for f in fields(config):
+    for f in fields(BootstrapConfig):
         if f.name not in raw:
             continue
         default = getattr(config, f.name)
