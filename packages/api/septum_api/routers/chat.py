@@ -991,7 +991,7 @@ def _sent_placeholders(
     return {p for text in sources if text for p in _PLACEHOLDER_PATTERN.findall(text)}
 
 
-async def _assemble_user_prompt(
+def _assemble_user_prompt(
     sanitized_query: str,
     context_chunks: List[str],
     regulation_names: List[str],
@@ -1090,7 +1090,7 @@ async def _run_llm_and_deanonymize(
     if rag_mode == "none":
         user_prompt = PromptCatalog.pure_chat_prompt(sanitized_query)
     else:
-        user_prompt = await _assemble_user_prompt(
+        user_prompt = _assemble_user_prompt(
             sanitized_query=sanitized_query,
             context_chunks=context_chunks,
             regulation_names=regulation_names,
@@ -1159,7 +1159,7 @@ async def _run_llm_and_deanonymize(
             regulation_names,
         )
     deanonymizer = Deanonymizer(settings=settings)
-    deanonymized = await deanonymizer.deanonymize(
+    deanonymized = deanonymizer.deanonymize(
         masked_answer, anon_map, allowed_placeholders=prompt_placeholders
     )
 
@@ -1954,7 +1954,7 @@ async def chat_ask(
                 # byte-for-byte. If the user edits chunks in the modal a
                 # dedicated preview endpoint re-runs this with the edited
                 # chunks to keep the preview in sync.
-                assembled_prompt = await _assemble_user_prompt(
+                assembled_prompt = _assemble_user_prompt(
                     sanitized_query=sanitized_query,
                     context_chunks=[c.text for c in candidate_chunks],
                     regulation_names=prompt_regulation_names,

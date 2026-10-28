@@ -9,7 +9,6 @@ LLM preserves placeholder tokens verbatim, so the deterministic regex
 path is faster, predictable, and free of LLM hallucination risk.
 """
 
-import asyncio
 from typing import Collection, Optional
 
 from septum_core.anonymization_map import AnonymizationMap
@@ -25,7 +24,7 @@ class Deanonymizer:
         self._settings = settings
         self._unmasker = Unmasker()
 
-    async def deanonymize(
+    def deanonymize(
         self,
         text: str,
         anon_map: AnonymizationMap,
@@ -66,7 +65,7 @@ class DeAnonymizer:
                 continue
             amap.entity_map[original] = placeholder
 
-        return asyncio.run(self._inner.deanonymize(text, anon_map=amap))
+        return self._inner.deanonymize(text, anon_map=amap)
 
 
 __all__ = ["Deanonymizer", "DeAnonymizer"]

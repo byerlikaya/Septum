@@ -1000,7 +1000,7 @@ class TestMapLockLoss:
         before = map_file.read_bytes()
         fake = _LostLockRedis()
 
-        async def _get_redis():
+        def _get_redis():
             return fake
 
         real_create = pii_gate.create_sanitizer

@@ -417,7 +417,7 @@ class VectorStore:
 
 @dataclass
 class VectorStoreService:
-    """Async-friendly service wrapper around :class:`VectorStore`.
+    """Chunk-oriented service wrapper around :class:`VectorStore`.
 
     This service exposes a higher-level interface that works directly with
     chunk objects (e.g. LangChain-style documents) which provide
@@ -427,7 +427,7 @@ class VectorStoreService:
 
     vector_store: VectorStore = field(default_factory=VectorStore)
 
-    async def index(self, document_id: int, chunks: Sequence[object]) -> None:
+    def index(self, document_id: int, chunks: Sequence[object]) -> None:
         """Index the given chunks for a document.
 
         Parameters
@@ -460,7 +460,7 @@ class VectorStoreService:
 
         self.vector_store.index_document(document_id=document_id, chunk_ids=chunk_ids, texts=texts)
 
-    async def retrieve(
+    def retrieve(
         self,
         document_id: int,
         query: str,

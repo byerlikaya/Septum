@@ -232,7 +232,7 @@ async def test_map_lock_holds_a_redis_lock_when_redis_is_configured(
 
     fake = _FakeRedis()
 
-    async def _get_redis():
+    def _get_redis():
         return fake
 
     monkeypatch.setattr(store_module, "get_redis", _get_redis)
@@ -254,7 +254,7 @@ async def test_map_lock_raises_when_redis_lock_is_not_acquired(
 
     fake = _FakeRedis(acquired=False)
 
-    async def _get_redis():
+    def _get_redis():
         return fake
 
     monkeypatch.setattr(store_module, "get_redis", _get_redis)
@@ -357,7 +357,7 @@ class _ScriptedRedis:
 def _use_redis(monkeypatch: pytest.MonkeyPatch, client) -> None:
     import septum_api.services.document_anon_store as store_module
 
-    async def _get_redis():
+    def _get_redis():
         return client
 
     monkeypatch.setattr(store_module, "get_redis", _get_redis)

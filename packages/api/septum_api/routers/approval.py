@@ -331,7 +331,7 @@ async def preview_prompt(
         settings=await load_settings(db),
     )
 
-    assembled = await _assemble_user_prompt(
+    assembled = _assemble_user_prompt(
         sanitized_query=context.get("sanitized_query", ""),
         context_chunks=gated_texts,
         regulation_names=list(context.get("regulation_names", []) or []),

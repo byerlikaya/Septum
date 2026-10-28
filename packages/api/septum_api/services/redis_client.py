@@ -32,7 +32,7 @@ def redis_configured() -> bool:
     return _get_redis_url() is not None
 
 
-async def get_redis():
+def get_redis():
     """Return an async Redis client, or None if REDIS_URL is not set."""
     global _redis_pool, _redis_unavailable
 
@@ -59,7 +59,7 @@ async def get_redis():
 
 async def redis_get(key: str) -> bytes | None:
     """Get a value from Redis, returning None on any failure."""
-    client = await get_redis()
+    client = get_redis()
     if client is None:
         return None
     try:
@@ -71,7 +71,7 @@ async def redis_get(key: str) -> bytes | None:
 
 async def redis_set(key: str, value: bytes, ttl: int | None = None) -> bool:
     """Set a value in Redis, returning False on any failure."""
-    client = await get_redis()
+    client = get_redis()
     if client is None:
         return False
     try:
@@ -84,7 +84,7 @@ async def redis_set(key: str, value: bytes, ttl: int | None = None) -> bool:
 
 async def redis_set_if_absent(key: str, value: bytes) -> bool:
     """Set ``key`` only if it does not exist; False if not set or on failure."""
-    client = await get_redis()
+    client = get_redis()
     if client is None:
         return False
     try:
@@ -96,7 +96,7 @@ async def redis_set_if_absent(key: str, value: bytes) -> bool:
 
 async def redis_delete(key: str) -> bool:
     """Delete a key from Redis, returning False on any failure."""
-    client = await get_redis()
+    client = get_redis()
     if client is None:
         return False
     try:
@@ -109,7 +109,7 @@ async def redis_delete(key: str) -> bool:
 
 async def redis_ping() -> bool:
     """Check if Redis is reachable."""
-    client = await get_redis()
+    client = get_redis()
     if client is None:
         return False
     try:
