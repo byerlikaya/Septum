@@ -55,12 +55,12 @@ class ChunkResponse(BaseModel):
     sanitized_text: str
     raw_text: Optional[str] = None
     char_count: int
-    source_page: Optional[int]
-    source_slide: Optional[int]
-    source_sheet: Optional[int]
-    source_timestamp_start: Optional[float]
-    source_timestamp_end: Optional[float]
-    section_title: Optional[str]
+    source_page: Optional[int] = None
+    source_slide: Optional[int] = None
+    source_sheet: Optional[int] = None
+    source_timestamp_start: Optional[float] = None
+    source_timestamp_end: Optional[float] = None
+    section_title: Optional[str] = None
 
 
 class ChunkListResponse(BaseModel):

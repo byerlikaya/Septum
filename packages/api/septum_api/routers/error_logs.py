@@ -34,18 +34,18 @@ class ErrorLogOut(BaseModel):
     source: str
     level: str
     message: str
-    exception_type: Optional[str]
-    path: Optional[str]
-    method: Optional[str]
-    status_code: Optional[int]
-    user_agent: Optional[str]
+    exception_type: Optional[str] = None
+    path: Optional[str] = None
+    method: Optional[str] = None
+    status_code: Optional[int] = None
+    user_agent: Optional[str] = None
 
 
 class ErrorLogDetailOut(ErrorLogOut):
     """Detailed error log entry including stack trace and extra metadata."""
 
-    stack_trace: Optional[str]
-    extra: Optional[dict[str, Any]]
+    stack_trace: Optional[str] = None
+    extra: Optional[dict[str, Any]] = None
 
 
 class ErrorLogListResponse(BaseModel):
