@@ -327,9 +327,7 @@ class FileQueueBackend(QueueBackend):
         polls indefinitely.
         """
         self._ensure_open()
-        deadline = None
-        if block_ms is not None and block_ms > 0:
-            deadline = self._clock() + (block_ms / 1000.0)
+        deadline = self._deadline_after(block_ms)
 
         yielded = 0
         while yielded < batch_size:
@@ -339,23 +337,40 @@ class FileQueueBackend(QueueBackend):
                 if yielded >= batch_size:
                     return
                 message = await self._claim_and_load(name, state)
-                if message is None:
+                if message is not None:
+                    yielded += 1
+                    yield message
+                elif self._past_deadline(deadline):
                     # Quarantined entries do not count toward batch_size. Check the
                     # deadline here too, so a backlog of bad entries cannot overrun it.
-                    if deadline is not None and self._clock() >= deadline:
-                        return
-                    continue
-                yielded += 1
-                yield message
+                    return
 
             # Empty-queue branch: nothing was claimed in this pass, whether the
             # listing was empty or every claim lost a race or was refused.
-            if state.claims == 0:
-                if block_ms == 0:
-                    return
-                if deadline is not None and self._clock() >= deadline:
-                    return
-                await asyncio.sleep(0.05)
+            if state.claims == 0 and not await self._poll_after_empty_pass(
+                block_ms, deadline
+            ):
+                return
+
+    def _deadline_after(self, block_ms: int | None) -> float | None:
+        """Monotonic deadline for a positive ``block_ms``; ``None`` means no deadline."""
+        if block_ms is None or block_ms <= 0:
+            return None
+        return self._clock() + (block_ms / 1000.0)
+
+    def _past_deadline(self, deadline: float | None) -> bool:
+        """``True`` once the clock has reached ``deadline``; ``False`` when there is none."""
+        return deadline is not None and self._clock() >= deadline
+
+    async def _poll_after_empty_pass(self, block_ms: int | None, deadline: float | None) -> bool:
+        """Sleep one poll interval and return ``True``.
+
+        Returns ``False`` once the empty-queue wait is over.
+        """
+        if block_ms == 0 or self._past_deadline(deadline):
+            return False
+        await asyncio.sleep(0.05)
+        return True
 
     async def _claim_and_load(self, name: str, state: _PassState) -> Message | None:
         """Claim and decode one entry in a thread; ``None`` when it is not delivered.
