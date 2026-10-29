@@ -21,7 +21,7 @@
 All 17 built-in regulations active, evaluated across **five independent data sources plus two robustness probes**:
 
 1. **Septum synthetic corpus** — **3,468 algorithmically generated PII values** across 23 entity types in **16 languages** (ar, de, en, es, fr, hi, it, ja, ko, nl, pl, pt, ru, th, tr, zh). The only way to cover checksummed IDs (valid Luhn, IBAN MOD-97, TCKN) that no public dataset carries, plus a 31-doc semantic-contextual subset (60 entities across DIAGNOSIS / MEDICATION / RELIGION / POLITICAL_OPINION / ETHNICITY / SEXUAL_ORIENTATION) that measures Ollama's unique contribution. Fixed seed — fully reproducible.
-2. **Microsoft [presidio-evaluator](https://github.com/microsoft/presidio-research)** — 200 synthetic Faker sentences, the reference PII evaluation framework used by the Presidio team. Entity map excludes DATE_TIME / TIME / TITLE / SEX / CARDISSUER / NRP — labels that are not PII under any of Septum's 17 regulations — so the recall number reflects masking quality, not category mismatches.
+2. **Microsoft [presidio-evaluator](https://github.com/microsoft/presidio-research)** — 200 synthetic Faker sentences, the reference PII evaluation framework used by the Presidio team. Entity map excludes DATE_TIME / TIME / TITLE / SEX / CARDISSUER / NRP. These labels are excluded from the detection benchmark by design, so the recall number reflects masking quality, not category mismatches.
 3. **[Babelscape/wikineural](https://huggingface.co/datasets/Babelscape/wikineural)** — 50 Wikipedia held-out sentences × 9 languages, used here as evaluation data only. It is the dataset, not the Babelscape wikineural model, which Septum no longer uses. Caveat: the XLM-RoBERTa NER models of the earlier NER set were trained on the related [WikiANN corpus](https://huggingface.co/datasets/unimelb-nlp/wikiann), so these numbers read as a near-upper bound rather than a strict out-of-distribution test.
 4. **[ai4privacy/pii-masking-300k](https://huggingface.co/datasets/ai4privacy/pii-masking-300k)** — 50 validation samples × 6 languages (en/de/fr/es/it/nl). Modern PII-specific dataset built from scratch; the models Septum uses were NOT trained on it, so this is the closest the benchmark gets to a true out-of-distribution check.
 5. **[CoNLL-2003](https://aclanthology.org/W03-0419/)** — 200 samples from the classical EN news-domain held-out test split. Not in any Septum-relevant training corpus.
@@ -36,7 +36,7 @@ All 17 built-in regulations active, evaluated across **five independent data sou
   <a href="#septum--benchmark-results"><img src="../assets/benchmark-layer-comparison.svg" alt="Detection Accuracy by Pipeline Layer" width="820" /></a>
 </p>
 
-> **Measured with the previous NER model set.** The NER defaults have since changed. The earlier set used the Babelscape wikineural model for de, it, nl, pl and ru, and as the fallback for every unlisted language; XLM-RoBERTa WikiANN served en, ar, zh, es, fr, pt, hi, bn, ur, vi and ja; Turkish had its own models. Davlan mBERT-hrl now serves zh, ja, ko, de, it, nl, pl, ru and the fallback languages, and the wikineural model is no longer used. Figures that depend on the NER layer (the NER and Combined rows, the Ollama ablation, the external datasets, the per-language breakdown, the retrieval runs and the leak check) were measured with the earlier set. Those languages have not been re-measured, so no new figures exist for the current defaults. The Babelscape/wikineural row below is evaluation data, not the removed model. The current mapping is in [Document Ingestion](document-ingestion.md#ner-model-coverage).
+> **Measured with the previous NER model set.** The NER defaults have since changed. The earlier set used the Babelscape wikineural model for de, it, nl, pl and ru, and as the fallback for every unlisted language; XLM-RoBERTa WikiANN served en, ar, zh, es, fr, pt, hi, bn, ur, vi and ja; Turkish had its own models. Davlan mBERT-hrl now serves zh, ja, ko, de, it, nl, pl, ru and the fallback languages, and the wikineural model is no longer used. Figures that depend on the NER layer (the NER and Combined rows, the Ollama ablation, the external datasets, the per-language breakdown) were measured with the earlier set. Those detection figures have not been re-measured, so no new detection figures exist for the current defaults. The retrieval run and its leak check were re-run on the current defaults; see the retrieval section below. The Babelscape/wikineural row below is evaluation data, not the removed model. The current mapping is in [Document Ingestion](document-ingestion.md#ner-model-coverage).
 
 ## Septum synthetic corpus (per-layer)
 
@@ -110,9 +110,7 @@ transparent about where it wins and where it does not:
   ("New York") bypass the score gate entirely. Structured address PII is
   additionally captured by Presidio's `StructuralAddressRecognizer` and
   the per-regulation POSTAL_ADDRESS / STREET_ADDRESS recognisers.
-- **All 37 regulation entity types are detectable** — 21 via Presidio, 3
-  via NER, 9 via Ollama, and the rest via parent-type coverage
-  (FIRST_NAME by PERSON_NAME, CITY by LOCATION, etc.).
+- **All 41 regulation entity types are detectable.** The count is the union of the `ENTITY_TYPES` of the 17 built-in recognizer packs. Detection comes from the Presidio, NER and Ollama layers and from parent-type coverage (FIRST_NAME by PERSON_NAME, CITY by LOCATION, etc.).
 - **23 entity types are actively benchmarked** across 3,468 values in 16
   languages with adversarial edge cases.
 - **Semantic types** (DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION)
@@ -163,7 +161,7 @@ ingestion pipeline.
 
 ## Retrieval benchmark
 
-This benchmark measures retrieval, not PII detection. The sanitizer runs with its NER layer on, so the figures and the leak check here were measured with the previous NER set (see the note at the top). For each question it asks whether the search stack returns the chunk that holds the answer, once with the raw question and once with the sanitized question. It is the baseline that later changes to chunking, the embedding model and reranking are compared against.
+This benchmark measures retrieval, not PII detection. The sanitizer runs with its NER layer on, using the current NER defaults (see [NER model coverage](document-ingestion.md#ner-model-coverage)), so the figures and the leak check here reflect those defaults. For each question it asks whether the search stack returns the chunk that holds the answer, once with the raw question and once with the sanitized question. It is the baseline that later changes to chunking, the embedding model and reranking are compared against.
 
 The run uses the document chunker, the per-chunk sanitizer, the FAISS vector store and the BM25 index. Dense, BM25 and hybrid retrieval call the production VectorStore and BM25 code, including `VectorStore.hybrid_search`. auto_rag mirrors chat's cross-document search: the same relevance threshold and per-document candidate count, and a parity test pins the threshold, the per-document candidate count and the candidate cap against chat's implementation. The benchmark runs the per-document searches serially, while production runs them concurrently, so the auto_rag latency is an upper bound. No LLM is called, and the run works offline against a pinned embedder.
 
@@ -193,7 +191,7 @@ Documents and questions are hand-written. Each personal-data slot in a document 
 | Latency | 5 timed repeats per query, sanitized queries, one retriever call including query embedding |
 | Hardware | Apple M4 Max, 14 CPU cores, 10 torch threads, Darwin 27.0.0 arm64 |
 | Seed | 42 |
-| Commit | Base commit `2b9db6eb` plus the benchmark harness commits on this branch (the harness was not yet committed when the baseline was recorded) |
+| Commit | `67b3ba07`, the `git_sha` recorded in the run output |
 
 ### Results
 
@@ -201,34 +199,36 @@ Documents and questions are hand-written. Each personal-data slot in a document 
 
 | Language | n | Recall@5 | Recall@10 | MRR | nDCG@10 |
 |:---|:---:|:---:|:---:|:---:|:---:|
-| en | 43 | 0.953 [0.884, 1.000] | 1.000 [1.000, 1.000] | 0.727 [0.631, 0.827] | 0.789 [0.712, 0.865] |
-| tr | 43 | 0.977 [0.930, 1.000] | 1.000 [1.000, 1.000] | 0.822 [0.728, 0.901] | 0.861 [0.788, 0.923] |
-| zh | 43 | 0.953 [0.884, 1.000] | 1.000 [1.000, 1.000] | 0.767 [0.663, 0.853] | 0.824 [0.746, 0.889] |
-| **overall** | **129** | **0.961 [0.922, 0.992]** | **1.000 [1.000, 1.000]** | **0.772 [0.715, 0.824]** | **0.825 [0.779, 0.865]** |
+| en | 43 | 0.930 [0.860, 1.000] | 1.000 [1.000, 1.000] | 0.661 [0.553, 0.763] | 0.737 [0.655, 0.820] |
+| tr | 43 | 0.977 [0.930, 1.000] | 1.000 [1.000, 1.000] | 0.841 [0.752, 0.919] | 0.880 [0.812, 0.939] |
+| zh | 43 | 0.953 [0.884, 1.000] | 1.000 [1.000, 1.000] | 0.772 [0.670, 0.855] | 0.828 [0.751, 0.891] |
+| **overall** | **129** | **0.953 [0.915, 0.984]** | **1.000 [1.000, 1.000]** | **0.758 [0.699, 0.807]** | **0.815 [0.771, 0.853]** |
+
+Compared with the previously recorded baseline, sanitized hybrid MRR drops from 0.772 to 0.758 and Recall@5 from 0.961 to 0.953, because organisation and place names now become placeholders.
 
 **Retrievers compared (overall, n = 129), raw and sanitized query modes.**
 
 | Retriever | Mode | Recall@5 | Recall@10 | MRR | nDCG@10 |
 |:---|:---|:---:|:---:|:---:|:---:|
 | dense | raw | 0.953 [0.907, 0.984] | 1.000 [1.000, 1.000] | 0.748 [0.690, 0.801] | 0.809 [0.765, 0.849] |
-| dense | sanitized | 0.953 [0.907, 0.984] | 1.000 [1.000, 1.000] | 0.739 [0.681, 0.791] | 0.802 [0.758, 0.841] |
+| dense | sanitized | 0.938 [0.891, 0.977] | 1.000 [1.000, 1.000] | 0.716 [0.657, 0.772] | 0.786 [0.741, 0.828] |
 | bm25 | raw | 0.930 [0.876, 0.969] | 1.000 [1.000, 1.000] | 0.740 [0.677, 0.796] | 0.799 [0.753, 0.842] |
-| bm25 | sanitized | 0.930 [0.876, 0.969] | 1.000 [1.000, 1.000] | 0.741 [0.681, 0.797] | 0.800 [0.753, 0.842] |
+| bm25 | sanitized | 0.915 [0.860, 0.953] | 1.000 [1.000, 1.000] | 0.741 [0.679, 0.798] | 0.799 [0.753, 0.843] |
 | hybrid | raw | 0.961 [0.922, 0.992] | 1.000 [1.000, 1.000] | 0.783 [0.724, 0.834] | 0.833 [0.787, 0.872] |
-| hybrid | sanitized | 0.961 [0.922, 0.992] | 1.000 [1.000, 1.000] | 0.772 [0.715, 0.824] | 0.825 [0.779, 0.865] |
+| hybrid | sanitized | 0.953 [0.915, 0.984] | 1.000 [1.000, 1.000] | 0.758 [0.699, 0.807] | 0.815 [0.771, 0.853] |
 | auto_rag | raw | 0.550 [0.465, 0.636] | 0.612 [0.527, 0.690] | 0.441 [0.368, 0.514] | 0.483 [0.409, 0.555] |
-| auto_rag | sanitized | 0.527 [0.442, 0.612] | 0.589 [0.504, 0.674] | 0.406 [0.336, 0.476] | 0.450 [0.381, 0.523] |
+| auto_rag | sanitized | 0.465 [0.380, 0.551] | 0.535 [0.450, 0.620] | 0.352 [0.280, 0.419] | 0.396 [0.322, 0.463] |
 
-**Auto-RAG on negatives (11 questions).** A question counts as a false retrieval when a chunk scores at or above the 0.35 threshold. The false-retrieval rate is 0.727 [0.455, 0.909] in both query modes. The top-1 scores overlap: for raw queries the 90th percentile of negatives is 0.577 and the 10th percentile of answerable questions is 0.473.
+**Auto-RAG on negatives (11 questions).** A question counts as a false retrieval when a chunk scores at or above the 0.35 threshold. The false-retrieval rate is 0.727 [0.455, 0.909] for raw queries and 0.818 [0.545, 1.000] for sanitized queries. The top-1 scores overlap: for raw queries the 90th percentile of negatives is 0.577 and the 10th percentile of answerable questions is 0.473.
 
 **Latency** (sanitized queries, milliseconds, one machine):
 
 | Retriever | p50 (ms) | p95 (ms) | Samples |
 |:---|:---:|:---:|:---:|
-| dense | 11.749 | 12.932 | 645 |
-| bm25 | 0.216 | 0.275 | 645 |
-| hybrid | 11.972 | 13.050 | 645 |
-| auto_rag | 351.882 | 371.848 | 700 |
+| dense | 13.673 | 15.352 | 645 |
+| bm25 | 0.236 | 0.321 | 645 |
+| hybrid | 13.615 | 25.746 | 645 |
+| auto_rag | 405.836 | 459.363 | 700 |
 
 Samples are queries times 5 repeats; auto_rag runs all 140 questions, the others the 129 answerable ones.
 
@@ -236,11 +236,11 @@ Samples are queries times 5 repeats; auto_rag runs all 140 questions, the others
 
 | Step | Time |
 |:---|:---:|
-| Chunking, 30 documents | 1.356 s |
-| Embedding and indexing | 1.187 s |
-| Per-chunk sanitization, 30 documents | 10.132 s |
-| Leak-block sanitization, en / tr / zh | 14.566 s / 20.605 s / 29.095 s |
-| Whole run, wall clock | 505.603 s |
+| Chunking, 30 documents | 1.655 s |
+| Embedding and indexing | 1.486 s |
+| Per-chunk sanitization, 30 documents | 15.137 s |
+| Leak-block sanitization, en / tr / zh | 18.828 s / 24.728 s / 67.168 s |
+| Whole run, wall clock | 625.450 s |
 
 ### PII leak check
 
@@ -259,34 +259,34 @@ Each language's slot-free corpus paragraphs are the filler. One synthetic value 
 
 | Lang | Crossing n | Literal: crossing | Literal: control | Literal: difference | Fragment: crossing | Fragment: control | Fragment: difference |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| en | 52 | 0.269 | 0.369 | -0.100 | 0.365 | 0.368 | -0.003 |
-| tr | 58 | 0.362 | 0.271 | +0.091 | 0.534 | 0.275 | +0.260 |
-| zh | 91 | 0.154 | 0.492 | -0.338 | 0.264 | 0.492 | -0.228 |
+| en | 52 | 0.038 | 0.180 | -0.142 | 0.212 | 0.181 | +0.030 |
+| tr | 58 | 0.138 | 0.127 | +0.011 | 0.362 | 0.120 | +0.242 |
+| zh | 91 | 0.011 | 0.123 | -0.112 | 0.143 | 0.122 | +0.021 |
 
-**Excluding ORGANIZATION_NAME** (shown separately because its leak rate is the highest of all types):
+**Excluding ORGANIZATION_NAME** (this type is detected by the NER layer alone, with no pattern recognizer behind it; the view reports the leak block without it):
 
 | Lang | Crossing n | Literal: crossing | Literal: control | Literal: difference | Fragment: crossing | Fragment: control | Fragment: difference |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| en | 38 | 0.079 | 0.252 | -0.173 | 0.158 | 0.251 | -0.093 |
-| tr | 44 | 0.159 | 0.149 | +0.010 | 0.386 | 0.141 | +0.245 |
-| zh | 81 | 0.049 | 0.403 | -0.353 | 0.173 | 0.403 | -0.230 |
+| en | 38 | 0.053 | 0.197 | -0.144 | 0.132 | 0.198 | -0.066 |
+| tr | 44 | 0.159 | 0.145 | +0.014 | 0.364 | 0.137 | +0.227 |
+| zh | 81 | 0.012 | 0.143 | -0.131 | 0.136 | 0.140 | -0.004 |
 
 **Literal leak rate by type** (all values, crossing and control; leaks/n):
 
 | Type | en | tr | zh |
 |:---|:---:|:---:|:---:|
-| PERSON_NAME | 0.335 (77/230) | 0.047 (9/190) | 0.971 (369/380) |
-| LOCATION | 0.872 (164/188) | 0.676 (142/210) | 0.979 (426/435) |
-| ORGANIZATION_NAME | 0.912 (197/216) | 0.932 (179/192) | 1.000 (355/355) |
+| PERSON_NAME | 0.222 (51/230) | 0.047 (9/190) | 0.458 (174/380) |
+| LOCATION | 0.729 (137/188) | 0.657 (138/210) | 0.248 (108/435) |
+| ORGANIZATION_NAME | 0.097 (21/216) | 0.031 (6/192) | 0.008 (3/355) |
 | EMAIL_ADDRESS | 0.000 (0/178) | 0.000 (0/209) | 0.000 (0/424) |
 | PHONE_NUMBER | 0.000 (0/184) | 0.000 (0/213) | 0.000 (0/428) |
 | IBAN | 0.000 (0/204) | 0.000 (0/186) | 0.000 (0/378) |
 
 Reading the numbers:
 
-- Leakage is dominated by values the detector does not mask, not by chunk boundaries. Control values, with no boundary inside, already leak literally at 0.271 to 0.492. The leaking types are person names, locations and organisation names: Chinese person names leak in 369 of 380 values, for example.
-- For these synthetic values in these generated formats, email, phone and IBAN values never leak literally. Real-world formats may differ and are not covered by this measurement. Fragment hits for these three types total 3 of 566 values in en, 10 of 608 in tr and 10 of 1,230 in zh.
-- Chunk boundaries have no consistent effect. In en and zh, crossing values leak less than control values. In tr they leak more: a fragment difference of +0.260 on 58 crossing values, and +0.245 on 44 when ORGANIZATION_NAME is excluded. The cause of the tr difference was not investigated.
+- Leakage is dominated by values the detector does not mask, not by chunk boundaries. Control values, with no boundary inside, already leak literally at 0.123 to 0.180. The leaking types are person names and locations. Organisation names are masked by the NER layer and leak literally at 0.097 (en), 0.031 (tr) and 0.008 (zh). Chinese person names leak in 174 of 380 values, for example.
+- For these synthetic values in these generated formats, email, phone and IBAN values never leak literally. Real-world formats may differ and are not covered by this measurement. Fragment hits for these three types total 3 of 566 values in en, 9 of 608 in tr and 10 of 1,230 in zh.
+- Chunk boundaries have a mixed effect. On the literal check, crossing values leak less than control values in en (-0.142) and zh (-0.112), and slightly more in tr (+0.011). On the fragment check, crossing values leak more in all three languages: +0.030 in en, +0.021 in zh and +0.242 in tr. The tr fragment difference (+0.242 on 58 crossing values, +0.227 on 44 with ORGANIZATION_NAME excluded) is the largest, and its cause was not investigated.
 
 ### Reproduce
 
