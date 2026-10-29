@@ -93,27 +93,50 @@ _POSSESSIVE_SUFFIXES: Dict[str, list[str]] = {
     "az": ["'ın", "'in", "'un", "'ün"],
 }
 
+# Apostrophe characters that word processors, keyboards and OCR produce for
+# the same mark: ASCII, U+2018 and U+2019 (single quotation marks), U+02BC
+# (modifier letter apostrophe), U+00B4 (acute accent), U+2032 (prime) and
+# U+FF07 (fullwidth apostrophe). Backtick is left out: it is not used as an
+# apostrophe. Shared by the suffix matching here and the token folding in
+# ``span_processing``.
+APOSTROPHES: frozenset[str] = frozenset({"'", "‘", "’", "ʼ", "´", "′", "＇"})
+
+# Maps every apostrophe variant to ASCII. The mapping is one character to one
+# character, so offsets in the folded text match the original.
+_APOSTROPHE_FOLD = str.maketrans({ch: "'" for ch in APOSTROPHES})
+
 # Suffixes shared across most Latin-script languages.
-_COMMON_POSSESSIVE_SUFFIXES = ["'s", "'s", "s'", "s'"]
+_COMMON_POSSESSIVE_SUFFIXES = ["'s"]
+
+
+def _ends_with_folded(text: str, suffix: str) -> bool:
+    """Whether ``text`` ends with ``suffix`` after folding apostrophe variants."""
+    return text[-len(suffix) :].translate(_APOSTROPHE_FOLD) == suffix
 
 
 def strip_possessive_suffix(text: str, language: str = "en") -> str:
     """Remove possessive/genitive suffixes for coreference resolution.
 
     Looks up language-specific suffixes via ``_POSSESSIVE_SUFFIXES``
-    keyed by ISO 639-1 code, then falls back to the shared smart-quote
-    variants in ``_COMMON_POSSESSIVE_SUFFIXES``. Idempotent and pure.
+    keyed by ISO 639-1 code, then falls back to the shared suffixes in
+    ``_COMMON_POSSESSIVE_SUFFIXES``. Apostrophe variants (see ``APOSTROPHES``)
+    match the same suffixes as ASCII. The returned text keeps the original
+    characters. Idempotent and pure.
     """
     if not text or len(text) < 3:
         return text
 
     for suffix in _POSSESSIVE_SUFFIXES.get(canonical_language_code(language), []):
-        if text.endswith(suffix):
+        if _ends_with_folded(text, suffix):
             return text[: -len(suffix)]
 
     for suffix in _COMMON_POSSESSIVE_SUFFIXES:
-        if text.endswith(suffix):
+        if _ends_with_folded(text, suffix):
             return text[: -len(suffix)]
+
+    # Plural possessive ("James'"). Only the apostrophe goes: the stem keeps its "s".
+    if _ends_with_folded(text, "s'"):
+        return text[:-1]
 
     return text
 

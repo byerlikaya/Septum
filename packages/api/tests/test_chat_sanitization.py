@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Tests for chat query sanitization and regulation-aware behaviour."""
+
+from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
@@ -16,6 +16,7 @@ from septum_api.routers.chat import (
 from septum_api.services.anonymization_map import AnonymizationMap
 from septum_api.services.policy_composer import ComposedPolicy
 from septum_api.services.sanitizer import PIISanitizer
+from septum_core.unmasker import Unmasker
 
 
 def test_piisanitizer_policy_construction_does_not_crash() -> None:
@@ -414,3 +415,29 @@ async def test_document_ids_outside_the_column_range_are_refused_with_422(bad_id
     finally:
         app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_unified_lookup_restores_the_bare_name_over_a_suffixed_variant() -> None:
+    doc_map = AnonymizationMap(document_id=2, language="tr")
+    doc_map.entity_map = {"Ali Kaya’nın": "[PERSON_NAME_1]", "Ali Kaya": "[PERSON_NAME_1]"}
+
+    _, unified = _build_unified_placeholder_space({2: doc_map})
+
+    assert len(unified.placeholder_lookup) == 1
+    assert set(unified.placeholder_lookup.values()) == {"Ali Kaya"}
+
+
+def test_same_surname_in_two_documents_stays_two_people_and_restores_each() -> None:
+    jane_doc = AnonymizationMap(document_id=1, language="en")
+    jane_doc.entity_map = {"Jane Smith": "[PERSON_NAME_1]", "Smith": "[PERSON_NAME_1]"}
+    john_doc = AnonymizationMap(document_id=2, language="en")
+    john_doc.entity_map = {"Smith": "[PERSON_NAME_1]", "John Smith": "[PERSON_NAME_1]"}
+    anon_maps = {1: jane_doc, 2: john_doc}
+
+    per_doc_remap, unified = _build_unified_placeholder_space(anon_maps)
+
+    jane_text = _apply_chunk_placeholder_remap("[PERSON_NAME_1] signed the lease", per_doc_remap[1])
+    john_text = _apply_chunk_placeholder_remap("[PERSON_NAME_1] paid the deposit", per_doc_remap[2])
+    assert jane_text != john_text
+    assert Unmasker().unmask(jane_text, unified) == "Jane Smith signed the lease"
+    assert Unmasker().unmask(john_text, unified) == "John Smith paid the deposit"
