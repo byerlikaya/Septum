@@ -79,7 +79,7 @@ class ValidatedPatternRecognizer(PatternRecognizer):
         try:
             compiled: Final[re.Pattern[str]] = re.compile(config.pattern)
         except re.error as exc:  # pragma: no cover - defensive logging
-            logger.error("Invalid regex pattern for recognizer %s: %s", config.name, exc)
+            logger.error("Invalid regex pattern for recognizer %s: %s", config.name, type(exc).__name__)
             raise
 
         if config.narrow_to_group is not None and config.narrow_to_group > compiled.groups:

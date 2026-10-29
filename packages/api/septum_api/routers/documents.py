@@ -1054,7 +1054,7 @@ async def upload_document(
     return _document_response(document, None)
 
 
-_PROGRESS_ID_RE = re.compile(r"[0-9]{1,10}")
+_PROGRESS_ID_RE = re.compile(r"\d{1,10}", re.ASCII)
 
 
 @router.get(

@@ -12,7 +12,7 @@ PII is ever serialised through this endpoint.
 """
 
 import json
-from typing import Dict, List
+from typing import Annotated, Dict, List
 
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
@@ -73,8 +73,8 @@ def _classify_strength(score: float) -> str:
     status_code=status.HTTP_200_OK,
 )
 async def get_relationship_graph(
-    _user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    _user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> RelationshipGraph:
     """Return the full document-relationship graph the user can see.
 

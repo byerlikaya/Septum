@@ -28,7 +28,7 @@ from .text_utils import (
 # A placeholder this map hands out: ``[ENTITY_TYPE_N]``. Index digits are
 # capped: real indexes are small, and an unbounded run of digits from
 # untrusted text would make ``int()`` raise.
-PLACEHOLDER_PATTERN = re.compile(r"\[([A-Z][A-Z_]*)_([0-9]{1,9})\]")
+PLACEHOLDER_PATTERN = re.compile(r"\[([A-Z][A-Z_]*)_(\d{1,9})\]", re.ASCII)
 
 # FUTURE: migrate to NonPiiRule table for full user-editability.
 # Minimal stopwords kept here for technical filtering (ultra-common function words).
