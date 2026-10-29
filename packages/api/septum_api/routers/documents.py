@@ -14,7 +14,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, BinaryIO, Dict, List, Optional, Sequence, Tuple
 
 from fastapi import (
     APIRouter,
@@ -38,6 +38,7 @@ from sqlalchemy.orm.attributes import set_committed_value
 
 from ..database import get_db
 from ..errors import public_error_text
+from ..middleware.upload_limits import MAX_UPLOAD_BYTES, TOO_LARGE_DETAIL
 from ..models.audit_event import AuditEvent
 from ..models.document import Chunk as DocumentChunk
 from ..models.document import Document
@@ -90,7 +91,7 @@ from ..services.policy_snapshot import (
 )
 from ..services.source_files import SOURCE_FILE_DIR, new_source_file_name
 from ..utils.auth_dependency import get_current_user, require_role
-from ..utils.crypto import decrypt, encrypt
+from ..utils.crypto import decrypt, encrypt_buffer, new_encrypt_buffer, plaintext_region
 from ..utils.db_helpers import (
     detect_language,
     get_owned_or_404,
@@ -845,7 +846,79 @@ async def _record_background_failure(
         report_error_log_failure(log_exc)
 
 
-_MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(500 * 1024 * 1024)))
+_MIME_SNIFF_BYTES = 7 * 1024 * 1024
+"""Bytes from the start of an upload handed to MIME detection (7 MiB).
+
+This equals libmagic's default ``bytes_max`` (7,340,032), the most it reads
+of any buffer, and the structural fallback checks only look at the first few
+thousand bytes, so typing the head gives the same answer as typing the whole
+file."""
+
+
+def _seal_upload(
+    source: BinaryIO, fallback_mime_type: Optional[str], destination: Path
+) -> Tuple[str, str, int]:
+    """Type, encrypt in place and store an upload held in memory.
+
+    Returns (MIME type, file format, size). Runs in a worker thread. The
+    spooled upload is closed as soon as it has been copied, so peak memory
+    is about twice the file size. Nothing is written unless the type is
+    supported, and a failed write leaves no partial file behind.
+    """
+    size = source.seek(0, os.SEEK_END)
+    if size > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=TOO_LARGE_DETAIL,
+        )
+    if size == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty.",
+        )
+    source.seek(0)
+    buffer = new_encrypt_buffer(size)
+    region = plaintext_region(buffer)
+    filled = 0
+    while filled < size:
+        read = source.readinto(region[filled:])
+        if not read:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file ended early.",
+            )
+        filled += read
+    source.close()
+
+    mime_type = _detect_mime_type(bytes(region[:_MIME_SNIFF_BYTES]), fallback_mime_type)
+    file_format = _mime_to_format(mime_type)
+    region.release()
+    sealed = encrypt_buffer(buffer)
+    try:
+        destination.write_bytes(sealed)
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
+    return mime_type, file_format, size
+
+
+async def _seal_upload_in_thread(
+    source: BinaryIO, fallback_mime_type: Optional[str], destination: Path
+) -> Tuple[str, str, int]:
+    """Run :func:`_seal_upload` in a worker thread without leaking a file on cancellation.
+
+    A cancelled request cannot stop the thread, so the thread is waited for
+    and anything it wrote is removed before the cancellation propagates.
+    """
+    task = asyncio.ensure_future(
+        asyncio.to_thread(_seal_upload, source, fallback_mime_type, destination)
+    )
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await asyncio.wait({task})
+        destination.unlink(missing_ok=True)
+        raise
 
 
 @router.post(
@@ -860,44 +933,22 @@ async def upload_document(
 ) -> DocumentResponse:
     """Upload a document, ingest it, and build its vector index.
 
-    The raw file is:
-    * Read into memory in chunks with a running size guard.
-    * Typed via python-magic.
-    * Encrypted with AES-256-GCM and written to disk.
-    * Passed through the ingestion → sanitize → chunk → embed pipeline.
+    The raw file, already held in RAM by the multipart parser, is:
+    * Copied once into a buffer that is encrypted in place with AES-256-GCM,
+      so plaintext and ciphertext never coexist as separate full copies.
+    * Typed via python-magic from its first 7 MiB before encryption; an
+      unsupported type is refused before anything is written.
+    * Written to disk encrypted, then passed through the ingestion →
+      sanitize → chunk → embed pipeline.
 
-    The total payload is capped at ``MAX_UPLOAD_BYTES`` (default 500 MB).
-    A larger upload is refused with HTTP 413 before the encrypt step
-    so the bytes never copy through the AES-GCM input buffer.
+    The file is capped at ``MAX_UPLOAD_BYTES`` (default 500 MB); a larger
+    one is refused with HTTP 413 before anything is copied.
     """
-    raw_bytes = bytearray()
-    while True:
-        chunk = await file.read(1024 * 1024)
-        if not chunk:
-            break
-        if len(raw_bytes) + len(chunk) > _MAX_UPLOAD_BYTES:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=(
-                    f"Upload exceeds {_MAX_UPLOAD_BYTES} bytes. "
-                    "Set MAX_UPLOAD_BYTES to raise the cap."
-                ),
-            )
-        raw_bytes.extend(chunk)
-    raw_bytes = bytes(raw_bytes)
-    if not raw_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Uploaded file is empty.",
-        )
-
-    mime_type = _detect_mime_type(raw_bytes, getattr(file, "content_type", None))
-
-    file_format = _mime_to_format(mime_type)
-
-    encrypted_bytes = encrypt(raw_bytes)
     encrypted_path = _DOC_STORAGE_DIR / new_source_file_name()
-    encrypted_path.write_bytes(encrypted_bytes)
+    mime_type, file_format, file_size = await _seal_upload_in_thread(
+        file.file, getattr(file, "content_type", None), encrypted_path
+    )
+
     try:
         active_reg_ids = await _snapshot_active_regulations(db)
 
@@ -909,7 +960,7 @@ async def upload_document(
             detected_language="en",
             language_override=None,
             encrypted_path=str(encrypted_path),
-            file_size_bytes=len(raw_bytes),
+            file_size_bytes=file_size,
             transcription_text=None,
             ocr_confidence=0.0,
             active_regulation_ids=active_reg_ids,

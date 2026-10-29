@@ -81,3 +81,28 @@ def test_base64_helpers_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert decrypted == plaintext
 
+
+
+def test_encrypt_buffer_in_place_matches_encrypt_format(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An in-place sealed buffer is nonce || ciphertext+tag, readable by decrypt()."""
+    _reset_crypto_state(monkeypatch)
+    plaintext = b"septum-secret-data" * 1000
+    nonce = b"\x01" * crypto.NONCE_BYTES
+    monkeypatch.setattr(crypto.os, "urandom", lambda size: nonce)
+
+    buffer = crypto.new_encrypt_buffer(len(plaintext))
+    crypto.plaintext_region(buffer)[:] = plaintext
+    sealed = crypto.encrypt_buffer(buffer)
+
+    assert sealed is buffer
+    assert len(sealed) == crypto.NONCE_BYTES + len(plaintext) + crypto.TAG_BYTES
+    assert bytes(sealed) == crypto.encrypt(plaintext)
+    assert crypto.decrypt(bytes(sealed)) == plaintext
+
+
+def test_encrypt_buffer_rejects_foreign_buffers(monkeypatch: pytest.MonkeyPatch) -> None:
+    _reset_crypto_state(monkeypatch)
+    with pytest.raises(TypeError):
+        crypto.encrypt_buffer(bytearray(4))
+    with pytest.raises(TypeError):
+        crypto.encrypt_buffer(bytes(64))
