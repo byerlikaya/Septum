@@ -233,12 +233,7 @@ class BaseForwarder(ABC):
                     )
                     if attempt >= self._max_attempts:
                         break
-                    sleep_for = _retry_after_seconds(response)
-                    if sleep_for is None:
-                        sleep_for = _JITTER.uniform(
-                            0.0, self._base_backoff_seconds * (2 ** (attempt - 1))
-                        )
-                    await asyncio.sleep(sleep_for)
+                    await asyncio.sleep(self._status_retry_delay(response, attempt))
                     continue
                 response.raise_for_status()
                 return response
@@ -264,15 +259,22 @@ class BaseForwarder(ABC):
                 )
                 if attempt >= self._max_attempts:
                     break
-                await asyncio.sleep(
-                    _JITTER.uniform(
-                        0.0, self._base_backoff_seconds * (2 ** (attempt - 1))
-                    )
-                )
+                await asyncio.sleep(self._backoff_seconds(attempt))
 
         raise GatewayError(
             f"upstream provider request failed after {self._max_attempts} attempts"
         ) from last_error
+
+    def _backoff_seconds(self, attempt: int) -> float:
+        """Full-jitter delay before the retry that follows ``attempt``."""
+        return _JITTER.uniform(0.0, self._base_backoff_seconds * (2 ** (attempt - 1)))
+
+    def _status_retry_delay(self, response: httpx.Response, attempt: int) -> float:
+        """``Retry-After`` when the upstream sent one, otherwise the jittered backoff."""
+        retry_after = _retry_after_seconds(response)
+        if retry_after is None:
+            return self._backoff_seconds(attempt)
+        return retry_after
 
 
 class AnthropicForwarder(BaseForwarder):
