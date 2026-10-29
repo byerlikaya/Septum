@@ -21,6 +21,7 @@ from septum_api.routers import documents as documents_module
 from septum_api.routers import users as users_module
 from septum_api.services import document_anon_store, orphan_artifacts, source_files
 from septum_api.services.anonymization_map import AnonymizationMap
+from septum_api.services.auth import create_access_token
 from septum_api.services.bm25_retriever import BM25Retriever
 from septum_api.services.document_anon_store import (
     DocumentMapLockLost,
@@ -742,7 +743,9 @@ async def test_upload_whose_row_cannot_be_committed_leaves_no_source_file(
         transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test"
     ) as client:
         resp = await client.post(
-            "/api/documents/upload", files={"file": ("scan.png", _PNG, "image/png")}
+            "/api/documents/upload",
+            files={"file": ("scan.png", _PNG, "image/png")},
+            headers={"Authorization": f"Bearer {create_access_token(9999, 'gone@example.com')}"},
         )
 
     assert resp.status_code == 500

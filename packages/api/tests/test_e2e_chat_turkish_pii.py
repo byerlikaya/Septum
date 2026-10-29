@@ -15,6 +15,7 @@ from septum_api.database import init_db
 from septum_api.main import app
 from septum_api.models.user import User
 from septum_api.routers import documents as documents_router
+from septum_api.services.auth import create_access_token
 from septum_api.utils.auth_dependency import get_current_user, get_optional_user
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -170,6 +171,7 @@ def test_e2e_turkish_pii_upload_ask_approve_deanonymized(
     upload_response = client.post(
         "/api/documents/upload",
         files={"file": ("turkish_pii.pdf", BytesIO(pdf_bytes), "application/pdf")},
+        headers={"Authorization": f"Bearer {create_access_token(1, 'test-admin@example.com')}"},
     )
     if upload_response.status_code != 201:
         try:
