@@ -134,7 +134,7 @@ export function ChatHistory({
                         type="button"
                         onClick={(e) => { e.stopPropagation(); onExportSession(session.id); }}
                         className="rounded p-0.5 text-slate-500 hover:text-sky-400"
-                        aria-label="Export JSON"
+                        aria-label={t("chat.history.exportJson")}
                         title="JSON"
                       >
                         <Download className="h-3 w-3" />
@@ -145,7 +145,7 @@ export function ChatHistory({
                         type="button"
                         onClick={(e) => { e.stopPropagation(); onExportSessionPDF(session.id); }}
                         className="rounded p-0.5 text-slate-500 hover:text-violet-400"
-                        aria-label="Export PDF"
+                        aria-label={t("chat.history.exportPdf")}
                         title="PDF"
                       >
                         <FileText className="h-3 w-3" />

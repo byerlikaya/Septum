@@ -211,7 +211,7 @@ export const trMessages: Record<string, string> = {
     "Bulut LLM'leri, gizlilik katmanlarını, yerel modelleri ve RAG davranışını yapılandırın.",
   "settings.loading": "Ayarlar yükleniyor...",
   "settings.tabs.llm.label": "LLM Provider",
-  "settings.tabs.llm.description": "Provider, model ve API key",
+  "settings.tabs.llm.description": "Provider, model ve API anahtarı",
   "settings.tabs.privacy.label": "Gizlilik ve Anonimleştirme",
   "settings.tabs.privacy.description": "Onay ve maskeleme",
   "settings.tabs.rag.label": "RAG",
@@ -246,14 +246,15 @@ export const trMessages: Record<string, string> = {
 
   "settings.llm.sectionTitle": "LLM Provider",
   "settings.llm.sectionDescription":
-    "LLM provider seçin ve modeli yapılandırın. Cloud provider'lar API key gerektirir; Ollama lokal çalışır.",
+    "LLM provider seçin ve modeli yapılandırın. Cloud provider'lar API anahtarı gerektirir; Ollama lokal çalışır.",
   "settings.llm.provider.label": "Provider",
   "settings.llm.provider.hint":
     "Cloud provider'lar ve lokal Ollama arasında geçiş yapın.",
   "settings.llm.model.label": "Model",
   "settings.llm.model.hint":
     "Provider'ın beklediği tam model ID.",
-  "settings.llm.apiKey.placeholder": "API key girin",
+  "settings.llm.apiKey.label": "API anahtarı",
+  "settings.llm.apiKey.placeholder": "API anahtarını girin",
   "settings.llm.apiKey.hint":
     "Lokal olarak saklanır, seçilen provider dışında hiçbir yere gönderilmez.",
   "settings.llm.ollama.baseUrl.label": "Ollama URL",
@@ -495,6 +496,8 @@ export const trMessages: Record<string, string> = {
   "chat.history.deleteAll": "Tüm konuşmaları sil",
   "chat.history.deleteAllConfirm": "Tüm konuşmaları silmek istediğinize emin misiniz?",
   "chat.history.rename": "Yeniden adlandir",
+  "chat.history.exportJson": "JSON olarak dışa aktar",
+  "chat.history.exportPdf": "PDF olarak dışa aktar",
   "chat.message.delete": "Mesaji sil",
   "chat.message.edit": "Duzenle ve tekrar gonder",
   "chat.output.label": "Çıktı:",

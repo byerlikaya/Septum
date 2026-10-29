@@ -1,7 +1,7 @@
 "use client";
 
 import { useI18n } from "@/lib/i18n";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { OllamaModelCombobox } from "@/components/common/OllamaModelCombobox";
 import { OLLAMA_URL_NOT_ALLOWED } from "@/lib/api";
 import { localizeApiError } from "@/lib/apiErrors";
@@ -39,6 +39,7 @@ export function LLMProviderTab({
   localTestStatus,
 }: LLMProviderTabProps) {
   const t = useI18n();
+  const apiKeyId = useId();
   const isOllama = settings.llm_provider === "ollama";
   const testStatus = isOllama ? localTestStatus : cloudTestStatus;
   const onTest = isOllama ? onTestLocal : onTestCloud;
@@ -160,8 +161,9 @@ export function LLMProviderTab({
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-slate-200">API Key</label>
+            <label htmlFor={apiKeyId} className="text-xs font-medium text-slate-200">{t("settings.llm.apiKey.label")}</label>
             <input
+              id={apiKeyId}
               type="text"
               autoComplete="off"
               data-1p-ignore
