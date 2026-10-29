@@ -258,6 +258,8 @@ Limitler route ve kimlik başına sayılır: API anahtarlı isteklerde **anahtar
 
 429 yanıtı `Retry-After` başlığını taşır. Parola kuyruğu dolduğunda ya da aynı çağıran zaten bir parola kontrolü yürütüyorken giriş, kayıt ve parola değiştirme `503` ve `server_busy` koduyla yanıt verebilir; yanıt `Retry-After: 2` taşır.
 
+Doküman yüklemelerinin kendi sınırları vardır: oturum açılmamışsa `401` (gövde okunmadan önce denetlenir); worker'ın bütün yükleme slotları doluysa `Retry-After: 5` başlığıyla `503` ve `server_busy`; dosya `MAX_UPLOAD_BYTES` sınırını aşarsa `413`; istemci 30 saniye veri göndermezse ya da gövdenin tamamı `UPLOAD_BODY_TIMEOUT_SECONDS` (varsayılan 900 saniye) süresinden uzun sürerse `408`. Ayrıntılar için [Yükleme ve ses değişkenleri](installation.md#yükleme-ve-ses-değişkenleri) bölümüne bakın.
+
 Redis yapılandırıldığında (`REDIS_URL` veya yeniden başlatmadan sonra sihirbazın Redis adımı) sayaçlar Redis'te tutulur; aksi hâlde yalnızca tek süreçte doğru çalışan süreç içi bellekte saklanır. Redis kesintisinde genel limitler açık kalır (fail open); giriş, kayıt, parola değiştirme, frontend hata bildirimleri, başarısız giriş sayaçları, kurulum anahtarı sayacı ve hata günlüğü bütçeleri bellekte (süreç başına) saymaya devam eder. API worker sayısını birden fazla yapmak için (`WEB_CONCURRENCY` 1'den büyük) `REDIS_URL` ayarlı olmalı; ilk kurulumu tek worker ile tamamlayın ya da `SEPTUM_SETUP_TOKEN` ayarlayın. İlgili ayarlar için [Erişim ve ağ ayarları](installation.md#erişim-ve-ağ-ayarları) bölümüne bakın.
 
 ### Hızlı API örneği

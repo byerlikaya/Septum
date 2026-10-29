@@ -14,6 +14,10 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
+from .process_hardening import disable_core_dumps
+
+disable_core_dumps()
+
 from . import bootstrap as _bootstrap_early
 from .utils.logging_config import setup_structured_logging
 
@@ -454,8 +458,15 @@ app.add_exception_handler(RateLimited, rate_limited_handler)
 
 from .middleware.auth import AuthMiddleware
 from .middleware.security_headers import SecurityHeadersMiddleware
+from .middleware.upload_limits import (
+    UploadLimitMiddleware,
+    keep_multipart_uploads_in_memory,
+)
 from .utils.metrics import PrometheusMiddleware, metrics_endpoint
 
+keep_multipart_uploads_in_memory()
+# Added first, so it runs inside AuthMiddleware and sees the resolved caller.
+app.add_middleware(UploadLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(PrometheusMiddleware)

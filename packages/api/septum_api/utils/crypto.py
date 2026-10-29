@@ -23,6 +23,9 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 _ENCRYPTION_KEY: Optional[bytes] = None
 
+NONCE_BYTES = 12
+TAG_BYTES = 16
+
 
 def generate_key() -> bytes:
     """Generate a new 256-bit AES key for use with AES-256-GCM."""
@@ -98,6 +101,40 @@ def encrypt(plaintext: bytes, associated_data: Optional[bytes] = None) -> bytes:
     return nonce + ciphertext
 
 
+def new_encrypt_buffer(plaintext_length: int) -> bytearray:
+    """Return a zeroed buffer laid out as nonce || plaintext || tag space.
+
+    Fill the plaintext region (see :func:`plaintext_region`) and pass the
+    buffer to :func:`encrypt_buffer`, which encrypts it in place. Large
+    payloads then never exist as a separate plaintext and ciphertext copy.
+    """
+    if plaintext_length < 0:
+        raise ValueError("plaintext_length must not be negative.")
+    return bytearray(NONCE_BYTES + plaintext_length + TAG_BYTES)
+
+
+def plaintext_region(buffer: bytearray) -> memoryview:
+    """Return a writable view of the plaintext region of a :func:`new_encrypt_buffer` buffer."""
+    return memoryview(buffer)[NONCE_BYTES : len(buffer) - TAG_BYTES]
+
+
+def encrypt_buffer(buffer: bytearray, associated_data: Optional[bytes] = None) -> bytearray:
+    """Encrypt the plaintext region of ``buffer`` in place and return ``buffer``.
+
+    The result has exactly the :func:`encrypt` format (12-byte nonce, then
+    ciphertext+tag), so :func:`decrypt` reads it unchanged.
+    """
+    if not isinstance(buffer, bytearray) or len(buffer) < NONCE_BYTES + TAG_BYTES:
+        raise TypeError("buffer must be a bytearray from new_encrypt_buffer().")
+
+    aesgcm = AESGCM(get_encryption_key())
+    nonce = os.urandom(NONCE_BYTES)
+    view = memoryview(buffer)
+    view[:NONCE_BYTES] = nonce
+    aesgcm.encrypt_into(nonce, plaintext_region(buffer), associated_data, view[NONCE_BYTES:])
+    return buffer
+
+
 def decrypt(token: bytes, associated_data: Optional[bytes] = None) -> bytes:
     """Decrypt a value produced by :func:`encrypt`.
 
@@ -113,8 +150,7 @@ def decrypt(token: bytes, associated_data: Optional[bytes] = None) -> bytes:
     key = get_encryption_key()
     aesgcm = AESGCM(key)
     nonce = raw[:12]
-    ciphertext = raw[12:]
-    return aesgcm.decrypt(nonce, ciphertext, associated_data)
+    return aesgcm.decrypt(nonce, memoryview(raw)[12:], associated_data)
 
 
 def encrypt_to_base64(

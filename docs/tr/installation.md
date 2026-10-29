@@ -351,6 +351,19 @@ api'nin istemci zaman aşımı, gateway'in en kötü süresinin üzerinde kalmal
 
 **Saat senkronizasyonu.** Bölünmüş dağıtımda (air-gapped ve internete açık host'lar) iki host de saatini NTP ya da kurum içi bir zaman kaynağıyla eşitli tutmalıdır. Birkaç dakikalık bir sapma, api'nin geçerli gateway yanıtlarını eski diye atmasına yol açar; istek zaman aşımına uğrar ve Ollama'ya düşer.
 
+### Yükleme ve ses değişkenleri
+
+Bu değişkenleri `api` servisinde ayarlayın. Compose dosyaları `.env` değerlerini container'a aktarmaz; bu yüzden değişkenleri servisin `environment:` listesine ekleyin ve container'ı yeniden oluşturun.
+
+| Değişken | Varsayılan | Anlamı |
+|---|---|---|
+| `MAX_UPLOAD_BYTES` | `524288000` (500 MB), 1–1099511627776 arası (2^40) | Bir doküman yüklemesinin taşıyabileceği en büyük dosya, bayt olarak. Daha büyük yüklemeler `413` alır. İstek gövdesi bunun üzerine en fazla 64 KiB multipart başlık payı ekleyebilir. Bu aralığın dışındaki ya da tam sayı olmayan bir değer API'yi başlangıçta durdurur. |
+| `MAX_CONCURRENT_UPLOADS` | `1` (1–64 arası) | Bir API worker sürecinin aynı anda bellekte tutabileceği yükleme sayısı. Sıradaki yükleme `Retry-After: 5` başlığıyla `503` ve `server_busy` alır. Her worker süreci kendi sayacını tutar. |
+| `UPLOAD_BODY_TIMEOUT_SECONDS` | `900` (10–86400 arası) | Bir yükleme gövdesinin gelmesi için tanınan en uzun süre; sayım, yükleme yuvası alındığı andan başlar. Süre dolarsa istek `408` alır ve yuva serbest kalır. Varsayılanda 500 MB'lık bir yükleme ortalama yaklaşık 0,58 MB/s ile tamamlanabilir. |
+| `MAX_AUDIO_SECONDS` | `3600` (1 saat), 1–86400 arası | Çözülüp transkribe edilecek en uzun ses. Daha uzun ses hata ile reddedilir; kırpılmaz. |
+
+Kodda sabit olan ve ortam değişkeni bulunmayan iki sınır vardır. 30 saniye boyunca gövde verisi göndermeyen istek `408` alır; dolayısıyla `408`, bu boşta bekleme sınırından da yukarıdaki toplam gövde süresinden de gelebilir. Ses çözme, `30 + MAX_AUDIO_SECONDS / 20` saniye sonra durdurulur; varsayılanda bu 210 saniyedir ve bu süreyi aşan dosya çözme hatasıyla reddedilir.
+
 ### İzleme
 
 Panel artık `/metrics` isteklerini proxy'lemez. API'yi doğrudan kazıyın: compose ağı içinden `api:8000`, host üzerinden `127.0.0.1:8000`. Standalone container 8000 portunu yayımlamaz; air-gapped dosyası da yayımlamaz. Standalone'da bir compose override'ında `127.0.0.1:8000:8000` ile kendiniz yayımlayın. Air-gapped dosyasında ise bölgenin içinden kazıyın, örneğin `docker compose -f docker-compose.airgap.yml exec api` ile. `/metrics` oturum gerektirmez, yönlendirilebilir bir adrese açmayın. `WEB_CONCURRENCY` 1'den büyükse her kazıma tek bir worker'ın sayaçlarını okur.
@@ -493,6 +506,32 @@ done
 Döngü, gerçek volume adını compose'un volume'a koyduğu etiketten bulur; bu yüzden proje öneki fark etmez. Host'ta yalnızca tek bir Septum yığını çalışırken kullanın.
 
 **Geri yükleme** aynı akışın tersidir: yığını durdurun, mevcut volume'ları `docker volume rm` ile silin, arşivleri yeniden açıp yığını başlatın.
+
+### Bellek boyutlandırma
+
+Yüklemeler, soketten şifrelenene kadar RAM'de tutulur; hiçbir yükleme geçici dosyaya yazılmaz. Devam eden bir yüklemenin bellek tepe noktası dosya boyutunun yaklaşık iki katıdır. Büyük bir dosyanın ingest edilmesi ayrıca yaklaşık iki katı bellek ister. Ses transkripsiyonu sesi 16 kHz mono olarak çözer ve 16 bit PCM olarak tutar: saatte yaklaşık 115 MB. 10 dakikadan uzun ses, yaklaşık 10 dakikalık pencerelerle transkribe edilir; her kesim yakındaki sessiz bir noktada yapılır. Whisper'a aynı anda yalnızca bir pencere float32'ye çevrilerek verilir: pencere başına yaklaşık 38 MB, buna Whisper'ın o pencere için yaptığı spektrogram işi eklenir. 10 dakika veya daha kısa ses tek geçişte işlenir. Transkript metni dışında, transkripsiyon belleği kaydın uzunluğuyla birlikte PCM tamponunun ötesinde büyümez. Varsayılan `MAX_AUDIO_SECONDS` değeri 3600 iken PCM tamponu bir dosyanın alabileceği en büyük boyuttur.
+
+Bu hesabı her API worker süreci için yapın, ardından modellerin payını ekleyin:
+
+```
+RAM ≥ (MAX_CONCURRENT_UPLOADS + ingest slotu) × 2 × MAX_UPLOAD_BYTES × worker süreci sayısı + modeller
+```
+
+Ingest slotu sayısı her worker süreci için kodda sabit olarak 2'dir; bir ortam değişkeni değildir (documents router içindeki `_INGESTION_SEMAPHORE`). Bir slot, arka plan hattının tamamı boyunca tutulur: şifre çözme, ingest, anonimleştirme, parçalama ve gömme. Yani her worker en fazla `MAX_CONCURRENT_UPLOADS` kadar şifrelenmekte olan yüklemeyi ve iki ingest'i aynı anda bellekte tutar.
+
+Varsayılanlarla (bir yükleme slotu, iki ingest slotu, bir worker, 500 MB sınır) yükleme ve ingest kısmı modeller hariç yaklaşık 3 GB eder.
+
+### Swap ve çökme dökümleri
+
+API, başlangıçta çekirdek döküm (core dump) sınırını sıfıra çeker ve Linux'ta kendi sürecini döküm alınamaz (non-dumpable, `PR_SET_DUMPABLE`) olarak işaretler; böylece çekirdek bu süreç için döküm yazmaz. OCR worker süreçleri başlarken aynı korumayı kendilerine uygular. API'nin çalıştırdığı ffmpeg yalnızca sıfır döküm sınırını devralır; döküm alınamaz bayrağı `exec` ile sıfırlanır. Compose dosyaları aynı sınırı `api`, `web`, `mcp`, `ollama` ve standalone servislerine, air-gapped dosyasında da `zone-edge` servisine koyar. Bu sayede bu süreçlerden birinin çökmesi, çözülmüş belgeleri ya da anonimleştirme haritalarını bir çekirdek dosyasına yazmaz; ancak host'un `core_pattern` ayarı bir boru (pipe) değilse. Aşağıya bakın.
+
+Host çekirdeğindeki `kernel.core_pattern` `|` ile başlıyorsa (`|systemd-coredump` ya da `|apport` gibi bir işleyici), çekirdek sıfır sınır olsa bile dökümü bu işleyiciye verebilir. Kontrol etmek için `cat /proc/sys/kernel/core_pattern` komutunu çalıştırın. Hassas belge işleyen host'larda bu boru işleyicisini host üzerinde kapatın; çünkü ayar container'a değil, host çekirdeğine aittir.
+
+Belge içeriği tutan bellek, Septum'un kontrolü dışında yine de diske ulaşabilir: swap, hibernasyon dosyası ya da VM ve host anlık görüntüleri yoluyla. Üretim host'larında:
+
+- Swap'i kapatın ya da şifreli swap kullanın.
+- Host'ta tam disk şifrelemesi kullanın.
+- Septum'un çalıştığı host'un ya da VM'in şifrelenmemiş anlık görüntülerini yedeklerde tutmayın.
 
 ---
 

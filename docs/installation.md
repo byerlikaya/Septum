@@ -351,6 +351,19 @@ The api's client timeout must stay above the gateway's worst case. With the defa
 
 **Clock sync.** In the split deployment (air-gapped and internet-facing hosts), both hosts must keep their clocks synchronised, through NTP or an internal time source. A skew of several minutes makes the api discard valid gateway replies as stale; the request then times out and falls back to Ollama.
 
+### Upload and audio variables
+
+Set these on the `api` service. The compose files do not pass `.env` values into the container, so add them to the service's `environment:` list and recreate the container.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MAX_UPLOAD_BYTES` | `524288000` (500 MB), range 1–1099511627776 (2^40) | Largest file a document upload may carry, in bytes. Larger uploads get `413`. The request body may be up to this plus 64 KiB of multipart overhead. A value outside the range, or one that is not a whole number, stops the API at startup. |
+| `MAX_CONCURRENT_UPLOADS` | `1` (range 1–64) | Uploads one API worker process holds in memory at once. The next upload gets `503` with `server_busy` and `Retry-After: 5`. Each worker process counts separately. |
+| `UPLOAD_BODY_TIMEOUT_SECONDS` | `900` (range 10–86400) | Longest time an upload body may take to arrive, counted from when the upload gets its slot. Past it the request gets `408` and the slot is freed. At the default, a full 500 MB upload needs an average of about 0.58 MB/s. |
+| `MAX_AUDIO_SECONDS` | `3600` (1 h), range 1–86400 | Longest audio that is transcribed. Longer audio is refused with an error; it is not truncated. |
+
+Two limits are fixed in the code and have no variable. A request that sends no body data for 30 seconds gets `408`, so a `408` can come from this idle timeout or from the overall body deadline above. Audio decoding stops after `30 + MAX_AUDIO_SECONDS / 20` seconds, which is 210 seconds at the default; a file that runs past it is refused with a decoding error.
+
 ### Monitoring
 
 The dashboard no longer proxies `/metrics`. Scrape the API directly: `api:8000` from inside the compose network, or `127.0.0.1:8000` on the host. The standalone container does not publish port 8000, and neither does the air-gapped file. In standalone, publish it yourself with `127.0.0.1:8000:8000` in a compose override. In the air-gapped file, scrape from inside the zone, for example with `docker compose -f docker-compose.airgap.yml exec api`. `/metrics` needs no login, so never publish it on a routable address. With `WEB_CONCURRENCY` above 1, each scrape reads one worker's counters.
@@ -491,6 +504,32 @@ done
 The loop looks up the real volume name from the label compose puts on it, so the project prefix does not matter. Run it with only one Septum stack on the host.
 
 **Restore** is the reverse. Stop the stack, `docker volume rm` the existing volumes, recreate + extract, start.
+
+### Memory sizing
+
+Uploads are held in RAM from the socket until the endpoint encrypts them; no upload is written to a temporary file. An upload in flight peaks at about twice its size. Ingesting a large file needs about twice its size again. Audio transcription also decodes the audio to 16 kHz mono and keeps it as 16-bit PCM: about 115 MB per hour. Audio longer than 10 minutes is transcribed in windows of about 10 minutes, each cut at a quiet point near the boundary. Only one window at a time is converted to float32 and run through Whisper: about 38 MB per window, plus Whisper's own spectrogram work for that window. Audio of 10 minutes or less is transcribed in one pass. Apart from the transcript text, transcription memory no longer grows with the length of the recording beyond the PCM buffer. At the default `MAX_AUDIO_SECONDS` of 3600, the PCM buffer is the most one file can take.
+
+Work this out for each API worker process, then add the models:
+
+```
+RAM ≥ (MAX_CONCURRENT_UPLOADS + ingestion slots) × 2 × MAX_UPLOAD_BYTES × worker processes + models
+```
+
+Ingestion slots are fixed at 2 per worker process in the code (`_INGESTION_SEMAPHORE` in the documents router), not an environment variable. A slot is held for the whole background pipeline: decryption, ingestion, sanitization, chunking and embedding. So each worker holds at most `MAX_CONCURRENT_UPLOADS` uploads being encrypted and two ingestions at once.
+
+At the defaults (one upload slot, two ingestion slots, one worker, 500 MB cap) the upload and ingestion part is about 3 GB before the models.
+
+### Swap and crash dumps
+
+At startup the API sets its core-dump limit to zero and, on Linux, marks its own process non-dumpable (`PR_SET_DUMPABLE`), so the kernel writes no core dump for it. The OCR worker processes apply the same protection to themselves when they start. ffmpeg, which the API runs, inherits only the zero core-dump limit; the non-dumpable flag does not survive `exec`. The compose files set the same limit on the `api`, `web`, `mcp`, `ollama` and standalone services, and on `zone-edge` in the air-gapped file. A crash therefore does not write decrypted documents or anonymization maps to a core file, provided the host's `core_pattern` is not a pipe (see below).
+
+If the host's `kernel.core_pattern` starts with `|` (a handler such as `|systemd-coredump` or `|apport`), the kernel can hand the dump to that handler even when the limit is zero. Check it with `cat /proc/sys/kernel/core_pattern`. On hosts that process sensitive documents, disable the piped handler on the host, because the setting belongs to the host kernel and not to the container.
+
+Memory that holds document content can still reach disk outside Septum's control: through swap, hibernation files, or VM and host snapshots. On production hosts:
+
+- Disable swap, or use encrypted swap.
+- Use full-disk encryption on the host.
+- Keep unencrypted snapshots of the Septum host or its VM out of backups.
 
 ---
 

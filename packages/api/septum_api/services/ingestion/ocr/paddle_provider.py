@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Mapping, Tuple
 import numpy as np  # type: ignore[import]
 from septum_core.model_integrity import ModelIntegrityError
 
+from ....process_hardening import disable_core_dumps
 from .base import OcrProvider
 
 logger = logging.getLogger(__name__)
@@ -114,7 +115,9 @@ def _get_ocr_pool() -> ProcessPoolExecutor:
         if _ocr_pool is not None:
             return _ocr_pool
         _ocr_pool = ProcessPoolExecutor(
-            max_workers=1, mp_context=mp.get_context("spawn")
+            max_workers=1,
+            mp_context=mp.get_context("spawn"),
+            initializer=disable_core_dumps,
         )
         return _ocr_pool
 
@@ -255,7 +258,7 @@ class PaddleOcrProvider(OcrProvider):
             logger.warning(
                 "PaddleOCR subprocess failed (image shape=%s): %s",
                 image_array.shape,
-                exc,
+                type(exc).__name__,
             )
             return []
 

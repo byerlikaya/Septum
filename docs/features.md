@@ -308,6 +308,8 @@ Limits count per route and identity: the **API key prefix** for API-key requests
 
 A 429 response carries `Retry-After`. Login, register and password change can return `503` with code `server_busy` when the password-hashing queue is full, or when the same caller already has a password check in progress; the response carries `Retry-After: 2`.
 
+Document uploads have their own limits: `401` without a valid login (checked before the body is read); `503` with `server_busy` and `Retry-After: 5` when every upload slot of the worker is taken; `413` for a file over `MAX_UPLOAD_BYTES`; and `408` when the client sends no data for 30 seconds or when the whole body takes longer than `UPLOAD_BODY_TIMEOUT_SECONDS` (900 seconds by default). See [Upload and audio variables](installation.md#upload-and-audio-variables).
+
 Limits are stored in Redis when Redis is configured (`REDIS_URL`, or the Redis URL saved by the setup wizard, applied after a restart), otherwise in process memory, which is only correct for a single process. During a Redis outage, general limits fail open, while login, register, password change, frontend error reports, the failed-login counters, the setup-token counter and the error-log budgets keep counting in memory (per process). Run more than one API worker (`WEB_CONCURRENCY` above 1) only with `REDIS_URL` set, and complete first-time setup with one worker or set `SEPTUM_SETUP_TOKEN`. See [Access and network settings](installation.md#access-and-network-settings) for the related settings.
 
 ### Quick API example
