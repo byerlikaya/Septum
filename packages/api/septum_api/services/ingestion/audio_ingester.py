@@ -240,6 +240,32 @@ def _window_bounds(audio: np.ndarray) -> List[Tuple[int, int]]:
     return bounds
 
 
+def _window_options(language: Optional[str], prompt: str) -> Dict[str, Any]:
+    """Whisper keyword options for one window: the pinned language and the carried-over prompt."""
+    options: Dict[str, Any] = {}
+    if language:
+        options["language"] = language
+    if prompt:
+        options["initial_prompt"] = prompt
+    return options
+
+
+def _assemble_transcript(
+    results: List[Tuple[float, Dict[str, Any]]],
+    reported_language: Optional[str],
+) -> Tuple[str, Optional[str], List[Dict[str, Any]]]:
+    """Turn the per-window results into the transcript triple: text, language, segments.
+
+    A single window is returned as Whisper gave it; several are merged onto one timeline.
+    """
+    if len(results) == 1:
+        result = results[0][1]
+        text = result.get("text") or ""
+        segments = [dict(seg) for seg in result.get("segments") or []]
+        return text, reported_language, segments
+    return _merge_windows(results, reported_language)
+
+
 def _shift_timestamps(item: Dict[str, Any], offset: float) -> Dict[str, Any]:
     """Copy of a segment or word with its ``start`` and ``end`` moved by ``offset`` seconds."""
     shifted = dict(item)
@@ -496,11 +522,7 @@ class AudioIngester(BaseIngester):
         has_text = False
         reported_language: Optional[str] = None
         for start, end in _window_bounds(audio):
-            transcribe_kwargs: Dict[str, Any] = {}
-            if language:
-                transcribe_kwargs["language"] = language
-            if prompt:
-                transcribe_kwargs["initial_prompt"] = prompt
+            transcribe_kwargs = _window_options(language, prompt)
             waveform = _to_waveform(audio[start:end])
             result = model.transcribe(waveform, **transcribe_kwargs)
             del waveform
@@ -516,10 +538,5 @@ class AudioIngester(BaseIngester):
         if not has_text:
             reported_language = results[0][1].get("language")
 
-        if len(results) == 1:
-            result = results[0][1]
-            text = result.get("text") or ""
-            segments = [dict(seg) for seg in result.get("segments") or []]
-            return text, reported_language, segments
-        return _merge_windows(results, reported_language)
+        return _assemble_transcript(results, reported_language)
 

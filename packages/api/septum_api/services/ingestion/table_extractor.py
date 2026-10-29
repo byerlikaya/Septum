@@ -10,7 +10,7 @@ enabling better retrieval for contract queries.
 
 import re
 from dataclasses import dataclass
-from typing import IO, List, Optional, Tuple, Union
+from typing import IO, List, Optional, Tuple
 
 import pdfplumber
 
@@ -49,7 +49,7 @@ class TableFieldExtractor:
     )
 
     def extract_from_pdf(
-        self, pdf_source: Union[str, IO[bytes]]
+        self, pdf_source: str | IO[bytes]
     ) -> Tuple[List[ExtractedField], List[ExtractedTable]]:
         """Extract fields and tables from a PDF.
 

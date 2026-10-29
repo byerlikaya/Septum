@@ -120,30 +120,7 @@ def _absorb_layer(
     if not grown:
         return spans
     winners = list(grown.values())
-
-    # An inner span handled before a later fold widens its outer would keep a
-    # remainder that now overlaps it, so the pass repeats until no outer grows.
-    # Each repeat only widens outers toward the text, so it terminates.
-    while True:
-        before = [(w.start, w.end) for w in winners]
-        remainders: dict[int, List[DetectedSpan]] = {}
-        for index, span in enumerate(spans):
-            if span.entity_type not in inner_types:
-                continue
-            cuts = [
-                (w.start, w.end)
-                for w in winners
-                if _overlaps(span.start, span.end, w.start, w.end)
-            ]
-            if not cuts:
-                remainders[index] = [span]
-                continue
-            pieces = _subtract(span.start, span.end, cuts)
-            if text is not None:
-                pieces = [_claim_tails(text, s, e, winners) for s, e in pieces]
-            remainders[index] = _remainders(span, pieces, text)
-        if [(w.start, w.end) for w in winners] == before:
-            break
+    remainders = _settle_remainders(spans, inner_types, winners, text)
 
     result: List[DetectedSpan] = []
     for index, span in enumerate(spans):
@@ -154,6 +131,54 @@ def _absorb_layer(
         else:
             result.append(span)
     return result
+
+
+def _settle_remainders(
+    spans: List[DetectedSpan],
+    inner_types: frozenset[str],
+    winners: List[_Grow],
+    text: str | None,
+) -> dict[int, List[DetectedSpan]]:
+    """Repeat the inner-span cut until no winner widens, then return its remainders.
+
+    An inner span handled before a later fold widens its outer would keep a
+    remainder that now overlaps it, so the pass repeats until no outer grows.
+    Each repeat only widens outers toward the text, so it terminates.
+    """
+    while True:
+        before = [(w.start, w.end) for w in winners]
+        remainders = _cut_inner_spans(spans, inner_types, winners, text)
+        if [(w.start, w.end) for w in winners] == before:
+            return remainders
+
+
+def _overlapping_winners(
+    span: DetectedSpan, winners: List[_Grow]
+) -> List[tuple[int, int]]:
+    """The ranges of the winners that overlap ``span``."""
+    return [(w.start, w.end) for w in winners if _overlaps(span.start, span.end, w.start, w.end)]
+
+
+def _cut_inner_spans(
+    spans: List[DetectedSpan],
+    inner_types: frozenset[str],
+    winners: List[_Grow],
+    text: str | None,
+) -> dict[int, List[DetectedSpan]]:
+    """Map each inner span's index to the pieces left once ``winners`` absorb its overlap."""
+    remainders: dict[int, List[DetectedSpan]] = {}
+    for index, span in enumerate(spans):
+        if span.entity_type not in inner_types:
+            continue
+        cuts = _overlapping_winners(span, winners)
+        if not cuts:
+            remainders[index] = [span]
+            continue
+        pieces = _subtract(span.start, span.end, cuts)
+        if text is not None:
+            pieces = [_claim_tails(text, s, e, winners) for s, e in pieces]
+        remainders[index] = _remainders(span, pieces, text)
+    return remainders
 
 
 def deduplicate_spans(
@@ -378,6 +403,15 @@ def _tail_starts_with_letter(text: str, p: int) -> bool:
     return p < len(text) and (text[p].isalpha() or _is_mark(text[p]))
 
 
+def _trim_to_alnum(text: str, start: int, end: int) -> tuple[int, int]:
+    """Shrink ``[start, end)`` past leading and trailing characters that are not letters or digits."""
+    while start < end and not (text[start].isalnum() or _is_mark(text[start])):
+        start += 1
+    while end > start and not (text[end - 1].isalnum() or _is_mark(text[end - 1])):
+        end -= 1
+    return start, end
+
+
 def _remainders(
     span: DetectedSpan,
     ranges: List[tuple[int, int]],
@@ -386,10 +420,7 @@ def _remainders(
     result: List[DetectedSpan] = []
     for start, end in ranges:
         if text is not None:
-            while start < end and not (text[start].isalnum() or _is_mark(text[start])):
-                start += 1
-            while end > start and not (text[end - 1].isalnum() or _is_mark(text[end - 1])):
-                end -= 1
+            start, end = _trim_to_alnum(text, start, end)
         if start >= end or (
             text is not None and not any(ch.isalnum() for ch in text[start:end])
         ):

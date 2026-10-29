@@ -103,7 +103,7 @@ APOSTROPHES: frozenset[str] = frozenset({"'", "‘", "’", "ʼ", "´", "′", "
 
 # Maps every apostrophe variant to ASCII. The mapping is one character to one
 # character, so offsets in the folded text match the original.
-_APOSTROPHE_FOLD = str.maketrans({ch: "'" for ch in APOSTROPHES})
+_APOSTROPHE_FOLD = str.maketrans(dict.fromkeys(APOSTROPHES, "'"))
 
 # Suffixes shared across most Latin-script languages.
 _COMMON_POSSESSIVE_SUFFIXES = ["'s"]

@@ -95,6 +95,44 @@ def _is_bounded(scope: Scope) -> bool:
     return False
 
 
+def _declares_oversized_body(scope: Scope) -> bool:
+    """Whether the Content-Length header declares a body over the cap."""
+    for name, value in scope.get("headers", ()):
+        if name == b"content-length" and value.isdigit() and int(value) > MAX_UPLOAD_BODY_BYTES:
+            return True
+    return False
+
+
+class _BodyReader:
+    """Reads one bounded request body: 413 past the cap, 408 on an idle gap or the overall deadline."""
+
+    def __init__(self, receive: Receive, loop: asyncio.AbstractEventLoop) -> None:
+        self._receive = receive
+        self._loop = loop
+        self._deadline = loop.time() + UPLOAD_BODY_TIMEOUT_SECONDS
+        self._received = 0
+        self._body_complete = False
+
+    async def __call__(self) -> Message:
+        if self._body_complete:
+            return await self._receive()
+        remaining = self._deadline - self._loop.time()
+        if remaining <= 0:
+            raise _read_timed_out()
+        try:
+            message = await asyncio.wait_for(
+                self._receive(), min(UPLOAD_READ_IDLE_TIMEOUT_SECONDS, remaining)
+            )
+        except TimeoutError:
+            raise _read_timed_out() from None
+        if message["type"] == "http.request":
+            self._received += len(message.get("body", b""))
+            if self._received > MAX_UPLOAD_BODY_BYTES:
+                raise _payload_too_large()
+            self._body_complete = not message.get("more_body", False)
+        return message
+
+
 class UploadLimitMiddleware:
     """Bound every request that could make the server hold an upload in memory.
 
@@ -138,19 +176,15 @@ class UploadLimitMiddleware:
             await response(scope, receive, send)
             return
 
-        for name, value in scope.get("headers", ()):
-            if name == b"content-length" and value.isdigit() and int(value) > MAX_UPLOAD_BODY_BYTES:
-                await JSONResponse(status_code=413, content={"detail": TOO_LARGE_DETAIL})(
-                    scope, receive, send
-                )
-                return
+        if _declares_oversized_body(scope):
+            await JSONResponse(status_code=413, content={"detail": TOO_LARGE_DETAIL})(
+                scope, receive, send
+            )
+            return
 
         self.active += 1
         released = False
-        received = 0
-        body_complete = False
-        loop = asyncio.get_running_loop()
-        body_deadline = loop.time() + UPLOAD_BODY_TIMEOUT_SECONDS
+        read_body = _BodyReader(receive, asyncio.get_running_loop())
 
         def release() -> None:
             nonlocal released
@@ -158,32 +192,12 @@ class UploadLimitMiddleware:
                 released = True
                 self.active -= 1
 
-        async def limited_receive() -> Message:
-            nonlocal received, body_complete
-            if body_complete:
-                return await receive()
-            remaining = body_deadline - loop.time()
-            if remaining <= 0:
-                raise _read_timed_out()
-            try:
-                message = await asyncio.wait_for(
-                    receive(), min(UPLOAD_READ_IDLE_TIMEOUT_SECONDS, remaining)
-                )
-            except TimeoutError:
-                raise _read_timed_out() from None
-            if message["type"] == "http.request":
-                received += len(message.get("body", b""))
-                if received > MAX_UPLOAD_BODY_BYTES:
-                    raise _payload_too_large()
-                body_complete = not message.get("more_body", False)
-            return message
-
         async def releasing_send(message: Message) -> None:
             if message["type"] == "http.response.start":
                 release()
             await send(message)
 
         try:
-            await self.app(scope, limited_receive, releasing_send)
+            await self.app(scope, read_body, releasing_send)
         finally:
             release()
