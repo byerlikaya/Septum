@@ -50,6 +50,19 @@ class SemanticChunker:
         raise NotImplementedError
 
 
+def _section_record(lines: List[str], title: Optional[str]) -> dict:
+    """Return one identified section as its stripped text and title."""
+    return {
+        "text": "\n".join(lines).strip(),
+        "title": title,
+    }
+
+
+def _heading_title(stripped: str) -> Optional[str]:
+    """Title kept for a section opener: its first 100 characters, unless the line is very long."""
+    return stripped[:100] if len(stripped) < 200 else None
+
+
 class StructuredDocumentChunker(SemanticChunker):
     """Enhanced chunker for structured legal/business documents.
 
@@ -152,32 +165,22 @@ class StructuredDocumentChunker(SemanticChunker):
                     current_section_lines.append(line)
                 continue
 
-            is_section_start = self._is_section_start(stripped)
-            is_heading = self._is_heading(stripped)
-
-            if is_section_start or is_heading:
+            if self._starts_section(stripped):
                 if current_section_lines:
-                    section_text = "\n".join(current_section_lines).strip()
-                    sections.append(
-                        {
-                            "text": section_text,
-                            "title": current_title,
-                        }
-                    )
+                    sections.append(_section_record(current_section_lines, current_title))
                 current_section_lines = [line]
-                current_title = stripped[:100] if len(stripped) < 200 else None
+                current_title = _heading_title(stripped)
             else:
                 current_section_lines.append(line)
 
         if current_section_lines:
-            sections.append(
-                {
-                    "text": "\n".join(current_section_lines).strip(),
-                    "title": current_title,
-                }
-            )
+            sections.append(_section_record(current_section_lines, current_title))
 
         return sections
+
+    def _starts_section(self, stripped: str) -> bool:
+        """True when a non-blank, stripped line opens a new section."""
+        return self._is_section_start(stripped) or self._is_heading(stripped)
 
     def _is_section_start(self, line: str) -> bool:
         """Check if line starts with a section/clause number."""

@@ -226,33 +226,11 @@ class PdfIngester(BaseIngester):
         image_confs: List[float] = []
 
         for img_info in page.get_images(full=True):
-            xref = img_info[0]
-            width = img_info[2]
-            height = img_info[3]
-
-            if width < self._MIN_IMAGE_DIMENSION or height < self._MIN_IMAGE_DIMENSION:
+            if img_info[2] < self._MIN_IMAGE_DIMENSION or img_info[3] < self._MIN_IMAGE_DIMENSION:
                 continue
 
             try:
-                img_data = doc.extract_image(xref)
-                if img_data is None:
-                    continue
-
-                image = Image.open(io.BytesIO(img_data["image"]))
-                if image.mode != "RGB":
-                    image = image.convert("RGB")
-                image_array = np.array(image)
-
-                languages = list(dict.fromkeys(self._languages or []))
-                if "en" not in languages:
-                    languages.append("en")
-
-                ocr_texts, confs = run_ocr(
-                    self._ocr_provider,
-                    image_array,
-                    languages or ["en"],
-                    **self._ocr_provider_options,
-                )
+                ocr_texts, confs = self._ocr_embedded_image(doc, img_info[0])
                 if ocr_texts:
                     image_texts.append("\n".join(ocr_texts))
                     image_confs.extend(confs)
@@ -263,6 +241,29 @@ class PdfIngester(BaseIngester):
                 continue
 
         return image_texts, image_confs
+
+    def _ocr_embedded_image(self, doc: fitz.Document, xref: int) -> Tuple[List[str], List[float]]:
+        """OCR one embedded image by cross-reference; nothing is returned when it has no data."""
+        img_data = doc.extract_image(xref)
+        if img_data is None:
+            return [], []
+
+        image = Image.open(io.BytesIO(img_data["image"]))
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        return run_ocr(
+            self._ocr_provider,
+            np.array(image),
+            self._ocr_languages(),
+            **self._ocr_provider_options,
+        )
+
+    def _ocr_languages(self) -> List[str]:
+        """Configured OCR language hints, de-duplicated, always including English."""
+        languages = list(dict.fromkeys(self._languages or []))
+        if "en" not in languages:
+            languages.append("en")
+        return languages or ["en"]
 
     @staticmethod
     def _text_looks_corrupt(text: str) -> bool:
@@ -295,15 +296,10 @@ class PdfIngester(BaseIngester):
         image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
         image_array = np.array(image)
 
-        languages = list(dict.fromkeys(self._languages or []))
-        if "en" not in languages:
-            languages.append("en")
-        effective = languages or ["en"]
-
         texts, confidences = run_ocr(
             self._ocr_provider,
             image_array,
-            effective,
+            self._ocr_languages(),
             **self._ocr_provider_options,
         )
         joined_text = "\n".join(texts)
