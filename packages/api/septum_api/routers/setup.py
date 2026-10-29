@@ -36,6 +36,7 @@ from ..models.user import User
 from ..services.whisper_models import (
     WhisperDownloadError,
     WhisperInstallBusy,
+    WhisperTarget,
     install_whisper_file,
     require_registry_model_http,
     resolve_whisper_target,
@@ -489,61 +490,72 @@ async def install_whisper(
     try:
         target = resolve_whisper_target(getattr(whisper, "_MODELS", {}), model_name)
     except WhisperDownloadError as exc:
-        status = str(exc)
-
-        async def _refused():
-            yield _sse({"percent": 0, "status": status, "error": True})
-        return StreamingResponse(_refused(), media_type="text/event-stream")
+        return StreamingResponse(_refusal_stream(str(exc)), media_type="text/event-stream")
 
     # Download with direct byte-level progress tracking instead of
     # polling file size (which is unreliable under Docker/QEMU I/O). Each
     # attempt takes the model's lock without blocking, so a concurrent
     # install never parks an executor thread; this request polls instead.
     progress = {"downloaded": 0, "total": target.approx_bytes}
+    return StreamingResponse(
+        _stream_whisper_install(target, progress), media_type="text/event-stream"
+    )
 
-    def _percent() -> int:
-        total = progress["total"]
-        return min(int(progress["downloaded"] * 100 / total), 99) if total > 0 else 0
 
-    def _settle_abandoned(task: asyncio.Future) -> None:
-        """Collect the outcome of an attempt whose client went away."""
-        if not task.cancelled() and task.exception() is not None:
-            logger.warning(
-                "Whisper model download failed after client left: %s",
-                type(task.exception()).__name__,
-            )
+async def _refusal_stream(message: str):
+    """Stream one error event for a model that cannot be downloaded."""
+    yield _sse({"percent": 0, "status": message, "error": True})
 
-    async def _stream_progress():
-        yield _sse({"percent": 0, "status": "downloading"})
-        give_up = time.monotonic() + target.deadline_seconds
-        while True:
-            attempt = asyncio.ensure_future(
-                asyncio.to_thread(install_whisper_file, target, progress, wait=False)
-            )
-            try:
-                while not attempt.done():
-                    await asyncio.wait({attempt}, timeout=1)
-                    if not attempt.done():
-                        yield _sse({"percent": _percent(), "status": "downloading"})
-            finally:
+
+def _install_percent(progress: dict[str, int]) -> int:
+    """Download progress as a whole percentage, capped at 99 until the install settles."""
+    total = progress["total"]
+    return min(int(progress["downloaded"] * 100 / total), 99) if total > 0 else 0
+
+
+def _settle_abandoned(task: asyncio.Future) -> None:
+    """Collect the outcome of an attempt whose client went away."""
+    if not task.cancelled() and task.exception() is not None:
+        logger.warning(
+            "Whisper model download failed after client left: %s",
+            type(task.exception()).__name__,
+        )
+
+
+def _should_wait_for_busy_install(failure: BaseException | None, give_up: float) -> bool:
+    """True when the attempt found the model busy and the overall deadline has not passed."""
+    return isinstance(failure, WhisperInstallBusy) and time.monotonic() < give_up
+
+
+async def _stream_whisper_install(target: WhisperTarget, progress: dict[str, int]):
+    """Install the model in worker attempts, streaming progress until the install settles."""
+    yield _sse({"percent": 0, "status": "downloading"})
+    give_up = time.monotonic() + target.deadline_seconds
+    while True:
+        attempt = asyncio.ensure_future(
+            asyncio.to_thread(install_whisper_file, target, progress, wait=False)
+        )
+        try:
+            while not attempt.done():
+                await asyncio.wait({attempt}, timeout=1)
                 if not attempt.done():
-                    # The worker thread cannot be interrupted; it finishes
-                    # under its deadline and releases the locks on its own.
-                    attempt.add_done_callback(_settle_abandoned)
-            failure = attempt.exception()
-            if isinstance(failure, WhisperInstallBusy) and time.monotonic() < give_up:
-                yield _sse({"percent": 0, "status": "waiting"})
-                await asyncio.sleep(1)
-                continue
+                    yield _sse({"percent": _install_percent(progress), "status": "downloading"})
+        finally:
+            if not attempt.done():
+                # The worker thread cannot be interrupted; it finishes
+                # under its deadline and releases the locks on its own.
+                attempt.add_done_callback(_settle_abandoned)
+        failure = attempt.exception()
+        if not _should_wait_for_busy_install(failure, give_up):
             break
+        yield _sse({"percent": 0, "status": "waiting"})
+        await asyncio.sleep(1)
 
-        if failure is None:
-            yield _sse({"percent": 100, "status": "ready", "done": True})
-        else:
-            logger.warning("Whisper model download failed: %s", type(failure).__name__)
-            yield _sse({"percent": 0, "status": public_error_text(failure, "Model download failed"), "error": True})
-
-    return StreamingResponse(_stream_progress(), media_type="text/event-stream")
+    if failure is None:
+        yield _sse({"percent": 100, "status": "ready", "done": True})
+    else:
+        logger.warning("Whisper model download failed: %s", type(failure).__name__)
+        yield _sse({"percent": 0, "status": public_error_text(failure, "Model download failed"), "error": True})
 
 
 async def _run_alembic_upgrade(database_url: str) -> None:
