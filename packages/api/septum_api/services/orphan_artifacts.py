@@ -84,6 +84,26 @@ async def sweep_orphan_artifacts(
     """
     result = OrphanSweepResult()
 
+    candidates = await _listed_artifact_ids(result)
+    sources = _list_source_files(source_dir, result)
+
+    async with session_maker() as db:
+        live, referenced = await _live_document_keys(db)
+        if not live and (candidates or sources):
+            return _hold_back(result, len(candidates), len(sources))
+
+        await _erase_orphans(db, candidates - live, result)
+
+    for entry in sources:
+        if entry.name not in referenced:
+            _erase_source_file(entry, result)
+
+    _log_sweep_outcome(result)
+    return result
+
+
+async def _listed_artifact_ids(result: OrphanSweepResult) -> set[int]:
+    """Document ids that still have a stored index or map; listing failures are counted, not raised."""
     candidates: set[int] = set()
     disk_listings: list[tuple[str, Callable[[], set[int]]]] = [
         ("vector_index", lambda: VectorStore().stored_document_ids()),
@@ -99,37 +119,45 @@ async def sweep_orphan_artifacts(
         candidates |= await redis_map_document_ids()
     except (DocumentMapErasureError, RedisError) as exc:
         _listing_failed(result, "anonymization_map_cache", exc)
-    sources = _list_source_files(source_dir, result)
+    return candidates
 
-    async with session_maker() as db:
-        live: set[int] = set()
-        referenced: set[str] = set()
-        rows = await db.execute(select(Document.id, Document.filename, Document.encrypted_path))
-        for document_id, filename, encrypted_path in rows:
-            live.add(document_id)
-            referenced.add(filename)
-            referenced.add(Path(encrypted_path).name)
-        if not live and (candidates or sources):
-            result.held_back = len(candidates) + len(sources)
-            logger.error(
-                "The documents table is empty but %d stored document ids and %d source "
-                "files exist; erased nothing. Check the database the API is using.",
-                len(candidates),
-                len(sources),
-            )
-            return result
 
-        for document_id in sorted(candidates - live):
-            outcome = await _erase_orphan(db, document_id)
-            if outcome == "erased":
-                result.documents += 1
-            elif outcome == "failed":
-                result.failures += 1
+async def _live_document_keys(db: AsyncSession) -> tuple[set[int], set[str]]:
+    """Ids of every document row, and the file names those rows reference."""
+    live: set[int] = set()
+    referenced: set[str] = set()
+    rows = await db.execute(select(Document.id, Document.filename, Document.encrypted_path))
+    for document_id, filename, encrypted_path in rows:
+        live.add(document_id)
+        referenced.add(filename)
+        referenced.add(Path(encrypted_path).name)
+    return live, referenced
 
-    for entry in sources:
-        if entry.name not in referenced:
-            _erase_source_file(entry, result)
 
+def _hold_back(result: OrphanSweepResult, candidate_count: int, source_count: int) -> OrphanSweepResult:
+    """Erase nothing when the documents table is empty but artifacts exist; log the likely cause."""
+    result.held_back = candidate_count + source_count
+    logger.error(
+        "The documents table is empty but %d stored document ids and %d source "
+        "files exist; erased nothing. Check the database the API is using.",
+        candidate_count,
+        source_count,
+    )
+    return result
+
+
+async def _erase_orphans(db: AsyncSession, orphan_ids: set[int], result: OrphanSweepResult) -> None:
+    """Erase the artifacts of each orphaned id in ascending order, counting each outcome."""
+    for document_id in sorted(orphan_ids):
+        outcome = await _erase_orphan(db, document_id)
+        if outcome == "erased":
+            result.documents += 1
+        elif outcome == "failed":
+            result.failures += 1
+
+
+def _log_sweep_outcome(result: OrphanSweepResult) -> None:
+    """Log what the sweep erased and whether any failure is left for the next startup."""
     if result.documents or result.source_files:
         logger.info(
             "Erased stored artifacts of %d deleted documents and %d orphaned source files",
@@ -141,7 +169,6 @@ async def sweep_orphan_artifacts(
             "Orphaned artifact sweep left %d failures; the next startup retries them",
             result.failures,
         )
-    return result
 
 
 def _listing_failed(result: OrphanSweepResult, tier: str, exc: BaseException) -> None:

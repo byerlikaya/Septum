@@ -30,30 +30,48 @@ def _connected_components(
 ) -> List[Set[int]]:
     """Return the connected components of the undirected graph (nodes, edges)."""
     node_set = set(nodes)
-    adjacency: defaultdict[int, set[int]] = defaultdict(set)
-    for a, b in edges:
-        if a in node_set and b in node_set and a != b:
-            adjacency[a].add(b)
-            adjacency[b].add(a)
+    adjacency = _adjacency_within(node_set, edges)
 
     visited: set[int] = set()
     clusters: list[set[int]] = []
     for start in node_set:
         if start in visited:
             continue
-        component: set[int] = set()
-        stack = [start]
-        while stack:
-            current = stack.pop()
-            if current in visited:
-                continue
-            visited.add(current)
-            component.add(current)
-            for neighbour in adjacency[current]:
-                if neighbour not in visited:
-                    stack.append(neighbour)
-        clusters.append(component)
+        clusters.append(_component_from(start, adjacency, visited))
     return clusters
+
+
+def _adjacency_within(
+    node_set: Set[int],
+    edges: Iterable[Tuple[int, int]],
+) -> defaultdict[int, set[int]]:
+    """Undirected adjacency over the edges whose ends are both known nodes; self-loops are dropped."""
+    adjacency: defaultdict[int, set[int]] = defaultdict(set)
+    for a, b in edges:
+        if a in node_set and b in node_set and a != b:
+            adjacency[a].add(b)
+            adjacency[b].add(a)
+    return adjacency
+
+
+def _component_from(
+    start: int,
+    adjacency: defaultdict[int, set[int]],
+    visited: Set[int],
+) -> set[int]:
+    """Collect the component containing ``start``, marking its members as visited."""
+    component: set[int] = set()
+    stack = [start]
+    while stack:
+        current = stack.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+        component.add(current)
+        for neighbour in adjacency[current]:
+            if neighbour not in visited:
+                stack.append(neighbour)
+    return component
 
 
 async def cluster_documents_by_relationship(
