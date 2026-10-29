@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
@@ -214,7 +215,7 @@ async def me(
 @route_limit("5/minute", fail_open=False)
 async def change_password(
     payload: ChangePasswordRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """Rotate the caller's own password and return a fresh JWT."""

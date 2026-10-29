@@ -96,9 +96,12 @@ def write_anchor(ledger: str | os.PathLike[str], anchor: RetentionAnchor) -> Non
 
 
 def accepted_links(anchor: RetentionAnchor | None) -> tuple[str, ...]:
-    """Links the first record of a ledger may carry for verification to pass."""
+    """Links the first record of a ledger may carry for verification to pass.
+
+    The None case returns GENESIS twice on purpose, to keep a fixed two-element shape.
+    """
     if anchor is None:
-        return (GENESIS_PREV_HASH,)
+        return (GENESIS_PREV_HASH, GENESIS_PREV_HASH)
     return (anchor.hash, anchor.previous_hash)
 
 
