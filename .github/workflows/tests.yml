@@ -92,6 +92,12 @@ jobs:
           python -m alembic upgrade head
           python -m alembic check
 
+      # The real-ffmpeg audio tests (decode, no-disk-write guard, memfd path) skip without the binary.
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: Run backend tests
         env:
           SEPTUM_TEST_POSTGRES_URL: postgresql+asyncpg://septum:ci@localhost:5432/septum

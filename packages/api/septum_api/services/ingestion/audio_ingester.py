@@ -16,35 +16,196 @@ to disk; it is only held in memory for the duration of processing.
 """
 
 import asyncio
+import os
+import shutil
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import ffmpeg  # type: ignore[import]
 import numpy as np  # type: ignore[import]
 
+from ...env_flags import env_int
+from ...errors import ContentFreeError
 from ...utils.crypto import decrypt
 from ...utils.device import get_device
 from .base import BaseIngester, IngestionResult
 
 _WHISPER_SAMPLE_RATE = 16000
+_PCM_BYTES_PER_SECOND = _WHISPER_SAMPLE_RATE * 2
+_PIPE_CHUNK_BYTES = 1024 * 1024
+_OUTPUT_MARGIN_BYTES = 64 * 1024
+_DECODE_TIMEOUT_BASE_SECONDS = 30.0
+"""Fixed part of the decode time budget (process start-up and container probing)."""
 
-_MIME_TO_SUFFIX: Dict[str, str] = {
-    "audio/mpeg": ".mp3",
-    "audio/mp3": ".mp3",
-    "audio/wav": ".wav",
-    "audio/x-wav": ".wav",
-    "audio/flac": ".flac",
-    "audio/ogg": ".ogg",
-    "audio/mp4": ".m4a",
-    "audio/x-m4a": ".m4a",
-}
+MAX_AUDIO_SECONDS = env_int("MAX_AUDIO_SECONDS", 3600, 1, 86400)
+"""Longest audio accepted for transcription; longer audio is refused, never truncated.
+
+Bounds decoding memory: a small, highly compressed file can otherwise expand
+to many gigabytes of PCM.
+"""
 
 
-def _suffix_for_audio(mime_type: str) -> str:
-    """Return a file suffix for the given audio MIME type so decoders get the right format."""
-    return _MIME_TO_SUFFIX.get(
-        (mime_type or "").strip().lower(), ".m4a"
+class AudioDecodeError(ContentFreeError, RuntimeError):
+    """Decrypted audio could not be decoded in memory; the message is shown to the user."""
+
+
+_UNDECODABLE_MESSAGE = (
+    "Audio could not be decoded: the file is damaged or in an unsupported format."
+)
+_PIPE_UNDECODABLE_MESSAGE = (
+    "Audio could not be decoded: the file is damaged, in an unsupported format, "
+    "or needs a seekable input this server cannot provide without writing it to "
+    "disk (MP4/M4A files that store their index at the end). Re-export it with "
+    "the index at the start (for example ffmpeg -movflags +faststart) or convert "
+    "it to MP3, WAV, FLAC or OGG."
+)
+_TIMEOUT_MESSAGE = "Audio decoding took too long and was stopped."
+_NO_FFMPEG_MESSAGE = "Audio could not be decoded: ffmpeg is not installed."
+
+
+def _too_long_message() -> str:
+    """Refusal for audio over :data:`MAX_AUDIO_SECONDS`."""
+    return (
+        f"Audio is longer than the {MAX_AUDIO_SECONDS}-second limit "
+        "(MAX_AUDIO_SECONDS) and was not transcribed."
     )
+
+
+def _decode_timeout_seconds() -> float:
+    """Wall-clock budget for one decode.
+
+    ffmpeg decodes far faster than real time, so a twentieth of the longest
+    accepted audio plus a fixed allowance leaves ample room on slow hosts.
+    """
+    return _DECODE_TIMEOUT_BASE_SECONDS + MAX_AUDIO_SECONDS / 20
+
+
+def _ffmpeg_args(binary: str, source: str, protocol: str) -> List[str]:
+    """Argv decoding ``source`` to 16 kHz mono PCM on stdout, as Whisper's own loader does.
+
+    ``-t`` stops one second past the limit so over-long audio is detected
+    rather than silently cut, and the protocol whitelist keeps the input
+    from referencing anything but the one source.
+    """
+    return [
+        binary, "-nostdin", "-v", "error",
+        "-protocol_whitelist", protocol, "-i", source,
+        "-t", str(MAX_AUDIO_SECONDS + 1),
+        "-f", "s16le", "-acodec", "pcm_s16le", "-ac", "1",
+        "-ar", str(_WHISPER_SAMPLE_RATE), "-",
+    ]
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    """Write ``data`` to ``fd`` in full, looping over short writes."""
+    view = memoryview(data)
+    while view:
+        written = os.write(fd, view)
+        view = view[written:]
+
+
+async def _feed_stdin(stdin: asyncio.StreamWriter, data: bytes) -> None:
+    """Write ``data`` to ffmpeg's stdin in chunks, then close it.
+
+    ffmpeg closes its end early when it fails or reaches the ``-t`` limit;
+    that broken pipe is expected, and ffmpeg's exit status and output decide
+    the outcome.
+    """
+    view = memoryview(data)
+    try:
+        for start in range(0, len(view), _PIPE_CHUNK_BYTES):
+            stdin.write(view[start:start + _PIPE_CHUNK_BYTES])
+            await stdin.drain()
+    except (BrokenPipeError, ConnectionResetError):
+        return
+    finally:
+        stdin.close()
+
+
+async def _read_capped(stream: asyncio.StreamReader, limit: int) -> bytearray:
+    """Read ``stream`` to its end, refusing more than ``limit`` bytes."""
+    output = bytearray()
+    while chunk := await stream.read(_PIPE_CHUNK_BYTES):
+        output += chunk
+        if len(output) > limit:
+            raise AudioDecodeError(_too_long_message())
+    return output
+
+
+async def _run_ffmpeg(
+    args: Sequence[str],
+    *,
+    stdin_data: Optional[bytes] = None,
+    pass_fds: Tuple[int, ...] = (),
+) -> Tuple[int, bytearray]:
+    """Run ffmpeg and return (exit status, PCM output); it is killed on any failure.
+
+    Output is capped at the PCM size of :data:`MAX_AUDIO_SECONDS` plus a
+    second and a margin. stderr is discarded, since it can echo file metadata.
+    """
+    process = await asyncio.create_subprocess_exec(
+        *args,
+        stdin=asyncio.subprocess.DEVNULL if stdin_data is None else asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+        pass_fds=pass_fds,
+    )
+    feeder = (
+        None if stdin_data is None else asyncio.create_task(_feed_stdin(process.stdin, stdin_data))
+    )
+    limit = (MAX_AUDIO_SECONDS + 1) * _PCM_BYTES_PER_SECOND + _OUTPUT_MARGIN_BYTES
+    try:
+        output = await _read_capped(process.stdout, limit)
+        if feeder is not None:
+            await feeder
+        returncode = await process.wait()
+    except BaseException:
+        if process.returncode is None:
+            process.kill()
+        if feeder is not None:
+            feeder.cancel()
+            await asyncio.wait({feeder})
+        await process.wait()
+        raise
+    return returncode, output
+
+
+async def _decode_from_memory_file(binary: str, audio_bytes: bytes) -> bytearray:
+    """Decode through a memfd so ffmpeg can seek (e.g. an MP4 index at the end)."""
+    fd = os.memfd_create("septum-audio", os.MFD_CLOEXEC)
+    try:
+        # Written on the loop thread: a worker thread could still be writing
+        # when a cancellation reaches the ``finally`` that closes the fd.
+        _write_all(fd, audio_bytes)
+        returncode, pcm = await _run_ffmpeg(
+            _ffmpeg_args(binary, f"/proc/self/fd/{fd}", "file"), pass_fds=(fd,)
+        )
+    finally:
+        os.close(fd)
+    if returncode != 0 or not pcm:
+        raise AudioDecodeError(_UNDECODABLE_MESSAGE)
+    return pcm
+
+
+async def _decode_from_pipe(binary: str, audio_bytes: bytes) -> bytearray:
+    """Decode through stdin, which cannot seek; used where memfd is unavailable."""
+    returncode, pcm = await _run_ffmpeg(
+        _ffmpeg_args(binary, "pipe:0", "pipe"), stdin_data=audio_bytes
+    )
+    if returncode != 0 or not pcm:
+        raise AudioDecodeError(_PIPE_UNDECODABLE_MESSAGE)
+    return pcm
+
+
+def _to_waveform(pcm: bytes | bytearray) -> np.ndarray:
+    """Convert signed 16-bit mono PCM into Whisper's float32 waveform."""
+    audio = np.frombuffer(pcm, np.int16).astype(np.float32)
+    audio *= 1.0 / 32768.0
+    return audio
+
+
+def _read_decrypted(file_path: Path) -> bytes:
+    """Read and decrypt an encrypted file at rest; the plaintext stays in memory."""
+    return decrypt(file_path.read_bytes())
 
 
 class AudioIngester(BaseIngester):
@@ -88,33 +249,12 @@ class AudioIngester(BaseIngester):
         stored encrypted on disk.
         """
 
-        return await asyncio.to_thread(self._extract_sync, data, filename)
+        audio = await self._decode_in_memory(data)
+        return await asyncio.to_thread(self._extract_result, audio, filename)
 
-    def _extract_sync(self, data: bytes, filename: str) -> IngestionResult:
-        """Synchronous helper for :meth:`extract`, run in a worker thread."""
-        import tempfile
-
-        suffix = Path(filename).suffix or ".m4a"
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
-            tmp.write(data)
-            tmp.flush()
-
-            model = self._load_model()
-            transcribe_kwargs: Dict[str, Any] = {}
-            if self._language:
-                transcribe_kwargs["language"] = self._language
-            result = model.transcribe(tmp.name, **transcribe_kwargs)
-
-        text = result.get("text") or ""
-        language = result.get("language")
-        segments_raw = result.get("segments") or []
-
-        segments: List[Dict[str, Any]] = []
-        for seg in segments_raw:
-            if isinstance(seg, dict):
-                segments.append(seg)
-            else:
-                segments.append(dict(seg))  # type: ignore[arg-type]
+    def _extract_result(self, audio: np.ndarray, filename: str) -> IngestionResult:
+        """Transcribe a decoded waveform for :meth:`extract`, run in a worker thread."""
+        text, language, segments = self._transcribe(audio)
 
         warnings: List[str] = []
         if not text.strip():
@@ -149,125 +289,92 @@ class AudioIngester(BaseIngester):
     ) -> IngestionResult:
         """Ingest the encrypted audio at ``file_path`` and return a transcript."""
 
+        audio_bytes = await asyncio.to_thread(_read_decrypted, file_path)
+        audio = await self._decode_in_memory(audio_bytes)
+        del audio_bytes
         return await asyncio.to_thread(
-            self._ingest_sync,
-            file_path,
+            self._ingest_result,
+            audio,
             mime_type,
             file_format,
         )
 
-    def _ingest_sync(
+    def _ingest_result(
         self,
-        file_path: Path,
+        audio: np.ndarray,
         mime_type: str,
         file_format: str,
     ) -> IngestionResult:
-        """Synchronous part of audio ingestion, run in a worker thread."""
+        """Transcribe a decoded waveform for :meth:`ingest`, run in a worker thread."""
 
-        encrypted_bytes = file_path.read_bytes()
         warnings: List[str] = []
-        audio_bytes = decrypt(encrypted_bytes)
-
-        # Use a temporary file + Whisper's internal decoding pipeline. The suffix
-        # must match the actual audio format (from MIME) so ffmpeg/Whisper can
-        # decode; the stored file has no extension (UUID name).
-        import tempfile
-
-        suffix = _suffix_for_audio(mime_type)
-        tmp_path: Optional[Path] = None
         try:
-            with tempfile.NamedTemporaryFile(
-                suffix=suffix, delete=False
-            ) as tmp:
-                tmp_path = Path(tmp.name)
-                tmp.write(audio_bytes)
-                tmp.flush()
-
-            model = self._load_model()
-            transcribe_kwargs: Dict[str, Any] = {}
-            if self._language:
-                transcribe_kwargs["language"] = self._language
-            try:
-                result = model.transcribe(str(tmp_path), **transcribe_kwargs)
-            except Exception:  # noqa: BLE001
-                warnings.append(
-                    "Audio transcription failed: Whisper could not process the file."
-                )
-                metadata = {
-                    "mime_type": mime_type,
-                    "file_format": file_format,
-                    "duration_seconds": 0.0,
-                    "whisper_model": self._model_name,
-                    "detected_language": None,
-                }
-                return IngestionResult(
-                    text="",
-                    metadata=metadata,
-                    warnings=warnings,
-                    raw_segments=[],
-                )
-
-            text = result.get("text") or ""
-            language = result.get("language")
-            segments_raw = result.get("segments") or []
-
-            segments = []
-            for seg in segments_raw:
-                if isinstance(seg, dict):
-                    segments.append(seg)
-                else:
-                    segments.append(dict(seg))  # type: ignore[arg-type]
-
-            duration_seconds = 0.0
-            if segments:
-                last_end = segments[-1].get("end")
-                if isinstance(last_end, (int, float)):
-                    duration_seconds = float(last_end)
-
-            if not text.strip():
-                warnings.append("No transcription produced by Whisper.")
-
+            text, language, segments = self._transcribe(audio)
+        except Exception:
+            warnings.append(
+                "Audio transcription failed: Whisper could not process the file."
+            )
             metadata = {
                 "mime_type": mime_type,
                 "file_format": file_format,
-                "duration_seconds": duration_seconds,
+                "duration_seconds": 0.0,
                 "whisper_model": self._model_name,
-                "detected_language": language,
+                "detected_language": None,
             }
             return IngestionResult(
-                text=text,
+                text="",
                 metadata=metadata,
                 warnings=warnings,
-                raw_segments=segments,
+                raw_segments=[],
             )
-        finally:
-            if tmp_path is not None and tmp_path.exists():
-                try:
-                    tmp_path.unlink()
-                except OSError:
-                    pass
 
-    def _decode_audio(self, audio_bytes: bytes, *, mime_type: str) -> np.ndarray:
-        """Decode arbitrary encoded audio bytes into a mono float waveform."""
-        out, _ = (
-            ffmpeg.input("pipe:0")
-            .output(
-                "-",
-                format="s16le",
-                acodec="pcm_s16le",
-                ac=1,
-                ar=_WHISPER_SAMPLE_RATE,
-            )
-            .run(
-                cmd=["ffmpeg", "-nostdin"],
-                capture_stdout=True,
-                capture_stderr=True,
-                input=audio_bytes,
-            )
+        duration_seconds = 0.0
+        if segments:
+            last_end = segments[-1].get("end")
+            if isinstance(last_end, (int, float)):
+                duration_seconds = float(last_end)
+
+        if not text.strip():
+            warnings.append("No transcription produced by Whisper.")
+
+        metadata = {
+            "mime_type": mime_type,
+            "file_format": file_format,
+            "duration_seconds": duration_seconds,
+            "whisper_model": self._model_name,
+            "detected_language": language,
+        }
+        return IngestionResult(
+            text=text,
+            metadata=metadata,
+            warnings=warnings,
+            raw_segments=segments,
         )
 
-        audio = np.frombuffer(out, np.int16).astype(np.float32) / 32768.0
-        return audio
+    async def _decode_in_memory(self, audio_bytes: bytes) -> np.ndarray:
+        """Decode audio to Whisper's waveform without ever writing it to disk.
+
+        On Linux the bytes go into an anonymous memory file that ffmpeg reads
+        as a seekable path. Elsewhere they are piped through stdin, which
+        cannot seek; an input that needs seeking then fails with a clear
+        :class:`AudioDecodeError` instead of falling back to a disk file.
+        Audio over :data:`MAX_AUDIO_SECONDS`, or a decode running past its
+        time budget, is refused the same way.
+        """
+        binary = shutil.which("ffmpeg")
+        if binary is None:
+            raise AudioDecodeError(_NO_FFMPEG_MESSAGE)
+        try:
+            async with asyncio.timeout(_decode_timeout_seconds()):
+                if hasattr(os, "memfd_create"):
+                    pcm = await _decode_from_memory_file(binary, audio_bytes)
+                else:
+                    pcm = await _decode_from_pipe(binary, audio_bytes)
+        except TimeoutError:
+            raise AudioDecodeError(_TIMEOUT_MESSAGE) from None
+        if len(pcm) > MAX_AUDIO_SECONDS * _PCM_BYTES_PER_SECOND:
+            raise AudioDecodeError(_too_long_message())
+        return await asyncio.to_thread(_to_waveform, pcm)
 
     def _load_model(self) -> Any:
         """Lazily load the Whisper model on the appropriate device.

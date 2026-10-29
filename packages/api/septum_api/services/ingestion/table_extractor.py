@@ -10,7 +10,7 @@ enabling better retrieval for contract queries.
 
 import re
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import IO, List, Optional, Tuple, Union
 
 import pdfplumber
 
@@ -48,13 +48,17 @@ class TableFieldExtractor:
         re.MULTILINE | re.UNICODE
     )
 
-    def extract_from_pdf(self, pdf_path: str) -> Tuple[List[ExtractedField], List[ExtractedTable]]:
-        """Extract fields and tables from a PDF file.
+    def extract_from_pdf(
+        self, pdf_source: Union[str, IO[bytes]]
+    ) -> Tuple[List[ExtractedField], List[ExtractedTable]]:
+        """Extract fields and tables from a PDF.
 
         Parameters
         ----------
-        pdf_path:
-            Path to the PDF file to process.
+        pdf_source:
+            Path to the PDF, or a seekable binary stream holding its bytes
+            (decrypted documents are passed as an in-memory stream so they
+            never touch disk).
 
         Returns
         -------
@@ -64,7 +68,7 @@ class TableFieldExtractor:
         fields: List[ExtractedField] = []
         tables: List[ExtractedTable] = []
 
-        with pdfplumber.open(pdf_path) as pdf:
+        with pdfplumber.open(pdf_source) as pdf:
             for page_num, page in enumerate(pdf.pages, start=1):
                 page_tables = page.extract_tables()
                 for table_data in page_tables:

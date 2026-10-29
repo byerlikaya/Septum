@@ -22,6 +22,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import fitz  # type: ignore[import]
 import numpy as np  # type: ignore[import]
+from pdfminer.psexceptions import PSException
+from pdfplumber.utils.exceptions import (
+    MalformedPDFException,
+    PdfminerException,
+)
 from PIL import Image  # type: ignore[import]
 from septum_core.model_integrity import ModelRefusal
 
@@ -32,6 +37,22 @@ from .ocr import run_ocr
 from .table_extractor import TableFieldExtractor
 
 logger = logging.getLogger(__name__)
+
+_FIELD_EXTRACTION_PARSE_ERRORS = (
+    PdfminerException,
+    MalformedPDFException,
+    PSException,
+    ValueError,
+    KeyError,
+    TypeError,
+    AssertionError,
+)
+"""Parse failures of the optional pdfplumber field pass; the PyMuPDF text stands alone.
+
+Besides the pdfplumber/pdfminer error types, page-level table extraction
+raises plain ``ValueError``/``KeyError``/``TypeError``/``AssertionError`` on
+malformed page content that PyMuPDF still reads.
+"""
 
 
 class PdfIngester(BaseIngester):
@@ -130,37 +151,20 @@ class PdfIngester(BaseIngester):
                 "file_format": file_format,
             }
 
-        # Phase 2: Extract structured fields with pdfplumber
-        # We need to write decrypted PDF bytes to a temp file for pdfplumber
         try:
-            import tempfile
-
-            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-                tmp.write(pdf_bytes)
-                tmp_path = tmp.name
-
-            try:
-                extractor = TableFieldExtractor()
-                fields, _ = extractor.extract_from_pdf(tmp_path)
-
-                if fields:
-                    fields_text_raw = "\n".join(
+            fields, _ = TableFieldExtractor().extract_from_pdf(io.BytesIO(pdf_bytes))
+            if fields:
+                fields_text_raw = "\n".join(
+                    f"{f.label} : {f.value}" for f in fields
+                )
+                if "(cid:" not in fields_text_raw:
+                    field_lines = ["=== Extracted Fields ===\n"] + [
                         f"{f.label} : {f.value}" for f in fields
-                    )
-                    if "(cid:" not in fields_text_raw:
-                        field_lines = ["=== Extracted Fields ===\n"] + [
-                            f"{f.label} : {f.value}" for f in fields
-                        ]
-                        full_text = "\n".join(field_lines) + "\n\n" + full_text
-                        metadata["extracted_fields_count"] = len(fields)
-            finally:
-                import os
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-        except Exception as exc:
-            logger.debug("Form field extraction failed, continuing with text only: %s", type(exc).__name__)
+                    ]
+                    full_text = "\n".join(field_lines) + "\n\n" + full_text
+                    metadata["extracted_fields_count"] = len(fields)
+        except _FIELD_EXTRACTION_PARSE_ERRORS as exc:
+            logger.warning("Form field extraction failed, continuing with text only: %s", type(exc).__name__)
 
         avg_confidence = (
             float(sum(ocr_confidences) / len(ocr_confidences))
