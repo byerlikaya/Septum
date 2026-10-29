@@ -253,6 +253,7 @@ export const enMessages = {
   "settings.llm.model.label": "Model",
   "settings.llm.model.hint":
     "Exact model ID as expected by your provider.",
+  "settings.llm.apiKey.label": "API Key",
   "settings.llm.apiKey.placeholder": "Enter API key",
   "settings.llm.apiKey.hint":
     "Stored locally and never sent anywhere except the selected provider.",
@@ -478,6 +479,8 @@ export const enMessages = {
   "chat.history.deleteAll": "Delete all conversations",
   "chat.history.deleteAllConfirm": "Are you sure you want to delete all conversations?",
   "chat.history.rename": "Rename",
+  "chat.history.exportJson": "Export JSON",
+  "chat.history.exportPdf": "Export PDF",
   "chat.message.delete": "Delete message",
   "chat.message.edit": "Edit & resend",
   "chat.output.label": "Output:",

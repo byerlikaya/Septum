@@ -123,7 +123,7 @@ export function Sidebar({ currentUser }: Readonly<SidebarProps>) {
   const t = useI18n();
   const [isNavOpen, setIsNavOpen] = useState<boolean>(false);
   const [errorLogCount, setErrorLogCount] = useState<number>(0);
-  const drawerRef = useRef<HTMLDivElement>(null);
+  const drawerRef = useRef<HTMLDialogElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const drawerId = useId();
 
@@ -270,13 +270,13 @@ export function Sidebar({ currentUser }: Readonly<SidebarProps>) {
             onClick={closeNav}
             className="absolute inset-0 cursor-default bg-slate-950/80"
           />
-          <div
+          <dialog
+            open
             ref={drawerRef}
             id={drawerId}
-            role="dialog"
             aria-modal="true"
             aria-label={t("sidebar.navigation")}
-            className="relative flex h-full w-72 max-w-[85vw] flex-col overflow-y-auto border-r border-slate-800 bg-slate-950 shadow-xl"
+            className="relative flex h-full max-h-none w-72 max-w-[85vw] flex-col overflow-y-auto border-r border-slate-800 bg-slate-950 text-[color:inherit] shadow-xl"
           >
             <div className="flex items-start justify-between gap-2 border-b border-slate-800 px-4 py-3">
               <div className="flex min-w-0 flex-col gap-1">
@@ -311,7 +311,7 @@ export function Sidebar({ currentUser }: Readonly<SidebarProps>) {
             </nav>
             {userInfo}
             {footer}
-          </div>
+          </dialog>
         </div>
       )}
 

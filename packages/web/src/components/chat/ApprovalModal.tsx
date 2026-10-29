@@ -212,9 +212,9 @@ export function ApprovalModal({
   const totalEntities = Array.from(entitySummary.values()).reduce((a, b) => a + b, 0);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-2 sm:p-4"
-      role="dialog"
+    <dialog
+      open
+      className="fixed inset-0 z-50 flex h-full max-h-none w-full max-w-none items-center justify-center bg-slate-950/80 p-2 text-[color:inherit] sm:p-4"
       aria-modal="true"
       aria-labelledby="approval-modal-title"
     >
@@ -499,6 +499,6 @@ export function ApprovalModal({
           )}
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }

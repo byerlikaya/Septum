@@ -82,14 +82,7 @@ export function ChatHistory({
           sessions.map((session) => (
             <div
               key={session.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => editingId !== session.id && onSelectSession(session.id)}
-              onKeyDown={(e) => {
-                if ((e.key === "Enter" || e.key === " ") && editingId !== session.id)
-                  onSelectSession(session.id);
-              }}
-              className={`group flex w-full cursor-pointer items-center justify-between gap-1 px-3 py-2 text-left text-xs transition-colors ${
+              className={`group relative flex w-full items-center justify-between gap-1 text-xs transition-colors ${
                 activeSessionId === session.id
                   ? "bg-slate-700/60 text-slate-100"
                   : "text-slate-300 hover:bg-slate-800 hover:text-slate-100"
@@ -97,7 +90,7 @@ export function ChatHistory({
             >
               {editingId === session.id ? (
                 <form
-                  className="flex min-w-0 flex-1 items-center gap-1"
+                  className="flex min-w-0 flex-1 items-center gap-1 px-3 py-2"
                   onSubmit={(e) => { e.preventDefault(); confirmRename(); }}
                 >
                   <input
@@ -117,8 +110,14 @@ export function ChatHistory({
                 </form>
               ) : (
                 <>
-                  <span className="min-w-0 flex-1 truncate">{session.title}</span>
-                  <span className="flex shrink-0 gap-0.5 opacity-0 group-hover:opacity-100">
+                  <button
+                    type="button"
+                    onClick={() => onSelectSession(session.id)}
+                    className="flex min-w-0 flex-1 cursor-pointer items-center py-2 pl-3 text-left after:absolute after:inset-0"
+                  >
+                    <span className="min-w-0 flex-1 truncate">{session.title}</span>
+                  </button>
+                  <span className="relative z-10 flex shrink-0 gap-0.5 pr-3 opacity-0 group-hover:opacity-100">
                     {onRenameSession && (
                       <button
                         type="button"
@@ -135,7 +134,7 @@ export function ChatHistory({
                         type="button"
                         onClick={(e) => { e.stopPropagation(); onExportSession(session.id); }}
                         className="rounded p-0.5 text-slate-500 hover:text-sky-400"
-                        aria-label="Export JSON"
+                        aria-label={t("chat.history.exportJson")}
                         title="JSON"
                       >
                         <Download className="h-3 w-3" />
@@ -146,7 +145,7 @@ export function ChatHistory({
                         type="button"
                         onClick={(e) => { e.stopPropagation(); onExportSessionPDF(session.id); }}
                         className="rounded p-0.5 text-slate-500 hover:text-violet-400"
-                        aria-label="Export PDF"
+                        aria-label={t("chat.history.exportPdf")}
                         title="PDF"
                       >
                         <FileText className="h-3 w-3" />

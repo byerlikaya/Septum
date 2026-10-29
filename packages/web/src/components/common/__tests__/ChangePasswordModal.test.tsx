@@ -26,7 +26,7 @@ it("clears typed values and the validation error when reopened", () => {
   fireEvent.change(current, { target: { value: "old-password" } });
   fireEvent.change(next, { target: { value: "new-password-1" } });
   fireEvent.change(confirm, { target: { value: "different-pw" } });
-  fireEvent.submit(screen.getByRole("dialog"));
+  fireEvent.submit(screen.getByRole("dialog").querySelector("form") as HTMLFormElement);
   expect(screen.getByText("auth.changePassword.mismatch")).toBeInTheDocument();
 
   rerender(<ChangePasswordModal open={false} onClose={onClose} />);
@@ -43,7 +43,7 @@ function submitNewPassword(value: string) {
   fireEvent.change(current, { target: { value: "old-password" } });
   fireEvent.change(next, { target: { value: value } });
   fireEvent.change(confirm, { target: { value: value } });
-  fireEvent.submit(screen.getByRole("dialog"));
+  fireEvent.submit(screen.getByRole("dialog").querySelector("form") as HTMLFormElement);
 }
 
 it("rejects a password over 72 UTF-8 bytes even when it is under 72 characters", () => {

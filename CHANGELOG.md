@@ -28,6 +28,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 - Long audio is transcribed in windows of about 10 minutes, each cut at a quiet point, so transcription memory no longer grows with recording length (about 40% lower peak for an hour of audio). Audio of 10 minutes or less is transcribed exactly as before.
 - Partially overlapping detections no longer leak characters: the losing detection used to be dropped whole, so part of a value (for example the local part of an email inside Chinese text) stayed visible. The stronger detection is now kept whole and the rest stays masked; a suffix after an apostrophe joins the name's placeholder, and the name is recorded without it so later bare mentions get the same placeholder. Existing documents are marked as needing reprocessing.
 - Every built-in regulation now masks exactly the entity types its legal basis names, and a test keeps the packs and the documentation in step. POPIA now covers company names (it protects juristic persons), so company names are masked by default when the NER layer recognises them; employee numbers written after a label such as "Employee ID" are detected, and a pack that lists cities also masks place names found by NER. Existing documents are marked as needing reprocessing.
+- Dashboard dialogs, status notices and chat history rows now use native HTML elements in place of ARIA roles, so keyboard and screen-reader behaviour comes from the browser. The setup wizard and LLM settings labels and the chat export buttons are now translated.
 
 ### 2026-10-28
 

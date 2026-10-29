@@ -139,7 +139,7 @@ export function IngestionTab({
         </div>
         <div className="space-y-1">
           <p className="text-[11px] text-slate-300">
-            ffmpeg:&nbsp;
+            {"ffmpeg: "}
             <span
               className={
                 audioHealth?.ffmpeg === "ok" ? "text-emerald-300" : "text-red-300"

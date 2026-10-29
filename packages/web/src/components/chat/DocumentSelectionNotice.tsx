@@ -14,17 +14,17 @@ export function DocumentSelectionNotice({ selectedCount, trimmedCount }: Readonl
   if (!atLimit && trimmedCount === 0) return null;
 
   return (
-    <div role="status" className="space-y-1 px-1 text-xs">
+    <output className="block space-y-1 px-1 text-xs">
       {trimmedCount > 0 && (
-        <p className="text-amber-300">
+        <span className="block text-amber-300">
           {t("chat.documentSelector.trimmed", { count: trimmedCount, max: MAX_CHAT_DOCUMENTS })}
-        </p>
+        </span>
       )}
       {atLimit && (
-        <p className="text-slate-400">
+        <span className="block text-slate-400">
           {t("chat.documentSelector.limit", { max: MAX_CHAT_DOCUMENTS })}
-        </p>
+        </span>
       )}
-    </div>
+    </output>
   );
 }

@@ -15,6 +15,7 @@ interface HighlightedTextProps {
 }
 
 interface Segment {
+  key: string;
   text: string;
   detection?: EntityDetection;
 }
@@ -24,7 +25,7 @@ function buildSegments(
   detections: EntityDetection[]
 ): Segment[] {
   if (detections.length === 0) {
-    return [{ text }];
+    return [{ key: "text-0", text }];
   }
 
   const sorted = [...detections].sort((a, b) => a.start_offset - b.start_offset);
@@ -36,15 +37,15 @@ function buildSegments(
       continue;
     }
     if (det.start_offset > cursor) {
-      segments.push({ text: text.slice(cursor, det.start_offset) });
+      segments.push({ key: `text-${cursor}`, text: text.slice(cursor, det.start_offset) });
     }
     const end = Math.min(det.end_offset, text.length);
-    segments.push({ text: text.slice(det.start_offset, end), detection: det });
+    segments.push({ key: `detection-${det.id}`, text: text.slice(det.start_offset, end), detection: det });
     cursor = end;
   }
 
   if (cursor < text.length) {
-    segments.push({ text: text.slice(cursor) });
+    segments.push({ key: `text-${cursor}`, text: text.slice(cursor) });
   }
 
   return segments;
@@ -60,9 +61,9 @@ export function HighlightedText({
 
   return (
     <>
-      {segments.map((seg, i) => {
+      {segments.map((seg) => {
         if (!seg.detection) {
-          return <span key={i}>{seg.text}</span>;
+          return <span key={seg.key}>{seg.text}</span>;
         }
 
         const isFocused = activeDetectionId === seg.detection.id;
@@ -80,7 +81,7 @@ export function HighlightedText({
 
         return (
           <span
-            key={i}
+            key={seg.key}
             data-detection-id={seg.detection.id}
             className={`rounded-sm px-0.5 cursor-default transition-colors ${highlightClass}`}
             title={`${seg.detection.placeholder} (${Math.round(seg.detection.score * 100)}%)`}
