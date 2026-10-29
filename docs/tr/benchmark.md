@@ -21,7 +21,7 @@
 Benchmark, 17 hazır regülasyonun tamamı aktifken **beş bağımsız veri kaynağı ve iki dayanıklılık probu** üzerinde yürütüldü:
 
 1. **Septum sentetik korpusu** — 16 dilde (ar, de, en, es, fr, hi, it, ja, ko, nl, pl, pt, ru, th, tr, zh), 23 varlık tipi üzerinde algoritmik olarak üretilmiş **3.468 PII değeri**. Kamuya açık hiçbir veri kümesinin taşımadığı checksum'lı kimlikleri (geçerli Luhn, IBAN MOD-97, TCKN) kapsayabilmenin yegâne yolu budur. Korpusa ayrıca Ollama'nın kendine özgü katkısını ölçmek için 31 dokümanlık semantik-bağlamsal bir alt küme (DIAGNOSIS / MEDICATION / RELIGION / POLITICAL_OPINION / ETHNICITY / SEXUAL_ORIENTATION — toplam 60 varlık) eklenmiştir. Seed sabit olduğundan sonuçlar bire bir tekrarlanabilir.
-2. **Microsoft [presidio-evaluator](https://github.com/microsoft/presidio-research)** — 200 sentetik Faker cümlesinden oluşan, Presidio ekibinin referans olarak benimsediği PII değerlendirme çerçevesi. Septum'un 17 regülasyonunun hiçbirinde PII sayılmayan etiketler (DATE_TIME / TIME / TITLE / SEX / CARDISSUER / NRP) varlık eşlemesinin dışında bırakılır; böylece recall, kategori uyumsuzluğunu değil maskeleme kalitesini yansıtır.
+2. **Microsoft [presidio-evaluator](https://github.com/microsoft/presidio-research)** — 200 sentetik Faker cümlesinden oluşan, Presidio ekibinin referans olarak benimsediği PII değerlendirme çerçevesi. Varlık eşlemesi DATE_TIME / TIME / TITLE / SEX / CARDISSUER / NRP etiketlerini dışarıda bırakır; bu dışlama tasarım gereğidir. Böylece recall, kategori uyumsuzluğunu değil maskeleme kalitesini yansıtır.
 3. **[Babelscape/wikineural](https://huggingface.co/datasets/Babelscape/wikineural)** — 9 dilde 50'şer Wikipedia cümlesinden oluşan kenara ayrılmış (held-out) *veri kümesi*. Burada yalnızca değerlendirme verisi olarak kullanılır; kaldırılan Babelscape wikineural *modeli* ile aynı şey değildir. Bir uyarı gerekir: önceki NER setindeki XLM-RoBERTa NER modelleri, akraba [WikiANN korpusu](https://huggingface.co/datasets/unimelb-nlp/wikiann) üzerinde eğitildiğinden, buradaki sayılar katı bir OOD testi değil, üst sınıra yakın değerler olarak okunmalıdır.
 4. **[ai4privacy/pii-masking-300k](https://huggingface.co/datasets/ai4privacy/pii-masking-300k)** — 6 dilde (en/de/fr/es/it/nl) 50'şer validation cümlesi. Sıfırdan ve PII odağıyla kurulmuş modern bir veri kümesi; Septum'un kullandığı modeller bu veri üzerinde eğitilmediğinden, benchmark'ın gerçek bir out-of-distribution testine en çok yaklaştığı kaynak burasıdır.
 5. **[CoNLL-2003](https://aclanthology.org/W03-0419/)** — klasik İngilizce haber alanının kenara ayrılmış test setinden 200 cümle. Septum'la ilgili hiçbir eğitim korpusunda yer almaz.
@@ -36,7 +36,7 @@ Benchmark, 17 hazır regülasyonun tamamı aktifken **beş bağımsız veri kayn
   <a href="#septum--benchmark-sonuçları"><img src="../assets/benchmark-layer-comparison.svg" alt="Hat katmanına göre tespit doğruluğu" width="820" /></a>
 </p>
 
-> **Önceki NER model seti ile ölçülmüştür.** NER varsayılanları sonradan değişti. Önceki set, de, it, nl, pl ve ru için ve listelenmemiş tüm diller için yedek olarak Babelscape wikineural modelini kullanıyordu; XLM-RoBERTa WikiANN en, ar, zh, es, fr, pt, hi, bn, ur, vi ve ja için kullanılıyordu; Türkçe'nin kendi modelleri vardı. Davlan mBERT-hrl artık zh, ja, ko, de, it, nl, pl, ru ve yedek dil için kullanılıyor; wikineural modeli artık kullanılmıyor. NER katmanına bağlı sayılar — NER ve Birleşik satırları, Ollama ablation testi, dış veri kümeleri, dil bazlı kırılım, erişim çalıştırmaları ve sızıntı ölçümü — önceki set ile ölçüldü. Bu diller yeniden ölçülmedi; mevcut varsayılanlar için yeni bir sayı yoktur. Aşağıdaki Babelscape/wikineural satırı değerlendirme verisidir, kaldırılan model değil. Güncel dil eşlemesi için bkz. [Doküman İşleme](document-ingestion.md#ner-model-kapsamı).
+> **Önceki NER model seti ile ölçülmüştür.** NER varsayılanları sonradan değişti. Önceki set, de, it, nl, pl ve ru için ve listelenmemiş tüm diller için yedek olarak Babelscape wikineural modelini kullanıyordu; XLM-RoBERTa WikiANN en, ar, zh, es, fr, pt, hi, bn, ur, vi ve ja için kullanılıyordu; Türkçe'nin kendi modelleri vardı. Davlan mBERT-hrl artık zh, ja, ko, de, it, nl, pl, ru ve yedek dil için kullanılıyor; wikineural modeli artık kullanılmıyor. NER katmanına bağlı tespit sayıları — NER ve Birleşik satırları, Ollama ablation testi, dış veri kümeleri, dil bazlı kırılım — önceki set ile ölçüldü. Bu tespit sayıları yeniden ölçülmedi; mevcut varsayılanlar için yeni bir tespit sayısı yoktur. Erişim çalıştırması ve sızıntı ölçümü ise mevcut varsayılanlarla yeniden yapıldı; bkz. aşağıdaki erişim benchmark'ı bölümü. Aşağıdaki Babelscape/wikineural satırı değerlendirme verisidir, kaldırılan model değil. Güncel dil eşlemesi için bkz. [Doküman İşleme](document-ingestion.md#ner-model-kapsamı).
 
 ## Septum sentetik korpusu (katman bazında)
 
@@ -92,7 +92,7 @@ Adversarial paket, kasıtlı olarak gerçek bir kullanıcının ya da saldırgan
 **Hiçbir PII tespit sistemi %100 doğru değildir.** Septum'un benchmark'ı, nerede güçlü, nerede zayıf olduğu konusunda şeffaf kalmayı tercih eder:
 
 - **LOCATION çıktısı, çok-kelimeli-veya-yüksek-skor filtresinden geçer** (ORGANIZATION_NAME ile aynı mimari yaklaşım). Çok dilli NER modelleri, Septum'un desteklediği her dilde, ortak isimlerde ve form alan başlıklarında rastgele tek token'lık LOC yalancı pozitifleri üretir (Türkçe "Doğum", Almanca form başlıkları vb.). Bu yalancı pozitifleri dil başına stopword listesiyle tek tek takip etmek 50'den fazla lokalde ölçeklenmez. Filtre, 0,95 güven skorunun altındaki tek token'lık aralıkları eler; "İstanbul" ve "Berlin" gibi gerçek yer adları tipik olarak 0,97 ve üzeri skor aldığı için geçer, "New York" gibi çok kelimeli yer adları ise skor kapısına hiç takılmaz. Yapılandırılmış adres PII'si buna ek olarak Presidio'nun `StructuralAddressRecognizer`'ı ve regülasyon bazlı POSTAL_ADDRESS / STREET_ADDRESS tanıyıcıları tarafından yakalanır.
-- **37 regülasyon varlık tipinin tamamı tespit edilebilir.** 21'i Presidio, 3'ü NER, 9'u Ollama tarafından; geri kalanı ise üst tip kapsamıyla (FIRST_NAME → PERSON_NAME, CITY → LOCATION vb.).
+- **41 regülasyon varlık tipinin tamamı tespit edilebilir.** Sayı, 17 hazır regülasyon paketindeki `ENTITY_TYPES` listelerinin birleşimidir. Tespit; Presidio, NER ve Ollama katmanları ile üst tip kapsamıyla sağlanır (FIRST_NAME → PERSON_NAME, CITY → LOCATION vb.).
 - **Aktif benchmark kapsamı:** 16 dilde 3.468 değer üzerinden 23 varlık tipi.
 - **Semantik tipler** (DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION) yalnızca Ollama katmanı tarafından yakalanır; bu tiplerin devrede olması için yerel bir LLM'in çalışır durumda bulunması şarttır.
 - **Bağlama bağlı tanıyıcılar** (DATE_OF_BIRTH, PASSPORT_NUMBER, SSN, TAX_ID), yalancı pozitif oranını düşürebilmek için değerin yakınında bağlam anahtar kelimesi arar; anahtar kelime listeleri 8'den fazla dili kapsar.
@@ -130,7 +130,7 @@ fakat ~3× artan çağrı maliyeti ingest pipeline'ında baskın olur.
 
 ## Erişim (retrieval) benchmark'ı
 
-Bu benchmark PII tespitini değil erişimi (retrieval) ölçer. Sanitizer'ın NER katmanı açık çalıştığı için bu bölümdeki sayılar ve sızıntı ölçümü önceki NER model setiyle kaydedilmiştir (üstteki nota bakın). Her soru için arama yığını, cevabı içeren chunk'ı döndürüyor mu sorusunu sorar; bunu bir kez ham soruyla, bir kez de maskelenmiş soruyla yapar. Parçalama, embedding modeli ve reranker değişikliklerinin karşılaştırılacağı temel ölçüm budur.
+Bu benchmark PII tespitini değil erişimi (retrieval) ölçer. Sanitizer'ın NER katmanı açık çalıştığı için bu bölümdeki sayılar ve sızıntı ölçümü, NER'in mevcut varsayılan modelleriyle ([NER model kapsamı](document-ingestion.md#ner-model-kapsamı)) ölçülmüştür. Her soru için arama yığını, cevabı içeren chunk'ı döndürüyor mu sorusunu sorar; bunu bir kez ham soruyla, bir kez de maskelenmiş soruyla yapar. Parçalama, embedding modeli ve reranker değişikliklerinin karşılaştırılacağı temel ölçüm budur.
 
 Çalıştırma belge parçalayıcıyı, chunk başına sanitizer'ı, FAISS vektör deposunu ve BM25 indeksini kullanır. Dense, BM25 ve hybrid erişim, üretimdeki VectorStore ve BM25 kodunu çağırır; buna `VectorStore.hybrid_search` de dahildir. auto_rag, chat'in belgeler arası aramasını yansıtır: aynı ilgililik eşiği ve belge başına aday sayısı kullanılır; bir parite testi eşiği, belge başına aday sayısını ve aday üst sınırını chat'in uygulamasına karşı sabitler. Benchmark belge bazlı aramaları sıralı (serial) çalıştırır, üretimde ise eşzamanlı (concurrent) çalışırlar; bu nedenle auto_rag gecikmesi bir üst sınırdır. LLM çağrılmaz; çalışma sabitlenmiş (pinned) bir embedder ile çevrimdışı yürür.
 
@@ -160,7 +160,7 @@ Belgeler ve sorular elle yazılmıştır. Bir belgedeki her kişisel veri yuvas�
 | Gecikme | Sorgu başına 5 ölçülmüş tekrar, maskelenmiş sorgular, sorgu embedding'i dahil tek bir retriever çağrısı |
 | Donanım | Apple M4 Max, 14 CPU çekirdeği, 10 torch thread, Darwin 27.0.0 arm64 |
 | Seed | 42 |
-| Commit | Temel commit `2b9db6eb` ile bu daldaki benchmark harness commit'leri (taban kaydedildiğinde harness henüz commit'lenmemişti) |
+| Commit | `67b3ba07` (çalıştırma çıktısındaki `git_sha`) |
 
 ### Sonuçlar
 
@@ -168,34 +168,36 @@ Belgeler ve sorular elle yazılmıştır. Bir belgedeki her kişisel veri yuvas�
 
 | Dil | n | Recall@5 | Recall@10 | MRR | nDCG@10 |
 |:---|:---:|:---:|:---:|:---:|:---:|
-| en | 43 | 0,953 [0,884, 1,000] | 1,000 [1,000, 1,000] | 0,727 [0,631, 0,827] | 0,789 [0,712, 0,865] |
-| tr | 43 | 0,977 [0,930, 1,000] | 1,000 [1,000, 1,000] | 0,822 [0,728, 0,901] | 0,861 [0,788, 0,923] |
-| zh | 43 | 0,953 [0,884, 1,000] | 1,000 [1,000, 1,000] | 0,767 [0,663, 0,853] | 0,824 [0,746, 0,889] |
-| **genel** | **129** | **0,961 [0,922, 0,992]** | **1,000 [1,000, 1,000]** | **0,772 [0,715, 0,824]** | **0,825 [0,779, 0,865]** |
+| en | 43 | 0,930 [0,860, 1,000] | 1,000 [1,000, 1,000] | 0,661 [0,553, 0,763] | 0,737 [0,655, 0,820] |
+| tr | 43 | 0,977 [0,930, 1,000] | 1,000 [1,000, 1,000] | 0,841 [0,752, 0,919] | 0,880 [0,812, 0,939] |
+| zh | 43 | 0,953 [0,884, 1,000] | 1,000 [1,000, 1,000] | 0,772 [0,670, 0,855] | 0,828 [0,751, 0,891] |
+| **genel** | **129** | **0,953 [0,915, 0,984]** | **1,000 [1,000, 1,000]** | **0,758 [0,699, 0,807]** | **0,815 [0,771, 0,853]** |
+
+Önceden kaydedilen taban ölçümle karşılaştırıldığında maskelenmiş hybrid MRR 0,772'den 0,758'e, Recall@5 ise 0,961'den 0,953'e geriledi; kurum ve yer adları artık placeholder'a dönüştüğü için.
 
 **Karşılaştırılan retriever'lar (genel, n = 129), ham ve maskelenmiş sorgu modları.**
 
 | Retriever | Mod | Recall@5 | Recall@10 | MRR | nDCG@10 |
 |:---|:---|:---:|:---:|:---:|:---:|
 | dense | ham | 0,953 [0,907, 0,984] | 1,000 [1,000, 1,000] | 0,748 [0,690, 0,801] | 0,809 [0,765, 0,849] |
-| dense | maskelenmiş | 0,953 [0,907, 0,984] | 1,000 [1,000, 1,000] | 0,739 [0,681, 0,791] | 0,802 [0,758, 0,841] |
+| dense | maskelenmiş | 0,938 [0,891, 0,977] | 1,000 [1,000, 1,000] | 0,716 [0,657, 0,772] | 0,786 [0,741, 0,828] |
 | bm25 | ham | 0,930 [0,876, 0,969] | 1,000 [1,000, 1,000] | 0,740 [0,677, 0,796] | 0,799 [0,753, 0,842] |
-| bm25 | maskelenmiş | 0,930 [0,876, 0,969] | 1,000 [1,000, 1,000] | 0,741 [0,681, 0,797] | 0,800 [0,753, 0,842] |
+| bm25 | maskelenmiş | 0,915 [0,860, 0,953] | 1,000 [1,000, 1,000] | 0,741 [0,679, 0,798] | 0,799 [0,753, 0,843] |
 | hybrid | ham | 0,961 [0,922, 0,992] | 1,000 [1,000, 1,000] | 0,783 [0,724, 0,834] | 0,833 [0,787, 0,872] |
-| hybrid | maskelenmiş | 0,961 [0,922, 0,992] | 1,000 [1,000, 1,000] | 0,772 [0,715, 0,824] | 0,825 [0,779, 0,865] |
+| hybrid | maskelenmiş | 0,953 [0,915, 0,984] | 1,000 [1,000, 1,000] | 0,758 [0,699, 0,807] | 0,815 [0,771, 0,853] |
 | auto_rag | ham | 0,550 [0,465, 0,636] | 0,612 [0,527, 0,690] | 0,441 [0,368, 0,514] | 0,483 [0,409, 0,555] |
-| auto_rag | maskelenmiş | 0,527 [0,442, 0,612] | 0,589 [0,504, 0,674] | 0,406 [0,336, 0,476] | 0,450 [0,381, 0,523] |
+| auto_rag | maskelenmiş | 0,465 [0,380, 0,551] | 0,535 [0,450, 0,620] | 0,352 [0,280, 0,419] | 0,396 [0,322, 0,463] |
 
-**Olumsuzlarda auto-RAG (11 soru).** Bir soru, en az bir chunk 0,35 eşiğinin üstünde ya da eşitte skor aldığında yanlış erişim sayılır. Yanlış erişim oranı iki sorgu modunda da 0,727 [0,455, 0,909]'dur. En yüksek (top-1) skorlar örtüşür: ham sorgularda olumsuzların 90. yüzdeliği 0,577, cevaplanabilir soruların 10. yüzdeliği 0,473'tür.
+**Olumsuzlarda auto-RAG (11 soru).** Bir soru, en az bir chunk 0,35 eşiğinin üstünde ya da eşitte skor aldığında yanlış erişim sayılır. Yanlış erişim oranı ham sorgularda 0,727 [0,455, 0,909], maskelenmiş sorgularda 0,818 [0,545, 1,000]'dır. En yüksek (top-1) skorlar örtüşür: ham sorgularda olumsuzların 90. yüzdeliği 0,577, cevaplanabilir soruların 10. yüzdeliği 0,473'tür.
 
 **Gecikme** (maskelenmiş sorgular, milisaniye, tek makine):
 
 | Retriever | p50 (ms) | p95 (ms) | Örnek |
 |:---|:---:|:---:|:---:|
-| dense | 11,749 | 12,932 | 645 |
-| bm25 | 0,216 | 0,275 | 645 |
-| hybrid | 11,972 | 13,050 | 645 |
-| auto_rag | 351,882 | 371,848 | 700 |
+| dense | 13,673 | 15,352 | 645 |
+| bm25 | 0,236 | 0,321 | 645 |
+| hybrid | 13,615 | 25,746 | 645 |
+| auto_rag | 405,836 | 459,363 | 700 |
 
 Örnek sayısı, sorgu sayısının 5 tekrarla çarpımıdır; auto_rag tüm 140 soruyu, diğerleri 129 cevaplanabilir soruyu çalıştırır.
 
@@ -203,11 +205,11 @@ Belgeler ve sorular elle yazılmıştır. Bir belgedeki her kişisel veri yuvas�
 
 | Adım | Süre |
 |:---|:---:|
-| Parçalama, 30 belge | 1,356 s |
-| Embedding ve indeksleme | 1,187 s |
-| Chunk başına sanitizasyon, 30 belge | 10,132 s |
-| Sızıntı bloğu sanitizasyonu, en / tr / zh | 14,566 s / 20,605 s / 29,095 s |
-| Tüm çalıştırma, duvar saati | 505,603 s |
+| Parçalama, 30 belge | 1,655 s |
+| Embedding ve indeksleme | 1,486 s |
+| Chunk başına sanitizasyon, 30 belge | 15,137 s |
+| Sızıntı bloğu sanitizasyonu, en / tr / zh | 18,828 s / 24,728 s / 67,168 s |
+| Tüm çalıştırma, duvar saati | 625,450 s |
 
 ### PII sızıntı kontrolü
 
@@ -226,34 +228,34 @@ Her dilin yuvasız korpus paragrafları dolgu olarak kullanılır. Her 120 ile 1
 
 | Dil | Çapraz n | Literal: çapraz | Literal: kontrol | Literal: fark | Fragment: çapraz | Fragment: kontrol | Fragment: fark |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| en | 52 | 0,269 | 0,369 | -0,100 | 0,365 | 0,368 | -0,003 |
-| tr | 58 | 0,362 | 0,271 | +0,091 | 0,534 | 0,275 | +0,260 |
-| zh | 91 | 0,154 | 0,492 | -0,338 | 0,264 | 0,492 | -0,228 |
+| en | 52 | 0,038 | 0,180 | -0,142 | 0,212 | 0,181 | +0,030 |
+| tr | 58 | 0,138 | 0,127 | +0,011 | 0,362 | 0,120 | +0,242 |
+| zh | 91 | 0,011 | 0,123 | -0,112 | 0,143 | 0,122 | +0,021 |
 
-**ORGANIZATION_NAME hariç** (tüm tipler arasında en yüksek sızıntı oranına sahip olduğu için ayrıca gösterilir):
+**ORGANIZATION_NAME hariç** (bu tip yalnızca NER katmanıyla tespit edilir, arkasında örüntü tanıyıcı yoktur; görünüm, sızıntı bloğunu bu tip olmadan raporlar):
 
 | Dil | Çapraz n | Literal: çapraz | Literal: kontrol | Literal: fark | Fragment: çapraz | Fragment: kontrol | Fragment: fark |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| en | 38 | 0,079 | 0,252 | -0,173 | 0,158 | 0,251 | -0,093 |
-| tr | 44 | 0,159 | 0,149 | +0,010 | 0,386 | 0,141 | +0,245 |
-| zh | 81 | 0,049 | 0,403 | -0,353 | 0,173 | 0,403 | -0,230 |
+| en | 38 | 0,053 | 0,197 | -0,144 | 0,132 | 0,198 | -0,066 |
+| tr | 44 | 0,159 | 0,145 | +0,014 | 0,364 | 0,137 | +0,227 |
+| zh | 81 | 0,012 | 0,143 | -0,131 | 0,136 | 0,140 | -0,004 |
 
 **Tipe göre literal sızıntı oranı** (tüm değerler, çapraz ve kontrol; sızıntı/n):
 
 | Tip | en | tr | zh |
 |:---|:---:|:---:|:---:|
-| PERSON_NAME | 0,335 (77/230) | 0,047 (9/190) | 0,971 (369/380) |
-| LOCATION | 0,872 (164/188) | 0,676 (142/210) | 0,979 (426/435) |
-| ORGANIZATION_NAME | 0,912 (197/216) | 0,932 (179/192) | 1,000 (355/355) |
+| PERSON_NAME | 0,222 (51/230) | 0,047 (9/190) | 0,458 (174/380) |
+| LOCATION | 0,729 (137/188) | 0,657 (138/210) | 0,248 (108/435) |
+| ORGANIZATION_NAME | 0,097 (21/216) | 0,031 (6/192) | 0,008 (3/355) |
 | EMAIL_ADDRESS | 0,000 (0/178) | 0,000 (0/209) | 0,000 (0/424) |
 | PHONE_NUMBER | 0,000 (0/184) | 0,000 (0/213) | 0,000 (0/428) |
 | IBAN | 0,000 (0/204) | 0,000 (0/186) | 0,000 (0/378) |
 
 Sayıların okunuşu:
 
-- Sızıntıyı, chunk sınırları değil, dedektörün maskelemediği değerler belirler. İçinde sınır bulunmayan kontrol değerleri bile literal olarak 0,271 ile 0,492 arasında sızar. Sızan tipler kişi adları, konumlar ve kurum adlarıdır; örneğin Çince kişi adları 380 değerin 369'unda sızar.
-- Bu sentetik değerlerde ve üretilen biçimlerde e-posta, telefon ve IBAN değerleri hiçbir zaman literal olarak sızmaz. Gerçek dünyadaki biçimler farklı olabilir ve bu ölçümün kapsamında değildir. Bu üç tipteki fragment isabetleri toplamda en'de 566 değerin 3'ü, tr'de 608'in 10'u, zh'de 1.230'un 10'udur.
-- Chunk sınırlarının tutarlı bir etkisi yoktur. en ve zh'de çapraz değerler kontrol değerlerinden daha az sızar. tr'de ise daha fazla sızar: 58 çapraz değerde +0,260 fragment farkı, ORGANIZATION_NAME hariç tutulduğunda 44 değerde +0,245. tr farkının nedeni araştırılmadı.
+- Sızıntıyı, chunk sınırları değil, dedektörün maskelemediği değerler belirler. İçinde sınır bulunmayan kontrol değerleri bile literal olarak 0,123 ile 0,180 arasında sızar. Sızan tipler kişi adları ve konumlardır. Kurum adları artık NER katmanınca maskelenir ve literal olarak en'de 0,097, tr'de 0,031, zh'de 0,008 oranında sızar. Örneğin Çince kişi adları 380 değerin 174'ünde sızar.
+- Bu sentetik değerlerde ve üretilen biçimlerde e-posta, telefon ve IBAN değerleri hiçbir zaman literal olarak sızmaz. Gerçek dünyadaki biçimler farklı olabilir ve bu ölçümün kapsamında değildir. Bu üç tipteki fragment isabetleri toplamda en'de 566 değerin 3'ü, tr'de 608'in 9'u, zh'de 1.230'un 10'udur.
+- Chunk sınırlarının etkisi karışıktır. Literal kontrolde çapraz değerler en'de (-0,142) ve zh'de (-0,112) kontrol değerlerinden daha az, tr'de ise biraz daha fazla sızar (+0,011). Fragment kontrolünde çapraz değerler üç dilin hepsinde daha fazla sızar: en'de +0,030, zh'de +0,021, tr'de +0,242. tr'deki fragment farkı (58 çapraz değerde +0,242; ORGANIZATION_NAME hariç 44 değerde +0,227) en büyüğüdür ve nedeni araştırılmadı.
 
 ### Yeniden üretme
 
