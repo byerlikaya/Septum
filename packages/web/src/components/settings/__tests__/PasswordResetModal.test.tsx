@@ -21,7 +21,7 @@ it("clears typed values and the local error when reopened", () => {
   const [pw, confirm] = passwordInputs();
   fireEvent.change(pw, { target: { value: "long-enough-1" } });
   fireEvent.change(confirm, { target: { value: "long-enough-2" } });
-  fireEvent.submit(screen.getByRole("dialog"));
+  fireEvent.submit(screen.getByRole("dialog").querySelector("form") as HTMLFormElement);
   expect(screen.getByText("auth.changePassword.mismatch")).toBeInTheDocument();
   expect(props.onSubmit).not.toHaveBeenCalled();
 
@@ -37,7 +37,7 @@ function submitPassword(value: string, onSubmit: jest.Mock) {
   const [pw, confirm] = passwordInputs();
   fireEvent.change(pw, { target: { value } });
   fireEvent.change(confirm, { target: { value } });
-  fireEvent.submit(screen.getByRole("dialog"));
+  fireEvent.submit(screen.getByRole("dialog").querySelector("form") as HTMLFormElement);
 }
 
 it("rejects a password over 72 UTF-8 bytes even when it is under 72 characters", () => {

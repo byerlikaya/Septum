@@ -23,7 +23,7 @@ export default function DisambiguationModal({
 }: Readonly<Props>) {
   const t = useI18n();
   const titleId = useId();
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   useEscapeToClose(open, onCancel);
   useFocusTrap(dialogRef, open);
 
@@ -31,12 +31,12 @@ export default function DisambiguationModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 sm:p-4">
-      <div
+      <dialog
+        open
         ref={dialogRef}
-        role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-xl"
+        className="relative flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-slate-700 bg-slate-900 text-[color:inherit] shadow-xl"
       >
         <div className="shrink-0 border-b border-slate-700 px-5 py-4">
           <h2 id={titleId} className="text-base font-semibold text-slate-50">
@@ -99,7 +99,7 @@ export default function DisambiguationModal({
             </button>
           </div>
         </div>
-      </div>
+      </dialog>
     </div>
   );
 }

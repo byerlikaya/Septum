@@ -59,7 +59,7 @@ function submitCreate(password: string, onSubmit: jest.Mock) {
   fireEvent.change(document.querySelector<HTMLInputElement>("input[type=password]")!, {
     target: { value: password }
   });
-  fireEvent.submit(screen.getByRole("dialog"));
+  fireEvent.submit(screen.getByRole("dialog").querySelector("form") as HTMLFormElement);
 }
 
 it("rejects a create password over 72 UTF-8 bytes even when it is under 72 characters", () => {
