@@ -137,7 +137,7 @@ it("shows the busy message on register 503 server_busy and not the raw detail", 
   await submitRegister("a".repeat(20));
   expect(await screen.findByText("auth.error.serverBusy")).toBeInTheDocument();
   expect(screen.queryByText("Server is busy, try again shortly.")).toBeNull();
-  expect(screen.queryByText("setup.step.register.createAndFinish")).toBeInTheDocument();
+  expect(screen.getByText("setup.step.register.createAndFinish")).toBeInTheDocument();
 });
 
 it("shows the rate-limit message on register 429 and not the raw detail", async () => {

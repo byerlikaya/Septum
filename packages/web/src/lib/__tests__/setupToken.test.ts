@@ -47,7 +47,7 @@ describe("setup token storage", () => {
     setSetupToken("tok-1");
 
     expect(sessionStorage.getItem("septum_setup_token")).toBe("tok-1");
-    expect(localStorage.length).toBe(0);
+    expect(localStorage).toHaveLength(0);
     expect(getSetupToken()).toBe("tok-1");
 
     clearSetupToken();

@@ -203,7 +203,7 @@ export function ChatWindow({
   }, []);
 
   const lastAssistantContent =
-    messages.filter((m) => m.role === "assistant").pop()?.content ?? "";
+    messages.findLast((m) => m.role === "assistant")?.content ?? "";
 
   return (
     <div className="flex min-h-0 h-full flex-col">
