@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-10-29
+
+- Decrypted document content no longer reaches disk: PDF and audio ingestion stay in memory, uploads are encrypted in place, and core dumps are disabled. Uploads now require authentication and can be refused with 503 (busy), 413 (too large) or 408 (too slow), and audio longer than an hour is refused by default; the limits are set by `MAX_UPLOAD_BYTES`, `MAX_CONCURRENT_UPLOADS`, `UPLOAD_BODY_TIMEOUT_SECONDS` and `MAX_AUDIO_SECONDS`.
+
 ### 2026-10-28
 
 - PII detection can no longer be stalled by crafted text. Several recognizers and the PDF table field extraction slowed sharply on long runs of letters, spaces or blank lines, so one long line in an upload or chat message could block the API for a long time. They now run in linear time; the recognizers detect the same things as before, and table field extraction differs only when a whitespace-only line is followed by a line starting with a colon, which now yields a field.

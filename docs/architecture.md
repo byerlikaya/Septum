@@ -454,7 +454,7 @@ The Next.js side follows these conventions:
 - faiss-cpu
 - lingua-language-detector, langdetect
 - PaddleOCR, OpenCV, Pillow
-- Whisper, ffmpeg-python
+- Whisper, ffmpeg binary (called directly; no Python wrapper package)
 - SQLAlchemy + asyncpg (PostgreSQL) / aiosqlite (SQLite)
 - Alembic (schema migrations)
 - Redis (optional anonymization map caching)

@@ -349,7 +349,7 @@ Next.js tarafında modern en iyi uygulamalar takip edilir:
 - faiss-cpu
 - lingua-language-detector, langdetect
 - PaddleOCR, OpenCV, Pillow
-- Whisper, ffmpeg-python
+- Whisper, ffmpeg ikili programı (doğrudan çağrılır; Python sarmalayıcı paketi yoktur)
 - SQLAlchemy + asyncpg (PostgreSQL) / aiosqlite (SQLite)
 - Alembic (şema migrasyonları)
 - Redis (opsiyonel anonymization map cache)
