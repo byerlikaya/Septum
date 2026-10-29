@@ -124,8 +124,9 @@ RETRIEVER_NAMES = ("dense", "bm25", "hybrid", "auto_rag")
 QUERY_MODE_CHOICES = ("raw", "sanitized", "both")
 IDENTIFIER_TYPES = frozenset({"EMAIL_ADDRESS", "PHONE_NUMBER", "IBAN"})
 LEAK_TYPES = ("PERSON_NAME", "LOCATION", "ORGANIZATION_NAME", "EMAIL_ADDRESS", "PHONE_NUMBER", "IBAN")
-# Not masked by any built-in regulation; reported with and without it.
-UNMASKED_LEAK_TYPE = "ORGANIZATION_NAME"
+# Masked under the all-regulations policy, but detected by NER alone (no pattern recognizer
+# backs it), so the leak block is also reported without it.
+SEPARATED_LEAK_TYPE = "ORGANIZATION_NAME"
 # Invented, synthetic organization names. Do not change them without re-recording the committed baseline.
 ZH_ORGANIZATION_NAMES = (
     "北辰科技有限公司", "云帆信息技术有限公司", "海岳物流集团", "青松医疗器械股份有限公司",
@@ -758,7 +759,7 @@ async def _leak_block(
         "fragment_unscorable": fragment_unscorable,
         "below_min_crossing": crossing_count < LEAK_MIN_CROSSING,
         **_arms(records),
-        "excluding_organization_name": _arms([r for r in records if r.slot_type != UNMASKED_LEAK_TYPE]),
+        "excluding_organization_name": _arms([r for r in records if r.slot_type != SEPARATED_LEAK_TYPE]),
         "by_type": {
             slot_type: {
                 **_summarise([r for r in records if r.slot_type == slot_type]),
@@ -1033,7 +1034,7 @@ def render_markdown(result: dict) -> str:
     lines += ["", "Leak block (record only). Literal: the verbatim value survives. Fragment: a recoverable "
               "part of the value survives at its position (definitions in tests/retrieval_metrics.py).", ""]
     lines += _leak_table(result["leak"], excluding=False)
-    lines += ["", f"Excluding {UNMASKED_LEAK_TYPE} (not masked by any built-in regulation):", ""]
+    lines += ["", f"Excluding {SEPARATED_LEAK_TYPE} (detected by NER alone):", ""]
     lines += _leak_table(result["leak"], excluding=True)
     lines += ["", "Leak rate by type, literal / fragment (leaks/n):", "",
               "| type | " + " | ".join(result["leak"]) + " |", "|---|" + "---|" * len(result["leak"])]

@@ -18,7 +18,16 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import AbstractSet, Dict, FrozenSet, Iterable, List, Optional, Tuple
+from typing import (
+    AbstractSet,
+    Callable,
+    Dict,
+    FrozenSet,
+    Iterable,
+    List,
+    Optional,
+    Tuple,
+)
 
 # A detector probability below this is treated as a guess, not a result.
 # langdetect averages seven random trials on short input, so 0.8 demands
@@ -82,6 +91,10 @@ class _ScriptRule:
     # True where NER recall is near zero, so an NER hit snaps to the whole
     # unspaced run around it instead of the glyph edge.
     snap_whole_run: bool = False
+    # True for spaced scripts that write particles and copulas onto the
+    # preceding token without a space, so a token may end right before a
+    # letter of the script (see text_boundaries).
+    attaches_particles: bool = False
 
 
 # When several scripts are present, a script with fewer compatible
@@ -97,6 +110,7 @@ _SCRIPT_RULES: Dict[str, _ScriptRule] = {
         implied_language="ko",
         compatible_languages=frozenset({"ko"}),
         min_span_len=2,
+        attaches_particles=True,
     ),
     "Kana": _ScriptRule(
         ranges=(
@@ -216,14 +230,21 @@ _SCRIPT_PATTERNS: Dict[str, re.Pattern[str]] = {
 }
 
 
+def _ranges_where(predicate: Callable[[_ScriptRule], bool]) -> Tuple[Tuple[int, int], ...]:
+    """Code-point ranges of the table scripts whose rule satisfies ``predicate``."""
+    return tuple(
+        span for rule in _SCRIPT_RULES.values() if predicate(rule) for span in rule.ranges
+    )
+
+
 def unspaced_script_ranges() -> Tuple[Tuple[int, int], ...]:
     """Code-point ranges of the table scripts written without spaces between words."""
-    return tuple(
-        span
-        for rule in _SCRIPT_RULES.values()
-        if not rule.inter_word_spaces
-        for span in rule.ranges
-    )
+    return _ranges_where(lambda rule: not rule.inter_word_spaces)
+
+
+def particle_script_ranges() -> Tuple[Tuple[int, int], ...]:
+    """Code-point ranges of the table scripts that attach particles to the preceding token."""
+    return _ranges_where(lambda rule: rule.attaches_particles)
 
 
 _WHOLE_RUN_PATTERNS: Tuple[re.Pattern[str], ...] = tuple(

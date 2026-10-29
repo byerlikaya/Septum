@@ -156,6 +156,7 @@ _SEMANTIC_VALIDATION_PASSTHROUGH_TYPES: frozenset[str] = frozenset(
         "POSTAL_ADDRESS",
         "STREET_ADDRESS",
         "CUSTOMER_REFERENCE_ID",
+        "EMPLOYEE_ID",
     }
 )
 

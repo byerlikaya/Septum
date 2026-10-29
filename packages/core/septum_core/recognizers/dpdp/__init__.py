@@ -25,4 +25,11 @@ ENTITY_TYPES: tuple[str, ...] = (
     "FINANCIAL_ACCOUNT",
     "CREDIT_CARD_NUMBER",
     "BANK_ACCOUNT_NUMBER",
+    "FIRST_NAME",
+    "LAST_NAME",
+    "STREET_ADDRESS",
+    "CITY",
+    "COORDINATES",
+    "TAX_ID",
+    "MEDICATION",
 )
