@@ -84,7 +84,7 @@ from ..request_limits import (
     TOP_K_RETRIEVAL_MAX_CAP,
     DocumentId,
 )
-from ..services.anonymization_map import AnonymizationMap
+from ..services.anonymization_map import AnonymizationMap, restoration_lookup
 from ..services.approval_gate import (
     ApprovalChunk,
     ApprovalGate,
@@ -520,6 +520,7 @@ def _build_unified_placeholder_space(
         next(iter(anon_maps.values())).language if anon_maps else "en"
     )
     unified_map = AnonymizationMap(document_id=0, language=first_lang)
+    lookup_pairs: List[Tuple[str, str]] = []
     for doc_id, m in anon_maps.items():
         doc_remap = per_doc_remap[doc_id]
         for original, old_placeholder in m.entity_map.items():
@@ -531,13 +532,13 @@ def _build_unified_placeholder_space(
             # pair into ``placeholder_lookup`` so the deanonymizer can
             # still resolve every globally-minted placeholder.
             unified_map.entity_map[original] = new_placeholder
-            if new_placeholder:
-                unified_map.placeholder_lookup[new_placeholder] = original
+            lookup_pairs.append((original, new_placeholder))
         for token, old_placeholder in m.token_to_placeholder.items():
             new_placeholder = doc_remap.get(old_placeholder, old_placeholder)
             unified_map.token_to_placeholder[token] = new_placeholder
         unified_map.blocklist.update(m.blocklist)
 
+    unified_map.placeholder_lookup = restoration_lookup(lookup_pairs)
     return per_doc_remap, unified_map
 
 

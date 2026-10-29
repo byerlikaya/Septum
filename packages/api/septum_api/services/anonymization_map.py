@@ -6,6 +6,12 @@ from septum_core.anonymization_map import (  # noqa: F401
     PLACEHOLDER_PATTERN,
     SANITIZER_STOPWORDS,
     AnonymizationMap,
+    restoration_lookup,
 )
 
-__all__ = ["AnonymizationMap", "PLACEHOLDER_PATTERN", "SANITIZER_STOPWORDS"]
+__all__ = [
+    "AnonymizationMap",
+    "PLACEHOLDER_PATTERN",
+    "SANITIZER_STOPWORDS",
+    "restoration_lookup",
+]

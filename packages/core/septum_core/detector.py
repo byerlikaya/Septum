@@ -49,7 +49,7 @@ from .span_processing import (
     expand_person_name_spans,
     merge_adjacent_person_name_spans,
 )
-from .spans import DetectedSpan, ResolvedSpan, SanitizeResult
+from .spans import DetectedSpan, ResolvedSpan, SanitizeResult, entity_range
 from .suffix_list import use_bundled_suffix_list
 from .text_boundaries import (
     is_unspaced_char,
@@ -1534,8 +1534,10 @@ class Detector:
                         break
             spans = keep_spans
 
-        spans = absorb_overlapping_spans(spans)
-        spans = deduplicate_spans(spans, _HIGH_PRIORITY_ENTITY_TYPES)
+        spans = absorb_overlapping_spans(spans, text=normalized_text)
+        spans = deduplicate_spans(
+            spans, _HIGH_PRIORITY_ENTITY_TYPES, text=normalized_text
+        )
 
         # Expand person-name spans to cover adjacent capitalized tokens so that
         # given-name-only detections are upgraded to full name blocks where
@@ -1913,7 +1915,10 @@ class Detector:
             if not original or not original.strip():
                 last_index = span.end
                 continue
-            placeholder = anon_map.add_entity(original, span.entity_type)
+            core_start, core_end = entity_range(span.start, span.end, span.core, text)
+            placeholder = anon_map.add_entity(
+                text[core_start:core_end], span.entity_type
+            )
             parts.append(placeholder)
             resolved.append(ResolvedSpan(
                 start=span.start,
@@ -1921,6 +1926,7 @@ class Detector:
                 entity_type=span.entity_type,
                 placeholder=placeholder,
                 score=span.score,
+                core=span.core,
             ))
             last_index = span.end
             count += 1

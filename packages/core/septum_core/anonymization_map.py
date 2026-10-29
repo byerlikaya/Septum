@@ -17,9 +17,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from .text_utils import normalize_for_comparison, strip_possessive_suffix
+from .text_utils import (
+    APOSTROPHES,
+    normalize_for_comparison,
+    strip_possessive_suffix,
+)
 
 # A placeholder this map hands out: ``[ENTITY_TYPE_N]``. Index digits are
 # capped: real indexes are small, and an unbounded run of digits from
@@ -172,22 +176,13 @@ class AnonymizationMap:
         residual mentions of person names (e.g. lowercase "sarah", "david") are
         redacted by apply_blocklist even when NER models miss them.
 
-        Possessive suffixes are stripped before tokenization so that
-        ``"Ahmet's"`` and ``"Ahmet"`` produce the same blocklist tokens.
+        Tokens come from ``_name_tokens``, so ``"Ahmet's"`` and ``"Ahmet"``
+        produce the same blocklist tokens.
         """
-        stripped = strip_possessive_suffix(original, self.language)
-        normalized = normalize_for_comparison(stripped, self.language)
-        orig_tokens = stripped.split()
-        norm_tokens = normalized.split()
-
-        for index, token in enumerate(norm_tokens):
+        for token in _name_tokens(original, self.language):
             if len(token) <= 2:
                 continue
             if token in SANITIZER_STOPWORDS:
-                continue
-
-            original_token = orig_tokens[index] if index < len(orig_tokens) else ""
-            if not original_token:
                 continue
 
             self.blocklist.add(token)
@@ -198,10 +193,9 @@ class AnonymizationMap:
         stripped = strip_possessive_suffix(value, self.language)
         return normalize_for_comparison(stripped, self.language)
 
-    @staticmethod
-    def _coreference_tokens(normalized: str) -> Set[str]:
+    def _coreference_tokens(self, original: str) -> Set[str]:
         """Return the tokens used for person-name subset matching."""
-        return {t for t in normalized.split() if len(t) > 2}
+        return {t for t in _name_tokens(original, self.language) if len(t) > 2}
 
     def _index_entry(self, original: str, placeholder: str) -> None:
         """Add one ``entity_map`` entry to the lookup indexes."""
@@ -209,7 +203,7 @@ class AnonymizationMap:
         normalized = self._normalized(original)
         self._value_index.setdefault((entity_type, normalized), placeholder)
         if entity_type in _BLOCKLIST_ENTITY_TYPES:
-            tokens = self._coreference_tokens(normalized)
+            tokens = self._coreference_tokens(original)
             if tokens:
                 self._person_entries.append((tokens, placeholder))
         self._indexed_size = len(self.entity_map)
@@ -262,13 +256,92 @@ class AnonymizationMap:
         if entity_type not in _BLOCKLIST_ENTITY_TYPES:
             return None
 
-        orig_tokens = self._coreference_tokens(normalized)
+        orig_tokens = self._coreference_tokens(original)
         if not orig_tokens:
             return None
         for tokens, placeholder in self._person_entries:
             if orig_tokens.issubset(tokens) or tokens.issubset(orig_tokens):
                 return placeholder
         return None
+
+
+def _apostrophe_suffix_at(token: str) -> Optional[int]:
+    """Index of the apostrophe that starts a suffix in ``token``, or None.
+
+    A suffix is an apostrophe after at least three characters and before a
+    lowercase letter ("kaya’nın"). "O'Brien", "D'Angelo", "Sa'id" and a
+    digit or capital after the apostrophe are not suffixes.
+    """
+    for index in range(3, len(token) - 1):
+        following = token[index + 1]
+        if token[index] in APOSTROPHES and following.isalpha() and following.islower():
+            return index
+    return None
+
+
+def _name_tokens(value: str, language: str) -> List[str]:
+    """Comparison tokens of a name, each one stripped of a possessive suffix.
+
+    A folded suffix can stay glued to a name in a stored key ("kaya’nın"), so
+    each whitespace token is also cut at a suffix apostrophe (see
+    ``_apostrophe_suffix_at``). Empty tokens are dropped.
+    """
+    tokens: List[str] = []
+    for raw in normalize_for_comparison(value, language).split():
+        token = strip_possessive_suffix(raw, language)
+        cut = _apostrophe_suffix_at(token)
+        if cut is not None:
+            token = token[:cut]
+        if token:
+            tokens.append(token)
+    return tokens
+
+
+def _has_apostrophe_suffix(value: str) -> bool:
+    """Whether any whitespace token of ``value`` carries an apostrophe suffix.
+
+    Same predicate as ``_name_tokens``, applied to every token, so "Kaya’nın Ali"
+    and "Ali Kaya’nın" both have one and "O’Brien" does not. An all-caps token
+    is lowered first ("KAYA’NIN" reads as "kaya’nin"); a mixed-case token is
+    checked as written, so "Anne’Marie" keeps its capital tail whole.
+    """
+    for token in value.split():
+        checked = token.lower() if token.isupper() else token
+        if _apostrophe_suffix_at(checked) is not None:
+            return True
+    return False
+
+
+def pick_restoration_original(originals: Sequence[str]) -> str:
+    """The original a placeholder restores to, out of the ones registered for it.
+
+    A bare form (no apostrophe suffix) beats its suffixed variant ("Ali Kaya"
+    over "Ali Kaya’nın"), so a placeholder echoed with a suffix restores once.
+    Among bare forms the most complete one wins, but only when it is one name
+    chain: its tokens must contain every other bare form's tokens, so "Ali
+    Yılmaz" beats "Ali" and "John Smith" beats "Smith". Unrelated bare forms
+    ("Jane Mary Smith" against "John Smith") fall back to the first registered
+    bare form. Failing any bare form, the first registered original is used.
+    """
+    if len(originals) == 1:
+        return originals[0]
+    bare = [original for original in originals if not _has_apostrophe_suffix(original)]
+    if not bare:
+        return originals[0]
+    tokenised = [(original, frozenset(original.casefold().split())) for original in bare]
+    most, most_tokens = max(tokenised, key=lambda pair: len(pair[0].split()))
+    if all(tokens <= most_tokens for _, tokens in tokenised):
+        return most
+    return bare[0]
+
+
+def restoration_lookup(pairs: Iterable[Tuple[str, str]]) -> Dict[str, str]:
+    """Map each placeholder to its restoration original from ``(original, placeholder)`` pairs."""
+    candidates: Dict[str, List[str]] = {}
+    for original, placeholder in pairs:
+        if placeholder:
+            candidates.setdefault(placeholder, []).append(original)
+    return {p: pick_restoration_original(o) for p, o in candidates.items()}
 
 
 def _placeholder_entity_type(placeholder: str) -> str:

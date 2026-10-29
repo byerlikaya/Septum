@@ -15,16 +15,29 @@ def test_org_absorbs_contained_location() -> None:
     assert [s.entity_type for s in result] == ["ORGANIZATION_NAME"]
 
 
-def test_org_absorbs_partial_overlap_location_with_lower_start() -> None:
-    """The pre-existing dedup bug: LOC starts before ORG yet partially overlaps it.
+def test_org_partial_overlap_trims_location_and_keeps_its_tail() -> None:
+    """LOC partially overlaps ORG: the overlapped part is cut, the tail stays masked.
 
-    Plain length-based dedup picks LOC because it sorts first; the
-    domain-aware filter must drop LOC and let ORG survive.
+    Dropping the whole LOC span would leave ``[21, 34)`` raw; the ORG span
+    stays whole.
     """
-    loc = DetectedSpan(start=0, end=8, entity_type="LOCATION", score=0.95)
-    org = DetectedSpan(start=2, end=25, entity_type="ORGANIZATION_NAME", score=0.9)
+    org = DetectedSpan(start=0, end=21, entity_type="ORGANIZATION_NAME", score=0.9)
+    loc = DetectedSpan(start=13, end=34, entity_type="LOCATION", score=0.95)
     result = absorb_overlapping_spans([loc, org])
-    assert [s.entity_type for s in result] == ["ORGANIZATION_NAME"]
+    assert sorted((s.start, s.end, s.entity_type) for s in result) == [
+        (0, 21, "ORGANIZATION_NAME"),
+        (21, 34, "LOCATION"),
+    ]
+
+
+def test_date_partial_overlap_with_date_of_birth_keeps_date_tail() -> None:
+    dob = DetectedSpan(start=0, end=10, entity_type="DATE_OF_BIRTH", score=0.9)
+    date = DetectedSpan(start=5, end=15, entity_type="DATE", score=0.8)
+    result = absorb_overlapping_spans([date, dob])
+    assert sorted((s.start, s.end, s.entity_type) for s in result) == [
+        (0, 10, "DATE_OF_BIRTH"),
+        (10, 15, "DATE"),
+    ]
 
 
 def test_non_overlapping_org_and_location_both_kept() -> None:
@@ -83,10 +96,13 @@ def test_person_name_expansion_still_expands_inline_tokens() -> None:
     assert text[expanded[0].start : expanded[0].end] == "John Smith"
 
 
-def test_dedup_pipeline_with_absorption_yields_org_only() -> None:
-    """End-to-end: absorb + dedup leaves ORG when it overlaps a LOC at any offset."""
+def test_dedup_pipeline_with_absorption_keeps_org_and_masks_location_tail() -> None:
+    """End-to-end: absorb + dedup keeps ORG intact and still masks the LOC prefix."""
     loc = DetectedSpan(start=0, end=8, entity_type="LOCATION", score=0.95)
     org = DetectedSpan(start=2, end=25, entity_type="ORGANIZATION_NAME", score=0.9)
     pre = absorb_overlapping_spans([loc, org])
     final = deduplicate_spans(pre, high_priority_types=set())
-    assert [s.entity_type for s in final] == ["ORGANIZATION_NAME"]
+    assert [(s.start, s.end, s.entity_type) for s in final] == [
+        (0, 2, "LOCATION"),
+        (2, 25, "ORGANIZATION_NAME"),
+    ]

@@ -176,7 +176,7 @@ def test_turkish_possessive_resolved_via_coreference() -> None:
 def test_strip_possessive_suffix_utility() -> None:
     """strip_possessive_suffix should handle various forms."""
     assert strip_possessive_suffix("Smith's", "en") == "Smith"
-    assert strip_possessive_suffix("workers'", "en") == "worker"
+    assert strip_possessive_suffix("workers'", "en") == "workers"
     assert strip_possessive_suffix("Ahmet'in", "tr") == "Ahmet"
     assert strip_possessive_suffix("Ayşe'nin", "tr") == "Ayşe"
     assert strip_possessive_suffix("John", "en") == "John"
