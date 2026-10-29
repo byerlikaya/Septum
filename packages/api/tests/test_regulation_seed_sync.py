@@ -9,6 +9,7 @@ import pytest
 from septum_api.database import _builtin_regulations, _seed_defaults
 from septum_api.models import Base
 from septum_api.models.regulation import RegulationRuleset
+from septum_core.recognizers import BUILTIN_REGULATION_IDS, entity_types_for
 from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -123,3 +124,11 @@ async def _all(sm: async_sessionmaker[AsyncSession]) -> list[RegulationRuleset]:
     async with sm() as session:
         result = await session.execute(select(RegulationRuleset))
         return list(result.scalars().all())
+
+
+def test_builtin_seed_rows_equal_pack_declaration() -> None:
+    rows = {str(row.id): list(row.entity_types) for row in _builtin_regulations()}
+
+    assert sorted(rows) == sorted(str(r) for r in BUILTIN_REGULATION_IDS)
+    for reg_id, entity_types in rows.items():
+        assert entity_types == entity_types_for(reg_id), reg_id

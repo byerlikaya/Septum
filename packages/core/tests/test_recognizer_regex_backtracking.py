@@ -20,6 +20,7 @@ from septum_core.detector import (
     HeuristicPersonNameRecognizer,
     StructuralAddressRecognizer,
 )
+from septum_core.recognizers.employee_id import employee_id_recognizer
 
 _PREVIOUS = {
     "after_label": re.compile(r":\s*\n\s*([^\W\d_]{2,20})\s*(?:\n|$)", re.UNICODE),
@@ -48,6 +49,8 @@ def _current() -> dict[str, re.Pattern[str]]:
         "decimal": CoordinatesRecognizer()._decimal_pattern,
         "serial": DeviceIDRecognizer()._serial_pattern,
         "structural_cue": StructuralAddressRecognizer()._structural_cue,
+        "employee_id_dash": employee_id_recognizer()._compiled_pattern,
+        "employee_id_slash": employee_id_recognizer()._compiled_pattern,
     }
 
 
@@ -111,6 +114,8 @@ _PATHOLOGICAL = {
     "decimal": "1.123" + " " * 50_000 + "x",
     "serial": "serial" + " " * 50_000 + "x",
     "structural_cue": "a" * 50_000,
+    "employee_id_dash": "empno-" * 20_000,
+    "employee_id_slash": "EMPNO/" * 20_000,
 }
 
 # Pathological inputs that do contain a match: the time bound must hold on
