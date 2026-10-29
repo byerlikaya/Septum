@@ -536,6 +536,8 @@ export const trMessages: Record<string, string> = {
   "chat.error.mapConflict": "Doküman güncelleniyor. Lütfen tekrar deneyin.",
   "chat.error.ollamaUrlNotAllowed":
     "Yapılandırılmış Ollama adresine izin verilmiyor. Ayarlar → LLM Provider bölümünden adresi değiştirin.",
+  "chat.error.streamLineTooLong":
+    "Tek bir mesaj boyut sınırını aştığı için yanıt durduruldu. Lütfen tekrar sorun.",
   "chat.debug.fetchError": "Hata ayıklama bilgisi alınırken bir hata oluştu.",
   "chat.morePills": "+{count} daha",
 
