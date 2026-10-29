@@ -10,13 +10,14 @@ import signal
 import sys
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 from septum_queue import backend_from_env
 
 from .config import AuditConfig
 from .consumer import AuditConsumer
 from .events import LedgerIntegrityError
-from .retention import RetentionPolicy, pin_ahead_seconds
+from .retention import RetentionPolicy, RewriteResult, pin_ahead_seconds
 from .sink import JsonlFileSink
 from .status import RetentionStatus, write_status
 
@@ -69,6 +70,60 @@ async def _disabled_loop(ledger: Path, interval_seconds: int) -> None:
         await asyncio.sleep(interval_seconds)
 
 
+class _PassResult(NamedTuple):
+    """One retention pass. ``outcome`` is set only when ``state`` is ``"ok"``, otherwise it is ``None``."""
+
+    state: str
+    outcome: RewriteResult | None
+
+
+async def _apply_pass(sink: JsonlFileSink, policy: RetentionPolicy) -> _PassResult:
+    """Run one retention pass and report its state (``ok``, ``halted`` or ``failed``) with the outcome."""
+    try:
+        outcome = await sink.apply_retention_outcome(policy)
+    except LedgerIntegrityError as exc:
+        logger.error(
+            "audit retention halted until the ledger is repaired: sink=%s reason=%s",
+            sink.path,
+            exc,
+        )
+        return _PassResult("halted", None)
+    except Exception as exc:
+        logger.error(
+            "audit retention run failed, retrying next run: sink=%s error=%s",
+            sink.path,
+            type(exc).__name__,
+        )
+        return _PassResult("failed", None)
+    return _PassResult("ok", outcome)
+
+
+def _log_removals(outcome: RewriteResult) -> None:
+    """Log how many records a successful pass pruned and how many torn lines it dropped."""
+    if outcome.pruned or outcome.torn:
+        logger.info(
+            "audit retention pruned %d record(s) and dropped %d torn line(s)",
+            outcome.pruned,
+            outcome.torn,
+        )
+
+
+async def _pinned_state(ledger: Path, policy: RetentionPolicy, state: str) -> str:
+    """Turn an ``ok`` pass into ``blocked`` when the oldest record is pinned ahead of the clock."""
+    # A pin only means something when an age cap is set: the count cap alone never reads ages.
+    if state != "ok" or policy.max_age_days is None:
+        return state
+    ahead = await asyncio.to_thread(pin_ahead_seconds, ledger, time.time())
+    if ahead is None:
+        return state
+    logger.error(
+        "audit retention blocked: the oldest record is stamped %s s ahead of the clock; "
+        "records after it are not pruned until the clock catches up or the ledger is restored",
+        ahead,
+    )
+    return "blocked"
+
+
 async def _retention_loop(
     sink: JsonlFileSink,
     policy: RetentionPolicy,
@@ -88,42 +143,13 @@ async def _retention_loop(
     consecutive_failures = 0
     while True:
         started = time.monotonic()
-        try:
-            outcome = await sink.apply_retention_outcome(policy)
-        except LedgerIntegrityError as exc:
-            state = "halted"
-            logger.error(
-                "audit retention halted until the ledger is repaired: sink=%s reason=%s",
-                sink.path,
-                exc,
-            )
-        except Exception as exc:
-            state = "failed"
-            logger.error(
-                "audit retention run failed, retrying next run: sink=%s error=%s",
-                sink.path,
-                type(exc).__name__,
-            )
-        else:
-            state = "ok"
+        result = await _apply_pass(sink, policy)
+        state = result.state
+        if state == "ok":
             last_success_at = time.time()
-            if outcome.pruned or outcome.torn:
-                logger.info(
-                    "audit retention pruned %d record(s) and dropped %d torn line(s)",
-                    outcome.pruned,
-                    outcome.torn,
-                )
+            _log_removals(result.outcome)
         pass_seconds = time.monotonic() - started
-        # A pin only means something when an age cap is set: the count cap alone never reads ages.
-        if state == "ok" and policy.max_age_days is not None:
-            ahead = await asyncio.to_thread(pin_ahead_seconds, ledger, time.time())
-            if ahead is not None:
-                state = "blocked"
-                logger.error(
-                    "audit retention blocked: the oldest record is stamped %s s ahead of the clock; "
-                    "records after it are not pruned until the clock catches up or the ledger is restored",
-                    ahead,
-                )
+        state = await _pinned_state(ledger, policy, state)
         consecutive_failures = consecutive_failures + 1 if state in ("halted", "failed") else 0
         period = _next_delay(interval_seconds, pass_seconds)
         await asyncio.to_thread(

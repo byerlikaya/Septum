@@ -116,34 +116,8 @@ async def _stream_chunks(first: Any, iterator: Iterator[str]) -> AsyncIterator[b
         raise
 
 
-def create_app(
-    config: AuditConfig | None = None,
-    *,
-    sink: AuditSink | None = None,
-) -> Any:
-    """Build the FastAPI app. The caller may inject a sink for tests."""
-    (
-        fastapi_cls,
-        depends_fn,
-        header_fn,
-        http_exception_cls,
-        query_fn,
-        streaming_response_cls,
-        json_response_cls,
-    ) = _import_fastapi()
-    cfg = config or AuditConfig.from_env()
-    active_sink: AuditSink = sink if sink is not None else JsonlFileSink(cfg.sink_path)
-    started_at = time.time()
-
-    app = fastapi_cls(
-        title="Septum Audit",
-        description=(
-            "Internet-facing compliance audit trail for Septum. Persists "
-            "already-masked event records and exports them to JSON, CSV, "
-            "or Splunk HEC. Never sees raw PII."
-        ),
-        version="0.1.0",
-    )
+def _export_token_guard(cfg: AuditConfig, header_fn: Any, http_exception_cls: Any) -> Any:
+    """Build the dependency that gates ``/api/audit/export`` on the bearer token."""
 
     def _require_export_token(
         authorization: str | None = header_fn(default=None),
@@ -170,6 +144,39 @@ def create_app(
         presented = authorization.split(" ", 1)[1].strip()
         if not hmac.compare_digest(presented, cfg.export_token):
             raise http_exception_cls(status_code=401, detail="Invalid bearer token.")
+
+    return _require_export_token
+
+
+def create_app(
+    config: AuditConfig | None = None,
+    *,
+    sink: AuditSink | None = None,
+) -> Any:
+    """Build the FastAPI app. The caller may inject a sink for tests."""
+    (
+        fastapi_cls,
+        depends_fn,
+        header_fn,
+        http_exception_cls,
+        query_fn,
+        streaming_response_cls,
+        json_response_cls,
+    ) = _import_fastapi()
+    cfg = config or AuditConfig.from_env()
+    active_sink: AuditSink = sink if sink is not None else JsonlFileSink(cfg.sink_path)
+    started_at = time.time()
+    _require_export_token = _export_token_guard(cfg, header_fn, http_exception_cls)
+
+    app = fastapi_cls(
+        title="Septum Audit",
+        description=(
+            "Internet-facing compliance audit trail for Septum. Persists "
+            "already-masked event records and exports them to JSON, CSV, "
+            "or Splunk HEC. Never sees raw PII."
+        ),
+        version="0.1.0",
+    )
 
     @app.get("/health")
     async def health() -> Any:
