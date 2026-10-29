@@ -509,7 +509,7 @@ Döngü, gerçek volume adını compose'un volume'a koyduğu etiketten bulur; bu
 
 ### Bellek boyutlandırma
 
-Yüklemeler, soketten şifrelenene kadar RAM'de tutulur; hiçbir yükleme geçici dosyaya yazılmaz. Devam eden bir yüklemenin bellek tepe noktası dosya boyutunun yaklaşık iki katıdır. Büyük bir dosyanın ingest edilmesi ayrıca yaklaşık iki katı bellek ister. Ses transkripsiyonu, sesi ayrıca 16 kHz mono dalga biçimine çözer: saatte 16 bit PCM olarak yaklaşık 115 MB, float32 olarak yaklaşık 230 MB; Whisper bu float32 dalga üzerinde çalışır. Varsayılan `MAX_AUDIO_SECONDS` değeri 3600 iken bir dosya için bunlar en büyük boyutlardır.
+Yüklemeler, soketten şifrelenene kadar RAM'de tutulur; hiçbir yükleme geçici dosyaya yazılmaz. Devam eden bir yüklemenin bellek tepe noktası dosya boyutunun yaklaşık iki katıdır. Büyük bir dosyanın ingest edilmesi ayrıca yaklaşık iki katı bellek ister. Ses transkripsiyonu sesi 16 kHz mono olarak çözer ve 16 bit PCM olarak tutar: saatte yaklaşık 115 MB. 10 dakikadan uzun ses, yaklaşık 10 dakikalık pencerelerle transkribe edilir; her kesim yakındaki sessiz bir noktada yapılır. Whisper'a aynı anda yalnızca bir pencere float32'ye çevrilerek verilir: pencere başına yaklaşık 38 MB, buna Whisper'ın o pencere için yaptığı spektrogram işi eklenir. 10 dakika veya daha kısa ses tek geçişte işlenir. Transkript metni dışında, transkripsiyon belleği kaydın uzunluğuyla birlikte PCM tamponunun ötesinde büyümez. Varsayılan `MAX_AUDIO_SECONDS` değeri 3600 iken PCM tamponu bir dosyanın alabileceği en büyük boyuttur.
 
 Bu hesabı her API worker süreci için yapın, ardından modellerin payını ekleyin:
 

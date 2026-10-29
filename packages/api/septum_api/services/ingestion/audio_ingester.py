@@ -43,6 +43,20 @@ Bounds decoding memory: a small, highly compressed file can otherwise expand
 to many gigabytes of PCM.
 """
 
+_WINDOW_SECONDS = 600
+"""Longest audio Whisper transcribes in one call; longer audio is split into windows.
+
+Whisper builds its log-mel over the whole input, so one call on an hour of
+audio peaks above a gigabyte. Audio up to this length runs as a single call.
+"""
+_WINDOW_SAMPLES = _WINDOW_SECONDS * _WHISPER_SAMPLE_RATE
+_CUT_SEARCH_SAMPLES = 5 * _WHISPER_SAMPLE_RATE
+"""How far before a window's target the cut may move to reach a quiet point."""
+_CUT_FRAME_SAMPLES = _WHISPER_SAMPLE_RATE // 50
+"""Frame length for the quiet-point search: 20 ms."""
+_CONTEXT_PROMPT_CHARS = 200
+"""Tail of the previous window's text, passed to the next window as its prompt."""
+
 
 class AudioDecodeError(ContentFreeError, RuntimeError):
     """Decrypted audio could not be decoded in memory; the message is shown to the user."""
@@ -196,11 +210,67 @@ async def _decode_from_pipe(binary: str, audio_bytes: bytes) -> bytearray:
     return pcm
 
 
-def _to_waveform(pcm: bytes | bytearray) -> np.ndarray:
-    """Convert signed 16-bit mono PCM into Whisper's float32 waveform."""
-    audio = np.frombuffer(pcm, np.int16).astype(np.float32)
+def _to_waveform(samples: np.ndarray) -> np.ndarray:
+    """Convert a slice of signed 16-bit mono PCM into Whisper's float32 waveform."""
+    audio = samples.astype(np.float32)
     audio *= 1.0 / 32768.0
     return audio
+
+
+def _quietest_cut(audio: np.ndarray, target: int) -> int:
+    """Sample index inside the quietest 20 ms frame of the search span before ``target``.
+
+    The earliest frame wins a tie, so the same audio always gives the same cut.
+    """
+    low = target - _CUT_SEARCH_SAMPLES
+    frames = audio[low:target].reshape(-1, _CUT_FRAME_SAMPLES).astype(np.float64)
+    rms = np.sqrt(np.mean(frames * frames, axis=1))
+    return low + int(np.argmin(rms)) * _CUT_FRAME_SAMPLES + _CUT_FRAME_SAMPLES // 2
+
+
+def _window_bounds(audio: np.ndarray) -> List[Tuple[int, int]]:
+    """Sample ranges of the Whisper windows; each cut moves to a quiet point near its target."""
+    bounds: List[Tuple[int, int]] = []
+    start = 0
+    while audio.size - start > _WINDOW_SAMPLES:
+        cut = _quietest_cut(audio, start + _WINDOW_SAMPLES)
+        bounds.append((start, cut))
+        start = cut
+    bounds.append((start, audio.size))
+    return bounds
+
+
+def _shift_timestamps(item: Dict[str, Any], offset: float) -> Dict[str, Any]:
+    """Copy of a segment or word with its ``start`` and ``end`` moved by ``offset`` seconds."""
+    shifted = dict(item)
+    for key in ("start", "end"):
+        if isinstance(shifted.get(key), (int, float)):
+            shifted[key] = shifted[key] + offset
+    return shifted
+
+
+def _merge_windows(
+    windows: List[Tuple[float, Dict[str, Any]]],
+    language: Optional[str],
+) -> Tuple[str, Optional[str], List[Dict[str, Any]]]:
+    """Join per-window Whisper results onto the timeline of the whole audio.
+
+    Each entry is ``(window start in seconds, Whisper result)``. ``language``
+    is the one the caller settled on for the whole transcript.
+    """
+    texts: List[str] = []
+    segments: List[Dict[str, Any]] = []
+    for offset, result in windows:
+        text = (result.get("text") or "").strip()
+        if text:
+            texts.append(text)
+        for seg in result.get("segments") or []:
+            shifted = _shift_timestamps(seg, offset)
+            shifted["id"] = len(segments)
+            if isinstance(shifted.get("words"), list):
+                shifted["words"] = [_shift_timestamps(word, offset) for word in shifted["words"]]
+            segments.append(shifted)
+    return " ".join(texts), language, segments
 
 
 def _read_decrypted(file_path: Path) -> bytes:
@@ -253,7 +323,7 @@ class AudioIngester(BaseIngester):
         return await asyncio.to_thread(self._extract_result, audio, filename)
 
     def _extract_result(self, audio: np.ndarray, filename: str) -> IngestionResult:
-        """Transcribe a decoded waveform for :meth:`extract`, run in a worker thread."""
+        """Transcribe decoded PCM for :meth:`extract`, run in a worker thread."""
         text, language, segments = self._transcribe(audio)
 
         warnings: List[str] = []
@@ -305,7 +375,7 @@ class AudioIngester(BaseIngester):
         mime_type: str,
         file_format: str,
     ) -> IngestionResult:
-        """Transcribe a decoded waveform for :meth:`ingest`, run in a worker thread."""
+        """Transcribe decoded PCM for :meth:`ingest`, run in a worker thread."""
 
         warnings: List[str] = []
         try:
@@ -352,14 +422,15 @@ class AudioIngester(BaseIngester):
         )
 
     async def _decode_in_memory(self, audio_bytes: bytes) -> np.ndarray:
-        """Decode audio to Whisper's waveform without ever writing it to disk.
+        """Decode audio to int16 PCM without ever writing it to disk.
 
         On Linux the bytes go into an anonymous memory file that ffmpeg reads
         as a seekable path. Elsewhere they are piped through stdin, which
         cannot seek; an input that needs seeking then fails with a clear
         :class:`AudioDecodeError` instead of falling back to a disk file.
         Audio over :data:`MAX_AUDIO_SECONDS`, or a decode running past its
-        time budget, is refused the same way.
+        time budget, is refused the same way. The result is a view over the
+        decoded bytes; float32 conversion happens per Whisper window.
         """
         binary = shutil.which("ffmpeg")
         if binary is None:
@@ -374,7 +445,7 @@ class AudioIngester(BaseIngester):
             raise AudioDecodeError(_TIMEOUT_MESSAGE) from None
         if len(pcm) > MAX_AUDIO_SECONDS * _PCM_BYTES_PER_SECOND:
             raise AudioDecodeError(_too_long_message())
-        return await asyncio.to_thread(_to_waveform, pcm)
+        return np.frombuffer(pcm, np.int16)
 
     def _load_model(self) -> Any:
         """Lazily load the Whisper model on the appropriate device.
@@ -407,23 +478,48 @@ class AudioIngester(BaseIngester):
         self,
         audio: np.ndarray,
     ) -> Tuple[str, Optional[str], List[Dict[str, Any]]]:
-        """Run Whisper transcription on the given waveform."""
+        """Run Whisper transcription on decoded int16 PCM, one window at a time.
+
+        Audio up to :data:`_WINDOW_SECONDS` is a single call on the full
+        waveform. Longer audio is split at quiet points. Windows after the first
+        get the tail of the last non-empty text as their prompt, and the same
+        language: the configured one, otherwise the one reported by the first
+        window that produced text. A window with no text (silence, music) pins
+        nothing. The transcript's language is that same reported language, or
+        the first window's when no window produced text.
+        """
 
         model = self._load_model()
-        transcribe_kwargs: Dict[str, Any] = {}
-        if self._language:
-            transcribe_kwargs["language"] = self._language
-        result = model.transcribe(audio, **transcribe_kwargs)
+        results: List[Tuple[float, Dict[str, Any]]] = []
+        language = self._language
+        prompt = ""
+        has_text = False
+        reported_language: Optional[str] = None
+        for start, end in _window_bounds(audio):
+            transcribe_kwargs: Dict[str, Any] = {}
+            if language:
+                transcribe_kwargs["language"] = language
+            if prompt:
+                transcribe_kwargs["initial_prompt"] = prompt
+            waveform = _to_waveform(audio[start:end])
+            result = model.transcribe(waveform, **transcribe_kwargs)
+            del waveform
+            text = (result.get("text") or "").strip()
+            if text:
+                prompt = text[-_CONTEXT_PROMPT_CHARS:]
+                if not has_text:
+                    has_text = True
+                    reported_language = result.get("language")
+                    language = self._language or reported_language
+            results.append((start / _WHISPER_SAMPLE_RATE, result))
 
-        text = result.get("text") or ""
-        language = result.get("language")
-        segments_raw = result.get("segments") or []
+        if not has_text:
+            reported_language = results[0][1].get("language")
 
-        segments: List[Dict[str, Any]] = []
-        for seg in segments_raw:
-            if isinstance(seg, dict):
-                segments.append(seg)
-            else:
-                segments.append(dict(seg))  # type: ignore[arg-type]
-        return text, language, segments
+        if len(results) == 1:
+            result = results[0][1]
+            text = result.get("text") or ""
+            segments = [dict(seg) for seg in result.get("segments") or []]
+            return text, reported_language, segments
+        return _merge_windows(results, reported_language)
 
