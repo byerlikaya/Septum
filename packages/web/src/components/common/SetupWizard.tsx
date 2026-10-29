@@ -96,6 +96,100 @@ function apiKeyPlaceholderFor(provider: string): string {
   return "sk-or-...";
 }
 
+interface RegulationItem { id: string; display_name: string; region: string; is_active: boolean; is_builtin: boolean }
+type OllamaMode = "compose" | "external" | "none";
+
+const inputCls = "w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-sky-500 focus:outline-hidden focus:ring-1 focus:ring-sky-500";
+const actionBtnCls = "w-full rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50 transition-colors";
+const backBtnCls = "rounded-md px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors";
+
+const PendingLabel = ({ pending, pendingText, idleText }: { pending: boolean; pendingText: string; idleText: string }) => (
+  pending ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />{pendingText}</span> : <>{idleText}</>
+);
+
+const RegulationsStep = ({ regulations, loading, selected, onSelectedChange, onBack, onNext }: {
+  regulations: RegulationItem[];
+  loading: boolean;
+  selected: Set<string>;
+  onSelectedChange: (next: Set<string>) => void;
+  onBack: () => void;
+  onNext: () => void;
+}) => {
+  const t = useI18n();
+  const builtinRegs = [...regulations]
+    .filter((r) => r.is_builtin)
+    .sort((a, b) => (REGULATION_META[a.id]?.order ?? 99) - (REGULATION_META[b.id]?.order ?? 99));
+  const allSelected = builtinRegs.length > 0 && builtinRegs.every((r) => selected.has(r.id));
+  const toggleAll = () => onSelectedChange(allSelected ? new Set() : new Set(builtinRegs.map((r) => r.id)));
+  const toggle = (id: string, checked: boolean) => {
+    const next = new Set(selected);
+    if (checked) next.add(id); else next.delete(id);
+    onSelectedChange(next);
+  };
+  return (
+    <div>
+      <StepHeader icon={Shield} title={t("setup.step.regulations")} desc={t("setup.step.regulations.description")} />
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="h-4 w-4 animate-spin" />{t("settings.common.loading")}</div>
+      ) : (
+        <>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11px] text-slate-400">
+              {t("setup.step.regulations.selectedCount")
+                .replace("{selected}", String(selected.size))
+                .replace("{total}", String(builtinRegs.length))}
+            </span>
+            <button type="button" onClick={toggleAll} className="text-[11px] font-medium text-sky-400 hover:text-sky-300">
+              {allSelected ? t("setup.step.regulations.deselectAll") : t("setup.step.regulations.selectAll")}
+            </button>
+          </div>
+          <div className="max-h-64 overflow-y-auto space-y-1.5 rounded-lg border border-slate-700 bg-slate-800/30 p-3">
+            {builtinRegs.map((reg) => (
+              <label key={reg.id} className="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-slate-800/50 cursor-pointer">
+                <input type="checkbox" checked={selected.has(reg.id)} onChange={(e) => toggle(reg.id, e.target.checked)} className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-600 focus:ring-sky-500" />
+                <span className="text-base leading-none">{REGULATION_META[reg.id]?.flag ?? "\u{1F310}"}</span>
+                <div className="flex-1 min-w-0"><div className="text-xs font-medium text-slate-200 truncate">{t((`regulation.${reg.id}`) as never) || reg.display_name}</div></div>
+              </label>
+            ))}
+          </div>
+        </>
+      )}
+      <p className="mt-2 text-[11px] text-slate-500">{t("setup.step.regulations.hint")}</p>
+      <div className="mt-6 flex justify-between">
+        <button type="button" onClick={onBack} className={backBtnCls}>{t("setup.nav.back")}</button>
+        <button type="button" onClick={onNext} disabled={selected.size === 0} className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50 transition-colors">{t("setup.nav.next")}</button>
+      </div>
+    </div>
+  );
+};
+
+const OllamaPrivacyOptions = ({ mode, onModeChange, ollamaUrl, ollamaUrlError, onUrlChange, deanonModel, onDeanonModelChange }: {
+  mode: OllamaMode;
+  onModeChange: (mode: OllamaMode) => void;
+  ollamaUrl: string;
+  ollamaUrlError: string | null;
+  onUrlChange: (value: string) => void;
+  deanonModel: string;
+  onDeanonModelChange: (value: string) => void;
+}) => {
+  const t = useI18n();
+  const options: { value: OllamaMode; label: string; d: string }[] = [
+    { value: "compose", label: t("setup.step.provider.ollamaPrivacy.compose"), d: t("setup.step.provider.ollamaPrivacy.compose.description") },
+    { value: "external", label: t("setup.step.provider.ollamaPrivacy.external"), d: t("setup.step.provider.ollamaPrivacy.external.description") },
+    { value: "none", label: t("setup.step.provider.ollamaPrivacy.none"), d: t("setup.step.provider.ollamaPrivacy.none.description") },
+  ];
+  return (
+    <div className="rounded-lg border border-slate-700 bg-slate-800/30 p-4 space-y-3">
+      <div><h3 className="text-xs font-semibold text-slate-200">{t("setup.step.provider.ollamaPrivacy.title")}</h3><p className="mt-0.5 text-[11px] text-slate-500">{t("setup.step.provider.ollamaPrivacy.description")}</p></div>
+      <div className="flex flex-col gap-2">{options.map((o) => (
+        <button key={o.value} type="button" onClick={() => onModeChange(o.value)} className={`w-full rounded-md border p-2.5 text-left transition-colors ${mode === o.value ? "border-sky-500 bg-sky-600/10" : "border-slate-700 bg-slate-800/50 hover:border-slate-600"}`}><div className="text-xs font-medium text-slate-200">{o.label}</div><div className="text-[11px] text-slate-400">{o.d}</div></button>
+      ))}</div>
+      {mode === "external" && (<div><label htmlFor="ollama-url-external" className="mb-1 block text-xs font-medium text-slate-300">Ollama URL</label><OllamaUrlInput id="ollama-url-external" value={ollamaUrl} error={ollamaUrlError} errorId="ollama-url-error-external" onChange={onUrlChange} className={inputCls} placeholder={t("settings.llm.ollama.baseUrl.placeholder")} /><OllamaUrlError id="ollama-url-error-external" message={ollamaUrlError} /></div>)}
+      {mode !== "none" && (<div><label className="mb-1 block text-xs font-medium text-slate-300">{t("setup.step.provider.deanonModel")}</label><OllamaModelCombobox value={deanonModel} onChange={onDeanonModelChange} baseUrl={ollamaUrl} placeholder="llama3.2:3b" /></div>)}
+    </div>
+  );
+};
+
 export function SetupWizard({ startPhase, initialProvider, initialModel, version, onComplete }: Readonly<SetupWizardProps>) {
   const t = useI18n();
   const { language, setLanguage } = useLanguage();
@@ -136,7 +230,7 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
   });
   const [apiKey, setApiKey] = useState("");
   const [ollamaUrl, setOllamaUrl] = useState("");
-  const [ollamaMode, setOllamaMode] = useState<"compose" | "external" | "none">("none");
+  const [ollamaMode, setOllamaMode] = useState<OllamaMode>("none");
   const [ollamaUrlError, setOllamaUrlError] = useState<string | null>(null);
   // Bumped on every URL write so a late probe answer never overwrites a newer choice.
   const ollamaUrlGeneration = useRef(0);
@@ -151,7 +245,6 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
   const [ollamaProbeResult, setOllamaProbeResult] = useState<"idle" | "probing" | "found" | "not_found">("idle");
 
   // Regulations
-  interface RegulationItem { id: string; display_name: string; region: string; is_active: boolean; is_builtin: boolean }
   const [regulations, setRegulations] = useState<RegulationItem[]>([]);
   const [regulationsLoading, setRegulationsLoading] = useState(false);
   const [activeRegulations, setActiveRegulations] = useState<Set<string>>(new Set());
@@ -213,6 +306,12 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
   useEffect(() => {
     if (step === "provider" && provider === "ollama" && !ollamaProbe.current) void prefillProviderOllamaUrl();
   }, [step, provider, prefillProviderOllamaUrl]);
+
+  const handleOllamaModeChange = (mode: OllamaMode) => {
+    setOllamaMode(mode); setOllamaUrlError(null);
+    if (mode === "compose") updateOllamaUrl("http://ollama:11434");
+    else if (mode === "external") { updateOllamaUrl(""); void prefillOllamaUrl((r) => r.default_url ?? r.url); }
+  };
 
   // --- Handlers ---
   const handleTestDatabase = useCallback(async () => {
@@ -422,6 +521,12 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
     });
   }, [whisperModel, t]);
 
+  const handleApplyRegulations = useCallback(async () => {
+    try { for (const reg of regulations) { const should = activeRegulations.has(reg.id); if (reg.is_active !== should) await api.patch(`/api/regulations/${reg.id}/activate`, { is_active: should }); } }
+    catch (err: unknown) { if (isSetupForbidden(err)) return; }
+    setStep("whisper");
+  }, [regulations, activeRegulations]);
+
   // Register first user
   const handleRegister = useCallback(async () => {
     if (regPassword !== regConfirm) { setRegStatus("error"); setRegMessage(t("setup.step.register.mismatch")); return; }
@@ -442,11 +547,6 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
       setRegMessage(transient ?? msg ?? t("setup.step.register.failed"));
     }
   }, [regEmail, regPassword, regConfirm, t]);
-
-  // --- UI helpers ---
-  const inputCls = "w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-sky-500 focus:outline-hidden focus:ring-1 focus:ring-sky-500";
-  const actionBtnCls = "w-full rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50 transition-colors";
-  const backBtnCls = "rounded-md px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors";
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-950 overflow-y-auto px-4 py-6 sm:items-center sm:py-8">
@@ -492,7 +592,7 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
             )}
             <div className="mt-6 flex justify-end">
               <button type="submit" disabled={!tokenInput.trim() || tokenStatus === "pending"} className={actionBtnCls}>
-                {tokenStatus === "pending" ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />{t("setup.step.test.pending")}</span> : t("setup.step.token.verify")}
+                <PendingLabel pending={tokenStatus === "pending"} pendingText={t("setup.step.test.pending")} idleText={t("setup.step.token.verify")} />
               </button>
             </div>
           </form>
@@ -519,7 +619,7 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
           </div>
           {databaseType === "postgresql" && (<div className="mt-4 space-y-3">
             <div><label className="mb-1.5 block text-xs font-medium text-slate-300">{t("setup.step.database.url.label")}</label><input type="text" value={databaseUrl} onChange={(e) => setDatabaseUrl(e.target.value)} placeholder={t("setup.step.database.url.placeholder")} className={inputCls} /></div>
-            <button type="button" onClick={handleTestDatabase} disabled={!databaseUrl.trim() || dbTestStatus === "pending"} className="w-full rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-50 transition-colors">{dbTestStatus === "pending" ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />{t("setup.step.test.pending")}</span> : t("setup.step.database.test")}</button>
+            <button type="button" onClick={handleTestDatabase} disabled={!databaseUrl.trim() || dbTestStatus === "pending"} className="w-full rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-50 transition-colors"><PendingLabel pending={dbTestStatus === "pending"} pendingText={t("setup.step.test.pending")} idleText={t("setup.step.database.test")} /></button>
             <StatusBadge status={dbTestStatus} msg={dbTestMessage} />
           </div>)}
           <div className="mt-6 flex justify-between">
@@ -537,7 +637,7 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
           </div>
           {cacheType === "redis" && (<div className="mt-4 space-y-3">
             <div><label className="mb-1.5 block text-xs font-medium text-slate-300">{t("setup.step.cache.url.label")}</label><input type="text" value={redisUrl} onChange={(e) => setRedisUrl(e.target.value)} placeholder={t("setup.step.cache.url.placeholder")} className={inputCls} /></div>
-            <button type="button" onClick={handleTestRedis} disabled={!redisUrl.trim() || redisTestStatus === "pending"} className="w-full rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-50 transition-colors">{redisTestStatus === "pending" ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />{t("setup.step.test.pending")}</span> : t("setup.step.cache.test")}</button>
+            <button type="button" onClick={handleTestRedis} disabled={!redisUrl.trim() || redisTestStatus === "pending"} className="w-full rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-50 transition-colors"><PendingLabel pending={redisTestStatus === "pending"} pendingText={t("setup.step.test.pending")} idleText={t("setup.step.cache.test")} /></button>
             <StatusBadge status={redisTestStatus} msg={redisTestMessage} />
           </div>)}
           {infraStatus === "pending" && <div className="mt-4 flex items-center gap-2 rounded-md bg-sky-950/50 px-3 py-2 text-xs text-sky-300"><Loader2 className="h-4 w-4 animate-spin" />{infraMessage}</div>}
@@ -557,21 +657,22 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
             {provider === "ollama" ? (
               <div><label htmlFor="ollama-url-provider" className="mb-1.5 block text-xs font-medium text-slate-300">Ollama URL</label><div className="relative"><OllamaUrlInput id="ollama-url-provider" value={ollamaUrl} error={ollamaUrlError} errorId="ollama-url-error-provider" onChange={changeOllamaUrl} className={inputCls} placeholder={t("settings.llm.ollama.baseUrl.placeholder")} />{ollamaProbeResult === "probing" && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-slate-500" />}</div><p className="mt-1 text-xs text-slate-500">{t("setup.step.provider.ollamaHint")}</p><OllamaUrlError id="ollama-url-error-provider" message={ollamaUrlError} />{ollamaProbeResult === "not_found" && (<div className="mt-2 rounded-md bg-amber-950/40 border border-amber-800/50 px-3 py-2 text-xs text-amber-300/90 space-y-1"><p>{t("setup.step.provider.ollamaNotFound")}</p><ul className="list-disc pl-4 space-y-0.5"><li>{t("setup.step.provider.ollamaNotFound.install")}: <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-amber-200">ollama.com</a></li><li>{t("setup.step.provider.ollamaNotFound.compose")}: <code className="bg-slate-800 px-1 rounded">docker compose --profile ollama up</code></li></ul></div>)}</div>
             ) : (
-              <div><label className="mb-1.5 block text-xs font-medium text-slate-300">API Key</label><input type="text" autoComplete="off" data-1p-ignore data-lpignore="true" style={{ WebkitTextSecurity: "disc" } as React.CSSProperties} value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={apiKeyPlaceholderFor(provider)} className={inputCls} /><p className="mt-1 text-xs text-slate-500">{t("setup.step.provider.apiKeyHint")}</p></div>
+              <div><label htmlFor="provider-api-key" className="mb-1.5 block text-xs font-medium text-slate-300">API Key</label><input id="provider-api-key" type="text" autoComplete="off" data-1p-ignore data-lpignore="true" style={{ WebkitTextSecurity: "disc" } as React.CSSProperties} value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={apiKeyPlaceholderFor(provider)} className={inputCls} /><p className="mt-1 text-xs text-slate-500">{t("setup.step.provider.apiKeyHint")}</p></div>
             )}
             <div><label className="mb-1.5 block text-xs font-medium text-slate-300">{t("setup.step.provider.model")}</label>{provider === "ollama" ? <OllamaModelCombobox value={model} onChange={setModel} baseUrl={ollamaUrl} placeholder="llama3.2:3b" /> : <input type="text" value={model} onChange={(e) => setModel(e.target.value)} className={inputCls} />}</div>
             {provider === "ollama" && (<div><label className="mb-1.5 block text-xs font-medium text-slate-300">{t("setup.step.provider.deanonModel")}</label><OllamaModelCombobox value={deanonModel} onChange={setDeanonModel} baseUrl={ollamaUrl} placeholder="llama3.2:3b" /><p className="mt-1 text-xs text-slate-500">{t("setup.step.provider.deanonHint")}</p></div>)}
             {/* Ollama for privacy — cloud only */}
-            {provider !== "ollama" && (<div className="rounded-lg border border-slate-700 bg-slate-800/30 p-4 space-y-3">
-              <div><h3 className="text-xs font-semibold text-slate-200">{t("setup.step.provider.ollamaPrivacy.title")}</h3><p className="mt-0.5 text-[11px] text-slate-500">{t("setup.step.provider.ollamaPrivacy.description")}</p></div>
-              <div className="flex flex-col gap-2">{([
-                { value: "compose" as const, label: t("setup.step.provider.ollamaPrivacy.compose"), d: t("setup.step.provider.ollamaPrivacy.compose.description") },
-                { value: "external" as const, label: t("setup.step.provider.ollamaPrivacy.external"), d: t("setup.step.provider.ollamaPrivacy.external.description") },
-                { value: "none" as const, label: t("setup.step.provider.ollamaPrivacy.none"), d: t("setup.step.provider.ollamaPrivacy.none.description") },
-              ]).map((o) => (<button key={o.value} type="button" onClick={() => { setOllamaMode(o.value); setOllamaUrlError(null); if (o.value === "compose") updateOllamaUrl("http://ollama:11434"); else if (o.value === "external") { updateOllamaUrl(""); void prefillOllamaUrl((r) => r.default_url ?? r.url); } }} className={`w-full rounded-md border p-2.5 text-left transition-colors ${ollamaMode === o.value ? "border-sky-500 bg-sky-600/10" : "border-slate-700 bg-slate-800/50 hover:border-slate-600"}`}><div className="text-xs font-medium text-slate-200">{o.label}</div><div className="text-[11px] text-slate-400">{o.d}</div></button>))}</div>
-              {ollamaMode === "external" && (<div><label htmlFor="ollama-url-external" className="mb-1 block text-xs font-medium text-slate-300">Ollama URL</label><OllamaUrlInput id="ollama-url-external" value={ollamaUrl} error={ollamaUrlError} errorId="ollama-url-error-external" onChange={changeOllamaUrl} className={inputCls} placeholder={t("settings.llm.ollama.baseUrl.placeholder")} /><OllamaUrlError id="ollama-url-error-external" message={ollamaUrlError} /></div>)}
-              {ollamaMode !== "none" && (<div><label className="mb-1 block text-xs font-medium text-slate-300">{t("setup.step.provider.deanonModel")}</label><OllamaModelCombobox value={deanonModel} onChange={setDeanonModel} baseUrl={ollamaUrl} placeholder="llama3.2:3b" /></div>)}
-            </div>)}
+            {provider !== "ollama" && (
+              <OllamaPrivacyOptions
+                mode={ollamaMode}
+                onModeChange={handleOllamaModeChange}
+                ollamaUrl={ollamaUrl}
+                ollamaUrlError={ollamaUrlError}
+                onUrlChange={changeOllamaUrl}
+                deanonModel={deanonModel}
+                onDeanonModelChange={setDeanonModel}
+              />
+            )}
           </div>
           <StatusBadge status={providerTestStatus} msg={providerTestMessage} />
           {providerTestStatus === "error" && needsPull && (
@@ -581,74 +682,22 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
           <div className="mt-6 flex justify-between">
             {startPhase === "needs_infrastructure" ? <button type="button" onClick={() => setStep("cache")} className={backBtnCls}>{t("setup.nav.back")}</button> : <div />}
             <button type="button" onClick={handleTestAndAdvanceProvider} disabled={providerTestStatus === "pending"} className={actionBtnCls}>
-              {providerTestStatus === "pending" ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />{t("setup.step.test.pending")}</span> : t("setup.step.provider.testAndContinue")}
+              <PendingLabel pending={providerTestStatus === "pending"} pendingText={t("setup.step.test.pending")} idleText={t("setup.step.provider.testAndContinue")} />
             </button>
           </div>
         </div>)}
 
         {/* Regulations */}
-        {step === "regulations" && (() => {
-          const builtinRegs = [...regulations]
-            .filter(r => r.is_builtin)
-            .sort(
-              (a, b) =>
-                (REGULATION_META[a.id]?.order ?? 99) -
-                (REGULATION_META[b.id]?.order ?? 99)
-            );
-          const allSelected =
-            builtinRegs.length > 0 &&
-            builtinRegs.every(r => activeRegulations.has(r.id));
-          const toggleAll = () => {
-            if (allSelected) {
-              setActiveRegulations(new Set());
-            } else {
-              setActiveRegulations(new Set(builtinRegs.map(r => r.id)));
-            }
-          };
-          return (<div>
-          <StepHeader icon={Shield} title={t("setup.step.regulations")} desc={t("setup.step.regulations.description")} />
-          {regulationsLoading ? (
-            <div className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="h-4 w-4 animate-spin" />{t("settings.common.loading")}</div>
-          ) : (
-            <>
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-[11px] text-slate-400">
-                  {t("setup.step.regulations.selectedCount")
-                    .replace("{selected}", String(activeRegulations.size))
-                    .replace("{total}", String(builtinRegs.length))}
-                </span>
-                <button
-                  type="button"
-                  onClick={toggleAll}
-                  className="text-[11px] font-medium text-sky-400 hover:text-sky-300"
-                >
-                  {allSelected
-                    ? t("setup.step.regulations.deselectAll")
-                    : t("setup.step.regulations.selectAll")}
-                </button>
-              </div>
-              <div className="max-h-64 overflow-y-auto space-y-1.5 rounded-lg border border-slate-700 bg-slate-800/30 p-3">
-                {builtinRegs.map((reg) => (
-                  <label key={reg.id} className="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-slate-800/50 cursor-pointer">
-                    <input type="checkbox" checked={activeRegulations.has(reg.id)} onChange={(e) => { const next = new Set(activeRegulations); if (e.target.checked) { next.add(reg.id); } else { next.delete(reg.id); } setActiveRegulations(next); }} className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-600 focus:ring-sky-500" />
-                    <span className="text-base leading-none">{REGULATION_META[reg.id]?.flag ?? "\u{1F310}"}</span>
-                    <div className="flex-1 min-w-0"><div className="text-xs font-medium text-slate-200 truncate">{t((`regulation.${reg.id}`) as never) || reg.display_name}</div></div>
-                  </label>
-                ))}
-              </div>
-            </>
-          )}
-          <p className="mt-2 text-[11px] text-slate-500">{t("setup.step.regulations.hint")}</p>
-          <div className="mt-6 flex justify-between">
-            <button type="button" onClick={() => setStep("provider")} className={backBtnCls}>{t("setup.nav.back")}</button>
-            <button type="button" onClick={async () => {
-              try { for (const reg of regulations) { const should = activeRegulations.has(reg.id); if (reg.is_active !== should) await api.patch(`/api/regulations/${reg.id}/activate`, { is_active: should }); } }
-              catch (err: unknown) { if (isSetupForbidden(err)) return; }
-              setStep("whisper");
-            }} disabled={activeRegulations.size === 0} className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50 transition-colors">{t("setup.nav.next")}</button>
-          </div>
-        </div>);
-        })()}
+        {step === "regulations" && (
+          <RegulationsStep
+            regulations={regulations}
+            loading={regulationsLoading}
+            selected={activeRegulations}
+            onSelectedChange={setActiveRegulations}
+            onBack={() => setStep("provider")}
+            onNext={handleApplyRegulations}
+          />
+        )}
 
         {/* Whisper (with install & advance) */}
         {step === "whisper" && (<div>
@@ -676,7 +725,7 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
           <div className="mt-6 flex justify-between">
             <button type="button" onClick={() => setStep("regulations")} className={backBtnCls}>{t("setup.nav.back")}</button>
             <button type="button" onClick={handleInstallAndAdvanceWhisper} disabled={whisperStatus === "pending"} className={actionBtnCls}>
-              {whisperStatus === "pending" ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />{whisperMessage}</span> : t("setup.step.whisper.installAndContinue")}
+              <PendingLabel pending={whisperStatus === "pending"} pendingText={whisperMessage} idleText={t("setup.step.whisper.installAndContinue")} />
             </button>
           </div>
         </div>)}
@@ -693,7 +742,7 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
           <div className="mt-6 flex justify-between">
             <button type="button" onClick={() => setStep("whisper")} className={backBtnCls}>{t("setup.nav.back")}</button>
             <button type="button" onClick={handleRegister} disabled={!regEmail || !regPassword || !regConfirm || regStatus === "pending"} className={actionBtnCls}>
-              {regStatus === "pending" ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />{t("setup.step.register.creating")}</span> : t("setup.step.register.createAndFinish")}
+              <PendingLabel pending={regStatus === "pending"} pendingText={t("setup.step.register.creating")} idleText={t("setup.step.register.createAndFinish")} />
             </button>
           </div>
         </div>)}
