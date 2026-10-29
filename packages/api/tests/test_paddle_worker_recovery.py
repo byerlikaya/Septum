@@ -29,6 +29,13 @@ def _die_hard(*_args: Any) -> List[Dict[str, Any]]:
     os._exit(1)
 
 
+_SECRET_MESSAGE = "recognized text Jane Doe 4111-1111-1111-1111"
+
+
+def _raise_with_text(*_args: Any) -> List[Dict[str, Any]]:
+    raise ValueError(_SECRET_MESSAGE)
+
+
 def _return_one_line(*_args: Any) -> List[Dict[str, Any]]:
     return [{"rec_texts": ["ok"], "rec_scores": [0.9]}]
 
@@ -69,6 +76,8 @@ def test_hard_worker_death_falls_back_and_next_call_gets_a_fresh_pool(
     with caplog.at_level("WARNING", logger=paddle_provider.logger.name):
         assert _call_with_deadline(provider, image) == []
     assert "PaddleOCR subprocess failed" in caplog.text
+    assert "BrokenProcessPool" in caplog.text
+    assert "terminated abruptly" not in caplog.text
     assert paddle_provider._ocr_pool is None
 
     monkeypatch.setattr(paddle_provider, "_paddle_ocr_predict", _return_one_line)
@@ -76,3 +85,18 @@ def test_hard_worker_death_falls_back_and_next_call_gets_a_fresh_pool(
         {"rec_texts": ["ok"], "rec_scores": [0.9]}
     ]
     assert paddle_provider._ocr_pool is not None
+
+
+@pytest.mark.usefixtures("clean_pool")
+def test_worker_exception_message_is_not_logged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Only the exception class is logged: its message can carry recognized text."""
+
+    provider = PaddleOcrProvider()
+    monkeypatch.setattr(paddle_provider, "_paddle_ocr_predict", _raise_with_text)
+    with caplog.at_level("WARNING", logger=paddle_provider.logger.name):
+        assert _call_with_deadline(provider, np.zeros((2, 2, 3), np.uint8)) == []
+
+    assert "ValueError" in caplog.text
+    assert _SECRET_MESSAGE not in caplog.text

@@ -14,6 +14,10 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
+from .process_hardening import disable_core_dumps
+
+disable_core_dumps()
+
 from . import bootstrap as _bootstrap_early
 from .utils.logging_config import setup_structured_logging
 
