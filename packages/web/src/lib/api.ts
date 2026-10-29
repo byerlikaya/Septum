@@ -177,6 +177,113 @@ api.interceptors.response.use(
 
 export default api;
 
+type SSEOptions = {
+  method?: "GET" | "POST";
+  onHttpError?: (code: string | null) => void;
+};
+
+function authorizationHeader(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function sseRequestHeaders(): Record<string, string> {
+  const headers = authorizationHeader();
+  const setupToken = getSetupToken();
+  if (setupToken) headers[SETUP_TOKEN_HEADER] = setupToken;
+  return headers;
+}
+
+function sseRequestInit(
+  headers: Record<string, string>,
+  body: Record<string, unknown> | undefined,
+  options: SSEOptions | undefined,
+  signal: AbortSignal
+): RequestInit {
+  if (options?.method !== "POST" && body === undefined) return { headers, signal };
+  headers["Content-Type"] = "application/json";
+  return { headers, signal, method: "POST", body: JSON.stringify(body ?? {}) };
+}
+
+async function handleSSEHttpError(res: Response, options: SSEOptions | undefined): Promise<void> {
+  const payload = (await res.json().catch(() => null)) as { code?: string } | null;
+  if (res.status === 403 && payload?.code === SETUP_FORBIDDEN_CODE) handleSetupForbidden();
+  options?.onHttpError?.(payload?.code ?? null);
+}
+
+async function readSSEDataLines(body: ReadableStream<Uint8Array>, onLine: (raw: string) => void): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (line.startsWith("data: ")) onLine(line.slice(6));
+    }
+  }
+}
+
+function emitChatPayload(raw: string, onEvent: (event: SSEChatEvent) => void): boolean {
+  if (raw === "[DONE]" || raw.trim() === "") return false;
+  try {
+    const event = JSON.parse(raw) as SSEChatEvent;
+    onEvent(event);
+    return event.type === "end" || event.type === "error";
+  } catch {
+    return false;
+  }
+}
+
+async function readChatEvents(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  onEvent: (event: SSEChatEvent) => void
+): Promise<string | null> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return buffer;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (line.startsWith("data: ") && emitChatPayload(line.slice(6), onEvent)) return null;
+    }
+  }
+}
+
+async function chatErrorDetailSuffix(res: Response): Promise<string> {
+  const text = await res.text();
+  const detail = text.length > 200 ? `${text.slice(0, 200)}…` : text;
+  return detail ? ` — ${detail}` : "";
+}
+
+async function runSSE(
+  url: string,
+  body: Record<string, unknown> | undefined,
+  onLine: (raw: string) => void,
+  options: SSEOptions | undefined,
+  signal: AbortSignal
+): Promise<void> {
+  try {
+    const init = sseRequestInit(sseRequestHeaders(), body, options, signal);
+    const res = await fetch(`${baseURL}${url}`, init);
+    if (!res.ok) {
+      await handleSSEHttpError(res, options);
+      return;
+    }
+    if (!res.body) return;
+    await readSSEDataLines(res.body, onLine);
+  } catch {
+    // Caller observes failure via the absence of more onLine calls;
+    // keep this swallow tight so we never re-export internal abort
+    // exceptions to UI code.
+  }
+}
 
 /**
  * Stream a server-sent-events endpoint with the bearer-token header
@@ -196,55 +303,10 @@ export function streamSSE(
   url: string,
   body: Record<string, unknown> | undefined,
   onLine: (raw: string) => void,
-  options?: {
-    method?: "GET" | "POST";
-    onHttpError?: (code: string | null) => void;
-  }
+  options?: SSEOptions
 ): StreamSSEHandle {
   const controller = new AbortController();
-  (async () => {
-    try {
-      const headers: Record<string, string> = {};
-      const token = getAuthToken();
-      if (token) headers.Authorization = `Bearer ${token}`;
-      const setupToken = getSetupToken();
-      if (setupToken) headers[SETUP_TOKEN_HEADER] = setupToken;
-      let init: RequestInit = { headers, signal: controller.signal };
-      if (options?.method === "POST" || body !== undefined) {
-        headers["Content-Type"] = "application/json";
-        init = {
-          ...init,
-          method: "POST",
-          body: JSON.stringify(body ?? {}),
-        };
-      }
-      const res = await fetch(`${baseURL}${url}`, init);
-      if (!res.ok) {
-        const payload = (await res.json().catch(() => null)) as { code?: string } | null;
-        if (res.status === 403 && payload?.code === SETUP_FORBIDDEN_CODE) handleSetupForbidden();
-        options?.onHttpError?.(payload?.code ?? null);
-        return;
-      }
-      if (!res.body) return;
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (line.startsWith("data: ")) onLine(line.slice(6));
-        }
-      }
-    } catch {
-      // Caller observes failure via the absence of more onLine calls;
-      // keep this swallow tight so we never re-export internal abort
-      // exceptions to UI code.
-    }
-  })();
+  runSSE(url, body, onLine, options, controller.signal);
   return { abort: () => controller.abort() };
 }
 
@@ -519,6 +581,45 @@ export interface ChatDebugPayload {
   masked_answer: string;
 }
 
+async function runChatStream(
+  body: Record<string, unknown>,
+  onEvent: (event: SSEChatEvent) => void,
+  signal: AbortSignal
+): Promise<void> {
+  try {
+    const res = await fetch(`${baseURL}/api/chat/ask`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authorizationHeader(),
+      },
+      body: JSON.stringify(body),
+      signal
+    });
+    if (!res.ok) {
+      const detailSuffix = await chatErrorDetailSuffix(res);
+      onEvent({
+        type: "error",
+        message: `HTTP ${res.status}: ${res.statusText}${detailSuffix}`
+      });
+      return;
+    }
+    const reader = res.body?.getReader();
+    if (!reader) {
+      onEvent({ type: "error", message: "No response body" });
+      return;
+    }
+    const trailing = await readChatEvents(reader, onEvent);
+    if (trailing?.startsWith("data: ")) emitChatPayload(trailing.slice(6), onEvent);
+  } catch (err) {
+    if ((err as { name?: string }).name === "AbortError") return;
+    onEvent({
+      type: "error",
+      message: err instanceof Error ? err.message : "Stream failed"
+    });
+  }
+}
+
 /**
  * Consume SSE stream from POST /api/chat/ask and invoke onEvent for each parsed event.
  * Returns a promise that resolves when the stream ends or rejects on stream/parse error.
@@ -548,70 +649,7 @@ export function streamChatAsk(
     body.scoped_doc_ids = params.scoped_doc_ids;
   }
 
-  (async () => {
-    try {
-      const res = await fetch(`${baseURL}/api/chat/ask`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        const detail = text.length > 200 ? `${text.slice(0, 200)}…` : text;
-        const detailSuffix = detail ? ` — ${detail}` : "";
-        onEvent({
-          type: "error",
-          message: `HTTP ${res.status}: ${res.statusText}${detailSuffix}`
-        });
-        return;
-      }
-      const reader = res.body?.getReader();
-      if (!reader) {
-        onEvent({ type: "error", message: "No response body" });
-        return;
-      }
-      const decoder = new TextDecoder();
-      let buffer = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const raw = line.slice(6);
-            if (raw === "[DONE]" || raw.trim() === "") continue;
-            try {
-              const event = JSON.parse(raw) as SSEChatEvent;
-              onEvent(event);
-              if (event.type === "end" || event.type === "error") return;
-            } catch {
-              // skip malformed payload
-            }
-          }
-        }
-      }
-      if (buffer.startsWith("data: ")) {
-        try {
-          const event = JSON.parse(buffer.slice(6)) as SSEChatEvent;
-          onEvent(event);
-        } catch {
-          // skip
-        }
-      }
-    } catch (err) {
-      if ((err as { name?: string }).name === "AbortError") return;
-      onEvent({
-        type: "error",
-        message: err instanceof Error ? err.message : "Stream failed"
-      });
-    }
-  })();
+  runChatStream(body, onEvent, controller.signal);
 
   return {
     abort: () => controller.abort()
