@@ -21,6 +21,27 @@ type Step = "token" | "welcome" | "database" | "cache" | "provider" | "regulatio
 type TestStatus = "idle" | "pending" | "success" | "error";
 
 const SETUP_FORBIDDEN = "setup_forbidden";
+
+type ProgressGate = {
+  settled: boolean;
+  resolve: () => void;
+  fail: () => void;
+  timer?: ReturnType<typeof setTimeout>;
+};
+
+function settleProgress(gate: ProgressGate, failed: boolean): void {
+  if (gate.settled) return;
+  gate.settled = true;
+  clearTimeout(gate.timer);
+  if (failed) gate.fail();
+  gate.resolve();
+}
+
+function armProgressTimeout(gate: ProgressGate, ms: number, onExpire: () => void): void {
+  gate.timer = setTimeout(onExpire, ms);
+  if (gate.settled) clearTimeout(gate.timer);
+}
+
 const DATABASE_CONNECTION_KEYS: Record<string, MessageKey> = {
   connection_failed: "setup.step.database.test.failed",
   unsupported_url_scheme: "setup.step.connection.unsupportedScheme",
@@ -449,6 +470,21 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
     } catch (err: unknown) { setProviderTestStatus("error"); setProviderTestMessage(translateErrorCode(extractErrorCode(err), t) ?? t("setup.step.test.failed")); }
   }, [provider, model, ollamaUrl, t, saveProviderSettings, loadRegulationsForStep]);
 
+  const failPull = useCallback(() => {
+    setProviderTestStatus("error"); setProviderTestMessage(t("setup.step.test.pullFailed")); setPullProgress(null);
+  }, [t]);
+
+  const reportPullHttpError = useCallback((code: string | null) => {
+    if (code === SETUP_FORBIDDEN) return;
+    setProviderTestStatus("error");
+    setProviderTestMessage(translateErrorCode(code, t, HTTP_ERROR_KEYS) ?? t("setup.step.test.pullFailed"));
+    setPullProgress(null);
+  }, [t]);
+
+  const failWhisperInstall = useCallback(() => {
+    setWhisperStatus("error"); setWhisperMessage(t("setup.step.test.whisper.failed")); setWhisperProgress(null);
+  }, [t]);
+
   const handlePullModel = useCallback(async () => {
     setPullProgress(0); setPullStatus(t("setup.step.test.pulling")); setProviderTestStatus("pending");
     // streamSSE wraps the same fetch + ReadableStream pipeline but
@@ -456,7 +492,7 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
     // do not silently 401, and centralises the auth header so a
     // future cookie-based auth migration is a one-liner here.
     await new Promise<void>((resolve) => {
-      let resolved = false;
+      const gate: ProgressGate = { settled: false, resolve, fail: failPull };
       const handle = streamSSE(
         "/api/settings/ollama-pull",
         { model, base_url: ollamaUrl },
@@ -469,26 +505,34 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
               setPullProgress(100); setProviderTestStatus("success");
               setProviderTestMessage(t("setup.step.test.pullSuccess"));
               setNeedsPull(false);
-              if (!resolved) { resolved = true; handle.abort(); resolve(); }
+              handle.abort(); settleProgress(gate, false);
               return;
             }
             if (evt.error) {
               setProviderTestStatus("error"); setProviderTestMessage(evt.status);
               setPullProgress(null);
-              if (!resolved) { resolved = true; handle.abort(); resolve(); }
+              handle.abort(); settleProgress(gate, false);
             }
           } catch {
             /* skip malformed line */
           }
         },
+        {
+          onHttpError: (code) => {
+            reportPullHttpError(code);
+            settleProgress(gate, false);
+          },
+          onStreamError: () => settleProgress(gate, true),
+          onStreamEnd: () => settleProgress(gate, true),
+        },
       );
-      // Safety: resolve after 5 minutes so the wizard never hangs
-      // forever on a silently-stalled stream.
-      setTimeout(() => {
-        if (!resolved) { resolved = true; handle.abort(); resolve(); }
-      }, 300_000);
+      // Safety: settle after 5 minutes so the wizard never hangs
+      // forever on a silently-stalled stream, and show the failure.
+      armProgressTimeout(gate, 300_000, () => {
+        handle.abort(); settleProgress(gate, true);
+      });
     });
-  }, [model, ollamaUrl, t]);
+  }, [model, ollamaUrl, t, failPull, reportPullHttpError]);
 
   // Whisper: install + advance in one click
   const handleInstallAndAdvanceWhisper = useCallback(async () => {
@@ -510,7 +554,7 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
     // Stream download
     setWhisperMessage(t("setup.step.test.whisper.downloading")); setWhisperProgress(0);
     await new Promise<void>((resolve) => {
-      let resolved = false;
+      const gate: ProgressGate = { settled: false, resolve, fail: failWhisperInstall };
       const handle = streamSSE(
         "/api/setup/install-whisper",
         { model: whisperModel },
@@ -522,13 +566,13 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
               setWhisperProgress(100); setWhisperStatus("success");
               setWhisperMessage(t("setup.step.test.whisper.ready"));
               setStep("register");
-              if (!resolved) { resolved = true; handle.abort(); resolve(); }
+              handle.abort(); settleProgress(gate, false);
               return;
             }
             if (evt.error) {
               setWhisperStatus("error"); setWhisperMessage(evt.status);
               setWhisperProgress(null);
-              if (!resolved) { resolved = true; handle.abort(); resolve(); }
+              handle.abort(); settleProgress(gate, false);
             }
           } catch {
             /* skip malformed line */
@@ -541,15 +585,17 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
               setWhisperMessage(translateErrorCode(code, t, HTTP_ERROR_KEYS) ?? t("setup.step.test.failed"));
               setWhisperProgress(null);
             }
-            if (!resolved) { resolved = true; resolve(); }
+            settleProgress(gate, false);
           },
+          onStreamError: () => settleProgress(gate, true),
+          onStreamEnd: () => settleProgress(gate, true),
         },
       );
-      setTimeout(() => {
-        if (!resolved) { resolved = true; handle.abort(); resolve(); }
-      }, 600_000);
+      armProgressTimeout(gate, 600_000, () => {
+        handle.abort(); settleProgress(gate, true);
+      });
     });
-  }, [whisperModel, t]);
+  }, [whisperModel, t, failWhisperInstall]);
 
   const handleApplyRegulations = useCallback(async () => {
     try { for (const reg of regulations) { const should = activeRegulations.has(reg.id); if (reg.is_active !== should) await api.patch(`/api/regulations/${reg.id}/activate`, { is_active: should }); } }
