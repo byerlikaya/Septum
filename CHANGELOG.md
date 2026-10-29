@@ -25,6 +25,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 ### 2026-10-29
 
 - Decrypted document content no longer reaches disk: PDF and audio ingestion stay in memory, uploads are encrypted in place, and core dumps are disabled. Uploads now require authentication and can be refused with 503 (busy), 413 (too large) or 408 (too slow), and audio longer than an hour is refused by default; the limits are set by `MAX_UPLOAD_BYTES`, `MAX_CONCURRENT_UPLOADS`, `UPLOAD_BODY_TIMEOUT_SECONDS` and `MAX_AUDIO_SECONDS`.
+- Long audio is transcribed in windows of about 10 minutes, each cut at a quiet point, so transcription memory no longer grows with recording length (about 40% lower peak for an hour of audio). Audio of 10 minutes or less is transcribed exactly as before.
 
 ### 2026-10-28
 

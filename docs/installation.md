@@ -507,7 +507,7 @@ The loop looks up the real volume name from the label compose puts on it, so the
 
 ### Memory sizing
 
-Uploads are held in RAM from the socket until the endpoint encrypts them; no upload is written to a temporary file. An upload in flight peaks at about twice its size. Ingesting a large file needs about twice its size again. Audio transcription also decodes the audio to a 16 kHz mono waveform: about 115 MB per hour as 16-bit PCM, and about 230 MB per hour as float32, which Whisper then works on. At the default `MAX_AUDIO_SECONDS` of 3600, those are the most one file can take.
+Uploads are held in RAM from the socket until the endpoint encrypts them; no upload is written to a temporary file. An upload in flight peaks at about twice its size. Ingesting a large file needs about twice its size again. Audio transcription also decodes the audio to 16 kHz mono and keeps it as 16-bit PCM: about 115 MB per hour. Audio longer than 10 minutes is transcribed in windows of about 10 minutes, each cut at a quiet point near the boundary. Only one window at a time is converted to float32 and run through Whisper: about 38 MB per window, plus Whisper's own spectrogram work for that window. Audio of 10 minutes or less is transcribed in one pass. Apart from the transcript text, transcription memory no longer grows with the length of the recording beyond the PCM buffer. At the default `MAX_AUDIO_SECONDS` of 3600, the PCM buffer is the most one file can take.
 
 Work this out for each API worker process, then add the models:
 
