@@ -188,6 +188,33 @@ def rewrite_jsonl_locked(
         return _write_survivors(fh, plan, src, tmp, accepted, legacy, earlier, now)
 
 
+def _latest_hash(current: str | None, new: str | None) -> str | None:
+    """``new`` when it is set, otherwise ``current``: the most recent hash seen."""
+    return new if new is not None else current
+
+
+def _advance_age_search(
+    age: float | None,
+    cutoff: float,
+    valid: int,
+    pending: int | None,
+) -> tuple[int | None, int | None]:
+    """One step of the age search, returning ``(prefix, pending)``. ``prefix`` is set once a known age reaches the cutoff."""
+    if age is None:
+        return None, (valid if pending is None else pending)
+    if age >= cutoff:
+        return (valid if pending is None else pending), None
+    return None, None
+
+
+def _count_drop(valid: int, drop: int, policy: RetentionPolicy) -> int:
+    """Raise the drop to what the count cap requires, once the ledger is past its slack threshold."""
+    threshold = policy.count_threshold()
+    if threshold is not None and valid > threshold:
+        return max(drop, valid - policy.max_records)
+    return drop
+
+
 def _plan_prune(
     fh: IO[bytes],
     policy: RetentionPolicy,
@@ -210,23 +237,68 @@ def _plan_prune(
             torn += 1
             continue
         if cutoff is not None and prefix is None:
-            if age is None:
-                if pending is None:
-                    pending = valid
-            else:
-                if age >= cutoff:
-                    prefix = pending if pending is not None else valid
-                pending = None
+            prefix, pending = _advance_age_search(age, cutoff, valid, pending)
         valid += 1
-        if record.hash is not None:
-            last_hash = record.hash
+        last_hash = _latest_hash(last_hash, record.hash)
     if prefix is None:
-        prefix = pending if pending is not None else valid
-    drop = prefix
-    threshold = policy.count_threshold()
-    if threshold is not None and valid > threshold:
-        drop = max(drop, valid - policy.max_records)
+        prefix = valid if pending is None else pending
+    drop = _count_drop(valid, prefix, policy)
     return _Plan(valid=valid, torn=torn, drop=drop, last_hash=last_hash)
+
+
+@dataclass
+class _Survivors:
+    """State of pass 2: what was written to the tmp file and the chain links it carries."""
+
+    drop: int
+    out: IO[bytes]
+    index: int = 0
+    first_prev: str | None = None
+    first_legacy: bool = False
+    head: str | None = None
+    last_hash: str | None = None
+    kept_last: str | None = None
+    kept_first_legacy: bool = False
+
+    def feed(self, line: bytes, record: AuditRecord) -> None:
+        """Account for one verified record and write it when it is kept."""
+        if self.index == 0:
+            self.first_prev = record.prev_hash
+            self.first_legacy = record.prev_hash is None
+        if self.index == self.drop:
+            self.head = record.prev_hash if record.prev_hash is not None else GENESIS_PREV_HASH
+            self.kept_first_legacy = record.prev_hash is None
+        if self.index >= self.drop:
+            self.out.write(line + b"\n")
+            self.kept_last = _latest_hash(self.kept_last, record.hash)
+        self.last_hash = _latest_hash(self.last_hash, record.hash)
+        self.index += 1
+
+
+def _copy_survivors(
+    fh: IO[bytes],
+    plan: _Plan,
+    accepted: tuple[str, ...],
+    legacy: bool,
+    out: IO[bytes],
+) -> _Survivors:
+    """Pass 2 read: stream every verified record through ``_Survivors.feed`` into ``out``."""
+    survivors = _Survivors(drop=plan.drop, out=out)
+    for line, record, _age in _scan(fh, accepted, allow_legacy=legacy):
+        if record is not None:
+            survivors.feed(line, record)
+    return survivors
+
+
+def _chain_links(plan: _Plan, survivors: _Survivors, fallback: str) -> tuple[str | None, str | None]:
+    """The ``(hash, previous_hash)`` pair the anchor records for this pass."""
+    if plan.valid == 0:
+        return fallback, fallback
+    previous = fallback if survivors.first_legacy else survivors.first_prev
+    head = survivors.head
+    if plan.drop == plan.valid:
+        head = survivors.last_hash if survivors.last_hash is not None else fallback
+    return head, previous
 
 
 def _write_survivors(
@@ -244,42 +316,14 @@ def _write_survivors(
     fd = create_tmp(tmp)
     try:
         with os.fdopen(fd, "wb") as wh:
-            index = 0
-            first_prev: str | None = None
-            first_legacy = False
-            head: str | None = None
-            last_hash: str | None = None
-            kept_last: str | None = None
-            kept_first_legacy = False
-            for line, record, _age in _scan(fh, accepted, allow_legacy=legacy):
-                if record is None:
-                    continue
-                if index == 0:
-                    first_prev = record.prev_hash
-                    first_legacy = record.prev_hash is None
-                if index == plan.drop:
-                    head = record.prev_hash if record.prev_hash is not None else GENESIS_PREV_HASH
-                    kept_first_legacy = record.prev_hash is None
-                if index >= plan.drop:
-                    wh.write(line + b"\n")
-                    if record.hash is not None:
-                        kept_last = record.hash
-                if record.hash is not None:
-                    last_hash = record.hash
-                index += 1
-            if index != plan.valid or last_hash != plan.last_hash:
+            survivors = _copy_survivors(fh, plan, accepted, legacy, wh)
+            if survivors.index != plan.valid or survivors.last_hash != plan.last_hash:
                 raise LedgerIntegrityError(
                     "ledger changed during retention; aborting, retention halted until the ledger is repaired"
                 )
             wh.flush()
             os.fsync(wh.fileno())
-        if plan.valid == 0:
-            head = previous = fallback
-        else:
-            previous = first_prev if not first_legacy else fallback
-            if plan.drop == plan.valid:
-                head = last_hash if last_hash is not None else fallback
-        new_head = kept_last if kept_last is not None else head
+        head, previous = _chain_links(plan, survivors, fallback)
         write_anchor(
             src,
             new_anchor(
@@ -288,7 +332,7 @@ def _write_survivors(
                 removed=plan.drop,
                 earlier=earlier,
                 now=now,
-                legacy_prefix=kept_first_legacy,
+                legacy_prefix=survivors.kept_first_legacy,
             ),
         )
         os.replace(tmp, src)
@@ -296,7 +340,7 @@ def _write_survivors(
     except Exception:
         tmp.unlink(missing_ok=True)
         raise
-    return RewriteResult(plan.drop, plan.torn, new_head)
+    return RewriteResult(plan.drop, plan.torn, _latest_hash(head, survivors.kept_last))
 
 
 def oldest_age_reference(path: str | os.PathLike[str]) -> float | None:
@@ -336,6 +380,37 @@ def _legacy_allowed(earlier: RetentionAnchor | None) -> bool:
     return earlier is None or earlier.legacy_prefix
 
 
+def _has_torn_tail(fh: IO[bytes], size: int) -> bool:
+    """True when the last byte of the ledger is not a newline, so the final line is unterminated."""
+    fh.seek(size - 1)
+    return fh.read(1) != b"\n"
+
+
+def _first_known_age_before(fh: IO[bytes], cutoff: float) -> bool:
+    """True when the first record with a known age cannot be read, or is not finite or is older than ``cutoff``."""
+    for _, _, line in nonblank(fh):
+        try:
+            payload, _record = parse_record(line.decode("utf-8"))
+            age = known_age_reference(payload)
+        except ValueError:
+            return True
+        if age is None:
+            continue
+        # A non-finite age cannot be compared, so the full pass must refuse it.
+        return not math.isfinite(age) or age < cutoff
+    return False
+
+
+def _over_count_threshold(fh: IO[bytes], policy: RetentionPolicy) -> bool:
+    """True when the newline count, an upper bound on the records, exceeds the count threshold."""
+    threshold = policy.count_threshold()
+    if threshold is None:
+        return False
+    fh.seek(0)
+    lines = sum(block.count(b"\n") for block in iter(lambda: fh.read(_READ_BLOCK), b""))
+    return lines > threshold
+
+
 def _may_remove(fh: IO[bytes], policy: RetentionPolicy, cutoff: float | None) -> bool:
     """Cheap check: can the policy remove anything, or must the full pass verify first?
 
@@ -348,35 +423,12 @@ def _may_remove(fh: IO[bytes], policy: RetentionPolicy, cutoff: float | None) ->
     size = fh.tell()
     if size == 0:
         return False
-    fh.seek(size - 1)
-    if fh.read(1) != b"\n":
+    if _has_torn_tail(fh, size):
         return True
     fh.seek(0)
-    if cutoff is not None:
-        for _, _, line in nonblank(fh):
-            try:
-                payload, _record = parse_record(line.decode("utf-8"))
-                age = known_age_reference(payload)
-            except ValueError:
-                return True
-            if age is None:
-                continue
-            # A non-finite age cannot be compared, so the full pass must refuse it.
-            if not math.isfinite(age) or age < cutoff:
-                return True
-            break
-    threshold = policy.count_threshold()
-    if threshold is not None:
-        fh.seek(0)
-        lines = 0
-        while True:
-            block = fh.read(_READ_BLOCK)
-            if not block:
-                break
-            lines += block.count(b"\n")
-        if lines > threshold:
-            return True
-    return False
+    if cutoff is not None and _first_known_age_before(fh, cutoff):
+        return True
+    return _over_count_threshold(fh, policy)
 
 
 def _check_fields(payload: dict[str, Any]) -> None:
@@ -437,6 +489,33 @@ def validate_chained(
         )
 
 
+def _parse_ledger_line(line: bytes) -> tuple[dict[str, Any], AuditRecord, float | None]:
+    """Decode and field-check one ledger line, returning its payload, record and known age."""
+    payload, record = parse_record(line.decode("utf-8"))
+    _check_fields(payload)
+    if record.received_at is not None and not math.isfinite(record.received_at):
+        raise ValueError("non-finite received_at")
+    return payload, record, known_age_reference(payload)
+
+
+def _is_legacy_line(
+    payload: dict[str, Any],
+    number: int,
+    record: AuditRecord,
+    allow_legacy: bool,
+    seen_chained: bool,
+) -> bool:
+    """Whether a hash-less line is an accepted legacy prefix line. A hash-less line carrying ``received_at`` is refused."""
+    if record.prev_hash is not None or record.hash is not None:
+        return False
+    if payload.get("received_at") is not None:
+        raise LedgerIntegrityError(
+            f"ledger line {number} is hash-less but carries received_at; "
+            "retention halted until the ledger is repaired"
+        )
+    return allow_legacy and not seen_chained
+
+
 def _scan(
     fh: IO[bytes],
     accepted: tuple[str, ...],
@@ -458,11 +537,7 @@ def _scan(
     seen_chained = False
     for number, raw, line in nonblank(fh):
         try:
-            payload, record = parse_record(line.decode("utf-8"))
-            _check_fields(payload)
-            if record.received_at is not None and not math.isfinite(record.received_at):
-                raise ValueError("non-finite received_at")
-            age = known_age_reference(payload)
+            payload, record, age = _parse_ledger_line(line)
         except (ValueError, TypeError, AttributeError):
             if not raw.endswith(b"\n"):
                 yield line, None, None
@@ -470,15 +545,9 @@ def _scan(
             raise LedgerIntegrityError(
                 f"ledger line {number} is malformed; retention halted until the ledger is repaired"
             ) from None
-        if record.prev_hash is None and record.hash is None:
-            if payload.get("received_at") is not None:
-                raise LedgerIntegrityError(
-                    f"ledger line {number} is hash-less but carries received_at; "
-                    "retention halted until the ledger is repaired"
-                )
-            if allow_legacy and not seen_chained:
-                yield line, record, age
-                continue
+        if _is_legacy_line(payload, number, record, allow_legacy, seen_chained):
+            yield line, record, age
+            continue
         if record.prev_hash is None:
             raise LedgerIntegrityError(
                 f"ledger line {number} lacks prev_hash; retention halted until the ledger is repaired"

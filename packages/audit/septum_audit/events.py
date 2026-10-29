@@ -253,6 +253,41 @@ DEPTH_LIMIT = 32
 DEPTH_LIMIT_MARKER = "<depth limit>"
 
 
+def _is_container(value: Any) -> bool:
+    """True for the JSON containers that json_safe copies: dict, list and tuple."""
+    return isinstance(value, (dict, list, tuple))
+
+
+def _empty_like(value: Any) -> dict[Any, Any] | list[Any]:
+    """An empty dict for a dict, otherwise an empty list, so tuples are copied as lists."""
+    return {} if isinstance(value, dict) else []
+
+
+def _json_safe_leaf(item: Any) -> tuple[Any, bool]:
+    """Replace a non-finite float with its text. Returns ``(value, changed)``."""
+    if isinstance(item, float) and not math.isfinite(item):
+        if math.isnan(item):
+            return "NaN", True
+        return ("Infinity" if item > 0 else "-Infinity"), True
+    return item, False
+
+
+def _json_safe_enter(
+    item: Any,
+    depth: int,
+    max_depth: int | None,
+    stack: list[tuple[Any, Any, int]],
+) -> tuple[Any, bool]:
+    """Copy one child. A nested container is replaced by its empty copy and pushed onto ``stack`` to be filled, or by the depth marker past the cap."""
+    if not _is_container(item):
+        return _json_safe_leaf(item)
+    if max_depth is not None and depth + 1 > max_depth:
+        return DEPTH_LIMIT_MARKER, True
+    replaced = _empty_like(item)
+    stack.append((item, replaced, depth + 1))
+    return replaced, False
+
+
 def json_safe(value: Any, max_depth: int | None = DEPTH_LIMIT) -> tuple[Any, bool]:
     """Copy a JSON-like value so it can be serialised with ``allow_nan=False``.
 
@@ -261,34 +296,17 @@ def json_safe(value: Any, max_depth: int | None = DEPTH_LIMIT) -> tuple[Any, boo
     ``DEPTH_LIMIT_MARKER``; ``None`` applies no depth cap (exports). Tuples become
     lists. Iterative, so depth cannot overflow the stack. Returns ``(copy, changed)``.
     """
+    if not _is_container(value):
+        return _json_safe_leaf(value)
     changed = False
-
-    def _leaf(item: Any) -> Any:
-        nonlocal changed
-        if isinstance(item, float) and not math.isfinite(item):
-            changed = True
-            if math.isnan(item):
-                return "NaN"
-            return "Infinity" if item > 0 else "-Infinity"
-        return item
-
-    if not isinstance(value, (dict, list, tuple)):
-        return _leaf(value), changed
-    root: Any = {} if isinstance(value, dict) else []
+    root = _empty_like(value)
     stack: list[tuple[Any, Any, int]] = [(value, root, 0)]
     while stack:
         source, target, depth = stack.pop()
         items = source.items() if isinstance(source, dict) else enumerate(source)
         for key, item in items:
-            if isinstance(item, (dict, list, tuple)):
-                if max_depth is not None and depth + 1 > max_depth:
-                    replaced: Any = DEPTH_LIMIT_MARKER
-                    changed = True
-                else:
-                    replaced = {} if isinstance(item, dict) else []
-                    stack.append((item, replaced, depth + 1))
-            else:
-                replaced = _leaf(item)
+            replaced, item_changed = _json_safe_enter(item, depth, max_depth, stack)
+            changed = changed or item_changed
             if isinstance(target, dict):
                 target[key] = replaced
             else:
