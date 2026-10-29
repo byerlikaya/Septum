@@ -33,7 +33,7 @@ Septum, yüklenen bir dosyayı aranabilir ve anonimleştirilmiş içeriğe dön�
 3. **Dil tespiti** — Çıkarılan metin 20+ dil arasında sınıflandırılır. Sonraki adımda kullanılacak NER modeli ve validator kuralları bu dile göre seçilir.
 
 4. **Üç katmanlı PII tespiti** — Üç detektör sırayla çalışır ve çıktıları birleştirilir:
-   - **Presidio** — regex desenleri ve algoritmik validator'lar (TCKN checksum, Aadhaar Verhoeff, NRIC/FIN, CPF, NINO, CNPJ, My Number ve diğerleri).
+   - **Presidio** — regex desenleri ve algoritmik validator'lar (TCKN checksum, Aadhaar Verhoeff, NRIC/FIN, CPF, NINO, My Number ve diğerleri; CNPJ yalnızca biçimine göre eşleşir).
    - **NER** — `PERSON_NAME`, `LOCATION`, `ORGANIZATION_NAME` için dil grubuna göre seçilen transformer modeli. Kapsam dillere göre değişir; bkz. [NER model kapsamı](#ner-model-kapsamı).
    - **Ollama** — desenlerin yakalayamadığı, bağlama bağlı PII için opsiyonel semantik katman. Varsayılan olarak kapalıdır; Ayarlar → Gizlilik ve Anonimleştirme → *Ollama semantik tespit* seçeneğinden açılır. Yeni kurulumdaki varsayılanı `USE_OLLAMA_SEMANTIC_LAYER_DEFAULT` belirler; bu değer ayar kaydı oluşturulurken bir kez okunur.
 

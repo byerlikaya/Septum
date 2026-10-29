@@ -10,7 +10,7 @@ import re
 import unicodedata
 from bisect import bisect_left
 
-from .language_resolution import unspaced_script_ranges
+from .language_resolution import particle_script_ranges, unspaced_script_ranges
 
 BOUNDARY_CHARS: frozenset[str] = frozenset(" \t\n\r.,;:!?()[]{}\"'/-")
 
@@ -24,7 +24,14 @@ _EXTRA_UNSPACED_RANGES: tuple[tuple[int, int], ...] = (
 )
 
 _UNSPACED_RANGES = (*unspaced_script_ranges(), *_EXTRA_UNSPACED_RANGES)
-_UNSPACED_CLASS = "[" + "".join(f"{chr(lo)}-{chr(hi)}" for lo, hi in _UNSPACED_RANGES) + "]"
+
+
+def _ranges_to_class(ranges: tuple[tuple[int, int], ...]) -> str:
+    """Regex character class covering the inclusive code-point ``ranges``."""
+    return "[" + "".join(f"{chr(lo)}-{chr(hi)}" for lo, hi in ranges) + "]"
+
+
+_UNSPACED_CLASS = _ranges_to_class(_UNSPACED_RANGES)
 _UNSPACED_RE = re.compile(_UNSPACED_CLASS)
 # Characters below this are never unspaced: one comparison skips the regex.
 _FIRST_UNSPACED = chr(min(lo for lo, _ in _UNSPACED_RANGES))
@@ -34,6 +41,10 @@ _BOUNDARY_RE = re.compile("[" + re.escape("".join(sorted(BOUNDARY_CHARS))) + "]"
 # glyph next to a token edge, so "请联系a@b.cn获取" still matches.
 WORD_START = rf"(?:\b|(?<={_UNSPACED_CLASS}))"
 WORD_END = rf"(?:\b|(?={_UNSPACED_CLASS}))"
+
+_PARTICLE_CLASS = _ranges_to_class(particle_script_ranges())
+# A token may also end before a particle written onto it ("2019-0412입니다").
+PARTICLE_START = rf"(?={_PARTICLE_CLASS})"
 
 
 def word_bounded(pattern: str) -> str:

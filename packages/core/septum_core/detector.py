@@ -156,6 +156,7 @@ _SEMANTIC_VALIDATION_PASSTHROUGH_TYPES: frozenset[str] = frozenset(
         "POSTAL_ADDRESS",
         "STREET_ADDRESS",
         "CUSTOMER_REFERENCE_ID",
+        "EMPLOYEE_ID",
     }
 )
 
@@ -1443,7 +1444,7 @@ class Detector:
                         ner_pipeline(titlecased), normalized_text, language
                     ))
             if self._entity_types is not None:
-                allowed = set(self._entity_types)
+                allowed = set(self._expand_with_aliases(self._entity_types))
                 ner_spans = [s for s in ner_spans if s.entity_type in allowed]
             spans.extend(ner_spans)
 

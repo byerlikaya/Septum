@@ -28,4 +28,5 @@ ENTITY_TYPES: tuple[str, ...] = (
     "ETHNICITY",
     "POLITICAL_OPINION",
     "SEXUAL_ORIENTATION",
+    "TAX_ID",
 )

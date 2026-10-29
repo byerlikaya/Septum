@@ -82,7 +82,7 @@ def test_detector_version_is_exported() -> None:
 
 def test_grammar_or_output_change_requires_a_version_bump() -> None:
     assert (DETECTOR_VERSION, grammar_fingerprint(), _output_digest()) == (
-        "2026.10.29.1",
+        "2026.10.29.2",
         "0c8e9bd19dc18ffc",
         "e301f5106901665f",
     ), _BUMP_RULE

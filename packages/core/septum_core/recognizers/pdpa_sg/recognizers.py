@@ -16,6 +16,7 @@ from ..base_recognizer import (
     RegexPatternConfig,
     ValidatedPatternRecognizer,
 )
+from ..employee_id import employee_id_recognizer
 
 
 def _nric_fin_recognizer() -> EntityRecognizer:
@@ -46,4 +47,5 @@ def get_recognizers() -> List[EntityRecognizer]:
     recognizers: List[EntityRecognizer] = []
     recognizers.append(_nric_fin_recognizer())
     recognizers.append(_email_recognizer())
+    recognizers.append(employee_id_recognizer())
     return recognizers
