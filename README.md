@@ -4,7 +4,7 @@
 
 <h3 align="center">Your data never leaves. Your AI still works.</h3>
 
-https://github.com/user-attachments/assets/1a033953-cd04-41d5-9b80-72bd26984490
+https://github.com/user-attachments/assets/9a4787b7-1514-4714-ab3a-6545eb055a9d
 
 <p align="center">
   <a href="https://github.com/byerlikaya/Septum/actions/workflows/tests.yml">

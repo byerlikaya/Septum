@@ -4,7 +4,7 @@
 
 <h3 align="center">Veriniz dışarı çıkmaz. Yapay zekanız çalışmaya devam eder.</h3>
 
-https://github.com/user-attachments/assets/595432be-e008-4531-bb2c-e2e0f6a580c2
+https://github.com/user-attachments/assets/eb3ea068-2e1c-41e9-b67c-0a8a3f19ec05
 
 <p align="center">
   <a href="https://github.com/byerlikaya/Septum/actions/workflows/tests.yml">
