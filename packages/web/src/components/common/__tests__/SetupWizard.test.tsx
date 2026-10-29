@@ -652,3 +652,156 @@ describe("Ollama URL prefill", () => {
     }
   );
 });
+
+describe("provider step save payload and connection test", () => {
+  const renderProvider = async (initialProvider: string) => {
+    render(
+      <SetupWizard
+        startPhase="needs_application_setup"
+        initialProvider={initialProvider}
+        initialModel="m"
+        version="1"
+        onComplete={jest.fn()}
+      />
+    );
+    await passSetupToken("setup.step.provider.testAndContinue");
+  };
+  const clickTest = () => fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
+  const savedPayload = () =>
+    mockPatch.mock.calls.find((c) => c[0] === "/api/settings")?.[1] as Record<string, string> | undefined;
+  const failingTest = (url: string, data: Record<string, unknown>) =>
+    mockPost.mockImplementation((u: string) =>
+      u === url ? Promise.resolve({ data }) : Promise.resolve({ data: { ok: true } })
+    );
+
+  it("saves a cloud provider with the Ollama layers off and the key in its own field", async () => {
+    await renderProvider("anthropic");
+    fireEvent.change(screen.getByPlaceholderText("sk-ant-..."), {
+      target: { value: "  sk-key  " }
+    });
+
+    clickTest();
+
+    await waitFor(() => expect(savedPayload()).toBeDefined());
+    expect(savedPayload()).toEqual({
+      llm_provider: "anthropic",
+      llm_model: "m",
+      whisper_model: "base",
+      use_ollama_validation_layer: "false",
+      use_ollama_layer: "false",
+      anthropic_api_key: "sk-key"
+    });
+  });
+
+  it("points a cloud provider at the Ollama compose service and keeps the deanon model", async () => {
+    await renderProvider("anthropic");
+    fireEvent.click(screen.getByText("setup.step.provider.ollamaPrivacy.compose"));
+
+    clickTest();
+
+    await waitFor(() => expect(savedPayload()).toBeDefined());
+    expect(savedPayload()).toEqual({
+      llm_provider: "anthropic",
+      llm_model: "m",
+      whisper_model: "base",
+      ollama_base_url: "http://ollama:11434",
+      ollama_deanon_model: "llama3.2:3b"
+    });
+  });
+
+  it("saves a local provider with the trimmed URL and the chat model", async () => {
+    await renderProvider("ollama");
+    fireEvent.change(screen.getByPlaceholderText("settings.llm.ollama.baseUrl.placeholder"), {
+      target: { value: "  http://ollama.lan:11434  " }
+    });
+
+    clickTest();
+
+    await waitFor(() => expect(savedPayload()).toBeDefined());
+    expect(savedPayload()).toEqual({
+      llm_provider: "ollama",
+      llm_model: "m",
+      whisper_model: "base",
+      ollama_base_url: "http://ollama.lan:11434",
+      ollama_deanon_model: "llama3.2:3b",
+      ollama_chat_model: "m"
+    });
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith("/api/settings/test-local-models", {
+        base_url: "http://ollama.lan:11434"
+      })
+    );
+  });
+
+  it("tests a cloud provider and advances with the built-in regulations preselected", async () => {
+    await renderProvider("anthropic");
+
+    clickTest();
+
+    expect(await screen.findByText("setup.step.regulations")).toBeInTheDocument();
+    expect(mockPost).toHaveBeenCalledWith("/api/settings/test-llm", { provider: "anthropic", model: "m" });
+    expect(screen.getByText("setup.nav.next")).toBeEnabled();
+  });
+
+  it("stays on the provider step and shows the server message when the test fails", async () => {
+    failingTest("/api/settings/test-llm", { ok: false, message: "Invalid API key" });
+    await renderProvider("anthropic");
+
+    clickTest();
+
+    expect(await screen.findByText("Invalid API key")).toBeInTheDocument();
+    expect(screen.getByText("setup.step.provider.testAndContinue")).toBeInTheDocument();
+    expect(screen.queryByText("setup.step.test.pullButton")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the generic failure text when a failed test carries no message", async () => {
+    failingTest("/api/settings/test-llm", { ok: false });
+    await renderProvider("anthropic");
+
+    clickTest();
+
+    expect(await screen.findByText("setup.step.test.failed")).toBeInTheDocument();
+  });
+
+  it("offers a model pull when a local test reports a missing model", async () => {
+    failingTest("/api/settings/test-local-models", { ok: false, message: "model not installed locally" });
+    await renderProvider("ollama");
+
+    clickTest();
+
+    expect(await screen.findByText("setup.step.test.pullButton")).toBeInTheDocument();
+  });
+
+  it("does not offer a model pull for a cloud provider whose message says not installed", async () => {
+    failingTest("/api/settings/test-llm", { ok: false, message: "model not installed" });
+    await renderProvider("anthropic");
+
+    clickTest();
+
+    expect(await screen.findByText("model not installed")).toBeInTheDocument();
+    expect(screen.queryByText("setup.step.test.pullButton")).not.toBeInTheDocument();
+  });
+
+  it("shows the generic failure when the test request throws without a code", async () => {
+    mockPost.mockImplementation((u: string) =>
+      u === "/api/settings/test-llm"
+        ? Promise.reject(new Error("socket hang up"))
+        : Promise.resolve({ data: { ok: true } })
+    );
+    await renderProvider("anthropic");
+
+    clickTest();
+
+    expect(await screen.findByText("setup.step.test.failed")).toBeInTheDocument();
+  });
+
+  it("advances without preselecting anything when listing regulations fails", async () => {
+    mockGet.mockImplementation(() => Promise.reject(new Error("boom")));
+    await renderProvider("anthropic");
+
+    clickTest();
+
+    expect(await screen.findByText("setup.step.regulations")).toBeInTheDocument();
+    expect(screen.getByText("setup.nav.next")).toBeDisabled();
+  });
+});

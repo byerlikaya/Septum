@@ -34,6 +34,39 @@ function isSetupForbidden(err: unknown): boolean {
   return err != null && extractErrorCode(err) === SETUP_FORBIDDEN;
 }
 
+type ProviderSettingsInput = {
+  provider: string;
+  model: string;
+  whisperModel: string;
+  apiKey: string;
+  apiKeyField: string;
+  ollamaUrl: string;
+  ollamaMode: OllamaMode;
+  deanonModel: string;
+};
+
+function providerOllamaBaseUrl(provider: string, ollamaMode: OllamaMode, ollamaUrl: string): string {
+  if (provider === "ollama" || ollamaMode === "external") return ollamaUrl.trim();
+  return ollamaMode === "compose" ? "http://ollama:11434" : "";
+}
+
+function providerSettingsPayload({ provider, model, whisperModel, apiKey, apiKeyField, ollamaUrl, ollamaMode, deanonModel }: ProviderSettingsInput): Record<string, string> {
+  const payload: Record<string, string> = { llm_provider: provider, llm_model: model, whisper_model: whisperModel };
+  // An empty URL is left out so the server keeps its configured value.
+  const ollamaBaseUrl = providerOllamaBaseUrl(provider, ollamaMode, ollamaUrl);
+  if (ollamaBaseUrl) payload.ollama_base_url = ollamaBaseUrl;
+  if (provider === "ollama" || ollamaMode !== "none") payload.ollama_deanon_model = deanonModel.trim() || "llama3.2:3b";
+  if (provider !== "ollama" && ollamaMode === "none") { payload.use_ollama_validation_layer = "false"; payload.use_ollama_layer = "false"; }
+  if (provider === "ollama") payload.ollama_chat_model = model;
+  else if (apiKey.trim()) payload[apiKeyField] = apiKey.trim();
+  return payload;
+}
+
+function providerTestRequest(provider: string, model: string, ollamaUrl: string): { endpoint: string; body: Record<string, unknown> } {
+  if (provider === "ollama") return { endpoint: "/api/settings/test-local-models", body: { base_url: ollamaUrl.trim() || undefined } };
+  return { endpoint: "/api/settings/test-llm", body: { provider, model } };
+}
+
 const PROVIDERS = [
   { value: "anthropic", label: "Anthropic (Claude)", defaultModel: "claude-sonnet-4-20250514" },
   { value: "openai", label: "OpenAI (GPT)", defaultModel: "gpt-4o" },
@@ -368,56 +401,53 @@ export function SetupWizard({ startPhase, initialProvider, initialModel, version
     } catch { setInfraStatus("error"); setInfraMessage(t("setup.step.infra.failed")); }
   }, [databaseType, databaseUrl, cacheType, redisUrl, t]);
 
-  // Provider: save + test + advance in one click
-  const handleTestAndAdvanceProvider = useCallback(async () => {
-    setProviderTestStatus("pending"); setProviderTestMessage(""); setNeedsPull(false);
-    // Save settings first
-    const payload: Record<string, string> = { llm_provider: provider, llm_model: model, whisper_model: whisperModel };
-    const composeOllamaUrl = ollamaMode === "compose" ? "http://ollama:11434" : "";
-    // An empty URL is left out so the server keeps its configured value.
-    const effectiveOllamaUrl = provider === "ollama" || ollamaMode === "external" ? ollamaUrl.trim() : composeOllamaUrl;
-    if (effectiveOllamaUrl) payload.ollama_base_url = effectiveOllamaUrl;
-    if (provider === "ollama" || ollamaMode !== "none") payload.ollama_deanon_model = deanonModel.trim() || "llama3.2:3b";
-    if (provider !== "ollama" && ollamaMode === "none") { payload.use_ollama_validation_layer = "false"; payload.use_ollama_layer = "false"; }
-    if (provider === "ollama") { payload.ollama_chat_model = model; } else if (apiKey.trim()) { payload[apiKeyField] = apiKey.trim(); }
+  const saveProviderSettings = useCallback(async (): Promise<boolean> => {
     setOllamaUrlError(null);
-    try { await api.patch("/api/settings", payload); }
-    catch (err: unknown) {
+    try {
+      await api.patch("/api/settings", providerSettingsPayload({ provider, model, whisperModel, apiKey, apiKeyField, ollamaUrl, ollamaMode, deanonModel }));
+      return true;
+    } catch (err: unknown) {
       const urlMessage = translateErrorCode(extractErrorCode(err), t);
       if (urlMessage) { setProviderTestStatus("idle"); setOllamaUrlError(urlMessage); }
       else { setProviderTestStatus("error"); setProviderTestMessage(localizeApiError(err, t, "setup.step.provider.saveFailed")); }
-      return;
+      return false;
     }
+  }, [provider, model, apiKey, apiKeyField, ollamaUrl, ollamaMode, deanonModel, whisperModel, t]);
 
-    // Test connection
+  // Load regulations for the next step. Default to *all* built-in
+  // regulations selected so the wizard is a zero-friction flow:
+  // users can deselect what they don't need via the toggle, but
+  // the safe default is maximum PII coverage.
+  const loadRegulationsForStep = useCallback(async (): Promise<boolean> => {
+    setRegulationsLoading(true);
+    let regsError: unknown = null;
     try {
-      const endpoint = provider === "ollama" ? "/api/settings/test-local-models" : "/api/settings/test-llm";
-      const body = provider === "ollama" ? { base_url: ollamaUrl.trim() || undefined } : { provider, model };
+      const { data: regs } = await api.get<RegulationItem[]>("/api/regulations");
+      setRegulations(regs);
+      setActiveRegulations(new Set(regs.filter(r => r.is_builtin).map(r => r.id)));
+    } catch (err: unknown) { regsError = err; }
+    setRegulationsLoading(false);
+    return !isSetupForbidden(regsError);
+  }, []);
+
+  // Provider: save + test + advance in one click
+  const handleTestAndAdvanceProvider = useCallback(async () => {
+    setProviderTestStatus("pending"); setProviderTestMessage(""); setNeedsPull(false);
+    if (!(await saveProviderSettings())) return;
+
+    try {
+      const { endpoint, body } = providerTestRequest(provider, model, ollamaUrl);
       const { data } = await api.post<{ ok: boolean; message?: string }>(endpoint, body);
       if (data.ok) {
         setProviderTestStatus("success"); setProviderTestMessage(data.message ?? t("setup.step.test.success"));
-        // Load regulations and advance. Default to *all* built-in
-        // regulations selected so the wizard is a zero-friction flow:
-        // users can deselect what they don't need via the toggle, but
-        // the safe default is maximum PII coverage.
-        setRegulationsLoading(true);
-        let regsError: unknown = null;
-        try {
-          const { data: regs } = await api.get<RegulationItem[]>("/api/regulations");
-          setRegulations(regs);
-          setActiveRegulations(
-            new Set(regs.filter(r => r.is_builtin).map(r => r.id))
-          );
-        } catch (err: unknown) { regsError = err; }
-        setRegulationsLoading(false);
-        if (isSetupForbidden(regsError)) { setProviderTestStatus("idle"); return; }
+        if (!(await loadRegulationsForStep())) { setProviderTestStatus("idle"); return; }
         setStep("regulations");
       } else {
         setProviderTestStatus("error"); setProviderTestMessage(data.message ?? t("setup.step.test.failed"));
-        if (provider === "ollama" && data.message?.includes("not installed")) setNeedsPull(true);
+        setNeedsPull(provider === "ollama" && data.message?.includes("not installed") === true);
       }
     } catch (err: unknown) { setProviderTestStatus("error"); setProviderTestMessage(translateErrorCode(extractErrorCode(err), t) ?? t("setup.step.test.failed")); }
-  }, [provider, model, apiKey, apiKeyField, ollamaUrl, ollamaMode, deanonModel, whisperModel, t]);
+  }, [provider, model, ollamaUrl, t, saveProviderSettings, loadRegulationsForStep]);
 
   const handlePullModel = useCallback(async () => {
     setPullProgress(0); setPullStatus(t("setup.step.test.pulling")); setProviderTestStatus("pending");
