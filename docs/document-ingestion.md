@@ -30,7 +30,7 @@ How Septum turns an uploaded file into searchable, anonymised content. Every ste
 2. **Format-specific ingester** — PDF through `pypdf` with per-page extraction; DOCX / XLSX through `python-docx` and `openpyxl`; images and scanned PDFs through PaddleOCR; audio through OpenAI Whisper.
 3. **Language detection** — the extracted text is classified across 20+ languages. The result drives the NER model choice and validator rules used by the next step.
 4. **Three-layer PII detection** — three detectors run in series and their outputs are merged:
-   - **Presidio** — regex patterns + algorithmic validators (TCKN checksum, Aadhaar Verhoeff, NRIC/FIN, CPF, NINO, CNPJ, My Number, and more).
+   - **Presidio** — regex patterns + algorithmic validators (TCKN checksum, Aadhaar Verhoeff, NRIC/FIN, CPF, NINO, My Number, and more; CNPJ is matched by format only).
    - **NER** — transformer model chosen by language group, for `PERSON_NAME`, `LOCATION`, `ORGANIZATION_NAME`. Coverage differs by language; see [NER model coverage](#ner-model-coverage).
    - **Ollama** — optional semantic layer for context-dependent PII that patterns cannot catch (off by default; enable it under Settings → Privacy & Sanitization → *Ollama semantic detection*). Its default for a new installation comes from `USE_OLLAMA_SEMANTIC_LAYER_DEFAULT`, read once when the settings row is created.
    Overlapping spans are merged; coreferences are resolved so "Elif" and "Ms. Demir" collapse to the same placeholder index.

@@ -43,7 +43,7 @@ were named.
 
 | Layer | Technology | Entity types |
 |:---:|:---|:---|
-| 1 | **Presidio** — regex patterns with algorithmic validators (Luhn, IBAN MOD-97, TCKN, CPF, SSN). Context-aware recognisers with multilingual keywords. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, DATE, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE |
+| 1 | **Presidio** — regex patterns with algorithmic validators (Luhn, IBAN MOD-97, TCKN, CPF, SSN). Context-aware recognisers with multilingual keywords. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, DATE, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE, EMPLOYEE_ID, CUSTOMER_REFERENCE_ID |
 | 2 | **NER** — HuggingFace transformer NER, with models chosen per language group. Coverage differs by language; see [NER model coverage](document-ingestion.md#ner-model-coverage). ALL CAPS input auto-normalised to title case. LOCATION + ORGANIZATION_NAME pass through a multi-word-or-high-score gate to drop common-noun mis-fires. | PERSON_NAME, LOCATION, ORGANIZATION_NAME |
 | 3 | **Ollama** — local LLM for context validation, alias detection, and semantic entities. | PERSON_NAME aliases/nicknames; DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE |
 
@@ -93,8 +93,9 @@ Each row is a loadable pack under `packages/core/septum_core/recognizers/`. Lega
 **Region-specific national ID validators** are algorithmic, not
 pattern-only: TCKN (Turkey, mod-10 + mod-11 checksum), Aadhaar (India,
 Verhoeff), CPF (Brazil, two-digit checksum), NRIC/FIN (Singapore, letter
-checksum), Resident ID (China, ISO 7064 MOD 11-2), NINO (UK), CNPJ
-(Brazil), My Number (Japan), and more. Invalid checksums are rejected, so
+checksum), Resident ID (China, ISO 7064 MOD 11-2), NINO (UK), My Number
+(Japan), and more. CNPJ (Brazil) is matched by its format only and has no checksum check,
+so every number in that shape is detected. Invalid checksums are rejected, so
 random 11-digit strings do not trigger false positives.
 
 **Custom rules.** The dashboard lets admins define custom rulesets with
