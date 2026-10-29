@@ -32,6 +32,11 @@ services:
       - septum-bm25-indexes:/app/bm25_indexes
       - septum-models:/app/models
     restart: unless-stopped
+    # Plaintext documents live in RAM during ingestion; a core dump would write them to disk.
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health')"]
       interval: 30s

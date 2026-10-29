@@ -170,6 +170,11 @@ services:
       ollama:
         condition: service_started
     restart: unless-stopped
+    # Plaintext documents live in RAM during ingestion; a core dump would write them to disk.
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 30s
@@ -196,6 +201,10 @@ services:
       api:
         condition: service_healthy
     restart: unless-stopped
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
     healthcheck:
       test: ["CMD-SHELL", "wget -qO/dev/null http://127.0.0.1:3000 || exit 1"]
       interval: 30s
@@ -310,6 +319,10 @@ services:
       start_period: 30s
       retries: 3
     profiles: ["mcp"]
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
 
   ollama:
     image: ollama/ollama:0.40.9@sha256:5c6707fcf2e1a30cffe2ecb7e315584fc87747c389327e4bc711c4959aa1eecc
@@ -320,6 +333,10 @@ services:
     volumes:
       - ollama-data:/root/.ollama
     restart: unless-stopped
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 30s
