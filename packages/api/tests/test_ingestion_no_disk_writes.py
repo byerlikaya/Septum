@@ -553,7 +553,7 @@ def test_audio_limit_defaults() -> None:
 def test_waveform_scaling_matches_whisper_loader() -> None:
     """In-place scaling gives exactly the values of Whisper's ``/ 32768.0``."""
 
-    pcm = np.array([-32768, -1, 0, 1, 12345, 32767], np.int16).tobytes()
-    expected = np.frombuffer(pcm, np.int16).astype(np.float32) / 32768.0
+    samples = np.array([-32768, -1, 0, 1, 12345, 32767], np.int16)
+    expected = samples.astype(np.float32) / 32768.0
 
-    assert np.array_equal(audio_module._to_waveform(pcm), expected)
+    assert np.array_equal(audio_module._to_waveform(samples), expected)
