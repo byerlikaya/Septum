@@ -96,60 +96,70 @@ function accentBorder(type: string): string {
   }
 }
 
-function EventCard({ event, t, onViewDocument }: Readonly<{ event: AuditEvent; t: ReturnType<typeof useI18n>; onViewDocument?: (documentId: number, auditEventId?: number) => void }>) {
+type Translator = ReturnType<typeof useI18n>;
+
+function describePiiDetected(event: AuditEvent, extra: Record<string, unknown>, t: Translator, docName: string | undefined): string {
+  const source = extra.source as string | undefined;
+  const entitySummary = Object.entries(event.entity_types_detected || {})
+    .map(([type, count]) => `${count} ${type.toLowerCase().replace(/_/g, " ")}`)
+    .join(", ");
+  const entityText = entitySummary || String(event.entity_count);
+  if (source === "chat_query") {
+    return docName
+      ? t("audit.desc.piiChat", { doc: docName, entities: entityText })
+      : t("audit.desc.piiChatNoDoc", { entities: entityText });
+  }
+  return docName
+    ? t("audit.desc.piiDoc", { doc: docName, entities: entityText })
+    : t("audit.desc.piiDocGeneric", { count: event.entity_count });
+}
+
+function describeLanguageChange(extra: Record<string, unknown>, t: Translator): string {
+  return t("audit.desc.languageChanged", {
+    previous: (extra.previous_override as string | null | undefined) || t("audit.desc.languageAutomatic"),
+    new: (extra.override as string | null | undefined) || t("audit.desc.languageAutomatic"),
+  });
+}
+
+function describeEvent(event: AuditEvent, t: Translator, docName: string | undefined): string {
+  const extra = event.extra || {};
+  switch (event.event_type) {
+    case "pii_detected":
+      return describePiiDetected(event, extra, t, docName);
+    case "deanonymization_performed":
+      return docName
+        ? t("audit.desc.deanon", { doc: docName, count: event.entity_count, strategy: (extra.strategy as string | undefined) || "simple" })
+        : t("audit.desc.deanonGeneric", { count: event.entity_count });
+    case "document_uploaded":
+      return docName ? t("audit.desc.uploaded", { doc: docName }) : t("audit.desc.uploadedGeneric");
+    case "document_deleted":
+      return docName ? t("audit.desc.deleted", { doc: docName }) : t("audit.desc.deletedGeneric");
+    case "document_language_changed":
+      return describeLanguageChange(extra, t);
+    case "regulation_changed": {
+      const regs = event.regulation_ids || [];
+      return regs.length > 0
+        ? t("audit.desc.regChanged", { regs: regs.join(", ") })
+        : t("audit.desc.regChangedGeneric");
+    }
+    default:
+      return "";
+  }
+}
+
+function EventCard({ event, t, onViewDocument }: Readonly<{ event: AuditEvent; t: Translator; onViewDocument?: (documentId: number, auditEventId?: number) => void }>) {
   const [expanded, setExpanded] = useState(false);
   const extra = event.extra || {};
   const docName = event.document_name
     ?? (event.document_id ? t("audit.card.deletedDocument", { id: event.document_id }) : undefined);
   const source = extra.source as string | undefined;
   const placeholderSamples = extra.placeholder_samples as string[] | undefined;
-  const strategy = extra.strategy as string | undefined;
-  const previousOverride = extra.previous_override as string | null | undefined;
-  const newOverride = extra.override as string | null | undefined;
 
   const typeKey = `audit.eventType.${event.event_type}` as Parameters<typeof t>[0];
   const typeLabel = t(typeKey);
 
   const entities = Object.entries(event.entity_types_detected || {});
   const regs = event.regulation_ids || [];
-
-  const buildDescription = (): string => {
-    switch (event.event_type) {
-      case "pii_detected": {
-        const entitySummary = entities
-          .map(([type, count]) => `${count} ${type.toLowerCase().replace(/_/g, " ")}`)
-          .join(", ");
-        const entityText = entitySummary || String(event.entity_count);
-        if (source === "chat_query") {
-          return docName
-            ? t("audit.desc.piiChat", { doc: docName, entities: entityText })
-            : t("audit.desc.piiChatNoDoc", { entities: entityText });
-        }
-        return docName
-          ? t("audit.desc.piiDoc", { doc: docName, entities: entityText })
-          : t("audit.desc.piiDocGeneric", { count: event.entity_count });
-      }
-      case "deanonymization_performed":
-        return docName
-          ? t("audit.desc.deanon", { doc: docName, count: event.entity_count, strategy: strategy || "simple" })
-          : t("audit.desc.deanonGeneric", { count: event.entity_count });
-      case "document_uploaded":
-        return docName ? t("audit.desc.uploaded", { doc: docName }) : t("audit.desc.uploadedGeneric");
-      case "document_deleted":
-        return docName ? t("audit.desc.deleted", { doc: docName }) : t("audit.desc.deletedGeneric");
-      case "document_language_changed":
-        return t("audit.desc.languageChanged", {
-          previous: previousOverride || t("audit.desc.languageAutomatic"),
-          new: newOverride || t("audit.desc.languageAutomatic"),
-        });
-      case "regulation_changed":
-        return regs.length > 0
-          ? t("audit.desc.regChanged", { regs: regs.join(", ") })
-          : t("audit.desc.regChangedGeneric");
-      default:
-        return "";
-    }
-  };
 
   return (
     <div className={`rounded-lg border border-slate-800 border-l-[3px] ${accentBorder(event.event_type)} bg-slate-900/60 p-3 transition-colors sm:p-4 hover:bg-slate-900/80`}>
@@ -168,7 +178,7 @@ function EventCard({ event, t, onViewDocument }: Readonly<{ event: AuditEvent; t
 
           {/* Rich description */}
           <p className="mt-1 text-[13px] leading-relaxed text-slate-300">
-            {buildDescription()}
+            {describeEvent(event, t, docName)}
           </p>
 
           {/* Placeholder samples */}
