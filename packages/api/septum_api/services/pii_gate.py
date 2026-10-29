@@ -25,6 +25,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Iterable, List, Optional, Sequence, Tuple
 
 from fastapi import HTTPException, status
+from septum_core.spans import entity_range
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -247,12 +248,12 @@ def _gate_one(
         masked, language, AnonymizationMap(document_id=0, language=language)
     )
     protected = state.protected_ranges(masked)
-    pieces: List[Tuple[int, int, str]] = []
+    pieces: List[Tuple[int, int, str, Optional[Tuple[int, int]]]] = []
     for span in sorted(result.detected_spans, key=lambda s: s.start):
         for p_start, p_end in _outside_ranges(span.start, span.end, protected):
             trimmed = _trim(masked, p_start, p_end)
             if trimmed is not None:
-                pieces.append((trimmed[0], trimmed[1], span.entity_type))
+                pieces.append((trimmed[0], trimmed[1], span.entity_type, span.core))
     if not pieces:
         return masked
 
@@ -260,10 +261,11 @@ def _gate_one(
     mirror_lookup = bool(anon_map.placeholder_lookup)
     parts: List[str] = []
     cursor = 0
-    for start, end, entity_type in pieces:
+    for start, end, entity_type, core in pieces:
         if start < cursor:
             continue
-        original = masked[start:end]
+        core_start, core_end = entity_range(start, end, core, masked)
+        original = masked[core_start:core_end]
         placeholder = anon_map.add_entity(original, entity_type)
         if mirror_lookup:
             anon_map.placeholder_lookup.setdefault(placeholder, original)

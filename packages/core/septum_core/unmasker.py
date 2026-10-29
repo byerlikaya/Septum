@@ -18,7 +18,7 @@ is unavailable.
 import re
 from typing import Collection, Optional
 
-from .anonymization_map import AnonymizationMap
+from .anonymization_map import AnonymizationMap, restoration_lookup
 
 
 class Unmasker:
@@ -69,11 +69,7 @@ class Unmasker:
         if anon_map.placeholder_lookup:
             lookup = anon_map.placeholder_lookup
         elif anon_map.entity_map:
-            lookup = {
-                placeholder: original
-                for original, placeholder in anon_map.entity_map.items()
-                if placeholder
-            }
+            lookup = restoration_lookup(anon_map.entity_map.items())
         else:
             return text
 
