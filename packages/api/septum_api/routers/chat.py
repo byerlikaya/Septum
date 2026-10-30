@@ -14,8 +14,19 @@ import json
 import logging
 import re
 import time
+from dataclasses import dataclass, field
 from itertools import zip_longest
-from typing import TYPE_CHECKING, Any, AsyncGenerator, List, Optional, Sequence, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncGenerator,
+    Awaitable,
+    Callable,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+)
 from uuid import uuid4
 
 if TYPE_CHECKING:
@@ -29,7 +40,7 @@ logger = logging.getLogger(__name__)
 async def _phase_timer(session_id: str, phase: str) -> AsyncGenerator[None, None]:
     """Log how long a chat pipeline phase takes.
 
-    Wraps a section of the chat ``event_stream`` so that each major phase
+    Wraps a section of :func:`_chat_event_stream` so that each major phase
     (sanitize, retrieve, mask, approval-wait, llm, deanonymize, …) emits a
     single ``chat phase session_id=… phase=… elapsed_ms=…`` log line on
     completion. The structured fields make it trivial to grep a hung
@@ -358,6 +369,60 @@ async def _sanitize_query(
     return result.sanitized_text, result.entity_count, result.entity_type_counts
 
 
+def _chunks_by_turn_document(
+    chunks: Sequence[Chunk], documents_by_id: dict[int, Document]
+) -> list[tuple[Document, list[Chunk]]]:
+    """Group ``chunks`` under their document, in document id order.
+
+    Raises :class:`LookupError` for a chunk whose document is not one of the
+    turn's documents.
+    """
+    by_document: dict[int, list[Chunk]] = {}
+    for c in chunks:
+        by_document.setdefault(c.document_id, []).append(c)
+    docs: list[tuple[Document, list[Chunk]]] = []
+    for did in sorted(by_document):
+        doc = documents_by_id.get(did)
+        if doc is None:
+            raise LookupError(f"Retrieved chunk of document {did} is outside the turn")
+        docs.append((doc, by_document[did]))
+    return docs
+
+
+def _outdated_documents(
+    docs: list[tuple[Document, list[Chunk]]], snapshot: PolicySnapshot
+) -> list[tuple[Document, list[Chunk]]]:
+    """Keep the documents not masked under ``snapshot`` or not ``completed``."""
+    return [
+        (doc, doc_chunks)
+        for doc, doc_chunks in docs
+        if doc.ingestion_status != "completed"
+        or document_staleness(doc, snapshot).needs_reprocessing
+    ]
+
+
+def _take_cached_remasks(
+    doc: Document,
+    doc_chunks: list[Chunk],
+    snapshot: PolicySnapshot,
+    doc_map: AnonymizationMap,
+    restored: dict[int, str],
+) -> list[tuple[Chunk, tuple]]:
+    """Fill ``restored`` from :data:`remask_cache`; return the chunks it missed with their keys."""
+    misses: list[tuple[Chunk, tuple]] = []
+    language = effective_masking_language(doc)
+    for c in doc_chunks:
+        key = remask_cache.key(
+            doc.id, c.id, snapshot.cache_key, c.sanitized_text or "", language
+        )
+        hit = remask_cache.get(key, doc_map)
+        if hit is None:
+            misses.append((c, key))
+        else:
+            restored[c.id] = hit
+    return misses
+
+
 async def _resanitize_outdated_chunks(
     db: AsyncSession,
     settings: AppSettings,
@@ -387,26 +452,10 @@ async def _resanitize_outdated_chunks(
     """
     if not chunks:
         return {}, set()
-    by_document: dict[int, list[Chunk]] = {}
-    for c in chunks:
-        by_document.setdefault(c.document_id, []).append(c)
-    docs: list[tuple[Document, list[Chunk]]] = []
-    for did in sorted(by_document):
-        doc = documents_by_id.get(did)
-        if doc is None:
-            raise LookupError(f"Retrieved chunk of document {did} is outside the turn")
-        docs.append((doc, by_document[did]))
-
-    def _outdated(snapshot: PolicySnapshot) -> list[tuple[Document, list[Chunk]]]:
-        return [
-            (doc, doc_chunks)
-            for doc, doc_chunks in docs
-            if doc.ingestion_status != "completed"
-            or document_staleness(doc, snapshot).needs_reprocessing
-        ]
+    docs = _chunks_by_turn_document(chunks, documents_by_id)
 
     # Cheap read first, so a turn over fresh documents builds no recognizer.
-    if not _outdated(await current_policy_snapshot(db)):
+    if not _outdated_documents(docs, await current_policy_snapshot(db)):
         return {}, set()
     # The sanitizer, the staleness verdict and the cache key all come from
     # this one composition, so text masked under one policy is never cached
@@ -415,21 +464,11 @@ async def _resanitize_outdated_chunks(
     restored: dict[int, str] = {}
     changed: set[int] = set()
     sanitizer = None
-    for doc, doc_chunks in _outdated(current):
+    for doc, doc_chunks in _outdated_documents(docs, current):
         doc_map = await get_document_map(doc.id)
         if doc_map is None:
             raise DocumentMapMissingError(f"Document {doc.id} has no anonymization map")
-        misses: list[tuple[Chunk, tuple]] = []
-        language = effective_masking_language(doc)
-        for c in doc_chunks:
-            key = remask_cache.key(
-                doc.id, c.id, current.cache_key, c.sanitized_text or "", language
-            )
-            hit = remask_cache.get(key, doc_map)
-            if hit is None:
-                misses.append((c, key))
-            else:
-                restored[c.id] = hit
+        misses = _take_cached_remasks(doc, doc_chunks, current, doc_map, restored)
         if not misses:
             continue
         if sanitizer is None:
@@ -488,34 +527,59 @@ def _build_unified_placeholder_space(
       this map after the LLM responds, so every globally unique
       placeholder resolves back to the correct original value.
     """
+    per_doc_remap = _global_placeholder_remaps(anon_maps)
+    return per_doc_remap, _merge_unified_map(anon_maps, per_doc_remap)
+
+
+def _global_placeholder_remaps(
+    anon_maps: dict[int, AnonymizationMap],
+) -> dict[int, dict[str, str]]:
+    """Return each document's ``{old_placeholder: new_placeholder}`` rename.
+
+    One counter per entity type runs across all documents, taken in id order
+    so the numbering is deterministic; an ``(original, entity_type)`` pair
+    seen before keeps the placeholder it was first given.
+    """
     global_counter: dict[str, int] = {}
     assigned: dict[tuple[str, str], str] = {}
     per_doc_remap: dict[int, dict[str, str]] = {}
 
     # Sort by doc id so the global numbering is deterministic across runs.
     for doc_id in sorted(anon_maps.keys()):
-        m = anon_maps[doc_id]
         doc_remap: dict[str, str] = {}
-        for original, old_placeholder in m.entity_map.items():
+        for original, old_placeholder in anon_maps[doc_id].entity_map.items():
             match = _ENTITY_PLACEHOLDER_RE.fullmatch(old_placeholder)
             if not match:
                 continue
-            entity_type = match.group(1)
-            key = (original, entity_type)
-            if key in assigned:
-                new_placeholder = assigned[key]
-            else:
-                global_counter[entity_type] = (
-                    global_counter.get(entity_type, 0) + 1
-                )
-                new_placeholder = (
-                    f"[{entity_type}_{global_counter[entity_type]}]"
-                )
-                assigned[key] = new_placeholder
+            new_placeholder = _assign_global_placeholder(
+                (original, match.group(1)), assigned, global_counter
+            )
             if new_placeholder != old_placeholder:
                 doc_remap[old_placeholder] = new_placeholder
         per_doc_remap[doc_id] = doc_remap
+    return per_doc_remap
 
+
+def _assign_global_placeholder(
+    key: tuple[str, str],
+    assigned: dict[tuple[str, str], str],
+    global_counter: dict[str, int],
+) -> str:
+    """Return the global placeholder of ``(original, entity_type)``, minting one on first sight."""
+    if key in assigned:
+        return assigned[key]
+    entity_type = key[1]
+    global_counter[entity_type] = global_counter.get(entity_type, 0) + 1
+    new_placeholder = f"[{entity_type}_{global_counter[entity_type]}]"
+    assigned[key] = new_placeholder
+    return new_placeholder
+
+
+def _merge_unified_map(
+    anon_maps: dict[int, AnonymizationMap],
+    per_doc_remap: dict[int, dict[str, str]],
+) -> AnonymizationMap:
+    """Merge every map into one whose placeholders follow ``per_doc_remap``."""
     first_lang = (
         next(iter(anon_maps.values())).language if anon_maps else "en"
     )
@@ -539,7 +603,7 @@ def _build_unified_placeholder_space(
         unified_map.blocklist.update(m.blocklist)
 
     unified_map.placeholder_lookup = restoration_lookup(lookup_pairs)
-    return per_doc_remap, unified_map
+    return unified_map
 
 
 def _apply_chunk_placeholder_remap(
@@ -1054,129 +1118,151 @@ def _assemble_user_prompt(
     return build_chat_prompt(payload)
 
 
-async def _run_llm_and_deanonymize(
-    db: AsyncSession,
-    settings: AppSettings,
-    anon_map: AnonymizationMap,
-    sanitized_query: str,
-    context_chunks: List[str],
-    regulation_names: List[str],
-    language: str,
-    output_mode: str = "chat",
-    session_id: Optional[str] = None,
-    column_descriptions: Optional[List[str]] = None,
-    query_has_placeholder: bool = False,
-    query_placeholders: Optional[List[str]] = None,
-    http_request: Optional[Request] = None,
-    used_ollama_fallback_ref: Optional[List[bool]] = None,
-    rag_mode: str = "manual",
-    debug_id: Optional[str] = None,
-    debug_owner_user_id: Optional[int] = None,
-) -> str:
-    """Call the LLM and apply local de-anonymization.
+@dataclass(frozen=True)
+class _LlmTurnInput:
+    """The masked inputs and the identity of one turn's LLM call.
 
-    When ``debug_id`` is given, the masked prompt and masked answer of
-    this turn are kept in the in-memory debug store under that id.
+    Every text field is already masked: it is exactly what may cross the
+    cloud boundary. ``session_id`` keys the diagnostic log lines and
+    ``debug_id`` / ``debug_owner_user_id`` the in-memory debug record.
     """
-    llm = LLMRouter(settings)
+
+    sanitized_query: str
+    context_chunks: List[str]
+    regulation_names: List[str]
+    language: str
+    output_mode: str = "chat"
+    session_id: Optional[str] = None
+    column_descriptions: Optional[List[str]] = None
+    query_has_placeholder: bool = False
+    query_placeholders: Optional[List[str]] = None
+    rag_mode: str = "manual"
+    debug_id: Optional[str] = None
+    debug_owner_user_id: Optional[int] = None
+
+
+def _cloud_failure_handler(
+    db: AsyncSession,
+    http_request: Optional[Request],
+    used_ollama_fallback_ref: Optional[List[bool]],
+) -> Optional[Callable[[str, dict[str, Any]], Awaitable[None]]]:
+    """Return the router's ``on_cloud_failure`` callback, or ``None`` without a request.
+
+    The callback flags the local fallback and records the failure in the
+    error log; a failing error-log write is reported, never raised.
+    """
+    if http_request is None:
+        return None
 
     async def on_cloud_failure(message: str, extra: dict[str, Any]) -> None:
         if used_ollama_fallback_ref is not None:
             used_ollama_fallback_ref[0] = True
-        if http_request is not None:
-            try:
-                await log_backend_message(db, http_request, message, level="ERROR", extra=extra)
-            except Exception as log_exc:
-                report_error_log_failure(log_exc)
+        try:
+            await log_backend_message(db, http_request, message, level="ERROR", extra=extra)
+        except Exception as log_exc:
+            report_error_log_failure(log_exc)
 
-    if rag_mode == "none":
-        user_prompt = PromptCatalog.pure_chat_prompt(sanitized_query)
-    else:
-        user_prompt = _assemble_user_prompt(
-            sanitized_query=sanitized_query,
-            context_chunks=context_chunks,
-            regulation_names=regulation_names,
-            language=language,
-            output_mode=output_mode,
-            column_descriptions=column_descriptions,
-            query_has_placeholder=query_has_placeholder,
-        )
+    return on_cloud_failure
 
-    # Keep the placeholder-aware list available for downstream answer
-    # post-processing (which needs to know which placeholders were actually
-    # present in the context).
+
+def _turn_user_prompt(turn: _LlmTurnInput) -> str:
+    """Return the masked user prompt the cloud LLM receives for ``turn``."""
+    if turn.rag_mode == "none":
+        return PromptCatalog.pure_chat_prompt(turn.sanitized_query)
+    return _assemble_user_prompt(
+        sanitized_query=turn.sanitized_query,
+        context_chunks=turn.context_chunks,
+        regulation_names=turn.regulation_names,
+        language=turn.language,
+        output_mode=turn.output_mode,
+        column_descriptions=turn.column_descriptions,
+        query_has_placeholder=turn.query_has_placeholder,
+    )
+
+
+def _context_placeholders(context_chunks: List[str]) -> List[str]:
+    """Return the placeholders of the numbered context block, in order of first appearance."""
     context_text_for_placeholders = ""
     if context_chunks:
         lines_tmp: List[str] = []
         for idx, chunk in enumerate(context_chunks, start=1):
             lines_tmp.append(f"Chunk {idx}:\n{chunk}")
         context_text_for_placeholders = "\n\n".join(lines_tmp)
-    placeholders_in_context = _extract_placeholders_from_context(
-        context_text_for_placeholders
-    )
+    return _extract_placeholders_from_context(context_text_for_placeholders)
 
-    messages = [
-        {"role": "user", "content": user_prompt},
+
+def _is_unhelpful_answer(masked_answer: str) -> bool:
+    """Return True for a refusal or a long bullet list (five or more bullets)."""
+    if any(p in masked_answer.lower() for p in PromptCatalog.REFUSAL_PHRASES):
+        return True
+    bullet_lines = [
+        line.strip()
+        for line in masked_answer.splitlines()
+        if line.strip() and line.strip().startswith(("•", "-", "*"))
     ]
+    return len(bullet_lines) >= 5
 
-    masked_answer = await llm.complete(
-        messages=messages,
-        on_cloud_failure=on_cloud_failure if http_request is not None else None,
-    )
 
-    if query_placeholders:
-        # For explicit placeholder questions, always answer strictly with the
-        # queried placeholder tokens only, to avoid leaking additional linked
-        # attributes (e.g. identifiers, locations) beyond what was asked.
-        unique_query_placeholders: List[str] = []
-        seen_ph: set[str] = set()
-        for token in query_placeholders:
-            if token not in seen_ph:
-                seen_ph.add(token)
-                unique_query_placeholders.append(token)
-        masked_answer = " ".join(unique_query_placeholders)
-    elif placeholders_in_context and query_has_placeholder and not _PLACEHOLDER_PATTERN.search(
-        masked_answer
+def _shape_masked_answer(
+    masked_answer: str, turn: _LlmTurnInput, placeholders_in_context: List[str]
+) -> str:
+    """Narrow the masked answer to placeholders when the question named some.
+
+    For explicit placeholder questions the answer is always exactly the
+    queried placeholder tokens, so no linked attribute (identifier,
+    location, ...) beyond what was asked can leak. A placeholder question
+    whose answer carries no placeholder and is unhelpful is replaced by the
+    context placeholders as a bullet list.
+    """
+    if turn.query_placeholders:
+        return " ".join(dict.fromkeys(turn.query_placeholders))
+    if (
+        placeholders_in_context
+        and turn.query_has_placeholder
+        and not _PLACEHOLDER_PATTERN.search(masked_answer)
+        and _is_unhelpful_answer(masked_answer)
     ):
-        is_refusal = any(
-            p in masked_answer.lower() for p in PromptCatalog.REFUSAL_PHRASES
-        )
-        bullet_lines = [
-            line.strip()
-            for line in masked_answer.splitlines()
-            if line.strip() and line.strip().startswith(("•", "-", "*"))
-        ]
-        if is_refusal or len(bullet_lines) >= 5:
-            masked_answer = "\n".join(f"- {p}" for p in placeholders_in_context)
+        return "\n".join(f"- {p}" for p in placeholders_in_context)
+    return masked_answer
 
-    # Only placeholders this turn's data exposed to the LLM are restored;
-    # any other placeholder in the answer stays literal.
-    if rag_mode == "none":
-        prompt_placeholders = _sent_placeholders(sanitized_query, [], [], [])
-    else:
-        prompt_placeholders = _sent_placeholders(
-            sanitized_query,
-            context_chunks,
-            list(column_descriptions or []),
-            regulation_names,
-        )
-    deanonymizer = Deanonymizer(settings=settings)
-    deanonymized = deanonymizer.deanonymize(
-        masked_answer, anon_map, allowed_placeholders=prompt_placeholders
+
+def _turn_sent_placeholders(turn: _LlmTurnInput) -> set[str]:
+    """Return the placeholders ``turn``'s data put into the prompt (see :func:`_sent_placeholders`)."""
+    if turn.rag_mode == "none":
+        return _sent_placeholders(turn.sanitized_query, [], [], [])
+    return _sent_placeholders(
+        turn.sanitized_query,
+        turn.context_chunks,
+        list(turn.column_descriptions or []),
+        turn.regulation_names,
     )
 
-    # Diagnostic: report any placeholders that survived deanonymization so
-    # we can tell at a glance whether the LLM emitted a placeholder the
-    # unified anon_map did not carry an entry for (the failure mode that
-    # leaks ``[PERSON_NAME_1]`` literals to the user).
+
+def _map_placeholders(anon_map: AnonymizationMap) -> set[str]:
+    """Return every placeholder ``anon_map`` can restore."""
+    if anon_map.placeholder_lookup:
+        return set(anon_map.placeholder_lookup.keys())
+    if anon_map.entity_map:
+        return set(anon_map.entity_map.values())
+    return set()
+
+
+def _log_surviving_placeholders(
+    session_id: Optional[str],
+    settings: AppSettings,
+    anon_map: AnonymizationMap,
+    masked_answer: str,
+    deanonymized: str,
+) -> None:
+    """Log placeholder shape only: which placeholders the answer held and which survived.
+
+    Tells at a glance whether the LLM emitted a placeholder the unified map
+    did not carry (the failure that leaks ``[PERSON_NAME_1]`` literals to
+    the user). Never logs an original value.
+    """
     answer_placeholders = sorted(set(_PLACEHOLDER_PATTERN.findall(masked_answer)))
     residual_placeholders = sorted(set(_PLACEHOLDER_PATTERN.findall(deanonymized)))
-    if anon_map.placeholder_lookup:
-        map_placeholders = set(anon_map.placeholder_lookup.keys())
-    elif anon_map.entity_map:
-        map_placeholders = set(anon_map.entity_map.values())
-    else:
-        map_placeholders = set()
+    map_placeholders = _map_placeholders(anon_map)
     if answer_placeholders or residual_placeholders:
         logger.info(
             "chat deanon session_id=%s strategy=%s map_size=%s "
@@ -1189,12 +1275,50 @@ async def _run_llm_and_deanonymize(
             [p for p in answer_placeholders if p not in map_placeholders],
         )
 
+
+async def _run_llm_and_deanonymize(
+    db: AsyncSession,
+    settings: AppSettings,
+    anon_map: AnonymizationMap,
+    turn: _LlmTurnInput,
+    http_request: Optional[Request] = None,
+    used_ollama_fallback_ref: Optional[List[bool]] = None,
+) -> str:
+    """Call the LLM and apply local de-anonymization.
+
+    When ``turn.debug_id`` is given, the masked prompt and masked answer of
+    this turn are kept in the in-memory debug store under that id.
+    """
+    llm = LLMRouter(settings)
+    user_prompt = _turn_user_prompt(turn)
+    # Kept for answer post-processing, which needs the placeholders that
+    # were actually present in the context.
+    placeholders_in_context = _context_placeholders(turn.context_chunks)
+
+    messages = [
+        {"role": "user", "content": user_prompt},
+    ]
+
+    masked_answer = await llm.complete(
+        messages=messages,
+        on_cloud_failure=_cloud_failure_handler(db, http_request, used_ollama_fallback_ref),
+    )
+    masked_answer = _shape_masked_answer(masked_answer, turn, placeholders_in_context)
+
+    # Only placeholders this turn's data exposed to the LLM are restored;
+    # any other placeholder in the answer stays literal.
+    deanonymizer = Deanonymizer(settings=settings)
+    deanonymized = deanonymizer.deanonymize(
+        masked_answer, anon_map, allowed_placeholders=_turn_sent_placeholders(turn)
+    )
+    _log_surviving_placeholders(turn.session_id, settings, anon_map, masked_answer, deanonymized)
+
     normalizer = TextNormalizer()
     result = await normalizer.normalize(db, deanonymized)
-    if debug_id is not None:
+    if turn.debug_id is not None:
         set_chat_debug_record(
-            debug_id=debug_id,
-            owner_user_id=debug_owner_user_id,
+            debug_id=turn.debug_id,
+            owner_user_id=turn.debug_owner_user_id,
             masked_prompt=user_prompt,
             masked_answer=masked_answer,
         )
@@ -1362,6 +1486,1021 @@ async def chat_analyze_query(
     )
 
 
+_MIN_CHUNKS_PER_DOCUMENT = 10
+_ENTITY_MATCH_REASONS = (
+    "strong_entity_match",
+    "medium_entity_match",
+    "weak_entity_match_only",
+)
+_UNEXPECTED_ERROR_MESSAGE = "An unexpected error occurred while processing the chat request."
+
+
+@dataclass
+class _ChatTurn:
+    """Mutable state of one ``/ask`` turn, handed from phase to phase.
+
+    ``request`` and ``message_text`` carry the user's raw message;
+    ``sanitized_query`` and the other prompt fields hold masked text once
+    the query is sanitized. ``anon_map`` is the turn's request-local map: it
+    never leaves the process except inside the approval session, and it is
+    never logged. The raw fields and the map are left out of ``repr``.
+    """
+
+    request: ChatRequest = field(repr=False)
+    message_text: str = field(repr=False)
+    user: User
+    session_id: str
+    debug_id: str
+    settings: AppSettings
+    active_regulations: List[Tuple[str, bool]]
+    documents_by_id: dict[int, Document]
+    document: Optional[Document]
+    language: str
+    query_seed_document_id: Optional[int]
+    anon_map: AnonymizationMap = field(repr=False)
+    rag_mode: str
+    sanitized_query: str = ""
+    entity_count: int = 0
+    query_type_counts: dict[str, int] = field(default_factory=dict)
+    matched_document_ids: List[int] = field(default_factory=list)
+    matched_document_names: List[str] = field(default_factory=list)
+    chunks: List[Chunk] = field(default_factory=list)
+    query_remap: dict[str, str] = field(default_factory=dict)
+    numbering_fp: bytes = b""
+    candidate_chunks: List[ApprovalChunk] = field(default_factory=list)
+    output_mode: str = "chat"
+    query_placeholders: List[str] = field(default_factory=list)
+    context_texts: List[str] = field(default_factory=list)
+    prompt_regulation_names: List[str] = field(default_factory=list)
+    column_descriptions: List[str] = field(default_factory=list)
+    finished: bool = False
+
+    @property
+    def regulation_names(self) -> List[str]:
+        """Display names of the active rulesets, as configured."""
+        return [name for name, _ in self.active_regulations]
+
+    @property
+    def query_has_placeholder(self) -> bool:
+        """Whether the user typed a placeholder the sanitized query still holds."""
+        return bool(self.query_placeholders)
+
+
+async def _initial_query_map(
+    document: Optional[Document], language: str, settings: AppSettings
+) -> AnonymizationMap:
+    """Return the map the query is sanitized against, seeded from ``document``'s map.
+
+    The query is sanitized against a copy: the cached map object is shared
+    by every request and must never gain query PII.
+    """
+    deanon_enabled = getattr(settings, "deanon_enabled", True)
+    if document is None:
+        anon_map = AnonymizationMap(document_id=0, language=language)
+        logger.info(
+            "chat document_id=None anon_map_entries=%s deanon_enabled=%s",
+            len(anon_map.entity_map),
+            deanon_enabled,
+        )
+        return anon_map
+    cached_map = await get_document_map(document.id)
+    anon_map = (
+        copy.deepcopy(cached_map)
+        if cached_map is not None
+        else AnonymizationMap(document_id=document.id, language=language)
+    )
+    map_entries = len(anon_map.entity_map)
+    logger.info(
+        "chat document_id=%s anon_map_entries=%s deanon_enabled=%s",
+        document.id,
+        map_entries,
+        deanon_enabled,
+    )
+    if map_entries == 0 and deanon_enabled:
+        logger.warning(
+            "Deanonymization will have no effect: no map for document_id=%s. "
+            "Encryption key may have changed — re-upload the document so the map can be loaded.",
+            document.id,
+        )
+    return anon_map
+
+
+async def _open_turn(
+    request: ChatRequest,
+    message_text: str,
+    document_ids_list: List[int],
+    requested_documents: dict[int, Document],
+    user: User,
+    session_id: str,
+    debug_id: str,
+    db: AsyncSession,
+) -> _ChatTurn:
+    """Load settings and rulesets, pick the lead document and seed the query map."""
+    settings = await load_settings(db)
+    active_regulations = await _active_regulations(db)
+    documents_by_id: dict[int, Document] = dict(requested_documents)
+    document_id = document_ids_list[0] if document_ids_list else None
+    document = documents_by_id.get(document_id) if document_id is not None else None
+    language = query_language(message_text, document)
+    anon_map = await _initial_query_map(document, language, settings)
+    return _ChatTurn(
+        request=request,
+        message_text=message_text,
+        user=user,
+        session_id=session_id,
+        debug_id=debug_id,
+        settings=settings,
+        active_regulations=active_regulations,
+        documents_by_id=documents_by_id,
+        document=document,
+        language=language,
+        # The document whose map seeds the query map; part of the
+        # numbering fingerprint a retry is checked against.
+        query_seed_document_id=document.id if document is not None else None,
+        anon_map=anon_map,
+        rag_mode="manual" if document_ids_list else "auto",
+    )
+
+
+async def _sanitize_turn_query(turn: _ChatTurn, db: AsyncSession) -> None:
+    """Mask the user's message against the turn's query map."""
+    async with _phase_timer(turn.session_id, "sanitize_query"):
+        turn.sanitized_query, turn.entity_count, turn.query_type_counts = (
+            await _sanitize_query(
+                turn.message_text, turn.language, turn.settings, turn.anon_map, db
+            )
+        )
+
+
+def _per_document_top_k(num_docs: int, top_k: int) -> int:
+    """Return how many chunks to fetch from each of ``num_docs`` documents."""
+    return max(
+        _MIN_CHUNKS_PER_DOCUMENT,
+        min(MAX_CONTEXT_CHUNKS // num_docs, top_k // num_docs),
+    )
+
+
+async def _retrieve_manual_chunks(turn: _ChatTurn, db: AsyncSession) -> None:
+    """Retrieve the chunks of the documents the user picked."""
+    documents = turn.documents_by_id
+    relevance_threshold = turn.settings.rag_relevance_threshold
+    async with _phase_timer(turn.session_id, "retrieve_chunks"):
+        base_top_k = turn.request.top_k or turn.settings.top_k_retrieval
+        total_chunk_count = sum(d.chunk_count for d in documents.values())
+        top_k = _effective_top_k(base_top_k, total_chunk_count)
+        if len(documents) == 1:
+            doc = next(iter(documents.values()))
+            chunks = await _retrieve_chunks(
+                db=db,
+                document_id=doc.id,
+                query=turn.sanitized_query,
+                top_k=base_top_k,
+                chunk_count=doc.chunk_count,
+                relevance_threshold=relevance_threshold,
+            )
+        else:
+            per_doc_k = _per_document_top_k(len(documents), top_k)
+            chunks = []
+            for doc in documents.values():
+                chunks_doc = await _retrieve_chunks(
+                    db=db,
+                    document_id=doc.id,
+                    query=turn.sanitized_query,
+                    top_k=per_doc_k,
+                    chunk_count=doc.chunk_count,
+                    relevance_threshold=relevance_threshold,
+                )
+                chunks.extend(chunks_doc)
+        # Every offer must fit the retry limit, so a rejected
+        # turn can always be sent again.
+        turn.chunks = _cap_context_chunks(chunks, MAX_CONTEXT_CHUNKS)
+
+
+def _adopt_retry_documents(turn: _ChatTurn, retry_documents: dict[int, Document]) -> None:
+    """Join the retry chunks' documents to the turn.
+
+    Same document set (and lead document) the original turn unified its
+    placeholders over, so the retry rebuilds the identical numbering; in
+    auto mode no ids were requested.
+    """
+    for did, doc in retry_documents.items():
+        turn.documents_by_id.setdefault(did, doc)
+    if turn.document is None:
+        turn.document = next(iter(turn.documents_by_id.values()))
+
+
+def _scope_to_choice(turn: _ChatTurn, docs: List[Document]) -> List[Document]:
+    """Keep the documents the disambiguation picker chose.
+
+    The picker's set (sent back via ``analyze_query``) is honoured verbatim
+    and the entity-aware narrowing pass is skipped.
+    """
+    scope = set(turn.request.scoped_doc_ids or [])
+    before = len(docs)
+    scoped = [d for d in docs if d.id in scope]
+    logger.info(
+        "chat entity-routing session_id=%s reason=disambiguation_choice "
+        "candidates=%d narrowed=%d",
+        turn.session_id,
+        before,
+        len(scoped),
+    )
+    return scoped
+
+
+def _query_entities(anon_map: AnonymizationMap) -> List[Tuple[str, str]]:
+    """Return ``(original, entity_type)`` for every typed entity the query map holds."""
+    query_entities = [
+        (original, _extract_entity_type(placeholder))
+        for original, placeholder in anon_map.entity_map.items()
+        if placeholder
+    ]
+    return [(val, etype) for val, etype in query_entities if etype]
+
+
+async def _entity_scoped_documents(
+    db: AsyncSession, query_entities: List[Tuple[str, str]], user: User
+) -> tuple[set[int], str]:
+    """Return the documents the query's entities point to, with the reason.
+
+    Only a strong or medium match narrows; a weak one (e.g. a shared
+    location) is too noisy to scope on alone.
+    """
+    entity_scores = await find_documents_for_query_entities(
+        db,
+        query_entities,
+        owner_id=None if user.role == "admin" else user.id,
+    )
+    if not entity_scores:
+        return set(), "no_entity_in_query"
+    strong = {did for did, sc in entity_scores.items() if sc >= RELATIONSHIP_THRESHOLD_STRONG}
+    if strong:
+        return strong, "strong_entity_match"
+    medium = {did for did, sc in entity_scores.items() if sc >= RELATIONSHIP_THRESHOLD_MEDIUM}
+    if medium:
+        return medium, "medium_entity_match"
+    return set(), "weak_entity_match_only"
+
+
+async def _narrow_by_query_entities(
+    turn: _ChatTurn, db: AsyncSession, docs: List[Document]
+) -> tuple[List[Document], str]:
+    """Scope the candidates to the documents holding the PII the query names.
+
+    Mixing chunks across unrelated documents risks the cloud LLM
+    attributing one person's data to another. Without a usable entity
+    match every document stays a candidate. The match is HMAC-keyed under
+    the local encryption key, so no original reaches the index lookup.
+    """
+    query_entities = _query_entities(turn.anon_map)
+    narrowed_doc_ids: set[int] = set()
+    narrowing_reason = "no_entity_in_query"
+    if query_entities:
+        narrowed_doc_ids, narrowing_reason = await _entity_scoped_documents(
+            db, query_entities, turn.user
+        )
+    if narrowed_doc_ids:
+        before = len(docs)
+        docs = [d for d in docs if d.id in narrowed_doc_ids]
+        logger.info(
+            "chat entity-routing session_id=%s reason=%s "
+            "candidates=%d narrowed=%d",
+            turn.session_id,
+            narrowing_reason,
+            before,
+            len(docs),
+        )
+    return docs, narrowing_reason
+
+
+async def _classify_unless_entity_match(
+    turn: _ChatTurn, docs: List[Document], narrowing_reason: str
+) -> None:
+    """Switch the turn to pure chat when the intent classifier says so.
+
+    Any entity match (strong, medium or weak) is hard evidence the question
+    is about the documents, so the non-deterministic classifier is only
+    consulted when the query names no indexed entity.
+    """
+    if narrowing_reason in _ENTITY_MATCH_REASONS:
+        logger.info(
+            "chat intent-classifier session_id=%s skipped reason=%s",
+            turn.session_id,
+            narrowing_reason,
+        )
+        return
+    doc_names = [d.original_filename or f"document_{d.id}" for d in docs]
+    intent = await _classify_query_intent(
+        query=turn.sanitized_query,
+        document_names=doc_names,
+        ollama_base_url=turn.settings.ollama_base_url,
+        ollama_model=turn.settings.ollama_chat_model,
+    )
+    if intent == "chat":
+        turn.rag_mode = "none"
+
+
+async def _auto_rag_candidates(turn: _ChatTurn, db: AsyncSession) -> List[Document]:
+    """Return the documents auto-RAG may retrieve from; may switch the turn to pure chat."""
+    all_user_docs_result = await db.execute(
+        select(Document).where(
+            _auto_rag_owner_filter(turn.user),
+            Document.ingestion_status == "completed",
+            Document.chunk_count > 0,
+        )
+    )
+    all_user_docs = list(all_user_docs_result.scalars().all())
+    if not all_user_docs:
+        turn.rag_mode = "none"
+        return all_user_docs
+    if turn.request.scoped_doc_ids:
+        return _scope_to_choice(turn, all_user_docs)
+    all_user_docs, narrowing_reason = await _narrow_by_query_entities(turn, db, all_user_docs)
+    await _classify_unless_entity_match(turn, all_user_docs, narrowing_reason)
+    return all_user_docs
+
+
+async def _retrieve_auto_chunks(
+    turn: _ChatTurn, db: AsyncSession, candidates: List[Document]
+) -> None:
+    """Retrieve across the candidates; a turn with no relevant chunk becomes pure chat."""
+    async with _phase_timer(turn.session_id, "retrieve_chunks_auto"):
+        base_top_k = turn.request.top_k or turn.settings.top_k_retrieval
+        turn.chunks, turn.matched_document_ids = await _retrieve_chunks_all_documents(
+            db=db,
+            query=turn.sanitized_query,
+            top_k=base_top_k,
+            documents=candidates,
+            relevance_threshold=turn.settings.rag_relevance_threshold,
+        )
+        if not turn.chunks:
+            turn.rag_mode = "none"
+            return
+        docs_by_id = {d.id: d for d in candidates}
+        for did in turn.matched_document_ids:
+            doc_obj = docs_by_id.get(did)
+            if doc_obj:
+                turn.documents_by_id[did] = doc_obj
+                turn.matched_document_names.append(doc_obj.original_filename or str(did))
+        turn.document = next(iter(turn.documents_by_id.values()), None)
+
+
+async def _run_auto_rag(turn: _ChatTurn, db: AsyncSession) -> None:
+    """Pick the turn's context when the user named no document."""
+    async with _phase_timer(turn.session_id, "auto_rag_classify"):
+        candidates = await _auto_rag_candidates(turn, db)
+    if turn.rag_mode == "auto":
+        await _retrieve_auto_chunks(turn, db, candidates)
+
+
+async def _select_turn_context(
+    turn: _ChatTurn, db: AsyncSession, retry_documents: dict[int, Document]
+) -> None:
+    """Gather the turn's chunks (fresh turn) or documents (retry)."""
+    is_retry = turn.request.pre_approved_chunks is not None
+    if not is_retry and turn.rag_mode == "manual" and turn.documents_by_id:
+        await _retrieve_manual_chunks(turn, db)
+    elif is_retry and retry_documents:
+        _adopt_retry_documents(turn, retry_documents)
+    elif not is_retry and turn.rag_mode == "auto":
+        await _run_auto_rag(turn, db)
+
+
+async def _audit_query_pii(turn: _ChatTurn, db: AsyncSession) -> None:
+    """Record the PII found in the query (counts only) in the audit trail."""
+    if turn.entity_count <= 0:
+        return
+    document = turn.document
+    await log_pii_detected(
+        db,
+        document_id=document.id if document else 0,
+        regulation_ids=list(document.active_regulation_ids) if document else [],
+        entity_type_counts=turn.query_type_counts,
+        total_count=turn.entity_count,
+        session_id=turn.session_id,
+        extra={"source": "chat_query"},
+    )
+
+
+def _effective_settings(settings: AppSettings, request: ChatRequest) -> AppSettings:
+    """Return ``settings`` with the request's de-anonymization override applied to a copy."""
+    if request.deanon_enabled is None:
+        return settings
+    effective = copy.copy(settings)
+    effective.deanon_enabled = request.deanon_enabled
+    return effective
+
+
+def _document_display_name(documents_by_id: dict[int, Document], did: int) -> str:
+    """Return a document's original filename, or its id when it has none."""
+    doc = documents_by_id.get(did)
+    if doc is not None and doc.original_filename:
+        return doc.original_filename
+    return str(did)
+
+
+def _matched_documents(turn: _ChatTurn) -> List[dict[str, Any]]:
+    """Return the per-document chunk counts for the ``meta`` event, largest first."""
+    chunks_per_doc: dict[int, int] = {}
+    for c in turn.chunks:
+        chunks_per_doc[c.document_id] = chunks_per_doc.get(c.document_id, 0) + 1
+    return [
+        {
+            "id": did,
+            "name": _document_display_name(turn.documents_by_id, did),
+            "chunk_count": count,
+        }
+        for did, count in sorted(chunks_per_doc.items(), key=lambda kv: -kv[1])
+    ]
+
+
+def _meta_event(turn: _ChatTurn, require_approval: bool) -> dict[str, Any]:
+    """Return the turn's opening ``meta`` event."""
+    return {
+        "type": "meta",
+        "session_id": turn.session_id,
+        "debug_id": turn.debug_id,
+        "document_id": turn.document.id if turn.document is not None else None,
+        "language": turn.language,
+        "require_approval": require_approval,
+        "retrieved_chunk_count": len(turn.chunks),
+        "active_regulations": turn.regulation_names,
+        "rag_mode": turn.rag_mode,
+        "matched_document_ids": turn.matched_document_ids,
+        "matched_document_names": turn.matched_document_names,
+        "matched_documents": _matched_documents(turn),
+    }
+
+
+async def _prepare_retry_context(turn: _ChatTurn, db: AsyncSession) -> Optional[dict[str, Any]]:
+    """Rebuild the retried turn's numbering and gate the client's chunks.
+
+    Returns the error event to send when the rebuilt numbering does not
+    match the one the chunks were produced under, else ``None``.
+    """
+    request = turn.request
+    pre_approved = request.pre_approved_chunks or []
+    client_texts = [c.text for c in pre_approved]
+    query_map = turn.anon_map
+    doc_maps: dict[int, AnonymizationMap] = {}
+    if turn.documents_by_id:
+        # The client returns chunks numbered in the unified space of the
+        # turn that produced them; rebuild that same space so every
+        # placeholder resolves to the entity it meant.
+        doc_maps, _, turn.query_remap, turn.anon_map = await _unify_turn_placeholders(
+            query_map, list(turn.documents_by_id.keys()), turn.language
+        )
+    turn.numbering_fp = numbering_fingerprint(query_map, doc_maps, turn.query_seed_document_id)
+    # A rebuilt numbering is only trusted when it matches the one the chunks
+    # were produced under (maps, selection and query unchanged since);
+    # otherwise nothing is sent.
+    if (doc_maps or request.numbering_token is not None) and not verify_numbering(
+        request.numbering_token, turn.numbering_fp, turn.user.id
+    ):
+        logger.warning(
+            "chat retry refused session_id=%s reason=%s docs=%s",
+            turn.session_id,
+            RETRY_NUMBERING_CHANGED,
+            sorted(doc_maps),
+        )
+        return {
+            "type": "error",
+            "code": RETRY_NUMBERING_CHANGED,
+            "message": (
+                "The documents changed since this answer was "
+                "prepared; please ask again."
+            ),
+        }
+    if turn.query_remap:
+        turn.sanitized_query = _apply_chunk_placeholder_remap(turn.sanitized_query, turn.query_remap)
+    # Entities first seen in the client text must not reuse a number the
+    # client text already carries for someone else.
+    reserve_placeholder_counters(turn.anon_map, client_texts)
+    client_texts = await gate_untrusted_texts(client_texts, turn.anon_map, db, turn.settings)
+    turn.candidate_chunks = [
+        ApprovalChunk(id=None, document_id=c.document_id, text=text)
+        for c, text in zip(pre_approved, client_texts)
+    ]
+    return None
+
+
+async def _reseed_query_map(turn: _ChatTurn, db: AsyncSession) -> None:
+    """Seed and sanitize the query again from the seed document's grown map.
+
+    The query map was seeded before the re-mask grew the seed document's
+    map; a retry seeds from the grown map, so without this the retry's
+    numbering would never match.
+    """
+    seed_map = await get_document_map(turn.query_seed_document_id)
+    if seed_map is None:
+        raise DocumentMapMissingError(
+            f"Document {turn.query_seed_document_id} has no anonymization map"
+        )
+    turn.anon_map = copy.deepcopy(seed_map)
+    turn.sanitized_query, turn.entity_count, _ = await _sanitize_query(
+        turn.message_text, turn.language, turn.settings, turn.anon_map, db
+    )
+
+
+async def _unify_fresh_turn(
+    turn: _ChatTurn,
+) -> tuple[dict[int, AnonymizationMap], dict[int, dict[str, str]]]:
+    """Unify the query map with every turn document's reloaded map.
+
+    The query map may be the empty map auto-RAG started with, and query
+    entities must share the document's placeholder so the LLM sees one
+    entity. A turn without chunks is unified too, so its retry rebuilds the
+    same numbering. Returns ``(document maps, per-document remap)``.
+    """
+    query_anon_map = turn.anon_map
+    anon_maps, per_doc_remap, turn.query_remap, turn.anon_map = await _unify_turn_placeholders(
+        query_anon_map, list(turn.documents_by_id.keys()), turn.language
+    )
+    turn.numbering_fp = numbering_fingerprint(
+        query_anon_map, anon_maps, turn.query_seed_document_id
+    )
+    if turn.query_remap:
+        turn.sanitized_query = _apply_chunk_placeholder_remap(turn.sanitized_query, turn.query_remap)
+
+    # Log placeholder shape only — never the originals — so we can diagnose
+    # unification gaps without writing PII to the local log file.
+    logger.info(
+        "chat unified-map session_id=%s docs=%s "
+        "unified_entries=%s query_entries=%s "
+        "query_remap_size=%s placeholders=%s",
+        turn.session_id,
+        sorted(anon_maps.keys()),
+        len(turn.anon_map.entity_map),
+        len(query_anon_map.entity_map),
+        len(turn.query_remap),
+        sorted(set(turn.anon_map.entity_map.values()))[:20],
+    )
+    return anon_maps, per_doc_remap
+
+
+def _masked_chunk_text(
+    chunk: Chunk,
+    restored_chunk_texts: dict[int, str],
+    chunk_map: AnonymizationMap,
+    chunk_remap: Optional[dict[str, str]],
+) -> str:
+    """Return one chunk's text masked by its map and renumbered into the turn's space."""
+    chunk_text = restored_chunk_texts.get(chunk.id, chunk.sanitized_text or "")
+    # Chunks were analysed at ingestion; the map is the source of truth here.
+    masked_chunk = mask_known_entities(chunk_text, chunk_map)
+    if chunk_remap:
+        masked_chunk = _apply_chunk_placeholder_remap(masked_chunk, chunk_remap)
+    return masked_chunk
+
+
+def _masked_chunk_texts(
+    turn: _ChatTurn,
+    restored_chunk_texts: dict[int, str],
+    anon_maps: dict[int, AnonymizationMap],
+    per_doc_remap: dict[int, dict[str, str]],
+) -> List[str]:
+    """Return the turn's chunk texts as the cloud LLM sees them.
+
+    Documents are labelled by position, never by filename: an original
+    filename routinely carries personal data and must not reach the cloud
+    LLM.
+    """
+    multi_document = len(turn.documents_by_id) > 1
+    document_labels: dict[int, int] = {}
+    prev_doc_id: Optional[int] = None
+    texts: List[str] = []
+    for c in turn.chunks:
+        header = ""
+        if multi_document and c.document_id != prev_doc_id:
+            label = document_labels.setdefault(c.document_id, len(document_labels) + 1)
+            header = PromptCatalog.document_context_header(label)
+            prev_doc_id = c.document_id
+        masked_chunk = _masked_chunk_text(
+            c,
+            restored_chunk_texts,
+            anon_maps.get(c.document_id, turn.anon_map),
+            per_doc_remap.get(c.document_id),
+        )
+        texts.append(header + masked_chunk)
+    return texts
+
+
+async def _prepare_fresh_context(turn: _ChatTurn, db: AsyncSession) -> None:
+    """Mask the retrieved chunks in the turn's unified placeholder space."""
+    turn.numbering_fp = numbering_fingerprint(turn.anon_map, {}, turn.query_seed_document_id)
+    if not turn.documents_by_id:
+        return
+    # Before the maps are loaded: entities the current policy finds in
+    # outdated chunks join their document's map.
+    async with _phase_timer(turn.session_id, "resanitize_outdated_chunks"):
+        restored_chunk_texts, remasked_doc_ids = await _resanitize_outdated_chunks(
+            db, turn.settings, turn.chunks, turn.documents_by_id
+        )
+    if turn.query_seed_document_id in remasked_doc_ids:
+        await _reseed_query_map(turn, db)
+    anon_maps, per_doc_remap = await _unify_fresh_turn(turn)
+    sanitized_chunk_texts = _masked_chunk_texts(
+        turn, restored_chunk_texts, anon_maps, per_doc_remap
+    )
+    if turn.chunks:
+        turn.candidate_chunks = _build_approval_chunks(turn.chunks, sanitized_chunk_texts)
+
+
+async def _mask_turn_context(turn: _ChatTurn, db: AsyncSession) -> Optional[dict[str, Any]]:
+    """Put the turn's context into its unified numbering; return an error event to stop."""
+    if turn.request.pre_approved_chunks is not None:
+        return await _prepare_retry_context(turn, db)
+    await _prepare_fresh_context(turn, db)
+    return None
+
+
+async def _prepare_prompt_inputs(turn: _ChatTurn, db: AsyncSession) -> None:
+    """Compute the prompt inputs the approval preview and the LLM call share.
+
+    The approval modal's assembled-prompt preview uses exactly the
+    parameters the real LLM call will use.
+    """
+    turn.output_mode = (turn.request.output_mode or "chat").strip().lower()
+    # Placeholders the user typed, in the numbering the LLM sees: the
+    # forced answer and the de-anonymization allow-set both read
+    # ``sanitized_query``, so they must agree on every number.
+    turn.query_placeholders = _typed_query_placeholders(
+        turn.message_text, turn.sanitized_query, turn.query_remap
+    )
+    turn.context_texts = [c.text for c in turn.candidate_chunks]
+    if turn.rag_mode == "none":
+        turn.prompt_regulation_names = turn.regulation_names
+        turn.column_descriptions = []
+        return
+    turn.prompt_regulation_names = await _prompt_regulation_names(
+        turn.active_regulations, turn.anon_map, db, turn.settings
+    )
+    column_document_id = turn.document.id if turn.document is not None else None
+    turn.column_descriptions = await _schema_column_descriptions(
+        db, column_document_id, turn.anon_map, turn.settings
+    )
+
+
+def _approval_required_event(turn: _ChatTurn, assembled_prompt: str) -> dict[str, Any]:
+    """Return the ``approval_required`` event offering the turn's masked context."""
+    return {
+        "type": "approval_required",
+        "session_id": turn.session_id,
+        "numbering_token": sign_numbering(turn.numbering_fp, turn.user.id),
+        "masked_prompt": turn.sanitized_query,
+        "assembled_prompt": assembled_prompt,
+        "chunks": [
+            {
+                "id": c.id,
+                "document_id": c.document_id,
+                "text": c.text,
+                "source_page": c.source_page,
+                "section_title": c.section_title,
+            }
+            for c in turn.candidate_chunks
+        ],
+    }
+
+
+async def _approval_events(
+    turn: _ChatTurn, gate: ApprovalGate, db: AsyncSession
+) -> AsyncGenerator[bytes, None]:
+    """Run the approval gate; sets ``turn.finished`` when the turn must stop.
+
+    On approval the chunk texts the user returned replace the offered ones,
+    edited or added texts gated first.
+    """
+    # The exact masked prompt the cloud LLM would receive right now, so
+    # the approval modal can show it byte-for-byte. Edits in the modal go
+    # through a dedicated preview endpoint that re-runs the assembly.
+    assembled_prompt = _assemble_user_prompt(
+        sanitized_query=turn.sanitized_query,
+        context_chunks=[c.text for c in turn.candidate_chunks],
+        regulation_names=turn.prompt_regulation_names,
+        language=turn.language,
+        output_mode=turn.output_mode,
+        column_descriptions=turn.column_descriptions,
+        query_has_placeholder=turn.query_has_placeholder,
+    )
+    try:
+        approval_session = await gate.create(
+            session_id=turn.session_id,
+            masked_prompt=turn.sanitized_query,
+            masked_chunks=[c.text for c in turn.candidate_chunks],
+            entity_count=turn.entity_count,
+            owner_user_id=turn.user.id,
+            anon_map=turn.anon_map,
+            abandon_after_seconds=turn.settings.approval_timeout_seconds,
+            assembly_context={
+                "sanitized_query": turn.sanitized_query,
+                "regulation_names": turn.prompt_regulation_names,
+                "language": turn.language,
+                "output_mode": turn.output_mode,
+                "column_descriptions": turn.column_descriptions,
+                "query_has_placeholder": turn.query_has_placeholder,
+            },
+        )
+    except ApprovalSessionForbiddenError:
+        turn.finished = True
+        yield _encode_sse({"type": "error", "message": "Approval session not found."})
+        return
+
+    try:
+        yield _encode_sse(_approval_required_event(turn, assembled_prompt))
+
+        async with _phase_timer(turn.session_id, "approval_wait"):
+            decision_task = asyncio.create_task(
+                gate.wait_for_approval(
+                    turn.session_id,
+                    timeout=turn.settings.approval_timeout_seconds,
+                )
+            )
+            # Emit an SSE comment line every 15s while waiting so the TCP
+            # socket stays active. Without this, a slow user decision lets
+            # Next.js' proxy (or any other intermediate hop) drop the idle
+            # connection, and the answer_chunk events that follow never
+            # reach the browser — the UI stays stuck on "Thinking…".
+            try:
+                while True:
+                    done, _ = await asyncio.wait({decision_task}, timeout=15.0)
+                    if decision_task in done:
+                        decision = decision_task.result()
+                        break
+                    yield b": keepalive\n\n"
+            except BaseException:
+                if not decision_task.done():
+                    decision_task.cancel()
+                raise
+    finally:
+        # A stream that dies before or during the wait must not leave the
+        # session (and its map copy) behind until the sweep.
+        gate.discard_session(turn.session_id, approval_session)
+
+    if not decision.approved:
+        turn.finished = True
+        yield _encode_sse(
+            {
+                "type": "approval_rejected",
+                "session_id": turn.session_id,
+                "reason": decision.reason,
+                "timed_out": decision.timed_out,
+            }
+        )
+        yield _encode_sse({"type": "end"})
+        return
+
+    turn.context_texts = await _gate_edited_chunks(
+        offered_texts=turn.context_texts,
+        returned_texts=[c.text for c in decision.chunks],
+        anon_map=turn.anon_map,
+        db=db,
+        settings=turn.settings,
+    )
+
+
+def _llm_turn_input(turn: _ChatTurn) -> _LlmTurnInput:
+    """Return the parameter object of the turn's LLM call."""
+    return _LlmTurnInput(
+        sanitized_query=turn.sanitized_query,
+        context_chunks=turn.context_texts,
+        regulation_names=turn.prompt_regulation_names,
+        language=turn.language,
+        output_mode=turn.output_mode,
+        session_id=turn.session_id,
+        column_descriptions=turn.column_descriptions,
+        query_has_placeholder=turn.query_has_placeholder,
+        query_placeholders=turn.query_placeholders if turn.query_has_placeholder else None,
+        rag_mode=turn.rag_mode,
+        debug_id=turn.debug_id,
+        debug_owner_user_id=turn.user.id,
+    )
+
+
+async def _audit_deanonymization(
+    turn: _ChatTurn, settings: AppSettings, db: AsyncSession
+) -> None:
+    """Record the local de-anonymization in the audit trail (counts only)."""
+    if not (settings.deanon_enabled and turn.anon_map.entity_map):
+        return
+    await log_deanonymization(
+        db,
+        document_id=turn.document.id if turn.document else 0,
+        entity_count=len(turn.anon_map.entity_map),
+        strategy=getattr(settings, "deanon_strategy", "simple"),
+        session_id=turn.session_id,
+    )
+
+
+async def _record_backend_error(
+    db: AsyncSession, http_request: Request, exc: Exception, status_code: int
+) -> None:
+    """Write ``exc`` to the error log; a failing write is reported, never raised."""
+    try:
+        await log_backend_error(db, http_request, exc, status_code=status_code)
+    except Exception as log_exc:
+        report_error_log_failure(log_exc)
+
+
+async def _llm_error_event(
+    exc: LLMRouterError, session_id: str, db: AsyncSession, http_request: Request
+) -> dict[str, Any]:
+    """Return the error event of a failed LLM call.
+
+    Provider and gateway error text comes from outside the air-gapped zone;
+    only a coded error carries a Septum-authored message, everything else
+    gets the fixed one.
+    """
+    logger.warning(
+        "chat LLM call failed session_id=%s code=%s error=%s status=400",
+        session_id,
+        exc.code or LLM_UNAVAILABLE,
+        type(exc).__name__,
+    )
+    await _record_backend_error(db, http_request, exc, 400)
+    return {
+        "type": "error",
+        "code": exc.code or LLM_UNAVAILABLE,
+        "message": str(exc) if exc.code else LLM_UNAVAILABLE_MESSAGE,
+    }
+
+
+async def _unexpected_error_event(
+    exc: Exception, db: AsyncSession, http_request: Request
+) -> dict[str, Any]:
+    """Return the error event of an unexpected failure (a refused model gets its code)."""
+    refused = isinstance(exc, ModelRefusal)
+    _log_stream_failure(exc)
+    await _record_backend_error(db, http_request, exc, 503 if refused else 500)
+    event: dict[str, Any] = {
+        "type": "error",
+        "message": MODEL_REFUSED_DETAIL if refused else _UNEXPECTED_ERROR_MESSAGE,
+    }
+    if refused:
+        event["code"] = exc.code
+    return event
+
+
+async def _turn_error_event(
+    exc: Exception, session_id: str, db: AsyncSession, http_request: Request
+) -> dict[str, Any]:
+    """Log a failed turn by type and return the error event the client gets."""
+    if isinstance(exc, (DocumentMapMissingError, DocumentGoneError)):
+        logger.warning(
+            "chat turn refused session_id=%s reason=%s error=%s",
+            session_id,
+            DOCUMENT_CHANGED,
+            type(exc).__name__,
+        )
+        return {
+            "type": "error",
+            "code": DOCUMENT_CHANGED,
+            "message": (
+                "A document changed while the question was being "
+                "answered; please ask again."
+            ),
+        }
+    if isinstance(exc, DocumentMapConflictError):
+        logger.warning(
+            "chat turn refused session_id=%s reason=%s", session_id, MAP_CONFLICT
+        )
+        return {
+            "type": "error",
+            "code": MAP_CONFLICT,
+            "message": "The document is being updated; please try again.",
+        }
+    if isinstance(exc, LLMRouterError):
+        return await _llm_error_event(exc, session_id, db, http_request)
+    return await _unexpected_error_event(exc, db, http_request)
+
+
+async def _chat_event_stream(
+    request: ChatRequest,
+    message_text: str,
+    document_ids_list: List[int],
+    requested_documents: dict[int, Document],
+    retry_documents: dict[int, Document],
+    db: AsyncSession,
+    current_user: User,
+    http_request: Request,
+) -> AsyncGenerator[bytes, None]:
+    """Stream one chat turn as SSE events.
+
+    Phases: sanitize the query, select the context, ``meta``, mask the
+    context into the turn's unified numbering, the optional approval gate,
+    the LLM call with local de-anonymization, then the answer chunks.
+    """
+    # Generated up-front so per-phase timing logs can correlate every
+    # phase of this turn under a single session_id, even if the user has
+    # not supplied one.
+    session_id = request.session_id or uuid4().hex
+    debug_id = new_debug_id()
+    try:
+        turn = await _open_turn(
+            request,
+            message_text,
+            document_ids_list,
+            requested_documents,
+            current_user,
+            session_id,
+            debug_id,
+            db,
+        )
+        await _sanitize_turn_query(turn, db)
+        await _select_turn_context(turn, db, retry_documents)
+        await _audit_query_pii(turn, db)
+        if turn.rag_mode == "none":
+            turn.language = "auto"
+
+        gate: ApprovalGate = get_approval_gate()
+        require_approval = _effective_require_approval(
+            settings_flag=turn.settings.require_approval,
+            request_flag=request.require_approval,
+            rag_mode=turn.rag_mode,
+        )
+        effective_settings = _effective_settings(turn.settings, request)
+        yield _encode_sse(_meta_event(turn, require_approval))
+
+        error_event = await _mask_turn_context(turn, db)
+        if error_event is not None:
+            yield _encode_sse(error_event)
+            return
+        await _prepare_prompt_inputs(turn, db)
+        if require_approval:
+            async with contextlib.aclosing(_approval_events(turn, gate, db)) as events:
+                async for event in events:
+                    yield event
+            if turn.finished:
+                return
+
+        used_ollama_fallback: List[bool] = [False]
+        async with _phase_timer(session_id, "llm_and_deanonymize"):
+            answer = await _run_llm_and_deanonymize(
+                db,
+                effective_settings,
+                turn.anon_map,
+                _llm_turn_input(turn),
+                http_request=http_request,
+                used_ollama_fallback_ref=used_ollama_fallback,
+            )
+        await _audit_deanonymization(turn, effective_settings, db)
+
+        for piece in _chunk_text(answer, max_chunk_size=256):
+            yield _encode_sse({"type": "answer_chunk", "text": piece})
+
+        yield _encode_sse({
+            "type": "end",
+            "used_ollama_fallback": used_ollama_fallback[0],
+        })
+    except asyncio.CancelledError:
+        logger.debug("Client disconnected from chat SSE stream")
+        raise
+    except Exception as exc:
+        yield _encode_sse(await _turn_error_event(exc, session_id, db, http_request))
+
+
+def _requested_document_ids(request: ChatRequest) -> List[int]:
+    """Return the document ids the request names, new or legacy field."""
+    if request.document_ids:
+        return list(request.document_ids)
+    if request.document_id is not None:
+        return [request.document_id]
+    return []
+
+
+async def _owned_documents(
+    db: AsyncSession, document_ids: List[int], user: User
+) -> dict[int, Document]:
+    """Resolve the requested documents; a missing and a foreign one give the same 404."""
+    documents: dict[int, Document] = {}
+    for did in document_ids:
+        documents[did] = await get_owned_or_404(db, Document, did, user, _DOCUMENT_NOT_FOUND)
+    return documents
+
+
+async def _owned_retry_documents(
+    db: AsyncSession,
+    request: ChatRequest,
+    requested_documents: dict[int, Document],
+    user: User,
+) -> dict[int, Document]:
+    """Resolve the documents a retry's chunks name.
+
+    The ids pass the same owner check as requested ids, so they can never
+    widen access.
+    """
+    retry_documents: dict[int, Document] = {}
+    retry_ids = {
+        c.document_id
+        for c in request.pre_approved_chunks or []
+        if c.document_id is not None
+    }
+    for did in sorted(retry_ids):
+        retry_documents[did] = requested_documents.get(did) or await get_owned_or_404(
+            db, Document, did, user, _DOCUMENT_NOT_FOUND
+        )
+    return retry_documents
+
+
 @router.post(
     "/ask",
     response_class=StreamingResponse,
@@ -1382,810 +2521,26 @@ async def chat_ask(
             detail="Either 'message' or 'query' must be provided.",
         )
 
-    document_ids_list: List[int] = []
-    if request.document_ids:
-        document_ids_list = list(request.document_ids)
-    elif request.document_id is not None:
-        document_ids_list = [request.document_id]
-    document_id = document_ids_list[0] if document_ids_list else None
-
+    document_ids_list = _requested_document_ids(request)
     # Resolved before the stream opens so a missing and a foreign document
     # yield the same HTTP 404 the documents router returns.
-    requested_documents: dict[int, Document] = {}
-    for did in document_ids_list:
-        requested_documents[did] = await get_owned_or_404(
-            db, Document, did, current_user, _DOCUMENT_NOT_FOUND
-        )
-    # A retry's chunks name the documents they were offered from; the ids
-    # pass the same owner check so they can never widen access.
-    retry_documents: dict[int, Document] = {}
-    retry_ids = {
-        c.document_id
-        for c in request.pre_approved_chunks or []
-        if c.document_id is not None
-    }
-    for did in sorted(retry_ids):
-        retry_documents[did] = requested_documents.get(did) or await get_owned_or_404(
-            db, Document, did, current_user, _DOCUMENT_NOT_FOUND
-        )
-
-    async def event_stream() -> AsyncGenerator[bytes, None]:
-        # Generated up-front so per-phase timing logs can correlate every
-        # phase of this turn under a single session_id, even if the user has
-        # not supplied one.
-        session_id = request.session_id or uuid4().hex
-        debug_id = new_debug_id()
-        try:
-            settings = await load_settings(db)
-            active_regulations = await _active_regulations(db)
-            regulation_names = [name for name, _ in active_regulations]
-
-            documents_by_id: dict[int, Document] = dict(requested_documents)
-            document: Document | None = (
-                documents_by_id.get(document_id)
-                if document_id is not None
-                else None
-            )
-
-            language = query_language(message_text, document)
-
-            # The document whose map seeds the query map; part of the
-            # numbering fingerprint a retry is checked against.
-            query_seed_document_id = document.id if document is not None else None
-            if document is not None:
-                # The query is sanitized against a copy: the cached map object
-                # is shared by every request and must never gain query PII.
-                cached_map = await get_document_map(document.id)
-                anon_map = (
-                    copy.deepcopy(cached_map)
-                    if cached_map is not None
-                    else AnonymizationMap(document_id=document.id, language=language)
-                )
-                map_entries = len(anon_map.entity_map)
-                logger.info(
-                    "chat document_id=%s anon_map_entries=%s deanon_enabled=%s",
-                    document.id,
-                    map_entries,
-                    getattr(settings, "deanon_enabled", True),
-                )
-                if map_entries == 0 and getattr(
-                    settings, "deanon_enabled", True
-                ):
-                    logger.warning(
-                        "Deanonymization will have no effect: no map for document_id=%s. "
-                        "Encryption key may have changed — re-upload the document so the map can be loaded.",
-                        document.id,
-                    )
-            else:
-                anon_map = AnonymizationMap(
-                    document_id=0, language=language
-                )
-                logger.info(
-                    "chat document_id=None anon_map_entries=%s deanon_enabled=%s",
-                    len(anon_map.entity_map),
-                    getattr(settings, "deanon_enabled", True),
-                )
-
-            async with _phase_timer(session_id, "sanitize_query"):
-                sanitized_query, entity_count, query_type_counts = (
-                    await _sanitize_query(
-                        message_text, language, settings, anon_map, db
-                    )
-                )
-            relevance_threshold = settings.rag_relevance_threshold
-            rag_mode: str = "manual" if document_ids_list else "auto"
-            matched_document_ids: List[int] = []
-            matched_document_names: List[str] = []
-            chunks: List[Chunk] = []
-
-            if request.pre_approved_chunks is None and rag_mode == "manual" and documents_by_id:
-                async with _phase_timer(session_id, "retrieve_chunks"):
-                    base_top_k = request.top_k or settings.top_k_retrieval
-                    total_chunk_count = sum(
-                        d.chunk_count for d in documents_by_id.values()
-                    )
-                    top_k = _effective_top_k(base_top_k, total_chunk_count)
-                    if len(documents_by_id) == 1:
-                        doc = next(iter(documents_by_id.values()))
-                        chunks = await _retrieve_chunks(
-                            db=db,
-                            document_id=doc.id,
-                            query=sanitized_query,
-                            top_k=base_top_k,
-                            chunk_count=doc.chunk_count,
-                            relevance_threshold=relevance_threshold,
-                        )
-                    else:
-                        MIN_PER_DOC = 10
-                        num_docs = len(documents_by_id)
-                        per_doc_k = max(
-                            MIN_PER_DOC,
-                            min(MAX_CONTEXT_CHUNKS // num_docs, top_k // num_docs),
-                        )
-                        for doc in documents_by_id.values():
-                            chunks_doc = await _retrieve_chunks(
-                                db=db,
-                                document_id=doc.id,
-                                query=sanitized_query,
-                                top_k=per_doc_k,
-                                chunk_count=doc.chunk_count,
-                                relevance_threshold=relevance_threshold,
-                            )
-                            chunks.extend(chunks_doc)
-                    # Every offer must fit the retry limit, so a rejected
-                    # turn can always be sent again.
-                    chunks = _cap_context_chunks(chunks, MAX_CONTEXT_CHUNKS)
-
-            elif request.pre_approved_chunks is not None and retry_documents:
-                # Same document set (and lead document) the original turn
-                # unified its placeholders over, so the retry rebuilds the
-                # identical numbering; in auto mode no ids were requested.
-                for did, doc in retry_documents.items():
-                    documents_by_id.setdefault(did, doc)
-                if document is None:
-                    document = next(iter(documents_by_id.values()))
-
-            elif request.pre_approved_chunks is None and rag_mode == "auto":
-                async with _phase_timer(session_id, "auto_rag_classify"):
-                    all_user_docs_result = await db.execute(
-                        select(Document).where(
-                            _auto_rag_owner_filter(current_user),
-                            Document.ingestion_status == "completed",
-                            Document.chunk_count > 0,
-                        )
-                    )
-                    all_user_docs = list(
-                        all_user_docs_result.scalars().all()
-                    )
-
-                    if not all_user_docs:
-                        rag_mode = "none"
-                    elif request.scoped_doc_ids:
-                        # Disambiguation picker already chose a specific
-                        # document set (sent back via ``analyze_query``);
-                        # honour it verbatim and skip the entity-aware
-                        # narrowing pass.
-                        scope = set(request.scoped_doc_ids)
-                        before = len(all_user_docs)
-                        all_user_docs = [d for d in all_user_docs if d.id in scope]
-                        logger.info(
-                            "chat entity-routing session_id=%s reason=disambiguation_choice "
-                            "candidates=%d narrowed=%d",
-                            session_id,
-                            before,
-                            len(all_user_docs),
-                        )
-                    else:
-                        # Entity-aware narrowing: if the user's question
-                        # mentioned a specific PII value (a person, an
-                        # IBAN, a national ID …) we can confidently scope
-                        # retrieval to only the documents that actually
-                        # contain that value, instead of mixing chunks
-                        # across unrelated docs and risking the cloud
-                        # LLM attributing one person's data to another.
-                        # When no query entity matches the index we fall
-                        # back to the original "every document is a
-                        # candidate" behaviour. The match is HMAC-keyed
-                        # under the local encryption key so we never
-                        # leak originals into the index lookup.
-                        query_entities = [
-                            (original, _extract_entity_type(placeholder))
-                            for original, placeholder in anon_map.entity_map.items()
-                            if placeholder
-                        ]
-                        query_entities = [
-                            (val, etype) for val, etype in query_entities if etype
-                        ]
-                        narrowed_doc_ids: set[int] = set()
-                        narrowing_reason = "no_entity_in_query"
-                        if query_entities:
-                            entity_scores = await find_documents_for_query_entities(
-                                db,
-                                query_entities,
-                                owner_id=None if current_user.role == "admin" else current_user.id,
-                            )
-                            if entity_scores:
-                                strong = {
-                                    did
-                                    for did, sc in entity_scores.items()
-                                    if sc >= RELATIONSHIP_THRESHOLD_STRONG
-                                }
-                                medium = {
-                                    did
-                                    for did, sc in entity_scores.items()
-                                    if sc >= RELATIONSHIP_THRESHOLD_MEDIUM
-                                }
-                                if strong:
-                                    narrowed_doc_ids = strong
-                                    narrowing_reason = "strong_entity_match"
-                                elif medium:
-                                    narrowed_doc_ids = medium
-                                    narrowing_reason = "medium_entity_match"
-                                else:
-                                    # Only weak (e.g. shared LOCATION).
-                                    # Don't narrow — a city name match
-                                    # is too noisy to scope on alone.
-                                    narrowing_reason = "weak_entity_match_only"
-
-                        if narrowed_doc_ids:
-                            before = len(all_user_docs)
-                            all_user_docs = [
-                                d for d in all_user_docs if d.id in narrowed_doc_ids
-                            ]
-                            logger.info(
-                                "chat entity-routing session_id=%s reason=%s "
-                                "candidates=%d narrowed=%d",
-                                session_id,
-                                narrowing_reason,
-                                before,
-                                len(all_user_docs),
-                            )
-
-                        # When entity routing already proved that the
-                        # query references PII that lives in the corpus
-                        # we have hard evidence the turn is about the
-                        # documents — skip the Ollama-based intent
-                        # classifier entirely. The classifier is
-                        # non-deterministic (the same Turkish question
-                        # asked twice in a row produced "auto" then
-                        # "chat" verdicts in production logs) and
-                        # routinely tagged document-grounded questions
-                        # as general chat, sending the LLM to answer
-                        # from its own knowledge. ANY entity match -
-                        # strong, medium, or even weak - means the user
-                        # mentioned something that exists in their
-                        # corpus, which is the most reliable signal we
-                        # have that the question is about the documents.
-                        # The classifier is only consulted in the
-                        # fallback path where the query carries no
-                        # entity at all (or the entity isn't in the
-                        # index).
-                        if narrowing_reason in (
-                            "strong_entity_match",
-                            "medium_entity_match",
-                            "weak_entity_match_only",
-                        ):
-                            logger.info(
-                                "chat intent-classifier session_id=%s skipped reason=%s",
-                                session_id,
-                                narrowing_reason,
-                            )
-                        else:
-                            doc_names = [
-                                d.original_filename or f"document_{d.id}"
-                                for d in all_user_docs
-                            ]
-                            intent = await _classify_query_intent(
-                                query=sanitized_query,
-                                document_names=doc_names,
-                                ollama_base_url=settings.ollama_base_url,
-                                ollama_model=settings.ollama_chat_model,
-                            )
-                            if intent == "chat":
-                                rag_mode = "none"
-
-                if rag_mode == "auto":
-                    async with _phase_timer(session_id, "retrieve_chunks_auto"):
-                        base_top_k = request.top_k or settings.top_k_retrieval
-                        chunks, matched_document_ids = await _retrieve_chunks_all_documents(
-                            db=db,
-                            query=sanitized_query,
-                            top_k=base_top_k,
-                            documents=all_user_docs,
-                            relevance_threshold=relevance_threshold,
-                        )
-                        if chunks:
-                            docs_by_id = {
-                                d.id: d for d in all_user_docs
-                            }
-                            for did in matched_document_ids:
-                                doc_obj = docs_by_id.get(did)
-                                if doc_obj:
-                                    documents_by_id[did] = doc_obj
-                                    matched_document_names.append(
-                                        doc_obj.original_filename
-                                        or str(did)
-                                    )
-                            document = next(
-                                iter(documents_by_id.values()), None
-                            )
-                        else:
-                            rag_mode = "none"
-
-            if entity_count > 0:
-                await log_pii_detected(
-                    db,
-                    document_id=document.id if document else 0,
-                    regulation_ids=(
-                        list(document.active_regulation_ids)
-                        if document
-                        else []
-                    ),
-                    entity_type_counts=query_type_counts,
-                    total_count=entity_count,
-                    session_id=session_id,
-                    extra={"source": "chat_query"},
-                )
-
-            if rag_mode == "none":
-                language = "auto"
-
-            gate: ApprovalGate = get_approval_gate()
-            require_approval = _effective_require_approval(
-                settings_flag=settings.require_approval,
-                request_flag=request.require_approval,
-                rag_mode=rag_mode,
-            )
-
-            effective_settings = settings
-            if request.deanon_enabled is not None:
-                effective_settings = copy.copy(settings)
-                effective_settings.deanon_enabled = request.deanon_enabled
-
-            chunks_per_doc: dict[int, int] = {}
-            for c in chunks:
-                chunks_per_doc[c.document_id] = (
-                    chunks_per_doc.get(c.document_id, 0) + 1
-                )
-            matched_documents = [
-                {
-                    "id": did,
-                    "name": (
-                        documents_by_id[did].original_filename
-                        if did in documents_by_id
-                        and documents_by_id[did].original_filename
-                        else str(did)
-                    ),
-                    "chunk_count": count,
-                }
-                for did, count in sorted(
-                    chunks_per_doc.items(), key=lambda kv: -kv[1]
-                )
-            ]
-
-            yield _encode_sse(
-                {
-                    "type": "meta",
-                    "session_id": session_id,
-                    "debug_id": debug_id,
-                    "document_id": (
-                        document.id if document is not None else None
-                    ),
-                    "language": language,
-                    "require_approval": require_approval,
-                    "retrieved_chunk_count": len(chunks),
-                    "active_regulations": regulation_names,
-                    "rag_mode": rag_mode,
-                    "matched_document_ids": matched_document_ids,
-                    "matched_document_names": matched_document_names,
-                    "matched_documents": matched_documents,
-                }
-            )
-
-            # Compute output_mode and placeholder info up-front so the
-            # approval-modal assembled-prompt preview uses exactly the same
-            # parameters the real LLM call will use, and so both the
-            # pre-approved and fresh-approval branches share one definition.
-            output_mode = (request.output_mode or "chat").strip().lower()
-
-            # Fingerprint of everything the unified placeholder numbering is
-            # built from; the approval event carries it signed so a later
-            # retry can prove it rebuilt the same numbering.
-            query_remap: dict[str, str] = {}
-            numbering_fp: bytes
-            candidate_chunks: List[ApprovalChunk] = []
-            if request.pre_approved_chunks is not None:
-                client_texts = [c.text for c in request.pre_approved_chunks]
-                query_map = anon_map
-                doc_maps: dict[int, AnonymizationMap] = {}
-                if documents_by_id:
-                    # The client returns chunks numbered in the unified space
-                    # of the turn that produced them; rebuild that same space
-                    # so every placeholder resolves to the entity it meant.
-                    doc_maps, _, query_remap, anon_map = await _unify_turn_placeholders(
-                        query_map, list(documents_by_id.keys()), language
-                    )
-                numbering_fp = numbering_fingerprint(
-                    query_map, doc_maps, query_seed_document_id
-                )
-                # A rebuilt numbering is only trusted when it matches the one
-                # the chunks were produced under (maps, selection and query
-                # unchanged since); otherwise nothing is sent.
-                if (doc_maps or request.numbering_token is not None) and not verify_numbering(
-                    request.numbering_token, numbering_fp, current_user.id
-                ):
-                    logger.warning(
-                        "chat retry refused session_id=%s reason=%s docs=%s",
-                        session_id,
-                        RETRY_NUMBERING_CHANGED,
-                        sorted(doc_maps),
-                    )
-                    yield _encode_sse(
-                        {
-                            "type": "error",
-                            "code": RETRY_NUMBERING_CHANGED,
-                            "message": (
-                                "The documents changed since this answer was "
-                                "prepared; please ask again."
-                            ),
-                        }
-                    )
-                    return
-                if query_remap:
-                    sanitized_query = _apply_chunk_placeholder_remap(
-                        sanitized_query, query_remap
-                    )
-                # Entities first seen in the client text must not reuse a
-                # number the client text already carries for someone else.
-                reserve_placeholder_counters(anon_map, client_texts)
-                client_texts = await gate_untrusted_texts(
-                    client_texts, anon_map, db, settings
-                )
-                candidate_chunks = [
-                    ApprovalChunk(id=None, document_id=c.document_id, text=text)
-                    for c, text in zip(request.pre_approved_chunks, client_texts)
-                ]
-            else:
-                sanitized_chunk_texts: List[str] = []
-                numbering_fp = numbering_fingerprint(
-                    anon_map, {}, query_seed_document_id
-                )
-                if documents_by_id:
-                    # Before the maps are loaded: entities the current policy
-                    # finds in outdated chunks join their document's map.
-                    async with _phase_timer(session_id, "resanitize_outdated_chunks"):
-                        restored_chunk_texts, remasked_doc_ids = (
-                            await _resanitize_outdated_chunks(
-                                db, settings, chunks, documents_by_id
-                            )
-                        )
-                    if query_seed_document_id in remasked_doc_ids:
-                        # The query map was seeded from the seed document's
-                        # map before the re-mask grew it; a retry seeds from
-                        # the grown map, so seed and sanitize again from it
-                        # or the retry's numbering would never match.
-                        seed_map = await get_document_map(query_seed_document_id)
-                        if seed_map is None:
-                            raise DocumentMapMissingError(
-                                f"Document {query_seed_document_id} has no anonymization map"
-                            )
-                        anon_map = copy.deepcopy(seed_map)
-                        sanitized_query, entity_count, _ = (
-                            await _sanitize_query(
-                                message_text, language, settings, anon_map, db
-                            )
-                        )
-                    # Every turn document's map is reloaded and unified with
-                    # the query map (see ``_unify_turn_placeholders``): the
-                    # outer ``anon_map`` may be the empty map auto-RAG started
-                    # with, and query entities must share the document's
-                    # placeholder so the LLM sees one entity. A turn without
-                    # chunks is unified too, so its retry rebuilds the same
-                    # numbering.
-                    query_anon_map = anon_map
-                    anon_maps, per_doc_remap, query_remap, anon_map = (
-                        await _unify_turn_placeholders(
-                            query_anon_map, list(documents_by_id.keys()), language
-                        )
-                    )
-                    numbering_fp = numbering_fingerprint(
-                        query_anon_map, anon_maps, query_seed_document_id
-                    )
-                    if query_remap:
-                        sanitized_query = _apply_chunk_placeholder_remap(
-                            sanitized_query, query_remap
-                        )
-
-                    # Log placeholder shape only — never the originals — so
-                    # we can diagnose unification gaps without writing PII
-                    # to the local log file.
-                    logger.info(
-                        "chat unified-map session_id=%s docs=%s "
-                        "unified_entries=%s query_entries=%s "
-                        "query_remap_size=%s placeholders=%s",
-                        session_id,
-                        sorted(anon_maps.keys()),
-                        len(anon_map.entity_map),
-                        len(query_anon_map.entity_map),
-                        len(query_remap),
-                        sorted(set(anon_map.entity_map.values()))[:20],
-                    )
-
-                    # Documents are labelled by position, never by filename:
-                    # an original filename routinely carries personal data
-                    # and must not reach the cloud LLM.
-                    document_labels: dict[int, int] = {}
-                    prev_doc_id: Optional[int] = None
-                    for c in chunks:
-                        header = ""
-                        if (
-                            len(documents_by_id) > 1
-                            and c.document_id != prev_doc_id
-                        ):
-                            label = document_labels.setdefault(
-                                c.document_id, len(document_labels) + 1
-                            )
-                            header = PromptCatalog.document_context_header(label)
-                            prev_doc_id = c.document_id
-                        chunk_text = restored_chunk_texts.get(
-                            c.id, c.sanitized_text or ""
-                        )
-                        chunk_map = anon_maps.get(c.document_id, anon_map)
-                        # Chunks were analysed at ingestion; the map is the source of truth here.
-                        masked_chunk = mask_known_entities(chunk_text, chunk_map)
-                        chunk_remap = per_doc_remap.get(c.document_id)
-                        if chunk_remap:
-                            masked_chunk = _apply_chunk_placeholder_remap(
-                                masked_chunk, chunk_remap
-                            )
-                        sanitized_chunk_texts.append(
-                            header + masked_chunk
-                        )
-
-                if documents_by_id and chunks:
-                    candidate_chunks = _build_approval_chunks(
-                        chunks, sanitized_chunk_texts
-                    )
-
-            # Placeholders the user typed, in the numbering the LLM sees: the
-            # forced answer and the de-anonymization allow-set both read
-            # ``sanitized_query``, so they must agree on every number.
-            query_placeholders = _typed_query_placeholders(
-                message_text, sanitized_query, query_remap
-            )
-            query_has_placeholder = bool(query_placeholders)
-
-            context_texts = [c.text for c in candidate_chunks]
-            prompt_regulation_names = (
-                await _prompt_regulation_names(
-                    active_regulations, anon_map, db, settings
-                )
-                if rag_mode != "none"
-                else regulation_names
-            )
-            if rag_mode != "none":
-                column_document_id = document.id if document is not None else None
-                column_descriptions = await _schema_column_descriptions(
-                    db, column_document_id, anon_map, settings
-                )
-            else:
-                column_descriptions = []
-            if require_approval:
-                # Build the exact masked prompt that would be sent to the
-                # cloud LLM right now so the approval modal can show it
-                # byte-for-byte. If the user edits chunks in the modal a
-                # dedicated preview endpoint re-runs this with the edited
-                # chunks to keep the preview in sync.
-                assembled_prompt = _assemble_user_prompt(
-                    sanitized_query=sanitized_query,
-                    context_chunks=[c.text for c in candidate_chunks],
-                    regulation_names=prompt_regulation_names,
-                    language=language,
-                    output_mode=output_mode,
-                    column_descriptions=column_descriptions,
-                    query_has_placeholder=query_has_placeholder,
-                )
-
-                try:
-                    approval_session = await gate.create(
-                        session_id=session_id,
-                        masked_prompt=sanitized_query,
-                        masked_chunks=[
-                            c.text for c in candidate_chunks
-                        ],
-                        entity_count=entity_count,
-                        owner_user_id=current_user.id,
-                        anon_map=anon_map,
-                        abandon_after_seconds=settings.approval_timeout_seconds,
-                        assembly_context={
-                            "sanitized_query": sanitized_query,
-                            "regulation_names": prompt_regulation_names,
-                            "language": language,
-                            "output_mode": output_mode,
-                            "column_descriptions": column_descriptions,
-                            "query_has_placeholder": query_has_placeholder,
-                        },
-                    )
-                except ApprovalSessionForbiddenError:
-                    yield _encode_sse(
-                        {
-                            "type": "error",
-                            "message": "Approval session not found.",
-                        }
-                    )
-                    return
-
-                try:
-                    yield _encode_sse(
-                        {
-                            "type": "approval_required",
-                            "session_id": session_id,
-                            "numbering_token": sign_numbering(
-                                numbering_fp, current_user.id
-                            ),
-                            "masked_prompt": sanitized_query,
-                            "assembled_prompt": assembled_prompt,
-                            "chunks": [
-                                {
-                                    "id": c.id,
-                                    "document_id": c.document_id,
-                                    "text": c.text,
-                                    "source_page": c.source_page,
-                                    "section_title": c.section_title,
-                                }
-                                for c in candidate_chunks
-                            ],
-                        }
-                    )
-
-                    async with _phase_timer(session_id, "approval_wait"):
-                        decision_task = asyncio.create_task(
-                            gate.wait_for_approval(
-                                session_id,
-                                timeout=settings.approval_timeout_seconds,
-                            )
-                        )
-                        # Emit an SSE comment line every 15s while waiting so
-                        # the TCP socket stays active. Without this, a slow
-                        # user decision lets Next.js' proxy (or any other
-                        # intermediate hop) drop the idle connection, and the
-                        # answer_chunk events that follow never reach the
-                        # browser — the UI stays stuck on "Thinking…".
-                        try:
-                            while True:
-                                done, _ = await asyncio.wait(
-                                    {decision_task}, timeout=15.0
-                                )
-                                if decision_task in done:
-                                    decision = decision_task.result()
-                                    break
-                                yield b": keepalive\n\n"
-                        except BaseException:
-                            if not decision_task.done():
-                                decision_task.cancel()
-                            raise
-                finally:
-                    # A stream that dies before or during the wait must not leave
-                    # the session (and its map copy) behind until the sweep.
-                    gate.discard_session(session_id, approval_session)
-
-                if not decision.approved:
-                    yield _encode_sse(
-                        {
-                            "type": "approval_rejected",
-                            "session_id": session_id,
-                            "reason": decision.reason,
-                            "timed_out": decision.timed_out,
-                        }
-                    )
-                    yield _encode_sse({"type": "end"})
-                    return
-
-                context_texts = await _gate_edited_chunks(
-                    offered_texts=context_texts,
-                    returned_texts=[c.text for c in decision.chunks],
-                    anon_map=anon_map,
-                    db=db,
-                    settings=settings,
-                )
-            used_ollama_fallback: List[bool] = [False]
-            async with _phase_timer(session_id, "llm_and_deanonymize"):
-                answer = await _run_llm_and_deanonymize(
-                    db=db,
-                    settings=effective_settings,
-                    anon_map=anon_map,
-                    sanitized_query=sanitized_query,
-                    context_chunks=context_texts,
-                    regulation_names=prompt_regulation_names,
-                    language=language,
-                    output_mode=output_mode,
-                    session_id=session_id,
-                    column_descriptions=column_descriptions,
-                    query_has_placeholder=query_has_placeholder,
-                    query_placeholders=(
-                        query_placeholders if query_has_placeholder else None
-                    ),
-                    http_request=http_request,
-                    used_ollama_fallback_ref=used_ollama_fallback,
-                    rag_mode=rag_mode,
-                    debug_id=debug_id,
-                    debug_owner_user_id=current_user.id,
-                )
-
-            if effective_settings.deanon_enabled and anon_map.entity_map:
-                await log_deanonymization(
-                    db,
-                    document_id=document.id if document else 0,
-                    entity_count=len(anon_map.entity_map),
-                    strategy=getattr(
-                        effective_settings, "deanon_strategy", "simple"
-                    ),
-                    session_id=session_id,
-                )
-
-            for piece in _chunk_text(answer, max_chunk_size=256):
-                yield _encode_sse(
-                    {"type": "answer_chunk", "text": piece}
-                )
-
-            yield _encode_sse({
-                "type": "end",
-                "used_ollama_fallback": used_ollama_fallback[0],
-            })
-        except asyncio.CancelledError:
-            logger.debug("Client disconnected from chat SSE stream")
-            raise
-        except (DocumentMapMissingError, DocumentGoneError) as exc:
-            logger.warning(
-                "chat turn refused session_id=%s reason=%s error=%s",
-                session_id,
-                DOCUMENT_CHANGED,
-                type(exc).__name__,
-            )
-            yield _encode_sse(
-                {
-                    "type": "error",
-                    "code": DOCUMENT_CHANGED,
-                    "message": (
-                        "A document changed while the question was being "
-                        "answered; please ask again."
-                    ),
-                }
-            )
-        except DocumentMapConflictError:
-            logger.warning(
-                "chat turn refused session_id=%s reason=%s", session_id, MAP_CONFLICT
-            )
-            yield _encode_sse(
-                {
-                    "type": "error",
-                    "code": MAP_CONFLICT,
-                    "message": "The document is being updated; please try again.",
-                }
-            )
-        except LLMRouterError as exc:
-            # Provider and gateway error text comes from outside the
-            # air-gapped zone; only a coded error carries a Septum-authored
-            # message, everything else gets the fixed one.
-            logger.warning(
-                "chat LLM call failed session_id=%s code=%s error=%s status=400",
-                session_id,
-                exc.code or LLM_UNAVAILABLE,
-                type(exc).__name__,
-            )
-            try:
-                await log_backend_error(
-                    db, http_request, exc, status_code=400
-                )
-            except Exception as log_exc:
-                report_error_log_failure(log_exc)
-            yield _encode_sse(
-                {
-                    "type": "error",
-                    "code": exc.code or LLM_UNAVAILABLE,
-                    "message": str(exc) if exc.code else LLM_UNAVAILABLE_MESSAGE,
-                }
-            )
-        except Exception as exc:
-            refused = isinstance(exc, ModelRefusal)
-            _log_stream_failure(exc)
-            try:
-                await log_backend_error(
-                    db, http_request, exc, status_code=503 if refused else 500
-                )
-            except Exception as log_exc:
-                report_error_log_failure(log_exc)
-            event = {
-                "type": "error",
-                "message": MODEL_REFUSED_DETAIL
-                if refused
-                else "An unexpected error occurred while processing the chat request.",
-            }
-            if refused:
-                event["code"] = exc.code
-            yield _encode_sse(event)
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    requested_documents = await _owned_documents(db, document_ids_list, current_user)
+    retry_documents = await _owned_retry_documents(
+        db, request, requested_documents, current_user
+    )
+    return StreamingResponse(
+        _chat_event_stream(
+            request,
+            message_text,
+            document_ids_list,
+            requested_documents,
+            retry_documents,
+            db,
+            current_user,
+            http_request,
+        ),
+        media_type="text/event-stream",
+    )
 
 
 @router.get(
