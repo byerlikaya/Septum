@@ -111,6 +111,25 @@ def _cut_ok(token_offsets: Sequence[tuple[int, int]], index: int) -> bool:
     return token_offsets[index][0] >= token_offsets[index - 1][1]
 
 
+def _fit_cut(token_offsets: Sequence[tuple[int, int]], t0: int, t1: int) -> int:
+    """Move the window end ``t1`` back to the nearest safe cut after ``t0``."""
+    while t1 > t0 + 1 and not _cut_ok(token_offsets, t1):
+        t1 -= 1
+    if not _cut_ok(token_offsets, t1):
+        raise NERWindowingError("no token boundary fits inside the window limit")
+    return t1
+
+
+def _next_start(
+    token_offsets: Sequence[tuple[int, int]], t0: int, t1: int, overlap: int
+) -> int:
+    """First token of the window after ``[t0, t1)``: the overlap start at a safe cut."""
+    nxt = max(t1 - overlap, t0 + 1)
+    while nxt < t1 and not _cut_ok(token_offsets, nxt):
+        nxt += 1
+    return t1 if nxt >= t1 else nxt
+
+
 def _token_ranges(
     token_offsets: Sequence[tuple[int, int]],
     max_tokens: int,
@@ -123,17 +142,11 @@ def _token_ranges(
     while True:
         t1 = min(t0 + max_tokens, count)
         if t1 < count:
-            while t1 > t0 + 1 and not _cut_ok(token_offsets, t1):
-                t1 -= 1
-            if not _cut_ok(token_offsets, t1):
-                raise NERWindowingError("no token boundary fits inside the window limit")
+            t1 = _fit_cut(token_offsets, t0, t1)
         ranges.append((t0, t1))
         if t1 >= count:
             return ranges
-        nxt = max(t1 - overlap, t0 + 1)
-        while nxt < t1 and not _cut_ok(token_offsets, nxt):
-            nxt += 1
-        t0 = t1 if nxt >= t1 else nxt
+        t0 = _next_start(token_offsets, t0, t1, overlap)
 
 
 def _complete(span: Span, window: Window) -> bool:

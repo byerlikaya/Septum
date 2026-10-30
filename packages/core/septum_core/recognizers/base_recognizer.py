@@ -152,43 +152,51 @@ class ValidatedPatternRecognizer(PatternRecognizer):
             return []
 
         results: List[RecognizerResult] = []
-        base_score = self.patterns[0].score
-        group_index = self._narrow_to_group
-
         for match in self._compiled_pattern.finditer(text):
-            if group_index is not None:
-                span_start = match.start(group_index)
-                span_end = match.end(group_index)
-                if span_start < 0 or span_end < 0:
-                    continue
-                candidate_text = match.group(group_index)
-            else:
-                span_start = match.start()
-                span_end = match.end()
-                candidate_text = match.group(0)
-
-            validation = self.validate_result(candidate_text)
-            if validation is False:
-                if self._fallback_score is None:
-                    continue
-                score = self._fallback_score
-            elif validation is True:
-                score = 1.0
-            else:
-                score = base_score
-
-            results.append(
-                RecognizerResult(
-                    entity_type=self.supported_entities[0],
-                    start=span_start,
-                    end=span_end,
-                    score=score,
-                    analysis_explanation=None,
-                    recognition_metadata={
-                        RecognizerResult.RECOGNIZER_NAME_KEY: self.name,
-                        RecognizerResult.RECOGNIZER_IDENTIFIER_KEY: self.id,
-                    },
-                )
-            )
+            bounds = self._match_bounds(match)
+            if bounds is None:
+                continue
+            span_start, span_end, candidate_text = bounds
+            score = self._candidate_score(candidate_text)
+            if score is None:
+                continue
+            results.append(self._make_result(span_start, span_end, score))
 
         return results
+
+    def _match_bounds(self, match: re.Match[str]) -> Optional[tuple[int, int, str]]:
+        """Return ``(start, end, text)`` of the reported span.
+
+        ``None`` means the narrowed capture group did not take part in the match.
+        """
+        group_index = self._narrow_to_group
+        if group_index is None:
+            return match.start(), match.end(), match.group(0)
+        span_start = match.start(group_index)
+        span_end = match.end(group_index)
+        if span_start < 0 or span_end < 0:
+            return None
+        return span_start, span_end, match.group(group_index)
+
+    def _candidate_score(self, candidate_text: str) -> Optional[float]:
+        """Score a candidate through the validator; ``None`` drops the match."""
+        validation = self.validate_result(candidate_text)
+        if validation is False:
+            return self._fallback_score
+        if validation is True:
+            return 1.0
+        return self.patterns[0].score
+
+    def _make_result(self, start: int, end: int, score: float) -> RecognizerResult:
+        """Build a :class:`RecognizerResult` for a span of this recognizer."""
+        return RecognizerResult(
+            entity_type=self.supported_entities[0],
+            start=start,
+            end=end,
+            score=score,
+            analysis_explanation=None,
+            recognition_metadata={
+                RecognizerResult.RECOGNIZER_NAME_KEY: self.name,
+                RecognizerResult.RECOGNIZER_IDENTIFIER_KEY: self.id,
+            },
+        )

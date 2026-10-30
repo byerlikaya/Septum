@@ -60,6 +60,56 @@ def _recognizer_dedup_key(recognizer: EntityRecognizer):
     )
 
 
+def _admit_unseen(recognizer: EntityRecognizer, seen_keys: set) -> bool:
+    """Record ``recognizer``'s dedup key and report whether it is new.
+
+    A recognizer without a usable key is always admitted.
+    """
+    key = _recognizer_dedup_key(recognizer)
+    if key is None:
+        return True
+    if key in seen_keys:
+        return False
+    seen_keys.add(key)
+    return True
+
+
+def _load_pack_recognizers(
+    base_pkg: str, regulation_id: str
+) -> Optional[List[EntityRecognizer]]:
+    """Return a regulation pack's recognizers, or ``None`` if it cannot be loaded."""
+    module_path = f"{base_pkg}.{regulation_id}.recognizers"
+    try:
+        module = importlib.import_module(module_path)
+    except ModuleNotFoundError:
+        logger.debug(
+            "No recognizer pack found for regulation '%s' (module %s).",
+            regulation_id,
+            module_path,
+        )
+        return None
+
+    get_recognizers = getattr(module, "get_recognizers", None)
+    if get_recognizers is None:
+        logger.warning(
+            "Recognizer pack %s for regulation '%s' "
+            "does not define get_recognizers().",
+            module_path,
+            regulation_id,
+        )
+        return None
+
+    try:
+        return list(get_recognizers())
+    except Exception as exc:
+        logger.error(
+            "Error while loading recognizers from pack %s: %s",
+            module_path,
+            type(exc).__name__,
+        )
+        return None
+
+
 class RecognizerRegistry:
     """
     Build Presidio recognizers for the active regulations and custom rules.
@@ -110,43 +160,12 @@ class RecognizerRegistry:
         seen_keys: set = set()
         base_pkg = __name__.rsplit(".", 1)[0]
         for reg in active_regs:
-            module_path = f"{base_pkg}.{reg.id}.recognizers"
-            try:
-                module = importlib.import_module(module_path)
-            except ModuleNotFoundError:
-                logger.debug(
-                    "No recognizer pack found for regulation '%s' (module %s).",
-                    reg.id,
-                    module_path,
-                )
+            pack_recognizers = _load_pack_recognizers(base_pkg, reg.id)
+            if pack_recognizers is None:
                 continue
-
-            get_recognizers = getattr(module, "get_recognizers", None)
-            if get_recognizers is None:
-                logger.warning(
-                    "Recognizer pack %s for regulation '%s' "
-                    "does not define get_recognizers().",
-                    module_path,
-                    reg.id,
-                )
-                continue
-
-            try:
-                pack_recognizers = list(get_recognizers())
-            except Exception as exc:
-                logger.error(
-                    "Error while loading recognizers from pack %s: %s",
-                    module_path,
-                    type(exc).__name__,
-                )
-                continue
-
-            for recognizer in pack_recognizers:
-                key = _recognizer_dedup_key(recognizer)
-                if key is None or key not in seen_keys:
-                    if key is not None:
-                        seen_keys.add(key)
-                    recognizers.append(recognizer)
+            recognizers.extend(
+                r for r in pack_recognizers if _admit_unseen(r, seen_keys)
+            )
 
         return recognizers
 
@@ -159,25 +178,29 @@ class RecognizerRegistry:
         for custom in custom_recognizers:
             if not custom.is_active:
                 continue
-
-            method = custom.detection_method.lower()
-            if method == "regex" and custom.pattern:
-                recognizer = self._build_regex_recognizer(custom)
-                if recognizer is not None:
-                    recognizers.append(recognizer)
-            elif method == "keyword_list" and custom.keywords:
-                recognizers.append(self._build_keyword_recognizer(custom))
-            elif method == "llm_prompt" and custom.llm_prompt:
-                llm_recognizer = self._build_llm_recognizer(custom)
-                if llm_recognizer is not None:
-                    recognizers.append(llm_recognizer)
-            else:
-                logger.warning(
-                    "Skipping custom recognizer %s (%s) due to incomplete configuration.",
-                    custom.id,
-                    custom.name,
-                )
+            recognizer = self._build_custom_recognizer(custom)
+            if recognizer is not None:
+                recognizers.append(recognizer)
         return recognizers
+
+    def _build_custom_recognizer(
+        self,
+        custom: CustomRecognizerLike,
+    ) -> Optional[EntityRecognizer]:
+        """Build one active custom recognizer, or ``None`` when it is skipped."""
+        method = custom.detection_method.lower()
+        if method == "regex" and custom.pattern:
+            return self._build_regex_recognizer(custom)
+        if method == "keyword_list" and custom.keywords:
+            return self._build_keyword_recognizer(custom)
+        if method == "llm_prompt" and custom.llm_prompt:
+            return self._build_llm_recognizer(custom)
+        logger.warning(
+            "Skipping custom recognizer %s (%s) due to incomplete configuration.",
+            custom.id,
+            custom.name,
+        )
+        return None
 
     @staticmethod
     def _build_regex_recognizer(
