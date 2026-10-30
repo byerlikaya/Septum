@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from bisect import bisect_left
+from typing import Mapping, Tuple
 
 from .language_resolution import (
     particle_script_ranges,
@@ -50,6 +51,128 @@ WORD_END = rf"(?:\b|(?={_UNSPACED_CLASS}))"
 _PARTICLE_CLASS = _ranges_to_class(particle_script_ranges())
 # A token may also end before a particle written onto it ("2019-0412입니다").
 PARTICLE_START = rf"(?={_PARTICLE_CLASS})"
+
+# Letters of the scripts whose words touch other tokens: unspaced, particle
+# and prefix scripts. A token edge may lie against any of them; a digit of
+# those scripts never makes one, so a run of Arabic-Indic or Thai digits stays
+# a single number. Every such script lies above ``_TOUCHING_FLOOR``, a cheap
+# first check that keeps the large class off ASCII and digit-dense text.
+_TOUCHING_RANGES = (*_UNSPACED_RANGES, *particle_script_ranges(), *prefix_script_ranges())
+_TOUCHING_CLASS = _ranges_to_class(_TOUCHING_RANGES)
+_TOUCHING_FLOOR = f"[{chr(min(lo for lo, _ in _TOUCHING_RANGES))}-\U0010ffff]"
+_TOUCHING_BEFORE = rf"(?<={_TOUCHING_FLOOR})(?<={_TOUCHING_CLASS})(?<!\d)"
+_TOUCHING_AFTER = rf"(?={_TOUCHING_FLOOR})(?={_TOUCHING_CLASS})(?!\d)"
+
+# ``\b`` made script-aware, for the edges of an identifier whose first and last
+# characters are word characters: the value may also be written against a
+# letter of a touching script ("电话138-1234-5678请", "010-1234-5678입니다",
+# "و1012345678"), but not against a Latin, Cyrillic or other spaced-script
+# letter, a digit or "_", so a digit run inside a longer alphanumeric word is
+# still no identifier. Case-insensitive patterns keep the edge case-sensitive.
+TOKEN_START = rf"(?-i:\b|{_TOUCHING_BEFORE})"
+TOKEN_END = rf"(?-i:\b|{_TOUCHING_AFTER})"
+
+
+def token_bounded(pattern: str) -> str:
+    """Wrap a regex so it starts at :data:`TOKEN_START` and ends at :data:`TOKEN_END`."""
+    return f"{TOKEN_START}(?:{pattern}){TOKEN_END}"
+
+
+# The edges of a label cue are looser than a value's, since a cue is also part
+# of field names ("customer_ssn", "patientSSN", "ssnNumber", "dob1") and may be
+# glued to a word of another script ("ПриветSSN"). The only places that are
+# not edges are between two letters of the same spaced script, so "ein"
+# inside "protein" is no cue, unless that pair is a camelCase step or lies
+# inside a run of capitals: all-caps text writes field names without any mark
+# between the words ("PATIENTSSN", "DLNUMBER"), so a cue may start or end
+# anywhere in such a run. That also reads the "EIN" of "PROTEIN" as a label,
+# an accepted over-detection.
+_SPACED_RANGES = tuple(
+    ranges for ranges, touches in script_table().values() if not touches
+)
+_SAME_SPACED_SCRIPT = "|".join(
+    f"(?<={_ranges_to_class(ranges)})(?={_ranges_to_class(ranges)})"
+    for ranges in _SPACED_RANGES
+)
+
+
+def _letters_of_case(categories: frozenset[str]) -> str:
+    """Regex class of the spaced-script letters whose Unicode category is in ``categories``."""
+    codes = (
+        code
+        for ranges in _SPACED_RANGES
+        for lo, hi in ranges
+        for code in range(lo, hi + 1)
+        if unicodedata.category(chr(code)) in categories
+    )
+    runs: list[tuple[int, int]] = []
+    for code in codes:
+        if runs and runs[-1][1] == code - 1:
+            runs[-1] = (runs[-1][0], code)
+        else:
+            runs.append((code, code))
+    return _ranges_to_class(tuple(runs))
+
+
+# Cased letters of every spaced script in the table (Latin, Greek, Cyrillic),
+# taken from the Unicode categories, so a case step reads the same in
+# "patientSSN", "КодИНН" and "ŞSSN". Titlecase letters count as capitals.
+_LOWER = _letters_of_case(frozenset({"Ll"}))
+_UPPER = _letters_of_case(frozenset({"Lu", "Lt"}))
+_CAMEL_STEP = f"(?<={_LOWER})(?={_UPPER})"
+_CAPS_STEP = f"(?<={_UPPER})(?={_UPPER})"
+CUE_EDGE = f"(?-i:{_CAMEL_STEP}|{_CAPS_STEP}|(?!{_SAME_SPACED_SCRIPT}))"
+# A cue of two letters or fewer ("ID", "NO", "DL") is too short to be read at
+# a case step: it would turn "NOVEMBER", "PAID" and "PROVIDER" into labels. Its
+# edges are whole-word edges only; "_", a digit or a glued letter of another
+# script still counts ("customer_id", "ID号").
+WORD_CUE_EDGE = f"(?!{_SAME_SPACED_SCRIPT})"
+
+# Label cues keyed by ISO 639-1 code; every entry is a regex fragment.
+CueTable = Mapping[str, Tuple[str, ...]]
+
+
+def cue_alternation(table: CueTable) -> str:
+    """Every entry of ``table`` as one regex alternation."""
+    return "|".join(entry for entries in table.values() for entry in entries)
+
+
+def _bounded_cue(pattern: str, endings: Tuple[str, ...], edge: str) -> str:
+    ending = f"(?:{'|'.join(endings)})?" if endings else ""
+    # The lookahead fails on the first character almost everywhere, so the
+    # edge assertions run only where the cue is actually written.
+    return f"(?=(?:{pattern})){edge}(?:{pattern}){ending}{edge}"
+
+
+def whole_cue(pattern: str, endings: Tuple[str, ...] = ("s",)) -> str:
+    """A short label cue ("SSN", "EIN") that matches only between cue edges.
+
+    One of ``endings`` may follow it: a plural ("SSNs") by default, or a case
+    ending of an inflected language passed by the table that lists the cue.
+    """
+    return _bounded_cue(pattern, endings, CUE_EDGE)
+
+
+def word_cue(pattern: str, endings: Tuple[str, ...] = ("s",)) -> str:
+    """A cue of two letters or fewer ("ID", "DL"), matched between whole-word edges only."""
+    return _bounded_cue(pattern, endings, WORD_CUE_EDGE)
+
+
+# Longest cue that ``literal_cue`` matches between whole-word edges only.
+WORD_CUE_MAX_LETTERS = 2
+
+
+def literal_cue(word: str, endings: Tuple[str, ...] = ("s",)) -> str:
+    """A cue written as plain letters: :func:`word_cue` up to ``WORD_CUE_MAX_LETTERS``, :func:`whole_cue` above."""
+    pattern = re.escape(word)
+    if len(word) <= WORD_CUE_MAX_LETTERS:
+        return word_cue(pattern, endings)
+    return whole_cue(pattern, endings)
+
+
+def word_final_cue(pattern: str) -> str:
+    """A label cue that may end a compound ("Newborn") but must end its word ("Osborne" is none)."""
+    return f"(?:{pattern}){CUE_EDGE}"
 
 
 # (first code point, last code point, script, whether its words touch other tokens),

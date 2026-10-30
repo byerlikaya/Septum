@@ -11,6 +11,7 @@ from typing import List
 
 from presidio_analyzer import EntityRecognizer
 
+from ...text_boundaries import token_bounded
 from ..base_recognizer import (
     RegexPatternConfig,
     ValidatedPatternRecognizer,
@@ -23,7 +24,7 @@ def _my_number_recognizer() -> EntityRecognizer:
         entity_type="NATIONAL_ID",
         config=RegexPatternConfig(
             name="appi_my_number",
-            pattern=r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}\b",
+            pattern=token_bounded(r"\d{4}[-\s]?\d{4}[-\s]?\d{4}"),
             score=0.6,
         ),
     )

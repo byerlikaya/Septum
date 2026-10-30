@@ -13,17 +13,18 @@ from typing import List
 
 from presidio_analyzer import EntityRecognizer
 
+from ...text_boundaries import token_bounded, whole_cue, word_cue
 from ..base_recognizer import (
     RegexPatternConfig,
     ValidatedPatternRecognizer,
 )
 
-# FUTURE: move to DB. Single hard-coded context preamble for the
-# Brazilian civil-identity document (Registro Geral).
+# FUTURE: move to DB. Context preamble for the Brazilian civil-identity
+# document (Registro Geral); the abbreviations match only between cue edges.
 _CIVIL_IDENTITY_CONTEXT = (
-    r"\brg\b",
+    word_cue("rg"),
     r"registro\s+geral",
-    r"\b(?:ssp|cpf/rg)\b",
+    whole_cue("ssp|cpf/rg"),
 )
 
 
@@ -38,7 +39,7 @@ def _cnpj_recognizer() -> EntityRecognizer:
         entity_type="TAX_ID",
         config=RegexPatternConfig(
             name="lgpd_cnpj",
-            pattern=r"\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b",
+            pattern=token_bounded(r"\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}"),
             score=0.6,
         ),
     )
