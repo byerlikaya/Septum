@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import Dict
+from typing import Dict, Sequence
 
 from .language_resolution import canonical_language_code
 
@@ -32,6 +32,59 @@ _LOCALE_CASING_RULES: Dict[str, Dict[int, int]] = {
 def normalize_unicode(text: str) -> str:
     """Normalize text to Unicode NFC form."""
     return unicodedata.normalize("NFC", text)
+
+
+# Code points Unicode marks Default_Ignorable_Code_Point that are not category
+# Cf (DerivedCoreProperties.txt): Hangul fillers, the combining grapheme joiner,
+# Khmer inherent vowels, Mongolian and other variation selectors, and reserved
+# ranges. The braille pattern blank renders as empty space too. All of them
+# can sit inside a token and leave no visible trace.
+_INVISIBLE_RANGES: tuple[tuple[int, int], ...] = (
+    (0x034F, 0x034F), (0x115F, 0x1160), (0x17B4, 0x17B5), (0x180B, 0x180F),
+    (0x2065, 0x2065), (0x2800, 0x2800), (0x3164, 0x3164), (0xFE00, 0xFE0F), (0xFFA0, 0xFFA0),
+    (0xFFF0, 0xFFF8), (0x1D173, 0x1D17A), (0xE0000, 0xE0FFF),
+)
+
+# Full stops that NFKC leaves as they are but that read as "." between labels.
+_EXTRA_FOLDS: dict[str, str] = {"。": ".", "｡": "."}
+
+
+def _is_invisible(ch: str) -> bool:
+    """Whether ``ch`` renders as nothing: a format character or a default-ignorable one."""
+    if unicodedata.category(ch) == "Cf":
+        return True
+    code = ord(ch)
+    return any(lo <= code <= hi for lo, hi in _INVISIBLE_RANGES)
+
+
+def compatibility_fold(text: str) -> tuple[str, Sequence[int]]:
+    """Fold ``text`` for pattern matching and map every folded character back.
+
+    Each character is folded to its NFKC form on its own, so fullwidth and
+    other presentation forms (``＠``, ``ｊｏｈｎ``, ``．``) read as their plain
+    characters, and the ideographic full stops ``。`` and ``｡`` read as ``.``.
+    Invisible characters are dropped: format characters (category ``Cf``:
+    zero-width space and joiners, soft hyphen, direction marks) and the other
+    default-ignorable ones (Hangul fillers, variation selectors, the braille
+    blank). The second value gives, for every folded character, the index of
+    the character in ``text`` it came from, so a match on the folded text maps
+    back to the original offsets.
+    """
+    if text.isascii():
+        return text, range(len(text))
+    parts: list[str] = []
+    origin: list[int] = []
+    for index, ch in enumerate(text):
+        if ch.isascii():
+            parts.append(ch)
+            origin.append(index)
+            continue
+        if _is_invisible(ch):
+            continue
+        folded = _EXTRA_FOLDS.get(ch) or unicodedata.normalize("NFKC", ch)
+        parts.append(folded)
+        origin.extend([index] * len(folded))
+    return "".join(parts), origin
 
 
 def strip_control_characters(text: str) -> str:

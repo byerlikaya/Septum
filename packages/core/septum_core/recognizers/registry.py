@@ -149,8 +149,7 @@ class RecognizerRegistry:
         """Load recognizers from built-in packs with cross-pack deduplication.
 
         Many regulations ship structurally identical recognizers for common
-        entity types (every pack declares an EMAIL_ADDRESS regex; several
-        declare the same phone / IP validators). Without dedup, Presidio
+        entity types (several declare the same employee-ID recognizer). Without dedup, Presidio
         evaluates N near-identical regexes on every call — pure runtime
         waste. We collapse duplicates by a stable content key (class name,
         entity types, pattern regex+score set, deny list, context words).

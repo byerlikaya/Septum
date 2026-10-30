@@ -3,8 +3,8 @@ from __future__ import annotations
 """Recognizer pack for the lgpd regulation.
 
 CPF detection lives in the regulation-agnostic baseline (algorithmic
-checksum), so this pack contributes format-driven extras: CNPJ,
-civil-identity document numbers, and the common email pattern.
+checksum), so this pack contributes format-driven extras: CNPJ and
+civil-identity document numbers.
 Entity-type coverage and legal basis are documented in
 ``packages/core/docs/REGULATION_ENTITY_SOURCES.md``.
 """
@@ -14,7 +14,6 @@ from typing import List
 from presidio_analyzer import EntityRecognizer
 
 from ..base_recognizer import (
-    EMAIL_PATTERN,
     RegexPatternConfig,
     ValidatedPatternRecognizer,
 )
@@ -68,21 +67,9 @@ def _civil_identity_document_recognizer() -> EntityRecognizer:
     )
 
 
-def _email_recognizer() -> EntityRecognizer:
-    return ValidatedPatternRecognizer(
-        entity_type="EMAIL_ADDRESS",
-        config=RegexPatternConfig(
-            name="lgpd_email",
-            pattern=EMAIL_PATTERN,
-            score=0.8,
-        ),
-    )
-
-
 def get_recognizers() -> List[EntityRecognizer]:
     """Return all lgpd-specific recognizers."""
     recognizers: List[EntityRecognizer] = []
     recognizers.append(_cnpj_recognizer())
     recognizers.append(_civil_identity_document_recognizer())
-    recognizers.append(_email_recognizer())
     return recognizers

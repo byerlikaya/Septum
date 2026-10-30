@@ -1,7 +1,8 @@
 """Offline public-suffix lookups for every in-process ``tldextract`` caller.
 
 Presidio's ``EmailRecognizer.validate_result`` calls the module-level
-``tldextract.extract``, which delegates to the shared
+``tldextract.extract`` (the detector replaces that recognizer, but a host
+may still build a Presidio analyzer with it), which delegates to the shared
 ``tldextract.tldextract.TLD_EXTRACTOR``. That default extractor fetches the
 Public Suffix List from publicsuffix.org (then raw.githubusercontent.com)
 whenever its disk cache under ``~/.cache`` is empty, and writes the result
