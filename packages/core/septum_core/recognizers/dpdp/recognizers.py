@@ -11,6 +11,7 @@ from typing import List
 from presidio_analyzer import EntityRecognizer
 
 from ...national_ids.aadhaar import AadhaarValidator
+from ...text_boundaries import token_bounded
 from ..base_recognizer import (
     RegexPatternConfig,
     ValidatedPatternRecognizer,
@@ -31,7 +32,7 @@ def _aadhaar_recognizer() -> EntityRecognizer:
         entity_type="NATIONAL_ID",
         config=RegexPatternConfig(
             name="dpdp_aadhaar_12digit",
-            pattern=r"\b[2-9]\d{3}\s?\d{4}\s?\d{4}\b",
+            pattern=token_bounded(r"[2-9]\d{3}\s?\d{4}\s?\d{4}"),
             score=0.75,
             fallback_score=0.55,
         ),

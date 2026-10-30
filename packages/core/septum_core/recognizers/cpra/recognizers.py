@@ -12,6 +12,7 @@ from typing import List
 
 from presidio_analyzer import EntityRecognizer
 
+from ...text_boundaries import token_bounded
 from ..base_recognizer import (
     RegexPatternConfig,
     ValidatedPatternRecognizer,
@@ -24,7 +25,7 @@ def _drivers_license_recognizer() -> EntityRecognizer:
         entity_type="DRIVERS_LICENSE",
         config=RegexPatternConfig(
             name="cpra_drivers_license",
-            pattern=r"\b[A-Z]\d{7}\b",
+            pattern=token_bounded(r"[A-Z]\d{7}"),
             score=0.55,
         ),
     )

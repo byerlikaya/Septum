@@ -11,6 +11,7 @@ from typing import List
 
 from presidio_analyzer import EntityRecognizer
 
+from ...text_boundaries import token_bounded
 from ..base_recognizer import (
     RegexPatternConfig,
     ValidatedPatternRecognizer,
@@ -23,7 +24,7 @@ def _national_id_recognizer() -> EntityRecognizer:
         entity_type="NATIONAL_ID",
         config=RegexPatternConfig(
             name="pdpa_th_national_id",
-            pattern=r"\b\d[-\s]?\d{4}[-\s]?\d{5}[-\s]?\d{2}[-\s]?\d\b",
+            pattern=token_bounded(r"\d[-\s]?\d{4}[-\s]?\d{5}[-\s]?\d{2}[-\s]?\d"),
             score=0.65,
         ),
     )
