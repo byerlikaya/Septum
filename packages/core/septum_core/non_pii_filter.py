@@ -36,6 +36,27 @@ class _CompiledRule:
     min_score: float | None
 
 
+def _rule_applies(rule: _CompiledRule, language: str, span: SpanView) -> bool:
+    """Whether ``rule``'s language, entity-type and score scope covers ``span``."""
+    if rule.languages and language not in {l.lower() for l in rule.languages}:
+        return False
+    if rule.entity_types and span.entity_type not in rule.entity_types:
+        return False
+    return rule.min_score is None or span.score >= rule.min_score
+
+
+def _rule_matches_text(rule: _CompiledRule, normalized_text: str, language: str) -> bool:
+    """Whether ``rule``'s token or regex pattern matches ``normalized_text``."""
+    if rule.pattern_type == "token":
+        return normalized_text == normalize_for_comparison(rule.pattern, language)
+    if rule.pattern_type == "regex":
+        try:
+            return re.search(rule.pattern, normalized_text) is not None
+        except re.error:
+            return False
+    return False
+
+
 class NonPiiFilter:
     """Filter out spans which should be treated as non-PII.
 
@@ -112,22 +133,8 @@ class NonPiiFilter:
         language: str,
         span: SpanView,
     ) -> bool:
-        for rule in self._rules:
-            if rule.languages and language not in {l.lower() for l in rule.languages}:
-                continue
-            if rule.entity_types and span.entity_type not in rule.entity_types:
-                continue
-            if rule.min_score is not None and span.score < rule.min_score:
-                continue
-
-            if rule.pattern_type == "token":
-                if normalized_text == normalize_for_comparison(rule.pattern, language):
-                    return True
-            elif rule.pattern_type == "regex":
-                try:
-                    if re.search(rule.pattern, normalized_text):
-                        return True
-                except re.error:
-                    continue
-
-        return False
+        return any(
+            _rule_applies(rule, language, span)
+            and _rule_matches_text(rule, normalized_text, language)
+            for rule in self._rules
+        )

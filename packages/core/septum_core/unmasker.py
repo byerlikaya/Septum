@@ -16,7 +16,7 @@ is unavailable.
 """
 
 import re
-from typing import Collection, Optional
+from typing import Collection, Mapping, Optional
 
 from .anonymization_map import AnonymizationMap, restoration_lookup
 
@@ -66,11 +66,8 @@ class Unmasker:
         if not text:
             return text
 
-        if anon_map.placeholder_lookup:
-            lookup = anon_map.placeholder_lookup
-        elif anon_map.entity_map:
-            lookup = restoration_lookup(anon_map.entity_map.items())
-        else:
+        lookup = self._resolve_lookup(anon_map)
+        if lookup is None:
             return text
 
         result = text
@@ -79,15 +76,39 @@ class Unmasker:
                 continue
             if allowed_placeholders is not None and placeholder not in allowed_placeholders:
                 continue
-            if placeholder in result:
-                result = result.replace(placeholder, original)
-            for pattern, short_prefix in self._PLACEHOLDER_SHORT_ALIASES:
-                match = pattern.match(placeholder)
-                if match:
-                    short_form = f"[{short_prefix}_{match.group(1)}]"
-                    if short_form in lookup:
-                        break
-                    if short_form in result:
-                        result = result.replace(short_form, original)
-                    break
+            result = self._restore_placeholder(result, placeholder, original, lookup)
+        return result
+
+    @staticmethod
+    def _resolve_lookup(anon_map: AnonymizationMap) -> Optional[Mapping[str, str]]:
+        """Return the placeholder-to-original lookup, or ``None`` if the map is empty."""
+        if anon_map.placeholder_lookup:
+            return anon_map.placeholder_lookup
+        if anon_map.entity_map:
+            return restoration_lookup(anon_map.entity_map.items())
+        return None
+
+    @classmethod
+    def _short_alias(cls, placeholder: str) -> Optional[str]:
+        """Return the short alias form of ``placeholder``, or ``None`` if it has none."""
+        for pattern, short_prefix in cls._PLACEHOLDER_SHORT_ALIASES:
+            match = pattern.match(placeholder)
+            if match:
+                return f"[{short_prefix}_{match.group(1)}]"
+        return None
+
+    @classmethod
+    def _restore_placeholder(
+        cls,
+        result: str,
+        placeholder: str,
+        original: str,
+        lookup: Mapping[str, str],
+    ) -> str:
+        """Replace ``placeholder`` and its unmapped short alias in ``result``."""
+        if placeholder in result:
+            result = result.replace(placeholder, original)
+        short_form = cls._short_alias(placeholder)
+        if short_form is not None and short_form not in lookup and short_form in result:
+            result = result.replace(short_form, original)
         return result

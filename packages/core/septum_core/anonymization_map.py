@@ -143,24 +143,22 @@ class AnonymizationMap:
             if start > last_end:
                 parts.append(text[last_end:start])
 
-            token = match.group(0)
-            if token.startswith("[") and token.endswith("]"):
-                parts.append(token)
-            else:
-                normalized = normalize_for_comparison(token, lang)
-                if normalized in SANITIZER_STOPWORDS:
-                    parts.append(token)
-                elif normalized in self.token_to_placeholder:
-                    parts.append(self.token_to_placeholder[normalized])
-                else:
-                    parts.append(token)
-
+            parts.append(self._redact_token(match.group(0), lang))
             last_end = end
 
         if last_end < len(text):
             parts.append(text[last_end:])
 
         return "".join(parts)
+
+    def _redact_token(self, token: str, language: str) -> str:
+        """Return the placeholder for ``token`` if it is a known entity token."""
+        if token.startswith("[") and token.endswith("]"):
+            return token
+        normalized = normalize_for_comparison(token, language)
+        if normalized in SANITIZER_STOPWORDS:
+            return token
+        return self.token_to_placeholder.get(normalized, token)
 
     def _next_placeholder(self, entity_type: str) -> str:
         """Return the next placeholder token for the given entity type."""
