@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ExternalLink,
   Globe,
+  Info,
   Shield,
   ShieldCheck,
 } from "lucide-react";
@@ -291,6 +292,10 @@ export default function RegulationsPage() {
             </div>
           </div>
         )}
+        <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-400">
+          <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          {t("regulations.builtin.emailAlwaysMasked")}
+        </p>
       </header>
 
       {/* Tabs */}

@@ -24,6 +24,8 @@ listesi veya LLM prompt'lu bir kural ekleyin; aktif sanitization pipeline'ına
 anında katılır. Kurallar **Ayarlar → Regülasyonlar → Özel Kurallar** altında
 yaşar ve yerel veritabanında saklanır.
 
+Özel kural seti listelemese bile e-posta adresleri her zaman maskelenir. Belirli bir adresi izin listesiyle muaf tutmak istiyorsanız ve adres başka metne bitişik geçebiliyorsa regex kuralı kullanın; token kuralı tespit edilen değerin tamamını karşılaştırır (örneğin `contact=bob@x.com`).
+
 Bu sayfa çalışan bir referans. Her tespit yöntemi için işlenmiş örnek + test
 adımları var.
 

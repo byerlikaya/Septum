@@ -609,6 +609,8 @@ export const enMessages = {
     "Toggle global privacy regulations on or off. Active regulations are merged into a single sanitizer policy.",
   "regulations.builtin.summary.active": "Active",
   "regulations.builtin.summary.entities": "Combined entity types",
+  "regulations.builtin.emailAlwaysMasked":
+    "E-mail addresses are always masked, whatever regulations are active.",
   "regulations.builtin.loading": "Regulation rules are loading...",
   "regulations.builtin.entityCountSuffix": "entity types covered.",
   "regulations.builtin.officialLink": "View official text",
