@@ -7,7 +7,7 @@ from septum_core.anonymization_map import (
     AnonymizationMap,
     _apostrophe_suffix_at,
     _has_apostrophe_suffix as has_apostrophe_suffix,
-    _name_tokens,
+    _token_forms,
     pick_restoration_original,
 )
 from septum_core.span_processing import _tail_starts_with_letter
@@ -217,9 +217,14 @@ def test_later_bare_surname_reuses_the_name_placeholder_after_a_suffixed_key() -
     assert anon_map.add_entity("Ali Kaya", "PERSON_NAME") == placeholder
 
 
+def _whole_tokens(value: str, language: str) -> list[str]:
+    """The whole comparison token of each word of ``value`` (joiners folded)."""
+    return [_token_forms(raw, language)[0] for raw in value.split()]
+
+
 def test_name_tokens_cut_at_an_apostrophe_but_keep_a_leading_one() -> None:
-    assert _name_tokens("’Kaya Ali’nın", "tr") == ["’kaya", "ali"]
-    assert _name_tokens("Kaya'nın", "tr") == ["kaya"]
+    assert _whole_tokens("’Kaya Ali’nın", "tr") == ["'kaya", "ali"]
+    assert _whole_tokens("Kaya'nın", "tr") == ["kaya"]
 
 
 def test_suffixed_variant_registered_first_restores_the_bare_name() -> None:
@@ -254,16 +259,16 @@ def test_apostrophe_without_a_following_letter_is_not_a_suffix() -> None:
 
 
 def test_apostrophe_in_a_name_is_not_a_suffix_so_the_token_stays_whole() -> None:
-    assert _name_tokens("O'Brien", "en") == ["o'brien"]
-    assert _name_tokens("D’Angelo", "en") == ["d’angelo"]
-    assert _name_tokens("d'Arc", "fr") == ["d'arc"]
-    assert _name_tokens("Sa'id", "ar") == ["sa'id"]
-    assert _name_tokens("Sa’id", "ar") == ["sa’id"]
+    assert _whole_tokens("O'Brien", "en") == ["o'brien"]
+    assert _whole_tokens("D’Angelo", "en") == ["d'angelo"]
+    assert _whole_tokens("d'Arc", "fr") == ["d'arc"]
+    assert _whole_tokens("Sa'id", "ar") == ["sa'id"]
+    assert _whole_tokens("Sa’id", "ar") == ["sa'id"]
 
 
 def test_suffix_cut_needs_a_lowercase_letter_after_the_apostrophe() -> None:
-    assert _name_tokens("Kaya’nın", "tr") == ["kaya"]
-    assert _name_tokens("Kaya’1", "tr") == ["kaya’1"]
+    assert _whole_tokens("Kaya’nın", "tr") == ["kaya"]
+    assert _whole_tokens("Kaya’1", "tr") == ["kaya'1"]
 
 
 @pytest.mark.parametrize(
@@ -285,11 +290,19 @@ def test_apostrophe_names_stay_distinct_from_another_person(first: str, second: 
     second_placeholder = anon_map.add_entity(second, "PERSON_NAME")
 
     assert first_placeholder != second_placeholder
-    assert anon_map.entity_map == {first: first_placeholder, second: second_placeholder}
+    # The shared name part is registered once on its own, under a third
+    # placeholder of the same entity type that names neither person.
+    (shared,) = set(first.split()) & set(second.split())
+    assert anon_map.entity_map == {
+        first: first_placeholder,
+        second: second_placeholder,
+        shared: "[PERSON_NAME_3]",
+    }
+    assert anon_map.token_to_placeholder[shared.casefold()] == "[PERSON_NAME_3]"
     assert Unmasker().unmask(f"{first_placeholder} / {second_placeholder}", anon_map) == f"{first} / {second}"
 
 
-def test_has_apostrophe_suffix_uses_the_same_rule_as_name_tokens() -> None:
+def test_has_apostrophe_suffix_uses_the_same_rule_as_token_forms() -> None:
     assert has_apostrophe_suffix("Kaya’nın")
     assert not has_apostrophe_suffix("O’Brien")
     assert not has_apostrophe_suffix("Sa'id")

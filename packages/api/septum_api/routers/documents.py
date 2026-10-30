@@ -1237,8 +1237,10 @@ async def get_anon_summary(
     if anon_map is None:
         return {"document_id": document_id, "entities": {}, "total": 0}
 
+    # One count per placeholder: aliases ("Smith" for John Smith) and suffixed
+    # surfaces share a placeholder and are not extra entities.
     type_counts: dict[str, int] = {}
-    for placeholder in anon_map.entity_map.values():
+    for placeholder in set(anon_map.entity_map.values()):
         entity_type = placeholder.strip("[]").rsplit("_", 1)[0] if "_" in placeholder else placeholder.strip("[]")
         type_counts[entity_type] = type_counts.get(entity_type, 0) + 1
 

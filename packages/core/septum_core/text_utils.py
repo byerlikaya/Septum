@@ -139,10 +139,25 @@ def normalize_for_comparison(text: str, language: str = "en") -> str:
     return _WHITESPACE_RUN.sub(" ", cased).strip()
 
 
-# Possessive suffixes to strip, keyed by ISO 639-1 language code.
-# Entries are checked longest-first to avoid partial matches.
+# Suffixes written after an apostrophe on a name, keyed by ISO 639-1 language
+# code. Every entry starts with the apostrophe, so no two can match the same
+# ending. Turkish attaches its case endings to proper names this way, in
+# every vowel-harmony and buffer-consonant form.
 _POSSESSIVE_SUFFIXES: Dict[str, list[str]] = {
-    "tr": ["'ın", "'in", "'un", "'ün", "'nın", "'nin", "'nun", "'nün"],
+    "tr": [
+        # genitive
+        "'ın", "'in", "'un", "'ün", "'nın", "'nin", "'nun", "'nün",
+        # locative
+        "'da", "'de", "'ta", "'te",
+        # ablative
+        "'dan", "'den", "'tan", "'ten",
+        # dative
+        "'a", "'e", "'ya", "'ye",
+        # accusative
+        "'ı", "'i", "'u", "'ü", "'yı", "'yi", "'yu", "'yü",
+        # instrumental
+        "'la", "'le", "'yla", "'yle",
+    ],
     "az": ["'ın", "'in", "'un", "'ün"],
 }
 
@@ -160,6 +175,15 @@ _APOSTROPHE_FOLD = str.maketrans(dict.fromkeys(APOSTROPHES, "'"))
 
 # Suffixes shared across most Latin-script languages.
 _COMMON_POSSESSIVE_SUFFIXES = ["'s"]
+
+# The text after the apostrophe of every suffix above, across all languages
+# ("s", "nın", "in", …). After a name, such a tail is a suffix and never a
+# name of its own, whatever the document's language.
+APOSTROPHE_SUFFIX_TAILS: frozenset[str] = frozenset(
+    suffix.lstrip("'")
+    for suffixes in (*_POSSESSIVE_SUFFIXES.values(), _COMMON_POSSESSIVE_SUFFIXES)
+    for suffix in suffixes
+)
 
 
 def _ends_with_folded(text: str, suffix: str) -> bool:
