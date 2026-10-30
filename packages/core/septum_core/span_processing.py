@@ -7,7 +7,9 @@ Provides deduplication, expansion and merging logic for detected PII spans.
 These functions are stateless and operate on lists of ``DetectedSpan`` objects.
 """
 
+import math
 import unicodedata
+from bisect import bisect_left, bisect_right, insort
 from dataclasses import dataclass
 from typing import List, Set
 
@@ -76,7 +78,8 @@ def absorb_overlapping_spans(
     own type, so the outer span stays whole and the remainder is still
     masked. When ``text`` is given, offsets are clamped to it and remainders
     get the same trim and token fold as ``deduplicate_spans``. Spans with
-    ``start >= end`` are discarded.
+    ``start >= end`` are discarded. A NaN or -inf score reads as 0.0 and +inf
+    as 1.0.
 
     Rules run one layer per outer type, in ``_ABSORPTION_RULES`` order. The
     order that matters is POSTAL_ADDRESS before STREET_ADDRESS: a STREET_ADDRESS
@@ -105,6 +108,96 @@ class _Grow:
         return _make(self.start, self.end, entity_type, score, self.core)
 
 
+class _Winners:
+    """Winner ranges found by their edges while they widen.
+
+    ``ending_at`` and ``starting_at`` return the first winner, in the order
+    the winners were given, whose range ends or starts at a position now.
+    ``widened`` turns true once any winner widens.
+    """
+
+    def __init__(self, winners: List[_Grow]) -> None:
+        self.widened = False
+        self._rank = {id(w): i for i, w in enumerate(winners)}
+        self._by_end: dict[int, List[_Grow]] = {}
+        self._by_start: dict[int, List[_Grow]] = {}
+        for w in winners:
+            self._by_end.setdefault(w.end, []).append(w)
+            self._by_start.setdefault(w.start, []).append(w)
+
+    def ending_at(self, position: int) -> _Grow | None:
+        """The first winner whose range ends at ``position``."""
+        found = self._by_end.get(position)
+        return found[0] if found else None
+
+    def starting_at(self, position: int) -> _Grow | None:
+        """The first winner whose range starts at ``position``."""
+        found = self._by_start.get(position)
+        return found[0] if found else None
+
+    def widen_end(self, winner: _Grow, end: int) -> None:
+        """Move ``winner``'s end right to ``end``."""
+        self._move(self._by_end, winner.end, end, winner)
+        self._cover(winner.end, end)
+        winner.end = end
+        self.widened = True
+
+    def widen_start(self, winner: _Grow, start: int) -> None:
+        """Move ``winner``'s start left to ``start``."""
+        self._move(self._by_start, winner.start, start, winner)
+        self._cover(start, winner.start)
+        winner.start = start
+        self.widened = True
+
+    def _move(
+        self, edges: dict[int, List[_Grow]], old: int, new: int, winner: _Grow
+    ) -> None:
+        bucket = edges[old]
+        del bucket[next(i for i, w in enumerate(bucket) if w is winner)]
+        insort(edges.setdefault(new, []), winner, key=lambda w: self._rank[id(w)])
+
+    def _cover(self, start: int, end: int) -> None:
+        """Hook called with each range a winner widens over."""
+
+
+class _CoveredWinners(_Winners):
+    """``_Winners`` that also keep the union of their ranges.
+
+    The union is a sorted list of disjoint ranges, merged when they touch,
+    so the part of a range no winner covers is found by bisection.
+    """
+
+    def __init__(self, winners: List[_Grow]) -> None:
+        super().__init__(winners)
+        self._starts: List[int] = []
+        self._ends: List[int] = []
+        for w in sorted(winners, key=lambda w: w.start):
+            self._cover(w.start, w.end)
+
+    def _cover(self, start: int, end: int) -> None:
+        first = bisect_left(self._ends, start)
+        last = bisect_right(self._starts, end)
+        if first < last:
+            start = min(start, self._starts[first])
+            end = max(end, self._ends[last - 1])
+        self._starts[first:last] = [start]
+        self._ends[first:last] = [end]
+
+    def uncovered(self, start: int, end: int) -> List[tuple[int, int]]:
+        """The parts of ``[start, end)`` that no winner covers, in order."""
+        pieces: List[tuple[int, int]] = []
+        cursor = start
+        index = bisect_right(self._ends, start)
+        while index < len(self._starts) and self._starts[index] < end:
+            if self._starts[index] > cursor:
+                pieces.append((cursor, self._starts[index]))
+            cursor = self._ends[index]
+            index += 1
+        if cursor < end:
+            pieces.append((cursor, end))
+        return pieces
+
+
 def _absorb_layer(
     spans: List[DetectedSpan],
     outer_type: str,
@@ -119,7 +212,7 @@ def _absorb_layer(
     }
     if not grown:
         return spans
-    winners = list(grown.values())
+    winners = _CoveredWinners(list(grown.values()))
     remainders = _settle_remainders(spans, inner_types, winners, text)
 
     result: List[DetectedSpan] = []
@@ -136,7 +229,7 @@ def _absorb_layer(
 def _settle_remainders(
     spans: List[DetectedSpan],
     inner_types: frozenset[str],
-    winners: List[_Grow],
+    winners: _CoveredWinners,
     text: str | None,
 ) -> dict[int, List[DetectedSpan]]:
     """Repeat the inner-span cut until no winner widens, then return its remainders.
@@ -146,23 +239,16 @@ def _settle_remainders(
     Each repeat only widens outers toward the text, so it terminates.
     """
     while True:
-        before = [(w.start, w.end) for w in winners]
+        winners.widened = False
         remainders = _cut_inner_spans(spans, inner_types, winners, text)
-        if [(w.start, w.end) for w in winners] == before:
+        if not winners.widened:
             return remainders
-
-
-def _overlapping_winners(
-    span: DetectedSpan, winners: List[_Grow]
-) -> List[tuple[int, int]]:
-    """The ranges of the winners that overlap ``span``."""
-    return [(w.start, w.end) for w in winners if _overlaps(span.start, span.end, w.start, w.end)]
 
 
 def _cut_inner_spans(
     spans: List[DetectedSpan],
     inner_types: frozenset[str],
-    winners: List[_Grow],
+    winners: _CoveredWinners,
     text: str | None,
 ) -> dict[int, List[DetectedSpan]]:
     """Map each inner span's index to the pieces left once ``winners`` absorb its overlap."""
@@ -170,11 +256,10 @@ def _cut_inner_spans(
     for index, span in enumerate(spans):
         if span.entity_type not in inner_types:
             continue
-        cuts = _overlapping_winners(span, winners)
-        if not cuts:
+        pieces = winners.uncovered(span.start, span.end)
+        if pieces == [(span.start, span.end)]:
             remainders[index] = [span]
             continue
-        pieces = _subtract(span.start, span.end, cuts)
         if text is not None:
             pieces = [_claim_tails(text, s, e, winners) for s, e in pieces]
         remainders[index] = _remainders(span, pieces, text)
@@ -192,7 +277,8 @@ def deduplicate_spans(
     ``IBAN``) always win over more generic entities such as PERSON or
     LOCATION when their spans overlap.
 
-    Spans with ``start >= end`` are discarded. When ``text`` is given, offsets
+    Spans with ``start >= end`` are discarded. A NaN or -inf score reads as
+    0.0 and +inf as 1.0. When ``text`` is given, offsets
     are first clamped to ``[0, len(text)]``. Spans are then admitted in the
     order: high-priority pool first, then start offset, then larger span, then
     entity-type priority (see ``_ENTITY_TYPE_PRIORITY``), then recognizer score.
@@ -218,24 +304,68 @@ def deduplicate_spans(
     """
 
     cleaned = _clamped(spans, text)
-    ordered = sorted(
-        cleaned,
-        key=lambda s: (
-            0 if s.entity_type in high_priority_types else 1,
-            s.start,
-            -(s.end - s.start),
-            -_ENTITY_TYPE_PRIORITY.get(s.entity_type, 50),
-            -s.score,
-        ),
-    )
     chosen: List[DetectedSpan] = []
-    for span in ordered:
-        _admit(chosen, span, high_priority_types, text)
-    return sorted(chosen, key=lambda s: s.start)
+    for high_priority in (True, False):
+        pool = sorted(
+            (s for s in cleaned if (s.entity_type in high_priority_types) == high_priority),
+            key=_admission_order,
+        )
+        chosen = _sweep_pool(chosen, pool, high_priority_types, text)
+    return chosen
+
+
+def _admission_order(span: DetectedSpan) -> tuple[int, int, int, float]:
+    """Admission order inside one pool: start, larger span, type priority, score."""
+    return (
+        span.start,
+        -(span.end - span.start),
+        -_ENTITY_TYPE_PRIORITY.get(span.entity_type, 50),
+        -span.score,
+    )
+
+
+def _sweep_pool(
+    chosen: List[DetectedSpan],
+    newcomers: List[DetectedSpan],
+    high_priority_types: Set[str],
+    text: str | None,
+) -> List[DetectedSpan]:
+    """Admit ``newcomers``, in start order, into the disjoint ``chosen`` spans.
+
+    ``chosen`` stays sorted by start and its spans never overlap, so the spans
+    a newcomer overlaps are the next ones of a sweep. ``ahead`` holds the
+    spans that end after the newcomer's start, nearest last; ``done`` holds
+    the spans before it, which no later newcomer of the pool can reach.
+    """
+    done: List[DetectedSpan] = []
+    ahead = chosen[::-1]
+    for span in newcomers:
+        while ahead and ahead[-1].end <= span.start:
+            done.append(ahead.pop())
+        overlapped: List[DetectedSpan] = []
+        while ahead and ahead[-1].start < span.end:
+            overlapped.append(ahead.pop())
+        placed = sorted(
+            _admit(span, overlapped, high_priority_types, text), key=lambda s: s.start
+        )
+        done.extend(s for s in placed if s.end <= span.start)
+        ahead.extend(reversed([s for s in placed if s.end > span.start]))
+    return done + ahead[::-1]
+
+
+def _finite_score(score: float) -> float:
+    """``score`` with NaN and -inf read as 0.0 and +inf as 1.0.
+
+    A NaN compares false with everything, so it would make the admission sort
+    and the union's ``max`` depend on input order. The span is kept either way.
+    """
+    if math.isfinite(score):
+        return score
+    return 1.0 if score > 0 else 0.0
 
 
 def _clamped(spans: List[DetectedSpan], text: str | None) -> List[DetectedSpan]:
-    """Copy ``spans`` with offsets clamped to ``text`` and empty ones dropped."""
+    """Copy ``spans`` with offsets clamped to ``text``, scores made finite, empty ones dropped."""
     limit = len(text) if text is not None else None
     cleaned: List[DetectedSpan] = []
     for span in spans:
@@ -245,7 +375,13 @@ def _clamped(spans: List[DetectedSpan], text: str | None) -> List[DetectedSpan]:
             end = min(max(end, 0), limit)
         if start < end:
             cleaned.append(
-                _make(start, end, span.entity_type, span.score, _source_core(span))
+                _make(
+                    start,
+                    end,
+                    span.entity_type,
+                    _finite_score(span.score),
+                    _source_core(span),
+                )
             )
     return cleaned
 
@@ -354,12 +490,12 @@ def _claim_tails(
     text: str | None,
     start: int,
     end: int,
-    winners: List[_Grow],
+    winners: _Winners,
 ) -> tuple[int, int]:
     """Fold the part of ``[start, end)`` that continues a winner's token into it.
 
-    ``winners`` are mutable :class:`_Grow` ranges; only ``start`` and ``end``
-    are widened, ``core`` is left alone. A winner ending at
+    ``winners`` widens mutable :class:`_Grow` ranges; only ``start`` and
+    ``end`` are widened, ``core`` is left alone. A winner ending at
     ``start`` takes the leading tail of the token it cuts, and a winner
     starting at ``end`` takes the trailing one, up to the token boundary.
     A tail is folded only when it opens with a letter (see
@@ -375,10 +511,10 @@ def _claim_tails(
 
 
 def _claim_leading_tail(
-    text: str, start: int, end: int, winners: List[_Grow]
+    text: str, start: int, end: int, winners: _Winners
 ) -> int:
     """Fold the leading token tail of ``[start, end)`` into the winner ending at ``start``."""
-    left = next((w for w in winners if w.end == start), None)
+    left = winners.ending_at(start)
     if (
         left is None
         or not _joins(text, start)
@@ -388,15 +524,15 @@ def _claim_leading_tail(
     q = start + 1
     while q < end and _joins(text, q):
         q += 1
-    left.end = q
+    winners.widen_end(left, q)
     return q
 
 
 def _claim_trailing_tail(
-    text: str, start: int, end: int, winners: List[_Grow]
+    text: str, start: int, end: int, winners: _Winners
 ) -> int:
     """Fold the trailing token tail of ``[start, end)`` into the winner starting at ``end``."""
-    right = next((w for w in winners if w.start == end), None)
+    right = winners.starting_at(end)
     if right is None or start >= end or not _joins(text, end):
         return end
     k = end - 1
@@ -404,7 +540,7 @@ def _claim_trailing_tail(
         k -= 1
     if not _tail_starts_with_letter(text, k):
         return end
-    right.start = k
+    winners.widen_start(right, k)
     return k
 
 
@@ -448,84 +584,69 @@ def _remainders(
 
 
 def _admit(
-    chosen: List[DetectedSpan],
     span: DetectedSpan,
+    overlapped: List[DetectedSpan],
     high_priority_types: Set[str],
     text: str | None,
-) -> None:
-    overlapped = [c for c in chosen if _overlaps(span.start, span.end, c.start, c.end)]
+) -> List[DetectedSpan]:
+    """The spans that replace ``overlapped`` once ``span`` is admitted among them."""
     if not overlapped:
-        chosen.append(span)
-        return
-    overlapped_ids = {id(c) for c in overlapped}
+        return [span]
     newcomer_rank = _partial_rank(span, high_priority_types)
 
     if all(c.entity_type == span.entity_type for c in overlapped):
-        _admit_union(chosen, span, overlapped, overlapped_ids)
-    elif all(newcomer_rank > _partial_rank(c, high_priority_types) for c in overlapped):
-        _admit_whole(chosen, span, overlapped, overlapped_ids, text)
-    else:
-        _admit_remainder(chosen, span, overlapped, overlapped_ids, text)
+        return [_admit_union(span, overlapped)]
+    if all(newcomer_rank > _partial_rank(c, high_priority_types) for c in overlapped):
+        return _admit_whole(span, overlapped, text)
+    return _admit_remainder(span, overlapped, text)
 
 
-def _admit_union(
-    chosen: List[DetectedSpan],
-    span: DetectedSpan,
-    overlapped: List[DetectedSpan],
-    overlapped_ids: Set[int],
-) -> None:
-    """Replace the same-type ``overlapped`` spans and ``span`` by their union."""
+def _admit_union(span: DetectedSpan, overlapped: List[DetectedSpan]) -> DetectedSpan:
+    """The union of ``span`` and the same-type ``overlapped`` spans."""
     members = [span, *overlapped]
     cores = [_source_core(m) for m in members]
-    chosen[:] = [c for c in chosen if id(c) not in overlapped_ids]
-    chosen.append(
-        _make(
-            min(m.start for m in members),
-            max(m.end for m in members),
-            span.entity_type,
-            max(m.score for m in members),
-            (min(c[0] for c in cores), max(c[1] for c in cores)),
-        )
+    return _make(
+        min(m.start for m in members),
+        max(m.end for m in members),
+        span.entity_type,
+        max(m.score for m in members),
+        (min(c[0] for c in cores), max(c[1] for c in cores)),
     )
 
 
 def _admit_whole(
-    chosen: List[DetectedSpan],
     span: DetectedSpan,
     overlapped: List[DetectedSpan],
-    overlapped_ids: Set[int],
     text: str | None,
-) -> None:
-    """Keep ``span`` whole and trim the lower-ranked ``overlapped`` spans around it."""
+) -> List[DetectedSpan]:
+    """``span`` kept whole, with the lower-ranked ``overlapped`` spans trimmed around it."""
     winner = _Grow(span.start, span.end, _source_core(span))
-    kept = [c for c in chosen if id(c) not in overlapped_ids]
+    edges = _Winners([winner])
+    kept: List[DetectedSpan] = []
     for c in overlapped:
         for start, end in _subtract(c.start, c.end, [(span.start, span.end)]):
-            start, end = _claim_tails(text, start, end, [winner])
+            start, end = _claim_tails(text, start, end, edges)
             kept.extend(_remainders(c, [(start, end)], text))
     kept.append(winner.to_span(span.entity_type, span.score))
-    chosen[:] = kept
+    return kept
 
 
 def _admit_remainder(
-    chosen: List[DetectedSpan],
     span: DetectedSpan,
     overlapped: List[DetectedSpan],
-    overlapped_ids: Set[int],
     text: str | None,
-) -> None:
-    """Keep the ``overlapped`` spans and add only the part of ``span`` they leave."""
+) -> List[DetectedSpan]:
+    """The ``overlapped`` spans kept, plus only the part of ``span`` they leave."""
     winners = [_Grow(c.start, c.end, _source_core(c)) for c in overlapped]
+    edges = _Winners(winners)
     gaps = [
-        _claim_tails(text, start, end, winners)
+        _claim_tails(text, start, end, edges)
         for start, end in _subtract(
             span.start, span.end, [(c.start, c.end) for c in overlapped]
         )
     ]
-    chosen[:] = [c for c in chosen if id(c) not in overlapped_ids] + [
-        w.to_span(c.entity_type, c.score) for w, c in zip(winners, overlapped)
-    ]
-    chosen.extend(_remainders(span, gaps, text))
+    kept = [w.to_span(c.entity_type, c.score) for w, c in zip(winners, overlapped)]
+    return kept + _remainders(span, gaps, text)
 
 
 def _find_token_start(text: str, idx: int) -> int:
