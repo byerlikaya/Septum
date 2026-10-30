@@ -519,6 +519,8 @@ export const enMessages = {
   "chat.error.mapConflict": "The document is being updated. Please try again.",
   "chat.error.ollamaUrlNotAllowed":
     "The configured Ollama URL is not allowed. Change it in Settings → LLM Provider.",
+  "chat.error.streamLineTooLong":
+    "The answer was stopped because one message exceeded the size limit. Please ask again.",
   "chat.debug.fetchError": "An error occurred while fetching debug information.",
   "chat.morePills": "+{count} more",
 

@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-10-30
+
+- The dashboard stops reading a streamed answer or progress feed when a single line grows past 8 MiB without a line break, so a misbehaving server can no longer make the browser hold an ever-growing buffer; a chat answer stopped this way shows a translated error asking the user to try again. The setup wizard's model download and Whisper install steps now report such a stream failure, an early end of the stream or a timeout as an error instead of waiting silently.
+
 ### 2026-10-29
 
 - Decrypted document content no longer reaches disk: PDF and audio ingestion stay in memory, uploads are encrypted in place, and core dumps are disabled. Uploads now require authentication and can be refused with 503 (busy), 413 (too large) or 408 (too slow), and audio longer than an hour is refused by default; the limits are set by `MAX_UPLOAD_BYTES`, `MAX_CONCURRENT_UPLOADS`, `UPLOAD_BODY_TIMEOUT_SECONDS` and `MAX_AUDIO_SECONDS`.

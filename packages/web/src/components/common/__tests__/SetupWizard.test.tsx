@@ -319,6 +319,237 @@ it("shows the translated refusal when the install stream answers with an HTTP er
   expect(await screen.findByRole("alert")).toHaveTextContent("errors.model.whisperNotAllowed");
 });
 
+it("shows the Whisper failure when the install stream is cut for being too large", async () => {
+  const baseGet = mockGet.getMockImplementation();
+  mockGet.mockImplementation((url: string) =>
+    url.startsWith("/api/setup/whisper-status")
+      ? Promise.resolve({ data: { installed: false } })
+      : baseGet!(url)
+  );
+  (streamSSE as jest.Mock).mockImplementationOnce(
+    (_url: string, _body: unknown, _onLine: unknown, options: { onStreamError: (code: string) => void }) => {
+      options.onStreamError("stream_line_too_long");
+      return { abort: jest.fn() };
+    }
+  );
+  const installButton = await reachWhisperStep();
+  fireEvent.click(installButton);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("setup.step.test.whisper.failed");
+});
+
+it("shows the Whisper failure when the install stream never settles before its timeout", async () => {
+  const baseGet = mockGet.getMockImplementation();
+  mockGet.mockImplementation((url: string) =>
+    url.startsWith("/api/setup/whisper-status")
+      ? Promise.resolve({ data: { installed: false } })
+      : baseGet!(url)
+  );
+  const abort = jest.fn();
+  (streamSSE as jest.Mock).mockImplementationOnce(() => ({ abort }));
+  const installButton = await reachWhisperStep();
+  jest.useFakeTimers();
+  try {
+    fireEvent.click(installButton);
+    await act(async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    });
+    act(() => {
+      jest.advanceTimersByTime(600_000);
+    });
+
+    expect(abort).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("alert")).toHaveTextContent("setup.step.test.whisper.failed");
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+const renderOllamaWithMissingModel = async () => {
+  render(
+    <SetupWizard
+      startPhase="needs_application_setup"
+      initialProvider="ollama"
+      initialModel="m"
+      version="1"
+      onComplete={jest.fn()}
+    />
+  );
+  await passSetupToken("setup.step.provider.testAndContinue");
+  mockPost.mockImplementation((u: string) =>
+    u === "/api/settings/test-local-models"
+      ? Promise.resolve({ data: { ok: false, message: "model not installed locally" } })
+      : Promise.resolve({ data: { ok: true } })
+  );
+  fireEvent.click(screen.getByText("setup.step.provider.testAndContinue"));
+  return screen.findByText("setup.step.test.pullButton");
+};
+
+it("shows the pull failure when the Ollama pull stream is cut for being too large", async () => {
+  const pullButton = await renderOllamaWithMissingModel();
+  (streamSSE as jest.Mock).mockImplementationOnce(
+    (_url: string, _body: unknown, _onLine: unknown, options: { onStreamError: (code: string) => void }) => {
+      options.onStreamError("stream_line_too_long");
+      return { abort: jest.fn() };
+    }
+  );
+  fireEvent.click(pullButton);
+
+  expect(await screen.findByText("setup.step.test.pullFailed")).toBeInTheDocument();
+});
+
+it("shows the pull failure when the Ollama pull stream never settles before its timeout", async () => {
+  const pullButton = await renderOllamaWithMissingModel();
+  const abort = jest.fn();
+  (streamSSE as jest.Mock).mockImplementationOnce(() => ({ abort }));
+  jest.useFakeTimers();
+  try {
+    fireEvent.click(pullButton);
+    act(() => {
+      jest.advanceTimersByTime(300_000);
+    });
+
+    expect(abort).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("setup.step.test.pullFailed")).toBeInTheDocument();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+it("shows the Whisper failure when the install stream ends without a done event", async () => {
+  const baseGet = mockGet.getMockImplementation();
+  mockGet.mockImplementation((url: string) =>
+    url.startsWith("/api/setup/whisper-status")
+      ? Promise.resolve({ data: { installed: false } })
+      : baseGet!(url)
+  );
+  (streamSSE as jest.Mock).mockImplementationOnce((_url: string, _body: unknown, _onLine: unknown, options: { onStreamEnd: () => void }) => {
+    queueMicrotask(() => options.onStreamEnd());
+    return { abort: jest.fn() };
+  });
+  const installButton = await reachWhisperStep();
+  fireEvent.click(installButton);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("setup.step.test.whisper.failed");
+});
+
+it("keeps the Whisper install a success when the stream reports done and then ends", async () => {
+  const baseGet = mockGet.getMockImplementation();
+  mockGet.mockImplementation((url: string) =>
+    url.startsWith("/api/setup/whisper-status")
+      ? Promise.resolve({ data: { installed: false } })
+      : baseGet!(url)
+  );
+  (streamSSE as jest.Mock).mockImplementationOnce(
+    (_url: string, _body: unknown, onLine: (raw: string) => void, options: { onStreamEnd: () => void }) => {
+      queueMicrotask(() => {
+        onLine(JSON.stringify({ done: true }));
+        options.onStreamEnd();
+      });
+      return { abort: jest.fn() };
+    }
+  );
+  const installButton = await reachWhisperStep();
+  fireEvent.click(installButton);
+
+  expect(await screen.findByText("setup.step.register.createAndFinish")).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+it("shows the pull failure when the Ollama pull stream ends without a done event", async () => {
+  const pullButton = await renderOllamaWithMissingModel();
+  (streamSSE as jest.Mock).mockImplementationOnce((_url: string, _body: unknown, _onLine: unknown, options: { onStreamEnd: () => void }) => {
+    queueMicrotask(() => options.onStreamEnd());
+    return { abort: jest.fn() };
+  });
+  fireEvent.click(pullButton);
+
+  expect(await screen.findByText("setup.step.test.pullFailed")).toBeInTheDocument();
+});
+
+it("keeps the pull a success when the stream reports done and then ends", async () => {
+  const pullButton = await renderOllamaWithMissingModel();
+  (streamSSE as jest.Mock).mockImplementationOnce(
+    (_url: string, _body: unknown, onLine: (raw: string) => void, options: { onStreamEnd: () => void }) => {
+      queueMicrotask(() => {
+        onLine(JSON.stringify({ done: true, percent: 100 }));
+        options.onStreamEnd();
+      });
+      return { abort: jest.fn() };
+    }
+  );
+  fireEvent.click(pullButton);
+
+  expect(await screen.findByText("setup.step.test.pullSuccess")).toBeInTheDocument();
+  expect(screen.queryByText("setup.step.test.pullFailed")).not.toBeInTheDocument();
+});
+
+it("reports the Whisper timeout once when aborting the stream also fires its end", async () => {
+  const baseGet = mockGet.getMockImplementation();
+  mockGet.mockImplementation((url: string) =>
+    url.startsWith("/api/setup/whisper-status")
+      ? Promise.resolve({ data: { installed: false } })
+      : baseGet!(url)
+  );
+  (streamSSE as jest.Mock).mockImplementationOnce((_url: string, _body: unknown, _onLine: unknown, options: { onStreamEnd: () => void }) => ({
+    abort: () => options.onStreamEnd(),
+  }));
+  const installButton = await reachWhisperStep();
+  jest.useFakeTimers();
+  try {
+    fireEvent.click(installButton);
+    await act(async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    });
+    act(() => {
+      jest.advanceTimersByTime(600_000);
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("setup.step.test.whisper.failed");
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+it("shows the translated error at once when the pull endpoint answers with an HTTP error", async () => {
+  const pullButton = await renderOllamaWithMissingModel();
+  (streamSSE as jest.Mock).mockImplementationOnce(
+    (_url: string, _body: unknown, _onLine: unknown, options: { onHttpError: (code: string) => void }) => {
+      queueMicrotask(() => options.onHttpError("ollama_url_not_allowed"));
+      return { abort: jest.fn() };
+    }
+  );
+  fireEvent.click(pullButton);
+
+  expect(await screen.findByText("settings.llm.ollama.baseUrl.rejected")).toBeInTheDocument();
+});
+
+it("stops the pull safety timer once the stream fails with an HTTP error", async () => {
+  const pullButton = await renderOllamaWithMissingModel();
+  const abort = jest.fn();
+  (streamSSE as jest.Mock).mockImplementationOnce(
+    (_url: string, _body: unknown, _onLine: unknown, options: { onHttpError: (code: string) => void }) => {
+      Promise.resolve().then(() => options.onHttpError("ollama_url_not_allowed"));
+      return { abort };
+    }
+  );
+  jest.useFakeTimers();
+  try {
+    fireEvent.click(pullButton);
+    await act(async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    });
+    act(() => {
+      jest.advanceTimersByTime(300_000);
+    });
+
+    expect(screen.getByText("settings.llm.ollama.baseUrl.rejected")).toBeInTheDocument();
+    expect(abort).not.toHaveBeenCalled();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
 describe("setup token step", () => {
   const renderWizard = (startPhase: "needs_application_setup" | "needs_infrastructure" = "needs_application_setup") =>
     render(

@@ -1,5 +1,5 @@
 import type { useI18n } from "@/lib/i18n";
-import { OLLAMA_URL_NOT_ALLOWED, extractErrorCode, extractErrorDetail } from "@/lib/api";
+import { OLLAMA_URL_NOT_ALLOWED, STREAM_LINE_TOO_LONG, extractErrorCode, extractErrorDetail } from "@/lib/api";
 
 type Translate = ReturnType<typeof useI18n>;
 type MessageKey = Parameters<Translate>[0];
@@ -31,6 +31,7 @@ export const CHAT_STREAM_ERROR_KEYS: CodeKeys = {
   map_conflict: "chat.error.mapConflict",
   llm_unavailable: "chat.error.llmUnavailable",
   [OLLAMA_URL_NOT_ALLOWED]: "chat.error.ollamaUrlNotAllowed",
+  [STREAM_LINE_TOO_LONG]: "chat.error.streamLineTooLong",
   ...MODEL_ERROR_KEYS,
 };
 

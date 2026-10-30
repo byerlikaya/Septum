@@ -1,5 +1,12 @@
 import { TextDecoder as NodeTextDecoder, TextEncoder as NodeTextEncoder } from "node:util";
-import { clearAuthToken, setAuthToken, setSetupToken, streamChatAsk, streamSSE } from "../api";
+import {
+  MAX_PENDING_LINE_CHARS,
+  clearAuthToken,
+  setAuthToken,
+  setSetupToken,
+  streamChatAsk,
+  streamSSE,
+} from "../api";
 import type { SSEChatEvent } from "../types";
 
 if (typeof globalThis.TextDecoder === "undefined") {
@@ -445,5 +452,218 @@ describe("streamChatAsk failures", () => {
     const events = await failWith({ ok: true, status: 200, body });
 
     expect(events).toEqual([{ type: "error", message: "connection reset" }]);
+  });
+});
+
+function trackedStreamBody(chunks: string[], cancelRejects = false) {
+  const queue = chunks.map((chunk) => encoder.encode(chunk));
+  const cancel = jest.fn(async () => {
+    if (cancelRejects) throw new Error("cancel failed");
+  });
+  const body = {
+    getReader: () => ({
+      read: async () =>
+        queue.length > 0
+          ? { done: false, value: queue.shift() }
+          : { done: true, value: undefined },
+      cancel,
+    }),
+  };
+  return { body, cancel, unread: () => queue.length };
+}
+
+const LINE_TOO_LONG_CODE = "stream_line_too_long";
+
+describe("streamChatAsk pending line cap", () => {
+  const oversizedLine = `data: ${"x".repeat(MAX_PENDING_LINE_CHARS)}`;
+
+  it("cancels the reader, reports the overflow and emits nothing after it", async () => {
+    const { body, cancel, unread } = trackedStreamBody([
+      'data: {"type":"token","text":"a"}\n',
+      oversizedLine,
+      '\ndata: {"type":"token","text":"late"}\n',
+    ]);
+    global.fetch = jest.fn(async () => ({ ok: true, status: 200, body })) as unknown as typeof fetch;
+    const onEvent = jest.fn();
+
+    streamChatAsk({ message: "hi" }, onEvent);
+    await flush();
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(unread()).toBe(1);
+    expect(onEvent.mock.calls.map((c) => c[0])).toEqual([
+      { type: "token", text: "a" },
+      { type: "error", message: expect.any(String), code: LINE_TOO_LONG_CODE },
+    ]);
+  });
+
+  it("reports the overflow with its code even when cancelling the reader rejects", async () => {
+    const { body, cancel } = trackedStreamBody(
+      ['data: {"type":"token","text":"a"}\n', oversizedLine],
+      true,
+    );
+    global.fetch = jest.fn(async () => ({ ok: true, status: 200, body })) as unknown as typeof fetch;
+    const onEvent = jest.fn();
+
+    streamChatAsk({ message: "hi" }, onEvent);
+    await flush();
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(onEvent.mock.calls.map((c) => c[0])).toEqual([
+      { type: "token", text: "a" },
+      { type: "error", message: expect.any(String), code: LINE_TOO_LONG_CODE },
+    ]);
+  });
+
+  it("still delivers a line just under the cap when it arrives split across chunks", async () => {
+    const prefix = 'data: {"type":"token","text":"';
+    const suffix = '"}';
+    const fill = "x".repeat(MAX_PENDING_LINE_CHARS - 1 - prefix.length - suffix.length);
+    const { body, cancel } = trackedStreamBody([`${prefix}${fill}`, `${suffix}\n`]);
+    global.fetch = jest.fn(async () => ({ ok: true, status: 200, body })) as unknown as typeof fetch;
+    const onEvent = jest.fn();
+
+    streamChatAsk({ message: "hi" }, onEvent);
+    await flush();
+
+    expect(cancel).not.toHaveBeenCalled();
+    expect(onEvent.mock.calls.map((c) => c[0])).toEqual([{ type: "token", text: fill }]);
+  });
+});
+
+describe("streamSSE pending line cap", () => {
+  it("cancels the reader and emits nothing after an unterminated overflowing line", async () => {
+    const { body, cancel, unread } = trackedStreamBody([
+      "data: first\n",
+      `data: ${"x".repeat(MAX_PENDING_LINE_CHARS)}`,
+      "\ndata: late\n",
+    ]);
+    stubFetch({ ok: true, body });
+    const onLine = jest.fn();
+    const onHttpError = jest.fn();
+
+    streamSSE("/api/x", undefined, onLine, { onHttpError });
+    await flush();
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(unread()).toBe(1);
+    expect(onLine.mock.calls.map((c) => c[0])).toEqual(["first"]);
+    expect(onHttpError).not.toHaveBeenCalled();
+  });
+
+  it("reports the overflow code through onStreamError", async () => {
+    const { body } = trackedStreamBody([`data: ${"x".repeat(MAX_PENDING_LINE_CHARS)}`]);
+    stubFetch({ ok: true, body });
+    const onStreamError = jest.fn();
+
+    streamSSE("/api/x", undefined, () => {}, { onStreamError });
+    await flush();
+
+    expect(onStreamError).toHaveBeenCalledWith(LINE_TOO_LONG_CODE);
+  });
+
+  it("reports the overflow through onStreamError even when cancelling rejects", async () => {
+    const { body } = trackedStreamBody([`data: ${"x".repeat(MAX_PENDING_LINE_CHARS)}`], true);
+    stubFetch({ ok: true, body });
+    const onStreamError = jest.fn();
+
+    streamSSE("/api/x", undefined, () => {}, { onStreamError });
+    await flush();
+
+    expect(onStreamError).toHaveBeenCalledWith(LINE_TOO_LONG_CODE);
+  });
+
+  it("does not call onStreamError for a transport failure or a normal stream", async () => {
+    global.fetch = jest.fn(async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+    const onStreamError = jest.fn();
+    streamSSE("/api/x", undefined, () => {}, { onStreamError });
+    await flush();
+
+    stubFetch({ ok: true, body: streamBody(['data: {"done":true}\n']) });
+    streamSSE("/api/x", undefined, () => {}, { onStreamError });
+    await flush();
+
+    expect(onStreamError).not.toHaveBeenCalled();
+  });
+
+  it("still delivers a line just under the cap", async () => {
+    const payload = "x".repeat(MAX_PENDING_LINE_CHARS - 1 - "data: ".length);
+    const { body, cancel } = trackedStreamBody([`data: ${payload.slice(0, 1000)}`, `${payload.slice(1000)}\n`]);
+    stubFetch({ ok: true, body });
+    const onLine = jest.fn();
+
+    streamSSE("/api/x", undefined, onLine);
+    await flush();
+
+    expect(cancel).not.toHaveBeenCalled();
+    expect(onLine).toHaveBeenCalledTimes(1);
+    expect(onLine.mock.calls[0][0]).toBe(payload);
+  });
+});
+
+describe("streamSSE end reporting", () => {
+  it("calls onStreamEnd once when the reader finishes normally", async () => {
+    stubFetch({ ok: true, body: streamBody(['data: {"done":true}\n']) });
+    const onStreamEnd = jest.fn();
+
+    streamSSE("/api/x", undefined, () => {}, { onStreamEnd });
+    await flush();
+
+    expect(onStreamEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onStreamEnd for a successful response that has no body", async () => {
+    stubFetch({ ok: true, body: null });
+    const onStreamEnd = jest.fn();
+
+    streamSSE("/api/x", undefined, () => {}, { onStreamEnd });
+    await flush();
+
+    expect(onStreamEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onStreamEnd when the read is aborted", async () => {
+    const body = {
+      getReader: () => ({
+        read: async () => {
+          throw Object.assign(new Error("aborted"), { name: "AbortError" });
+        },
+      }),
+    };
+    stubFetch({ ok: true, body });
+    const onStreamEnd = jest.fn();
+
+    streamSSE("/api/x", undefined, () => {}, { onStreamEnd });
+    await flush();
+
+    expect(onStreamEnd).not.toHaveBeenCalled();
+  });
+
+  it("does not call onStreamEnd when the stream is cut for being too large", async () => {
+    const { body } = trackedStreamBody([`data: ${"x".repeat(MAX_PENDING_LINE_CHARS)}`]);
+    stubFetch({ ok: true, body });
+    const onStreamEnd = jest.fn();
+
+    streamSSE("/api/x", undefined, () => {}, { onStreamEnd });
+    await flush();
+
+    expect(onStreamEnd).not.toHaveBeenCalled();
+  });
+});
+
+describe("streamChatAsk line delivery across many chunks", () => {
+  it("delivers one line split across many small chunks whole", async () => {
+    const line = `data: {"type":"token","text":"${"x".repeat(4000)}"}\n`;
+    const chunks: string[] = [];
+    for (let i = 0; i < line.length; i += 7) chunks.push(line.slice(i, i + 7));
+    global.fetch = jest.fn(async () => ({ ok: true, status: 200, body: streamBody(chunks) })) as unknown as typeof fetch;
+    const onEvent = jest.fn();
+
+    streamChatAsk({ message: "hi" }, onEvent);
+    await flush();
+
+    expect(onEvent.mock.calls.map((c) => c[0])).toEqual([{ type: "token", text: "x".repeat(4000) }]);
   });
 });

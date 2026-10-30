@@ -18,6 +18,7 @@ import type {
   RegulationRuleset,
   SetupStatus,
   SSEChatEvent,
+  SSEErrorEvent,
   TestConnectionResponse,
   UpdateUserPayload,
   UserListItem,
@@ -177,9 +178,22 @@ api.interceptors.response.use(
 
 export default api;
 
+export const MAX_PENDING_LINE_CHARS = 8 * 1024 * 1024;
+export const STREAM_LINE_TOO_LONG = "stream_line_too_long";
+
+class StreamLineTooLongError extends Error {
+  readonly code = STREAM_LINE_TOO_LONG;
+
+  constructor() {
+    super("Stream line exceeds the pending buffer limit");
+  }
+}
+
 type SSEOptions = {
   method?: "GET" | "POST";
   onHttpError?: (code: string | null) => void;
+  onStreamError?: (code: string) => void;
+  onStreamEnd?: () => void;
 };
 
 function authorizationHeader(): Record<string, string> {
@@ -211,19 +225,33 @@ async function handleSSEHttpError(res: Response, options: SSEOptions | undefined
   options?.onHttpError?.(payload?.code ?? null);
 }
 
+async function enforcePendingCap(reader: ReadableStreamDefaultReader<Uint8Array>, pending: string): Promise<void> {
+  if (pending.length <= MAX_PENDING_LINE_CHARS) return;
+  await reader.cancel().catch(() => {});
+  throw new StreamLineTooLongError();
+}
+
+function splitNewText(pending: string, text: string): { lines: string[]; pending: string } {
+  const parts = text.split("\n");
+  const tail = parts.pop() ?? "";
+  if (parts.length === 0) return { lines: [], pending: pending + tail };
+  parts[0] = pending + parts[0];
+  return { lines: parts, pending: tail };
+}
+
 async function readSSEDataLines(body: ReadableStream<Uint8Array>, onLine: (raw: string) => void): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
-  let buffer = "";
+  let pending = "";
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
+    const split = splitNewText(pending, decoder.decode(value, { stream: true }));
+    pending = split.pending;
+    for (const line of split.lines) {
       if (line.startsWith("data: ")) onLine(line.slice(6));
     }
+    await enforcePendingCap(reader, pending);
   }
 }
 
@@ -243,17 +271,24 @@ async function readChatEvents(
   onEvent: (event: SSEChatEvent) => void
 ): Promise<string | null> {
   const decoder = new TextDecoder();
-  let buffer = "";
+  let pending = "";
   for (;;) {
     const { done, value } = await reader.read();
-    if (done) return buffer;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
+    if (done) return pending;
+    const split = splitNewText(pending, decoder.decode(value, { stream: true }));
+    pending = split.pending;
+    for (const line of split.lines) {
       if (line.startsWith("data: ") && emitChatPayload(line.slice(6), onEvent)) return null;
     }
+    await enforcePendingCap(reader, pending);
   }
+}
+
+function chatFailureEvent(err: unknown): SSEErrorEvent {
+  if (err instanceof StreamLineTooLongError) {
+    return { type: "error", message: err.message, code: err.code };
+  }
+  return { type: "error", message: err instanceof Error ? err.message : "Stream failed" };
 }
 
 async function chatErrorDetailSuffix(res: Response): Promise<string> {
@@ -276,12 +311,17 @@ async function runSSE(
       await handleSSEHttpError(res, options);
       return;
     }
-    if (!res.body) return;
+    if (!res.body) {
+      options?.onStreamEnd?.();
+      return;
+    }
     await readSSEDataLines(res.body, onLine);
-  } catch {
-    // Caller observes failure via the absence of more onLine calls;
-    // keep this swallow tight so we never re-export internal abort
-    // exceptions to UI code.
+    options?.onStreamEnd?.();
+  } catch (err) {
+    // Transport and abort failures stay swallowed: the caller observes
+    // them through the absence of more onLine calls. Only a stream
+    // rejected for its size is reported, so the caller can show it.
+    if (err instanceof StreamLineTooLongError) options?.onStreamError?.(err.code);
   }
 }
 
@@ -613,10 +653,7 @@ async function runChatStream(
     if (trailing?.startsWith("data: ")) emitChatPayload(trailing.slice(6), onEvent);
   } catch (err) {
     if ((err as { name?: string }).name === "AbortError") return;
-    onEvent({
-      type: "error",
-      message: err instanceof Error ? err.message : "Stream failed"
-    });
+    onEvent(chatFailureEvent(err));
   }
 }
 
