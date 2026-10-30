@@ -167,6 +167,26 @@ async def update_user(
     if deactivating:
         _forbid_self(current_user, target.id, "deactivate")
 
+    await _refuse_admin_loss_on_update(db, target, updates, role_changing, deactivating)
+    await _refuse_taken_email(db, target, updates)
+
+    for field, value in updates.items():
+        setattr(target, field, value)
+
+    db.add(target)
+    await db.commit()
+    await db.refresh(target)
+    return UserItemResponse.model_validate(target)
+
+
+async def _refuse_admin_loss_on_update(
+    db: AsyncSession,
+    target: User,
+    updates: dict,
+    role_changing: bool,
+    deactivating: bool,
+) -> None:
+    """Raise 409 when an update would leave no active administrator."""
     if role_changing and target.role == "admin" and updates["role"] != "admin":
         if await _count_active_admins(db, exclude_id=target.id) == 0:
             raise HTTPException(
@@ -181,23 +201,19 @@ async def update_user(
                 detail="Cannot deactivate the last active administrator",
             )
 
-    if "email" in updates and updates["email"] != target.email:
-        dupe = await db.execute(
-            select(User).where(User.email == updates["email"], User.id != target.id)
+
+async def _refuse_taken_email(db: AsyncSession, target: User, updates: dict) -> None:
+    """Raise 409 when a changed email already belongs to another user."""
+    if "email" not in updates or updates["email"] == target.email:
+        return
+    dupe = await db.execute(
+        select(User).where(User.email == updates["email"], User.id != target.id)
+    )
+    if dupe.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_EMAIL_ALREADY_REGISTERED,
         )
-        if dupe.scalar_one_or_none() is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=_EMAIL_ALREADY_REGISTERED,
-            )
-
-    for field, value in updates.items():
-        setattr(target, field, value)
-
-    db.add(target)
-    await db.commit()
-    await db.refresh(target)
-    return UserItemResponse.model_validate(target)
 
 
 @router.post("/{user_id}/reset-password")

@@ -12,7 +12,7 @@ client, which is not available inside the air-gapped core package.
 
 import logging
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from presidio_analyzer import EntityRecognizer, RecognizerResult
 from septum_core.recognizers.registry import (
@@ -67,40 +67,48 @@ class LLMContextRecognizer(EntityRecognizer):
             text=text,
         )
         response = call_ollama_sync(prompt=prompt)
-        items = extract_json_array(response)
         results: List[RecognizerResult] = []
-        for item in items:
+        for item in extract_json_array(response):
             if not isinstance(item, dict):
                 continue
-            start = item.get("start")
-            end = item.get("end")
-            span_text = item.get("text")
-            if span_text is None or span_text == "":
+            span = _locate_span(item, text)
+            if span is None:
                 continue
-            start_int: int
-            end_int: int
-            if isinstance(start, int) and isinstance(end, int):
-                if 0 <= start < end <= len(text) and text[start:end].strip() == str(span_text).strip():
-                    start_int, end_int = start, end
-                else:
-                    idx = text.find(str(span_text))
-                    if idx < 0:
-                        continue
-                    start_int, end_int = idx, idx + len(str(span_text))
-            else:
-                idx = text.find(str(span_text))
-                if idx < 0:
-                    continue
-                start_int, end_int = idx, idx + len(str(span_text))
             results.append(
                 RecognizerResult(
                     entity_type=self._config.entity_type,
-                    start=start_int,
-                    end=end_int,
+                    start=span[0],
+                    end=span[1],
                     score=0.8,
                 )
             )
         return results
+
+
+def _locate_span(item: dict, text: str) -> Optional[Tuple[int, int]]:
+    """Return the ``(start, end)`` of an LLM span in ``text``, or ``None`` when it cannot be placed.
+
+    The offsets the model reported are trusted only when they are in range
+    and cover the reported text; otherwise the first occurrence of the text
+    is used.
+    """
+    span_text = item.get("text")
+    if span_text is None or span_text == "":
+        return None
+    needle = str(span_text)
+    start = item.get("start")
+    end = item.get("end")
+    if (
+        isinstance(start, int)
+        and isinstance(end, int)
+        and 0 <= start < end <= len(text)
+        and text[start:end].strip() == needle.strip()
+    ):
+        return start, end
+    idx = text.find(needle)
+    if idx < 0:
+        return None
+    return idx, idx + len(needle)
 
 
 def _build_llm_recognizer_from_custom(
