@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """FastAPI router for managing persisted application settings.
 
 This router exposes a small REST surface around the :class:`AppSettings`
@@ -8,28 +6,40 @@ configuration. All fields are strongly typed and partial updates are
 supported via a dedicated PATCH schema.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from septum_core.model_integrity import (
     UnpinnedModelError,
     parse_model_spec,
     split_model_specs,
 )
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..errors import CodedHTTPError, public_error_text
+from ..models.settings import AppSettings
 from ..models.user import User
-from ..request_limits import MAX_LLM_MODEL_LENGTH, MAX_LLM_PROVIDER_LENGTH
+from ..request_limits import (
+    MAX_CHUNK_OVERLAP,
+    MAX_LLM_MODEL_LENGTH,
+    MAX_LLM_PROVIDER_LENGTH,
+    MAX_PRE_APPROVED_CHUNK_CHARS,
+    MIN_CHUNK_SIZE,
+    MIN_PDF_CHUNK_SIZE,
+    chunk_overlap_fits,
+)
 from ..services.error_logger import log_backend_message, report_error_log_failure
 from ..services.llm_errors import LLM_UNAVAILABLE, OLLAMA_URL_NOT_ALLOWED_CODE
 from ..services.llm_router import LLMRouter, LLMRouterError
@@ -75,7 +85,6 @@ async def _validate_regulation_ids(
     policy — the user thinks a regulation is active when it is not.
     """
     from septum_core.recognizers import BUILTIN_REGULATION_IDS
-    from sqlalchemy import select
 
     from ..models.regulation import RegulationRuleset
 
@@ -178,6 +187,35 @@ class SettingsResponse(BaseModel):
     setup_completed: bool
 
 
+TextChunkSize = Annotated[int, Field(ge=MIN_CHUNK_SIZE, le=MAX_PRE_APPROVED_CHUNK_CHARS)]
+"""A text chunk size setting, in characters of extracted text.
+
+The approval and chunk-edit requests refuse texts longer than
+``MAX_PRE_APPROVED_CHUNK_CHARS``. The text they carry is the masked chunk,
+which placeholders can make longer than the raw chunk, so this bound keeps
+raw chunks within the limit without guaranteeing the masked text fits.
+"""
+
+PdfChunkSize = Annotated[int, Field(ge=MIN_PDF_CHUNK_SIZE, le=MAX_PRE_APPROVED_CHUNK_CHARS)]
+"""A PDF/DOCX chunk size setting, bounded like :data:`TextChunkSize`."""
+
+WindowSize = Annotated[int, Field(ge=1, le=MAX_PRE_APPROVED_CHUNK_CHARS)]
+"""An audio (seconds) or spreadsheet (cells) chunk setting; the upper bound is a sanity cap."""
+
+ChunkOverlap = Annotated[int, Field(ge=0, le=MAX_CHUNK_OVERLAP)]
+"""A chunk overlap setting, in characters; see :func:`_refuse_chunk_overlap_above_half`."""
+
+_CHUNK_OVERLAP_ABOVE_HALF = "chunk_overlap must be at most half of chunk_size."
+
+_CHUNK_FIELDS = (
+    "chunk_size",
+    "chunk_overlap",
+    "pdf_chunk_size",
+    "audio_chunk_size",
+    "spreadsheet_chunk_size",
+)
+
+
 class SettingsUpdatePayload(BaseModel):
     """PATCH payload for partially updating application settings."""
 
@@ -198,12 +236,12 @@ class SettingsUpdatePayload(BaseModel):
     use_ollama_layer: Optional[bool] = None
     use_ollama_semantic_layer: Optional[bool] = None
 
-    chunk_size: Optional[int] = None
-    chunk_overlap: Optional[int] = None
+    chunk_size: Optional[TextChunkSize] = None
+    chunk_overlap: Optional[ChunkOverlap] = None
     top_k_retrieval: Optional[int] = None
-    pdf_chunk_size: Optional[int] = None
-    audio_chunk_size: Optional[int] = None
-    spreadsheet_chunk_size: Optional[int] = None
+    pdf_chunk_size: Optional[PdfChunkSize] = None
+    audio_chunk_size: Optional[WindowSize] = None
+    spreadsheet_chunk_size: Optional[WindowSize] = None
     rag_relevance_threshold: Optional[float] = None
 
     whisper_model: Optional[str] = None
@@ -220,6 +258,59 @@ class SettingsUpdatePayload(BaseModel):
     openrouter_api_key: Optional[str] = None
 
     setup_completed: Optional[bool] = None
+
+    @field_validator(*_CHUNK_FIELDS, mode="before")
+    @classmethod
+    def _refuse_null_chunk_setting(cls, value: Any) -> Any:
+        """Refuse an explicit ``null``: the columns are NOT NULL, and omitting the field keeps it."""
+        if value is None:
+            raise ValueError("must not be null")
+        return value
+
+
+def _refuse_chunk_overlap_above_half(settings: AppSettings, update_data: dict[str, Any]) -> None:
+    """Raise 422 unless the overlap stays at most half of the chunk size once the update applies.
+
+    Checked against the stored values for whichever of the two is not in the
+    update, so neither can be moved past the other in separate requests. The
+    overlap only applies to ``chunk_size``; the PDF chunker has none.
+    """
+    if "chunk_size" not in update_data and "chunk_overlap" not in update_data:
+        return
+    chunk_size = update_data.get("chunk_size", settings.chunk_size)
+    chunk_overlap = update_data.get("chunk_overlap", settings.chunk_overlap)
+    if not chunk_overlap_fits(chunk_size, chunk_overlap):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=_CHUNK_OVERLAP_ABOVE_HALF,
+        )
+
+
+async def _require_chunk_overlap_within_half(db: AsyncSession, settings_id: int) -> None:
+    """Flush the update, re-read the stored chunk window, and roll back with 422 if it is invalid.
+
+    The flush writes the single settings row, which serialises concurrent
+    chunk-window PATCHes on both engines: SQLite holds its single-writer
+    lock and PostgreSQL the row lock until commit or rollback, and a second
+    writer waits for them. The re-read is a new statement in the writing
+    transaction, so it sees every committed change of the other field
+    (under READ COMMITTED; under REPEATABLE READ the second writer fails
+    with a serialisation error instead).
+    """
+    await db.flush()
+    chunk_size, chunk_overlap = (
+        await db.execute(
+            select(AppSettings.chunk_size, AppSettings.chunk_overlap).where(
+                AppSettings.id == settings_id
+            )
+        )
+    ).one()
+    if not chunk_overlap_fits(chunk_size, chunk_overlap):
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=_CHUNK_OVERLAP_ABOVE_HALF,
+        )
 
 
 class TestLLMRequest(BaseModel):
@@ -298,6 +389,7 @@ async def update_settings_endpoint(
 
     update_data = payload.model_dump(exclude_unset=True)
 
+    _refuse_chunk_overlap_above_half(settings, update_data)
     if "default_active_regulations" in update_data:
         await _validate_regulation_ids(db, update_data["default_active_regulations"])
     if update_data.get("ollama_base_url") is not None:
@@ -311,6 +403,8 @@ async def update_settings_endpoint(
 
     for field_name, value in update_data.items():
         setattr(settings, field_name, value)
+    if "chunk_size" in update_data or "chunk_overlap" in update_data:
+        await _require_chunk_overlap_within_half(db, settings.id)
 
     await db.commit()
     await db.refresh(settings)

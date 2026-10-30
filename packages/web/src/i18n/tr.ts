@@ -325,7 +325,7 @@ export const trMessages: Record<string, string> = {
     "Metin parçaları için yaklaşık karakter uzunluğu.",
   "settings.rag.chunkOverlap.label": "Parça örtüşmesi",
   "settings.rag.chunkOverlap.description":
-    "Ardışık parçalar arasındaki örtüşen karakter sayısı.",
+    "Ardışık parçalar arasındaki örtüşen karakter sayısı. En fazla parça boyutunun yarısı kadar olabilir.",
   "settings.rag.topK.label": "Top‑K getirme",
   "settings.rag.topK.description":
     "Sorgu başına getirilen varsayılan parça sayısı.",

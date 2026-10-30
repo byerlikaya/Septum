@@ -13,6 +13,7 @@ from ..models.document import Chunk as DocumentChunk
 from ..models.document import Document
 from ..models.entity_detection import EntityDetection
 from ..models.settings import AppSettings
+from ..request_limits import MIN_PDF_CHUNK_SIZE
 from ..utils.db_helpers import (
     masking_language,
     override_fits_text,
@@ -417,15 +418,12 @@ class DocumentPipeline:
     ) -> Sequence[SemanticChunk]:
         if file_format in {"pdf", "docx"}:
             chunker = StructuredDocumentChunker(
-                max_chunk_size=max(self._settings.pdf_chunk_size, 800)
+                max_chunk_size=max(self._settings.pdf_chunk_size, MIN_PDF_CHUNK_SIZE)
             )
         else:
             chunker = SlidingWindowChunker(
-                chunk_size=max(self._settings.chunk_size, 1),
-                overlap=max(
-                    min(self._settings.chunk_overlap, self._settings.chunk_size - 1),
-                    0,
-                ),
+                chunk_size=self._settings.chunk_size,
+                overlap=self._settings.chunk_overlap,
             )
 
         semantic_chunks = await asyncio.to_thread(chunker.chunk, raw_text)

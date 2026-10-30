@@ -1,5 +1,12 @@
 import { useI18n } from "@/lib/i18n";
 import type { SettingsTabProps, SettingsUpdatePayload } from "./types";
+import {
+  MAX_CHUNK_CHARS,
+  MIN_CHUNK_SIZE,
+  MIN_OTHER_CHUNK_SIZE,
+  MIN_PDF_CHUNK_SIZE,
+  maxOverlapFor
+} from "@/lib/chunkLimits";
 import { NumberField } from "./NumberField";
 
 export function RagTab({
@@ -19,6 +26,24 @@ export function RagTab({
       return;
     }
     await onChange(key, value);
+  };
+
+  // The server checks overlap <= chunk_size / 2 against the stored values and
+  // each field is its own PATCH. When the new size would leave the stored
+  // overlap too large, lower the overlap first (always valid against the old,
+  // larger size), then save the size, so neither request can be refused.
+  const handleChunkSizeBlur = async (rawValue: string): Promise<void> => {
+    const value = Number.parseInt(rawValue, 10);
+    if (Number.isNaN(value)) {
+      await onChange("chunk_size", settings.chunk_size);
+      return;
+    }
+    const allowedOverlap = maxOverlapFor(value);
+    if (settings.chunk_overlap > allowedOverlap) {
+      const failure = await onChange("chunk_overlap", allowedOverlap);
+      if (failure) return;
+    }
+    await onChange("chunk_size", value);
   };
 
   const handleFloatBlur = async (
@@ -50,9 +75,9 @@ export function RagTab({
           label={t("settings.rag.defaultChunkSize.label")}
           description={t("settings.rag.defaultChunkSize.description")}
           value={settings.chunk_size}
-          onBlur={async (raw) =>
-            handleNumberBlur("chunk_size", raw, settings.chunk_size)
-          }
+          onBlur={handleChunkSizeBlur}
+          min={MIN_CHUNK_SIZE}
+          max={MAX_CHUNK_CHARS}
           saving={isSaving("chunk_size")}
         />
 
@@ -63,6 +88,8 @@ export function RagTab({
           onBlur={async (raw) =>
             handleNumberBlur("chunk_overlap", raw, settings.chunk_overlap)
           }
+          min={0}
+          max={maxOverlapFor(settings.chunk_size)}
           saving={isSaving("chunk_overlap")}
         />
 
@@ -103,6 +130,8 @@ export function RagTab({
             onBlur={async (raw) =>
               handleNumberBlur("pdf_chunk_size", raw, settings.pdf_chunk_size)
             }
+            min={MIN_PDF_CHUNK_SIZE}
+            max={MAX_CHUNK_CHARS}
             saving={isSaving("pdf_chunk_size")}
           />
 
@@ -113,6 +142,8 @@ export function RagTab({
             onBlur={async (raw) =>
               handleNumberBlur("audio_chunk_size", raw, settings.audio_chunk_size)
             }
+            min={MIN_OTHER_CHUNK_SIZE}
+            max={MAX_CHUNK_CHARS}
             saving={isSaving("audio_chunk_size")}
           />
 
@@ -127,6 +158,8 @@ export function RagTab({
                 settings.spreadsheet_chunk_size
               )
             }
+            min={MIN_OTHER_CHUNK_SIZE}
+            max={MAX_CHUNK_CHARS}
             saving={isSaving("spreadsheet_chunk_size")}
           />
         </div>

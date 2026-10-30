@@ -10,6 +10,14 @@ import math
 import os
 import re
 
+from .request_limits import (
+    MAX_CHUNK_OVERLAP,
+    MAX_PRE_APPROVED_CHUNK_CHARS,
+    MIN_CHUNK_SIZE,
+    MIN_PDF_CHUNK_SIZE,
+    chunk_overlap_fits,
+)
+
 _ENV_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _ENV_FALSE_VALUES = frozenset({"0", "false", "no", "off"})
 _ENV_INT_PATTERN = re.compile(r"-?\d{1,18}", re.ASCII)
@@ -101,14 +109,17 @@ _INT_MAX = 2**31 - 1
 INT_DEFAULT_FLAGS: tuple[tuple[str, int, int, int], ...] = (
     # (name, default, minimum, maximum)
     ("APPROVAL_TIMEOUT_SECONDS_DEFAULT", 300, 1, _INT_MAX),
-    ("CHUNK_SIZE_DEFAULT", 800, 1, _INT_MAX),
-    ("CHUNK_OVERLAP_DEFAULT", 200, 0, _INT_MAX),
+    ("CHUNK_SIZE_DEFAULT", 800, MIN_CHUNK_SIZE, MAX_PRE_APPROVED_CHUNK_CHARS),
+    ("CHUNK_OVERLAP_DEFAULT", 200, 0, MAX_CHUNK_OVERLAP),
     ("TOP_K_RETRIEVAL_DEFAULT", 5, 1, _INT_MAX),
-    ("PDF_CHUNK_SIZE_DEFAULT", 1200, 1, _INT_MAX),
-    ("AUDIO_CHUNK_SIZE_DEFAULT", 60, 1, _INT_MAX),
-    ("SPREADSHEET_CHUNK_SIZE_DEFAULT", 200, 1, _INT_MAX),
+    ("PDF_CHUNK_SIZE_DEFAULT", 1200, MIN_PDF_CHUNK_SIZE, MAX_PRE_APPROVED_CHUNK_CHARS),
+    ("AUDIO_CHUNK_SIZE_DEFAULT", 60, 1, MAX_PRE_APPROVED_CHUNK_CHARS),
+    ("SPREADSHEET_CHUNK_SIZE_DEFAULT", 200, 1, MAX_PRE_APPROVED_CHUNK_CHARS),
 )
-"""Every integer ``*_DEFAULT`` env flag as (name, default, minimum, maximum). Single source of truth."""
+"""Every integer ``*_DEFAULT`` env flag as (name, default, minimum, maximum). Single source of truth.
+
+The chunk bounds match the settings PATCH, so a seeded default is always a value the UI could save.
+"""
 
 FLOAT_DEFAULT_FLAGS: tuple[tuple[str, float, float, float], ...] = (
     # (name, default, minimum, maximum); the relevance score is compared against values in [0, 1].
@@ -123,11 +134,18 @@ def parse_bool_default_flags() -> dict[str, bool]:
 
 
 def parse_int_default_flags() -> dict[str, int]:
-    """Parse every flag in :data:`INT_DEFAULT_FLAGS`; raises :class:`EnvFlagError` on a bad value."""
-    return {
+    """Parse every flag in :data:`INT_DEFAULT_FLAGS`; raises :class:`EnvFlagError` on a bad value.
+
+    ``CHUNK_OVERLAP_DEFAULT`` must also be at most half of ``CHUNK_SIZE_DEFAULT``,
+    the rule the settings PATCH applies.
+    """
+    flags = {
         name: env_int(name, default, minimum, maximum)
         for name, default, minimum, maximum in INT_DEFAULT_FLAGS
     }
+    if not chunk_overlap_fits(flags["CHUNK_SIZE_DEFAULT"], flags["CHUNK_OVERLAP_DEFAULT"]):
+        raise EnvFlagError("CHUNK_OVERLAP_DEFAULT must be at most half of CHUNK_SIZE_DEFAULT.")
+    return flags
 
 
 def parse_float_default_flags() -> dict[str, float]:

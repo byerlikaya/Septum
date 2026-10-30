@@ -24,6 +24,31 @@ MAX_RETRY_DOCUMENTS = MAX_CONTEXT_CHUNKS
 MAX_PRE_APPROVED_CHUNK_CHARS = 20_000
 """Longest chunk text a client may send (retry, approval edit, chunk edit)."""
 
+MIN_CHUNK_SIZE = 100
+"""Smallest text chunk size setting: the chunkers' own minimum chunk length."""
+
+MIN_PDF_CHUNK_SIZE = 800
+"""Smallest PDF/DOCX chunk size setting: the structured chunker never uses less."""
+
+MAX_CHUNK_OVERLAP = MAX_PRE_APPROVED_CHUNK_CHARS // 2
+"""Largest chunk overlap setting; see :func:`max_chunk_overlap`."""
+
+
+def max_chunk_overlap(chunk_size: int) -> int:
+    """Return the largest overlap allowed with ``chunk_size``: half of it.
+
+    The sliding window advances by ``chunk_size - chunk_overlap`` characters,
+    so this keeps every step at least half a chunk long and the chunk count
+    at most about twice the no-overlap count.
+    """
+    return chunk_size // 2
+
+
+def chunk_overlap_fits(chunk_size: int, chunk_overlap: int) -> bool:
+    """Return whether ``chunk_overlap`` is allowed with ``chunk_size``; see :func:`max_chunk_overlap`."""
+    return chunk_overlap <= max_chunk_overlap(chunk_size)
+
+
 MAX_CHAT_MESSAGE_CHARS = 20_000
 """Longest chat question."""
 
@@ -66,6 +91,7 @@ DocumentId = Annotated[int, Field(ge=1, le=MAX_DOCUMENT_ID)]
 __all__ = [
     "DocumentId",
     "MAX_CHAT_MESSAGE_CHARS",
+    "MAX_CHUNK_OVERLAP",
     "MAX_CONTEXT_CHUNKS",
     "MAX_DOCUMENT_ID",
     "MAX_LLM_MODEL_LENGTH",
@@ -78,5 +104,9 @@ __all__ = [
     "MAX_SESSION_ID_LENGTH",
     "MAX_SHEET_COLUMNS",
     "MAX_TECHNICAL_LABEL_CHARS",
+    "MIN_CHUNK_SIZE",
+    "MIN_PDF_CHUNK_SIZE",
     "TOP_K_RETRIEVAL_MAX_CAP",
+    "chunk_overlap_fits",
+    "max_chunk_overlap",
 ]
