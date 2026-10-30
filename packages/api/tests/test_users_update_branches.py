@@ -48,6 +48,12 @@ def _admin_count_must_not_run(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     return mock
 
 
+def _admin_count_spy(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    mock = AsyncMock(wraps=users_router._count_active_admins)
+    monkeypatch.setattr(users_router, "_count_active_admins", mock)
+    return mock
+
+
 class TestUpdateUserBranches:
     async def test_demoting_the_last_active_admin_is_409(
         self, router_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
@@ -95,26 +101,38 @@ class TestUpdateUserBranches:
         assert resp.status_code == 200
         assert resp.json()["is_active"] is False
 
-    async def test_role_change_of_a_non_admin_never_counts_admins(
+    async def test_role_change_of_a_non_admin_is_recounted_and_succeeds(
         self, router_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         admin_token = await _bootstrap_admin(router_client)
         target = await _create_user(router_client, admin_token, "e@example.com", role="editor")
-        count = _admin_count_must_not_run(monkeypatch)
+        count = _admin_count_spy(monkeypatch)
 
         resp = await _patch(router_client, admin_token, target["id"], {"role": "viewer"})
 
         assert resp.status_code == 200
-        count.assert_not_awaited()
+        count.assert_awaited_once()
 
-    async def test_deactivating_a_non_admin_never_counts_admins(
+    async def test_deactivating_a_non_admin_is_recounted_and_succeeds(
+        self, router_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        admin_token = await _bootstrap_admin(router_client)
+        target = await _create_user(router_client, admin_token, "e@example.com", role="editor")
+        count = _admin_count_spy(monkeypatch)
+
+        resp = await _patch(router_client, admin_token, target["id"], {"is_active": False})
+
+        assert resp.status_code == 200
+        count.assert_awaited_once()
+
+    async def test_promoting_never_counts_admins(
         self, router_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         admin_token = await _bootstrap_admin(router_client)
         target = await _create_user(router_client, admin_token, "e@example.com", role="editor")
         count = _admin_count_must_not_run(monkeypatch)
 
-        resp = await _patch(router_client, admin_token, target["id"], {"is_active": False})
+        resp = await _patch(router_client, admin_token, target["id"], {"role": "admin", "is_active": True})
 
         assert resp.status_code == 200
         count.assert_not_awaited()
@@ -131,19 +149,19 @@ class TestUpdateUserBranches:
         assert resp.status_code == 200
         count.assert_not_awaited()
 
-    async def test_patching_an_already_inactive_admin_never_counts_admins(
+    async def test_patching_an_already_inactive_admin_is_recounted_and_succeeds(
         self, router_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         admin_token = await _bootstrap_admin(router_client)
         target = await _create_user(
             router_client, admin_token, "b@example.com", role="admin", is_active=False
         )
-        count = _admin_count_must_not_run(monkeypatch)
+        count = _admin_count_spy(monkeypatch)
 
         resp = await _patch(router_client, admin_token, target["id"], {"is_active": False})
 
         assert resp.status_code == 200
-        count.assert_not_awaited()
+        count.assert_awaited_once()
 
     async def test_unchanged_email_skips_the_duplicate_check(
         self, router_client: AsyncClient
