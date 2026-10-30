@@ -154,6 +154,14 @@ def shutdown_ocr_pool() -> None:
 atexit.register(shutdown_ocr_pool)
 
 
+def _score_or_zero(score: Any) -> float:
+    """Return ``score`` as a float, or ``0.0`` when the engine gave an unusable value."""
+    try:
+        return float(score)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 # ---------------------------------------------------------------------------
 # Provider class
 # ---------------------------------------------------------------------------
@@ -205,32 +213,60 @@ class PaddleOcrProvider(OcrProvider):
             dt_polys = page_result.get("dt_polys", [])
 
             if dt_polys and len(dt_polys) == len(rec_texts):
-                entries = self._build_entries(dt_polys, rec_texts, rec_scores)
                 image_width = image_array.shape[1] if len(image_array.shape) >= 2 else 0
-                columns = self._detect_columns(entries, image_width)
-
-                for col_entries in columns:
-                    lines = self._group_into_lines(col_entries)
-                    for line_text, line_confs in lines:
-                        cleaned = self._post_process(line_text)
-                        if cleaned.strip():
-                            texts.append(cleaned)
-                            confidences.extend(line_confs)
-                    if len(columns) > 1:
-                        texts.append("")
-                if texts and texts[-1] == "":
-                    texts.pop()
+                entries = self._build_entries(dt_polys, rec_texts, rec_scores)
+                self._append_layout_page(texts, confidences, entries, image_width)
             else:
-                for text, score in zip(rec_texts, rec_scores):
-                    cleaned = self._post_process(text)
-                    if cleaned.strip():
-                        texts.append(cleaned)
-                        try:
-                            confidences.append(float(score))
-                        except (TypeError, ValueError):
-                            confidences.append(0.0)
+                self._append_plain_page(texts, confidences, rec_texts, rec_scores)
 
         return texts, confidences
+
+    def _append_layout_page(
+        self,
+        texts: List[str],
+        confidences: List[float],
+        entries: List[Tuple[float, float, float, float, str, float]],
+        image_width: int,
+    ) -> None:
+        """Append a page's lines in reading order, column by column.
+
+        Columns of a multi-column page are separated by an empty line; a
+        trailing separator is dropped.
+        """
+        columns = self._detect_columns(entries, image_width)
+        for col_entries in columns:
+            self._append_column_lines(texts, confidences, col_entries)
+            if len(columns) > 1:
+                texts.append("")
+        if texts and texts[-1] == "":
+            texts.pop()
+
+    def _append_column_lines(
+        self,
+        texts: List[str],
+        confidences: List[float],
+        col_entries: List[Tuple[float, float, float, float, str, float]],
+    ) -> None:
+        """Append each non-blank grouped line of a column with its entry confidences."""
+        for line_text, line_confs in self._group_into_lines(col_entries):
+            cleaned = self._post_process(line_text)
+            if cleaned.strip():
+                texts.append(cleaned)
+                confidences.extend(line_confs)
+
+    def _append_plain_page(
+        self,
+        texts: List[str],
+        confidences: List[float],
+        rec_texts: List[str],
+        rec_scores: List,
+    ) -> None:
+        """Append recognised texts in engine order when no layout is available."""
+        for text, score in zip(rec_texts, rec_scores):
+            cleaned = self._post_process(text)
+            if cleaned.strip():
+                texts.append(cleaned)
+                confidences.append(_score_or_zero(score))
 
     def _predict_in_subprocess(
         self, image_array: np.ndarray,
