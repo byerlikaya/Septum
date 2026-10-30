@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -45,7 +46,7 @@ from .entity_index_service import (
 )
 from .policy_composer import PolicyComposer
 from .remask_cache import remask_cache
-from .sanitizer import ResolvedSpan
+from .sanitizer import PIISanitizer, ResolvedSpan
 from .sanitizer_factory import DOCUMENT_SANITIZER_ENABLE_OLLAMA, create_sanitizer
 from .text_normalizer import TextNormalizer
 from .vector_store import VectorStore
@@ -126,6 +127,172 @@ async def erase_document_artifacts(
         raise ArtifactErasureError("anonymization_map", exc) from exc
 
 
+def _progress_emitter(on_progress: Callable[[int], None] | None) -> Callable[[int], None]:
+    """Return a progress callback that is a no-op when no listener was given."""
+
+    def _emit(pct: int) -> None:
+        if on_progress is not None:
+            on_progress(pct)
+
+    return _emit
+
+
+@dataclass
+class _SanitizedChunks:
+    """Per-run sanitization output: chunks to store plus entity tallies."""
+
+    stored_chunks: List[SemanticChunk] = field(default_factory=list)
+    total_entities: int = 0
+    type_counts: Dict[str, int] = field(default_factory=dict)
+    per_chunk_spans: Dict[int, List[ResolvedSpan]] = field(default_factory=dict)
+
+
+async def _sanitize_chunks(
+    sanitizer: PIISanitizer,
+    semantic_chunks: Sequence[SemanticChunk],
+    raw_texts: Sequence[str],
+    language: str,
+    anon_map: AnonymizationMap,
+    emit: Callable[[int], None],
+) -> _SanitizedChunks:
+    """Sanitize every chunk into ``anon_map`` and collect what is persisted."""
+    result = _SanitizedChunks()
+    num_chunks = max(len(semantic_chunks), 1)
+    for chunk_idx, (semantic_chunk, normalized_raw) in enumerate(
+        zip(semantic_chunks, raw_texts)
+    ):
+        emit(int((chunk_idx + 1) * 90 / num_chunks))
+        sanitize_result = await asyncio.to_thread(
+            sanitizer.sanitize,
+            normalized_raw,
+            language,
+            anon_map,
+        )
+        result.total_entities += sanitize_result.entity_count
+        for etype, ecount in sanitize_result.entity_type_counts.items():
+            result.type_counts[etype] = result.type_counts.get(etype, 0) + ecount
+        if sanitize_result.detected_spans:
+            result.per_chunk_spans[semantic_chunk.index] = sanitize_result.detected_spans
+        # Persist the sanitized form of the chunk — the field name
+        # ``sanitized_text`` carries exactly that contract, and storing
+        # the raw value here meant that any PII span the detector
+        # missed (spaced IBAN variants, NER-missed names, novel label
+        # shapes) would leak through the chat-time string-replace pass
+        # untouched because the anon_map never learned about it.
+        # Vector / BM25 indexes keep the raw form via ``raw_texts``
+        # so semantic search quality is unaffected, and those indexes
+        # stay local.
+        sanitized_chunk_text = sanitize_result.sanitized_text
+        result.stored_chunks.append(
+            SemanticChunk(
+                text=sanitized_chunk_text,
+                index=semantic_chunk.index,
+                source_page=semantic_chunk.source_page,
+                section_title=semantic_chunk.section_title,
+                char_count=len(sanitized_chunk_text),
+            )
+        )
+    return result
+
+
+def _detection_rows(
+    document_id: int,
+    chunks: Sequence[DocumentChunk],
+    per_chunk_spans: Dict[int, List[ResolvedSpan]],
+) -> List[EntityDetection]:
+    """Build one detection row per span of every chunk that was persisted."""
+    if not per_chunk_spans:
+        return []
+    chunk_index_to_id = {c.index: c.id for c in chunks}
+    rows: List[EntityDetection] = []
+    for chunk_index, resolved_spans in per_chunk_spans.items():
+        chunk_id = chunk_index_to_id.get(chunk_index)
+        if chunk_id is None:
+            continue
+        rows.extend(
+            EntityDetection(
+                document_id=document_id,
+                chunk_id=chunk_id,
+                entity_type=rs.entity_type,
+                placeholder=rs.placeholder,
+                start_offset=rs.start,
+                end_offset=rs.end,
+                score=rs.score,
+            )
+            for rs in resolved_spans
+        )
+    return rows
+
+
+async def _store_document_map(
+    db: AsyncSession, document_id: int, anon_map: AnonymizationMap
+) -> None:
+    """Store the map under its lock, refusing when the row was deleted meanwhile."""
+    async with document_map_lock(document_id) as lock:
+        still_exists = await db.scalar(
+            select(Document.id).where(Document.id == document_id)
+        )
+        if still_exists is None:
+            raise DocumentDeletedDuringIngestionError(
+                f"Document {document_id} was deleted during ingestion"
+            )
+        await lock.ensure_held()
+        await set_document_map(document_id, anon_map)
+
+
+async def _refresh_entity_index(
+    db: AsyncSession, document_id: int, anon_map: AnonymizationMap
+) -> None:
+    """Populate the cross-document entity index and relationship rows.
+
+    Lets future chat queries route narrowly to the documents that actually
+    contain the entities the user asked about, and keeps the visualisation
+    graph and the auto-cluster suggester in sync. The index only stores
+    HMAC-SHA256 hashes of the originals under the local encryption key —
+    no raw PII is persisted here. A failure is logged by error class and
+    rolled back; the ingestion itself still completes.
+    """
+    try:
+        await replace_index_for_document(db, document_id, anon_map)
+        await recompute_relationships_for_document(db, document_id)
+        await db.commit()
+    except Exception as exc:
+        logger.error(
+            "Failed to populate entity index / relationships for document %s: %s",
+            document_id,
+            type(exc).__name__,
+        )
+        await db.rollback()
+
+
+async def _audit_detections(
+    db: AsyncSession,
+    document: Document,
+    sanitized: _SanitizedChunks,
+    anon_map: AnonymizationMap,
+    extra: Dict[str, str],
+    detection_rows: Sequence[EntityDetection],
+) -> None:
+    """Record the PII-detected audit event and link the detection rows to it."""
+    placeholder_samples = list(anon_map.entity_map.values())[:5] if anon_map.entity_map else []
+    audit_event = await log_pii_detected(
+        db,
+        document_id=document.id,
+        regulation_ids=list(document.active_regulation_ids or []),
+        entity_type_counts=sanitized.type_counts,
+        total_count=sanitized.total_entities,
+        extra=extra,
+        placeholder_samples=placeholder_samples,
+    )
+    if audit_event is not None and detection_rows:
+        await db.execute(
+            update(EntityDetection)
+            .where(EntityDetection.id.in_([r.id for r in detection_rows]))
+            .values(audit_event_id=audit_event.id)
+        )
+        await db.commit()
+
+
 class DocumentPipeline:
     """Orchestrates sanitization, chunking, and indexing for ingested documents."""
 
@@ -162,9 +329,7 @@ class DocumentPipeline:
         policy digest) is recorded when the run completes, so staleness is
         judged against the policy these chunks were actually masked under.
         """
-        def _emit(pct: int) -> None:
-            if on_progress is not None:
-                on_progress(pct)
+        emit = _progress_emitter(on_progress)
 
         remask_cache.forget_document(document.id)
 
@@ -205,148 +370,45 @@ class DocumentPipeline:
         language, language_source = masking_language(document, transcription_text)
         anon_map = AnonymizationMap(document_id=document.id, language=language)
 
-        stored_chunks: List[SemanticChunk] = []
-        total_entities = 0
-        aggregate_type_counts: Dict[str, int] = {}
-        per_chunk_spans: Dict[int, List[ResolvedSpan]] = {}
-
-        num_chunks = max(len(semantic_chunks), 1)
-        for chunk_idx, (semantic_chunk, normalized_raw) in enumerate(
-            zip(semantic_chunks, raw_texts_for_index)
-        ):
-            _emit(int((chunk_idx + 1) * 90 / num_chunks))
-            sanitize_result = await asyncio.to_thread(
-                sanitizer.sanitize,
-                normalized_raw,
-                language,
-                anon_map,
-            )
-            total_entities += sanitize_result.entity_count
-            for etype, ecount in sanitize_result.entity_type_counts.items():
-                aggregate_type_counts[etype] = aggregate_type_counts.get(etype, 0) + ecount
-            if sanitize_result.detected_spans:
-                per_chunk_spans[semantic_chunk.index] = sanitize_result.detected_spans
-            # Persist the sanitized form of the chunk — the field name
-            # ``sanitized_text`` carries exactly that contract, and storing
-            # the raw value here meant that any PII span the detector
-            # missed (spaced IBAN variants, NER-missed names, novel label
-            # shapes) would leak through the chat-time string-replace pass
-            # untouched because the anon_map never learned about it.
-            # Vector / BM25 indexes keep the raw form via ``raw_texts_for_index``
-            # so semantic search quality is unaffected, and those indexes
-            # stay local.
-            sanitized_chunk_text = sanitize_result.sanitized_text
-            stored_chunks.append(
-                SemanticChunk(
-                    text=sanitized_chunk_text,
-                    index=semantic_chunk.index,
-                    source_page=semantic_chunk.source_page,
-                    section_title=semantic_chunk.section_title,
-                    char_count=len(sanitized_chunk_text),
-                )
-            )
+        sanitized = await _sanitize_chunks(
+            sanitizer, semantic_chunks, raw_texts_for_index, language, anon_map, emit
+        )
 
         document.transcription_text = transcription_text
         document.ocr_confidence = ingestion_confidence
 
         chunks = await self._persist_chunks(
-            db, document.id, stored_chunks, raw_texts_for_index
+            db, document.id, sanitized.stored_chunks, raw_texts_for_index
         )
 
-        detection_rows: list[EntityDetection] = []
-        if per_chunk_spans:
-            chunk_index_to_id = {c.index: c.id for c in chunks}
-            for chunk_index, resolved_spans in per_chunk_spans.items():
-                chunk_id = chunk_index_to_id.get(chunk_index)
-                if chunk_id is None:
-                    continue
-                for rs in resolved_spans:
-                    detection_rows.append(EntityDetection(
-                        document_id=document.id,
-                        chunk_id=chunk_id,
-                        entity_type=rs.entity_type,
-                        placeholder=rs.placeholder,
-                        start_offset=rs.start,
-                        end_offset=rs.end,
-                        score=rs.score,
-                    ))
-            if detection_rows:
-                db.add_all(detection_rows)
+        detection_rows = _detection_rows(document.id, chunks, sanitized.per_chunk_spans)
+        if detection_rows:
+            db.add_all(detection_rows)
 
         document.chunk_count = len(chunks)
-        document.entity_count = total_entities
+        document.entity_count = sanitized.total_entities
         await db.commit()
         await db.refresh(document)
 
-        async with document_map_lock(document.id) as lock:
-            still_exists = await db.scalar(
-                select(Document.id).where(Document.id == document.id)
-            )
-            if still_exists is None:
-                raise DocumentDeletedDuringIngestionError(
-                    f"Document {document.id} was deleted during ingestion"
-                )
-            await lock.ensure_held()
-            await set_document_map(document.id, anon_map)
+        await _store_document_map(db, document.id, anon_map)
+        await _refresh_entity_index(db, document.id, anon_map)
 
-        # Populate the cross-document entity index so future chat queries
-        # can route narrowly to the documents that actually contain the
-        # entities the user asked about, and refresh the pairwise
-        # relationship rows that involve this document so the
-        # visualisation graph and the auto-cluster suggester stay in
-        # sync. The index only stores HMAC-SHA256 hashes of the
-        # originals under the local encryption key — no raw PII is
-        # persisted here.
-        try:
-            await replace_index_for_document(db, document.id, anon_map)
-            await recompute_relationships_for_document(db, document.id)
-            await db.commit()
-        except Exception as exc:
-            logging.getLogger(__name__).error(
-                "Failed to populate entity index / relationships for document %s: %s",
-                document.id,
-                type(exc).__name__,
-            )
-            await db.rollback()
-
-        if total_entities > 0:
-            placeholder_samples = list(anon_map.entity_map.values())[:5] if anon_map.entity_map else []
-            audit_event = await log_pii_detected(
+        if sanitized.total_entities > 0:
+            await _audit_detections(
                 db,
-                document_id=document.id,
-                regulation_ids=list(document.active_regulation_ids or []),
-                entity_type_counts=aggregate_type_counts,
-                total_count=total_entities,
-                extra={
+                document,
+                sanitized,
+                anon_map,
+                {
                     "source": "document_ingestion",
                     "language": language,
                     "language_source": language_source,
                 },
-                placeholder_samples=placeholder_samples,
+                detection_rows,
             )
-            if audit_event is not None and detection_rows:
-                await db.execute(
-                    update(EntityDetection)
-                    .where(EntityDetection.id.in_([r.id for r in detection_rows]))
-                    .values(audit_event_id=audit_event.id)
-                )
-                await db.commit()
 
         if chunks and raw_texts_for_index:
-            _emit(92)
-            await asyncio.to_thread(
-                self._index_chunks,
-                document.id,
-                chunks,
-                raw_texts_for_index,
-            )
-            _emit(96)
-            await asyncio.to_thread(
-                self._index_chunks_bm25,
-                document.id,
-                chunks,
-                raw_texts_for_index,
-            )
+            await self._index_document(document.id, chunks, raw_texts_for_index, emit)
 
         document.sanitized_entity_types = policy_snapshot.entity_types
         document.sanitized_policy_digest = policy_snapshot.digest
@@ -359,6 +421,19 @@ class DocumentPipeline:
         document.ingestion_error = None
         document.ingestion_error_code = None
         await db.commit()
+
+    async def _index_document(
+        self,
+        document_id: int,
+        chunks: Sequence[DocumentChunk],
+        raw_texts: Sequence[str],
+        emit: Callable[[int], None],
+    ) -> None:
+        """Build the FAISS and BM25 indexes over the raw chunk texts."""
+        emit(92)
+        await asyncio.to_thread(self._index_chunks, document_id, chunks, raw_texts)
+        emit(96)
+        await asyncio.to_thread(self._index_chunks_bm25, document_id, chunks, raw_texts)
 
     @staticmethod
     async def _clear_refused_override(

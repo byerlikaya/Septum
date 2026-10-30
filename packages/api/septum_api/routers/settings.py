@@ -9,11 +9,12 @@ supported via a dedicated PATCH schema.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, AsyncIterator, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -745,57 +746,76 @@ async def ollama_pull_endpoint(
     base_url = effective_ollama_base_url(configured)
     _validate_ollama_url(base_url)
 
-    import json as _json
+    return StreamingResponse(
+        _ollama_pull_events(base_url, payload.model), media_type="text/event-stream"
+    )
 
-    def _event(status_text: str, percent: int, done: bool, error: bool = False) -> str:
-        evt: dict[str, Any] = {"status": status_text, "percent": percent, "done": done}
-        if error:
-            evt["error"] = True
-        return f"data: {_json.dumps(evt)}\n\n"
 
-    failed = _event("Model pull failed.", 0, True, error=True)
+def _pull_event(status_text: str, percent: int, done: bool, error: bool = False) -> str:
+    """Format one pull-progress SSE frame."""
+    evt: dict[str, Any] = {"status": status_text, "percent": percent, "done": done}
+    if error:
+        evt["error"] = True
+    return f"data: {json.dumps(evt)}\n\n"
 
-    async def event_stream():
-        # Upstream status text and exception messages are never echoed to
-        # the client: only fixed status strings and the progress percent.
-        async with ollama_async_http_client(
-            httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
-        ) as client:
-            try:
-                async with client.stream(
-                    "POST",
-                    f"{base_url}/api/pull",
-                    json={"name": payload.model, "stream": True},
-                ) as resp:
-                    if resp.status_code >= 400:
-                        logger.warning("Ollama pull rejected: http_status=%s", resp.status_code)
-                        yield failed
+
+_PULL_FAILED_EVENT = _pull_event("Model pull failed.", 0, True, error=True)
+
+
+def _parse_pull_line(line: str) -> Optional[dict[str, Any]]:
+    """Decode one upstream progress line; ``None`` for blank, malformed or non-object lines."""
+    if not line.strip():
+        return None
+    try:
+        data = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _pull_progress_event(data: dict[str, Any]) -> tuple[str, bool]:
+    """Map one upstream progress object to ``(frame, finished)``."""
+    if data.get("error"):
+        logger.warning("Ollama pull reported an error")
+        return _PULL_FAILED_EVENT, True
+    if data.get("status") == "success":
+        return _pull_event("success", 100, True), True
+    total = data.get("total") or 0
+    completed = data.get("completed") or 0
+    pct = int(completed * 100 / total) if total else 0
+    return _pull_event("downloading", pct, False), False
+
+
+async def _ollama_pull_events(base_url: str, model: str) -> AsyncIterator[str]:
+    """Stream SSE frames for an Ollama model pull.
+
+    Upstream status text and exception messages are never echoed to the
+    client: only fixed status strings and the progress percent.
+    """
+    async with ollama_async_http_client(
+        httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
+    ) as client:
+        try:
+            async with client.stream(
+                "POST",
+                f"{base_url}/api/pull",
+                json={"name": model, "stream": True},
+            ) as resp:
+                if resp.status_code >= 400:
+                    logger.warning("Ollama pull rejected: http_status=%s", resp.status_code)
+                    yield _PULL_FAILED_EVENT
+                    return
+                async for line in resp.aiter_lines():
+                    data = _parse_pull_line(line)
+                    if data is None:
+                        continue
+                    frame, finished = _pull_progress_event(data)
+                    yield frame
+                    if finished:
                         return
-                    async for line in resp.aiter_lines():
-                        if not line.strip():
-                            continue
-                        try:
-                            data = _json.loads(line)
-                        except _json.JSONDecodeError:
-                            continue
-                        if not isinstance(data, dict):
-                            continue
-                        if data.get("error"):
-                            logger.warning("Ollama pull reported an error")
-                            yield failed
-                            return
-                        if data.get("status") == "success":
-                            yield _event("success", 100, True)
-                            return
-                        total = data.get("total") or 0
-                        completed = data.get("completed") or 0
-                        pct = int(completed * 100 / total) if total else 0
-                        yield _event("downloading", pct, False)
-            except Exception as exc:
-                logger.warning("Ollama pull failed: %s", type(exc).__name__)
-                yield failed
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+        except Exception as exc:
+            logger.warning("Ollama pull failed: %s", type(exc).__name__)
+            yield _PULL_FAILED_EVENT
 
 
 @router.get(
@@ -818,9 +838,6 @@ async def get_ingestion_health_endpoint(
     settings = await load_settings(db)
 
     ffmpeg_status = "ok" if shutil.which("ffmpeg") is not None else "missing"
-
-    whisper_package_status = "ok"
-    whisper_model_status = "unknown"
     messages: list[str] = []
 
     try:
@@ -832,35 +849,12 @@ async def get_ingestion_health_endpoint(
             "Python package 'openai-whisper' is not installed in the backend environment."
         )
     else:
-        model_name = (settings.whisper_model or "base").strip()
-        xdg_cache_home = os.getenv("XDG_CACHE_HOME")
-        base_cache_dir = (
-            Path(xdg_cache_home)
-            if xdg_cache_home
-            else Path(os.path.expanduser("~")) / ".cache"
+        whisper_package_status = "ok"
+        whisper_model_status, model_message = _whisper_model_status(
+            whisper, (settings.whisper_model or "base").strip()
         )
-        try:
-            import whisper  # type: ignore[import]
-
-            models_map = getattr(whisper, "_MODELS", {})  # type: ignore[attr-defined]
-            model_url = models_map.get(model_name)
-            if isinstance(model_url, str) and model_url:
-                filename = os.path.basename(model_url)
-            else:
-                filename = f"{model_name}.pt"
-        except Exception:
-            filename = f"{model_name}.pt"
-
-        cache_dir = base_cache_dir / "whisper"
-        model_path = cache_dir / filename
-        if model_path.exists():
-            whisper_model_status = "ok"
-        else:
-            whisper_model_status = "missing"
-            messages.append(
-                f"Whisper model '{model_name}' has not been downloaded yet "
-                f"(expected at '{model_path}')."
-            )
+        if model_message is not None:
+            messages.append(model_message)
 
     if ffmpeg_status == "missing":
         messages.append("The 'ffmpeg' binary was not found on PATH.")
@@ -872,6 +866,44 @@ async def get_ingestion_health_endpoint(
         whisper_package=whisper_package_status,
         whisper_model=whisper_model_status,
         message=message,
+    )
+
+
+def _whisper_cache_dir() -> Path:
+    """Return the directory where Whisper caches downloaded models."""
+    xdg_cache_home = os.getenv("XDG_CACHE_HOME")
+    base_cache_dir = (
+        Path(xdg_cache_home)
+        if xdg_cache_home
+        else Path(os.path.expanduser("~")) / ".cache"
+    )
+    return base_cache_dir / "whisper"
+
+
+def _whisper_model_filename(whisper: Any, model_name: str) -> str:
+    """Return the checkpoint file name Whisper uses for ``model_name``.
+
+    Falls back to ``<model_name>.pt`` when the package exposes no usable
+    download URL for the model.
+    """
+    try:
+        models_map = getattr(whisper, "_MODELS", {})
+        model_url = models_map.get(model_name)
+    except Exception:
+        return f"{model_name}.pt"
+    if isinstance(model_url, str) and model_url:
+        return os.path.basename(model_url)
+    return f"{model_name}.pt"
+
+
+def _whisper_model_status(whisper: Any, model_name: str) -> tuple[str, Optional[str]]:
+    """Return ``(status, message)`` for the cached Whisper model; ``message`` explains a miss."""
+    model_path = _whisper_cache_dir() / _whisper_model_filename(whisper, model_name)
+    if model_path.exists():
+        return "ok", None
+    return "missing", (
+        f"Whisper model '{model_name}' has not been downloaded yet "
+        f"(expected at '{model_path}')."
     )
 
 

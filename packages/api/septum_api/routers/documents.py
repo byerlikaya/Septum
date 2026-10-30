@@ -14,7 +14,17 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, BinaryIO, Dict, List, Optional, Sequence, Tuple
+from typing import (
+    Any,
+    BinaryIO,
+    Callable,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 from fastapi import (
     APIRouter,
@@ -539,6 +549,51 @@ async def _schema_for_update(
     return schema, columns_by_index
 
 
+async def _gate_semantic_labels(
+    db: AsyncSession, document: Document, payload: SpreadsheetSchemaUpdatePayload
+) -> None:
+    """Replace every typed semantic label in ``payload`` with its PII-gated form."""
+    typed_labels = [
+        c.semantic_label for c in payload.columns if c.semantic_label
+    ]
+    if not typed_labels:
+        return
+    settings = await load_settings(db)
+    gated_labels = iter(
+        await gate_document_texts(db, settings, document, typed_labels)
+    )
+    for c in payload.columns:
+        if c.semantic_label:
+            c.semantic_label = next(gated_labels)
+
+
+def _apply_column_updates(
+    db: AsyncSession,
+    schema: SpreadsheetSchema,
+    columns_by_index: Dict[int, SpreadsheetColumn],
+    payload: SpreadsheetSchemaUpdatePayload,
+) -> None:
+    """Add new columns and update the mutable fields of existing ones."""
+    for col_payload in payload.columns:
+        existing = columns_by_index.get(col_payload.index)
+        if existing is None:
+            db.add(
+                SpreadsheetColumn(
+                    schema_id=schema.id,
+                    index=col_payload.index,
+                    technical_label=generated_technical_label(col_payload.index),
+                    semantic_label=col_payload.semantic_label,
+                    is_numeric=col_payload.is_numeric,
+                )
+            )
+            continue
+
+        existing.semantic_label = _resulting_semantic_label(existing, col_payload)
+        # A mismatched technical label leaves the column untouched.
+        if existing.technical_label == col_payload.technical_label:
+            existing.is_numeric = col_payload.is_numeric
+
+
 @router.put(
     "/{document_id}/schema",
     status_code=status.HTTP_200_OK,
@@ -571,37 +626,10 @@ async def update_spreadsheet_schema(
         _check_update_fits_schema(
             payload, {col.index: col for col in schema.columns}
         )
-    typed_labels = [
-        c.semantic_label for c in payload.columns if c.semantic_label
-    ]
-    if typed_labels:
-        settings = await load_settings(db)
-        gated_labels = iter(
-            await gate_document_texts(db, settings, document, typed_labels)
-        )
-        for c in payload.columns:
-            if c.semantic_label:
-                c.semantic_label = next(gated_labels)
+    await _gate_semantic_labels(db, document, payload)
 
     schema, columns_by_index = await _schema_for_update(db, document_id, payload)
-
-    for col_payload in payload.columns:
-        existing = columns_by_index.get(col_payload.index)
-        if existing is None:
-            new_col = SpreadsheetColumn(
-                schema_id=schema.id,
-                index=col_payload.index,
-                technical_label=generated_technical_label(col_payload.index),
-                semantic_label=col_payload.semantic_label,
-                is_numeric=col_payload.is_numeric,
-            )
-            db.add(new_col)
-            continue
-
-        existing.semantic_label = _resulting_semantic_label(existing, col_payload)
-        # A mismatched technical label leaves the column untouched.
-        if existing.technical_label == col_payload.technical_label:
-            existing.is_numeric = col_payload.is_numeric
+    _apply_column_updates(db, schema, columns_by_index, payload)
 
     await db.commit()
 
@@ -686,6 +714,50 @@ def _detect_document_language(file_format: str, ingestion_result: Any) -> str:
     return detect_language(ingestion_result.text)
 
 
+# libmagic answers that are too generic to trust; structural checks decide
+# instead (e.g. ODS is ZIP-based).
+_LOW_CONFIDENCE_MAGIC_MIMES = frozenset({"application/octet-stream", "application/zip"})
+
+# Ordered (predicate, MIME type) pairs; the first match wins.
+_STRUCTURAL_SIGNATURES: Tuple[Tuple[Callable[[bytes], bool], str], ...] = (
+    (lambda raw: raw.startswith(b"%PDF-"), "application/pdf"),
+    (lambda raw: raw.startswith(b"\x89PNG\r\n\x1a\n"), "image/png"),
+    (lambda raw: raw.startswith(b"\xff\xd8"), "image/jpeg"),
+    (lambda raw: raw.startswith(b"RIFF") and raw[8:12] == b"WAVE", "audio/wav"),
+    (lambda raw: raw.startswith(b"OggS"), "audio/ogg"),
+    (lambda raw: raw.startswith(b"fLaC"), "audio/flac"),
+    (lambda raw: raw.startswith(b"ID3"), _AUDIO_MPEG_MIME),
+    (lambda raw: len(raw) > 2 and raw[0] == 0xFF and (raw[1] & 0xE0) == 0xE0, _AUDIO_MPEG_MIME),
+    (lambda raw: len(raw) > 12 and raw[4:8] == b"ftyp", "audio/mp4"),
+    (
+        lambda raw: raw.startswith(b"PK") and b"vnd.oasis.opendocument.spreadsheet" in raw[:4000],
+        "application/vnd.oasis.opendocument.spreadsheet",
+    ),
+)
+
+
+def _magic_mime_type(raw_bytes: bytes) -> Optional[str]:
+    """Return libmagic's confident answer for ``raw_bytes``, or ``None``."""
+    if _magic is None:
+        return None
+    try:
+        mime = _magic.from_buffer(raw_bytes, mime=True)
+    except Exception as exc:
+        logger.debug("Content-based MIME detection failed, using structural checks: %s", type(exc).__name__)
+        return None
+    if isinstance(mime, str) and mime and mime not in _LOW_CONFIDENCE_MAGIC_MIMES:
+        return mime
+    return None
+
+
+def _structural_mime_type(raw_bytes: bytes) -> Optional[str]:
+    """Return the MIME type of the first matching file signature, or ``None``."""
+    return next(
+        (mime for matches, mime in _STRUCTURAL_SIGNATURES if matches(raw_bytes)),
+        None,
+    )
+
+
 def _detect_mime_type(raw_bytes: bytes, fallback_mime_type: Optional[str] = None) -> str:
     """Detect MIME type from raw bytes using content-based heuristics.
 
@@ -695,40 +767,9 @@ def _detect_mime_type(raw_bytes: bytes, fallback_mime_type: Optional[str] = None
     3. Fallback to the provided ``fallback_mime_type`` (typically the client-
        supplied ``Content-Type``) if detection fails.
     """
-    if _magic is not None:
-        try:
-            mime = _magic.from_buffer(raw_bytes, mime=True)  # type: ignore[arg-type]
-            # Treat "application/octet-stream" and "application/zip" as low-confidence
-            # and fall through to structural checks (e.g. ODS is ZIP-based).
-            if isinstance(mime, str) and mime and mime not in (
-                "application/octet-stream",
-                "application/zip",
-            ):
-                return mime
-        except Exception as exc:
-            logger.debug("Content-based MIME detection failed, using structural checks: %s", type(exc).__name__)
-
-    if raw_bytes.startswith(b"%PDF-"):
-        return "application/pdf"
-    if raw_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if raw_bytes.startswith(b"\xff\xd8"):
-        return "image/jpeg"
-
-    if raw_bytes.startswith(b"RIFF") and raw_bytes[8:12] == b"WAVE":
-        return "audio/wav"
-    if raw_bytes.startswith(b"OggS"):
-        return "audio/ogg"
-    if raw_bytes.startswith(b"fLaC"):
-        return "audio/flac"
-    if raw_bytes.startswith(b"ID3"):
-        return _AUDIO_MPEG_MIME
-    if len(raw_bytes) > 2 and raw_bytes[0] == 0xFF and (raw_bytes[1] & 0xE0) == 0xE0:
-        return _AUDIO_MPEG_MIME
-    if len(raw_bytes) > 12 and raw_bytes[4:8] == b"ftyp":
-        return "audio/mp4"
-    if raw_bytes.startswith(b"PK") and b"vnd.oasis.opendocument.spreadsheet" in raw_bytes[:4000]:
-        return "application/vnd.oasis.opendocument.spreadsheet"
+    detected = _magic_mime_type(raw_bytes) or _structural_mime_type(raw_bytes)
+    if detected is not None:
+        return detected
 
     if fallback_mime_type and fallback_mime_type.strip():
         return fallback_mime_type.strip()
@@ -948,15 +989,52 @@ async def upload_document(
     mime_type, file_format, file_size = await _seal_upload_in_thread(
         file.file, getattr(file, "content_type", None), encrypted_path
     )
+    source = _UploadedSource(encrypted_path, mime_type, file_format)
+    document = await _insert_upload_row(
+        db,
+        source,
+        original_filename=file.filename or "",
+        file_size=file_size,
+        user_id=current_user.id,
+    )
+    await db.refresh(document)
 
+    background_tasks.add_task(_run_upload_ingestion, document.id, source, current_user.id)
+
+    return _document_response(document, None)
+
+
+class _UploadedSource(NamedTuple):
+    """Where a sealed upload lives and how it was typed."""
+
+    encrypted_path: Path
+    mime_type: str
+    file_format: str
+
+
+async def _insert_upload_row(
+    db: AsyncSession,
+    source: _UploadedSource,
+    *,
+    original_filename: str,
+    file_size: int,
+    user_id: int,
+) -> Document:
+    """Create and commit the row of a fresh upload in ``processing`` state.
+
+    On any failure the sealed source file is removed before the error
+    propagates: no row will ever point at it, so it must not outlive the
+    failed upload.
+    """
+    encrypted_path = source.encrypted_path
     try:
         active_reg_ids = await _snapshot_active_regulations(db)
 
         document = Document(
             filename=str(encrypted_path.name),
-            original_filename=file.filename or "",
-            file_type=mime_type,
-            file_format=file_format,
+            original_filename=original_filename,
+            file_type=source.mime_type,
+            file_format=source.file_format,
             detected_language="en",
             language_override=None,
             encrypted_path=str(encrypted_path),
@@ -966,12 +1044,11 @@ async def upload_document(
             active_regulation_ids=active_reg_ids,
             ingestion_status="processing",
             ingestion_error=None,
-            user_id=current_user.id,
+            user_id=user_id,
         )
         db.add(document)
         await db.commit()
     except BaseException:
-        # No row will ever point at the file, so it must not outlive the failure.
         try:
             encrypted_path.unlink(missing_ok=True)
         except OSError as unlink_exc:
@@ -980,78 +1057,83 @@ async def upload_document(
                 type(unlink_exc).__name__,
             )
         raise
-    await db.refresh(document)
+    return document
 
-    async def _run_full_background(doc_id: int) -> None:
-        """Run ingestion + pipeline in a background task."""
-        from ..database import get_session_maker
-        from ..services.document_progress import clear_progress, set_progress
 
-        async with _INGESTION_SEMAPHORE, get_session_maker()() as bg_db:
-            bg_doc = await bg_db.get(Document, doc_id)
-            if bg_doc is None:
-                return
-            try:
-                bg_settings = await load_settings(bg_db)
+_EMPTY_AUDIO_ERROR = "Audio transcription failed: decoder produced no samples or text."
 
-                ingester_kwargs = _build_ingester_kwargs(file_format, bg_settings)
-                ingestion_result = await _INGESTION_ROUTER.ingest(
-                    file_path=encrypted_path,
-                    mime_type=mime_type,
-                    file_format=file_format,
-                    ingester_kwargs=ingester_kwargs,
-                )
-                set_progress(doc_id, 1)
-                bg_doc.detected_language = await asyncio.to_thread(
-                    _detect_document_language, file_format, ingestion_result
-                )
-                bg_doc.ocr_confidence = ingestion_result.confidence
-                # Flush these two fields immediately so they cannot become
-                # stale dirty state that a query-invoked autoflush inside the
-                # pipeline tries to write under SQLite write-lock contention.
-                await bg_db.commit()
 
-                if file_format in {"xlsx", "ods", "csv", "tsv"}:
-                    await _ensure_spreadsheet_schema(
-                        bg_db, bg_doc.id, ingestion_result.metadata
-                    )
+async def _fail_empty_audio(bg_db: AsyncSession, bg_doc: Document, warnings: Sequence[str]) -> None:
+    """Mark an audio upload whose transcription produced no text as failed."""
+    bg_doc.ingestion_status = "failed"
+    if warnings:
+        bg_doc.ingestion_error = f"{_EMPTY_AUDIO_ERROR} ({'; '.join(warnings)})"
+    else:
+        bg_doc.ingestion_error = _EMPTY_AUDIO_ERROR
+    bg_doc.chunk_count = 0
+    bg_doc.entity_count = 0
+    await bg_db.commit()
 
-                if (
-                    file_format == "audio"
-                    and not (ingestion_result.text or "").strip()
-                ):
-                    bg_doc.ingestion_status = "failed"
-                    base_msg = (
-                        "Audio transcription failed: "
-                        "decoder produced no samples or text."
-                    )
-                    if ingestion_result.warnings:
-                        detail = "; ".join(ingestion_result.warnings)
-                        bg_doc.ingestion_error = f"{base_msg} ({detail})"
-                    else:
-                        bg_doc.ingestion_error = base_msg
-                    bg_doc.chunk_count = 0
-                    bg_doc.entity_count = 0
-                    await bg_db.commit()
-                    return
 
-                bg_pipeline = DocumentPipeline(settings=bg_settings)
-                await bg_pipeline.run(
-                    db=bg_db,
-                    document=bg_doc,
-                    file_format=file_format,
-                    ingested_text=ingestion_result.text,
-                    ingestion_confidence=ingestion_result.confidence,
-                    on_progress=lambda pct: set_progress(doc_id, pct),
-                )
-            except Exception as bg_exc:  # noqa: BLE001
-                await _record_background_failure(bg_db, doc_id, bg_exc, current_user.id)
-            finally:
-                clear_progress(doc_id)
+async def _ingest_upload(
+    bg_db: AsyncSession, bg_doc: Document, doc_id: int, source: _UploadedSource
+) -> None:
+    """Ingest an uploaded source file and run the document pipeline over it."""
+    from ..services.document_progress import set_progress
 
-    background_tasks.add_task(_run_full_background, document.id)
+    file_format = source.file_format
+    bg_settings = await load_settings(bg_db)
 
-    return _document_response(document, None)
+    ingester_kwargs = _build_ingester_kwargs(file_format, bg_settings)
+    ingestion_result = await _INGESTION_ROUTER.ingest(
+        file_path=source.encrypted_path,
+        mime_type=source.mime_type,
+        file_format=file_format,
+        ingester_kwargs=ingester_kwargs,
+    )
+    set_progress(doc_id, 1)
+    bg_doc.detected_language = await asyncio.to_thread(
+        _detect_document_language, file_format, ingestion_result
+    )
+    bg_doc.ocr_confidence = ingestion_result.confidence
+    # Flush these two fields immediately so they cannot become
+    # stale dirty state that a query-invoked autoflush inside the
+    # pipeline tries to write under SQLite write-lock contention.
+    await bg_db.commit()
+
+    if file_format in {"xlsx", "ods", "csv", "tsv"}:
+        await _ensure_spreadsheet_schema(bg_db, bg_doc.id, ingestion_result.metadata)
+
+    if file_format == "audio" and not (ingestion_result.text or "").strip():
+        await _fail_empty_audio(bg_db, bg_doc, ingestion_result.warnings)
+        return
+
+    bg_pipeline = DocumentPipeline(settings=bg_settings)
+    await bg_pipeline.run(
+        db=bg_db,
+        document=bg_doc,
+        file_format=file_format,
+        ingested_text=ingestion_result.text,
+        ingestion_confidence=ingestion_result.confidence,
+        on_progress=lambda pct: set_progress(doc_id, pct),
+    )
+
+
+async def _run_upload_ingestion(doc_id: int, source: _UploadedSource, user_id: int) -> None:
+    """Run ingestion + pipeline for a fresh upload in a background task."""
+    from ..database import get_session_maker
+    from ..services.document_progress import clear_progress
+
+    async with _INGESTION_SEMAPHORE, get_session_maker()() as bg_db:
+        bg_doc = await bg_db.get(Document, doc_id)
+        if bg_doc is None:
+            return
+        try:
+            await _ingest_upload(bg_db, bg_doc, doc_id, source)
+        except Exception as bg_exc:
+            await _record_background_failure(bg_db, doc_id, bg_exc, user_id)
+        finally:
+            clear_progress(doc_id)
 
 
 _PROGRESS_ID_RE = re.compile(r"\d{1,10}", re.ASCII)

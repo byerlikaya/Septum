@@ -92,6 +92,188 @@ def _is_section_marker(text: str) -> bool:
     return bool(re.match(r"^\d+[\.\)]\s", text.strip()))
 
 
+_ALIAS_ENTITY_TYPES: frozenset[str] = frozenset({"PERSON_NAME", "ALIAS", "FIRST_NAME", "LAST_NAME"})
+_PERSON_PLACEHOLDER_TYPES: tuple[str, ...] = ("PERSON_NAME", "FIRST_NAME", "LAST_NAME", "ALIAS")
+_NUMERIC_SYMBOLS: tuple[str, ...] = ("$", "€", "£", "¥", "%")
+_NUMERIC_HEAVY_RATIO = 0.4
+
+
+def _candidate_payload(text: str, candidate_spans: List[DetectedSpan]) -> list[dict]:
+    """Serialize candidate spans into the shape the validation prompt expects."""
+    return [
+        {
+            "text": text[span.start : span.end],
+            "entity_type": span.entity_type,
+            "start": span.start,
+            "end": span.end,
+            "score": span.score,
+        }
+        for span in candidate_spans
+    ]
+
+
+def _matching_candidate(item: object, candidate_spans: List[DetectedSpan]) -> Optional[DetectedSpan]:
+    """Return the candidate whose offsets and type match a validated item, if any."""
+    if not isinstance(item, dict):
+        return None
+    start = item.get("start")
+    end = item.get("end")
+    entity_type = item.get("entity_type")
+    if item.get("text") is None or entity_type is None or start is None or end is None:
+        return None
+    for original_span in candidate_spans:
+        if (
+            original_span.start == start
+            and original_span.end == end
+            and original_span.entity_type == entity_type
+        ):
+            return original_span
+    return None
+
+
+def _is_numeric_like_line(line: str) -> bool:
+    """Return whether at least half of a line's tokens carry digits or currency/percent signs."""
+    tokens = line.split()
+    if not tokens:
+        return False
+    digit_tokens = 0
+    for token in tokens:
+        if any(ch.isdigit() for ch in token):
+            digit_tokens += 1
+        if any(ch in token for ch in _NUMERIC_SYMBOLS):
+            digit_tokens += 1
+    return digit_tokens >= max(1, len(tokens) // 2)
+
+
+def _is_numeric_heavy(normalized_text: str) -> bool:
+    """Return whether the text is numeric-heavy structured content, logging the skip."""
+    lines = [ln.strip() for ln in normalized_text.splitlines() if ln.strip()]
+    if not lines:
+        return False
+    numeric_like = sum(1 for line in lines if _is_numeric_like_line(line))
+    if numeric_like / max(1, len(lines)) < _NUMERIC_HEAVY_RATIO:
+        return False
+    logger.debug(
+        "Skipping Ollama alias layer for numeric-heavy structured text "
+        "(%d/%d lines classified as numeric-like).",
+        numeric_like,
+        len(lines),
+    )
+    return True
+
+
+def _unique_span_offsets(normalized_text: str, text_str: str) -> Optional[tuple[int, int]]:
+    """Locate a single, word-bounded occurrence of ``text_str`` (case-insensitive).
+
+    Offsets come from the lowercased text, exactly as the detection layers
+    have always computed them. Returns ``None`` when the value is absent,
+    not on a word boundary, or occurs more than once.
+    """
+    text_lower = normalized_text.lower()
+    search_lower = text_str.lower()
+    idx = text_lower.find(search_lower)
+    if idx < 0:
+        return None
+    end_idx = idx + len(text_str)
+    if not is_span_boundary(normalized_text, idx, end_idx):
+        return None
+    if text_lower.count(search_lower) > 1:
+        return None
+    return idx, end_idx
+
+
+def _alias_span(item: object, normalized_text: str) -> Optional[DetectedSpan]:
+    """Turn one alias-layer item into a span, or ``None`` when it is rejected."""
+    if not isinstance(item, dict):
+        return None
+    text_val = item.get("text")
+    entity_type = item.get("entity_type") or item.get("type") or "ALIAS"
+    if text_val is None or text_val == "":
+        return None
+    entity_type_upper = str(entity_type).upper().replace(" ", "_")
+    if entity_type_upper not in _ALIAS_ENTITY_TYPES:
+        return None
+    text_str = str(text_val).strip()
+    if len(text_str) < 3:
+        return None
+    offsets = _unique_span_offsets(normalized_text, text_str)
+    if offsets is None:
+        return None
+    return DetectedSpan(
+        start=offsets[0],
+        end=offsets[1],
+        entity_type=entity_type_upper,
+        score=0.85,
+    )
+
+
+def _is_implausible_semantic_value(etype: str, text_str: str) -> bool:
+    """Reject ID-like values without digits and heading-like values for heading-prone types."""
+    if etype in _OLLAMA_ID_LIKE_TYPES and not any(c.isdigit() for c in text_str):
+        return True
+    return etype in _OLLAMA_HEADING_PRONE_TYPES and (
+        _is_heading_like(text_str) or _is_section_marker(text_str)
+    )
+
+
+def _semantic_span(item: object, normalized_text: str, valid_types: set[str]) -> Optional[DetectedSpan]:
+    """Turn one semantic-layer item into a span, or ``None`` when it is rejected."""
+    if not isinstance(item, dict):
+        return None
+    text_val = item.get("text")
+    etype = str(item.get("type", "")).upper().replace(" ", "_")
+    if not text_val or etype not in valid_types:
+        return None
+    text_str = str(text_val).strip()
+    if len(text_str) < 4:
+        return None
+    offsets = _unique_span_offsets(normalized_text, text_str)
+    if offsets is None or _is_implausible_semantic_value(etype, text_str):
+        return None
+    return DetectedSpan(
+        start=offsets[0],
+        end=offsets[1],
+        entity_type=etype,
+        score=0.80,
+    )
+
+
+def _placeholder_for_reference(
+    anon_map: AnonymizationMap, refers_to: str, language: str
+) -> Optional[str]:
+    """Find the placeholder for ``refers_to``: exact key first, then normalized comparison."""
+    from septum_core.text_utils import normalize_for_comparison
+
+    placeholder = anon_map.entity_map.get(refers_to)
+    if placeholder:
+        return placeholder
+    norm_ref = normalize_for_comparison(refers_to, language)
+    for orig, ph in anon_map.entity_map.items():
+        if normalize_for_comparison(orig, language) == norm_ref:
+            return ph
+    return None
+
+
+def _register_pronoun(item: dict, anon_map: AnonymizationMap, language: str) -> bool:
+    """Map one pronoun item onto its person placeholder; return whether it was registered."""
+    from septum_core.anonymization_map import SANITIZER_STOPWORDS
+    from septum_core.text_utils import normalize_for_comparison
+
+    pronoun_text = item.get("text", "").strip()
+    refers_to = item.get("refers_to", "").strip()
+    if not pronoun_text or not refers_to:
+        return False
+    placeholder = _placeholder_for_reference(anon_map, refers_to, language)
+    if not placeholder:
+        return False
+    norm_pronoun = normalize_for_comparison(pronoun_text, language)
+    if len(norm_pronoun) <= 1 or norm_pronoun in SANITIZER_STOPWORDS:
+        return False
+    anon_map.blocklist.add(norm_pronoun)
+    anon_map.token_to_placeholder[norm_pronoun] = placeholder
+    return True
+
+
 class OllamaSemanticAdapter:
     """Host-side :class:`SemanticDetectionPort` implementation backed by Ollama.
 
@@ -121,20 +303,9 @@ class OllamaSemanticAdapter:
         if not candidate_spans or not text:
             return list(candidate_spans)
 
-        candidate_dicts = [
-            {
-                "text": text[span.start : span.end],
-                "entity_type": span.entity_type,
-                "start": span.start,
-                "end": span.end,
-                "score": span.score,
-            }
-            for span in candidate_spans
-        ]
-
         prompt = PromptCatalog.pii_validation_prompt(
             text=text,
-            candidate_spans=candidate_dicts,
+            candidate_spans=_candidate_payload(text, candidate_spans),
             language=language,
             regulation_rules=regulation_context,
         )
@@ -156,27 +327,11 @@ class OllamaSemanticAdapter:
             )
             return list(candidate_spans)
 
-        validated_spans: List[DetectedSpan] = []
-        for item in validated_items:
-            if not isinstance(item, dict):
-                continue
-            span_text = item.get("text")
-            entity_type = item.get("entity_type")
-            start = item.get("start")
-            end = item.get("end")
-
-            if span_text is None or entity_type is None or start is None or end is None:
-                continue
-
-            for original_span in candidate_spans:
-                if (
-                    original_span.start == start
-                    and original_span.end == end
-                    and original_span.entity_type == entity_type
-                ):
-                    validated_spans.append(original_span)
-                    break
-
+        validated_spans = [
+            span
+            for span in (_matching_candidate(item, candidate_spans) for item in validated_items)
+            if span is not None
+        ]
         if not validated_spans:
             logger.warning(
                 "Ollama validation matched no spans; keeping all candidates"
@@ -187,34 +342,8 @@ class OllamaSemanticAdapter:
 
     def detect_aliases(self, *, normalized_text: str) -> List[DetectedSpan]:
         """Call local Ollama to detect PII (aliases, nicknames)."""
-        if not normalized_text:
+        if not normalized_text or _is_numeric_heavy(normalized_text):
             return []
-
-        lines = [ln.strip() for ln in normalized_text.splitlines() if ln.strip()]
-        if lines:
-            numeric_like = 0
-            for line in lines:
-                if not line:
-                    continue
-                tokens = line.split()
-                if not tokens:
-                    continue
-                digit_tokens = 0
-                for token in tokens:
-                    if any(ch.isdigit() for ch in token):
-                        digit_tokens += 1
-                    if any(ch in token for ch in ("$", "€", "£", "¥", "%")):
-                        digit_tokens += 1
-                if digit_tokens >= max(1, len(tokens) // 2):
-                    numeric_like += 1
-            if numeric_like / max(1, len(lines)) >= 0.4:
-                logger.debug(
-                    "Skipping Ollama alias layer for numeric-heavy structured text "
-                    "(%d/%d lines classified as numeric-like).",
-                    numeric_like,
-                    len(lines),
-                )
-                return []
 
         prompt = PromptCatalog.sanitizer_alias_layer(normalized_text)
         response = call_ollama_sync(
@@ -227,42 +356,8 @@ class OllamaSemanticAdapter:
         items = extract_json_array(response)
         logger.debug("Layer 3 Ollama parsed %d JSON items", len(items))
 
-        spans_list: List[DetectedSpan] = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            text_val = item.get("text")
-            entity_type = item.get("entity_type") or item.get("type") or "ALIAS"
-            if text_val is None or text_val == "":
-                continue
-            entity_type_upper = str(entity_type).upper().replace(" ", "_")
-            if entity_type_upper not in {"PERSON_NAME", "ALIAS", "FIRST_NAME", "LAST_NAME"}:
-                continue
-            text_str = str(text_val).strip()
-            if len(text_str) < 3:
-                continue
-
-            text_lower = normalized_text.lower()
-            search_lower = text_str.lower()
-            idx = text_lower.find(search_lower)
-            if idx < 0:
-                continue
-            end_idx = idx + len(text_str)
-
-            if not is_span_boundary(normalized_text, idx, end_idx):
-                continue
-            if text_lower.count(search_lower) > 1:
-                continue
-
-            spans_list.append(
-                DetectedSpan(
-                    start=idx,
-                    end=end_idx,
-                    entity_type=entity_type_upper,
-                    score=0.85,
-                )
-            )
-        return spans_list
+        spans = (_alias_span(item, normalized_text) for item in items)
+        return [span for span in spans if span is not None]
 
     def detect_semantic(
         self,
@@ -280,48 +375,12 @@ class OllamaSemanticAdapter:
         if not response or not response.strip():
             return []
 
-        items = extract_json_array(response)
         valid_types = set(entity_types)
-        spans: List[DetectedSpan] = []
-
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            text_val = item.get("text")
-            etype = str(item.get("type", "")).upper().replace(" ", "_")
-            if not text_val or etype not in valid_types:
-                continue
-
-            text_str = str(text_val).strip()
-            if len(text_str) < 4:
-                continue
-
-            idx = normalized_text.lower().find(text_str.lower())
-            if idx < 0:
-                continue
-            end_idx = idx + len(text_str)
-
-            if not is_span_boundary(normalized_text, idx, end_idx):
-                continue
-            if normalized_text.lower().count(text_str.lower()) > 1:
-                continue
-
-            if etype in _OLLAMA_ID_LIKE_TYPES and not any(
-                c.isdigit() for c in text_str
-            ):
-                continue
-            if etype in _OLLAMA_HEADING_PRONE_TYPES and (
-                _is_heading_like(text_str) or _is_section_marker(text_str)
-            ):
-                continue
-
-            spans.append(DetectedSpan(
-                start=idx,
-                end=end_idx,
-                entity_type=etype,
-                score=0.80,
-            ))
-        return spans
+        spans = (
+            _semantic_span(item, normalized_text, valid_types)
+            for item in extract_json_array(response)
+        )
+        return [span for span in spans if span is not None]
 
     def resolve_coreference(
         self,
@@ -331,13 +390,10 @@ class OllamaSemanticAdapter:
         language: str,
     ) -> int:
         """Use Ollama to identify pronouns referring to known person entities."""
-        from septum_core.anonymization_map import SANITIZER_STOPWORDS
-        from septum_core.text_utils import normalize_for_comparison
-
         person_entities = [
             {"name": orig, "placeholder": ph}
             for orig, ph in anon_map.entity_map.items()
-            if any(bt in ph for bt in ("PERSON_NAME", "FIRST_NAME", "LAST_NAME", "ALIAS"))
+            if any(bt in ph for bt in _PERSON_PLACEHOLDER_TYPES)
         ]
         if not person_entities:
             return 0
@@ -355,34 +411,11 @@ class OllamaSemanticAdapter:
         if not response or not response.strip():
             return 0
 
-        items = extract_json_array(response)
-        resolved_count = 0
-
-        for item in items:
-            pronoun_text = item.get("text", "").strip()
-            refers_to = item.get("refers_to", "").strip()
-            if not pronoun_text or not refers_to:
-                continue
-
-            placeholder = anon_map.entity_map.get(refers_to)
-            if not placeholder:
-                norm_ref = normalize_for_comparison(refers_to, language)
-                for orig, ph in anon_map.entity_map.items():
-                    norm_orig = normalize_for_comparison(orig, language)
-                    if norm_orig == norm_ref:
-                        placeholder = ph
-                        break
-            if not placeholder:
-                continue
-
-            norm_pronoun = normalize_for_comparison(pronoun_text, language)
-            if len(norm_pronoun) <= 1 or norm_pronoun in SANITIZER_STOPWORDS:
-                continue
-
-            anon_map.blocklist.add(norm_pronoun)
-            anon_map.token_to_placeholder[norm_pronoun] = placeholder
-            resolved_count += 1
-
+        resolved_count = sum(
+            1
+            for item in extract_json_array(response)
+            if _register_pronoun(item, anon_map, language)
+        )
         if resolved_count > 0:
             logger.debug(
                 "Pronoun coreference resolved %d pronouns for document_id=%s",
