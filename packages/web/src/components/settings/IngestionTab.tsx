@@ -61,7 +61,7 @@ export function IngestionTab({
   const t = useI18n();
   const whisperUnsupported =
     Boolean(settings.whisper_model) &&
-    !Object.prototype.hasOwnProperty.call(WHISPER_MODELS, settings.whisper_model);
+    !Object.hasOwn(WHISPER_MODELS, settings.whisper_model);
   const whisperDescribedBy =
     [
       whisperUnsupported ? "whisper-unsupported-message" : null,
