@@ -15,7 +15,7 @@ type TranslationParams = Record<string, string | number>;
 export type MessageKey = keyof typeof enMessages;
 
 export function hasMessage(key: string): key is MessageKey {
-  return Object.prototype.hasOwnProperty.call(enMessages, key);
+  return Object.hasOwn(enMessages, key);
 }
 
 export function useI18n(): (key: MessageKey, params?: TranslationParams) => string {

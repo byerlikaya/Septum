@@ -42,7 +42,7 @@ export function translateErrorCode(
   t: Translate,
   keys: CodeKeys = HTTP_ERROR_KEYS,
 ): string | null {
-  if (!code || !Object.prototype.hasOwnProperty.call(keys, code)) return null;
+  if (!code || !Object.hasOwn(keys, code)) return null;
   return t(keys[code]);
 }
 
