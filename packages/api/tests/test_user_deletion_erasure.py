@@ -235,7 +235,8 @@ async def test_failed_erasure_keeps_user_and_remaining_documents_retryable(
     assert resp.status_code == 500
     assert "/secret/path" not in resp.text
     assert RAW_NAME not in resp.text
-    assert await world.row(User, target.id) is not None
+    remaining = await world.row(User, target.id)
+    assert remaining is not None and not remaining.is_active
     assert await world.row(Document, first.id) is None
     assert await stored_tiers(first.id, redis_client) == set()
     assert await world.row(Document, second.id) is not None
@@ -697,29 +698,84 @@ async def test_user_removed_during_the_erasure_returns_404(
     assert resp.status_code == 404
 
 
-async def test_last_admin_rule_is_checked_again_after_the_erasure(
+async def test_target_is_deactivated_and_committed_before_the_erasure(
     world: _World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _, target = await _admin_and_target(world)
+    await world.add_document(target)
+    real_erase = users_module.erase_document
+    seen: list[bool] = []
+
+    async def _record_target_state(db: Any, document: Document) -> bool:
+        seen.append((await world.row(User, target.id)).is_active)
+        return await real_erase(db, document)
+
+    monkeypatch.setattr(users_module, "erase_document", _record_target_state)
+
+    resp = await world.client.delete(f"/api/users/{target.id}")
+
+    assert resp.status_code == 204, resp.text
+    assert seen == [False]
+
+
+async def test_admin_lost_before_the_erasure_refuses_and_erases_nothing(
+    world: _World, redis_client
+) -> None:
+    """Two admins deleting each other: the loser must keep its target's documents."""
+    import sqlite3
+
     world.acting = await world.add_user("admin@example.com", role="admin")
     target = await world.add_user("other-admin@example.com", role="admin")
+    doc = await world.add_document(target)
+    engine = world.session_maker.kw["bind"]
+    fired: list[bool] = []
+
+    def _rival_removes_the_acting_admin(conn, cursor, statement: str, *_args: Any) -> None:
+        if fired or not statement.lstrip().upper().startswith(("UPDATE", "DELETE", "INSERT")):
+            return
+        fired.append(True)
+        with contextlib.closing(sqlite3.connect(world.tmp / "users.db", timeout=1)) as other:
+            other.execute("UPDATE users SET is_active = 0 WHERE id = ?", (world.acting.id,))
+            other.commit()
+
+    event.listen(engine.sync_engine, "before_cursor_execute", _rival_removes_the_acting_admin)
+    try:
+        resp = await world.client.delete(f"/api/users/{target.id}")
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", _rival_removes_the_acting_admin)
+
+    assert fired
+    assert resp.status_code == 409
+    assert "last active administrator" in resp.text
+    row = await world.row(User, target.id)
+    assert row is not None and row.is_active
+    assert await world.row(Document, doc.id) is not None
+    assert Path(doc.encrypted_path).exists()
+    assert await stored_tiers(doc.id, redis_client) == _all_tiers(redis_client)
+
+
+async def test_target_reactivated_during_the_erasure_refuses(
+    world: _World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, target = await _admin_and_target(world)
     await world.add_document(target)
     real_erase = users_module.erase_document
 
-    async def _acting_admin_deactivated(db: Any, document: Document) -> bool:
+    async def _reactivated_meanwhile(db: Any, document: Document) -> bool:
         erased = await real_erase(db, document)
         async with world.session_maker() as session:
             await session.execute(
-                text("UPDATE users SET is_active = 0 WHERE id = :id"), {"id": world.acting.id}
+                text("UPDATE users SET is_active = 1 WHERE id = :id"), {"id": target.id}
             )
             await session.commit()
         return erased
 
-    monkeypatch.setattr(users_module, "erase_document", _acting_admin_deactivated)
+    monkeypatch.setattr(users_module, "erase_document", _reactivated_meanwhile)
 
     resp = await world.client.delete(f"/api/users/{target.id}")
 
     assert resp.status_code == 409
-    assert "last active administrator" in resp.text
+    assert "reactivated" in resp.text
     assert await world.row(User, target.id) is not None
 
 

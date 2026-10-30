@@ -171,7 +171,15 @@ class TestUserCrud:
         admin_token = await _bootstrap_admin(router_client)
         await _create_user(router_client, admin_token, "race@example.com")
         # The pre-insert check misses, as when a concurrent create commits in between.
-        monkeypatch.setattr(users_router, "select", lambda *cols: select(*cols).where(false()))
+        blinded: list[bool] = []
+
+        def first_select_misses(*cols):
+            if blinded:
+                return select(*cols)
+            blinded.append(True)
+            return select(*cols).where(false())
+
+        monkeypatch.setattr(users_router, "select", first_select_misses)
         resp = await router_client.post(
             "/api/users",
             headers=_auth(admin_token),

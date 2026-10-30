@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Semantic chunking strategies for different document types.
 
 This module provides intelligent chunking that preserves document structure
@@ -13,6 +11,8 @@ Strategy:
 3. Field extraction: preserve key-value pairs as separate chunks
 """
 
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass
 from typing import List, Optional
@@ -21,6 +21,12 @@ from langchain_experimental.text_splitter import (
     SemanticChunker as LangChainSemanticChunker,
 )
 from septum_core.model_integrity import ModelRefusal
+
+from ..request_limits import (
+    MAX_PRE_APPROVED_CHUNK_CHARS,
+    MIN_CHUNK_SIZE,
+    max_chunk_overlap,
+)
 
 
 @dataclass
@@ -384,14 +390,20 @@ class StructuredDocumentChunker(SemanticChunker):
 
 
 class SlidingWindowChunker(SemanticChunker):
-    """Simple sliding window chunker for unstructured text."""
+    """Simple sliding window chunker for unstructured text.
+
+    The size is clamped to ``[MIN_CHUNK_SIZE, MAX_PRE_APPROVED_CHUNK_CHARS]``
+    and the overlap to ``[0, size // 2]``, the bounds the settings API
+    enforces, so a stored pair written before those bounds or by two racing
+    updates cannot make the window advance by less than half a chunk.
+    """
 
     def __init__(
         self, chunk_size: int = 800, overlap: int = 200, max_chunk_size: int = 1200
     ) -> None:
         super().__init__(max_chunk_size=max_chunk_size)
-        self.chunk_size = chunk_size
-        self.overlap = overlap
+        self.chunk_size = min(max(chunk_size, MIN_CHUNK_SIZE), MAX_PRE_APPROVED_CHUNK_CHARS)
+        self.overlap = min(max(overlap, 0), max_chunk_overlap(self.chunk_size))
 
     def chunk(self, text: str) -> List[Chunk]:
         """Chunk by sliding window with overlap."""

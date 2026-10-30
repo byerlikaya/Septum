@@ -13,6 +13,7 @@ from septum_api.env_flags import (
     parse_float_default_flags,
     parse_int_default_flags,
 )
+from septum_api.request_limits import MIN_CHUNK_SIZE
 from septum_api.services import auth as auth_service
 
 BAD_VALUE = "maybe-xq7"
@@ -152,7 +153,9 @@ def test_numeric_flags_reject_non_finite_or_fractional_values(
     assert value not in str(excinfo.value)
 
 
-@pytest.mark.parametrize("name,minimum", [("CHUNK_SIZE_DEFAULT", 1), ("CHUNK_OVERLAP_DEFAULT", 0)])
+@pytest.mark.parametrize(
+    "name,minimum", [("CHUNK_SIZE_DEFAULT", MIN_CHUNK_SIZE), ("CHUNK_OVERLAP_DEFAULT", 0)]
+)
 def test_int_flag_below_minimum_refuses_naming_variable(
     monkeypatch: pytest.MonkeyPatch, name: str, minimum: int
 ) -> None:
@@ -263,7 +266,7 @@ async def test_bad_numeric_flag_stops_before_gateway_client_install_when_gateway
 
 @pytest.mark.parametrize(
     "flag,value",
-    [("CHUNK_SIZE_DEFAULT", "0"), ("RAG_RELEVANCE_THRESHOLD_DEFAULT", "nan")],
+    [("CHUNK_SIZE_DEFAULT", "7"), ("RAG_RELEVANCE_THRESHOLD_DEFAULT", "nan")],
 )
 def test_seeding_refuses_invalid_numeric_flag_naming_variable(
     monkeypatch: pytest.MonkeyPatch, flag: str, value: str

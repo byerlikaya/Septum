@@ -323,7 +323,7 @@ export const enMessages = {
     "Approximate character length for text chunks.",
   "settings.rag.chunkOverlap.label": "Chunk overlap",
   "settings.rag.chunkOverlap.description":
-    "Number of overlapping characters between consecutive chunks.",
+    "Number of overlapping characters between consecutive chunks. At most half of the chunk size.",
   "settings.rag.topK.label": "Top‑K retrieval",
   "settings.rag.topK.description":
     "Default number of chunks retrieved per query.",
