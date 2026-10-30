@@ -42,6 +42,7 @@ from .national_ids import IBANValidator
 from .ner_model_registry import NERModelRegistry
 from .non_pii_filter import NonPiiFilter, SpanView
 from .ports import NullSemanticDetectionPort, SemanticDetectionPort
+from .presidio_dedup import install as install_fast_remove_duplicates
 from .recognizers.email import ENTITY_TYPE as EMAIL_ENTITY_TYPE
 from .recognizers.email import EmailAddressRecognizer
 from .regulations.composer import ComposedPolicy
@@ -63,6 +64,7 @@ from .text_boundaries import (
 from .text_utils import normalize_for_comparison, normalize_unicode
 
 use_bundled_suffix_list()
+install_fast_remove_duplicates()
 
 _SPACY_MODEL = "en_core_web_sm"
 _cached_nlp_engine: object | None = None
