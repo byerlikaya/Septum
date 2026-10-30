@@ -24,6 +24,7 @@ All notable changes to this project are documented here in a high‑level, date�
 
 ### 2026-10-31
 
+- Span overlap resolution now finds overlaps by sorting and sweeping instead of comparing every span with every other, so very large documents resolve in near-linear time with unchanged masking output; non-finite detector scores (NaN, ±inf) are clamped first, so the result no longer depends on input order.
 - Multi-document chats map each document's placeholder to exactly one placeholder for the turn, so different people who share a first name or surname across documents, or that one document keeps apart, are never merged and each is restored correctly. Placeholders a document or query does not hold (including custom types and short forms like [PERSON_1]) now restore to nothing, and pronouns only some documents know restore to the pronoun itself, instead of naming another person; retry tokens from the old numbering are refused.
 
 ### 2026-10-30
