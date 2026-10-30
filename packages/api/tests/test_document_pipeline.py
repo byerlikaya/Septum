@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from septum_api.services.chunking_strategy import Chunk as SemanticChunk
 from septum_api.services.document_pipeline import DocumentPipeline
 
 
@@ -142,3 +143,46 @@ async def test_run_records_entity_types_of_the_policy_it_sanitized_with(
         [["PHONE_NUMBER", "EMAIL_ADDRESS"]],
         [("EMPLOYEE_ID", "regex", r"E\d+", None, None, [])],
     ).digest
+
+
+def _title_chunks(next_len: int) -> list[SemanticChunk]:
+    return [
+        SemanticChunk(
+            text="Intro", index=0, source_page=1, section_title="Intro", char_count=5
+        ),
+        SemanticChunk(
+            text="x" * next_len,
+            index=1,
+            source_page=1,
+            section_title=None,
+            char_count=next_len,
+        ),
+        SemanticChunk(
+            text="tail", index=2, source_page=2, section_title=None, char_count=4
+        ),
+    ]
+
+
+def test_merge_title_chunks_merges_when_under_cap() -> None:
+    result = DocumentPipeline._merge_title_chunks(_title_chunks(20), 100)
+
+    assert [c.index for c in result] == [0, 2]
+    assert result[0].text == "Intro\n" + "x" * 20
+    assert result[0].char_count == len(result[0].text)
+
+
+def test_merge_title_chunks_merges_at_exact_cap() -> None:
+    cap = len("Intro\n") + 20
+    result = DocumentPipeline._merge_title_chunks(_title_chunks(20), cap)
+
+    assert len(result) == 2
+    assert result[0].char_count == cap
+
+
+def test_merge_title_chunks_skips_when_over_cap() -> None:
+    chunks = _title_chunks(20)
+    cap = len("Intro\n") + 20 - 1
+    result = DocumentPipeline._merge_title_chunks(chunks, cap)
+
+    assert result == chunks
+    assert [c.index for c in result] == [0, 1, 2]

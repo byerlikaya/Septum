@@ -492,17 +492,17 @@ class DocumentPipeline:
         raw_text: str,
     ) -> Sequence[SemanticChunk]:
         if file_format in {"pdf", "docx"}:
-            chunker = StructuredDocumentChunker(
-                max_chunk_size=max(self._settings.pdf_chunk_size, MIN_PDF_CHUNK_SIZE)
-            )
+            max_chunk_size = max(self._settings.pdf_chunk_size, MIN_PDF_CHUNK_SIZE)
+            chunker = StructuredDocumentChunker(max_chunk_size=max_chunk_size)
         else:
+            max_chunk_size = self._settings.chunk_size
             chunker = SlidingWindowChunker(
-                chunk_size=self._settings.chunk_size,
+                chunk_size=max_chunk_size,
                 overlap=self._settings.chunk_overlap,
             )
 
         semantic_chunks = await asyncio.to_thread(chunker.chunk, raw_text)
-        return self._merge_title_chunks(semantic_chunks)
+        return self._merge_title_chunks(semantic_chunks, max_chunk_size)
 
     async def _persist_chunks(
         self,
@@ -542,6 +542,7 @@ class DocumentPipeline:
     @staticmethod
     def _merge_title_chunks(
         semantic_chunks: Sequence[SemanticChunk],
+        max_chunk_size: int,
     ) -> List[SemanticChunk]:
         merged_chunks: List[SemanticChunk] = []
         i = 0
@@ -556,6 +557,10 @@ class DocumentPipeline:
             ):
                 next_chunk = semantic_chunks[i + 1]
                 merged_text = f"{current.text.strip()}\n{next_chunk.text}"
+                if len(merged_text) > max_chunk_size:
+                    merged_chunks.append(current)
+                    i += 1
+                    continue
                 merged_title = current.section_title or next_chunk.section_title
 
                 merged_chunk = SemanticChunk(
