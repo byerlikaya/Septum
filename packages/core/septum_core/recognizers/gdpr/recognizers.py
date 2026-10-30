@@ -14,6 +14,7 @@ from typing import List
 
 from presidio_analyzer import EntityRecognizer
 
+from ...text_boundaries import token_bounded, whole_cue
 from ..base_recognizer import (
     RegexPatternConfig,
     ValidatedPatternRecognizer,
@@ -43,26 +44,26 @@ _PENSION_INSURANCE_CONTEXT = (
     r"sv\s*[\-\s]?\s*nr",
 )
 _DOTTED_8DIGIT_LETTER_ID_CONTEXT = (
-    r"\bdni\b",
+    whole_cue("dni"),
     r"documento\s+nacional",
 )
 _FOREIGNER_ID_CONTEXT = (
-    r"\bnie\b",
+    whole_cue("nie"),
     r"n[úu]mero\s+de\s+identificaci[óo]n\s+de\s+extranjero",
 )
 _TWELVE_DIGIT_SOCIAL_SECURITY_CONTEXT = (
     r"seguridad\s+social",
     r"n\.?\s*seguridad\s+social",
-    r"\bnss\b",
+    whole_cue("nss"),
 )
 _FIFTEEN_DIGIT_SOCIAL_SECURITY_CONTEXT = (
     r"s[eé]curit[eé]\s+sociale",
-    r"\bnir\b",
+    whole_cue("nir"),
     r"num[ée]ro\s+de\s+s[eé]curit[eé]\s+sociale",
 )
 _NINE_DIGIT_BUSINESS_REGISTRATION_CONTEXT = (
-    r"\bsiren\b",
-    r"\bsiret\b",
+    whole_cue("siren"),
+    whole_cue("siret"),
     r"n°?\s*siren",
 )
 
@@ -80,9 +81,9 @@ def _ip_address_recognizer() -> EntityRecognizer:
         entity_type="IP_ADDRESS",
         config=RegexPatternConfig(
             name="gdpr_ipv4",
-            pattern=(
-                r"\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}"
-                r"(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\b"
+            pattern=token_bounded(
+                r"(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}"
+                r"(?:25[0-5]|2[0-4]\d|[01]?\d?\d)"
             ),
             score=0.8,
         ),

@@ -11,6 +11,7 @@ from typing import List
 
 from presidio_analyzer import EntityRecognizer
 
+from ...text_boundaries import token_bounded
 from ..base_recognizer import (
     RegexPatternConfig,
     ValidatedPatternRecognizer,
@@ -23,7 +24,7 @@ def _ird_number_recognizer() -> EntityRecognizer:
         entity_type="TAX_ID",
         config=RegexPatternConfig(
             name="nzpa_ird",
-            pattern=r"\b\d{2,3}[-\s]?\d{3}[-\s]?\d{3}\b",
+            pattern=token_bounded(r"\d{2,3}[-\s]?\d{3}[-\s]?\d{3}"),
             score=0.55,
         ),
     )

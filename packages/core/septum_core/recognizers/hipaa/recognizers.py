@@ -6,6 +6,7 @@ from typing import List
 
 from presidio_analyzer import EntityRecognizer
 
+from ...text_boundaries import token_bounded
 from ..base_recognizer import (
     RegexPatternConfig,
     ValidatedPatternRecognizer,
@@ -17,7 +18,7 @@ def _medical_record_number_recognizer() -> EntityRecognizer:
         entity_type="MEDICAL_RECORD_NUMBER",
         config=RegexPatternConfig(
             name="hipaa_mrn",
-            pattern=r"\bMRN[- ]?[0-9]{6,10}\b",
+            pattern=token_bounded(r"MRN[- ]?[0-9]{6,10}"),
             score=0.8,
         ),
     )
@@ -28,7 +29,7 @@ def _health_insurance_id_recognizer() -> EntityRecognizer:
         entity_type="HEALTH_INSURANCE_ID",
         config=RegexPatternConfig(
             name="hipaa_insurance_id",
-            pattern=r"\b[A-Z]{2}[0-9]{6,10}\b",
+            pattern=token_bounded(r"[A-Z]{2}[0-9]{6,10}"),
             score=0.75,
         ),
     )

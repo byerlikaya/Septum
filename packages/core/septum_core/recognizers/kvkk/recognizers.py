@@ -6,11 +6,18 @@ Entity-type coverage and legal basis are documented in
 ``packages/core/docs/REGULATION_ENTITY_SOURCES.md``.
 """
 
-from typing import List
+from typing import List, Tuple
 
 from presidio_analyzer import EntityRecognizer
 
 from ...national_ids.tckn import TCKNValidator
+from ...text_boundaries import (
+    CueTable,
+    cue_alternation,
+    literal_cue,
+    token_bounded,
+    whole_cue,
+)
 from ..base_recognizer import (
     RegexPatternConfig,
     ValidatedPatternRecognizer,
@@ -20,16 +27,39 @@ _NATIONAL_ID_VALIDATOR = TCKNValidator()
 
 # FUTURE: move to DB as a per-regulation context-keyword list so each
 # regulation pack can declare its own preamble vocabulary without editing
-# code. Kept minimal and ASCII-only until then.
-_NATIONAL_ID_CONTEXT_KEYWORDS: tuple[str, ...] = (
-    "id",
-    "national",
-    "citizen",
-    "passport",
-    "identity",
-    "identification",
-    "no",
-)
+# code. Keyed by ISO 639-1 code; every entry is a plain word, matched as a
+# whole word when it has two letters or fewer ("id", "no") and between cue
+# edges otherwise (see ``literal_cue``).
+_NATIONAL_ID_CONTEXT_KEYWORDS: CueTable = {
+    "en": ("id", "national", "citizen", "passport", "identity", "identification", "no"),
+}
+
+# Labels in front of a legal entity's tax number (Vergi Kimlik Numarası).
+_TAX_ID_LABELS: CueTable = {
+    "tr": (r"Vergi\s*(?:Kimlik\s*)?No", "VKN"),
+}
+
+
+# Labels in front of a customer / membership reference code.
+_CUSTOMER_REFERENCE_LABELS: CueTable = {
+    "tr": (
+        r"M[üu]şteri(?:\s+(?:No|Numaras[ıi]))?",
+        r"[ÜU]ye(?:\s+(?:No|Numaras[ıi]))?",
+        r"CRM(?:\s+No)?",
+        r"Hesap\s+No",
+    ),
+}
+
+
+def _token_alternation(table: CueTable, endings: Tuple[str, ...] = ("s",)) -> str:
+    """Every regex entry of ``table`` as one alternation that matches between cue edges only."""
+    return whole_cue(cue_alternation(table), endings)
+
+
+def _keyword_alternation(table: CueTable) -> str:
+    """Every plain-word entry of ``table`` as one alternation of :func:`literal_cue` cues."""
+    words = (word for entries in table.values() for word in entries)
+    return "(?:" + "|".join(literal_cue(word) for word in words) + ")"
 
 
 def _validated_national_id_recognizer() -> EntityRecognizer:
@@ -45,7 +75,7 @@ def _validated_national_id_recognizer() -> EntityRecognizer:
         entity_type="NATIONAL_ID",
         config=RegexPatternConfig(
             name="kvkk_national_id_11digit",
-            pattern=r"\b[1-9][0-9]{10}\b",
+            pattern=token_bounded(r"[1-9][0-9]{10}"),
             score=0.7,
             fallback_score=0.55,
         ),
@@ -64,13 +94,12 @@ def _contextual_national_id_recognizer() -> EntityRecognizer:
     signal that the digits are an identifier, so over-detection is
     preferred over silently dropping synthetic data.
     """
-    keyword_alternation = "|".join(_NATIONAL_ID_CONTEXT_KEYWORDS)
     return ValidatedPatternRecognizer(
         entity_type="NATIONAL_ID",
         config=RegexPatternConfig(
             name="kvkk_national_id_context",
             pattern=(
-                rf"(?i)\b(?:{keyword_alternation})\b"
+                rf"(?i){_keyword_alternation(_NATIONAL_ID_CONTEXT_KEYWORDS)}"
                 r"[^\d]{0,16}(\d{8,12})"
             ),
             score=0.6,
@@ -129,7 +158,7 @@ def _label_prefixed_tax_id_recognizer() -> EntityRecognizer:
         config=RegexPatternConfig(
             name="kvkk_tax_id_tr_label",
             pattern=(
-                r"(?i)\b(?:Vergi\s*(?:Kimlik\s*)?No|VKN)\b"
+                rf"(?i){_token_alternation(_TAX_ID_LABELS)}"
                 r"[^\d]{0,16}(\d{10})"
             ),
             score=0.6,
@@ -153,12 +182,7 @@ def _customer_reference_recognizer() -> EntityRecognizer:
     on real KVKK consent forms.
     """
     pattern = (
-        r"(?i)\b(?:"
-        r"M[üu]şteri(?:\s+(?:No|Numaras[ıi]))?"
-        r"|[ÜU]ye(?:\s+(?:No|Numaras[ıi]))?"
-        r"|CRM(?:\s+No)?"
-        r"|Hesap\s+No"
-        r")"
+        rf"(?i){_token_alternation(_CUSTOMER_REFERENCE_LABELS, endings=())}"
         r"(?:\s*\([^)]+\))?"   # optional "(varsa)" / "(opsiyonel)" qualifier
         r"\s*:?\s*:?\s*"
         r"([A-Z]{2,8}[-/]\d{2,4}[-/]\d{3,8})"

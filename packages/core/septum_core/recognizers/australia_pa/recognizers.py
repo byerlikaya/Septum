@@ -11,6 +11,7 @@ from typing import List
 
 from presidio_analyzer import EntityRecognizer
 
+from ...text_boundaries import token_bounded
 from ..base_recognizer import (
     RegexPatternConfig,
     ValidatedPatternRecognizer,
@@ -23,7 +24,7 @@ def _tax_file_number_recognizer() -> EntityRecognizer:
         entity_type="TAX_ID",
         config=RegexPatternConfig(
             name="australia_pa_tfn",
-            pattern=r"\b\d{3}[-\s]?\d{3}[-\s]?\d{2,3}\b",
+            pattern=token_bounded(r"\d{3}[-\s]?\d{3}[-\s]?\d{2,3}"),
             score=0.55,
         ),
     )
@@ -35,7 +36,7 @@ def _medicare_card_recognizer() -> EntityRecognizer:
         entity_type="HEALTH_INSURANCE_ID",
         config=RegexPatternConfig(
             name="australia_pa_medicare",
-            pattern=r"\b\d{4}[-\s]?\d{5}[-\s]?\d\b",
+            pattern=token_bounded(r"\d{4}[-\s]?\d{5}[-\s]?\d"),
             score=0.6,
         ),
     )

@@ -28,6 +28,7 @@ from presidio_analyzer import (
 )
 
 from ..regulations.models import CustomRecognizerLike, RegulationRulesetLike
+from ..text_boundaries import token_bounded
 
 logger = logging.getLogger(__name__)
 
@@ -238,9 +239,14 @@ class RecognizerRegistry:
         if not escaped:
             raise ValueError("Keyword recognizer requires at least one keyword.")
 
+        alternation = "|".join(escaped)
         pattern = Pattern(
             name=f"{custom.name}_keywords",
-            regex=rf"\b(?:{'|'.join(escaped)})\b",
+            # The leading lookahead keeps the edge assertions off every
+            # position that does not start a keyword. A keyword that starts or
+            # ends in punctuation (".NET", "C++") keeps the old ``\b``
+            # behaviour at that end.
+            regex=f"(?=(?:{alternation})){token_bounded(alternation)}",
             score=0.7,
         )
         return PatternRecognizer(

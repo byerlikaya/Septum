@@ -11,6 +11,7 @@ from typing import List
 
 from presidio_analyzer import EntityRecognizer
 
+from ...text_boundaries import token_bounded
 from ..base_recognizer import (
     RegexPatternConfig,
     ValidatedPatternRecognizer,
@@ -24,7 +25,7 @@ def _nric_fin_recognizer() -> EntityRecognizer:
         entity_type="NATIONAL_ID",
         config=RegexPatternConfig(
             name="pdpa_sg_nric_fin",
-            pattern=r"\b[STFGM]\d{7}[A-Z]\b",
+            pattern=token_bounded(r"[STFGM]\d{7}[A-Z]"),
             score=0.7,
         ),
     )

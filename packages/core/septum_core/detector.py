@@ -54,11 +54,19 @@ from .span_processing import (
 from .spans import DetectedSpan, ResolvedSpan, SanitizeResult, entity_range
 from .suffix_list import use_bundled_suffix_list
 from .text_boundaries import (
+    TOKEN_END,
+    TOKEN_START,
+    CueTable,
+    cue_alternation,
     is_unspaced_char,
     snap_between,
     snap_span,
     space_boundaries,
+    token_bounded,
+    whole_cue,
     word_count,
+    word_cue,
+    word_final_cue,
 )
 from .text_utils import normalize_for_comparison, normalize_unicode
 
@@ -332,6 +340,21 @@ class BaseCustomRecognizer(EntityRecognizer):
         return False
 
 
+# Label cues that put an identifier in context, keyed by ISO 639-1 code; every
+# entry is a case-insensitive regex fragment. A plain entry also matches inside
+# a compound or before a suffix ("Reisepassnummer", "plakası"). An entry
+# wrapped in ``whole_cue`` is a short abbreviation that matches only between
+# cue edges ("EIN", "employer_ein", "employerEIN", "EINs", but not the "ein" of
+# "protein"); one wrapped in ``word_final_cue`` may end a compound ("Newborn").
+# A cue of two letters or fewer is wrapped in ``word_cue`` instead: whole words
+# only, so "NOVEMBER" or "HANDLE" is no label.
+# FUTURE: move these tables to the DB so each regulation pack can register its
+# own preamble vocabulary without code edits.
+def _compile_cues(table: CueTable) -> re.Pattern[str]:
+    """One case-insensitive alternation of every cue in ``table``."""
+    return re.compile(f"(?:{cue_alternation(table)})", re.IGNORECASE)
+
+
 class ExtendedPhoneRecognizer(BaseCustomRecognizer):
     """Presidio recognizer for phone numbers with international format support.
 
@@ -363,7 +386,7 @@ class ExtendedPhoneRecognizer(BaseCustomRecognizer):
             r"(?:"
             r"\+\d{1,3}[\s\-.]*\(?\d{1,4}\)?(?:[\s\-.]*\d{2,4}){1,4}"
             r"|"
-            r"\(?\b\d{3,4}\)?[\s\-.]\d{3,4}[\s\-.]\d{2,4}(?:[\s\-.]\d{2,4})?\b"
+            rf"\(?{TOKEN_START}\d{{3,4}}\)?[\s\-.]\d{{3,4}}[\s\-.]\d{{2,4}}(?:[\s\-.]\d{{2,4}})?{TOKEN_END}"
             r")"
         )
 
@@ -461,7 +484,7 @@ class ValidatedIBANRecognizer(BaseCustomRecognizer):
         # The post-strip length check below narrows this to the 15-34
         # total-char IBAN window mandated by ISO 13616.
         self._pattern = re.compile(
-            r"\b[A-Za-z]{2}\d{2}[\s0-9A-Za-z]{11,32}"
+            rf"{TOKEN_START}[A-Za-z]{{2}}\d{{2}}[\s0-9A-Za-z]{{11,32}}"
         )
 
     @staticmethod
@@ -514,7 +537,9 @@ class ValidatedIBANRecognizer(BaseCustomRecognizer):
 
             valid_prefix = self._trim_to_valid_iban(candidate)
             if valid_prefix is not None:
-                final = valid_prefix
+                # Separators are stripped before the checksum, so a prefix
+                # can end in the space after the IBAN: keep it out of the span.
+                final = valid_prefix.rstrip()
                 score = 0.96
             else:
                 # No checksum-valid prefix anywhere in the matched span.
@@ -638,7 +663,7 @@ class StructuralAddressRecognizer(BaseCustomRecognizer):
         abbr_pattern = "|".join(re.escape(a) for a in sorted(abbrs, key=len, reverse=True))
 
         self._structural_cue = re.compile(
-            rf"(?:(?:{abbr_pattern})\b\.?)"
+            rf"(?:(?:{abbr_pattern}){TOKEN_END}\.?)"
             r"|"
             r"(?:(?<![A-Za-z])[A-Za-z]++\s*+[:./]\s*+\d+)",
             re.IGNORECASE | re.UNICODE,
@@ -745,12 +770,12 @@ class CreditCardNumberRecognizer(BaseCustomRecognizer):
         #   35xx          — JCB
         # Allows spaces or dashes as group separators.
         self._pattern = re.compile(
-            r"\b"
-            r"(?:4\d{3}|5[1-5]\d{2}|2[2-7]\d{2}|3[4-9]\d{2}|3[0-3]\d{2}"
-            r"|6(?:011|5\d{2}|4[4-9]\d|22[1-9]|\d{3})"
-            r"|35\d{2})"
-            r"[\s\-]?\d{3,4}[\s\-]?\d{3,4}[\s\-]?\d{3,5}"
-            r"\b"
+            token_bounded(
+                r"(?:4\d{3}|5[1-5]\d{2}|2[2-7]\d{2}|3[4-9]\d{2}|3[0-3]\d{2}"
+                r"|6(?:011|5\d{2}|4[4-9]\d|22[1-9]|\d{3})"
+                r"|35\d{2})"
+                r"[\s\-]?\d{3,4}[\s\-]?\d{3,4}[\s\-]?\d{3,5}"
+            )
         )
 
     def analyze(  # type: ignore[override]
@@ -779,6 +804,28 @@ class CreditCardNumberRecognizer(BaseCustomRecognizer):
         return results
 
 
+_BIRTH_DATE_CUES: CueTable = {
+    "en": (
+        whole_cue(r"d\.?o\.?b"),
+        r"birth\s*date",
+        r"date\s*of\s*birth",
+        word_final_cue("born"),
+    ),
+    "fr": (r"naissance",),
+    "es": (r"nacimiento", r"fecha\s*de\s*nacimiento"),
+    "pt": (r"nascimento", r"data\s*de\s*nascimento"),
+    "de": (r"geburtsdatum",),
+    "nl": (r"geboortedatum",),
+    "it": (r"data\s*di\s*nascita",),
+    "tr": (r"do[gğ]um\s*tarihi",),
+    "ru": (r"дата\s*рождения",),
+    "ar": (r"تاريخ\s*الميلاد",),
+    "zh": (r"出生日期",),
+    "ja": (r"生年月日",),
+    "hi": (r"जन्म\s*तिथि",),
+}
+
+
 class CalendarDateRecognizer(BaseCustomRecognizer):
     """Detects calendar dates as ``DATE`` and birth dates as ``DATE_OF_BIRTH``.
 
@@ -800,17 +847,7 @@ class CalendarDateRecognizer(BaseCustomRecognizer):
             supported_language="en",
         )
         warm_up_date_grammar()
-        # FUTURE: move context keywords to DB so new locales can be
-        # enrolled without editing production code.
-        self._context_pattern = re.compile(
-            r"(?:d\.?o\.?b\.?|birth\s*date|date\s*of\s*birth"
-            r"|born\s*(?:on)?|naissance|nacimiento|nascimento"
-            r"|geburtsdatum|geboortedatum|data\s*di\s*nascita"
-            r"|do[gğ]um\s*tarihi|fecha\s*de\s*nacimiento"
-            r"|data\s*de\s*nascimento|дата\s*рождения"
-            r"|تاريخ\s*الميلاد|出生日期|生年月日|जन्म\s*तिथि)",
-            re.IGNORECASE,
-        )
+        self._context_pattern = _compile_cues(_BIRTH_DATE_CUES)
 
     def analyze(self, text: str, entities: Optional[List[str]] = None,
                 nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
@@ -850,8 +887,10 @@ class MACAddressRecognizer(BaseCustomRecognizer):
             supported_language="en",
         )
         self._pattern = re.compile(
-            r"\b(?:[0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}\b"
-            r"|\b(?:[0-9A-Fa-f]{4}\.){2}[0-9A-Fa-f]{4}\b"
+            token_bounded(
+                r"(?:[0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}"
+                r"|(?:[0-9A-Fa-f]{4}\.){2}[0-9A-Fa-f]{4}"
+            )
         )
 
     def analyze(self, text: str, entities: Optional[List[str]] = None,
@@ -975,6 +1014,11 @@ class DeviceIDRecognizer(BaseCustomRecognizer):
         return results
 
 
+_SOCIAL_SECURITY_CUES: CueTable = {
+    "en": (whole_cue("SSN"), r"social\s*security"),
+}
+
+
 class SSNRecognizer(BaseCustomRecognizer):
     """Detects Social Security Numbers with context keywords.
 
@@ -990,13 +1034,8 @@ class SSNRecognizer(BaseCustomRecognizer):
             supported_entities=["SOCIAL_SECURITY_NUMBER"],
             supported_language="en",
         )
-        self._pattern = re.compile(r"\b\d{3}[\s\-]?\d{2}[\s\-]?\d{4}\b")
-        # FUTURE: move context keywords to DB so regulation packs can
-        # register locale-specific preamble vocabulary without code edits.
-        self._context = re.compile(
-            r"(?:SSN|social\s*security)",
-            re.IGNORECASE,
-        )
+        self._pattern = re.compile(token_bounded(r"\d{3}[\s\-]?\d{2}[\s\-]?\d{4}"))
+        self._context = _compile_cues(_SOCIAL_SECURITY_CUES)
 
     def analyze(self, text: str, entities: Optional[List[str]] = None,
                 nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
@@ -1018,6 +1057,11 @@ class SSNRecognizer(BaseCustomRecognizer):
         return results
 
 
+_INDIVIDUAL_TAXPAYER_CUES: CueTable = {
+    "pt": (whole_cue("cpf"),),
+}
+
+
 class CPFRecognizer(BaseCustomRecognizer):
     """Detects CPF numbers with algorithmic checksum validation.
 
@@ -1034,8 +1078,8 @@ class CPFRecognizer(BaseCustomRecognizer):
             supported_entities=["CPF"],
             supported_language="en",
         )
-        self._pattern = re.compile(r"\b\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}\b")
-        self._context = re.compile(r"\bcpf\b", re.IGNORECASE)
+        self._pattern = re.compile(token_bounded(r"\d{3}\.?\d{3}\.?\d{3}[\-.]?\d{2}"))
+        self._context = _compile_cues(_INDIVIDUAL_TAXPAYER_CUES)
 
     def analyze(self, text: str, entities: Optional[List[str]] = None,
                 nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
@@ -1059,6 +1103,21 @@ class CPFRecognizer(BaseCustomRecognizer):
         return results
 
 
+_PASSPORT_CUES: CueTable = {
+    "en": (r"passport",),
+    "tr": (r"pasaport",),
+    "de": (r"reisepass",),
+    "fr": (r"passeport",),
+    "it": (r"passaporto",),
+    "nl": (r"paspoort",),
+    "ru": (r"паспорт",),
+    "ar": (r"جواز\s*سفر",),
+    "zh": (r"护照",),
+    "ja": (r"パスポート",),
+    "hi": (r"पासपोर्ट",),
+}
+
+
 class PassportNumberRecognizer(BaseCustomRecognizer):
     """Detects passport numbers with context keywords.
 
@@ -1072,17 +1131,8 @@ class PassportNumberRecognizer(BaseCustomRecognizer):
             supported_entities=["PASSPORT_NUMBER"],
             supported_language="en",
         )
-        self._pattern = re.compile(
-            r"\b[A-Z]{0,2}\d{6,9}\b"
-        )
-        # FUTURE: move context keywords to DB so each regulation pack can
-        # register its own locale-specific preamble vocabulary. The list
-        # below is a multilingual fallback kept equal across locales.
-        self._context = re.compile(
-            r"(?:passport|pasaport|reisepass|passeport|passaporto|paspoort"
-            r"|паспорт|جواز\s*سفر|护照|パスポート|पासपोर्ट)",
-            re.IGNORECASE,
-        )
+        self._pattern = re.compile(token_bounded(r"[A-Z]{0,2}\d{6,9}"))
+        self._context = _compile_cues(_PASSPORT_CUES)
 
     def analyze(self, text: str, entities: Optional[List[str]] = None,
                 nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
@@ -1099,6 +1149,19 @@ class PassportNumberRecognizer(BaseCustomRecognizer):
         return results
 
 
+_DRIVING_LICENCE_CUES: CueTable = {
+    "en": (r"driver'?s?\s*licen[sc]e", r"driving\s*licen[sc]e", word_cue("DL"), whole_cue("CDL|DLN|OLN")),
+    "tr": (r"ehliyet",),
+    "fr": (r"permis\s*de\s*conduire",),
+    "de": (r"führerschein",),
+    "nl": (r"rijbewijs",),
+    "it": (r"patente\s*di\s*guida",),
+    "es": (r"licencia\s*de\s*conducir",),
+    "pt": (r"carta\s*de\s*condução",),
+    "ru": (r"водительское\s*удостоверение",),
+}
+
+
 class DriversLicenseRecognizer(BaseCustomRecognizer):
     """Detects driver's license numbers with context keywords.
 
@@ -1110,16 +1173,8 @@ class DriversLicenseRecognizer(BaseCustomRecognizer):
             supported_entities=["DRIVERS_LICENSE"],
             supported_language="en",
         )
-        self._pattern = re.compile(r"\b[A-Z0-9]{5,15}\b")
-        # FUTURE: move context keywords to DB so each regulation pack can
-        # register its own locale-specific preamble vocabulary.
-        self._context = re.compile(
-            r"(?:driver'?s?\s*licen[sc]e|driving\s*licen[sc]e|DL\s*#?|ehliyet"
-            r"|permis\s*de\s*conduire|führerschein|rijbewijs|patente\s*di\s*guida"
-            r"|licencia\s*de\s*conducir|carta\s*de\s*condução"
-            r"|водительское\s*удостоверение)",
-            re.IGNORECASE,
-        )
+        self._pattern = re.compile(token_bounded(r"[A-Z0-9]{5,15}"))
+        self._context = _compile_cues(_DRIVING_LICENCE_CUES)
 
     def analyze(self, text: str, entities: Optional[List[str]] = None,
                 nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
@@ -1136,6 +1191,30 @@ class DriversLicenseRecognizer(BaseCustomRecognizer):
                         entity_type="DRIVERS_LICENSE", start=m.start(), end=m.end(), score=0.85,
                     ))
         return results
+
+
+_TAX_ID_CUES: CueTable = {
+    "en": (r"tax\s*id", whole_cue("TIN|EIN|FEIN|ITIN")),
+    "tr": (r"vergi\s*(?:no|numarası|kimlik)",),
+    "de": (
+        r"steuer[\-\s]?(?:nummer|id)",
+        r"USt[\-\s]?Identifikationsnummer",
+        whole_cue(r"ust[\-\s]?id"),
+        whole_cue(r"USt[\-\s]?IdNr"),
+    ),
+    "es": (whole_cue("NIF|CIF|NIE"),),
+    "fr": (
+        r"N(?:º|[oO]\.?)\s*SIREN",
+        whole_cue("SIRET"),
+        r"tva\s*intracommunautaire",
+        r"numéro\s*fiscal",
+    ),
+    "it": (r"codice\s*fiscale", r"partita\s*iva"),
+    "pt": (r"inscrição\s*estadual", whole_cue("CNPJ|CPF")),
+    "ru": (whole_cue("ИНН", endings=("а", "у", "е", "ом", "ы", "ов")),),
+    "ar": (r"الرقم\s*الضريبي",),
+    "zh": (r"税号",),
+}
 
 
 class TaxIDRecognizer(BaseCustomRecognizer):
@@ -1160,27 +1239,17 @@ class TaxIDRecognizer(BaseCustomRecognizer):
             supported_language="en",
         )
         self._pattern = re.compile(
-            r"(?:"
-            r"\b[A-Z]{2}\s?\d{2}\s?\d{6,10}\b"
-            r"|\b[A-Z]-?\d{7,8}[A-Z0-9]?\b"
-            r"|\b\d{2,3}/\d{3,4}/\d{4,5}\b"
-            r"|\b\d{2,3}(?:\.\d{3}){2,3}(?:[-.]\d{1,2})?\b"
-            r"|\b\d{2}\s\d{3}\s\d{3}\s\d{3}\b"
-            r"|\b\d{2}[\-]?\d{7,10}\b"
-            r")",
+            token_bounded(
+                r"[A-Z]{2}\s?\d{2}\s?\d{6,10}"
+                r"|[A-Z]-?\d{7,8}[A-Z0-9]?"
+                r"|\d{2,3}/\d{3,4}/\d{4,5}"
+                r"|\d{2,3}(?:\.\d{3}){2,3}(?:[-.]\d{1,2})?"
+                r"|\d{2}\s\d{3}\s\d{3}\s\d{3}"
+                r"|\d{2}[\-]?\d{7,10}"
+            ),
             re.IGNORECASE,
         )
-        # FUTURE: move context keywords to DB so each regulation pack can
-        # register its own locale-specific preamble vocabulary.
-        self._context = re.compile(
-            r"(?:tax\s*id|TIN|EIN|vergi\s*(?:no|numarası|kimlik)"
-            r"|steuer[\-\s]?(?:nummer|id)|ust[\-\s]?id|USt[\-\s]?IdNr"
-            r"|NIF|CIF|NIE|N(?:º|[oO]\.?)\s*SIREN|SIRET|tva\s*intracommunautaire"
-            r"|codice\s*fiscale|partita\s*iva|numéro\s*fiscal"
-            r"|inscrição\s*estadual|CNPJ|CPF"
-            r"|ИНН|الرقم\s*الضريبي|税号)",
-            re.IGNORECASE,
-        )
+        self._context = _compile_cues(_TAX_ID_CUES)
 
     def analyze(self, text: str, entities: Optional[List[str]] = None,
                 nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
@@ -1195,6 +1264,21 @@ class TaxIDRecognizer(BaseCustomRecognizer):
                     entity_type="TAX_ID", start=m.start(), end=m.end(), score=0.85,
                 ))
         return results
+
+
+_LICENSE_PLATE_CUES: CueTable = {
+    "en": (r"licen[sc]e\s*plate", r"plate\s*(?:no|number)", r"vehicle\s*reg"),
+    "tr": (r"plaka",),
+    "de": (r"kennzeichen",),
+    "fr": (r"immatriculation",),
+    "it": (r"targa",),
+    "es": (r"matrícula",),
+    "nl": (r"kenteken",),
+    "ru": (r"номерной\s*знак",),
+    "ar": (r"لوحة\s*السيارة",),
+    "zh": (r"车牌",),
+    "ja": (r"ナンバープレート",),
+}
 
 
 class LicensePlateRecognizer(BaseCustomRecognizer):
@@ -1212,17 +1296,12 @@ class LicensePlateRecognizer(BaseCustomRecognizer):
         # Two structural plate families: "<digits><letters><digits>" and
         # "<letters><digits><optional letters>". Not tied to any locale.
         self._pattern = re.compile(
-            r"\b\d{2}\s*[A-Z]{1,3}\s*\d{2,4}\b"
-            r"|\b[A-Z]{1,3}[\s\-]?\d{1,4}[\s\-]?[A-Z]{0,3}\b"
+            token_bounded(
+                r"\d{2}\s*[A-Z]{1,3}\s*\d{2,4}"
+                r"|[A-Z]{1,3}[\s\-]?\d{1,4}(?:[\s\-]?[A-Z]{1,3})?"
+            )
         )
-        # FUTURE: move context keywords to DB so each regulation pack can
-        # register its own locale-specific preamble vocabulary.
-        self._context = re.compile(
-            r"(?:licen[sc]e\s*plate|plate\s*(?:no|number)|plaka|vehicle\s*reg"
-            r"|kennzeichen|immatriculation|targa|matrícula|kenteken"
-            r"|номерной\s*знак|لوحة\s*السيارة|车牌|ナンバープレート)",
-            re.IGNORECASE,
-        )
+        self._context = _compile_cues(_LICENSE_PLATE_CUES)
 
     def analyze(self, text: str, entities: Optional[List[str]] = None,
                 nlp_artifacts: Optional[object] = None) -> List[RecognizerResult]:
