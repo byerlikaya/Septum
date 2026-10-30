@@ -24,6 +24,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ### 2026-10-30
 
+- PDF and DOCX chunking now keeps every chunk within the configured chunk size, splitting long paragraphs and line runs at paragraph, sentence or word boundaries; before, a very long run could become one huge chunk that approval and chat requests then rejected.
 - The dashboard stops reading a streamed answer or progress feed when a single line grows past 8 MiB without a line break, so a misbehaving server can no longer make the browser hold an ever-growing buffer; a chat answer stopped this way shows a translated error asking the user to try again. The setup wizard's model download and Whisper install steps now report such a stream failure, an early end of the stream or a timeout as an error instead of waiting silently.
 
 ### 2026-10-29

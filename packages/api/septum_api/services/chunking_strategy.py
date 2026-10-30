@@ -63,6 +63,61 @@ def _heading_title(stripped: str) -> Optional[str]:
     return stripped[:100] if len(stripped) < 200 else None
 
 
+_CUT_BOUNDARIES = (
+    re.compile(r"\n[ \t]*\n"),
+    re.compile(r"[.!?\u2026\u3002\uff01\uff1f]\s"),
+    re.compile(r"\s"),
+)
+
+
+def _split_text(text: str, max_size: int) -> List[str]:
+    """Cut text into stripped pieces of at most max_size characters, preferring natural boundaries."""
+    pieces: List[str] = []
+    pos = 0
+    total = len(text)
+    min_step = max(1, max_size // 2)
+    while pos < total:
+        if total - pos <= max_size:
+            cut = total
+        else:
+            cut = pos + max_size
+            window_start = pos + min_step
+            for pattern in _CUT_BOUNDARIES:
+                last = None
+                for last in pattern.finditer(text, window_start, cut):
+                    pass
+                if last is not None:
+                    cut = last.end()
+                    break
+        piece = text[pos:cut].strip()
+        if piece:
+            pieces.append(piece)
+        pos = cut
+    return pieces
+
+
+def _enforce_max_size(chunks: List[Chunk], max_size: int) -> List[Chunk]:
+    """Return chunks untouched when all fit, else split oversized ones and renumber from zero."""
+    if all(len(c.text) <= max_size for c in chunks):
+        return chunks
+    bounded: List[Chunk] = []
+    for chunk in chunks:
+        if len(chunk.text) <= max_size:
+            texts = [chunk.text]
+        else:
+            texts = _split_text(chunk.text, max_size)
+        for piece in texts:
+            bounded.append(
+                Chunk(
+                    text=piece,
+                    index=len(bounded),
+                    source_page=chunk.source_page,
+                    section_title=chunk.section_title,
+                )
+            )
+    return bounded
+
+
 class StructuredDocumentChunker(SemanticChunker):
     """Enhanced chunker for structured legal/business documents.
 
@@ -123,6 +178,10 @@ class StructuredDocumentChunker(SemanticChunker):
         if not text or len(text) < self.min_chunk_size:
             return [Chunk(text=text, index=0)]
 
+        return _enforce_max_size(self._chunk_unbounded(text), self.max_chunk_size)
+
+    def _chunk_unbounded(self, text: str) -> List[Chunk]:
+        """Chunk by sections and semantic splitting; pieces may still exceed max_chunk_size."""
         lines = text.split("\n")
         sections = self._identify_sections(lines)
 
