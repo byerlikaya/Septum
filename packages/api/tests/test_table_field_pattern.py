@@ -53,6 +53,27 @@ def test_whitespace_only_line_before_leading_colon_line_now_yields_a_pair() -> N
     ]
 
 
+_RELUCTANT_VALUE = re.compile(
+    r"^(?=[^\S\n]*+\S)(.{2,80}?)\s*+:\s*+(.+?)$", re.MULTILINE | re.UNICODE
+)
+
+_VALUE_SAMPLES = _SAMPLES + [
+    "Key: value with\r\ncarriage return",
+    "Key: a: b: c\nOther:x",
+    "Key: value after line separator\nNext: v",
+    "Key: trailing spaces   \nLast: end",
+    "Key: no newline at end",
+    "Key: \n",
+]
+
+
+@pytest.mark.parametrize("text", _VALUE_SAMPLES)
+def test_greedy_value_group_matches_reluctant_form(text: str) -> None:
+    current = [m.span() + m.groups() for m in TableFieldExtractor._FIELD_PATTERN.finditer(text)]
+    reluctant = [m.span() + m.groups() for m in _RELUCTANT_VALUE.finditer(text)]
+    assert current == reluctant
+
+
 def test_field_pattern_extracts_fields() -> None:
     fields = TableFieldExtractor()._extract_fields_from_text("Name : John Doe\nCity: Paris", 1)
     assert [(f.label, f.value) for f in fields] == [("Name", "John Doe"), ("City", "Paris")]

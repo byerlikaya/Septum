@@ -76,6 +76,15 @@ _CUT_BOUNDARIES = (
 )
 
 
+def _last_boundary_end(text: str, window_start: int, window_end: int) -> Optional[int]:
+    """End of the last match of the most natural boundary inside the window, or None."""
+    for pattern in _CUT_BOUNDARIES:
+        matches = list(pattern.finditer(text, window_start, window_end))
+        if matches:
+            return matches[-1].end()
+    return None
+
+
 def _split_text(text: str, max_size: int) -> List[str]:
     """Cut text into stripped pieces of at most max_size characters, preferring natural boundaries."""
     pieces: List[str] = []
@@ -86,15 +95,9 @@ def _split_text(text: str, max_size: int) -> List[str]:
         if total - pos <= max_size:
             cut = total
         else:
-            cut = pos + max_size
-            window_start = pos + min_step
-            for pattern in _CUT_BOUNDARIES:
-                last = None
-                for last in pattern.finditer(text, window_start, cut):
-                    pass
-                if last is not None:
-                    cut = last.end()
-                    break
+            hard_end = pos + max_size
+            boundary = _last_boundary_end(text, pos + min_step, hard_end)
+            cut = hard_end if boundary is None else boundary
         piece = text[pos:cut].strip()
         if piece:
             pieces.append(piece)

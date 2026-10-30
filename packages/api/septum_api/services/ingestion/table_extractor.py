@@ -44,7 +44,7 @@ class TableFieldExtractor:
 
     # Regex pattern for detecting "Label : Value" or "Label: Value" lines
     _FIELD_PATTERN = re.compile(
-        r"^(?=[^\S\n]*+\S)(.{2,80}?)\s*+:\s*+(.+?)$",
+        r"^(?=[^\S\n]*+\S)(.{2,80}?)\s*+:\s*+(.+)$",
         re.MULTILINE | re.UNICODE
     )
 
