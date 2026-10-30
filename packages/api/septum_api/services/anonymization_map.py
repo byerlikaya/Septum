@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from septum_core.anonymization_map import (  # noqa: F401
     PLACEHOLDER_PATTERN,
+    PLACEHOLDER_SHAPE,
     SANITIZER_STOPWORDS,
     AnonymizationMap,
     restoration_lookup,
@@ -12,6 +13,7 @@ from septum_core.anonymization_map import (  # noqa: F401
 __all__ = [
     "AnonymizationMap",
     "PLACEHOLDER_PATTERN",
+    "PLACEHOLDER_SHAPE",
     "SANITIZER_STOPWORDS",
     "restoration_lookup",
 ]

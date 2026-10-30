@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a high‑level, date�
 
 ## Unreleased
 
+### 2026-10-31
+
+- Multi-document chats map each document's placeholder to exactly one placeholder for the turn, so different people who share a first name or surname across documents, or that one document keeps apart, are never merged and each is restored correctly. Placeholders a document or query does not hold (including custom types and short forms like [PERSON_1]) now restore to nothing, and pronouns only some documents know restore to the pronoun itself, instead of naming another person; retry tokens from the old numbering are refused.
+
 ### 2026-10-30
 
 - Person-name masking no longer merges different people who share a name part: a shared part such as "Ali" or "Smith" gets its own neutral placeholder, maps saved by earlier versions are corrected when loaded, and every placeholder restores to the right person. Hyphenated and apostrophe names ("Jean-Pierre", "O'Brien", "Лукʼяненко") are masked whole with any apostrophe or hyphen variant and their recurring parts stay masked, while known suffixes such as "’nın", "’dan" or "'s" stay outside the placeholder; registering names and masking text are also faster on large maps.

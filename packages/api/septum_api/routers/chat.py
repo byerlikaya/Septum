@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from itertools import zip_longest
 from typing import (
     TYPE_CHECKING,
+    AbstractSet,
     Any,
     AsyncGenerator,
     Awaitable,
@@ -68,6 +69,12 @@ from fastapi.responses import StreamingResponse
 from langdetect import DetectorFactory
 from pydantic import BaseModel, Field, model_validator
 from septum_core.model_integrity import ModelRefusal
+from septum_core.placeholder_space import (
+    QUERY_MAP_KEY,
+    map_placeholders,
+    settle_strays,
+    unify_placeholder_spaces,
+)
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -95,7 +102,11 @@ from ..request_limits import (
     TOP_K_RETRIEVAL_MAX_CAP,
     DocumentId,
 )
-from ..services.anonymization_map import AnonymizationMap, restoration_lookup
+from ..services.anonymization_map import (
+    PLACEHOLDER_PATTERN,
+    PLACEHOLDER_SHAPE,
+    AnonymizationMap,
+)
 from ..services.approval_gate import (
     ApprovalChunk,
     ApprovalGate,
@@ -505,105 +516,27 @@ def _extract_entity_type(placeholder: str) -> str | None:
 def _build_unified_placeholder_space(
     anon_maps: dict[int, AnonymizationMap],
 ) -> tuple[dict[int, dict[str, str]], AnonymizationMap]:
-    """Re-namespace per-document placeholders into a globally unique set.
+    """Re-namespace per-document placeholders into one global set.
 
     Each document's anon_map is built with a doc-local counter, so two
-    documents can both contain ``[ORGANIZATION_2]`` pointing to different
-    organizations. Concatenating chunks from both into the LLM prompt
-    collapses the two entities into a single placeholder. The cloud LLM
-    cannot tell them apart, and the deanonymizer can only resolve the
-    collision in one direction — the other side either silently rewrites
-    to the wrong original value or leaks the literal placeholder back to
-    the user.
+    documents can both contain ``[ORGANIZATION_2]`` for different
+    organizations, and one person can carry a different placeholder in
+    each. Every per-map placeholder moves as a unit to exactly one global
+    placeholder (see :func:`septum_core.placeholder_space.unify_placeholder_spaces`
+    for when two maps share one), so a chunk keeps naming the person its
+    own document meant. Returns:
 
-    This helper assigns a fresh global counter per entity type and emits:
-
-    * ``per_doc_remap`` — for each document, the
-      ``{old_placeholder: new_placeholder}`` rename to apply to that
-      document's masked chunk text before assembly. Identical originals
-      that recur across documents collapse onto the same new placeholder.
-    * ``unified_map`` — a merged :class:`AnonymizationMap` whose
-      ``entity_map`` uses the new placeholders. The deanonymizer iterates
-      this map after the LLM responds, so every globally unique
-      placeholder resolves back to the correct original value.
+    * ``per_doc_remap`` — for each map, the ``{old: new}`` rename to apply
+      to its masked text; placeholders that keep their number are left out.
+    * ``unified_map`` — the map the deanonymizer and the PII gate read for
+      the turn; it is never persisted.
     """
-    per_doc_remap = _global_placeholder_remaps(anon_maps)
-    return per_doc_remap, _merge_unified_map(anon_maps, per_doc_remap)
-
-
-def _global_placeholder_remaps(
-    anon_maps: dict[int, AnonymizationMap],
-) -> dict[int, dict[str, str]]:
-    """Return each document's ``{old_placeholder: new_placeholder}`` rename.
-
-    One counter per entity type runs across all documents, taken in id order
-    so the numbering is deterministic; an ``(original, entity_type)`` pair
-    seen before keeps the placeholder it was first given.
-    """
-    global_counter: dict[str, int] = {}
-    assigned: dict[tuple[str, str], str] = {}
-    per_doc_remap: dict[int, dict[str, str]] = {}
-
-    # Sort by doc id so the global numbering is deterministic across runs.
-    for doc_id in sorted(anon_maps.keys()):
-        doc_remap: dict[str, str] = {}
-        for original, old_placeholder in anon_maps[doc_id].entity_map.items():
-            match = _ENTITY_PLACEHOLDER_RE.fullmatch(old_placeholder)
-            if not match:
-                continue
-            new_placeholder = _assign_global_placeholder(
-                (original, match.group(1)), assigned, global_counter
-            )
-            if new_placeholder != old_placeholder:
-                doc_remap[old_placeholder] = new_placeholder
-        per_doc_remap[doc_id] = doc_remap
-    return per_doc_remap
-
-
-def _assign_global_placeholder(
-    key: tuple[str, str],
-    assigned: dict[tuple[str, str], str],
-    global_counter: dict[str, int],
-) -> str:
-    """Return the global placeholder of ``(original, entity_type)``, minting one on first sight."""
-    if key in assigned:
-        return assigned[key]
-    entity_type = key[1]
-    global_counter[entity_type] = global_counter.get(entity_type, 0) + 1
-    new_placeholder = f"[{entity_type}_{global_counter[entity_type]}]"
-    assigned[key] = new_placeholder
-    return new_placeholder
-
-
-def _merge_unified_map(
-    anon_maps: dict[int, AnonymizationMap],
-    per_doc_remap: dict[int, dict[str, str]],
-) -> AnonymizationMap:
-    """Merge every map into one whose placeholders follow ``per_doc_remap``."""
-    first_lang = (
-        next(iter(anon_maps.values())).language if anon_maps else "en"
-    )
-    unified_map = AnonymizationMap(document_id=0, language=first_lang)
-    lookup_pairs: List[Tuple[str, str]] = []
-    for doc_id, m in anon_maps.items():
-        doc_remap = per_doc_remap[doc_id]
-        for original, old_placeholder in m.entity_map.items():
-            new_placeholder = doc_remap.get(old_placeholder, old_placeholder)
-            # entity_map is original-keyed and may legitimately collide
-            # when the same original was detected as different entity
-            # types across documents — the dict will silently drop one
-            # of the placeholders. Mirror every (placeholder, original)
-            # pair into ``placeholder_lookup`` so the deanonymizer can
-            # still resolve every globally-minted placeholder.
-            unified_map.entity_map[original] = new_placeholder
-            lookup_pairs.append((original, new_placeholder))
-        for token, old_placeholder in m.token_to_placeholder.items():
-            new_placeholder = doc_remap.get(old_placeholder, old_placeholder)
-            unified_map.token_to_placeholder[token] = new_placeholder
-        unified_map.blocklist.update(m.blocklist)
-
-    unified_map.placeholder_lookup = restoration_lookup(lookup_pairs)
-    return unified_map
+    remaps, unified_map = unify_placeholder_spaces(list(anon_maps.items()))
+    per_doc_remap = {
+        key: {old: new for old, new in remap.items() if old != new}
+        for key, remap in remaps.items()
+    }
+    return per_doc_remap, unified_map
 
 
 def _apply_chunk_placeholder_remap(
@@ -611,30 +544,23 @@ def _apply_chunk_placeholder_remap(
 ) -> str:
     """Rewrite per-document placeholders in ``text`` using ``remap``.
 
-    Single-pass regex substitution rather than sequential ``str.replace``
-    calls. The naive sequential approach cascades catastrophically when
-    the rename's old- and new-placeholder ranges overlap — e.g. a remap
-    of ``{[PERSON_NAME_1]: [PERSON_NAME_2], [PERSON_NAME_2]: [PERSON_NAME_1]}``
-    that intends to swap the two placeholders ends up collapsing every
-    occurrence onto ``[PERSON_NAME_1]`` because the first pass writes
-    ``[PERSON_NAME_2]`` everywhere and the second pass then maps every
-    such mention (including the freshly-written ones) back. The single
-    regex pass touches each match exactly once, so swap-shaped renames
-    produced by the placeholder unification stay correct.
-
-    Alternatives are emitted longest-first so a key like
-    ``[ORGANIZATION_10]`` wins over ``[ORGANIZATION_1]`` at the same
-    starting offset.
+    One regex pass over every bracketed run, each looked up in ``remap``:
+    a match is touched exactly once, so swap-shaped renames
+    (``{[PERSON_NAME_1]: [PERSON_NAME_2], [PERSON_NAME_2]: [PERSON_NAME_1]}``)
+    stay swaps instead of cascading as sequential ``str.replace`` calls
+    would, and ``[ORGANIZATION_10]`` is matched whole, never as
+    ``[ORGANIZATION_1]`` plus a tail. Remap keys are placeholders, bracketed
+    runs without inner brackets. The pattern does not depend on the remap,
+    so the cost stays linear in the text however many entries it has.
     """
     if not text or not remap:
         return text
-    keys_sorted = sorted(remap.keys(), key=len, reverse=True)
-    pattern = re.compile("|".join(re.escape(k) for k in keys_sorted))
-    return pattern.sub(lambda m: remap[m.group(0)], text)
+    return _BRACKETED_RUN.sub(lambda m: remap.get(m.group(0), m.group(0)), text)
 
 
+_BRACKETED_RUN = re.compile(r"\[[^\[\]]*\]")
 
-_QUERY_MAP_KEY = -1
+
 
 
 async def _unify_turn_placeholders(
@@ -661,9 +587,9 @@ async def _unify_turn_placeholders(
         for did, m in zip(ordered_ids, loaded)
     }
     per_doc_remap, unified_map = _build_unified_placeholder_space(
-        {_QUERY_MAP_KEY: query_map, **doc_maps}
+        {QUERY_MAP_KEY: query_map, **doc_maps}
     )
-    query_remap = per_doc_remap.pop(_QUERY_MAP_KEY, {})
+    query_remap = per_doc_remap.pop(QUERY_MAP_KEY, {})
     return doc_maps, per_doc_remap, query_remap, unified_map
 
 
@@ -951,19 +877,38 @@ def _build_approval_chunks(chunks: List[Chunk], texts: List[str]) -> List[Approv
     return approval_chunks
 
 
-_PLACEHOLDER_PATTERN = re.compile(r"\[[A-Za-z_]+\d+\]")
+# A placeholder in prompt or answer text: the classic shape, its short alias
+# ("[PERSON_1]") or any custom entity type (``PLACEHOLDER_SHAPE``:
+# "[MRN2_1]", "[Project code_1]"). The shape has groups, so read whole
+# matches through ``_placeholders_in``, never ``findall``.
+_PLACEHOLDER_PATTERN = re.compile(rf"\[[A-Za-z_]+\d+\]|{PLACEHOLDER_SHAPE.pattern}")
+
+
+def _placeholders_in(text: str) -> List[str]:
+    """Every placeholder-shaped run of ``text`` (see ``_PLACEHOLDER_PATTERN``), in order."""
+    return [m.group(0) for m in _PLACEHOLDER_PATTERN.finditer(text)]
 
 
 def _typed_query_placeholders(
-    message_text: str, sanitized_query: str, query_remap: dict[str, str]
+    message_text: str,
+    sanitized_query: str,
+    query_remap: dict[str, str],
+    known: AbstractSet[str] = frozenset(),
 ) -> List[str]:
     """Return the placeholders the user typed, renumbered as in ``sanitized_query``.
 
     Each typed placeholder is carried through the query remap of the
     unified numbering and kept only if the sanitized query still holds it.
+    Only the standard shape (``PLACEHOLDER_PATTERN``) counts as typed on
+    its own; any other bracketed text ("[Clause 4_2]") counts only when the
+    turn's map holds it (``known``), so ordinary brackets never replace the
+    answer.
     """
-    typed = _PLACEHOLDER_PATTERN.findall(message_text or "")
-    renumbered = [query_remap.get(p, p) for p in typed]
+    renumbered: List[str] = []
+    for typed in _placeholders_in(message_text or ""):
+        placeholder = query_remap.get(typed, typed)
+        if PLACEHOLDER_PATTERN.fullmatch(typed) or placeholder in known:
+            renumbered.append(placeholder)
     return [p for p in renumbered if p in sanitized_query]
 
 
@@ -1054,7 +999,7 @@ def _sent_placeholders(
     the de-anonymizer is allowed to restore.
     """
     sources = [sanitized_query, *context_chunks, *column_descriptions, *regulation_names]
-    return {p for text in sources if text for p in _PLACEHOLDER_PATTERN.findall(text)}
+    return {p for text in sources if text for p in _placeholders_in(text)}
 
 
 def _assemble_user_prompt(
@@ -1238,7 +1183,7 @@ def _turn_sent_placeholders(turn: _LlmTurnInput) -> set[str]:
     )
 
 
-def _map_placeholders(anon_map: AnonymizationMap) -> set[str]:
+def _restorable_placeholders(anon_map: AnonymizationMap) -> set[str]:
     """Return every placeholder ``anon_map`` can restore."""
     if anon_map.placeholder_lookup:
         return set(anon_map.placeholder_lookup.keys())
@@ -1258,21 +1203,31 @@ def _log_surviving_placeholders(
 
     Tells at a glance whether the LLM emitted a placeholder the unified map
     did not carry (the failure that leaks ``[PERSON_NAME_1]`` literals to
-    the user). Never logs an original value.
+    the user). Never logs an original value: placeholders are read from the
+    masked answer only, as the standard shape or one the map can restore,
+    and a residual is one of them still present after restoration. The
+    restored text is never pattern-matched, because an original restored
+    inside brackets ("[Ayşe Demir_2]") would look like a placeholder.
     """
-    answer_placeholders = sorted(set(_PLACEHOLDER_PATTERN.findall(masked_answer)))
-    residual_placeholders = sorted(set(_PLACEHOLDER_PATTERN.findall(deanonymized)))
-    map_placeholders = _map_placeholders(anon_map)
+    restorable = _restorable_placeholders(anon_map)
+    answer_placeholders = sorted(
+        {
+            p
+            for p in _placeholders_in(masked_answer)
+            if PLACEHOLDER_PATTERN.fullmatch(p) or p in restorable
+        }
+    )
+    residual_placeholders = [p for p in answer_placeholders if p in deanonymized]
     if answer_placeholders or residual_placeholders:
         logger.info(
             "chat deanon session_id=%s strategy=%s map_size=%s "
             "answer_placeholders=%s residual=%s missing_in_map=%s",
             session_id,
             getattr(settings, "deanon_strategy", "simple"),
-            len(map_placeholders),
+            len(restorable),
             answer_placeholders,
             residual_placeholders,
-            [p for p in answer_placeholders if p not in map_placeholders],
+            [p for p in answer_placeholders if p not in restorable],
         )
 
 
@@ -1950,6 +1905,7 @@ async def _prepare_retry_context(turn: _ChatTurn, db: AsyncSession) -> Optional[
         doc_maps, _, turn.query_remap, turn.anon_map = await _unify_turn_placeholders(
             query_map, list(turn.documents_by_id.keys()), turn.language
         )
+        _settle_query_strays(turn, query_map)
     turn.numbering_fp = numbering_fingerprint(query_map, doc_maps, turn.query_seed_document_id)
     # A rebuilt numbering is only trusted when it matches the one the chunks
     # were produced under (maps, selection and query unchanged since);
@@ -2002,6 +1958,15 @@ async def _reseed_query_map(turn: _ChatTurn, db: AsyncSession) -> None:
     )
 
 
+def _settle_query_strays(turn: _ChatTurn, query_map: AnonymizationMap) -> None:
+    """Keep placeholders the query map does not hold (typed by the user) off every global.
+
+    Runs right after the turn's space is built, before any chunk, so a retry
+    settles them on the same placeholders.
+    """
+    settle_strays(turn.sanitized_query, turn.query_remap, map_placeholders(query_map), turn.anon_map)
+
+
 async def _unify_fresh_turn(
     turn: _ChatTurn,
 ) -> tuple[dict[int, AnonymizationMap], dict[int, dict[str, str]]]:
@@ -2019,6 +1984,7 @@ async def _unify_fresh_turn(
     turn.numbering_fp = numbering_fingerprint(
         query_anon_map, anon_maps, turn.query_seed_document_id
     )
+    _settle_query_strays(turn, query_anon_map)
     if turn.query_remap:
         turn.sanitized_query = _apply_chunk_placeholder_remap(turn.sanitized_query, turn.query_remap)
 
@@ -2043,11 +2009,19 @@ def _masked_chunk_text(
     restored_chunk_texts: dict[int, str],
     chunk_map: AnonymizationMap,
     chunk_remap: Optional[dict[str, str]],
+    strays: Optional[Tuple[set[str], AnonymizationMap]] = None,
 ) -> str:
-    """Return one chunk's text masked by its map and renumbered into the turn's space."""
+    """Return one chunk's text masked by its map and renumbered into the turn's space.
+
+    ``strays`` carries the placeholders the chunk's map holds and the turn's
+    unified map; a placeholder in the text outside that set is settled off
+    every global (see :func:`settle_strays`) into ``chunk_remap``.
+    """
     chunk_text = restored_chunk_texts.get(chunk.id, chunk.sanitized_text or "")
     # Chunks were analysed at ingestion; the map is the source of truth here.
     masked_chunk = mask_known_entities(chunk_text, chunk_map)
+    if strays is not None and chunk_remap is not None:
+        settle_strays(masked_chunk, chunk_remap, *strays)
     if chunk_remap:
         masked_chunk = _apply_chunk_placeholder_remap(masked_chunk, chunk_remap)
     return masked_chunk
@@ -2068,6 +2042,7 @@ def _masked_chunk_texts(
     multi_document = len(turn.documents_by_id) > 1
     document_labels: dict[int, int] = {}
     prev_doc_id: Optional[int] = None
+    known: dict[int, set[str]] = {}
     texts: List[str] = []
     for c in turn.chunks:
         header = ""
@@ -2075,11 +2050,18 @@ def _masked_chunk_texts(
             label = document_labels.setdefault(c.document_id, len(document_labels) + 1)
             header = PromptCatalog.document_context_header(label)
             prev_doc_id = c.document_id
+        doc_map = anon_maps.get(c.document_id)
+        strays = None
+        if doc_map is not None:
+            if c.document_id not in known:
+                known[c.document_id] = map_placeholders(doc_map)
+            strays = (known[c.document_id], turn.anon_map)
         masked_chunk = _masked_chunk_text(
             c,
             restored_chunk_texts,
-            anon_maps.get(c.document_id, turn.anon_map),
-            per_doc_remap.get(c.document_id),
+            doc_map or turn.anon_map,
+            per_doc_remap.setdefault(c.document_id, {}) if doc_map is not None else None,
+            strays,
         )
         texts.append(header + masked_chunk)
     return texts
@@ -2125,7 +2107,10 @@ async def _prepare_prompt_inputs(turn: _ChatTurn, db: AsyncSession) -> None:
     # forced answer and the de-anonymization allow-set both read
     # ``sanitized_query``, so they must agree on every number.
     turn.query_placeholders = _typed_query_placeholders(
-        turn.message_text, turn.sanitized_query, turn.query_remap
+        turn.message_text,
+        turn.sanitized_query,
+        turn.query_remap,
+        map_placeholders(turn.anon_map) | set(turn.anon_map.placeholder_lookup),
     )
     turn.context_texts = [c.text for c in turn.candidate_chunks]
     if turn.rag_mode == "none":

@@ -859,7 +859,8 @@ class TestRetryNumberingToken:
 
 
 class TestTypedQueryPlaceholder:
-    async def test_typed_placeholder_follows_the_unified_numbering(self, env: _Env) -> None:
+    async def test_query_copy_of_the_lead_document_keeps_its_numbering(self, env: _Env) -> None:
+        """The query map, a copy of the lead document's, is placed first: its numbers stand."""
         await env.set_require_approval(False)
         doc_a = await env.add_document(["[PERSON_1] owns the house."])
         doc_b = await env.add_document(["[PERSON_2] owns the car. [PERSON_1] rents it."])
@@ -868,6 +869,27 @@ class TestTypedQueryPlaceholder:
         await document_anon_store.set_document_map(doc_a, amap_a)
         amap_b = AnonymizationMap(document_id=doc_b, language="en")
         amap_b.entity_map = {"Bob Jones": "[PERSON_2]", "Dan Brown": "[PERSON_1]"}
+        await document_anon_store.set_document_map(doc_b, amap_b)
+
+        answer = _answer(
+            await env.ask(
+                {"message": "Who is [PERSON_2]?", "document_ids": [doc_b, doc_a]}
+            )
+        )
+
+        assert "Who is [PERSON_2]?" in env.prompts[-1]
+        assert answer == "Bob Jones"
+
+    async def test_typed_placeholder_is_renumbered_with_its_lead_document(self, env: _Env) -> None:
+        """A typed placeholder follows its entity when the unified space renumbers it."""
+        await env.set_require_approval(False)
+        doc_a = await env.add_document(["[PERSON_1] owns the house."])
+        doc_b = await env.add_document(["[PERSON_2] owns the car. [PERSON_3] rents it."])
+        amap_a = AnonymizationMap(document_id=doc_a, language="en")
+        amap_a.add_entity("Alice Smith", "PERSON")
+        await document_anon_store.set_document_map(doc_a, amap_a)
+        amap_b = AnonymizationMap(document_id=doc_b, language="en")
+        amap_b.entity_map = {"Bob Jones": "[PERSON_2]", "Dan Brown": "[PERSON_3]"}
         await document_anon_store.set_document_map(doc_b, amap_b)
 
         answer = _answer(
