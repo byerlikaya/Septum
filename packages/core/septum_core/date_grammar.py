@@ -39,7 +39,7 @@ import hashlib
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import Dict, List, Literal, Optional, Tuple, TypedDict
+from typing import Dict, Iterator, List, Literal, Optional, Tuple, TypedDict
 
 from babel.localedata import Alias
 from babel.localedata import load as load_locale_data
@@ -278,25 +278,29 @@ def _name_key(name: str) -> str:
     return lowered.replace("i\u0307", "i").translate(_ASCII_FOLD_TABLE)
 
 
+def _locale_month_names(language: str, width: str) -> Iterator[str]:
+    """Yield the digit-free month names of one locale at one CLDR width."""
+    data = load_locale_data(language)
+    for context in _MONTH_NAME_CONTEXTS:
+        node = _resolve_month_node(data["months"][context][width], data)
+        for raw in node.values():
+            if not any(ch.isdigit() for ch in raw):
+                yield locale_lower(raw, language).rstrip(".")
+
+
 @functools.lru_cache(maxsize=1)
 def _month_names() -> _MonthNames:
     """Collect the strong, weak and abbreviation month names from CLDR."""
     strong: set[str] = set()
-    weak: set[str] = set()
     abbreviations: set[str] = set()
     for language in _MONTH_NAME_LANGUAGES:
-        data = load_locale_data(language)
-        for context in _MONTH_NAME_CONTEXTS:
-            for width, target in (("wide", strong), ("abbreviated", abbreviations)):
-                node = _resolve_month_node(data["months"][context][width], data)
-                for raw in node.values():
-                    if any(ch.isdigit() for ch in raw):
-                        continue
-                    name = locale_lower(raw, language).rstrip(".")
-                    target.add(name)
-                    folded = _ascii_folded(name)
-                    if folded and folded != name:
-                        weak.add(folded)
+        strong.update(_locale_month_names(language, "wide"))
+        abbreviations.update(_locale_month_names(language, "abbreviated"))
+    weak = {
+        folded
+        for name in strong | abbreviations
+        if (folded := _ascii_folded(name)) and folded != name
+    }
     short = {n for n in strong if len(n) < _MIN_STRONG_NAME_LENGTH}
     strong -= short
     strong_keys = {_name_key(n) for n in strong}
@@ -510,57 +514,78 @@ def _numeric_day_month_valid(first: str, second: str) -> bool:
     return (1 <= a <= 31 and 1 <= b <= 12) or (1 <= a <= 12 and 1 <= b <= 31)
 
 
-def _accepted_end(m: re.Match[str], text: str, vocab: _Vocabulary) -> Optional[int]:
-    """Validate a raw match and return its final end offset, or ``None``."""
-    start, end = m.span()
-    if m.group("u_m") is not None:
-        if m.group("u_y") is None and m.group("u_d") is None:
-            return None
-        if not 1 <= int(m.group("u_m")) <= 12:
-            return None
-        if m.group("u_d") is not None and not 1 <= int(m.group("u_d")) <= 31:
-            return None
-        return end
-    if m.group("iso_y") is not None:
-        month, day = int(m.group("iso_m")), int(m.group("iso_d"))
-        return end if 1 <= month <= 12 and 1 <= day <= 31 else None
-    if m.group("cmp_y") is not None:
-        year = int(m.group("cmp_y"))
-        if not _COMPACT_YEAR_RANGE[0] <= year <= _COMPACT_YEAR_RANGE[1]:
-            return None
-        try:
-            datetime.date(year, int(m.group("cmp_m")), int(m.group("cmp_d")))
-        except ValueError:
-            return None
-        return end
-    if m.group("num_a") is not None:
-        first, second = m.group("num_a"), m.group("num_b")
-        if (
-            m.group("num_sep") == "."
-            and len(m.group("num_y")) == 2
-            and (len(first) < 2 or len(second) < 2)
-        ):
-            return None
-        return end if _numeric_day_month_valid(first, second) else None
-    if m.group("dm_a") is not None:
-        dotted = m.group("dm_dot") is not None
-        dot_separated = m.group("dm_sep") == "."
-        if not _numeric_day_month_valid(m.group("dm_a"), m.group("dm_b")):
-            return None
-        if m.group("dm_a2") is not None and not _numeric_day_month_valid(
-            m.group("dm_a2"), m.group("dm_b2")
-        ):
-            return None
-        final_end = end - 1 if dotted and not dot_separated else end
-        if dot_separated and not dotted:
-            return end if vocab.cue_after.match(text, end) is not None else None
-        return final_end if _has_cue(text, start, final_end, vocab) else None
-
-    if m.group("my_y") is not None:
-        if _is_strong(m.group("mf_m"), vocab) or _is_marked(m, "mf_m", text):
-            return end
+def _unit_date_end(m: re.Match[str], end: int) -> Optional[int]:
+    """Validate a unit-suffixed date (year/month/day markers)."""
+    if m.group("u_y") is None and m.group("u_d") is None:
         return None
+    if not 1 <= int(m.group("u_m")) <= 12:
+        return None
+    if m.group("u_d") is not None and not 1 <= int(m.group("u_d")) <= 31:
+        return None
+    return end
 
+
+def _iso_date_end(m: re.Match[str], end: int) -> Optional[int]:
+    """Validate a year-first date with a shared separator."""
+    month, day = int(m.group("iso_m")), int(m.group("iso_d"))
+    return end if 1 <= month <= 12 and 1 <= day <= 31 else None
+
+
+def _compact_date_end(m: re.Match[str], end: int) -> Optional[int]:
+    """Validate an eight-digit ``YYYYMMDD`` date against the calendar."""
+    year = int(m.group("cmp_y"))
+    if not _COMPACT_YEAR_RANGE[0] <= year <= _COMPACT_YEAR_RANGE[1]:
+        return None
+    try:
+        datetime.date(year, int(m.group("cmp_m")), int(m.group("cmp_d")))
+    except ValueError:
+        return None
+    return end
+
+
+def _numeric_date_end(m: re.Match[str], end: int) -> Optional[int]:
+    """Validate a fully numeric day/month/year date."""
+    first, second = m.group("num_a"), m.group("num_b")
+    if (
+        m.group("num_sep") == "."
+        and len(m.group("num_y")) == 2
+        and (len(first) < 2 or len(second) < 2)
+    ):
+        return None
+    return end if _numeric_day_month_valid(first, second) else None
+
+
+def _day_month_end(
+    m: re.Match[str], text: str, vocab: _Vocabulary, end: int
+) -> Optional[int]:
+    """Validate a year-less numeric day/month pair (or range) that needs a cue."""
+    dotted = m.group("dm_dot") is not None
+    dot_separated = m.group("dm_sep") == "."
+    if not _numeric_day_month_valid(m.group("dm_a"), m.group("dm_b")):
+        return None
+    if m.group("dm_a2") is not None and not _numeric_day_month_valid(
+        m.group("dm_a2"), m.group("dm_b2")
+    ):
+        return None
+    final_end = end - 1 if dotted and not dot_separated else end
+    if dot_separated and not dotted:
+        return end if vocab.cue_after.match(text, end) is not None else None
+    return final_end if _has_cue(text, m.start(), final_end, vocab) else None
+
+
+def _month_year_end(
+    m: re.Match[str], text: str, vocab: _Vocabulary, end: int
+) -> Optional[int]:
+    """Validate a month name followed by a year."""
+    if _is_strong(m.group("mf_m"), vocab) or _is_marked(m, "mf_m", text):
+        return end
+    return None
+
+
+def _named_month_end(
+    m: re.Match[str], text: str, vocab: _Vocabulary, end: int
+) -> Optional[int]:
+    """Validate a date that spells its month as a name."""
     group = "df_m" if m.group("df_m") is not None else "mf_m"
     has_year = any(
         m.group(g) is not None for g in ("df_y", "df_y2", "mf_y", "mf_y2")
@@ -574,7 +599,25 @@ def _accepted_end(m: re.Match[str], text: str, vocab: _Vocabulary) -> Optional[i
         and _name_key(m.group(group)) in vocab.abbreviations
     ):
         return final_end
-    return final_end if _has_cue(text, start, final_end, vocab) else None
+    return final_end if _has_cue(text, m.start(), final_end, vocab) else None
+
+
+def _accepted_end(m: re.Match[str], text: str, vocab: _Vocabulary) -> Optional[int]:
+    """Validate a raw match and return its final end offset, or ``None``."""
+    end = m.end()
+    if m.group("u_m") is not None:
+        return _unit_date_end(m, end)
+    if m.group("iso_y") is not None:
+        return _iso_date_end(m, end)
+    if m.group("cmp_y") is not None:
+        return _compact_date_end(m, end)
+    if m.group("num_a") is not None:
+        return _numeric_date_end(m, end)
+    if m.group("dm_a") is not None:
+        return _day_month_end(m, text, vocab, end)
+    if m.group("my_y") is not None:
+        return _month_year_end(m, text, vocab, end)
+    return _named_month_end(m, text, vocab, end)
 
 
 def find_dates(text: str) -> List[DateMatch]:

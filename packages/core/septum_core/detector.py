@@ -654,49 +654,60 @@ class StructuralAddressRecognizer(BaseCustomRecognizer):
         if self._entity_filter(entities):
             return []
 
-        results: List[RecognizerResult] = []
+        results = self._labeled_field_results(text)
+        results.extend(self._dense_line_results(text, results))
+        return results
 
-        # Strategy 1: labeled fields — ``Label : value`` where value looks
-        # like an address (contains multiple structural cues or numbers).
+    def _labeled_field_results(self, text: str) -> List[RecognizerResult]:
+        """Strategy 1: ``Label : value`` fields whose value looks like an address.
+
+        The value must hold multiple structural cues, or a cue and several
+        numbers, and be at least 10 characters long.
+        """
+        results: List[RecognizerResult] = []
         for label_match in self._label_value.finditer(text):
             value = label_match.group(2).strip()
             cue_count = len(self._structural_cue.findall(value))
             num_count = len(self._numeric_density.findall(value))
-            if cue_count >= 2 or (cue_count >= 1 and num_count >= 2):
-                val_start = label_match.start(2)
-                val_end = label_match.end(2)
-                if len(value) >= 10:
-                    results.append(
-                        RecognizerResult(
-                            entity_type="POSTAL_ADDRESS",
-                            start=val_start,
-                            end=val_end,
-                            score=0.82,
-                        )
+            looks_like_address = cue_count >= 2 or (cue_count >= 1 and num_count >= 2)
+            if looks_like_address and len(value) >= 10:
+                results.append(
+                    RecognizerResult(
+                        entity_type="POSTAL_ADDRESS",
+                        start=label_match.start(2),
+                        end=label_match.end(2),
+                        score=0.82,
                     )
+                )
+        return results
 
-        # Strategy 2: dense structural lines — lines with 2+ cues that also
-        # contain numeric tokens (building numbers, postal codes, etc.).
+    def _dense_line_results(
+        self, text: str, covering: List[RecognizerResult]
+    ) -> List[RecognizerResult]:
+        """Strategy 2: lines with 2+ cues that also contain numeric tokens.
+
+        Building numbers and postal codes count as numeric tokens. A line a
+        ``covering`` result already spans is skipped.
+        """
+        results: List[RecognizerResult] = []
         for line_match in re.finditer(r"[^\n]+", text):
             line = line_match.group()
             structural_hits = len(self._structural_cue.findall(line))
             numeric_hits = len(self._numeric_density.findall(line))
-            if structural_hits >= 2 and numeric_hits >= 1:
-                line_start = line_match.start()
-                line_end = line_match.end()
-                already_covered = any(
-                    r.start <= line_start and r.end >= line_end for r in results
+            if structural_hits < 2 or numeric_hits < 1:
+                continue
+            line_start = line_match.start()
+            line_end = line_match.end()
+            if any(r.start <= line_start and r.end >= line_end for r in covering + results):
+                continue
+            results.append(
+                RecognizerResult(
+                    entity_type="POSTAL_ADDRESS",
+                    start=line_start,
+                    end=line_end,
+                    score=0.78,
                 )
-                if not already_covered:
-                    results.append(
-                        RecognizerResult(
-                            entity_type="POSTAL_ADDRESS",
-                            start=line_start,
-                            end=line_end,
-                            score=0.78,
-                        )
-                    )
-
+            )
         return results
 
 
@@ -1391,190 +1402,32 @@ class Detector:
             return SanitizeResult(sanitized_text=text, entity_count=0)
 
         normalized_text = normalize_unicode(text)
-        stripped = normalized_text.strip()
         spans: List[DetectedSpan] = []
 
         if self._config.use_presidio_layer:
-            presidio_entities = self._expand_with_aliases(self._entity_types)
-            presidio_results = self._analyzer.analyze(
-                text=normalized_text,
-                language=_PRESIDIO_DEFAULT_LANGUAGE,
-                entities=presidio_entities,
-            )
-            presidio_results = self._filter_presidio_results(
-                presidio_results, normalized_text
-            )
-            spans.extend(self._from_presidio_results(presidio_results))
+            spans.extend(self._presidio_spans(normalized_text))
 
         # NER runs on text of any length: a short chat question or chunk can
         # hold a name, and any length floor would leave it raw.
-        if self._config.use_ner_layer and stripped:
-            ner_pipelines = self._ner_registry.get_pipelines(language)
-            titlecased = _titlecase_upper_segments(normalized_text)
-            ner_spans: List[DetectedSpan] = []
-            seen_spans: set[tuple[int, int, str]] = set()
-
-            def _add(spans: List[DetectedSpan]) -> None:
-                for s in spans:
-                    key = (s.start, s.end, s.entity_type)
-                    if key in seen_spans:
-                        continue
-                    seen_spans.add(key)
-                    ner_spans.append(s)
-
-            # Pass 1: every ensemble member sees the original text. Different
-            # architectures catch different rare names; the seen-set unions
-            # their outputs without double-counting identical (start, end,
-            # entity_type) spans.
-            for ner_pipeline in ner_pipelines:
-                _add(self._from_ner_results(
-                    ner_pipeline(normalized_text), normalized_text, language
-                ))
-
-            # Pass 2: ALL-CAPS recovery. Title-casing fixes the shared
-            # uppercase blind spot of mixed-case-trained transformers, but
-            # rare-surname recall is still architecture-dependent — that is
-            # why the registry pairs models in the first place. Run every
-            # ensemble member on the title-cased text so the backstop model
-            # (e.g. savasy BERT for Turkish) still sees inputs whose only
-            # appearance is ALL CAPS. seen_spans dedupes overlap.
-            if titlecased != normalized_text:
-                for ner_pipeline in ner_pipelines:
-                    _add(self._from_ner_results(
-                        ner_pipeline(titlecased), normalized_text, language
-                    ))
-            if self._entity_types is not None:
-                allowed = set(self._expand_with_aliases(self._entity_types))
-                ner_spans = [s for s in ner_spans if s.entity_type in allowed]
-            spans.extend(ner_spans)
+        if self._config.use_ner_layer and normalized_text.strip():
+            spans.extend(self._ner_spans(normalized_text, language))
 
         port_enabled = self._semantic_port.is_enabled()
-
-        if self._config.use_semantic_validation and port_enabled and spans:
-            try:
-                validated_spans = self._semantic_validate_candidates(
-                    text=normalized_text,
-                    candidate_spans=spans,
-                    language=language,
-                )
-                logger.debug(
-                    "Semantic validation: %d candidates → %d validated spans",
-                    len(spans),
-                    len(validated_spans),
-                )
-                spans = validated_spans
-            except Exception as e:
-                logger.warning(
-                    "Semantic validation layer failed, continuing with all candidates: %s",
-                    type(e).__name__,
-                )
-
-        if (
-            self._config.use_semantic_detection
-            and port_enabled
-            and word_count(stripped) >= _MIN_WORDS_FOR_SEMANTIC_ALIAS
-        ):
-            try:
-                semantic_spans = self._semantic_port.detect_aliases(
-                    normalized_text=normalized_text,
-                )
-                logger.debug(
-                    "Semantic alias layer returned %d spans",
-                    len(semantic_spans),
-                )
-                spans.extend(semantic_spans)
-            except Exception as e:
-                logger.warning(
-                    "Semantic alias layer failed, continuing without it: %s", type(e).__name__
-                )
-
-            if self._config.use_semantic_contextual_detection:
-                semantic_types = [
-                    et for et in (self._entity_types or [])
-                    if et in _CONTEXTUAL_ENTITY_TYPES
-                ]
-                if semantic_types:
-                    try:
-                        contextual_spans = self._semantic_port.detect_semantic(
-                            normalized_text=normalized_text,
-                            entity_types=semantic_types,
-                        )
-                        logger.debug(
-                            "Semantic contextual layer returned %d spans",
-                            len(contextual_spans),
-                        )
-                        spans.extend(contextual_spans)
-                    except Exception as e:
-                        logger.warning("Semantic contextual layer failed: %s", type(e).__name__)
-
-        if self._non_pii_filter is not None:
-            span_views = [
-                SpanView(
-                    start=s.start,
-                    end=s.end,
-                    entity_type=s.entity_type,
-                    score=s.score,
-                )
-                for s in spans
-            ]
-            filtered_views = self._non_pii_filter.filter_spans(
-                text=normalized_text,
-                language=language,
-                spans=span_views,
-            )
-            keep_spans: List[DetectedSpan] = []
-            for view in filtered_views:
-                for original in spans:
-                    if (
-                        original.start == view.start
-                        and original.end == view.end
-                        and original.entity_type == view.entity_type
-                        and original.score == view.score
-                    ):
-                        keep_spans.append(original)
-                        break
-            spans = keep_spans
-
-        spans = absorb_overlapping_spans(spans, text=normalized_text)
-        spans = deduplicate_spans(
-            spans, _HIGH_PRIORITY_ENTITY_TYPES, text=normalized_text
+        spans = self._validate_semantically(
+            spans, normalized_text, language, port_enabled
         )
+        if self._runs_semantic_detection(normalized_text, port_enabled):
+            spans.extend(self._semantic_detection_spans(normalized_text))
 
-        # Expand person-name spans to cover adjacent capitalized tokens so that
-        # given-name-only detections are upgraded to full name blocks where
-        # possible. This is language-agnostic and relies only on character
-        # casing and token boundaries.
-        spans = expand_person_name_spans(normalized_text, spans)
-        spans = merge_adjacent_person_name_spans(normalized_text, spans)
-
-        spans = [
-            s
-            for s in spans
-            if normalize_for_comparison(
-                normalized_text[s.start : s.end].strip(), language
-            )
-            not in SANITIZER_STOPWORDS
-        ]
+        spans = self._apply_non_pii_filter(spans, normalized_text, language)
+        spans = self._resolve_overlaps(spans, normalized_text, language)
 
         sanitized, count, resolved_spans = self._apply_replacements(
             normalized_text, spans, anon_map, language
         )
 
-        if (
-            self._config.use_semantic_detection
-            and port_enabled
-            and anon_map.entity_map
-        ):
-            try:
-                self._semantic_port.resolve_coreference(
-                    normalized_text=normalized_text,
-                    anon_map=anon_map,
-                    language=language,
-                )
-            except Exception as e:
-                logger.warning(
-                    "Pronoun coreference resolution failed, continuing: %s", type(e).__name__
-                )
+        if self._config.use_semantic_detection and port_enabled and anon_map.entity_map:
+            self._resolve_coreference(normalized_text, anon_map, language)
 
         sanitized = anon_map.apply_blocklist(sanitized, language)
         self._log_low_confidence(spans)
@@ -1589,6 +1442,205 @@ class Detector:
             entity_type_counts=type_counts,
             detected_spans=resolved_spans,
         )
+
+    def _presidio_spans(self, normalized_text: str) -> List[DetectedSpan]:
+        """Run the Presidio layer and return its filtered results as spans."""
+        results = self._analyzer.analyze(
+            text=normalized_text,
+            language=_PRESIDIO_DEFAULT_LANGUAGE,
+            entities=self._expand_with_aliases(self._entity_types),
+        )
+        results = self._filter_presidio_results(results, normalized_text)
+        return self._from_presidio_results(results)
+
+    def _ner_spans(self, normalized_text: str, language: str) -> List[DetectedSpan]:
+        """Run the NER ensemble and return its unique spans for the active types.
+
+        Pass 1: every ensemble member sees the original text. Different
+        architectures catch different rare names; identical
+        ``(start, end, entity_type)`` spans are counted once.
+
+        Pass 2: ALL-CAPS recovery. Title-casing fixes the shared uppercase
+        blind spot of mixed-case-trained transformers, but rare-surname recall
+        is still architecture-dependent — that is why the registry pairs
+        models in the first place. Every ensemble member also runs on the
+        title-cased text so the backstop model (e.g. savasy BERT for Turkish)
+        still sees inputs whose only appearance is ALL CAPS.
+        """
+        ner_pipelines = self._ner_registry.get_pipelines(language)
+        titlecased = _titlecase_upper_segments(normalized_text)
+        variants = [normalized_text]
+        if titlecased != normalized_text:
+            variants.append(titlecased)
+        unique: Dict[tuple[int, int, str], DetectedSpan] = {}
+        for variant in variants:
+            for ner_pipeline in ner_pipelines:
+                for span in self._from_ner_results(
+                    ner_pipeline(variant), normalized_text, language
+                ):
+                    unique.setdefault((span.start, span.end, span.entity_type), span)
+        ner_spans = list(unique.values())
+        if self._entity_types is None:
+            return ner_spans
+        allowed = set(self._expand_with_aliases(self._entity_types))
+        return [s for s in ner_spans if s.entity_type in allowed]
+
+    def _validate_semantically(
+        self,
+        spans: List[DetectedSpan],
+        normalized_text: str,
+        language: str,
+        port_enabled: bool,
+    ) -> List[DetectedSpan]:
+        """Run the semantic validation layer; on failure keep every candidate."""
+        if not (self._config.use_semantic_validation and port_enabled and spans):
+            return spans
+        try:
+            validated_spans = self._semantic_validate_candidates(
+                text=normalized_text,
+                candidate_spans=spans,
+                language=language,
+            )
+        except Exception as e:
+            logger.warning(
+                "Semantic validation layer failed, continuing with all candidates: %s",
+                type(e).__name__,
+            )
+            return spans
+        logger.debug(
+            "Semantic validation: %d candidates → %d validated spans",
+            len(spans),
+            len(validated_spans),
+        )
+        return validated_spans
+
+    def _runs_semantic_detection(self, normalized_text: str, port_enabled: bool) -> bool:
+        """Whether the alias and contextual layers run for this text."""
+        return (
+            self._config.use_semantic_detection
+            and port_enabled
+            and word_count(normalized_text.strip()) >= _MIN_WORDS_FOR_SEMANTIC_ALIAS
+        )
+
+    def _semantic_detection_spans(self, normalized_text: str) -> List[DetectedSpan]:
+        """Collect the alias and contextual layer spans; a failing layer adds none."""
+        spans: List[DetectedSpan] = []
+        try:
+            semantic_spans = self._semantic_port.detect_aliases(
+                normalized_text=normalized_text,
+            )
+            logger.debug(
+                "Semantic alias layer returned %d spans",
+                len(semantic_spans),
+            )
+            spans.extend(semantic_spans)
+        except Exception as e:
+            logger.warning(
+                "Semantic alias layer failed, continuing without it: %s", type(e).__name__
+            )
+
+        if self._config.use_semantic_contextual_detection:
+            spans.extend(self._contextual_spans(normalized_text))
+        return spans
+
+    def _contextual_spans(self, normalized_text: str) -> List[DetectedSpan]:
+        """Run the contextual layer for the active contextual entity types."""
+        semantic_types = [
+            et for et in (self._entity_types or [])
+            if et in _CONTEXTUAL_ENTITY_TYPES
+        ]
+        if not semantic_types:
+            return []
+        try:
+            contextual_spans = self._semantic_port.detect_semantic(
+                normalized_text=normalized_text,
+                entity_types=semantic_types,
+            )
+        except Exception as e:
+            logger.warning("Semantic contextual layer failed: %s", type(e).__name__)
+            return []
+        logger.debug(
+            "Semantic contextual layer returned %d spans",
+            len(contextual_spans),
+        )
+        return list(contextual_spans)
+
+    def _apply_non_pii_filter(
+        self, spans: List[DetectedSpan], normalized_text: str, language: str
+    ) -> List[DetectedSpan]:
+        """Drop the spans the non-PII filter rejects; keep the originals of the rest."""
+        if self._non_pii_filter is None:
+            return spans
+        span_views = [
+            SpanView(
+                start=s.start,
+                end=s.end,
+                entity_type=s.entity_type,
+                score=s.score,
+            )
+            for s in spans
+        ]
+        filtered_views = self._non_pii_filter.filter_spans(
+            text=normalized_text,
+            language=language,
+            spans=span_views,
+        )
+        keep_spans: List[DetectedSpan] = []
+        for view in filtered_views:
+            original = next(
+                (
+                    s for s in spans
+                    if s.start == view.start
+                    and s.end == view.end
+                    and s.entity_type == view.entity_type
+                    and s.score == view.score
+                ),
+                None,
+            )
+            if original is not None:
+                keep_spans.append(original)
+        return keep_spans
+
+    @staticmethod
+    def _resolve_overlaps(
+        spans: List[DetectedSpan], normalized_text: str, language: str
+    ) -> List[DetectedSpan]:
+        """Absorb, deduplicate, grow and merge spans, then drop stopword spans.
+
+        Person-name spans are expanded to cover adjacent capitalized tokens so
+        that given-name-only detections are upgraded to full name blocks where
+        possible. This is language-agnostic and relies only on character
+        casing and token boundaries.
+        """
+        spans = absorb_overlapping_spans(spans, text=normalized_text)
+        spans = deduplicate_spans(
+            spans, _HIGH_PRIORITY_ENTITY_TYPES, text=normalized_text
+        )
+        spans = expand_person_name_spans(normalized_text, spans)
+        spans = merge_adjacent_person_name_spans(normalized_text, spans)
+        return [
+            s
+            for s in spans
+            if normalize_for_comparison(
+                normalized_text[s.start : s.end].strip(), language
+            )
+            not in SANITIZER_STOPWORDS
+        ]
+
+    def _resolve_coreference(
+        self, normalized_text: str, anon_map: AnonymizationMap, language: str
+    ) -> None:
+        """Run pronoun coreference resolution; a failure leaves the map as it is."""
+        try:
+            self._semantic_port.resolve_coreference(
+                normalized_text=normalized_text,
+                anon_map=anon_map,
+                language=language,
+            )
+        except Exception as e:
+            logger.warning(
+                "Pronoun coreference resolution failed, continuing: %s", type(e).__name__
+            )
 
     def _filter_presidio_results(
         self,
@@ -1606,36 +1658,31 @@ class Detector:
         """
         if not results:
             return results
+        return [r for r in results if not self._drops_presidio_result(r, text)]
 
-        filtered: List[RecognizerResult] = []
-        for r in results:
+    def _drops_presidio_result(self, r: RecognizerResult, text: str) -> bool:
+        """Whether a Presidio result is advisory noise the other layers cover better."""
+        if (
+            self._config.use_ner_layer
+            and r.entity_type == "PERSON_NAME"
+            and r.score < _PRESIDIO_PERSON_MIN_SCORE_WHEN_NER_ENABLED
+        ):
+            return True
 
-            if (
-                self._config.use_ner_layer
-                and r.entity_type == "PERSON_NAME"
-                and r.score < _PRESIDIO_PERSON_MIN_SCORE_WHEN_NER_ENABLED
-            ):
-                continue
+        if r.entity_type == "PHONE_NUMBER":
+            span_text = text[r.start : r.end]
+            digit_count = sum(1 for ch in span_text if ch.isdigit())
+            has_dot_or_slash = "." in span_text or "/" in span_text
+            if has_dot_or_slash and digit_count <= 8:
+                return True
 
-            if r.entity_type == "PHONE_NUMBER":
-                span_text = text[r.start : r.end]
-                digit_count = sum(1 for ch in span_text if ch.isdigit())
-                has_dot_or_slash = "." in span_text or "/" in span_text
-                if has_dot_or_slash and digit_count <= 8:
-                    continue
-
-            if r.entity_type == "LOCATION" and self._config.use_ner_layer:
-                # Drop Presidio's spaCy-LOCATION output ONLY when the
-                # NER layer is also active — the transformer ensemble
-                # supplies higher-quality LOCATION spans anyway. With
-                # the NER layer disabled (e.g. transformers extra not
-                # installed) Presidio's LOCATION is the only signal,
-                # so let it through even though en_core_web_sm is
-                # noisy on non-English text.
-                continue
-
-            filtered.append(r)
-        return filtered
+        # Drop Presidio's spaCy-LOCATION output ONLY when the NER layer is
+        # also active — the transformer ensemble supplies higher-quality
+        # LOCATION spans anyway. With the NER layer disabled (e.g.
+        # transformers extra not installed) Presidio's LOCATION is the only
+        # signal, so let it through even though en_core_web_sm is noisy on
+        # non-English text.
+        return r.entity_type == "LOCATION" and self._config.use_ner_layer
 
     def _semantic_validate_candidates(
         self,
@@ -1731,21 +1778,7 @@ class Detector:
         floor that each glyph alone would fail. The joined group keeps the
         higher score. Empty groups (``end <= start``) are dropped.
         """
-        groups: List[_NerGroup] = []
-        for item in raw_results:
-            start, end = int(item["start"]), int(item["end"])
-            if end <= start:
-                continue
-            entity = item.get("entity_group") or item.get("entity")
-            if not entity:
-                continue
-            entity_type = Detector._map_ner_label(entity)
-            if entity_type is None:
-                continue
-            score = float(item.get("score", 0.0))
-            if score < _NER_MIN_SCORE_PER_TYPE.get(entity_type, _NER_DEFAULT_MIN_SCORE):
-                continue
-            groups.append(_NerGroup(entity_type, start, end, score))
+        groups = [g for g in map(Detector._ner_group, raw_results) if g is not None]
 
         merged: List[_NerGroup] = []
         for group in sorted(groups, key=lambda g: (g.start, g.end)):
@@ -1755,6 +1788,23 @@ class Detector:
             else:
                 merged.append(group)
         return merged
+
+    @staticmethod
+    def _ner_group(item: dict) -> Optional[_NerGroup]:
+        """Map one raw NER item to a group, or None when it is empty, unmapped or below the score floor."""
+        start, end = int(item["start"]), int(item["end"])
+        if end <= start:
+            return None
+        entity = item.get("entity_group") or item.get("entity")
+        if not entity:
+            return None
+        entity_type = Detector._map_ner_label(entity)
+        if entity_type is None:
+            return None
+        score = float(item.get("score", 0.0))
+        if score < _NER_MIN_SCORE_PER_TYPE.get(entity_type, _NER_DEFAULT_MIN_SCORE):
+            return None
+        return _NerGroup(entity_type, start, end, score)
 
     @staticmethod
     def _snap(
@@ -1812,28 +1862,10 @@ class Detector:
             start, end = Detector._snap(text, start, end, whole_run, boundaries)
 
             span_text = text[start:end].strip()
-            script_floor = script_min_span_length(span_text)
-            min_span_len = script_floor if script_floor is not None else language_floor
-            single_glyph_person = (
-                entity_type == "PERSON_NAME"
-                and len(span_text) == 1
-                and is_unspaced_char(span_text)
-                and score >= _NER_SINGLE_GLYPH_PERSON_MIN_SCORE
-            )
-            if len(span_text) < min_span_len and not single_glyph_person:
+            if not Detector._clears_ner_floors(
+                entity_type, span_text, score, whole_run, language_floor
+            ):
                 continue
-
-            single_word_floor = _NER_SINGLE_WORD_MIN_SCORE_PER_TYPE.get(
-                entity_type
-            )
-            if single_word_floor is not None:
-                # Locale-specific single-token mis-fires (Turkish "Doğum",
-                # German form headers, …) are the dominant FP shape for
-                # multilingual XLM-RoBERTa on ORG/LOC. Multi-word spans
-                # bypass; single tokens must clear a higher floor.
-                words = len(span_text.split()) if whole_run else word_count(span_text)
-                if words < 2 and score < single_word_floor:
-                    continue
 
             spans.append(
                 DetectedSpan(
@@ -1844,6 +1876,36 @@ class Detector:
                 )
             )
         return spans
+
+    @staticmethod
+    def _clears_ner_floors(
+        entity_type: str,
+        span_text: str,
+        score: float,
+        whole_run: bool,
+        language_floor: int,
+    ) -> bool:
+        """Whether a snapped NER span meets the length floor and the single-word score floor."""
+        script_floor = script_min_span_length(span_text)
+        min_span_len = script_floor if script_floor is not None else language_floor
+        single_glyph_person = (
+            entity_type == "PERSON_NAME"
+            and len(span_text) == 1
+            and is_unspaced_char(span_text)
+            and score >= _NER_SINGLE_GLYPH_PERSON_MIN_SCORE
+        )
+        if len(span_text) < min_span_len and not single_glyph_person:
+            return False
+
+        single_word_floor = _NER_SINGLE_WORD_MIN_SCORE_PER_TYPE.get(entity_type)
+        if single_word_floor is None:
+            return True
+        # Locale-specific single-token mis-fires (Turkish "Doğum", German form
+        # headers, …) are the dominant FP shape for multilingual XLM-RoBERTa
+        # on ORG/LOC. Multi-word spans bypass; single tokens must clear a
+        # higher floor.
+        words = len(span_text.split()) if whole_run else word_count(span_text)
+        return words >= 2 or score >= single_word_floor
 
     @staticmethod
     def _map_ner_label(label: str) -> Optional[str]:

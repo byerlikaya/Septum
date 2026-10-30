@@ -370,26 +370,42 @@ def _claim_tails(
     """
     if text is None:
         return start, end
+    start = _claim_leading_tail(text, start, end, winners)
+    return start, _claim_trailing_tail(text, start, end, winners)
+
+
+def _claim_leading_tail(
+    text: str, start: int, end: int, winners: List[_Grow]
+) -> int:
+    """Fold the leading token tail of ``[start, end)`` into the winner ending at ``start``."""
     left = next((w for w in winners if w.end == start), None)
     if (
-        left is not None
-        and _joins(text, start)
-        and _tail_starts_with_letter(text, start)
+        left is None
+        or not _joins(text, start)
+        or not _tail_starts_with_letter(text, start)
     ):
-        q = start + 1
-        while q < end and _joins(text, q):
-            q += 1
-        left.end = q
-        start = q
+        return start
+    q = start + 1
+    while q < end and _joins(text, q):
+        q += 1
+    left.end = q
+    return q
+
+
+def _claim_trailing_tail(
+    text: str, start: int, end: int, winners: List[_Grow]
+) -> int:
+    """Fold the trailing token tail of ``[start, end)`` into the winner starting at ``end``."""
     right = next((w for w in winners if w.start == end), None)
-    if right is not None and start < end and _joins(text, end):
-        k = end - 1
-        while k > start and _joins(text, k):
-            k -= 1
-        if _tail_starts_with_letter(text, k):
-            right.start = k
-            end = k
-    return start, end
+    if right is None or start >= end or not _joins(text, end):
+        return end
+    k = end - 1
+    while k > start and _joins(text, k):
+        k -= 1
+    if not _tail_starts_with_letter(text, k):
+        return end
+    right.start = k
+    return k
 
 
 def _tail_starts_with_letter(text: str, p: int) -> bool:
@@ -442,34 +458,63 @@ def _admit(
         chosen.append(span)
         return
     overlapped_ids = {id(c) for c in overlapped}
+    newcomer_rank = _partial_rank(span, high_priority_types)
 
     if all(c.entity_type == span.entity_type for c in overlapped):
-        members = [span, *overlapped]
-        cores = [_source_core(m) for m in members]
-        chosen[:] = [c for c in chosen if id(c) not in overlapped_ids]
-        chosen.append(
-            _make(
-                min(m.start for m in members),
-                max(m.end for m in members),
-                span.entity_type,
-                max(m.score for m in members),
-                (min(c[0] for c in cores), max(c[1] for c in cores)),
-            )
+        _admit_union(chosen, span, overlapped, overlapped_ids)
+    elif all(newcomer_rank > _partial_rank(c, high_priority_types) for c in overlapped):
+        _admit_whole(chosen, span, overlapped, overlapped_ids, text)
+    else:
+        _admit_remainder(chosen, span, overlapped, overlapped_ids, text)
+
+
+def _admit_union(
+    chosen: List[DetectedSpan],
+    span: DetectedSpan,
+    overlapped: List[DetectedSpan],
+    overlapped_ids: Set[int],
+) -> None:
+    """Replace the same-type ``overlapped`` spans and ``span`` by their union."""
+    members = [span, *overlapped]
+    cores = [_source_core(m) for m in members]
+    chosen[:] = [c for c in chosen if id(c) not in overlapped_ids]
+    chosen.append(
+        _make(
+            min(m.start for m in members),
+            max(m.end for m in members),
+            span.entity_type,
+            max(m.score for m in members),
+            (min(c[0] for c in cores), max(c[1] for c in cores)),
         )
-        return
+    )
 
-    newcomer_rank = _partial_rank(span, high_priority_types)
-    if all(newcomer_rank > _partial_rank(c, high_priority_types) for c in overlapped):
-        winner = _Grow(span.start, span.end, _source_core(span))
-        kept = [c for c in chosen if id(c) not in overlapped_ids]
-        for c in overlapped:
-            for start, end in _subtract(c.start, c.end, [(span.start, span.end)]):
-                start, end = _claim_tails(text, start, end, [winner])
-                kept.extend(_remainders(c, [(start, end)], text))
-        kept.append(winner.to_span(span.entity_type, span.score))
-        chosen[:] = kept
-        return
 
+def _admit_whole(
+    chosen: List[DetectedSpan],
+    span: DetectedSpan,
+    overlapped: List[DetectedSpan],
+    overlapped_ids: Set[int],
+    text: str | None,
+) -> None:
+    """Keep ``span`` whole and trim the lower-ranked ``overlapped`` spans around it."""
+    winner = _Grow(span.start, span.end, _source_core(span))
+    kept = [c for c in chosen if id(c) not in overlapped_ids]
+    for c in overlapped:
+        for start, end in _subtract(c.start, c.end, [(span.start, span.end)]):
+            start, end = _claim_tails(text, start, end, [winner])
+            kept.extend(_remainders(c, [(start, end)], text))
+    kept.append(winner.to_span(span.entity_type, span.score))
+    chosen[:] = kept
+
+
+def _admit_remainder(
+    chosen: List[DetectedSpan],
+    span: DetectedSpan,
+    overlapped: List[DetectedSpan],
+    overlapped_ids: Set[int],
+    text: str | None,
+) -> None:
+    """Keep the ``overlapped`` spans and add only the part of ``span`` they leave."""
     winners = [_Grow(c.start, c.end, _source_core(c)) for c in overlapped]
     gaps = [
         _claim_tails(text, start, end, winners)
@@ -481,6 +526,126 @@ def _admit(
         w.to_span(c.entity_type, c.score) for w, c in zip(winners, overlapped)
     ]
     chosen.extend(_remainders(span, gaps, text))
+
+
+def _find_token_start(text: str, idx: int) -> int:
+    """Walk left from ``idx`` to the start of the token."""
+    while idx > 0 and not text[idx - 1].isspace() and not is_script_break(text, idx):
+        idx -= 1
+    return idx
+
+
+def _find_token_end(text: str, idx: int) -> int:
+    """Walk right from ``idx`` to the end of the token."""
+    n = len(text)
+    while idx < n and not text[idx].isspace() and not is_script_break(text, idx):
+        idx += 1
+    return idx
+
+
+def _is_name_like_token(text: str, start: int, end: int) -> bool:
+    """Whether ``text[start:end]`` starts with an uppercase letter and has no digit or ``_``."""
+    token = text[start:end]
+    if not token:
+        return False
+    if not token[0].isalpha() or not token[0].isupper():
+        return False
+    return not any(ch.isdigit() or ch == "_" for ch in token)
+
+
+def _scan_horizontal_ws(text: str, idx: int, step: int) -> tuple[int, bool]:
+    """Skip horizontal whitespace from ``idx`` in ``step`` direction.
+
+    Returns the post-scan index and whether a newline was hit. Form
+    labels always sit on a line above/below their value, so any
+    expansion crossing ``\\n`` would absorb the wrong row.
+    """
+    peek = 0 if step > 0 else -1
+    while (idx < len(text)) if step > 0 else (idx > 0):
+        ch = text[idx + peek]
+        if not ch.isspace():
+            break
+        if ch in ("\n", "\r"):
+            return idx, True
+        idx += step
+    return idx, False
+
+
+def _free_name_token(
+    text: str,
+    start: int,
+    end: int,
+    occupied_ranges: List[tuple[int, int]],
+) -> bool:
+    """Whether ``text[start:end]`` is an unclaimed name-like word of two or more letters."""
+    token = text[start:end]
+    return (
+        _is_name_like_token(text, start, end)
+        and len(token) >= 2
+        and token.isalpha()
+        and not any(_overlaps(start, end, s, e) for s, e in occupied_ranges)
+    )
+
+
+def _right_surname_end(
+    text: str, end: int, occupied_ranges: List[tuple[int, int]]
+) -> int:
+    """The end of the single name token right of ``end``; ``end`` when there is none."""
+    right, crossed_nl = _scan_horizontal_ws(text, end, 1)
+    if crossed_nl or right >= len(text):
+        return end
+    right_end = _find_token_end(text, right)
+    if _free_name_token(text, right, right_end, occupied_ranges):
+        return right_end
+    return end
+
+
+def _left_name_start(
+    text: str, start: int, occupied_ranges: List[tuple[int, int]]
+) -> int:
+    """The start of the single name token left of ``start``; ``start`` when there is none."""
+    left, crossed_nl = _scan_horizontal_ws(text, start, -1)
+    if crossed_nl or left <= 0:
+        return start
+    left_start = _find_token_start(text, left - 1)
+    if _free_name_token(text, left_start, left, occupied_ranges):
+        return left_start
+    return start
+
+
+def _expand_person_span(
+    text: str,
+    span: DetectedSpan,
+    occupied_ranges: List[tuple[int, int]],
+) -> DetectedSpan:
+    """Widen one PERSON_NAME span over a neighbouring name token on each side."""
+    start = span.start
+    end = span.end
+
+    if (
+        not _is_name_like_token(text, start, end)
+        or len(text[start:end].strip()) < 2
+    ):
+        return span
+
+    # A side where the core stops short of the span carries a folded
+    # suffix ("’nın"): that side is the end of the name, so nothing is
+    # added past it.
+    core_start, core_end = _source_core(span)
+
+    if core_end == span.end:
+        end = _right_surname_end(text, end, occupied_ranges)
+    if core_start == span.start:
+        start = _left_name_start(text, start, occupied_ranges)
+
+    return _make(
+        start,
+        end,
+        span.entity_type,
+        span.score,
+        (start if start < span.start else core_start,
+         end if end > span.end else core_end),
+    )
 
 
 def expand_person_name_spans(
@@ -498,115 +663,52 @@ def expand_person_name_spans(
     if not spans or not text:
         return spans
 
-    def _find_token_start(idx: int) -> int:
-        while idx > 0 and not text[idx - 1].isspace() and not is_script_break(text, idx):
-            idx -= 1
-        return idx
-
-    def _find_token_end(idx: int) -> int:
-        n = len(text)
-        while idx < n and not text[idx].isspace() and not is_script_break(text, idx):
-            idx += 1
-        return idx
-
-    def _is_name_like_token(start: int, end: int) -> bool:
-        token = text[start:end]
-        if not token:
-            return False
-        if not token[0].isalpha() or not token[0].isupper():
-            return False
-        if any(ch.isdigit() or ch == "_" for ch in token):
-            return False
-        return True
-
-    def _scan_horizontal_ws(idx: int, step: int) -> tuple[int, bool]:
-        """Skip horizontal whitespace from ``idx`` in ``step`` direction.
-
-        Returns the post-scan index and whether a newline was hit. Form
-        labels always sit on a line above/below their value, so any
-        expansion crossing ``\\n`` would absorb the wrong row.
-        """
-        limit = len(text) if step > 0 else 0
-        peek = (lambda i: i) if step > 0 else (lambda i: i - 1)
-        while (step > 0 and idx < limit) or (step < 0 and idx > limit):
-            ch = text[peek(idx)]
-            if not ch.isspace():
-                break
-            if ch in ("\n", "\r"):
-                return idx, True
-            idx += step
-        return idx, False
-
-    expanded: list[DetectedSpan] = []
     occupied_ranges = [(s.start, s.end) for s in spans]
+    expanded = [
+        _expand_person_span(text, span, occupied_ranges)
+        if span.entity_type == "PERSON_NAME"
+        else span
+        for span in spans
+    ]
+    return sorted(expanded, key=lambda s: (s.start, -(s.end - s.start), -s.score))
 
-    for span in spans:
-        if span.entity_type != "PERSON_NAME":
-            expanded.append(span)
-            continue
 
-        start = span.start
-        end = span.end
+def _joins_next_person(
+    text: str, end: int, last: DetectedSpan, nxt: DetectedSpan
+) -> bool:
+    """Whether ``nxt`` continues the name ending at ``end`` across horizontal space only."""
+    # A folded suffix ends the name: no merge past it, and no merge
+    # into a span whose suffix sits before its core.
+    if _source_core(last)[1] < last.end or _source_core(nxt)[0] > nxt.start:
+        return False
+    gap = text[end : nxt.start]
+    return gap.strip() == "" and "\n" not in gap and "\r" not in gap
 
-        original_span_text = text[start:end].strip()
-        if not _is_name_like_token(start, end) or len(original_span_text) < 2:
-            expanded.append(span)
-            continue
 
-        # A side where the core stops short of the span carries a folded
-        # suffix ("’nın"): that side is the end of the name, so nothing is
-        # added past it.
-        core_start, core_end = _source_core(span)
-
-        # Look right for a candidate surname (one token only).
-        right, crossed_nl = _scan_horizontal_ws(end, 1)
-        if core_end == span.end and not crossed_nl and right < len(text):
-            right_end = _find_token_end(right)
-            right_token = text[right:right_end]
-            if (
-                _is_name_like_token(right, right_end)
-                and len(right_token) >= 2
-                and right_token.isalpha()
-            ):
-                overlaps = any(
-                    _overlaps(right, right_end, s_start, s_end)
-                    for s_start, s_end in occupied_ranges
-                )
-                if not overlaps:
-                    end = right_end
-
-        # Look left for a preceding name token (one token only).
-        left, crossed_nl = _scan_horizontal_ws(start, -1)
-        if core_start == span.start and not crossed_nl and left > 0:
-            left_start = _find_token_start(left - 1)
-            left_token = text[left_start:left]
-            if (
-                _is_name_like_token(left_start, left)
-                and len(left_token) >= 2
-                and left_token.isalpha()
-            ):
-                overlaps = any(
-                    _overlaps(left_start, left, s_start, s_end)
-                    for s_start, s_end in occupied_ranges
-                )
-                if not overlaps:
-                    start = left_start
-
-        expanded.append(
-            _make(
-                start,
-                end,
-                span.entity_type,
-                span.score,
-                (start if start < span.start else core_start,
-                 end if end > span.end else core_end),
-            )
-        )
-
-    expanded_sorted = sorted(
-        expanded, key=lambda s: (s.start, -(s.end - s.start), -s.score)
+def _merge_person_run(
+    text: str, person_spans: List[DetectedSpan], i: int
+) -> tuple[DetectedSpan, int]:
+    """Merge the run of person spans starting at ``i``; return it and the next index."""
+    cur = person_spans[i]
+    end = cur.end
+    max_score = cur.score
+    last = cur
+    j = i + 1
+    while j < len(person_spans) and _joins_next_person(
+        text, end, last, person_spans[j]
+    ):
+        last = person_spans[j]
+        end = last.end
+        max_score = max(max_score, last.score)
+        j += 1
+    merged = _make(
+        cur.start,
+        end,
+        "PERSON_NAME",
+        max_score,
+        (_source_core(cur)[0], _source_core(last)[1]),
     )
-    return expanded_sorted
+    return merged, j
 
 
 def merge_adjacent_person_name_spans(
@@ -632,38 +734,7 @@ def merge_adjacent_person_name_spans(
     merged_person: list[DetectedSpan] = []
     i = 0
     while i < len(person_spans):
-        cur = person_spans[i]
-        start, end = cur.start, cur.end
-        max_score = cur.score
-        last = cur
-        j = i + 1
-        while j < len(person_spans):
-            nxt = person_spans[j]
-            gap = text[end : nxt.start]
-            # A folded suffix ends the name: no merge past it, and no merge
-            # into a span whose suffix sits before its core.
-            if (
-                _source_core(last)[1] < last.end
-                or _source_core(nxt)[0] > nxt.start
-            ):
-                break
-            if gap.strip() == "" and "\n" not in gap and "\r" not in gap:
-                end = nxt.end
-                max_score = max(max_score, nxt.score)
-                last = nxt
-                j += 1
-            else:
-                break
-        merged_person.append(
-            _make(
-                start,
-                end,
-                "PERSON_NAME",
-                max_score,
-                (_source_core(cur)[0], _source_core(last)[1]),
-            )
-        )
-        i = j
+        merged, i = _merge_person_run(text, person_spans, i)
+        merged_person.append(merged)
 
-    combined = others + merged_person
-    return sorted(combined, key=lambda s: s.start)
+    return sorted(others + merged_person, key=lambda s: s.start)
