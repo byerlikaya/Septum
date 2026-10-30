@@ -10,7 +10,12 @@ import re
 import unicodedata
 from bisect import bisect_left
 
-from .language_resolution import particle_script_ranges, unspaced_script_ranges
+from .language_resolution import (
+    particle_script_ranges,
+    prefix_script_ranges,
+    script_table,
+    unspaced_script_ranges,
+)
 
 BOUNDARY_CHARS: frozenset[str] = frozenset(" \t\n\r.,;:!?()[]{}\"'/-")
 
@@ -45,6 +50,67 @@ WORD_END = rf"(?:\b|(?={_UNSPACED_CLASS}))"
 _PARTICLE_CLASS = _ranges_to_class(particle_script_ranges())
 # A token may also end before a particle written onto it ("2019-0412입니다").
 PARTICLE_START = rf"(?={_PARTICLE_CLASS})"
+
+
+# (first code point, last code point, script, whether its words touch other tokens),
+# sorted by first code point. The extra unspaced ranges each stand for their own script.
+_SCRIPT_SPANS: tuple[tuple[int, int, str, bool], ...] = tuple(
+    sorted(
+        [
+            (lo, hi, script, touches)
+            for script, (ranges, touches) in script_table().items()
+            for lo, hi in ranges
+        ]
+        + [(lo, hi, f"U+{lo:04X}", True) for lo, hi in _EXTRA_UNSPACED_RANGES]
+    )
+)
+_SCRIPT_STARTS: tuple[int, ...] = tuple(lo for lo, _, _, _ in _SCRIPT_SPANS)
+
+
+def _script_of(ch: str) -> tuple[str | None, bool]:
+    """The table script of ``ch`` (``None`` outside the table) and whether its words touch other tokens."""
+    code = ord(ch)
+    i = bisect_left(_SCRIPT_STARTS, code + 1) - 1
+    if i >= 0:
+        lo, hi, script, touches = _SCRIPT_SPANS[i]
+        if lo <= code <= hi:
+            return script, touches
+    return None, False
+
+
+_PREFIX_RE = re.compile(_ranges_to_class(prefix_script_ranges()))
+_PARTICLE_RE = re.compile(_PARTICLE_CLASS)
+
+
+def joins_without_space(ch: str) -> bool:
+    """Whether ``ch`` belongs to a script written without spaces or with particles written onto tokens.
+
+    A word of such a script can run straight into a neighbouring token of
+    another script, with nothing to mark where it ends.
+    """
+    return is_unspaced_char(ch) or _PARTICLE_RE.match(ch) is not None
+
+
+def is_prefix_letter(ch: str) -> bool:
+    """Whether ``ch`` is a letter of a script that writes prefixes onto the next token."""
+    return _PREFIX_RE.match(ch) is not None
+
+
+def is_glued_script_break(left: str, right: str) -> bool:
+    """Whether a word boundary lies between the adjacent letters ``left`` and ``right``.
+
+    Two letters of different scripts belong to different words when either
+    script writes its words against other tokens without a space (a particle
+    after a token, a prefix before it, or no spaces at all). Mixed letters of
+    scripts that do not, such as look-alike Latin and Cyrillic, stay one word.
+    Never before a combining mark or a zero-width (non-)joiner: it belongs to
+    the glyph before it.
+    """
+    if _attaches_to_previous(right):
+        return False
+    left_script, left_touches = _script_of(left)
+    right_script, right_touches = _script_of(right)
+    return left_script != right_script and (left_touches or right_touches)
 
 
 def word_bounded(pattern: str) -> str:

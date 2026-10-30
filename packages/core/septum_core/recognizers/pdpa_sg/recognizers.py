@@ -12,7 +12,6 @@ from typing import List
 from presidio_analyzer import EntityRecognizer
 
 from ..base_recognizer import (
-    EMAIL_PATTERN,
     RegexPatternConfig,
     ValidatedPatternRecognizer,
 )
@@ -31,21 +30,9 @@ def _nric_fin_recognizer() -> EntityRecognizer:
     )
 
 
-def _email_recognizer() -> EntityRecognizer:
-    return ValidatedPatternRecognizer(
-        entity_type="EMAIL_ADDRESS",
-        config=RegexPatternConfig(
-            name="pdpa_sg_email",
-            pattern=EMAIL_PATTERN,
-            score=0.8,
-        ),
-    )
-
-
 def get_recognizers() -> List[EntityRecognizer]:
     """Return all pdpa_sg-specific recognizers."""
     recognizers: List[EntityRecognizer] = []
     recognizers.append(_nric_fin_recognizer())
-    recognizers.append(_email_recognizer())
     recognizers.append(employee_id_recognizer())
     return recognizers

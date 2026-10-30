@@ -12,7 +12,6 @@ from presidio_analyzer import EntityRecognizer
 
 from ...national_ids.aadhaar import AadhaarValidator
 from ..base_recognizer import (
-    EMAIL_PATTERN,
     RegexPatternConfig,
     ValidatedPatternRecognizer,
 )
@@ -42,20 +41,8 @@ def _aadhaar_recognizer() -> EntityRecognizer:
     )
 
 
-def _email_recognizer() -> EntityRecognizer:
-    return ValidatedPatternRecognizer(
-        entity_type="EMAIL_ADDRESS",
-        config=RegexPatternConfig(
-            name="dpdp_email",
-            pattern=EMAIL_PATTERN,
-            score=0.8,
-        ),
-    )
-
-
 def get_recognizers() -> List[EntityRecognizer]:
     """Return all DPDP-specific recognizers."""
     recognizers: List[EntityRecognizer] = []
     recognizers.append(_aadhaar_recognizer())
-    recognizers.append(_email_recognizer())
     return recognizers

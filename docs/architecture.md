@@ -489,6 +489,7 @@ The Next.js side follows these conventions:
 ### Known limitations
 
 - **Coreference is token-overlap matching.** Mentions share a placeholder when their name tokens overlap, for example "Elif" and "Elif Demir", or "Demir" and "Elif Demir". Two different people who share a surname in the same document can therefore receive the same placeholder. Check the masked prompt at the approval gate when a document names several people with the same surname.
+- **Mixed-script e-mail local parts are cut at four letters.** When a run of more than four letters of a script written without spaces or with attached particles (for example Chinese, Japanese, Thai, Korean, Lao, Khmer, Myanmar) is directly followed, inside the local part, by a letter of another script (Latin, Cyrillic, and so on), only the last four letters of that run are masked with the rest of the address, because Septum cannot tell where the address starts. A local part written wholly in such a script, or a run followed by a digit or punctuation, is masked whole. Check the masked prompt at the approval gate.
 
 ---
 

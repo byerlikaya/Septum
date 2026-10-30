@@ -10441,6 +10441,7 @@ null
 [
 "CREDIT_CARD_NUMBER",
 "BANK_ACCOUNT_NUMBER",
+"EMAIL_ADDRESS",
 "CREDIT_CARD",
 "IBAN"
 ]
@@ -10517,7 +10518,8 @@ null
 "en",
 [
 "PHONE_NUMBER",
-"LOCATION"
+"LOCATION",
+"EMAIL_ADDRESS"
 ]
 ]
 ],
@@ -10731,7 +10733,8 @@ null
 [
 "DIAGNOSIS",
 "PERSON_NAME",
-"RELIGION"
+"RELIGION",
+"EMAIL_ADDRESS"
 ]
 ]
 ],
@@ -10755,7 +10758,8 @@ null
 [
 "en",
 [
-"PERSON_NAME"
+"PERSON_NAME",
+"EMAIL_ADDRESS"
 ]
 ]
 ],
@@ -10776,7 +10780,8 @@ null
 [
 "en",
 [
-"DIAGNOSIS"
+"DIAGNOSIS",
+"EMAIL_ADDRESS"
 ]
 ]
 ],
@@ -10799,7 +10804,8 @@ null
 [
 "en",
 [
-"DIAGNOSIS"
+"DIAGNOSIS",
+"EMAIL_ADDRESS"
 ]
 ]
 ],

@@ -95,6 +95,9 @@ class _ScriptRule:
     # preceding token without a space, so a token may end right before a
     # letter of the script (see text_boundaries).
     attaches_particles: bool = False
+    # True for scripts that write conjunctions and prepositions onto the
+    # following token without a space ("and" + word as one token).
+    attaches_prefixes: bool = False
 
 
 # When several scripts are present, a script with fewer compatible
@@ -152,6 +155,7 @@ _SCRIPT_RULES: Dict[str, _ScriptRule] = {
         ranges=((0x0590, 0x05FF), (0xFB1D, 0xFB4F)),
         implied_language="he",
         compatible_languages=frozenset({"he", "yi"}),
+        attaches_prefixes=True,
     ),
     "Gurmukhi": _ScriptRule(
         ranges=((0x0A00, 0x0A7F),),
@@ -197,6 +201,7 @@ _SCRIPT_RULES: Dict[str, _ScriptRule] = {
             (0xFB50, 0xFDFF), (0xFE70, 0xFEFF),
         ),
         compatible_languages=frozenset({"ar", "fa", "ur", "ps", "sd", "ug", "ku"}),
+        attaches_prefixes=True,
     ),
     "Cyrillic": _ScriptRule(
         ranges=((0x0400, 0x04FF), (0x0500, 0x052F), (0x1C80, 0x1C8F)),
@@ -245,6 +250,27 @@ def unspaced_script_ranges() -> Tuple[Tuple[int, int], ...]:
 def particle_script_ranges() -> Tuple[Tuple[int, int], ...]:
     """Code-point ranges of the table scripts that attach particles to the preceding token."""
     return _ranges_where(lambda rule: rule.attaches_particles)
+
+
+def prefix_script_ranges() -> Tuple[Tuple[int, int], ...]:
+    """Code-point ranges of the table scripts that attach prefixes to the following token."""
+    return _ranges_where(lambda rule: rule.attaches_prefixes)
+
+
+def script_table() -> Dict[str, Tuple[Tuple[Tuple[int, int], ...], bool]]:
+    """Each table script's code-point ranges, and whether its words touch other tokens.
+
+    The flag is set for scripts written without spaces and for scripts that
+    write particles or prefixes onto a neighbouring token, so a word of the
+    script can sit directly against a token of another script.
+    """
+    return {
+        script: (
+            rule.ranges,
+            not rule.inter_word_spaces or rule.attaches_particles or rule.attaches_prefixes,
+        )
+        for script, rule in _SCRIPT_RULES.items()
+    }
 
 
 _WHOLE_RUN_PATTERNS: Tuple[re.Pattern[str], ...] = tuple(

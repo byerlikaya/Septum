@@ -102,3 +102,13 @@ it("labels each regulation switch with a translated action and the regulation na
     })
   ).toBeInTheDocument();
 });
+
+it("states that e-mail is always masked even when no regulation is active", async () => {
+  mountWith([
+    ruleset({ id: "gdpr", display_name: "General Data Protection Regulation", is_active: false })
+  ]);
+
+  expect(
+    await screen.findByText("E-mail addresses are always masked, whatever regulations are active.")
+  ).toBeInTheDocument();
+});

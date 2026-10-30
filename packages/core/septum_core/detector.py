@@ -42,6 +42,8 @@ from .national_ids import IBANValidator
 from .ner_model_registry import NERModelRegistry
 from .non_pii_filter import NonPiiFilter, SpanView
 from .ports import NullSemanticDetectionPort, SemanticDetectionPort
+from .recognizers.email import ENTITY_TYPE as EMAIL_ENTITY_TYPE
+from .recognizers.email import EmailAddressRecognizer
 from .regulations.composer import ComposedPolicy
 from .span_processing import (
     absorb_overlapping_spans,
@@ -264,6 +266,14 @@ _PRESIDIO_ENTITY_ALIASES: dict[str, str] = {
 _PRESIDIO_REVERSE_ALIASES: dict[str, str] = {
     v: k for k, v in _PRESIDIO_ENTITY_ALIASES.items()
 }
+
+# Detected under every policy, even one whose entity types leave them out:
+# every built-in regulation counts an e-mail address as personal data, and a
+# policy that omits it would let raw addresses through.
+_ALWAYS_DETECTED_ENTITY_TYPES: tuple[str, ...] = (EMAIL_ENTITY_TYPE,)
+
+# Presidio built-ins replaced by a Septum recognizer of the same entity type.
+_REPLACED_PRESIDIO_RECOGNIZERS: tuple[str, ...] = ("EmailRecognizer",)
 
 # Entity types whose detection is delegated to the NER (HuggingFace) and
 # semantic layers rather than Presidio pattern recognizers.  Excluded from
@@ -1341,7 +1351,7 @@ class Detector:
         run a single ``PERSON_NAME`` detector. This helper returns a
         new list that contains:
 
-        1. the original types,
+        1. the original types, plus ``_ALWAYS_DETECTED_ENTITY_TYPES``,
         2. each type's Presidio built-in alias (``CREDIT_CARD_NUMBER``
            → ``CREDIT_CARD``, ``IBAN`` → ``IBAN_CODE``),
         3. each type's ``_PARENT_TYPE_COVERAGE`` parent (e.g.
@@ -1350,11 +1360,15 @@ class Detector:
         Without the parent-coverage expansion, Presidio's entity filter
         would hide the IBAN / PERSON_NAME detectors whenever a
         regulation only names the child alias, which is a silent
-        detection regression.
+        detection regression. An empty or missing list stays as it is:
+        Presidio then runs every recognizer.
         """
-        if entity_types is None:
-            return None
+        if not entity_types:
+            return entity_types
         expanded = list(entity_types)
+        for always in _ALWAYS_DETECTED_ENTITY_TYPES:
+            if always not in expanded:
+                expanded.append(always)
         for septum_type in entity_types:
             alias = _PRESIDIO_ENTITY_ALIASES.get(septum_type)
             if alias and alias not in expanded:
@@ -1373,6 +1387,9 @@ class Detector:
         are added to the registry via ``_apply_policy``.
         """
         registry = self._analyzer.registry
+        for name in _REPLACED_PRESIDIO_RECOGNIZERS:
+            registry.remove_recognizer(name)
+        registry.add_recognizer(EmailAddressRecognizer())
         registry.add_recognizer(ExtendedPhoneRecognizer())
         registry.add_recognizer(ValidatedIBANRecognizer())
         registry.add_recognizer(HeuristicPersonNameRecognizer())

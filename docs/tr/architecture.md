@@ -384,6 +384,7 @@ Next.js tarafında modern en iyi uygulamalar takip edilir:
 ### Bilinen sınırlamalar
 
 - **Coreference, token çakışmasına dayanır.** Adların token'ları çakıştığında anmalar aynı placeholder'ı paylaşır; örneğin "Elif" ile "Elif Demir", ya da "Demir" ile "Elif Demir". Aynı dokümanda aynı soyadı taşıyan iki farklı kişi, aynı placeholder'ı alabilir. Bir doküman aynı soyadlı birkaç kişiden söz ettiğinde, onay mekanizmasındaki maskeli prompt'u kontrol edin.
+- **Karma yazı sistemli e-posta yerel kısımları dört harfte kesilir.** Yerel kısımda, boşluksuz ya da ekleri bitişik yazılan bir alfabenin (örneğin Çince, Japonca, Tayca, Korece, Laoca, Kmerce, Myanmarca) dörtten fazla harften oluşan dizisinin hemen ardından başka bir alfabeden harf (Latin, Kiril vb.) geliyorsa, adresin nerede başladığı anlaşılamadığından adresin geri kalanıyla birlikte yalnızca bu dizinin son dört harfi maskelenir. Yerel kısım baştan sona böyle bir alfabeyle yazılmışsa ya da dizinin ardından rakam veya noktalama geliyorsa adres bütün olarak maskelenir. Onay mekanizmasındaki maskeli prompt'u kontrol edin.
 
 ---
 

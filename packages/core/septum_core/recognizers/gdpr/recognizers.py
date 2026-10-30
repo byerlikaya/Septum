@@ -3,8 +3,8 @@ from __future__ import annotations
 """Recognizer pack for the gdpr regulation.
 
 Adds format-based national-ID, tax-ID and social-security detectors
-for the main EU jurisdictions alongside the common email / IPv4 /
-phone patterns. Every detector uses a context-keyword preamble and
+for the main EU jurisdictions alongside the common IPv4 pattern
+(e-mail and phone live in the regulation-agnostic baseline). Every detector uses a context-keyword preamble and
 ``narrow_to_group=1`` so only the identifier value itself lands in
 the reported span. Entity-type coverage and legal basis are
 documented in ``packages/core/docs/REGULATION_ENTITY_SOURCES.md``.
@@ -15,7 +15,6 @@ from typing import List
 from presidio_analyzer import EntityRecognizer
 
 from ..base_recognizer import (
-    EMAIL_PATTERN,
     RegexPatternConfig,
     ValidatedPatternRecognizer,
 )
@@ -74,17 +73,6 @@ def _join_context(*groups: tuple[str, ...]) -> str:
     for group in groups:
         flat.extend(group)
     return "|".join(flat)
-
-
-def _email_recognizer() -> EntityRecognizer:
-    return ValidatedPatternRecognizer(
-        entity_type="EMAIL_ADDRESS",
-        config=RegexPatternConfig(
-            name="gdpr_email",
-            pattern=EMAIL_PATTERN,
-            score=0.8,
-        ),
-    )
 
 
 def _ip_address_recognizer() -> EntityRecognizer:
@@ -263,7 +251,6 @@ def _nine_digit_business_registration_recognizer() -> EntityRecognizer:
 def get_recognizers() -> List[EntityRecognizer]:
     """Return all gdpr-specific recognizers."""
     recognizers: List[EntityRecognizer] = []
-    recognizers.append(_email_recognizer())
     recognizers.append(_ip_address_recognizer())
     recognizers.append(_letter_prefix_8digit_national_id_recognizer())
     recognizers.append(_eleven_digit_tax_identifier_recognizer())

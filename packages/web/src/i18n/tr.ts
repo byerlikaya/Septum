@@ -627,6 +627,8 @@ export const trMessages: Record<string, string> = {
     "Küresel gizlilik regülasyonlarını açıp kapatın. Aktif regülasyonlar tek bir anonimleştirme politikasında birleştirilir.",
   "regulations.builtin.summary.active": "Aktif",
   "regulations.builtin.summary.entities": "Toplam varlık türü",
+  "regulations.builtin.emailAlwaysMasked":
+    "E-posta adresleri, hangi regülasyonlar açık olursa olsun her zaman maskelenir.",
   "regulations.builtin.loading": "Regülasyon kuralları yükleniyor...",
   "regulations.builtin.entityCountSuffix": "varlık türünü kapsar.",
   "regulations.builtin.officialLink": "Resmi metni görüntüle",

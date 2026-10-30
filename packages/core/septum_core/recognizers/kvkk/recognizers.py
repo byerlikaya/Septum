@@ -12,7 +12,6 @@ from presidio_analyzer import EntityRecognizer
 
 from ...national_ids.tckn import TCKNValidator
 from ..base_recognizer import (
-    EMAIL_PATTERN,
     RegexPatternConfig,
     ValidatedPatternRecognizer,
 )
@@ -175,17 +174,6 @@ def _customer_reference_recognizer() -> EntityRecognizer:
     )
 
 
-def _email_recognizer() -> EntityRecognizer:
-    return ValidatedPatternRecognizer(
-        entity_type="EMAIL_ADDRESS",
-        config=RegexPatternConfig(
-            name="kvkk_email",
-            pattern=EMAIL_PATTERN,
-            score=0.8,
-        ),
-    )
-
-
 def get_recognizers() -> List[EntityRecognizer]:
     """Return all kvkk-specific recognizers.
 
@@ -198,7 +186,6 @@ def get_recognizers() -> List[EntityRecognizer]:
     """
     recognizers: List[EntityRecognizer] = []
     recognizers.append(_validated_national_id_recognizer())
-    recognizers.append(_email_recognizer())
     recognizers.append(_contextual_national_id_recognizer())
     recognizers.append(_label_prefixed_national_id_recognizer())
     recognizers.append(_label_prefixed_tax_id_recognizer())

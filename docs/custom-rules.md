@@ -24,6 +24,8 @@ list, or an LLM-prompt rule and it joins the active sanitization pipeline
 immediately. Rules live under **Settings → Regulations → Custom Rules** in the
 dashboard and are stored in the local database.
 
+E-mail addresses are always masked, even if a custom ruleset does not list them. To exempt a specific address through an allow list, use a regex rule when the address may appear glued to other text, because a token rule compares the whole detected value (for example `contact=bob@x.com`).
+
 This page is a working reference. Each detection method has a worked example
 plus a copy-paste test recipe.
 

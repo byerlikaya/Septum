@@ -7,7 +7,6 @@ from typing import List
 from presidio_analyzer import EntityRecognizer
 
 from ..base_recognizer import (
-    EMAIL_PATTERN,
     RegexPatternConfig,
     ValidatedPatternRecognizer,
 )
@@ -35,22 +34,10 @@ def _health_insurance_id_recognizer() -> EntityRecognizer:
     )
 
 
-def _email_recognizer() -> EntityRecognizer:
-    return ValidatedPatternRecognizer(
-        entity_type="EMAIL_ADDRESS",
-        config=RegexPatternConfig(
-            name="hipaa_email",
-            pattern=EMAIL_PATTERN,
-            score=0.8,
-        ),
-    )
-
-
 def get_recognizers() -> List[EntityRecognizer]:
     """Return all HIPAA-specific recognizers."""
     recognizers: List[EntityRecognizer] = []
     recognizers.append(_medical_record_number_recognizer())
     recognizers.append(_health_insurance_id_recognizer())
-    recognizers.append(_email_recognizer())
     return recognizers
 
