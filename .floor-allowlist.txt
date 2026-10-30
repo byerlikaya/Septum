@@ -3,3 +3,5 @@ path:packages/web/src/hooks/__tests__/useChatStream.test.tsx
 path:packages/api/septum_api/main.py
 path:packages/api/septum_api/services/auth.py
 path:packages/api/tests/conftest.py
+path:packages/api/tests/test_settings_chunk_bounds.py
+path:packages/api/tests/test_users_admin_guard.py
