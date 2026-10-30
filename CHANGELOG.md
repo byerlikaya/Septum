@@ -24,6 +24,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ### 2026-10-30
 
+- User management can no longer end up with no active administrator: demoting, deactivating or deleting an admin now locks the admin rows and recounts inside the same transaction, and deleting a user deactivates it first so a refused delete no longer erases its documents. Updating a user to an email that is already registered returns 409 instead of 500, other database errors are no longer reported as an email clash, and an explicit null field is refused with 422.
 - The dashboard stops reading a streamed answer or progress feed when a single line grows past 8 MiB without a line break, so a misbehaving server can no longer make the browser hold an ever-growing buffer; a chat answer stopped this way shows a translated error asking the user to try again. The setup wizard's model download and Whisper install steps now report such a stream failure, an early end of the stream or a timeout as an error instead of waiting silently.
 
 ### 2026-10-29
