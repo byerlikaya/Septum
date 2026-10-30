@@ -339,6 +339,23 @@ class TestManualTurn:
             {"document_id": first, "entity_count": 2, "strategy": "simple", "session_id": SESSION},
         )
 
+    async def test_same_bare_name_in_two_documents_restores_each_document_s_person(
+        self, env: CharEnv
+    ) -> None:
+        names = [("Ali Yılmaz", "PERSON_NAME"), ("Ali", "PERSON_NAME")]
+        first = await env.doc("a.pdf", [f"{P1} signed."], names)
+        second = await env.doc("b.pdf", [f"{P1} paid."], [("Ali Kaya", "PERSON_NAME"), names[1]])
+        env.answer = f"{P2} paid."
+
+        turn = await env.ask({"message": "Who paid?", "document_ids": [first, second]})
+
+        chunks = [
+            PromptCatalog.document_context_header(1) + f"{P1} signed.",
+            PromptCatalog.document_context_header(2) + f"{P2} paid.",
+        ]
+        assert turn.prompts == [_prompt("Who paid?", chunks)]
+        assert {"type": "answer_chunk", "text": "Ali Kaya paid."} in turn.events
+
     async def test_long_answer_is_streamed_in_256_char_pieces(self, env: CharEnv) -> None:
         doc = await env.doc("a.pdf", ["alpha"], [("Jane Roe", "PERSON_NAME")])
         env.answer = ("word " * 120) + P1
@@ -428,6 +445,41 @@ class TestPlaceholderAnswers:
 
         assert turn.events[1] == {"type": "answer_chunk", "text": "[PERSON_NAME_7]"}
         assert _deanon_log(["[PERSON_NAME_7]"], ["[PERSON_NAME_7]"], 1, ["[PERSON_NAME_7]"]) in turn.logs
+
+    async def test_typed_placeholder_the_query_map_lacks_never_names_a_document_person(
+        self, env: CharEnv
+    ) -> None:
+        first = await env.doc("a.pdf", [f"Signed by {P1}."], [("Jane Roe", "PERSON_NAME")])
+        second = await env.doc("b.pdf", [f"Paid by {P1}."], [("Ali Kaya", "PERSON_NAME")])
+
+        turn = await env.ask({"message": f"Who is {P2}?", "document_ids": [first, second]})
+
+        assert "Ali Kaya" not in json.dumps(turn.events, ensure_ascii=False)
+        assert turn.events[1] == {"type": "answer_chunk", "text": "[PERSON_NAME_3]"}
+
+    async def test_stray_placeholder_in_a_chunk_never_names_another_document_s_person(
+        self, env: CharEnv
+    ) -> None:
+        first = await env.doc("a.pdf", [f"Signed by {P1}."], [("Jane Roe", "PERSON_NAME")])
+        second = await env.doc("b.pdf", [f"Paid by {P2}."], [("Ali Kaya", "PERSON_NAME")])
+        env.answer = "[PERSON_NAME_3] paid."
+
+        turn = await env.ask({"message": QUERY, "document_ids": [first, second]})
+
+        chunks = [
+            PromptCatalog.document_context_header(1) + f"Signed by {P1}.",
+            PromptCatalog.document_context_header(2) + "Paid by [PERSON_NAME_3].",
+        ]
+        assert turn.prompts == [_prompt(MASKED_QUERY, chunks)]
+        assert {"type": "answer_chunk", "text": "[PERSON_NAME_3] paid."} in turn.events
+
+    async def test_custom_type_placeholder_in_the_prompt_is_restored(self, env: CharEnv) -> None:
+        doc = await env.doc("a.pdf", ["Record [MRN2_1]."], [("PX-4471-ZQ", "MRN2"), ("PX-9999-AA", "MRN2")])
+        env.answer = "[MRN2_1] and [MRN2_2]"
+
+        turn = await env.ask({"message": "Which record?", "document_ids": [doc]})
+
+        assert {"type": "answer_chunk", "text": "PX-4471-ZQ and [MRN2_2]"} in turn.events
 
     async def test_placeholder_outside_the_prompt_stays_literal(self, env: CharEnv) -> None:
         doc = await env.doc(

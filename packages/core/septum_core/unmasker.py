@@ -18,7 +18,11 @@ is unavailable.
 import re
 from typing import Collection, Mapping, Optional
 
-from .anonymization_map import AnonymizationMap, restoration_lookup
+from .anonymization_map import (
+    PLACEHOLDER_SHORT_ALIASES,
+    AnonymizationMap,
+    restoration_lookup,
+)
 
 
 class Unmasker:
@@ -31,9 +35,9 @@ class Unmasker:
     alias, so it resolves to its own original.
     """
 
-    _PLACEHOLDER_SHORT_ALIASES = (
-        (re.compile(r"^\[PERSON_NAME_(\d+)\]$"), "PERSON"),
-        (re.compile(r"^\[ORGANIZATION_NAME_(\d+)\]$"), "ORGANIZATION"),
+    _PLACEHOLDER_SHORT_ALIASES = tuple(
+        (re.compile(rf"^\[{full}_(\d+)\]$"), short)
+        for full, short in PLACEHOLDER_SHORT_ALIASES.items()
     )
 
     def unmask(

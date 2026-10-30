@@ -27,6 +27,9 @@ from ..bootstrap import get_config
 from .anonymization_map import AnonymizationMap
 
 _TOKEN_VERSION = "v1"
+# The algorithm that turns the inputs into a numbering. A change to it
+# renumbers the same inputs, so a token issued under an older one must fail.
+NUMBERING_ALGORITHM = "unify-v2"
 _KEY_LABEL = b"retry-numbering-token/v1"
 MAX_NUMBERING_TOKEN_LENGTH = 128
 
@@ -56,10 +59,12 @@ def numbering_fingerprint(
     """Return the digest of every input of a turn's unified numbering.
 
     ``seed_document_id`` is the document whose map seeded the query map
-    (the lead document of a manual turn, ``None`` in auto mode).
+    (the lead document of a manual turn, ``None`` in auto mode). The
+    numbering algorithm is part of the digest (``NUMBERING_ALGORITHM``).
     """
     payload = json.dumps(
         {
+            "algorithm": NUMBERING_ALGORITHM,
             "documents": sorted(document_maps),
             "seed": seed_document_id,
             "query": _map_digest(query_map),
@@ -101,6 +106,7 @@ def verify_numbering(token: Optional[str], fingerprint: bytes, user_id: int) -> 
 
 __all__ = [
     "MAX_NUMBERING_TOKEN_LENGTH",
+    "NUMBERING_ALGORITHM",
     "numbering_fingerprint",
     "sign_numbering",
     "verify_numbering",

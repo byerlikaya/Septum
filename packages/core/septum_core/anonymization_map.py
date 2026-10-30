@@ -26,6 +26,7 @@ from typing import (
     FrozenSet,
     Iterable,
     List,
+    Mapping,
     NamedTuple,
     Optional,
     Sequence,
@@ -46,6 +47,16 @@ from .text_utils import (
 # capped: real indexes are small, and an unbounded run of digits from
 # untrusted text would make ``int()`` raise.
 PLACEHOLDER_PATTERN = re.compile(r"\[([A-Z][A-Z_]*)_(\d{1,9})\]", re.ASCII)
+# Any ``[TYPE_N]`` a map hands out, custom entity types outside
+# ``PLACEHOLDER_PATTERN`` included ("[MRN2_1]", "[Project code_1]").
+PLACEHOLDER_SHAPE = re.compile(r"\[([^\[\]\n]{1,64})_(\d{1,9})\]")
+# Short forms an LLM writes for a placeholder ("[PERSON_1]" for
+# "[PERSON_NAME_1]"); the unmasker restores them like the full form.
+PLACEHOLDER_SHORT_ALIASES: Dict[str, str] = {
+    "PERSON_NAME": "PERSON",
+    "ORGANIZATION_NAME": "ORGANIZATION",
+}
+_ALIAS_FULL_FORMS: Dict[str, str] = {short: full for full, short in PLACEHOLDER_SHORT_ALIASES.items()}
 
 # FUTURE: migrate to NonPiiRule table for full user-editability.
 # Minimal stopwords kept here for technical filtering (ultra-common function words).
@@ -55,7 +66,7 @@ SANITIZER_STOPWORDS: frozenset[str] = frozenset({"the", "a", "an", "of", "in", "
 # coreference resolution.  Only person-identifying types qualify; other
 # categories (locations, identifiers, …) would cause excessive collateral
 # replacements of common words.
-_BLOCKLIST_ENTITY_TYPES: frozenset[str] = frozenset({
+BLOCKLIST_ENTITY_TYPES: frozenset[str] = frozenset({
     "PERSON_NAME", "FIRST_NAME", "LAST_NAME", "ALIAS", "USERNAME",
 })
 
@@ -66,7 +77,7 @@ _HYPHENS: frozenset[str] = frozenset({"-", "‐", "‑"})
 # to one character, so "O’Brien" and "O'Brien" share a blocklist key.
 _JOINER_FOLD = str.maketrans({**dict.fromkeys(_HYPHENS, "-"), **dict.fromkeys(APOSTROPHES, "'")})
 _JOINERS = "".join(re.escape(ch) for ch in sorted(_HYPHENS | APOSTROPHES))
-_HAS_JOINER = re.compile(rf"[{_JOINERS}]")
+HAS_JOINER = re.compile(rf"[{_JOINERS}]")
 # A joiner between two word runs, kept by ``split`` so a run can be rebuilt.
 _JOINER_SPLIT = re.compile(rf"([{_JOINERS}])")
 # A word character that is not a joiner. U+02BC (ʼ) is a Unicode letter, so
@@ -166,7 +177,7 @@ class AnonymizationMap:
         person = self._person
         for token in person.shared_tokens():
             owner = table.get(token)
-            if owner is None or _placeholder_entity_type(owner) not in _BLOCKLIST_ENTITY_TYPES:
+            if owner is None or _placeholder_entity_type(owner) not in BLOCKLIST_ENTITY_TYPES:
                 continue
             if person.bare_group(owner, frozenset((token,)))[1]:
                 continue
@@ -181,7 +192,7 @@ class AnonymizationMap:
         Works on a copy, so the caller's dict (a loaded payload) is left as is.
         """
         table = self.token_to_placeholder = dict(self.token_to_placeholder)
-        joined = [key for key in table if _HAS_JOINER.search(key)]
+        joined = [key for key in table if HAS_JOINER.search(key)]
         for key in joined:
             folded = key.translate(_JOINER_FOLD)
             if folded != key:
@@ -202,7 +213,7 @@ class AnonymizationMap:
         "John Smith"), the existing placeholder is reused; see
         ``_find_existing`` for when a match is allowed.
 
-        Only person-identifying entity types (see ``_BLOCKLIST_ENTITY_TYPES``)
+        Only person-identifying entity types (see ``BLOCKLIST_ENTITY_TYPES``)
         have their tokens propagated to the blocklist. Other entity types are
         recorded in the entity map but do not trigger blocklist expansion,
         which avoids collateral replacement of common words (e.g. city names).
@@ -218,9 +229,144 @@ class AnonymizationMap:
         if original not in self.entity_map:
             self.entity_map[original] = placeholder
             self._index_entry(original, placeholder)
-        if entity_type in _BLOCKLIST_ENTITY_TYPES:
+        if entity_type in BLOCKLIST_ENTITY_TYPES:
             self._update_blocklist(original, placeholder, entity_type)
         return placeholder
+
+    def adopt_many(
+        self,
+        originals: Iterable[str],
+        placeholder: str,
+        entity_type: str,
+        normalized: Optional[Mapping[str, str]] = None,
+    ) -> None:
+        """Register ``originals`` under a placeholder chosen by the caller.
+
+        Used to build one placeholder space out of several maps: no
+        coreference is attempted, the caller has already decided which
+        placeholder the originals belong to. An original the map already
+        holds keeps its entry (the map is keyed by original); its tokens are
+        still registered for ``placeholder``, so a token two placeholders
+        share moves to a neutral one (see ``_shared_token_placeholder``).
+        Each original is normalized once (``normalized`` may carry the
+        comparison forms of joiner-free originals the caller already has),
+        and the tokens of originals with the same blocklist keys are
+        registered once.
+        """
+        self._sync_index()
+        self._used_placeholders().add(placeholder)
+        person = entity_type in BLOCKLIST_ENTITY_TYPES
+        registered: Set[Tuple[str, ...]] = set()
+        for original in originals:
+            form = normalized.get(original) if normalized else None
+            if form is None and not HAS_JOINER.search(original):
+                form = normalize_for_comparison(original, self.language)
+            if original not in self.entity_map:
+                self.entity_map[original] = placeholder
+                self._index_entry(original, placeholder, form)
+            if not person:
+                continue
+            keys = tuple(_name_keys(original, self.language, form))
+            if keys not in registered:
+                registered.add(keys)
+                self._update_blocklist(original, placeholder, entity_type, keys, form)
+
+    def inert(self, placeholder: str) -> str:
+        """A placeholder for a stray ``placeholder`` that must restore to nothing.
+
+        A stray is a placeholder found in text that no entry of the map
+        stands behind. It is kept as written when this map uses neither it
+        nor the form it aliases with (see ``PLACEHOLDER_SHORT_ALIASES``),
+        and both are reserved so the map never hands them out; otherwise a
+        new unused placeholder of its type, whose alias is unused too,
+        replaces it, its alias reserved likewise. Neither gets an entry.
+        """
+        self._sync_index()
+        used = self._used_placeholders()
+        match = PLACEHOLDER_SHAPE.fullmatch(placeholder)
+        if match is None:
+            used.add(placeholder)
+            return placeholder
+        if not self._alias_taken(placeholder):
+            for form in (placeholder, _alias_partner(placeholder)):
+                if form is not None:
+                    self._reserve(form)
+            return placeholder
+        renamed = self._next_placeholder(match.group(1))
+        while self._alias_taken(renamed, own=False):
+            renamed = self._next_placeholder(match.group(1))
+        partner = _alias_partner(renamed)
+        if partner is not None:
+            self._reserve(partner)
+        return renamed
+
+    def _alias_taken(self, placeholder: str, own: bool = True) -> bool:
+        """Whether ``placeholder`` (when ``own``) or the form it aliases with is in use.
+
+        A short form ("[PERSON_1]") restores like its full form, so either
+        one in use takes both.
+        """
+        used = self._used_placeholders()
+        partner = _alias_partner(placeholder)
+        return (own and placeholder in used) or (partner is not None and partner in used)
+
+    def _reserve(self, placeholder: str) -> None:
+        """Mark ``placeholder`` used and raise its type's counter to its index."""
+        self._used_placeholders().add(placeholder)
+        match = PLACEHOLDER_SHAPE.fullmatch(placeholder)
+        if match is not None:
+            entity_type, index = match.group(1), int(match.group(2))
+            if self.token_counter.get(entity_type, 0) < index:
+                self.token_counter[entity_type] = index
+
+    def mint(self, entity_type: str) -> str:
+        """Return a new placeholder of ``entity_type`` no entry of this map uses."""
+        self._sync_index()
+        return self._next_placeholder(entity_type)
+
+    def bare_only_holder(self, token: str, entity_type: str) -> Optional[str]:
+        """The person placeholder of ``entity_type`` that holds nothing but bare ``token``.
+
+        When several do (a redundant neutral), the lowest index wins, so the
+        answer does not depend on set order.
+        """
+        self._sync_index()
+        key = frozenset((token,))
+        found = [
+            placeholder
+            for placeholder in _named(self._person.by_set, key)
+            if _placeholder_entity_type(placeholder) == entity_type
+            and self._person.bare_group(placeholder, key)[1]
+        ]
+        return min(found, key=placeholder_order) if found else None
+
+    def known_value(
+        self, original: str, entity_type: str, normalized: Optional[str] = None
+    ) -> Optional[str]:
+        """The placeholder of an equal value (normalized, possessive stripped) of ``entity_type``.
+
+        ``normalized`` may carry the comparison form of a joiner-free ``original``.
+        """
+        self._sync_index()
+        if normalized is None or HAS_JOINER.search(original):
+            normalized = self._normalized(original)
+        return self._value_index.get((entity_type, normalized))
+
+    def person_group_keys(self, placeholder: str) -> List[FrozenSet[str]]:
+        """The whole-token sets of the groups of person ``placeholder``, in ``entity_map`` order.
+
+        A set holds the comparison tokens longer than two characters.
+        """
+        self._sync_index()
+        return list(self._person.groups.get(placeholder, ()))
+
+    def coreferent_person(self, original: str) -> Optional[str]:
+        """The one person placeholder ``original`` refers to (``_PersonIndex.match``), or None."""
+        self._sync_index()
+        forms = _coreference_forms(original, self.language)
+        if not forms.whole:
+            return None
+        return self._person.match(forms, self.language)
 
     def apply_blocklist(self, text: str, language: Optional[str] = None) -> str:
         """Apply token-level redaction using token_to_placeholder.
@@ -314,8 +460,8 @@ class AnonymizationMap:
 
     def _widen_window(self, key: str) -> None:
         """Raise the joined-key window to cover ``key``."""
-        if _HAS_JOINER.search(key):
-            parts = len(_HAS_JOINER.findall(key)) + 1
+        if HAS_JOINER.search(key):
+            parts = len(HAS_JOINER.findall(key)) + 1
             self._joined_window = min(_MAX_JOINED_PARTS, max(self._joined_window, parts))
 
     def _next_placeholder(self, entity_type: str) -> str:
@@ -345,7 +491,14 @@ class AnonymizationMap:
             }
         return self._used
 
-    def _update_blocklist(self, original: str, placeholder: str, entity_type: str) -> None:
+    def _update_blocklist(
+        self,
+        original: str,
+        placeholder: str,
+        entity_type: str,
+        keys: Optional[Sequence[str]] = None,
+        normalized: Optional[str] = None,
+    ) -> None:
         """Update blocklist and token_to_placeholder from ``original``.
 
         All tokens from detected entities are added to blocklist regardless of
@@ -360,21 +513,33 @@ class AnonymizationMap:
         ("Ali" of "Ali Yılmaz" and "Ali Kaya"). It then maps to a neutral
         placeholder that restores to the token alone (see
         ``_shared_token_placeholder``), so it stays masked without naming
-        either person.
+        either person. ``keys`` and ``normalized`` may carry the name keys
+        and the comparison form of a joiner-free ``original`` when the
+        caller already has them.
         """
         self._window()
         table = self.token_to_placeholder
-        for token in _blocklistable(_name_keys(original, self.language)):
+        if keys is None:
+            keys = _name_keys(original, self.language)
+        for token in _blocklistable(keys):
             self.blocklist.add(token)
             owner = table.get(token)
             if owner is not None and owner != placeholder:
-                owner = self._shared_token_placeholder(original, token, entity_type, owner)
+                owner = self._shared_token_placeholder(
+                    original, token, entity_type, owner, normalized
+                )
             table[token] = owner or placeholder
-            self._widen_window(token)
+            if normalized is None:
+                self._widen_window(token)
         self._window_size = len(table)
 
     def _shared_token_placeholder(
-        self, original: str, token: str, entity_type: str, owner: str
+        self,
+        original: str,
+        token: str,
+        entity_type: str,
+        owner: str,
+        normalized: Optional[str] = None,
     ) -> str:
         """Neutral placeholder of the bare form of a shared ``token``.
 
@@ -386,9 +551,9 @@ class AnonymizationMap:
         restoring through its fuller originals. A bare form registered as a
         non-person entity keeps that placeholder.
         """
-        surface, exact = _surface_form(original, token, self.language)
+        surface, exact = _surface_form(original, token, self.language, normalized)
         holder = self.entity_map.get(surface, owner)
-        if _placeholder_entity_type(holder) not in _BLOCKLIST_ENTITY_TYPES:
+        if _placeholder_entity_type(holder) not in BLOCKLIST_ENTITY_TYPES:
             return holder
         if exact:
             bare_key = frozenset((token,)) if len(token) > 2 else _EMPTY
@@ -449,14 +614,14 @@ class AnonymizationMap:
         ``original`` when the caller already has it.
         """
         entity_type = _placeholder_entity_type(placeholder)
-        joined = _HAS_JOINER.search(original) is not None
+        joined = normalized is None and HAS_JOINER.search(original) is not None
         if joined:
             normalized = self._normalized(original)
         elif normalized is None:
             # No apostrophe, so no possessive to strip: one normalization serves both.
             normalized = normalize_for_comparison(original, self.language)
         self._value_index.setdefault((entity_type, normalized), placeholder)
-        if entity_type in _BLOCKLIST_ENTITY_TYPES:
+        if entity_type in BLOCKLIST_ENTITY_TYPES:
             if joined:
                 forms = _coreference_forms(original, self.language)
             else:
@@ -487,7 +652,7 @@ class AnonymizationMap:
           would leave the first one unrestorable);
         * the normalized value equals an existing one of the same entity
           type (constant-time index lookup);
-        * both values are person-identifying (``_BLOCKLIST_ENTITY_TYPES``)
+        * both values are person-identifying (``BLOCKLIST_ENTITY_TYPES``)
           and exactly one person placeholder matches its tokens (see
           ``_PersonIndex.match``), so ``"John"`` after ``"John Smith"`` keeps
           the same placeholder. Candidates come from a token index, so the
@@ -513,7 +678,7 @@ class AnonymizationMap:
         exact = self._value_index.get((entity_type, normalized))
         if exact is not None:
             return exact
-        if entity_type not in _BLOCKLIST_ENTITY_TYPES:
+        if entity_type not in BLOCKLIST_ENTITY_TYPES:
             return None
         forms = _coreference_forms(original, self.language)
         if not forms.whole:
@@ -699,7 +864,7 @@ class _PersonIndex:
         tokens = forms.whole
         if len(tokens) == 1:
             (token,) = tokens
-            if not _HAS_JOINER.search(token):
+            if not HAS_JOINER.search(token):
                 return self._match_bare(token)
         same: List[str] = []
         matches: List[str] = []
@@ -731,7 +896,7 @@ class _PersonIndex:
         """
         tokens = forms.whole
         joined = len(tokens) > _MAX_SUBSET_TOKENS or any(
-            _HAS_JOINER.search(token) or token in self.by_part for token in tokens
+            HAS_JOINER.search(token) or token in self.by_part for token in tokens
         )
         if joined:
             return self._any_holders(tokens)
@@ -761,7 +926,7 @@ class _PersonIndex:
         found: Set[str] = set()
         for token in tokens:
             found |= self.holders(token)
-            if _HAS_JOINER.search(token):
+            if HAS_JOINER.search(token):
                 for part in _split_parts(token):
                     found |= self.by_token.get(part, _EMPTY)
         return found
@@ -863,7 +1028,7 @@ def _discard(index: Dict, key: object, placeholder: str) -> None:
 
 def _has_joined_key(keys: Iterable[str]) -> bool:
     """Whether any of ``keys`` contains a hyphen or apostrophe variant."""
-    return bool(_HAS_JOINER.search("\n".join(keys)))
+    return bool(HAS_JOINER.search("\n".join(keys)))
 
 
 def _blocklistable(keys: Iterable[str]) -> List[str]:
@@ -886,7 +1051,7 @@ def _plain_runs(ordered: Sequence[str]) -> Set[str]:
     runs: Set[str] = set()
     for start in range(len(ordered)):
         for end in range(start + 2, min(len(ordered), start + _MAX_JOINED_PARTS) + 1):
-            if _HAS_JOINER.search(ordered[end - 1]) or _HAS_JOINER.search(ordered[start]):
+            if HAS_JOINER.search(ordered[end - 1]) or HAS_JOINER.search(ordered[start]):
                 break
             runs.add(" ".join(ordered[start:end]))
     return runs
@@ -901,10 +1066,10 @@ def _fuse_query(forms: "_Coref", known: Set[str]) -> Set[str]:
     fused = forms.whole
     line = None
     for joined in known:
-        if joined in fused or not _HAS_JOINER.search(joined):
+        if joined in fused or not HAS_JOINER.search(joined):
             continue
         if line is None:
-            line = " " + " ".join("|" if _HAS_JOINER.search(t) else t for t in forms.ordered) + " "
+            line = " " + " ".join("|" if HAS_JOINER.search(t) else t for t in forms.ordered) + " "
         spaced = _spaced(joined)
         if f" {spaced} " in line:
             fused = (fused - set(spaced.split())) | {joined}
@@ -922,7 +1087,7 @@ def _fuse_known(
     fused = known
     runs: Optional[Set[str]] = None
     for joined in tokens:
-        if joined in fused or not _HAS_JOINER.search(joined):
+        if joined in fused or not HAS_JOINER.search(joined):
             continue
         if runs is None:
             runs = set().union(*(_plain_runs(sequence) for sequence in sequences()))
@@ -1038,19 +1203,22 @@ def _joined_parts(token: str, raw: str) -> List[str]:
 
 def _name_forms(value: str, language: str) -> List[Tuple[str, List[str], Optional[str]]]:
     """``_token_forms`` of every whitespace token of ``value``; a fast path without joiners."""
-    if not _HAS_JOINER.search(value):
+    if not HAS_JOINER.search(value):
         return [(token, [], None) for token in normalize_for_comparison(value, language).split()]
     return [_token_forms(raw, language) for raw in normalize_unicode(value).split()]
 
 
-def _name_keys(value: str, language: str) -> List[str]:
+def _name_keys(value: str, language: str, normalized: Optional[str] = None) -> List[str]:
     """Blocklist keys of a name, in order and without repeats.
 
     Per token: the all-caps join if any, the whole token with hyphen and
     apostrophe variants folded, then its joined parts: "Jean-Pierre O’Brien"
     gives "jean-pierre", "jean", "pierre", "o'brien", "o", "brien". Callers
-    drop short keys.
+    drop short keys. ``normalized`` may carry the comparison form of a
+    joiner-free ``value``.
     """
+    if normalized is not None:
+        return list(dict.fromkeys(normalized.split()))
     keys: List[str] = []
     for whole, parts, join in _name_forms(value, language):
         if join:
@@ -1076,7 +1244,7 @@ def _plain_coref(normalized: str) -> _Coref:
 
 def _coreference_forms(value: str, language: str) -> _Coref:
     """Coreference forms of a name; short tokens and parts are left out of the sets."""
-    if not _HAS_JOINER.search(value):
+    if not HAS_JOINER.search(value):
         return _plain_coref(normalize_for_comparison(value, language))
     whole: Set[str] = set()
     parts: Set[str] = set()
@@ -1089,21 +1257,23 @@ def _coreference_forms(value: str, language: str) -> _Coref:
     return _Coref(whole, parts, tuple(ordered))
 
 
-def _surface_form(original: str, token: str, language: str) -> Tuple[str, bool]:
+def _surface_form(
+    original: str, token: str, language: str, normalized: Optional[str] = None
+) -> Tuple[str, bool]:
     """The part of ``original`` written as ``token``, possessive stripped.
 
     The flag tells whether that part is a plain word whose comparison form
     is ``token`` itself. A name without any joiner is matched word by word,
-    with one normalization; otherwise joined runs are tried before single
-    words, and ``token`` itself is the fallback when no part matches.
+    with one normalization (``normalized`` when the caller has it); otherwise
+    joined runs are tried before single words, and ``token`` itself is the
+    fallback when no part matches.
     """
-    if not _HAS_JOINER.search(original):
-        words = original.split()
-        keys = normalize_for_comparison(original, language).split()
-        if len(words) == len(keys):
-            for word, key in zip(words, keys):
-                if key == token:
-                    return word, True
+    if normalized is not None or not HAS_JOINER.search(original):
+        if normalized is None:
+            normalized = normalize_for_comparison(original, language)
+        word = _plain_word_written_as(original, normalized, token)
+        if word is not None:
+            return word, True
     runs = [m.group(0) for m in _TEXT_TOKEN.finditer(original)]
     runs.extend(m.group(0) for m in _WORD.finditer(original))
     for run in runs:
@@ -1111,6 +1281,17 @@ def _surface_form(original: str, token: str, language: str) -> Tuple[str, bool]:
         if _name_keys(stem, language)[:1] == [token]:
             return stem, False
     return token, False
+
+
+def _plain_word_written_as(original: str, normalized: str, token: str) -> Optional[str]:
+    """The word of joiner-free ``original`` whose comparison form is ``token``, or None."""
+    words = original.split()
+    keys = normalized.split()
+    if len(words) == len(keys):
+        for word, key in zip(words, keys):
+            if key == token:
+                return word
+    return None
 
 
 def _has_apostrophe_suffix(value: str) -> bool:
@@ -1172,3 +1353,19 @@ def restoration_lookup(pairs: Iterable[Tuple[str, str]]) -> Dict[str, str]:
 def _placeholder_entity_type(placeholder: str) -> str:
     """Return the entity type encoded in a ``[ENTITY_TYPE_N]`` placeholder."""
     return placeholder.strip("[]").rpartition("_")[0]
+
+
+def _alias_partner(placeholder: str) -> Optional[str]:
+    """The short form of a full placeholder or the full form of a short one, else None."""
+    match = PLACEHOLDER_SHAPE.fullmatch(placeholder)
+    if match is None:
+        return None
+    entity_type, index = match.groups()
+    partner = PLACEHOLDER_SHORT_ALIASES.get(entity_type) or _ALIAS_FULL_FORMS.get(entity_type)
+    return f"[{partner}_{index}]" if partner else None
+
+
+def placeholder_order(placeholder: str) -> Tuple[str, int, str]:
+    """Sort key of a placeholder: entity type, then numeric index, then the text."""
+    entity_type, _, index = placeholder.strip("[]").rpartition("_")
+    return entity_type, int(index) if index.isdigit() else -1, placeholder
