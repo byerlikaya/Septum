@@ -34,6 +34,13 @@ _NATIONAL_ID_CONTEXT_KEYWORDS: CueTable = {
     "en": ("id", "national", "citizen", "passport", "identity", "identification", "no"),
 }
 
+# Glued or abbreviated ID labels ("kimlikNo", "TCKimlikNo", "IDNo"): a cue of
+# two letters or fewer never counts at a case step, so the whole label is the cue.
+_NATIONAL_ID_LABELS: CueTable = {
+    "tr": (r"(?:T\.?\s*C\.?\s*)?Kimlik\s*(?:No|Numaras[ıi])",),
+    "en": (r"ID\s*(?:No|Number)",),
+}
+
 # Labels in front of a legal entity's tax number (Vergi Kimlik Numarası).
 _TAX_ID_LABELS: CueTable = {
     "tr": (r"Vergi\s*(?:Kimlik\s*)?No", "VKN"),
@@ -87,7 +94,8 @@ def _contextual_national_id_recognizer() -> EntityRecognizer:
     """Context-assisted NATIONAL_ID recognizer.
 
     Looks for 8-12 digit sequences preceded by a national-ID context
-    keyword (see ``_NATIONAL_ID_CONTEXT_KEYWORDS``). The capture group
+    keyword or label (see ``_NATIONAL_ID_CONTEXT_KEYWORDS`` and
+    ``_NATIONAL_ID_LABELS``). The capture group
     narrows the reported entity span to the digits alone. The TCKN
     checksum is still run, but when it fails the match is kept at a
     reduced ``0.5`` fallback score — the context keyword is a strong
@@ -99,7 +107,8 @@ def _contextual_national_id_recognizer() -> EntityRecognizer:
         config=RegexPatternConfig(
             name="kvkk_national_id_context",
             pattern=(
-                rf"(?i){_keyword_alternation(_NATIONAL_ID_CONTEXT_KEYWORDS)}"
+                rf"(?i)(?:{_token_alternation(_NATIONAL_ID_LABELS, endings=())}"
+                rf"|{_keyword_alternation(_NATIONAL_ID_CONTEXT_KEYWORDS)})"
                 r"[^\d]{0,16}(\d{8,12})"
             ),
             score=0.6,

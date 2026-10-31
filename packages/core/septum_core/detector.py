@@ -24,6 +24,7 @@ imports any network client, so it can run inside an air-gapped zone.
 import logging
 import re
 import threading
+from bisect import bisect_right
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
 from presidio_analyzer import AnalyzerEngine, EntityRecognizer, RecognizerResult
@@ -68,7 +69,7 @@ from .text_boundaries import (
     word_cue,
     word_final_cue,
 )
-from .text_utils import normalize_for_comparison, normalize_unicode
+from .text_utils import compatibility_fold, normalize_for_comparison, normalize_unicode
 
 use_bundled_suffix_list()
 
@@ -355,6 +356,94 @@ def _compile_cues(table: CueTable) -> re.Pattern[str]:
     return re.compile(f"(?:{cue_alternation(table)})", re.IGNORECASE)
 
 
+# National mobile numbers written as one digit run, keyed by ISO 3166-1
+# alpha-2 code; every entry is a regex fragment for the national format
+# (trunk prefix included). These shapes are distinctive enough to stand alone:
+# a trunk "0" or a mobile prefix with an exact length. Countries that share a
+# shape each keep their own entry.
+_MOBILE_NUMBERS: Dict[str, Tuple[str, ...]] = {
+    "AT": (r"06\d{9,10}",),
+    "AU": (r"04\d{8}",),
+    "BE": (r"04\d{8}",),
+    "CH": (r"07[5-9]\d{7}",),
+    "CN": (r"1[3-9]\d{9}",),
+    "DE": (r"01[5-7]\d{8,9}",),
+    "FR": (r"0[67]\d{8}",),
+    "GB": (r"07\d{9}",),
+    "IE": (r"08[35-9]\d{7}",),
+    "JP": (r"0[789]0\d{8}",),
+    "KR": (r"01[016-9]\d{7,8}",),
+    "NL": (r"06\d{8}",),
+    "NZ": (r"02\d{7,9}",),
+    "RO": (r"07\d{8}",),
+    "RU": (r"89\d{9}",),
+    "SA": (r"05\d{8}",),
+    "SE": (r"07\d{8}",),
+    "TH": (r"0[689]\d{8}",),
+    "TR": (r"05\d{9}",),
+    "ZA": (r"0[6-8]\d{8}",),
+}
+
+# Mobile numbers whose shape many other numbers share (an order number, an
+# amount, a timestamp), so they count only next to a phone cue. "US" stands for
+# the whole North American Numbering Plan.
+_CUED_MOBILE_NUMBERS: Dict[str, Tuple[str, ...]] = {
+    "BR": (r"[1-9]{2}9\d{8}",),
+    "DK": (r"[2-9]\d{7}",),
+    "ES": (r"[67]\d{8}",),
+    "GR": (r"69\d{8}",),
+    "IN": (r"0?[6-9]\d{9}",),
+    "IT": (r"3\d{8,9}",),
+    "NO": (r"[49]\d{7}",),
+    "PL": (r"[4-8]\d{8}",),
+    "PT": (r"9[1236]\d{7}",),
+    "SA": (r"5\d{8}",),
+    "SG": (r"[89]\d{7}",),
+    "TR": (r"5\d{9}",),
+    "US": (r"[2-9]\d{2}[2-9]\d{6}",),
+}
+
+_PHONE_CUES: CueTable = {
+    "en": (
+        r"phone",
+        r"mobile",
+        r"cellular",
+        r"contact",
+        r"whats\s*app",
+        whole_cue("tel|cell|mob|fax|sms|gsm|call|text|pager"),
+        word_cue("ph|hp"),
+        r"h/p",
+    ),
+    "tr": (r"telefon", whole_cue("cep", endings=())),
+    "de": (r"handy", r"mobil", r"rufnummer"),
+    "fr": (r"t[ée]l[ée]phone", whole_cue("tél"), r"portable"),
+    "es": (r"tel[ée]fono", r"m[óo]vil", r"celular", whole_cue("tlf|tfno|telf")),
+    "pt": (r"telefone", r"telem[óo]vel", r"fone", r"contato", whole_cue("cel|zap")),
+    "it": (r"telefono", r"cellulare"),
+    "nl": (r"telefoon", r"mobiel"),
+    "ru": (r"телефон", whole_cue("тел|моб")),
+    "ar": (r"هاتف", r"جوال", r"موبايل"),
+    "zh": (r"电话", r"手机", r"手機"),
+    "ja": (r"電話", r"携帯"),
+    "ko": (r"전화", r"휴대폰", r"핸드폰"),
+    "hi": (r"फ़ोन", r"फोन", r"मोबाइल"),
+    "th": (r"โทร", r"มือถือ"),
+}
+
+
+# A non-ASCII digit, or a non-ASCII character other than a letter right after
+# an ASCII digit (an invisible character inside a run): the only places where
+# folding can change what a mobile shape matches.
+_FOLDABLE_DIGIT_RE = re.compile(r"(?![0-9])\d|[0-9][^\x00-\x7f\w]")
+
+
+def _digit_run_pattern(table: Dict[str, Tuple[str, ...]]) -> re.Pattern[str]:
+    """One digit run of any shape in ``table``, never part of a longer number or a decimal."""
+    shapes = "|".join(shape for entries in table.values() for shape in entries)
+    # The leading lookahead fails on most characters before any edge test runs.
+    return re.compile(rf"(?=\d)(?<!\d[.,]){token_bounded(shapes)}(?![.,]\d)")
+
+
 class ExtendedPhoneRecognizer(BaseCustomRecognizer):
     """Presidio recognizer for phone numbers with international format support.
 
@@ -366,13 +455,23 @@ class ExtendedPhoneRecognizer(BaseCustomRecognizer):
 
     * an explicit ``+`` international prefix, or
     * at least three digit groups separated by space / dash / dot
-      (e.g. ``0505 182 37 96`` or ``(555) 123-4567`` — a bare
-      contiguous ``701040108923`` is rejected).
+      (e.g. ``0505 182 37 96`` or ``(555) 123-4567``), or
+    * one digit run with the shape of a national mobile number
+      (``_MOBILE_NUMBERS``, e.g. ``13812345678`` or ``05321234567``), or
+      with a more common shape next to a phone cue (``_CUED_MOBILE_NUMBERS``,
+      e.g. ``Mobile: 9876543210`` or ``9876543210 (mobile)``). Any other bare run such as
+      ``701040108923`` is rejected.
 
     Span length is capped at 9-15 digits to prevent the optional
     international prefix from greedily consuming the first digits of
-    an 11-13 digit identifier.
+    an 11-13 digit identifier. A checksum-valid identifier that has a
+    mobile shape keeps its own label: ``_ENTITY_TYPE_PRIORITY`` ranks
+    it above PHONE_NUMBER for the same span.
     """
+
+    _CONTEXT_WINDOW = 40
+    # A cue may also follow the number ("9876543210 (mobile)").
+    _TRAILING_WINDOW = 20
 
     def __init__(self) -> None:
         super().__init__(
@@ -389,6 +488,9 @@ class ExtendedPhoneRecognizer(BaseCustomRecognizer):
             rf"\(?{TOKEN_START}\d{{3,4}}\)?[\s\-.]\d{{3,4}}[\s\-.]\d{{2,4}}(?:[\s\-.]\d{{2,4}})?{TOKEN_END}"
             r")"
         )
+        self._mobile = _digit_run_pattern(_MOBILE_NUMBERS)
+        self._cued_mobile = _digit_run_pattern(_CUED_MOBILE_NUMBERS)
+        self._context = _compile_cues(_PHONE_CUES)
 
     def analyze(  # type: ignore[override]
         self,
@@ -399,22 +501,41 @@ class ExtendedPhoneRecognizer(BaseCustomRecognizer):
         if self._entity_filter(entities):
             return []
 
-        results: List[RecognizerResult] = []
+        spans: List[Tuple[int, int]] = []
         for match in self._pattern.finditer(text):
             span_text = match.group(0)
             digit_count = sum(1 for c in span_text if c.isdigit())
             if not (9 <= digit_count <= 15):
                 continue
-            start, end = match.span()
-            results.append(
-                RecognizerResult(
-                    entity_type="PHONE_NUMBER",
-                    start=start,
-                    end=end,
-                    score=0.8,
-                )
-            )
-        return results
+            spans.append(match.span())
+        # Mobile shapes are matched on the folded text, so fullwidth digits and
+        # invisible characters inside the run ("１３８…", "1381234\u200b5678")
+        # do not hide it; spans map back to the original offsets. Folding is
+        # skipped when no digit could change.
+        if _FOLDABLE_DIGIT_RE.search(text):
+            folded, origin = compatibility_fold(text)
+        else:
+            folded, origin = text, range(len(text))
+        mobiles = [m.span() for m in self._mobile.finditer(folded)]
+        mobiles += [
+            m.span()
+            for m in self._cued_mobile.finditer(folded)
+            if self._context.search(folded, max(0, m.start() - self._CONTEXT_WINDOW), m.start())
+            or self._context.search(folded, m.end(), m.end() + self._TRAILING_WINDOW)
+        ]
+        # Grouped spans come from one scan, so they are sorted and disjoint:
+        # the only one that can contain a mobile span starts last before it.
+        grouped = list(spans)
+        grouped_starts = [s for s, _ in grouped]
+        for fold_start, fold_end in sorted(set(mobiles)):
+            start, end = origin[fold_start], origin[fold_end - 1] + 1
+            i = bisect_right(grouped_starts, start) - 1
+            if i < 0 or grouped[i][1] < end:
+                spans.append((start, end))
+        return [
+            RecognizerResult(entity_type="PHONE_NUMBER", start=start, end=end, score=0.8)
+            for start, end in spans
+        ]
 
 
 _IBAN_COUNTRY_LENGTHS: dict[str, int] = {
