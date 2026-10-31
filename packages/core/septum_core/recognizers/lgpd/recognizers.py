@@ -21,11 +21,20 @@ from ..base_recognizer import (
 
 # FUTURE: move to DB. Context preamble for the Brazilian civil-identity
 # document (Registro Geral); the abbreviations match only between cue edges.
+# "rg" is too short to count at a case step, so the glued field name
+# ("rgNumero", "rg_number", "rgNo") is a cue of its own.
 _CIVIL_IDENTITY_CONTEXT = (
     word_cue("rg"),
+    word_cue(r"r\.\s*g\.", endings=()),
     r"registro\s+geral",
+    r"identidade",
     whole_cue("ssp|cpf/rg"),
+    whole_cue(r"rg_?(?:n[uú]mero|number|no)", endings=()),
 )
+
+# A number sign that may sit between the cue and the value
+# ("RG nº", "RG n.º", "RG nr", "RG número").
+_NUMBER_SIGN = r"n\.?\s*[º°o]\.?|n\.|nro?\.?|n[uú]m\.|n[uú]mero|number"
 
 
 def _cnpj_recognizer() -> EntityRecognizer:
@@ -49,9 +58,11 @@ def _civil_identity_document_recognizer() -> EntityRecognizer:
     """Civil-identity document number (Brazilian Registro Geral).
 
     Matches both the dotted ``NN.NNN.NNN-X`` and compact
-    ``NNNNNNNNX`` variants, with an optional issuing-authority
-    suffix (``SSP/SP``) that is intentionally not captured in the
-    narrowed span. Requires an RG-related context preamble.
+    ``NNNNNNNNX`` variants (the check character may be left out),
+    with an optional issuing-authority suffix (``SSP/SP``) that is
+    intentionally not captured in the narrowed span. Requires an
+    RG-related context preamble, optionally
+    followed by a number sign (``nº``, ``n.º``, ``nr``, ``número``).
     """
     ctx = "|".join(_CIVIL_IDENTITY_CONTEXT)
     return ValidatedPatternRecognizer(
@@ -59,8 +70,8 @@ def _civil_identity_document_recognizer() -> EntityRecognizer:
         config=RegexPatternConfig(
             name="lgpd_civil_identity_document",
             pattern=(
-                rf"(?i)(?:{ctx})[^\w]{{0,16}}"
-                r"(\d{1,3}(?:\.\d{3}){2}[\-\s]?[A-Z0-9]|\d{7,9}[\-\s]?[A-Z0-9])"
+                rf"(?i)(?:{ctx})(?:[^\w]{{0,4}}(?:{_NUMBER_SIGN}))?[^\w]{{0,16}}"
+                r"(\d{1,3}(?:\.\d{3}){2}(?:[\-\s]?[A-Z\d])?|\d{7,9}(?:[\-\s]?[A-Z\d])?)"
             ),
             score=0.8,
             narrow_to_group=1,
