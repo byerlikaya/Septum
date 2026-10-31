@@ -1,11 +1,14 @@
-"""Compare the linearithmic ``remove_duplicates`` with Presidio's quadratic one.
+"""Compare the linearithmic ``remove_duplicates`` with the installed Presidio one.
 
-Presidio's filter checked every result against every kept result, so a
+Presidio before 2.2.366 checked every result against every kept result, so a
 recognizer that matched every few characters (IPv4, 12-digit IDs, IRD and
 Medicare numbers) took seconds on a few tens of kilobytes. The replacement
-must return the same results in the same order, both on raw result lists
-built to produce ties and through the real recognizers, and must stay fast on
-the digit-dense input that exposed the slowdown.
+must keep the same results as Presidio, both on raw result lists built to
+produce ties and through the real recognizers, and must stay fast on the
+digit-dense input that exposed the slowdown. Its order must equal 2.2.366's,
+which breaks score-and-span ties by entity type; earlier versions leave those
+ties in set-iteration order, so the reference output is re-sorted by the full
+key (a stable sort, so 2.2.366's own order is unchanged).
 """
 
 from __future__ import annotations
@@ -40,6 +43,13 @@ def _detector_imported() -> None:
     importlib.import_module("septum_core.detector")
 
 
+def _ids_in_order(results: list[RecognizerResult]) -> list[int]:
+    ordered = sorted(
+        results, key=lambda x: (-x.score, x.start, -(x.end - x.start), str(x.entity_type))
+    )
+    return [id(r) for r in ordered]
+
+
 def _recognizers() -> dict:
     packs = gdpr_recognizers() + appi_recognizers() + nzpa_recognizers() + australia_recognizers()
     return {r.name: r for r in packs if r.name in _DIGIT_DENSE}
@@ -68,7 +78,7 @@ def test_matches_presidio_on_random_results(seed: int) -> None:
     expected = PRESIDIO_REMOVE_DUPLICATES(list(results))
     actual = remove_duplicates(list(results))
 
-    assert [id(r) for r in actual] == [id(r) for r in expected]
+    assert [id(r) for r in actual] == _ids_in_order(expected)
 
 
 def _wide_results(rng: random.Random, count: int) -> list[RecognizerResult]:
@@ -109,7 +119,7 @@ def test_matches_presidio_on_wide_sparse_results(seed: int) -> None:
     expected = PRESIDIO_REMOVE_DUPLICATES(list(results))
     actual = remove_duplicates(list(results))
 
-    assert [id(r) for r in actual] == [id(r) for r in expected]
+    assert [id(r) for r in actual] == _ids_in_order(expected)
 
 
 def test_matches_presidio_on_negative_offsets() -> None:
@@ -122,7 +132,7 @@ def test_matches_presidio_on_negative_offsets() -> None:
     expected = PRESIDIO_REMOVE_DUPLICATES(list(results))
     actual = remove_duplicates(list(results))
 
-    assert [id(r) for r in actual] == [id(r) for r in expected]
+    assert [id(r) for r in actual] == _ids_in_order(expected)
 
 
 def test_install_replaces_presidio_filter() -> None:

@@ -1,14 +1,15 @@
 """Linearithmic replacement for Presidio's ``EntityRecognizer.remove_duplicates``.
 
-Presidio filters results by checking each one against every result kept so
-far (a list ``in`` test plus a ``contained_in`` loop), which is quadratic in
-the number of matches. ``PatternRecognizer`` runs it once per recognizer and
-``AnalyzerEngine`` once more over all results, so digit-dense input (an IPv4
-address or a 12-digit ID every few characters) cost seconds per 40K
-characters. The replacement keeps the contract and the output order: sort the
-distinct results by descending score, then start, then descending length;
-drop zero scores; drop a result when an already kept result of the same
-entity type contains its span.
+Presidio before 2.2.366 filters results by checking each one against every
+result kept so far (a list ``in`` test plus a ``contained_in`` loop), which is
+quadratic in the number of matches. ``PatternRecognizer`` runs it once per
+recognizer and ``AnalyzerEngine`` once more over all results, so digit-dense
+input (an IPv4 address or a 12-digit ID every few characters) cost seconds per
+40K characters. The api cannot move to 2.2.366 yet (paddlex pins PyYAML), so
+the replacement is installed on every version and returns what 2.2.366 does:
+the distinct results sorted by descending score, then start, then descending
+length, then entity type; zero scores dropped; a result dropped when an
+already kept result of the same entity type contains its span.
 """
 
 from __future__ import annotations
@@ -51,12 +52,15 @@ class _KeptSpans:
 
 
 def remove_duplicates(results: List[RecognizerResult]) -> List[RecognizerResult]:
-    """Same output as Presidio's ``remove_duplicates`` in O(n log n).
+    """Same output as Presidio 2.2.366's ``remove_duplicates`` in O(n log n).
 
     Presidio's extra ``result not in filtered_results`` test is subsumed by
     the containment test: an equal result has the same type and span.
     """
-    ordered = sorted(set(results), key=lambda x: (-x.score, x.start, -(x.end - x.start)))
+    ordered = sorted(
+        set(results),
+        key=lambda x: (-x.score, x.start, -(x.end - x.start), str(x.entity_type)),
+    )
     starts_by_type: Dict[str, List[int]] = {}
     for result in ordered:
         starts_by_type.setdefault(result.entity_type, []).append(result.start)
