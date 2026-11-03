@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+from septum_core.text_utils import normalize_unicode
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -347,6 +348,12 @@ class DocumentPipeline:
             policy=policy,
         )
 
+        # Compose once, here. The detector composes its input before it
+        # computes span offsets, so the preview text, the normalization
+        # rules and the indexes must see the same composed string or a
+        # decomposed (NFD) upload would leave every stored offset pointing
+        # at the wrong characters in the preview.
+        ingested_text = normalize_unicode(ingested_text)
         semantic_chunks = await self._build_chunks(file_format, ingested_text)
 
         normalizer = TextNormalizer()
