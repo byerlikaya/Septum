@@ -187,9 +187,14 @@ class PdfIngester(BaseIngester):
         """Extract per-page text, plus OCR any embedded images.
 
         Strategy per page:
-        1. If the text layer is corrupt (CID / U+FFFD) → full-page OCR.
+        1. If the text layer is corrupt (CID / U+FFFD), or empty while
+           something is drawn on the page (images of any size, vector
+           paths) → full-page OCR. A scan cut into small tiles or text
+           drawn as outlines has no text layer and no image large enough
+           for step 2, so it would otherwise vanish.
         2. Otherwise → use extracted text + OCR any significant images
-           on the page (≥150×150 px) and append their text.
+           on the page (≥150×150 px) and append their text. A blank page
+           yields empty text without any OCR.
         """
         texts: List[str] = []
         ocr_confidences: List[float] = []
@@ -198,7 +203,9 @@ class PdfIngester(BaseIngester):
             page_text = page.get_text() or ""
             cleaned = strip_control_characters(page_text).strip()
 
-            if self._text_looks_corrupt(cleaned):
+            if self._text_looks_corrupt(cleaned) or (
+                not cleaned and self._has_drawn_content(page)
+            ):
                 ocr_text, conf = self._run_ocr_on_page(page)
                 if conf is not None:
                     ocr_confidences.append(conf)
@@ -215,6 +222,11 @@ class PdfIngester(BaseIngester):
                 texts.append(cleaned)
 
         return texts, ocr_confidences
+
+    @staticmethod
+    def _has_drawn_content(page: fitz.Page) -> bool:
+        """Whether the page draws anything at all: an image of any size or a vector path."""
+        return bool(page.get_images(full=True)) or bool(page.get_drawings())
 
     def _ocr_page_images(
         self,
