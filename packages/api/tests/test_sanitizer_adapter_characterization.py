@@ -255,9 +255,11 @@ def test_aliases_span_filtering_and_offsets(adapter, monkeypatch, caplog):
     assert stub.calls[0]["model"] == "deanon-model:1"
 
 
-def test_aliases_offsets_follow_lowercased_text(adapter, monkeypatch):
+def test_aliases_offsets_survive_a_dotted_capital(adapter, monkeypatch):
     _stub(monkeypatch, '[{"text": "Bobby", "type": "ALIAS"}]')
-    assert adapter.detect_aliases(normalized_text="İİ Bobby here") == []
+    assert _triples(adapter.detect_aliases(normalized_text="İİ Bobby here")) == [
+        (3, 8, "ALIAS", 0.85)
+    ]
     assert _triples(adapter.detect_aliases(normalized_text="ii Bobby here")) == [
         (3, 8, "ALIAS", 0.85)
     ]
