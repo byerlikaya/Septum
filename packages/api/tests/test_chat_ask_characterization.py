@@ -1180,10 +1180,15 @@ class TestRunLlmDirect:
         return result
 
     async def test_refusal_is_replaced_by_the_context_placeholders(self, env: CharEnv) -> None:
-        result = await self._run(env, "I cannot find that information.")
+        result = await self._run(env, PromptCatalog.NO_ANSWER_SENTINEL)
 
         assert result == "- Jane Roe\n- John Poe"
         assert env.llm_kwargs == [{"on_cloud_failure": None}]
+
+    async def test_refusal_wording_without_the_sentinel_is_kept(self, env: CharEnv) -> None:
+        result = await self._run(env, "I cannot find that information.")
+
+        assert result == "I cannot find that information."
 
     async def test_five_bullets_are_replaced_by_the_context_placeholders(
         self, env: CharEnv

@@ -249,24 +249,23 @@ class PromptCatalog:
             "reply with a bullet list of the relevant placeholder tokens from: "
             + ", ".join(placeholders)
             + ". Do not list document wording, clause fragments, or other text—only placeholder tokens. "
-            "Do not refuse; answer from the context. For any other question, use the context as usual.\n\n"
+            "If the context does not answer the question, reply with exactly "
+            + PromptCatalog.NO_ANSWER_SENTINEL
+            + " and nothing else; this replaces rule 2. "
+            "For any other question, use the context as usual.\n\n"
         )
 
-    REFUSAL_PHRASES: tuple[str, ...] = (
-        "cannot answer",
-        "not defined",
-        "cannot provide",
-        "could you clarify",
-        "rephrase your question",
-        "cannot find",
-        "no information",
-        "not found",
-    )
-    """Phrases used to detect when the LLM refuses to answer a query.
+    NO_ANSWER_SENTINEL: str = "<<NO_ANSWER>>"
+    """Marker the model is asked to send, alone, when the context holds no answer.
 
-    FUTURE: migrate to a database-driven configuration so that users can
-    customise refusal detection per language.
+    Detection looks for this exact token instead of refusal wording, which
+    varies by language and also turns up inside real answers ("not
+    found"). It cannot be mistaken for a placeholder, and the chat route
+    strips it before an answer reaches the user.
     """
+
+    NO_ANSWER_TEXT: str = "I cannot find that information in the document."
+    """The standard refusal sentence of rule 2 in :meth:`chat_user_prompt`."""
 
     @staticmethod
     def chat_user_prompt(
