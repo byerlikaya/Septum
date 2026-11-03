@@ -1137,8 +1137,8 @@ def _context_placeholders(context_chunks: List[str]) -> List[str]:
 
 
 def _is_unhelpful_answer(masked_answer: str) -> bool:
-    """Return True for a refusal or a long bullet list (five or more bullets)."""
-    if any(p in masked_answer.lower() for p in PromptCatalog.REFUSAL_PHRASES):
+    """Return True for the no-answer sentinel or a long bullet list (five or more bullets)."""
+    if PromptCatalog.NO_ANSWER_SENTINEL in masked_answer:
         return True
     bullet_lines = [
         line.strip()
@@ -1157,7 +1157,9 @@ def _shape_masked_answer(
     queried placeholder tokens, so no linked attribute (identifier,
     location, ...) beyond what was asked can leak. A placeholder question
     whose answer carries no placeholder and is unhelpful is replaced by the
-    context placeholders as a bullet list.
+    context placeholders as a bullet list. The no-answer sentinel never
+    reaches the user: it is removed from every other answer, and an answer
+    that held nothing else becomes the standard refusal sentence.
     """
     if turn.query_placeholders:
         return " ".join(dict.fromkeys(turn.query_placeholders))
@@ -1168,7 +1170,11 @@ def _shape_masked_answer(
         and _is_unhelpful_answer(masked_answer)
     ):
         return "\n".join(f"- {p}" for p in placeholders_in_context)
-    return masked_answer
+    sentinel = PromptCatalog.NO_ANSWER_SENTINEL
+    if sentinel not in masked_answer:
+        return masked_answer
+    remaining = re.sub(r"[ \t]{2,}", " ", masked_answer.replace(sentinel, "")).strip()
+    return remaining or PromptCatalog.NO_ANSWER_TEXT
 
 
 def _turn_sent_placeholders(turn: _LlmTurnInput) -> set[str]:
