@@ -5,7 +5,8 @@ from __future__ import annotations
 This ingester is responsible for:
     - Reading the encrypted ODS bytes from disk.
     - Decrypting them in memory using the shared AES-256-GCM utilities.
-    - Extracting plain text by reading all sheets via pandas (engine=odf).
+    - Extracting plain text by reading all sheets via pandas (engine=odf),
+      keeping each value in its column (see :mod:`.sheet_text`).
     - Returning an :class:`IngestionResult` with the concatenated text and
       lightweight, non-PII metadata (e.g., sheet names, row counts).
 """
@@ -17,9 +18,9 @@ from typing import Any, Dict, List
 
 import pandas as pd
 
-from ...models.spreadsheet_schema import generated_technical_label
 from ...utils.crypto import decrypt
 from .base import BaseIngester, IngestionResult
+from .sheet_text import render_sheet
 
 
 class OdsIngester(BaseIngester):
@@ -57,34 +58,19 @@ class OdsIngester(BaseIngester):
 
         with pd.ExcelFile(BytesIO(ods_bytes), engine="odf") as xl:
             for sheet_name in xl.sheet_names:
-                df = pd.read_excel(xl, sheet_name=sheet_name, header=0)
-                rows_text: List[str] = []
-
-                # Use generic, non-PII column labels for the header row so that
-                # schema information is preserved without leaking raw header text.
-                header_cells = [generated_technical_label(idx) for idx in range(len(df.columns))]
-                if header_cells:
-                    rows_text.append("\t".join(header_cells))
-
-                for _, row in df.iterrows():
-                    cells = [str(v) for v in row if pd.notna(v) and str(v).strip()]
-                    if cells:
-                        rows_text.append("\t".join(cells))
-
-                sheet_text = "\n".join(rows_text)
-
+                # The raw grid, positions and value types kept: no header row
+                # is taken out and integers are not widened to floats.
+                df = pd.read_excel(xl, sheet_name=sheet_name, header=None, dtype=object)
+                sheet_text, row_count, header_cells = render_sheet(
+                    str(sheet_name), df.itertuples(index=False, name=None)
+                )
                 if sheet_text:
-                    header_suffix = ""
-                    if header_cells:
-                        header_suffix = " — columns: " + " | ".join(header_cells)
-                    sheet_texts.append(
-                        f"# Sheet: {sheet_name}{header_suffix}\n{sheet_text}"
-                    )
+                    sheet_texts.append(sheet_text)
                 sheet_metadata.append(
                     {
                         "sheet_name": sheet_name,
-                        "row_count": len(df),
-                        "column_count": len(header_cells),
+                        "row_count": row_count,
+                        "column_count": len(header_cells) if header_cells is not None else 0,
                     }
                 )
 
