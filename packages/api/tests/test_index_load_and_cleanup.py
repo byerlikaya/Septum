@@ -1,18 +1,27 @@
-"""Corrupt index files are discarded; other filesystem failures surface.
+"""Index files are written atomically and never deleted by a read.
 
-Covers the load-path discard in the FAISS and BM25 stores and the
-``cleanup_artifacts`` failure contract used by the reprocess flow.
+Covers the atomic save and load paths of the FAISS and BM25 stores, the
+startup sweep of temp files a crashed save left behind, and the
+``cleanup_artifacts`` failure contract used by the reprocess flow. A
+reader that meets an unreadable file reports it and leaves it alone: it
+may be another worker's save caught mid-flight on a filesystem without
+atomic rename, and only a save or the document's erasure replaces it.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import time
 from pathlib import Path
 
+import faiss
+import numpy as np
 import pytest
 from septum_api.services import document_pipeline as pipeline_module
 from septum_api.services.bm25_retriever import BM25Retriever
 from septum_api.services.document_pipeline import DocumentPipeline
+from septum_api.services.index_file_io import sweep_stale_index_temp_files
 from septum_api.services.vector_store import VectorStore
 from septum_api.utils.crypto import encrypt
 
@@ -27,23 +36,26 @@ def _faiss_store(tmp_path: Path) -> VectorStore:
     return VectorStore(base_dir=tmp_path)
 
 
-def test_bm25_tampered_index_is_discarded_and_logged(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+@pytest.mark.parametrize(
+    ("make_store", "document_id", "label"), [(_bm25_store, 7, "BM25"), (_faiss_store, 11, "FAISS")]
+)
+def test_tampered_index_is_kept_and_logged(
+    make_store, document_id: int, label: str, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    store = _bm25_store(tmp_path)
-    path = store._index_path(7)
+    store = make_store(tmp_path)
+    path = store._index_path(document_id)
     path.write_bytes(b"not-a-valid-ciphertext-at-all-0000000000")
 
     with caplog.at_level(logging.WARNING):
-        assert store._load_index(7) is None
+        assert store._load_index(document_id) is None
 
-    assert not path.exists()
-    assert "document 7" in caplog.text
+    assert path.read_bytes() == b"not-a-valid-ciphertext-at-all-0000000000"
+    assert f"{label} index for document {document_id}" in caplog.text
     assert "InvalidTag" in caplog.text
     assert str(tmp_path) not in caplog.text
 
 
-def test_bm25_non_json_plaintext_is_discarded_and_logged(
+def test_bm25_non_json_plaintext_is_kept_and_logged(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     store = _bm25_store(tmp_path)
@@ -53,9 +65,76 @@ def test_bm25_non_json_plaintext_is_discarded_and_logged(
     with caplog.at_level(logging.WARNING):
         assert store._load_index(8) is None
 
-    assert not path.exists()
+    assert path.exists()
     assert "document 8" in caplog.text
     assert "UnicodeDecodeError" in caplog.text or "JSONDecodeError" in caplog.text
+
+
+def _faiss_index() -> faiss.Index:
+    index = faiss.IndexFlatIP(4)
+    index.add(np.ones((2, 4), dtype="float32"))
+    return index
+
+
+@pytest.mark.parametrize(
+    ("make_store", "payload"), [(_bm25_store, {"k": [1, 2]}), (_faiss_store, None)]
+)
+def test_save_round_trips_and_leaves_no_temp_file(make_store, payload, tmp_path: Path) -> None:
+    store = make_store(tmp_path)
+    store._save_index(5, payload if payload is not None else _faiss_index())
+
+    loaded = store._load_index(5)
+    if payload is not None:
+        assert loaded == payload
+    else:
+        assert loaded.ntotal == 2
+    assert [p.name for p in tmp_path.iterdir()] == [store._index_path(5).name]
+    assert oct(store._index_path(5).stat().st_mode & 0o777) == "0o600"
+
+
+@pytest.mark.parametrize(
+    ("make_store", "payload"), [(_bm25_store, {"k": [1]}), (_faiss_store, None)]
+)
+def test_failed_save_keeps_the_previous_index_and_no_temp_file(
+    make_store, payload, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = make_store(tmp_path)
+    path = store._index_path(6)
+    path.write_bytes(b"previous")
+
+    def _fail(src, dst):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(os, "replace", _fail)
+    with pytest.raises(RuntimeError) as excinfo:
+        store._save_index(6, payload if payload is not None else _faiss_index())
+
+    assert path.read_bytes() == b"previous"
+    assert [p.name for p in tmp_path.iterdir()] == [path.name]
+    _assert_path_free(excinfo.value, tmp_path, 6, "OSError")
+
+
+@pytest.mark.parametrize("make_store", [_bm25_store, _faiss_store])
+def test_temp_files_are_not_stored_indexes(make_store, tmp_path: Path) -> None:
+    store = make_store(tmp_path)
+    temp = tmp_path / f"{store._index_path(4).name}.0123abcd.tmp"
+    temp.write_bytes(b"partial")
+    assert store.stored_document_ids() == set()
+
+
+def test_sweep_removes_only_stale_temp_files(tmp_path: Path) -> None:
+    stale = tmp_path / "doc_1.bm25.enc.aa.tmp"
+    fresh = tmp_path / "doc_2.bm25.enc.bb.tmp"
+    index = tmp_path / "doc_3.bm25.enc"
+    for path in (stale, fresh, index):
+        path.write_bytes(b"x")
+    old = time.time() - 3600
+    os.utime(stale, (old, old))
+    os.utime(index, (old, old))
+
+    assert sweep_stale_index_temp_files(tmp_path) == 1
+    assert sorted(p.name for p in tmp_path.iterdir()) == [fresh.name, index.name]
+    assert sweep_stale_index_temp_files(tmp_path / "missing") == 0
 
 
 def test_bm25_missing_index_returns_none(tmp_path: Path) -> None:
@@ -88,56 +167,6 @@ def test_read_failure_raises_without_path(
         store._load_index(13)
 
     _assert_path_free(excinfo.value, tmp_path, 13, "PermissionError")
-
-
-def test_bm25_unlink_failure_propagates(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    store = _bm25_store(tmp_path)
-    store._index_path(10).write_bytes(TAMPERED)
-
-    def _deny(self: Path, missing_ok: bool = False) -> None:
-        raise PermissionError(13, "Permission denied")
-
-    monkeypatch.setattr(Path, "unlink", _deny)
-
-    with pytest.raises(RuntimeError) as excinfo:
-        store._load_index(10)
-
-    _assert_path_free(excinfo.value, tmp_path, 10, "PermissionError")
-
-
-def test_faiss_tampered_index_is_discarded_and_logged(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    store = _faiss_store(tmp_path)
-    path = store._index_path(11)
-    path.write_bytes(b"not-a-valid-ciphertext-at-all-0000000000")
-
-    with caplog.at_level(logging.WARNING):
-        assert store._load_index(11) is None
-
-    assert not path.exists()
-    assert "document 11" in caplog.text
-    assert "InvalidTag" in caplog.text
-    assert str(tmp_path) not in caplog.text
-
-
-def test_faiss_unlink_failure_propagates(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    store = _faiss_store(tmp_path)
-    store._index_path(12).write_bytes(TAMPERED)
-
-    def _deny(self: Path, missing_ok: bool = False) -> None:
-        raise PermissionError(13, "Permission denied")
-
-    monkeypatch.setattr(Path, "unlink", _deny)
-
-    with pytest.raises(RuntimeError) as excinfo:
-        store._load_index(12)
-
-    _assert_path_free(excinfo.value, tmp_path, 12, "PermissionError")
 
 
 class _FakeVectorStore:

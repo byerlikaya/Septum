@@ -185,6 +185,19 @@ async def _reset_orphaned_processing_docs() -> None:
             logger.info("Reset %d orphaned processing documents to failed", result.rowcount)
 
 
+def _sweep_index_temp_files() -> None:
+    """Remove temp files crashed FAISS / BM25 saves left behind; never fatal."""
+    from .services.bm25_retriever import BM25Retriever
+    from .services.index_file_io import sweep_stale_index_temp_files
+    from .services.vector_store import VectorStore
+
+    for directory in (VectorStore().base_dir, BM25Retriever().base_dir):
+        try:
+            sweep_stale_index_temp_files(directory)
+        except OSError as exc:
+            logger.error("Index temp file sweep failed: %s", type(exc).__name__)
+
+
 async def _sweep_orphan_artifacts_once() -> None:
     """Run the orphaned artifact sweep; a failure is logged and retried next startup, never fatal."""
     try:
@@ -357,6 +370,7 @@ async def lifespan(app: FastAPI):
             await init_db()
             await _reset_orphaned_processing_docs()
             sweep_stale_temp_files()
+            _sweep_index_temp_files()
             await _sweep_orphan_artifacts_once()
             # Runs in the background: the rebuild decrypts every stale
             # document's map, which must not hold up startup.

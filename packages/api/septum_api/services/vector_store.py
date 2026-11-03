@@ -54,7 +54,7 @@ import numpy as np
 from cryptography.exceptions import InvalidTag
 
 from ..utils.crypto import decrypt, encrypt
-from .index_file_io import discard_index_file, document_ids_in, index_io_error
+from .index_file_io import document_ids_in, index_io_error, write_index_atomically
 
 _log = logging.getLogger(__name__)
 
@@ -382,8 +382,7 @@ class VectorStore:
         associated_data = str(document_id).encode("utf-8")
         encrypted = encrypt(raw_bytes_b, associated_data=associated_data)
 
-        path = self._index_path(document_id)
-        path.write_bytes(encrypted)
+        write_index_atomically(self._index_path(document_id), encrypted, "FAISS", document_id)
 
     def _load_index(self, document_id: int) -> faiss.Index | None:
         """Load and decrypt a FAISS index for a document, if present.
@@ -403,9 +402,8 @@ class VectorStore:
         try:
             raw_bytes = decrypt(encrypted, associated_data=associated_data)
         except InvalidTag as exc:
-            discard_index_file(path, "FAISS", document_id)
             _log.warning(
-                "Discarded unreadable FAISS index for document %s (%s)",
+                "Unreadable FAISS index for document %s left in place (%s)",
                 document_id,
                 type(exc).__name__,
             )

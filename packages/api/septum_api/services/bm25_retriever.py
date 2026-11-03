@@ -26,7 +26,7 @@ from cryptography.exceptions import InvalidTag
 from rank_bm25 import BM25Okapi
 
 from ..utils.crypto import decrypt, encrypt
-from .index_file_io import discard_index_file, document_ids_in, index_io_error
+from .index_file_io import document_ids_in, index_io_error, write_index_atomically
 
 _log = logging.getLogger(__name__)
 
@@ -164,8 +164,7 @@ class BM25Retriever:
         associated_data = str(document_id).encode("utf-8")
         encrypted = encrypt(raw_bytes, associated_data=associated_data)
 
-        path = self._index_path(document_id)
-        path.write_bytes(encrypted)
+        write_index_atomically(self._index_path(document_id), encrypted, "BM25", document_id)
 
     def _load_index(self, document_id: int) -> dict | None:
         """Load and decrypt a BM25 index for a document, if present.
@@ -187,9 +186,8 @@ class BM25Retriever:
         try:
             raw_bytes = decrypt(encrypted, associated_data=associated_data)
         except InvalidTag as exc:
-            discard_index_file(path, "BM25", document_id)
             _log.warning(
-                "Discarded unreadable BM25 index for document %s (%s)",
+                "Unreadable BM25 index for document %s left in place (%s)",
                 document_id,
                 type(exc).__name__,
             )
@@ -198,9 +196,8 @@ class BM25Retriever:
         try:
             return json.loads(raw_bytes)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            discard_index_file(path, "BM25", document_id)
             _log.warning(
-                "Discarded corrupt BM25 index for document %s (%s)",
+                "Corrupt BM25 index for document %s left in place (%s)",
                 document_id,
                 type(exc).__name__,
             )
