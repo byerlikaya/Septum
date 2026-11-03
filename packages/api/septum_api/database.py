@@ -291,8 +291,9 @@ async def _sqlite_drop_obsolete_tables(eng: AsyncEngine) -> None:
     to be recreated. Both ``entity_index`` and ``document_relationships``
     are caches derived from the on-disk anonymisation maps, so dropping
     them is non-destructive: the ingestion pipeline repopulates new
-    rows on every upload, and ``scripts/rebuild_entity_index.py``
-    rebuilds rows for documents that were ingested before the change.
+    rows on every upload, and the startup reindex
+    (``entity_index_refresh.reindex_stale_documents``) rebuilds rows for
+    documents whose recorded index version is missing or older.
     """
     async with eng.begin() as conn:
         # entity_index used to declare ``UniqueConstraint(document_id,
@@ -381,6 +382,10 @@ async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:
         (
             "documents",
             "ALTER TABLE documents ADD COLUMN sanitized_language VARCHAR",
+        ),
+        (
+            "documents",
+            "ALTER TABLE documents ADD COLUMN entity_index_version INTEGER",
         ),
     ]
 

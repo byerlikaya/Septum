@@ -60,6 +60,9 @@ class Document(Base):
     )
     # Language code the pipeline masked the document with; NULL = unknown.
     sanitized_language: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Entity-index hashing scheme the document's index rows were written
+    # under (``ENTITY_INDEX_VERSION``); NULL or older = rebuild at startup.
+    entity_index_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"

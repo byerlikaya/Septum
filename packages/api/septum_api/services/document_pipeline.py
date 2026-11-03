@@ -42,6 +42,7 @@ from .document_anon_store import (
     set_document_map,
 )
 from .entity_index_service import (
+    ENTITY_INDEX_VERSION,
     recompute_relationships_for_document,
     replace_index_for_document,
 )
@@ -243,7 +244,7 @@ async def _store_document_map(
 
 async def _refresh_entity_index(
     db: AsyncSession, document_id: int, anon_map: AnonymizationMap
-) -> None:
+) -> bool:
     """Populate the cross-document entity index and relationship rows.
 
     Lets future chat queries route narrowly to the documents that actually
@@ -251,7 +252,8 @@ async def _refresh_entity_index(
     graph and the auto-cluster suggester in sync. The index only stores
     HMAC-SHA256 hashes of the originals under the local encryption key —
     no raw PII is persisted here. A failure is logged by error class and
-    rolled back; the ingestion itself still completes.
+    rolled back; the ingestion itself still completes. Returns whether the
+    rows were written, so the caller records the index version only then.
     """
     try:
         await replace_index_for_document(db, document_id, anon_map)
@@ -264,6 +266,8 @@ async def _refresh_entity_index(
             type(exc).__name__,
         )
         await db.rollback()
+        return False
+    return True
 
 
 async def _audit_detections(
@@ -398,7 +402,8 @@ class DocumentPipeline:
         await db.refresh(document)
 
         await _store_document_map(db, document.id, anon_map)
-        await _refresh_entity_index(db, document.id, anon_map)
+        if await _refresh_entity_index(db, document.id, anon_map):
+            document.entity_index_version = ENTITY_INDEX_VERSION
 
         if sanitized.total_entities > 0:
             await _audit_detections(
