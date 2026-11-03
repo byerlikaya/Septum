@@ -136,6 +136,22 @@ def locale_lower(text: str, language: str = "en") -> str:
     return text.lower()
 
 
+def lower_preserving_offsets(text: str) -> str:
+    """Lowercase ``text`` one character at a time without changing its length.
+
+    ``str.lower`` maps the dotted capital ``İ`` (U+0130) to ``i`` plus a
+    combining dot above, so an offset found in lowered text drifts one
+    position for every ``İ`` before it. Here each character becomes exactly
+    one character (``İ`` becomes ``i``); everything else matches
+    ``str.lower``. Use it whenever an index into the lowered text is applied
+    back to the original.
+    """
+    lowered = text.lower()
+    if len(lowered) == len(text):
+        return lowered
+    return "".join(ch.lower()[0] for ch in text)
+
+
 def normalize_for_comparison(text: str, language: str = "en") -> str:
     """Normalize and lowercase ``text`` for case-insensitive comparison.
 

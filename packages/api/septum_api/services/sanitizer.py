@@ -60,6 +60,7 @@ from septum_core.ports import SemanticDetectionPort
 from septum_core.regulations.composer import ComposedPolicy
 from septum_core.spans import DetectedSpan, ResolvedSpan, SanitizeResult
 from septum_core.text_boundaries import is_span_boundary
+from septum_core.text_utils import lower_preserving_offsets
 
 from ..models.settings import AppSettings
 from .ollama_client import call_ollama_sync, extract_json_array
@@ -165,12 +166,13 @@ def _is_numeric_heavy(normalized_text: str) -> bool:
 def _unique_span_offsets(normalized_text: str, text_str: str) -> Optional[tuple[int, int]]:
     """Locate a single, word-bounded occurrence of ``text_str`` (case-insensitive).
 
-    Offsets come from the lowercased text, exactly as the detection layers
-    have always computed them. Returns ``None`` when the value is absent,
-    not on a word boundary, or occurs more than once.
+    Both sides are lowercased without changing their length, so an offset
+    in the lowered text is the same offset in ``normalized_text`` even
+    after a dotted capital ``İ``. Returns ``None`` when the value is
+    absent, not on a word boundary, or occurs more than once.
     """
-    text_lower = normalized_text.lower()
-    search_lower = text_str.lower()
+    text_lower = lower_preserving_offsets(normalized_text)
+    search_lower = lower_preserving_offsets(text_str)
     idx = text_lower.find(search_lower)
     if idx < 0:
         return None
