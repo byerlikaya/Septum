@@ -24,7 +24,7 @@ updates:
       # regression, Paddle issue #77340). Pinned at 3.2.2 until the fix ships;
       # the OCR regression test in packages/api/tests guards later releases.
       - dependency-name: paddlepaddle
-        versions: ["3.3.x"]
+        versions: [">=3.3.0, <3.4.0"]
 
   - package-ecosystem: npm
     directories:
