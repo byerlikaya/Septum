@@ -374,12 +374,17 @@ def language_table_codes() -> FrozenSet[str]:
     """
     from .detector import _NER_MIN_SPAN_LEN_PER_LANGUAGE
     from .ner_model_registry import NERModelRegistry
-    from .text_utils import _LOCALE_CASING_RULES, _POSSESSIVE_SUFFIXES
+    from .text_utils import (
+        _LOCALE_CASING_RULES,
+        _LOCALE_COMPARISON_FOLDS,
+        _POSSESSIVE_SUFFIXES,
+    )
 
     keys = [
         *NERModelRegistry().DEFAULT_MODEL_MAP,
         *_NER_MIN_SPAN_LEN_PER_LANGUAGE,
         *_LOCALE_CASING_RULES,
+        *_LOCALE_COMPARISON_FOLDS,
         *_POSSESSIVE_SUFFIXES,
         *(rule.implied_language for rule in _SCRIPT_RULES.values()),
     ]

@@ -24,8 +24,19 @@ _WHITESPACE_RUN = re.compile(r"\s+")
 # Locale-specific character transformations for case folding.
 # Uses ISO 639-1 codes. Add new locales as needed without modifying function logic.
 _LOCALE_CASING_RULES: Dict[str, Dict[int, int]] = {
-    "tr": str.maketrans("İI", "ii"),
-    "az": str.maketrans("İI", "ii"),
+    "tr": str.maketrans("İI", "iı"),
+    "az": str.maketrans("İI", "iı"),
+}
+
+# Extra folds applied after locale lowercasing, for comparison only.
+# Turkic alphabets pair I with ı and İ with i, but all-caps text and ASCII
+# keyboards mix the two freely ("SIRMA" for "Sırma", "ISTANBUL" for
+# "İstanbul"). Folding the lowercased ı onto i lets every spelling of a name
+# share one placeholder. Each fold maps one character to one character, so
+# offsets on the folded text stay aligned with the original.
+_LOCALE_COMPARISON_FOLDS: Dict[str, Dict[int, int]] = {
+    "tr": str.maketrans("ı", "i"),
+    "az": str.maketrans("ı", "i"),
 }
 
 
@@ -128,7 +139,8 @@ def locale_lower(text: str, language: str = "en") -> str:
 def normalize_for_comparison(text: str, language: str = "en") -> str:
     """Normalize and lowercase ``text`` for case-insensitive comparison.
 
-    Beyond NFC + locale-aware case folding, this also collapses any run
+    Beyond NFC + locale-aware case folding (plus the per-language
+    comparison folds, such as Turkic ``ı``→``i``), this also collapses any run
     of whitespace (including tabs, newlines and non-breaking U+00A0) to
     a single ASCII space and trims edges, so that ``"Ahmet  Çelik"``,
     ``"ahmet çelik"`` and ``" Ahmet Çelik "`` all compare equal.
@@ -136,6 +148,9 @@ def normalize_for_comparison(text: str, language: str = "en") -> str:
     placeholders for the same person across PDF/OCR-extracted spans.
     """
     cased = locale_lower(normalize_unicode(text), language)
+    fold = _LOCALE_COMPARISON_FOLDS.get(canonical_language_code(language))
+    if fold is not None:
+        cased = cased.translate(fold)
     return _WHITESPACE_RUN.sub(" ", cased).strip()
 
 
