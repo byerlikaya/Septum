@@ -244,6 +244,7 @@ TRANSCRIPT = "N:alpha Alice\n\nN:beta\n\nN:gamma Bob Carl"
 async def test_full_run_sequence(env):
     document, ticks, db = await _run(env)
     assert ticks == [30, 60, 90, 92, 96]
+    assert document.entity_index_version == dp.ENTITY_INDEX_VERSION
     assert env.events == [
         ("forget", 7),
         ("compose", "SETTINGS"),
@@ -385,6 +386,7 @@ async def test_entity_index_failure_is_logged_and_rolled_back(env, caplog):
     i = env.events.index(("replace_index", 7))
     assert env.events[i + 1] == ("rollback",)
     assert ("recompute", 7) not in env.events
+    assert not hasattr(document, "entity_index_version")
     messages = [(r.levelno, r.getMessage()) for r in caplog.records if r.name == dp.logger.name]
     assert messages == [
         (logging.ERROR, "Failed to populate entity index / relationships for document 7: RuntimeError")

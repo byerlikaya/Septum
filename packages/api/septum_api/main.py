@@ -193,6 +193,16 @@ async def _sweep_orphan_artifacts_once() -> None:
         logger.error("Orphaned artifact sweep failed: %s", type(exc).__name__)
 
 
+async def _reindex_entity_index_once() -> None:
+    """Rebuild index rows written under an older hashing scheme; a failure is logged, never fatal."""
+    from .services.entity_index_refresh import reindex_stale_documents
+
+    try:
+        await reindex_stale_documents(get_session_maker())
+    except Exception as exc:
+        logger.error("Entity index rebuild failed: %s", type(exc).__name__)
+
+
 async def _stored_model_settings() -> tuple[dict[str, str] | None, str | None]:
     """Return the stored NER overrides and Whisper model; ``(None, None)`` if unreadable."""
     try:
@@ -340,6 +350,7 @@ async def lifespan(app: FastAPI):
             asyncio.to_thread(ensure_language_profiles_loaded),
         )
         config = bootstrap.get_config()
+        reindex: asyncio.Task | None = None
         if not bootstrap.needs_setup():
             url = build_database_url(config.database_url, config.db_path)
             initialize_engine(url)
@@ -347,6 +358,11 @@ async def lifespan(app: FastAPI):
             await _reset_orphaned_processing_docs()
             sweep_stale_temp_files()
             await _sweep_orphan_artifacts_once()
+            # Runs in the background: the rebuild decrypts every stale
+            # document's map, which must not hold up startup.
+            reindex = asyncio.create_task(
+                _reindex_entity_index_once(), name="septum-entity-index-rebuild"
+            )
             if os.getenv(MODEL_WARMUP_OPT_OUT_ENV) == "1":
                 logger.info("Model warmup disabled by %s", MODEL_WARMUP_OPT_OUT_ENV)
             else:
@@ -361,9 +377,11 @@ async def lifespan(app: FastAPI):
         try:
             yield
         finally:
-            retention.cancel()
-            with suppress(asyncio.CancelledError):
-                await retention
+            for task in (retention, reindex):
+                if task is not None:
+                    task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await task
             shutdown_password_executor()
 
 

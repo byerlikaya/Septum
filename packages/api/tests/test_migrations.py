@@ -186,6 +186,35 @@ def test_revision_020_adds_nullable_sanitized_language_and_is_idempotent(
     assert "sanitized_language" not in after_downgrade
 
 
+def test_revision_025_adds_nullable_entity_index_version_and_is_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "at_024.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.upgrade(cfg, "024")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    before = {c["name"] for c in sa.inspect(engine).get_columns("documents")}
+
+    command.upgrade(cfg, "025")
+    columns = {c["name"]: c for c in sa.inspect(engine).get_columns("documents")}
+
+    command.stamp(cfg, "024")
+    command.upgrade(cfg, "025")
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+    after_rerun = [c["name"] for c in sa.inspect(engine).get_columns("documents")]
+
+    command.downgrade(cfg, "024")
+    after_downgrade = {c["name"] for c in sa.inspect(engine).get_columns("documents")}
+    engine.dispose()
+
+    assert "entity_index_version" not in before
+    assert columns["entity_index_version"]["nullable"] is True
+    assert after_rerun.count("entity_index_version") == 1
+    assert "entity_index_version" not in after_downgrade
+
+
 def test_revision_021_replaces_single_column_document_index_and_is_reversible(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

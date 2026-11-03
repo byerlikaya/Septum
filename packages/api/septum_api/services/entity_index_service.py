@@ -23,10 +23,13 @@ import hashlib
 import hmac
 import json
 import re
+import unicodedata
 from collections import defaultdict
+from itertools import groupby
 from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
 from septum_core.anonymization_map import AnonymizationMap
+from septum_core.text_utils import lower_preserving_offsets, normalize_unicode
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +38,13 @@ from ..models.entity_index import EntityIndex
 from ..utils.crypto import get_encryption_key
 
 _PLACEHOLDER_RE = re.compile(r"^\[([A-Z][A-Z_]*)_(\d+)\]$")
+
+# Version of the hashing scheme below (value normalization and tokens).
+# Every document records the version its index rows were written under;
+# rows written under an older one are rebuilt from the document's map
+# (see ``entity_index_refresh``). Bump it whenever a stored hash would
+# change for the same value.
+ENTITY_INDEX_VERSION: int = 2
 
 # Entity types whose detected spans are routinely **compound** — long
 # strings like "Muratpaşa / ANTALYA" or "Lara Caddesi No:47 Kat:5 …
@@ -50,7 +60,19 @@ _TOKENIZABLE_ENTITY_TYPES: frozenset[str] = frozenset(
     {"LOCATION", "ORGANIZATION_NAME", "POSTAL_ADDRESS"}
 )
 
-_TOKEN_PATTERN = re.compile(r"[a-z0-9çğıöşü]{3,}", re.UNICODE)
+# Han and Kana are written without spaces, so their runs are split into
+# overlapping bigrams ("東京都" -> "東京", "京都"). Hangul is spaced like
+# Latin, but its syllable blocks pack two or three letters each, so a
+# two-syllable word already identifies a place. Every other letter, mark or
+# digit run is a word, kept from three characters up.
+_BIGRAM_RANGES: tuple[tuple[int, int], ...] = (
+    (0x3040, 0x30FF), (0x31F0, 0x31FF), (0x3400, 0x4DBF), (0x4E00, 0x9FFF),
+    (0xF900, 0xFAFF), (0xFF66, 0xFF9F), (0x20000, 0x323AF),
+)
+_HANGUL_RANGES: tuple[tuple[int, int], ...] = (
+    (0x1100, 0x11FF), (0x3130, 0x318F), (0xA960, 0xA97F), (0xAC00, 0xD7AF),
+)
+_MIN_TOKEN_LENGTH: Dict[str, int] = {"word": 3, "hangul": 2}
 
 # Function-word and structural-marker tokens that should never act as
 # an entity-overlap signal. Address/organisation spans routinely carry
@@ -119,34 +141,70 @@ def _entity_type_from_placeholder(placeholder: str) -> str | None:
 _PUNCT_STRIP_RE = re.compile(r"[\.,;:!?/\\\-\(\)\[\]\{\}\"'`]+")
 
 
+def _is_separator(ch: str) -> bool:
+    """ASCII separators above, plus any non-ASCII punctuation (« » 、 · ’)."""
+    return not ch.isascii() and unicodedata.category(ch).startswith("P")
+
+
 def _normalize_value(value: str) -> str:
     """Return the value used for hashing.
 
-    Lower-casing, punctuation stripping, and whitespace collapsing
-    unify the surface forms of an entity so two documents that wrote
-    "ANTALYA" and "Antalya," still resolve to the same hash. Identity
-    information that the casing carries (acronyms, IBAN check digits)
-    is preserved by the type-specific recognisers themselves; the
-    cross-document index only needs the canonical representation.
+    NFC composition, lower-casing, punctuation stripping and whitespace
+    collapsing unify the surface forms of an entity so two documents that
+    wrote "ANTALYA" and "Antalya," (or "İSTANBUL" and "Istanbul") still
+    resolve to the same hash. Lower-casing never changes the length, so
+    the dotted capital ``İ`` becomes a plain ``i``. Identity information
+    that the casing carries (acronyms, IBAN check digits) is preserved by
+    the type-specific recognisers themselves; the cross-document index only
+    needs the canonical representation.
     """
-    lowered = value.strip().lower()
+    lowered = lower_preserving_offsets(normalize_unicode(value.strip()))
     no_punct = _PUNCT_STRIP_RE.sub(" ", lowered)
+    no_punct = "".join(" " if _is_separator(ch) else ch for ch in no_punct)
     return re.sub(r"\s+", " ", no_punct).strip()
+
+
+def _in_ranges(code: int, ranges: tuple[tuple[int, int], ...]) -> bool:
+    return any(lo <= code <= hi for lo, hi in ranges)
+
+
+def _char_class(ch: str) -> Optional[str]:
+    """``bigram``, ``hangul`` or ``word`` for a token character, else ``None``."""
+    code = ord(ch)
+    if _in_ranges(code, _BIGRAM_RANGES):
+        return "bigram"
+    if _in_ranges(code, _HANGUL_RANGES):
+        return "hangul"
+    if unicodedata.category(ch)[0] in "LMN":
+        return "word"
+    return None
+
+
+def _run_tokens(kind: str, run: str) -> List[str]:
+    """Tokens of one same-class character run."""
+    if kind == "bigram":
+        if len(run) < 2:
+            return []
+        return [run[i : i + 2] for i in range(len(run) - 1)]
+    return [run] if len(run) >= _MIN_TOKEN_LENGTH[kind] else []
 
 
 def _tokenize_for_index(normalized_value: str) -> List[str]:
     """Return the per-token hash candidates for a compound entity span.
 
-    Tokens shorter than 3 characters and structural / function words
-    (``no``, ``kat``, ``cad``, ``ve``…) are dropped — they would
-    otherwise dominate the relationship signal with cross-document
-    matches that carry no identifying information.
+    Letter, mark and digit runs of any script are words; unspaced Han and
+    Kana runs become overlapping bigrams. Words shorter than 3 characters
+    (2 for Hangul) and structural / function words (``no``, ``kat``,
+    ``cad``…) are dropped — they would otherwise dominate the relationship
+    signal with cross-document matches that carry no identifying
+    information.
     """
-    return [
-        token
-        for token in _TOKEN_PATTERN.findall(normalized_value)
-        if token not in _TOKENIZE_STOPWORDS
-    ]
+    tokens: List[str] = []
+    for kind, chars in groupby(normalized_value, key=_char_class):
+        if kind is None:
+            continue
+        tokens.extend(_run_tokens(kind, "".join(chars)))
+    return [token for token in tokens if token not in _TOKENIZE_STOPWORDS]
 
 
 def _hashes_for_entity(
@@ -367,6 +425,7 @@ async def recompute_relationships_for_document(
 
 
 __all__ = [
+    "ENTITY_INDEX_VERSION",
     "ENTITY_UNIQUENESS_WEIGHTS",
     "RELATIONSHIP_THRESHOLD_STRONG",
     "RELATIONSHIP_THRESHOLD_MEDIUM",
