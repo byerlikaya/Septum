@@ -18,7 +18,7 @@ import multiprocessing as mp
 import re
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
-from typing import Any, Dict, List, Mapping, Tuple
+from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 import numpy as np  # type: ignore[import]
 from septum_core.model_integrity import ModelIntegrityError
@@ -28,8 +28,21 @@ from .base import OcrProvider
 
 logger = logging.getLogger(__name__)
 
-_CURRENCY_SUFFIX = re.compile(r"(\d)[ε€¢º£¥₺#tbも](?=\s|$)", re.IGNORECASE)
-_CURRENCY_STANDALONE = re.compile(r"[ε€¢º£¥₺も]")
+# Currency signs PaddleOCR misreads, by OCR language: the sign, and the
+# glyphs it comes out as. A misread is fixed only right after an amount
+# ("1.250,00 ε", "500t"), and only when a configured OCR language lists it,
+# so real currency signs (€ £ ¥ ¢) and the same glyphs elsewhere (Greek ε,
+# Japanese も) are never rewritten. Add a language as one more entry.
+_OCR_CURRENCY_MISREADS: Dict[str, Tuple[str, str]] = {
+    "tr": ("₺", "εº#tbも"),
+}
+_CURRENCY_FIXES: Dict[str, Tuple[re.Pattern[str], str]] = {
+    language: (
+        re.compile(rf"(\d ?)[{re.escape(glyphs)}](?=\s|$)", re.IGNORECASE),
+        rf"\g<1>{sign}",
+    )
+    for language, (sign, glyphs) in _OCR_CURRENCY_MISREADS.items()
+}
 
 # ---------------------------------------------------------------------------
 # Subprocess worker — runs in a long-lived child process
@@ -215,9 +228,9 @@ class PaddleOcrProvider(OcrProvider):
             if dt_polys and len(dt_polys) == len(rec_texts):
                 image_width = image_array.shape[1] if len(image_array.shape) >= 2 else 0
                 entries = self._build_entries(dt_polys, rec_texts, rec_scores)
-                self._append_layout_page(texts, confidences, entries, image_width)
+                self._append_layout_page(texts, confidences, entries, image_width, languages)
             else:
-                self._append_plain_page(texts, confidences, rec_texts, rec_scores)
+                self._append_plain_page(texts, confidences, rec_texts, rec_scores, languages)
 
         return texts, confidences
 
@@ -227,6 +240,7 @@ class PaddleOcrProvider(OcrProvider):
         confidences: List[float],
         entries: List[Tuple[float, float, float, float, str, float]],
         image_width: int,
+        languages: Sequence[str],
     ) -> None:
         """Append a page's lines in reading order, column by column.
 
@@ -235,7 +249,7 @@ class PaddleOcrProvider(OcrProvider):
         """
         columns = self._detect_columns(entries, image_width)
         for col_entries in columns:
-            self._append_column_lines(texts, confidences, col_entries)
+            self._append_column_lines(texts, confidences, col_entries, languages)
             if len(columns) > 1:
                 texts.append("")
         if texts and texts[-1] == "":
@@ -246,10 +260,11 @@ class PaddleOcrProvider(OcrProvider):
         texts: List[str],
         confidences: List[float],
         col_entries: List[Tuple[float, float, float, float, str, float]],
+        languages: Sequence[str],
     ) -> None:
         """Append each non-blank grouped line of a column with its entry confidences."""
         for line_text, line_confs in self._group_into_lines(col_entries):
-            cleaned = self._post_process(line_text)
+            cleaned = self._post_process(line_text, languages)
             if cleaned.strip():
                 texts.append(cleaned)
                 confidences.extend(line_confs)
@@ -260,10 +275,11 @@ class PaddleOcrProvider(OcrProvider):
         confidences: List[float],
         rec_texts: List[str],
         rec_scores: List,
+        languages: Sequence[str],
     ) -> None:
         """Append recognised texts in engine order when no layout is available."""
         for text, score in zip(rec_texts, rec_scores):
-            cleaned = self._post_process(text)
+            cleaned = self._post_process(text, languages)
             if cleaned.strip():
                 texts.append(cleaned)
                 confidences.append(_score_or_zero(score))
@@ -403,8 +419,10 @@ class PaddleOcrProvider(OcrProvider):
         return result
 
     @staticmethod
-    def _post_process(text: str) -> str:
-        """Fix common OCR misrecognitions."""
-        text = _CURRENCY_SUFFIX.sub(r"\1₺", text)
-        text = _CURRENCY_STANDALONE.sub("₺", text)
+    def _post_process(text: str, languages: Sequence[str]) -> str:
+        """Fix currency signs misread after an amount, for the configured OCR languages."""
+        for language in dict.fromkeys(code.split("-")[0].lower() for code in languages):
+            fix = _CURRENCY_FIXES.get(language)
+            if fix is not None:
+                text = fix[0].sub(fix[1], text)
         return text

@@ -53,7 +53,7 @@ def test_plain_path_without_polygons(monkeypatch):
     ]
     provider = _provider(monkeypatch, pages)
     assert provider.run_ocr(_image(300), ["en"]) == (
-        ["Hello", "12₺", "Price 5 ₺", "bad", "str"],
+        ["Hello", "12€", "Price 5 ε", "bad", "str"],
         [0.9, 0.8, 0.6, 0.0, 0.5],
     )
 
@@ -97,7 +97,7 @@ def test_layout_single_column_groups_lines(monkeypatch):
         }
     ]
     assert _provider(monkeypatch, pages).run_ocr(_image(300), ["en"]) == (
-        ["Hello  World", "12₺", "Total  x"],
+        ["Hello  World", "12€", "Total  x"],
         [0.8, 0.9, 0.7, 0.0, 0.4],
     )
 
