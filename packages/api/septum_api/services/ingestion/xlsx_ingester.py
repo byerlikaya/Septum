@@ -5,7 +5,8 @@ from __future__ import annotations
 This ingester is responsible for:
     - Reading the encrypted XLSX bytes from disk.
     - Decrypting them in memory using the shared AES-256-GCM utilities.
-    - Extracting plain text by iterating over sheets and rows.
+    - Extracting plain text by iterating over sheets and rows, keeping each
+      value in its column (see :mod:`.sheet_text`).
     - Returning an :class:`IngestionResult` with the concatenated text and
       lightweight, non-PII metadata (e.g., sheet names, row counts).
 """
@@ -13,13 +14,13 @@ This ingester is responsible for:
 import asyncio
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 from openpyxl import load_workbook  # type: ignore[import]
 
-from ...models.spreadsheet_schema import generated_technical_label
 from ...utils.crypto import decrypt
 from .base import BaseIngester, IngestionResult
+from .sheet_text import render_sheet
 
 
 class XlsxIngester(BaseIngester):
@@ -55,9 +56,11 @@ class XlsxIngester(BaseIngester):
         sheet_metadata: List[Dict[str, Any]] = []
 
         for sheet in workbook.worksheets:
-            sheet_text, row_count, header_cells = _read_sheet(sheet)
+            sheet_text, row_count, header_cells = render_sheet(
+                sheet.title, sheet.iter_rows(values_only=True)
+            )
             if sheet_text:
-                sheet_texts.append(_sheet_block(sheet.title, header_cells, sheet_text))
+                sheet_texts.append(sheet_text)
 
             sheet_metadata.append(
                 {
@@ -83,42 +86,3 @@ def _open_workbook(file_path: Path) -> Any:
     """Decrypt the stored XLSX at ``file_path`` and open it read-only."""
     xlsx_bytes = decrypt(file_path.read_bytes())
     return load_workbook(BytesIO(xlsx_bytes), data_only=True, read_only=True)
-
-
-def _read_sheet(sheet: Any) -> Tuple[str, int, List[str] | None]:
-    """Return a sheet's tab-separated text, its row count and its generated header labels.
-
-    The first non-empty row is the header: its original text is replaced by
-    generic, non-PII column labels. Empty rows are counted but produce no text.
-    """
-    rows_text: List[str] = []
-    row_count = 0
-    header_cells: List[str] | None = None
-
-    for row in sheet.iter_rows(values_only=True):
-        row_count += 1
-        raw_values = _non_empty_values(row)
-        if not raw_values:
-            continue
-
-        if header_cells is None:
-            header_cells = [generated_technical_label(idx) for idx in range(len(raw_values))]
-            rows_text.append("\t".join(header_cells))
-            continue
-
-        rows_text.append("\t".join(str(value) for value in raw_values))
-
-    return "\n".join(rows_text), row_count, header_cells
-
-
-def _non_empty_values(row: Any) -> List[Any]:
-    """The cells of ``row`` that hold a value."""
-    return [value for value in row if value is not None]
-
-
-def _sheet_block(title: str, header_cells: List[str] | None, sheet_text: str) -> str:
-    """Render one non-empty sheet, naming its generated columns when it has a header."""
-    header_suffix = ""
-    if header_cells:
-        header_suffix = " — columns: " + " | ".join(header_cells)
-    return f"# Sheet: {title}{header_suffix}\n{sheet_text}"

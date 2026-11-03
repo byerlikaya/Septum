@@ -66,8 +66,11 @@ async def test_blank_rows_count_as_rows_but_produce_no_text(tmp_path: Path) -> N
 
     sheet = result.metadata["sheets"][0]
     assert sheet["row_count"] == 4
-    assert sheet["column_count"] == 1
-    assert result.text == f"# Sheet: Gaps — columns: {_labels(1)[0]}\n{_labels(1)[0]}\nb"
+    assert sheet["column_count"] == 2
+    labels = _labels(2)
+    assert result.text == (
+        f"# Sheet: Gaps — columns: {' | '.join(labels)}\n" + "\t".join(labels) + "\n\tb"
+    )
 
 
 @pytest.mark.asyncio
