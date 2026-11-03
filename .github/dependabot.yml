@@ -57,6 +57,13 @@ updates:
         update-types: [minor, patch]
     cooldown:
       default-days: 3
+    ignore:
+      # The python:3.13-slim base matches the interpreter CI tests against.
+      # A minor bump (3.13 -> 3.15) changes the runtime and needs wheels for
+      # every pinned dependency (torch included), so it is a planned upgrade,
+      # not an automated PR. Patch and digest updates still come through.
+      - dependency-name: python
+        update-types: [version-update:semver-minor]
 
   - package-ecosystem: docker-compose
     directory: /

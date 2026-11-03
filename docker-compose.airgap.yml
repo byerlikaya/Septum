@@ -211,7 +211,7 @@ services:
   # and `*-cloud` model tags cannot reach a cloud. Models come from the
   # ollama-pull one-off below.
   ollama:
-    image: ollama/ollama:0.40.9@sha256:5c6707fcf2e1a30cffe2ecb7e315584fc87747c389327e4bc711c4959aa1eecc
+    image: ollama/ollama:0.40.13@sha256:b2f0122c476bc9fe7ce679d8bb4bd555351e25e2554eefb156f61cb0a89cf429
     container_name: septum-ollama
     networks: [zone]
     volumes:
@@ -237,7 +237,7 @@ services:
   # internet at all: copy a connected host's ~/.ollama/models into the
   # <project>_ollama-data volume instead.
   ollama-pull:
-    image: ollama/ollama:0.40.9@sha256:5c6707fcf2e1a30cffe2ecb7e315584fc87747c389327e4bc711c4959aa1eecc
+    image: ollama/ollama:0.40.13@sha256:b2f0122c476bc9fe7ce679d8bb4bd555351e25e2554eefb156f61cb0a89cf429
     environment:
       OLLAMA_HOST: 127.0.0.1:11434
     entrypoint:
@@ -254,7 +254,7 @@ services:
   # The only service with published ports and the only one on `edge`
   # (besides the ollama-pull one-off).
   zone-edge:
-    image: haproxy:3.2-alpine@sha256:254e6370f01cd654e0744edf607c67f33777c1b6a9dc0d4b28bcba7171460122
+    image: haproxy:3.4-alpine@sha256:2caaf8b1a1ef67f3f1ea9b721f2821675d3ba4500fb518e23884fecb93e8dbaa
     container_name: septum-zone-edge
     environment:
       SEPTUM_GATEWAY_QUEUE_ADDR: ${SEPTUM_GATEWAY_QUEUE_ADDR:?set SEPTUM_GATEWAY_QUEUE_ADDR to <gateway-private-ip>:6379 (see docker-compose.airgap.yml header)}

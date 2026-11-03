@@ -107,6 +107,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # septum-core[transformers] pulls the CUDA torch wheel and its nvidia
+      # libraries from PyPI (several GB); without this the runner can run
+      # out of disk mid-install.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
+
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

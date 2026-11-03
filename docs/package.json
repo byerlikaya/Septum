@@ -9,7 +9,7 @@
     "preview": "vitepress preview"
   },
   "dependencies": {
-    "medium-zoom": "^1.1.0",
+    "medium-zoom": "^1.1.2",
     "vitepress": "^1.6.4"
   },
   "overrides": {
