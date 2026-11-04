@@ -476,11 +476,13 @@ class TestGateUnit:
 
         assert pii_gate.mask_known_entities("[DATE_1] and 1", amap) == "[DATE_1] and [ID_NUMBER_1]"
 
-    def test_original_with_letters_keeps_substring_matching(self) -> None:
+    def test_title_case_original_matches_glued_on_either_side(self) -> None:
         amap = AnonymizationMap(document_id=0, language="en")
         amap.add_entity("Acme", "ORGANIZATION")
 
-        assert pii_gate.mask_known_entities("AcmeCorp", amap) == "[ORGANIZATION_1]Corp"
+        out = pii_gate.mask_known_entities("AcmeCorp, XAcme, Acme.", amap)
+
+        assert out == "[ORGANIZATION_1]Corp, X[ORGANIZATION_1], [ORGANIZATION_1]."
 
     def test_unified_map_without_counters_gets_fresh_placeholder(self) -> None:
         amap = AnonymizationMap(document_id=0, language="en")
