@@ -46,6 +46,7 @@ from .entity_index_service import (
     recompute_relationships_for_document,
     replace_index_for_document,
 )
+from .pii_gate import section_title_masker
 from .policy_composer import PolicyComposer
 from .remask_cache import remask_cache
 from .sanitizer import PIISanitizer, ResolvedSpan
@@ -149,6 +150,36 @@ class _SanitizedChunks:
     per_chunk_spans: Dict[int, List[ResolvedSpan]] = field(default_factory=dict)
 
 
+def _mask_section_titles(
+    chunks: Sequence[SemanticChunk],
+    raw_texts: Sequence[str],
+    anon_map: AnonymizationMap,
+) -> None:
+    """Replace every chunk's raw section title with its masked form, in place.
+
+    A title is the opening of a heading line in the raw text, so it carries
+    raw values ("IBAN: TR94 …") and must be masked like the chunk text. It
+    runs once the whole document is sanitized, so ``anon_map`` knows every
+    value the heading holds. Each distinct title is masked once, against
+    the first chunk whose raw text holds it (where the whole heading line is
+    readable); the other chunks of the section reuse that result. A title
+    no raw text holds is masked on its own, cut-off value tail included
+    (see :func:`section_title_masker`).
+    """
+    mask = section_title_masker(anon_map)
+    masked: Dict[str, Optional[str]] = {}
+    for chunk, raw in zip(chunks, raw_texts):
+        title = chunk.section_title
+        if title and title not in masked and title in raw:
+            masked[title] = mask(title, raw)
+    for chunk in chunks:
+        title = chunk.section_title
+        if title:
+            if title not in masked:
+                masked[title] = mask(title, "")
+            chunk.section_title = masked[title]
+
+
 async def _sanitize_chunks(
     sanitizer: PIISanitizer,
     semantic_chunks: Sequence[SemanticChunk],
@@ -194,6 +225,7 @@ async def _sanitize_chunks(
                 char_count=len(sanitized_chunk_text),
             )
         )
+    _mask_section_titles(result.stored_chunks, raw_texts, anon_map)
     return result
 
 

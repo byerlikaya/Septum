@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """FastAPI router for managing persistent chat sessions."""
 
+from dataclasses import fields as dataclass_fields
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -16,6 +17,7 @@ from ..database import get_db
 from ..models.chat_session import ChatMessage, ChatSession
 from ..models.user import User
 from ..request_limits import DocumentId
+from ..services.approval_gate import ApprovalChunk
 from ..utils.auth_dependency import get_current_user
 
 router = APIRouter(prefix="/api/chat-sessions", tags=["chat-sessions"])
@@ -72,6 +74,32 @@ class AddMessagePayload(BaseModel):
     role: str
     content: str
     approval_data: Optional[dict] = None
+
+
+_STORED_CHUNK_FIELDS = tuple(
+    f.name for f in dataclass_fields(ApprovalChunk) if f.name != "section_title"
+)
+
+
+def _without_chunk_titles(approval_data: Optional[dict]) -> Optional[dict]:
+    """Return ``approval_data`` with each chunk reduced to the approval-chunk fields, title null.
+
+    The payload comes from the client, so a stale or hostile one could carry
+    a raw heading as a chunk title, or under any other key. Each chunk keeps
+    only the fields an :class:`ApprovalChunk` has (id, document id, text and
+    source positions) and its ``section_title`` is null: titles are
+    display-only and the history view hides a missing one (revision 026
+    cleared the ones stored before). Entries that are not objects are
+    dropped. The rest of the payload is kept as sent.
+    """
+    if not isinstance(approval_data, dict) or not isinstance(approval_data.get("chunks"), list):
+        return approval_data
+    chunks = [
+        {**{name: chunk[name] for name in _STORED_CHUNK_FIELDS if name in chunk}, "section_title": None}
+        for chunk in approval_data["chunks"]
+        if isinstance(chunk, dict)
+    ]
+    return {**approval_data, "chunks": chunks}
 
 
 async def _get_owned_session_or_404(
@@ -255,7 +283,7 @@ async def add_message(
         session_id=session_id,
         role=payload.role,
         content=payload.content,
-        approval_data=payload.approval_data,
+        approval_data=_without_chunk_titles(payload.approval_data),
         created_at=datetime.now(timezone.utc),
     )
     db.add(msg)

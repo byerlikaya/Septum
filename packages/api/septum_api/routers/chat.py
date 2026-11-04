@@ -144,6 +144,7 @@ from ..services.pii_gate import (
     mask_known_entities,
     remask_document_texts,
     reserve_placeholder_counters,
+    section_title_masker,
 )
 from ..services.policy_composer import PolicyComposer
 from ..services.policy_snapshot import (
@@ -857,10 +858,12 @@ def _cap_context_chunks(chunks: List[Chunk], cap: int) -> List[Chunk]:
     return [c for c in chunks if id(c) in kept]
 
 
-def _build_approval_chunks(chunks: List[Chunk], texts: List[str]) -> List[ApprovalChunk]:
-    """Convert database chunks into ApprovalChunk payloads using provided texts."""
+def _build_approval_chunks(
+    chunks: List[Chunk], texts: List[str], titles: List[Optional[str]]
+) -> List[ApprovalChunk]:
+    """Convert database chunks into ApprovalChunk payloads using the masked texts and titles."""
     approval_chunks: List[ApprovalChunk] = []
-    for c, text in zip(chunks, texts):
+    for c, text, title in zip(chunks, texts, titles):
         approval_chunks.append(
             ApprovalChunk(
                 id=c.id,
@@ -871,7 +874,7 @@ def _build_approval_chunks(chunks: List[Chunk], texts: List[str]) -> List[Approv
                 source_sheet=c.source_sheet,
                 source_timestamp_start=c.source_timestamp_start,
                 source_timestamp_end=c.source_timestamp_end,
-                section_title=c.section_title,
+                section_title=title,
             )
         )
     return approval_chunks
@@ -2010,6 +2013,24 @@ async def _unify_fresh_turn(
     return anon_maps, per_doc_remap
 
 
+def _renumbered(
+    masked: str,
+    chunk_remap: Optional[dict[str, str]],
+    strays: Optional[Tuple[set[str], AnonymizationMap]],
+) -> str:
+    """Return ``masked`` renumbered into the turn's space.
+
+    ``strays`` carries the placeholders the chunk's map holds and the turn's
+    unified map; a placeholder in the text outside that set is settled off
+    every global (see :func:`settle_strays`) into ``chunk_remap``.
+    """
+    if strays is not None and chunk_remap is not None:
+        settle_strays(masked, chunk_remap, *strays)
+    if chunk_remap:
+        masked = _apply_chunk_placeholder_remap(masked, chunk_remap)
+    return masked
+
+
 def _masked_chunk_text(
     chunk: Chunk,
     restored_chunk_texts: dict[int, str],
@@ -2017,20 +2038,30 @@ def _masked_chunk_text(
     chunk_remap: Optional[dict[str, str]],
     strays: Optional[Tuple[set[str], AnonymizationMap]] = None,
 ) -> str:
-    """Return one chunk's text masked by its map and renumbered into the turn's space.
-
-    ``strays`` carries the placeholders the chunk's map holds and the turn's
-    unified map; a placeholder in the text outside that set is settled off
-    every global (see :func:`settle_strays`) into ``chunk_remap``.
-    """
+    """Return one chunk's text masked by its map and renumbered into the turn's space."""
     chunk_text = restored_chunk_texts.get(chunk.id, chunk.sanitized_text or "")
     # Chunks were analysed at ingestion; the map is the source of truth here.
-    masked_chunk = mask_known_entities(chunk_text, chunk_map)
-    if strays is not None and chunk_remap is not None:
-        settle_strays(masked_chunk, chunk_remap, *strays)
-    if chunk_remap:
-        masked_chunk = _apply_chunk_placeholder_remap(masked_chunk, chunk_remap)
-    return masked_chunk
+    return _renumbered(mask_known_entities(chunk_text, chunk_map), chunk_remap, strays)
+
+
+def _masked_chunk_title(
+    chunk: Chunk,
+    mask_title: Callable[[Optional[str], str], Optional[str]],
+    chunk_remap: Optional[dict[str, str]],
+) -> Optional[str]:
+    """Return one chunk's section title masked by its document map and renumbered into the turn's space.
+
+    Rows ingested before titles were masked at ingestion still hold the raw
+    heading, so the title is always masked here, never sent as stored, and
+    a chunk whose document map is missing gets no title at all. The
+    title is shown in the approval modal only and never reaches the LLM, so
+    it settles no strays: the turn's numbering stays what the chunk texts
+    alone make it, which is what a retry rebuilds.
+    """
+    masked = mask_title(chunk.section_title, chunk.raw_text or "")
+    if not masked:
+        return masked
+    return _renumbered(masked, chunk_remap, None)
 
 
 def _masked_chunk_texts(
@@ -2038,8 +2069,8 @@ def _masked_chunk_texts(
     restored_chunk_texts: dict[int, str],
     anon_maps: dict[int, AnonymizationMap],
     per_doc_remap: dict[int, dict[str, str]],
-) -> List[str]:
-    """Return the turn's chunk texts as the cloud LLM sees them.
+) -> Tuple[List[str], List[Optional[str]]]:
+    """Return the turn's chunk texts as the cloud LLM sees them, and their masked titles.
 
     Documents are labelled by position, never by filename: an original
     filename routinely carries personal data and must not reach the cloud
@@ -2049,7 +2080,9 @@ def _masked_chunk_texts(
     document_labels: dict[int, int] = {}
     prev_doc_id: Optional[int] = None
     known: dict[int, set[str]] = {}
+    title_maskers: dict[int, Callable[[Optional[str], str], Optional[str]]] = {}
     texts: List[str] = []
+    titles: List[Optional[str]] = []
     for c in turn.chunks:
         header = ""
         if multi_document and c.document_id != prev_doc_id:
@@ -2062,15 +2095,16 @@ def _masked_chunk_texts(
             if c.document_id not in known:
                 known[c.document_id] = map_placeholders(doc_map)
             strays = (known[c.document_id], turn.anon_map)
+        chunk_map = doc_map or turn.anon_map
+        chunk_remap = per_doc_remap.setdefault(c.document_id, {}) if doc_map is not None else None
         masked_chunk = _masked_chunk_text(
-            c,
-            restored_chunk_texts,
-            doc_map or turn.anon_map,
-            per_doc_remap.setdefault(c.document_id, {}) if doc_map is not None else None,
-            strays,
+            c, restored_chunk_texts, chunk_map, chunk_remap, strays
         )
         texts.append(header + masked_chunk)
-    return texts
+        if c.document_id not in title_maskers:
+            title_maskers[c.document_id] = section_title_masker(doc_map)
+        titles.append(_masked_chunk_title(c, title_maskers[c.document_id], chunk_remap))
+    return texts, titles
 
 
 async def _prepare_fresh_context(turn: _ChatTurn, db: AsyncSession) -> None:
@@ -2087,11 +2121,13 @@ async def _prepare_fresh_context(turn: _ChatTurn, db: AsyncSession) -> None:
     if turn.query_seed_document_id in remasked_doc_ids:
         await _reseed_query_map(turn, db)
     anon_maps, per_doc_remap = await _unify_fresh_turn(turn)
-    sanitized_chunk_texts = _masked_chunk_texts(
+    sanitized_chunk_texts, chunk_titles = _masked_chunk_texts(
         turn, restored_chunk_texts, anon_maps, per_doc_remap
     )
     if turn.chunks:
-        turn.candidate_chunks = _build_approval_chunks(turn.chunks, sanitized_chunk_texts)
+        turn.candidate_chunks = _build_approval_chunks(
+            turn.chunks, sanitized_chunk_texts, chunk_titles
+        )
 
 
 async def _mask_turn_context(turn: _ChatTurn, db: AsyncSession) -> Optional[dict[str, Any]]:

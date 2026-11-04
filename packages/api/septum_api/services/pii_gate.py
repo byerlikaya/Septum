@@ -21,8 +21,9 @@ from __future__ import annotations
 import asyncio
 import copy
 import re
+from bisect import bisect_left
 from functools import cached_property
-from typing import TYPE_CHECKING, Iterable, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Callable, Iterable, List, Optional, Sequence, Tuple
 
 from fastapi import HTTPException, status
 from septum_core.field_label_cues import field_label_cue_pattern
@@ -35,7 +36,7 @@ from ..errors import ContentFreeError
 from ..models.document import Chunk, Document
 from ..models.settings import AppSettings
 from ..utils.db_helpers import document_language, effective_masking_language
-from ..utils.text_utils import normalize_unicode
+from ..utils.text_utils import normalize_for_comparison, normalize_unicode
 from .anonymization_map import PLACEHOLDER_PATTERN, AnonymizationMap
 from .document_anon_store import (
     document_map_lock,
@@ -387,6 +388,205 @@ def _mask_with_state(text: str, state: _MaskState, anon_map: AnonymizationMap) -
     return anon_map.apply_blocklist(_mask_originals(text, state), language=anon_map.language)
 
 
+def _heading_line(title: str, source_text: str) -> Optional[str]:
+    """Return the whole line of ``source_text`` that ``title`` opens, or ``None``."""
+    for line in source_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(title):
+            return stripped
+    return None
+
+
+def _cut_outside_placeholders(text: str, limit: int) -> str:
+    """Cut ``text`` to ``limit`` characters, moving the cut past a placeholder it would split."""
+    if len(text) <= limit:
+        return text
+    for match in PLACEHOLDER_PATTERN.finditer(text):
+        if match.start() < limit < match.end():
+            return text[: match.end()]
+    return text[:limit]
+
+
+_WHITESPACE = re.compile(r"\s+")
+_PRUNE_CHARS = 4
+
+
+def _without_spaces(value: str) -> str:
+    """``value`` with every whitespace character removed."""
+    return _WHITESPACE.sub("", value)
+
+
+# A token edge at a position, as the body pass reads it: a word start or a
+# letter of a script whose words touch ("联系人张三").
+_TOKEN_STARTS_HERE = re.compile(TOKEN_START)
+# A field label at a word start, ending where a search window ends.
+_LABEL_ENDS_HERE = re.compile(rf"{TOKEN_START}(?i:(?:{_FIELD_LABEL_CUE}))\Z")
+
+
+def _start_of_last(text: str, count: int) -> int:
+    """Offset where the last ``count`` non-space characters of ``text`` begin.
+
+    A tail is compared without whitespace, so the window for it is measured
+    in non-space characters: a value written with extra spaces
+    ("TR94  0006  1005…") is still inside it.
+    """
+    seen = 0
+    for index in range(len(text) - 1, -1, -1):
+        if not text[index].isspace():
+            seen += 1
+            if seen == count:
+                return index
+    return 0
+
+
+class _CutOffIndex:
+    """Known originals arranged for :meth:`find`, built once per title masker.
+
+    Each original is keyed by its comparison form
+    (:func:`normalize_for_comparison` in the map language). An original with
+    a digit is keyed without whitespace, so a value written with other
+    spacing ("TR94 0006" against "TR940006…") still meets it.
+    """
+
+    def __init__(self, originals: Iterable[str], language: str) -> None:
+        self._language = language
+        entries = []
+        for original in originals:
+            key = normalize_for_comparison(original, language)
+            if _has_digit(original):
+                key = _without_spaces(key)
+            entries.append((key, original))
+        entries.sort()
+        self._entries = entries
+        self._keys = [key for key, _ in entries]
+        self._longest = max((len(_without_spaces(o)) for _, o in entries), default=0)
+        self._prefixes = {
+            _without_spaces(key)[:_PRUNE_CHARS]
+            for key in self._keys
+            if len(_without_spaces(key)) >= _PRUNE_CHARS
+        }
+
+    def _opened(self, probe: str, any_original: bool) -> Optional[str]:
+        """The first original longer than ``probe`` whose key starts with it.
+
+        Without ``any_original`` (a tail glued to the word before it) only
+        originals that may match glued are taken (:func:`_opens_anywhere`).
+        """
+        index = bisect_left(self._keys, probe)
+        while index < len(self._keys) and self._keys[index].startswith(probe):
+            key, original = self._entries[index]
+            if len(key) > len(probe) and (any_original or _opens_anywhere(original)):
+                return original
+            index += 1
+        return None
+
+    def find(self, text: str) -> Optional[Tuple[int, str]]:
+        """Find where ``text`` ends in the cut-off beginning of a known original.
+
+        Returns ``(start, original)`` for the longest tail of ``text`` that
+        holds no placeholder, has at least two letters or digits (a shorter
+        tail opens too many words) and opens a longer original; case does
+        not matter ("KİRACI AHMET ÇEL" opens "Ahmet Çelik"). A tail starts
+        at a token, or glued to the preceding word when the original it
+        opens may match there (:func:`_opens_anywhere`: "KİRACIAhmet Çel"),
+        or right after a digit, a token edge of a script whose words touch,
+        or a field label at a word start, where any original may
+        ("No4471KA" and "SOYADIKAY" open "KAYA", "联系人张三" opens "张三丰"),
+        as the body pass masks a short value there.
+        Only tails after the last placeholder and with no more non-space
+        characters than the longest original are tried; a tail whose first
+        characters open no original is skipped before it is folded, and the
+        rest are looked up by
+        bisection, so the cost does not grow with ``text``.
+        """
+        if not self._entries:
+            return None
+        floor = _start_of_last(text, self._longest)
+        for match in PLACEHOLDER_PATTERN.finditer(text):
+            floor = max(floor, match.end())
+        for start in range(floor, len(text)):
+            if not text[start].isalnum():
+                continue
+            lead = _without_spaces(
+                normalize_for_comparison(text[start : start + 4 * _PRUNE_CHARS], self._language)
+            )[:_PRUNE_CHARS]
+            if len(lead) == _PRUNE_CHARS and lead not in self._prefixes:
+                continue
+            tail = text[start:]
+            if "[" in tail or sum(1 for ch in tail if ch.isalnum()) < 2:
+                continue
+            folded = normalize_for_comparison(tail, self._language)
+            any_original = (
+                _TOKEN_STARTS_HERE.match(text, start) is not None
+                or not text[start - 1].isalpha()
+                or _LABEL_ENDS_HERE.search(text, 0, start) is not None
+            )
+            for probe in dict.fromkeys((folded, _without_spaces(folded))):
+                opened = self._opened(probe, any_original)
+                if opened is not None:
+                    return start, opened
+        return None
+
+
+def section_title_masker(
+    anon_map: Optional[AnonymizationMap],
+) -> Callable[[Optional[str], str], Optional[str]]:
+    """Return a function that masks section titles against ``anon_map``.
+
+    The returned ``mask(title, source_text)`` reuses one compiled masking
+    state, so masking many titles of one document compiles the map once.
+
+    A title is the opening of a heading line, cut to a fixed length, so it
+    can end inside a value ("IBAN: TR94 0006"). When ``source_text`` (the
+    raw text the title was taken from) holds the whole heading line, that
+    line is masked first and only then cut back to the title's length, so
+    a value the cut would have split is masked whole. Otherwise the title is
+    masked on its own, except a tail that opens a known original: that tail
+    is found on the title as it was (see :meth:`_CutOffIndex.find`), before
+    any masking could split it, and replaced by the original's placeholder.
+    A bare-letter value of the map standing alone ("Cinsiyet: K") is masked
+    as in any text (see :func:`_standalone_fragments_pattern`). Without a
+    map nothing can be masked, so every title comes back as ``None``: a
+    stored title is never passed on raw. An empty or missing title comes
+    back as it is.
+    """
+    if anon_map is None:
+
+        def dropped(title: Optional[str], source_text: str = "") -> Optional[str]:
+            return title if not title else None
+
+        return dropped
+
+    state = _MaskState(anon_map)
+    cut_offs: Optional[_CutOffIndex] = None
+
+    def masked_title(title: str, source_text: str) -> str:
+        nonlocal cut_offs
+        line = _heading_line(title, normalize_unicode(source_text or ""))
+        if line is None:
+            if cut_offs is None:
+                cut_offs = _CutOffIndex(
+                    (o for o in anon_map.entity_map if o and not is_letter_fragment(o)),
+                    anon_map.language,
+                )
+            cut = cut_offs.find(title)
+            if cut is None:
+                return _mask_with_state(title, state, anon_map)
+            start, opened = cut
+            return _mask_with_state(title[:start], state, anon_map) + anon_map.entity_map[opened]
+        masked = _mask_with_state(line, state, anon_map)
+        if line == title:
+            return masked
+        return _cut_outside_placeholders(masked, len(title))
+
+    def mask(title: Optional[str], source_text: str = "") -> Optional[str]:
+        if not title:
+            return title
+        return masked_title(normalize_unicode(title), source_text)
+
+    return mask
+
+
 def _standalone_fragments_pattern(entity_map: dict, known: set[str]) -> Optional[re.Pattern[str]]:
     """Pattern for bare-letter originals standing alone in any masked text.
 
@@ -707,6 +907,7 @@ __all__ = [
     "gate_untrusted_texts",
     "is_letter_fragment",
     "mask_known_entities",
+    "section_title_masker",
     "remask_document_texts",
     "reserve_placeholder_counters",
 ]
