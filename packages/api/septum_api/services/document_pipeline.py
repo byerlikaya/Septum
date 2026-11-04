@@ -27,7 +27,7 @@ from .audit_logger import (
     language_override_event,
     log_pii_detected,
 )
-from .bm25_retriever import BM25Retriever
+from .bm25_retriever import BM25Retriever, bm25_index_lock
 from .chunking_strategy import (
     Chunk as SemanticChunk,
 )
@@ -452,7 +452,7 @@ class DocumentPipeline:
             )
 
         if chunks and raw_texts_for_index:
-            await self._index_document(document.id, chunks, raw_texts_for_index, emit)
+            await self._index_document(document.id, chunks, raw_texts_for_index, language, emit)
 
         document.sanitized_entity_types = policy_snapshot.entity_types
         document.sanitized_policy_digest = policy_snapshot.digest
@@ -471,13 +471,17 @@ class DocumentPipeline:
         document_id: int,
         chunks: Sequence[DocumentChunk],
         raw_texts: Sequence[str],
+        language: str,
         emit: Callable[[int], None],
     ) -> None:
         """Build the FAISS and BM25 indexes over the raw chunk texts."""
         emit(92)
         await asyncio.to_thread(self._index_chunks, document_id, chunks, raw_texts)
         emit(96)
-        await asyncio.to_thread(self._index_chunks_bm25, document_id, chunks, raw_texts)
+        async with bm25_index_lock(document_id):
+            await asyncio.to_thread(
+                self._index_chunks_bm25, document_id, chunks, raw_texts, language
+            )
 
     @staticmethod
     async def _clear_refused_override(
@@ -642,8 +646,9 @@ class DocumentPipeline:
         document_id: int,
         chunks: Sequence[DocumentChunk],
         raw_texts: Sequence[str],
+        language: str,
     ) -> None:
-        """Build BM25 index for keyword-based retrieval."""
+        """Build BM25 index for keyword-based retrieval, tokenized in the masking language."""
         if len(chunks) != len(raw_texts):
             return
 
@@ -652,6 +657,7 @@ class DocumentPipeline:
             document_id,
             [c.id for c in chunks],
             list(raw_texts),
+            language,
         )
 
     @staticmethod

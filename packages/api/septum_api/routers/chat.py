@@ -122,7 +122,7 @@ from ..services.chat_debug_store import (
     set_chat_debug_record,
 )
 from ..services.deanonymizer import Deanonymizer
-from ..services.document_anon_store import get_document_map
+from ..services.document_anon_store import document_map_lock, get_document_map
 from ..services.document_cluster_service import cluster_documents_by_relationship
 from ..services.entity_index_service import (
     RELATIONSHIP_THRESHOLD_MEDIUM,
@@ -663,6 +663,159 @@ async def _classify_query_intent(
     return "chat" if "CHAT" in response.strip().upper() else "search"
 
 
+async def _completed_document(db: AsyncSession, document_id: int) -> Optional[Document]:
+    """Read ``document_id`` in a fresh session; ``None`` unless it exists and is ``completed``.
+
+    A fresh session sees rows committed after the caller's session began,
+    which the caller's own transaction may not.
+    """
+    async with AsyncSession(db.bind, expire_on_commit=False) as fresh:
+        document = await fresh.get(Document, document_id)
+    if document is None or document.ingestion_status != "completed":
+        return None
+    return document
+
+
+async def _chunk_rows(db: AsyncSession, document_id: int) -> list:
+    """Read the document's chunk ids and texts in index order, in a fresh session."""
+    async with AsyncSession(db.bind) as fresh:
+        return list(
+            (
+                await fresh.execute(
+                    select(Chunk.id, Chunk.raw_text, Chunk.sanitized_text)
+                    .where(Chunk.document_id == document_id)
+                    .order_by(Chunk.index)
+                )
+            ).all()
+        )
+
+
+def _indexed_snapshot(rows: Sequence[Any], language: str) -> tuple:
+    """What a BM25 rebuild indexes: each chunk's id and text, in order, and the language."""
+    texts = tuple(
+        (row.id, row.raw_text if row.raw_text is not None else row.sanitized_text) for row in rows
+    )
+    return texts, language
+
+
+async def _rebuilt_index_still_valid(
+    db: AsyncSession, document_id: int, indexed: tuple
+) -> bool:
+    """Whether the document is still ``completed`` and would index exactly what was indexed.
+
+    Chunk ids alone are not enough: a reprocess in another worker can reuse
+    them (SQLite hands out freed ids again), so the texts and the masking
+    language are compared too. Equal content means the written index is the
+    one a fresh rebuild would write, so it is kept.
+    """
+    document = await _completed_document(db, document_id)
+    if document is None:
+        return False
+    rows = await _chunk_rows(db, document_id)
+    return _indexed_snapshot(rows, effective_masking_language(document)) == indexed
+
+
+def _discard_rebuilt_index(
+    write: "asyncio.Future[None]", bm25_retriever: "BM25Retriever", document_id: int
+) -> None:
+    """Remove the rebuilt index once its write has finished, whenever that is.
+
+    Called when the rebuild fails or is cancelled after the write started.
+    Nothing is awaited, so a cancelled task can still run it; a write still
+    in flight removes its file as soon as it lands. A write that failed
+    wrote nothing and is logged by its exception class only. A removal that
+    fails is logged and left to the next rebuild, never raised over the
+    original exception.
+    """
+
+    def remove(done: "asyncio.Future[None]") -> None:
+        if done.cancelled():
+            return
+        error = done.exception()
+        if error is not None:
+            logger.warning(
+                "Rebuild of the BM25 index of document_id=%s failed: %s",
+                document_id,
+                type(error).__name__,
+            )
+            return
+        try:
+            bm25_retriever.delete_index(document_id)
+        except OSError as exc:
+            logger.warning(
+                "Could not remove the rebuilt BM25 index of document_id=%s: %s",
+                document_id,
+                type(exc).__name__,
+            )
+
+    if write.done():
+        remove(write)
+    else:
+        write.add_done_callback(remove)
+
+
+async def _rebuild_outdated_bm25_index(
+    db: AsyncSession, bm25_retriever: "BM25Retriever", document_id: int
+) -> None:
+    """Build a document's BM25 index when it is missing or of another tokenizer version.
+
+    An outdated index is never searched (its tokens would not meet the
+    query's), and a missing one (never written, or removed by an earlier
+    rebuild below) gives no keyword signal, so it is built here from the
+    stored chunks: the raw text
+    ingestion indexed, or the sanitized text for rows that predate it, in
+    the document's masking language. The write is atomic and replaces the
+    old file in place; a document without chunk rows is left as it is.
+
+    Locks are always taken in one order, BM25 lock then map lock. Under
+    :func:`bm25_index_lock`, which ingestion holds for its own write, the
+    rebuild checks again that the index is still outdated and the document
+    still ``completed``, so a reprocess's fresh index is never overwritten.
+    After the write it takes :func:`document_map_lock`, which a delete
+    holds while it erases the document, and removes the file it wrote when
+    the document is gone, no longer ``completed``, or would now index other
+    content than it did (a reprocess in another worker, which the
+    process-local BM25 lock cannot see; compared by
+    :func:`_rebuilt_index_still_valid`); the index is then missing, so the
+    next read of a ``completed`` document builds it again. The map lock
+    spans workers only with Redis configured. If
+    anything fails or the turn is cancelled once the write has started,
+    the written file is removed too and the error is raised as it was.
+    """
+    if await asyncio.to_thread(bm25_retriever.is_current, document_id):
+        return
+    from ..services.bm25_retriever import bm25_index_lock
+
+    async with bm25_index_lock(document_id):
+        if await asyncio.to_thread(bm25_retriever.is_current, document_id):
+            return
+        document = await _completed_document(db, document_id)
+        if document is None:
+            return
+        rows = await _chunk_rows(db, document_id)
+        if not rows:
+            return
+        indexed = _indexed_snapshot(rows, effective_masking_language(document))
+        (chunk_texts, language) = indexed
+        write = asyncio.ensure_future(
+            asyncio.to_thread(
+                bm25_retriever.index_document,
+                document_id,
+                [chunk_id for chunk_id, _ in chunk_texts],
+                [text for _, text in chunk_texts],
+                language,
+            )
+        )
+        try:
+            await asyncio.shield(write)
+            async with document_map_lock(document_id):
+                if not await _rebuilt_index_still_valid(db, document_id, indexed):
+                    await asyncio.to_thread(bm25_retriever.delete_index, document_id)
+        except BaseException:
+            _discard_rebuilt_index(write, bm25_retriever, document_id)
+            raise
+
+
 async def _retrieve_chunks(
     db: AsyncSession,
     document_id: int,
@@ -691,6 +844,7 @@ async def _retrieve_chunks(
     """
     vector_store = _get_vector_store()
     bm25_retriever = _get_bm25_retriever()
+    await _rebuild_outdated_bm25_index(db, bm25_retriever, document_id)
 
     # Single hybrid search against the user's actual query. A previous
     # revision also fused a second "document theme" retrieval (first-chunk

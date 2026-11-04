@@ -9,6 +9,7 @@ into helpers without changing what an ingestion writes or in which order.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -139,7 +140,7 @@ def env(monkeypatch):
 
     def masking_language(document, text):
         events.append(("masking_language", text))
-        return "en", state.get("language_source", "detected")
+        return state.get("masking_language", "en"), state.get("language_source", "detected")
 
     monkeypatch.setattr(dp, "masking_language", masking_language)
 
@@ -201,7 +202,10 @@ def env(monkeypatch):
     monkeypatch.setattr(
         dp.DocumentPipeline,
         "_index_chunks_bm25",
-        staticmethod(lambda doc_id, chunks, raw: events.append(("bm25", doc_id, [c.id for c in chunks], list(raw)))),
+        staticmethod(lambda doc_id, chunks, raw, language: (
+            state.__setitem__("bm25_language", language),
+            events.append(("bm25", doc_id, [c.id for c in chunks], list(raw))),
+        )),
     )
 
     async def clear_override(db, document, text, judged=None):
@@ -316,6 +320,38 @@ async def test_full_run_sequence(env):
         "ingestion_error": None,
         "ingestion_error_code": None,
     }
+
+
+async def test_bm25_index_is_tokenized_in_the_masking_language(env):
+    env.state["masking_language"] = "de"
+
+    await _run(env)
+
+    assert env.state["bm25_language"] == "de"
+
+
+async def test_bm25_write_waits_for_the_index_lock(monkeypatch):
+    written: list[int] = []
+    monkeypatch.setattr(
+        dp.DocumentPipeline, "_index_chunks", staticmethod(lambda doc_id, chunks, raw: None)
+    )
+    monkeypatch.setattr(
+        dp.DocumentPipeline,
+        "_index_chunks_bm25",
+        staticmethod(lambda doc_id, chunks, raw, language: written.append(doc_id)),
+    )
+    pipeline = dp.DocumentPipeline(settings="SETTINGS")
+
+    async with dp.bm25_index_lock(7):
+        task = asyncio.create_task(
+            pipeline._index_document(7, [SimpleNamespace(id=1)], ["raw"], "en", lambda _: None)
+        )
+        await asyncio.sleep(0.05)
+        assert not task.done()
+        assert written == []
+    await task
+
+    assert written == [7]
 
 
 async def test_override_source_and_placeholder_samples(env, monkeypatch):

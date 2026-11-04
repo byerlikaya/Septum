@@ -186,3 +186,32 @@ def test_merge_title_chunks_skips_when_over_cap() -> None:
 
     assert result == chunks
     assert [c.index for c in result] == [0, 1, 2]
+
+
+def test_index_chunks_bm25_passes_the_masking_language(monkeypatch: object) -> None:
+    """The BM25 index is tokenized in the language the document was masked in."""
+    from septum_api.services import document_pipeline as dp
+
+    seen: dict[str, str] = {}
+
+    class _FakeRetriever:
+        def index_document(self, document_id, chunk_ids, texts, language="en") -> None:
+            seen["language"] = language
+
+    monkeypatch.setattr(dp, "BM25Retriever", _FakeRetriever)
+
+    DocumentPipeline._index_chunks_bm25(1, [SimpleNamespace(id=1)], ["x"], "tr")
+
+    assert seen["language"] == "tr"
+
+
+def test_ingestion_bm25_index_records_the_document_language(tmp_path, monkeypatch) -> None:
+    """The index written at ingestion carries the masking language for its queries."""
+    from septum_api.services import document_pipeline as dp
+    from septum_api.services.bm25_retriever import BM25Retriever
+
+    monkeypatch.setattr(dp, "BM25Retriever", lambda: BM25Retriever(base_dir=tmp_path))
+
+    DocumentPipeline._index_chunks_bm25(7, [SimpleNamespace(id=1)], ["İŞVEREN"], "tr")
+
+    assert BM25Retriever(base_dir=tmp_path)._load_index(7)["language"] == "tr"
