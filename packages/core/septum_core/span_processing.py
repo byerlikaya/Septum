@@ -60,7 +60,26 @@ _PARTIAL_OVERLAP_PRIORITY: dict[str, int] = {
 # Without this filter, length-based dedup picks LOCATION whenever it
 # starts earlier than the ORG, which strips the richer ORG label
 # and emits two placeholders for one semantic unit.
+# EMPLOYEE_ID is reported only after a label cue and only as a whole code
+# token, so the digit runs that loose identifier patterns find inside it
+# ("T-047382910456-0001") are parts of that one code. Cutting the code
+# around them would leave a one-letter EMPLOYEE_ID remainder ("T") that the
+# map would then match all over the document.
 _ABSORPTION_RULES: dict[str, frozenset[str]] = {
+    "EMPLOYEE_ID": frozenset(
+        {
+            "CPF",
+            "DRIVERS_LICENSE",
+            "HEALTH_INSURANCE_ID",
+            "LICENSE_PLATE",
+            "MEDICAL_RECORD_NUMBER",
+            "NATIONAL_ID",
+            "PASSPORT_NUMBER",
+            "PHONE_NUMBER",
+            "SOCIAL_SECURITY_NUMBER",
+            "TAX_ID",
+        }
+    ),
     "DATE_OF_BIRTH": frozenset({"DATE"}),
     "ORGANIZATION_NAME": frozenset({"LOCATION"}),
     "POSTAL_ADDRESS": frozenset({"LOCATION", "STREET_ADDRESS"}),
