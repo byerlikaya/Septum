@@ -120,6 +120,9 @@ def _letters_of_case(categories: frozenset[str]) -> str:
 _LOWER = _letters_of_case(frozenset({"Ll"}))
 _UPPER = _letters_of_case(frozenset({"Lu", "Lt"}))
 _CAMEL_STEP = f"(?<={_LOWER})(?={_UPPER})"
+# A lowercase letter followed by a capital ("imzaKAYA"): where a glued value
+# written in capitals starts.
+CAMEL_STEP = _CAMEL_STEP
 _CAPS_STEP = f"(?<={_UPPER})(?={_UPPER})"
 CUE_EDGE = f"(?-i:{_CAMEL_STEP}|{_CAPS_STEP}|(?!{_SAME_SPACED_SCRIPT}))"
 # A cue of two letters or fewer ("ID", "NO", "DL") is too short to be read at
