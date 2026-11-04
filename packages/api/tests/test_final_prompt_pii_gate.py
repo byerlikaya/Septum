@@ -25,11 +25,14 @@ from sanitizer_doubles import PatternSanitizer, literal
 from septum_api.database import build_default_app_settings, get_db
 from septum_api.main import app
 from septum_api.models import Base
+from septum_api.models.chat_session import ChatMessage, ChatSession
 from septum_api.models.document import Chunk, Document
 from septum_api.models.regulation import RegulationRuleset
 from septum_api.models.spreadsheet_schema import SpreadsheetColumn, SpreadsheetSchema
 from septum_api.models.user import User
+from septum_api.request_limits import MAX_SECTION_TITLE_CHARS
 from septum_api.routers import chat as chat_module
+from septum_api.routers import chunks as chunks_module
 from septum_api.services import document_anon_store, pii_gate
 from septum_api.services.anonymization_map import AnonymizationMap
 from septum_api.services.approval_gate import ApprovalChunk, ApprovalDecision
@@ -45,6 +48,17 @@ IBAN = "DE89370400440532013000"
 KNOWN_NAME = "Jane Roe"
 OTHER_NAME = "John Doe"
 _PLACEHOLDER_RE = re.compile(r"\[[A-Z][A-Z_]*_\d+\]")
+
+
+FIRST_IBAN = "TR94 0006 2000 1010 0007 1234 56"
+SECOND_IBAN = "TR94 0006 9999 1010 0007 1234 56"
+
+
+def _two_iban_map(document_id: int) -> AnonymizationMap:
+    amap = AnonymizationMap(document_id=document_id, language="en")
+    amap.add_entity(FIRST_IBAN, "IBAN")
+    amap.add_entity(SECOND_IBAN, "IBAN")
+    return amap
 
 
 def _presidio_only_settings():
@@ -93,7 +107,12 @@ class _Env:
             session.add(settings)
             await session.commit()
 
-    async def add_document(self, chunk_texts: list[str]) -> int:
+    async def add_document(
+        self,
+        chunk_texts: list[str],
+        titles: Optional[list[Optional[str]]] = None,
+        raw_texts: Optional[list[Optional[str]]] = None,
+    ) -> int:
         async with self.session_maker() as session:
             doc = Document(
                 filename="stored.pdf",
@@ -116,7 +135,14 @@ class _Env:
             await session.flush()
             for idx, text in enumerate(chunk_texts):
                 session.add(
-                    Chunk(document_id=doc.id, index=idx, sanitized_text=text, char_count=len(text))
+                    Chunk(
+                        document_id=doc.id,
+                        index=idx,
+                        sanitized_text=text,
+                        char_count=len(text),
+                        section_title=titles[idx] if titles else None,
+                        raw_text=raw_texts[idx] if raw_texts else None,
+                    )
                 )
             await session.commit()
             return doc.id
@@ -305,6 +331,159 @@ class TestChunkPatch:
         assert NAME in answer
         assert IBAN in answer
 
+    async def test_patch_masks_a_typed_section_title(self, env: _Env) -> None:
+        doc = await env.add_document(["[PERSON_NAME_1] signed the contract."])
+        await _store_known_map(doc)
+        async with env.session_maker() as session:
+            chunk_id = (
+                await session.execute(select(Chunk.id).where(Chunk.document_id == doc))
+            ).scalar_one()
+
+        resp = await env.client.patch(
+            f"/api/chunks/{chunk_id}", json={"section_title": f"Signed by {KNOWN_NAME}: {IBAN}"}
+        )
+
+        assert resp.status_code == 200
+        title = resp.json()["section_title"]
+        _assert_masked(title)
+        assert title.startswith("Signed by [PERSON_NAME_1]: ")
+        assert resp.json()["sanitized_text"] == "[PERSON_NAME_1] signed the contract."
+
+    async def _chunk_of(self, env: _Env, title: Optional[str] = None) -> tuple[int, int]:
+        doc = await env.add_document(["[PERSON_NAME_1] signed the contract."], titles=[title])
+        await _store_known_map(doc)
+        async with env.session_maker() as session:
+            chunk_id = (
+                await session.execute(select(Chunk.id).where(Chunk.document_id == doc))
+            ).scalar_one()
+        return doc, chunk_id
+
+    async def test_patch_masks_text_and_title_together_without_cross_leak(
+        self, env: _Env
+    ) -> None:
+        _, chunk_id = await self._chunk_of(env)
+
+        resp = await env.client.patch(
+            f"/api/chunks/{chunk_id}",
+            json={"sanitized_text": f"Paid {NAME}.", "section_title": f"Account {IBAN}"},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        _assert_masked(body["sanitized_text"])
+        _assert_masked(body["section_title"])
+        assert body["section_title"].startswith("Account [")
+        assert "Account" not in body["sanitized_text"]
+        assert "Paid" not in body["section_title"]
+
+    async def test_patch_stores_the_title_masked_at_rest(self, env: _Env) -> None:
+        _, chunk_id = await self._chunk_of(env)
+
+        resp = await env.client.patch(
+            f"/api/chunks/{chunk_id}", json={"section_title": f"Account {IBAN}"}
+        )
+
+        assert resp.status_code == 200
+        async with env.session_maker() as session:
+            stored = (
+                await session.execute(select(Chunk.section_title).where(Chunk.id == chunk_id))
+            ).scalar_one()
+        assert IBAN not in stored
+        assert stored.startswith("Account [")
+
+    async def test_search_hits_never_carry_a_raw_title(
+        self, env: _Env, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        doc, chunk_id = await self._chunk_of(env, title=f"Signed by {KNOWN_NAME}")
+
+        class _Hits:
+            def search(self, document_id, query, top_k):
+                return [(chunk_id, 0.9)]
+
+        monkeypatch.setattr(chunks_module, "VectorStore", _Hits)
+
+        resp = await env.client.post(
+            "/api/chunks/search", json={"document_id": doc, "query": "signed"}
+        )
+
+        assert [h["chunk"]["section_title"] for h in resp.json()["items"]] == [
+            "Signed by [PERSON_NAME_1]"
+        ]
+
+    async def test_legacy_title_cut_mid_value_is_masked_from_raw_text_on_read(
+        self, env: _Env
+    ) -> None:
+        await env.set_require_approval(True)
+        line = f"IBAN: {SECOND_IBAN}"
+        doc = await env.add_document(
+            ["IBAN: [IBAN_2]"], titles=[line[:15]], raw_texts=[f"x\n{line}\n"]
+        )
+        await document_anon_store.set_document_map(doc, _two_iban_map(doc))
+
+        listed = await env.client.get("/api/chunks", params={"document_id": doc})
+        events = await env.ask({"message": "Which IBAN?", "document_ids": [doc]})
+
+        assert [c["section_title"] for c in listed.json()["items"]] == ["IBAN: [IBAN_2]"]
+        [offer] = [e for e in events if e["type"] == "approval_required"]
+        [title] = [c["section_title"] for c in offer["chunks"]]
+        [in_text] = _PLACEHOLDER_RE.findall(offer["chunks"][0]["text"])
+        assert title == f"IBAN: {in_text}"
+
+    async def test_patch_title_only_leaves_the_text(self, env: _Env) -> None:
+        _, chunk_id = await self._chunk_of(env)
+
+        resp = await env.client.patch(
+            f"/api/chunks/{chunk_id}", json={"section_title": f"About {KNOWN_NAME}"}
+        )
+
+        assert resp.json()["sanitized_text"] == "[PERSON_NAME_1] signed the contract."
+        assert resp.json()["section_title"] == "About [PERSON_NAME_1]"
+
+    async def test_patch_text_only_leaves_the_title(self, env: _Env) -> None:
+        _, chunk_id = await self._chunk_of(env, title="Heading [PERSON_NAME_1]")
+
+        resp = await env.client.patch(
+            f"/api/chunks/{chunk_id}", json={"sanitized_text": f"Paid {KNOWN_NAME}."}
+        )
+
+        assert resp.json()["sanitized_text"] == "Paid [PERSON_NAME_1]."
+        assert resp.json()["section_title"] == "Heading [PERSON_NAME_1]"
+
+    async def test_patch_rejects_an_oversized_title(self, env: _Env) -> None:
+        _, chunk_id = await self._chunk_of(env)
+
+        resp = await env.client.patch(
+            f"/api/chunks/{chunk_id}", json={"section_title": "a" * (MAX_SECTION_TITLE_CHARS + 1)}
+        )
+
+        assert resp.status_code == 422
+
+    async def test_patch_empty_title_is_accepted(self, env: _Env) -> None:
+        _, chunk_id = await self._chunk_of(env, title="Heading")
+
+        resp = await env.client.patch(f"/api/chunks/{chunk_id}", json={"section_title": ""})
+
+        assert resp.status_code == 200
+        assert resp.json()["section_title"] == ""
+
+    async def test_listing_never_returns_a_raw_stored_title(self, env: _Env) -> None:
+        doc, chunk_id = await self._chunk_of(env, title=f"Signed by {KNOWN_NAME}")
+
+        listed = await env.client.get("/api/chunks", params={"document_id": doc})
+        single = await env.client.get(f"/api/chunks/{chunk_id}")
+
+        assert [c["section_title"] for c in listed.json()["items"]] == [
+            "Signed by [PERSON_NAME_1]"
+        ]
+        assert single.json()["section_title"] == "Signed by [PERSON_NAME_1]"
+
+    async def test_listing_drops_a_title_when_the_document_has_no_map(self, env: _Env) -> None:
+        doc = await env.add_document(["plain text"], titles=[f"Signed by {KNOWN_NAME}"])
+
+        listed = await env.client.get("/api/chunks", params={"document_id": doc})
+
+        assert [c["section_title"] for c in listed.json()["items"]] == [None]
+
     async def test_patch_without_stored_map_does_not_reuse_placeholders(
         self, env: _Env
     ) -> None:
@@ -419,6 +598,129 @@ class TestSharedDocumentMap:
         assert NAME in answer
 
 
+class TestSectionTitle:
+    async def test_approval_payload_never_carries_a_raw_stored_title(self, env: _Env) -> None:
+        await env.set_require_approval(True)
+        doc = await env.add_document(
+            ["[PERSON_NAME_1] signed the contract."], titles=[f"Signed by {KNOWN_NAME}"]
+        )
+        await _store_known_map(doc)
+
+        events = await env.ask({"message": "Who signed?", "document_ids": [doc]})
+
+        [offer] = [e for e in events if e["type"] == "approval_required"]
+        assert [c["section_title"] for c in offer["chunks"]] == ["Signed by [PERSON_NAME_1]"]
+        assert KNOWN_NAME not in json.dumps(offer)
+
+
+    async def test_two_documents_titles_follow_the_unified_numbering(self, env: _Env) -> None:
+        await env.set_require_approval(True)
+        first = await env.add_document(
+            ["[PERSON_NAME_1] signed."], titles=[f"Signed by {KNOWN_NAME}"]
+        )
+        await _store_known_map(first)
+        second = await env.add_document(
+            ["[PERSON_NAME_1] approved."], titles=[f"Approved by {OTHER_NAME}"]
+        )
+        other = AnonymizationMap(document_id=second, language="en")
+        other.add_entity(OTHER_NAME, "PERSON_NAME")
+        await document_anon_store.set_document_map(second, other)
+
+        events = await env.ask({"message": "Who signed?", "document_ids": [first, second]})
+
+        [offer] = [e for e in events if e["type"] == "approval_required"]
+        for chunk in offer["chunks"]:
+            [in_text] = _PLACEHOLDER_RE.findall(chunk["text"])
+            assert chunk["section_title"].endswith(in_text)
+        placeholders = {_PLACEHOLDER_RE.findall(c["text"])[0] for c in offer["chunks"]}
+        assert len(placeholders) == 2
+        assert KNOWN_NAME not in json.dumps(offer)
+        assert OTHER_NAME not in json.dumps(offer)
+
+    def test_title_without_a_map_or_without_a_title_is_none(self) -> None:
+        chunk = Chunk(document_id=1, index=0, sanitized_text="t", char_count=1)
+        chunk.section_title = f"Signed by {KNOWN_NAME}"
+        assert chat_module._masked_chunk_title(chunk, pii_gate.section_title_masker(None), {}) is None
+
+        chunk.section_title = None
+        amap = AnonymizationMap(document_id=1, language="en")
+        assert chat_module._masked_chunk_title(chunk, pii_gate.section_title_masker(amap), {}) is None
+
+
+async def _new_chat(env: _Env) -> int:
+    async with env.session_maker() as session:
+        chat = ChatSession(user_id=env.user.id)
+        session.add(chat)
+        await session.commit()
+        return chat.id
+
+
+async def _stored_approval(env: _Env, chat_id: int) -> Any:
+    async with env.session_maker() as session:
+        return (
+            await session.execute(
+                select(ChatMessage.approval_data).where(ChatMessage.session_id == chat_id)
+            )
+        ).scalar_one()
+
+
+class TestStoredApprovalData:
+    async def test_plain_rejection_is_stored_as_sent(self, env: _Env) -> None:
+        chat_id = await _new_chat(env)
+
+        resp = await env.client.post(
+            f"/api/chat-sessions/{chat_id}/messages",
+            json={"role": "user", "content": "q", "approval_data": {"decision": "rejected"}},
+        )
+
+        assert resp.status_code == 201
+        assert await _stored_approval(env, chat_id) == {"decision": "rejected"}
+
+    async def test_non_object_chunk_entries_are_dropped(self, env: _Env) -> None:
+        chat_id = await _new_chat(env)
+
+        resp = await env.client.post(
+            f"/api/chat-sessions/{chat_id}/messages",
+            json={
+                "role": "user",
+                "content": "q",
+                "approval_data": {"chunks": [1, "section_title", None, {"text": "t"}]},
+            },
+        )
+
+        assert resp.status_code == 201
+        assert await _stored_approval(env, chat_id) == {
+            "chunks": [{"text": "t", "section_title": None}]
+        }
+
+    async def test_stored_message_never_keeps_a_chunk_title(self, env: _Env) -> None:
+        chat_id = await _new_chat(env)
+        approval = {
+            "decision": "approved",
+            "chunks": [
+                {"id": 1, "text": "[IBAN_1]", "section_title": f"Account {IBAN}"},
+                {"id": 2, "text": "t", "heading": f"Account {IBAN}", "source_page": 3},
+                f"raw {IBAN}",
+            ],
+        }
+
+        resp = await env.client.post(
+            f"/api/chat-sessions/{chat_id}/messages",
+            json={"role": "user", "content": "q", "approval_data": approval},
+        )
+
+        assert resp.status_code == 201
+        stored = await _stored_approval(env, chat_id)
+        assert stored == {
+            "decision": "approved",
+            "chunks": [
+                {"id": 1, "text": "[IBAN_1]", "section_title": None},
+                {"id": 2, "text": "t", "source_page": 3, "section_title": None},
+            ],
+        }
+        assert IBAN not in json.dumps(resp.json())
+
+
 class TestDeanonScope:
     async def test_placeholder_not_in_prompt_stays_literal(self, env: _Env) -> None:
         await env.set_require_approval(False)
@@ -476,11 +778,13 @@ class TestGateUnit:
 
         assert pii_gate.mask_known_entities("[DATE_1] and 1", amap) == "[DATE_1] and [ID_NUMBER_1]"
 
-    def test_original_with_letters_keeps_substring_matching(self) -> None:
+    def test_title_case_original_matches_glued_on_either_side(self) -> None:
         amap = AnonymizationMap(document_id=0, language="en")
         amap.add_entity("Acme", "ORGANIZATION")
 
-        assert pii_gate.mask_known_entities("AcmeCorp", amap) == "[ORGANIZATION_1]Corp"
+        out = pii_gate.mask_known_entities("AcmeCorp, XAcme, Acme.", amap)
+
+        assert out == "[ORGANIZATION_1]Corp, X[ORGANIZATION_1], [ORGANIZATION_1]."
 
     def test_unified_map_without_counters_gets_fresh_placeholder(self) -> None:
         amap = AnonymizationMap(document_id=0, language="en")

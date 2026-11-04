@@ -617,3 +617,148 @@ def test_every_model_module_is_registered() -> None:
         importlib.import_module(f"{models_package.__name__}.{module.name}")
     registered = {model.__table__.name for model in REGISTERED_MODELS}
     assert set(Base.metadata.tables) == registered
+
+
+_TITLED_PAYLOAD = {
+    "decision": "approved",
+    "masked_prompt": "Q",
+    "chunks": [
+        {"id": 1, "text": "[IBAN_1]", "section_title": "IBAN: TR94 0006 2000"},
+        {"id": 2, "text": "t", "section_title": None},
+        {"id": 3, "text": "u"},
+    ],
+}
+
+
+def test_revision_026_clears_approval_chunk_titles_idempotently(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    db_path = tmp_path / "at_025.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.upgrade(cfg, "025")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    payloads = [_TITLED_PAYLOAD, {"decision": "rejected"}, None, {"chunks": "not-a-list"}]
+    with engine.begin() as conn:
+        conn.execute(sa.text(
+            "INSERT INTO chat_sessions (id, title, created_at, updated_at) "
+            "VALUES (1, 's', '2026-01-01', '2026-01-01')"
+        ))
+        for index, payload in enumerate(payloads, start=1):
+            conn.execute(
+                sa.text(
+                    "INSERT INTO chat_messages (id, session_id, role, content, approval_data, "
+                    "created_at) VALUES (:id, 1, 'user', 'q', :data, '2026-01-01')"
+                ),
+                {"id": index, "data": None if payload is None else json.dumps(payload)},
+            )
+
+    def stored() -> list[Any]:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                sa.text("SELECT approval_data FROM chat_messages ORDER BY id")
+            ).scalars().all()
+        return [None if r is None else json.loads(r) for r in rows]
+
+    with caplog.at_level("INFO", logger="alembic.runtime.migration"):
+        command.upgrade(cfg, "026")
+    assert "in 1 chat message(s)" in caplog.text
+    assert "TR94" not in caplog.text
+    after_upgrade = stored()
+    command.stamp(cfg, "025")
+    caplog.clear()
+    with caplog.at_level("INFO", logger="alembic.runtime.migration"):
+        command.upgrade(cfg, "026")
+    rerun_log = caplog.text
+    after_rerun = stored()
+    command.downgrade(cfg, "025")
+    after_downgrade = stored()
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+    engine.dispose()
+
+    expected = {
+        **_TITLED_PAYLOAD,
+        "chunks": [
+            {"id": 1, "text": "[IBAN_1]", "section_title": None},
+            {"id": 2, "text": "t", "section_title": None},
+            {"id": 3, "text": "u"},
+        ],
+    }
+    assert after_upgrade == [expected, *payloads[1:]]
+    assert after_rerun == after_upgrade == after_downgrade
+    assert "in 0 chat message(s)" in rerun_log
+
+
+def _load_revision_026() -> Any:
+    path = _API_ROOT / "alembic" / "versions" / "026_clear_approval_chunk_section_titles.py"
+    spec = importlib.util.spec_from_file_location("revision_026", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_revision_026_clears_every_batch_and_counts_only_titled_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    revision = _load_revision_026()
+    monkeypatch.setattr(revision, "_BATCH", 1)
+    engine = sa.create_engine("sqlite://")
+    metadata = sa.MetaData()
+    table = sa.Table(
+        "chat_messages",
+        metadata,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("approval_data", sa.JSON, nullable=True),
+    )
+    metadata.create_all(engine)
+    titled = {"chunks": [{"text": "x", "section_title": "IBAN: TR94"}]}
+    untitled = {"chunks": [{"text": "y"}, {"text": "z", "section_title": None}]}
+    with engine.begin() as conn:
+        conn.execute(
+            table.insert(),
+            [{"approval_data": titled}, {"approval_data": untitled}, {"approval_data": titled}],
+        )
+        first = revision.clear_titles(conn)
+        second = revision.clear_titles(conn)
+        rows = conn.execute(sa.select(table.c.approval_data).order_by(table.c.id)).scalars().all()
+    engine.dispose()
+
+    assert (first, second) == (2, 0)
+    assert rows == [
+        {"chunks": [{"text": "x", "section_title": None}]},
+        untitled,
+        {"chunks": [{"text": "x", "section_title": None}]},
+    ]
+
+
+def test_revision_026_reads_rows_in_batches(monkeypatch: pytest.MonkeyPatch) -> None:
+    revision = _load_revision_026()
+    monkeypatch.setattr(revision, "_BATCH", 2)
+    engine = sa.create_engine("sqlite://")
+    metadata = sa.MetaData()
+    table = sa.Table(
+        "chat_messages",
+        metadata,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("approval_data", sa.JSON),
+    )
+    metadata.create_all(engine)
+    selects: list[str] = []
+
+    def record(conn, cursor, statement, *args) -> None:
+        if statement.lstrip().upper().startswith("SELECT"):
+            selects.append(statement)
+
+    sa.event.listen(engine, "before_cursor_execute", record)
+    with engine.begin() as conn:
+        conn.execute(
+            table.insert(),
+            [{"approval_data": {"chunks": [{"section_title": "x"}]}} for _ in range(5)],
+        )
+        selects.clear()
+        cleared = revision.clear_titles(conn)
+    engine.dispose()
+
+    assert cleared == 5
+    assert len(selects) == 4

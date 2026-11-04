@@ -177,7 +177,8 @@ async def document_map_lock(
     label edits) hold it so two concurrent edits cannot drop each other's
     new entities. A process-local lock always applies; when Redis is
     configured a Redis lock is held as well, so separate workers are
-    serialised too. Inside the lock, read the map with
+    serialised too; without Redis it serialises one worker only, so a
+    multi-worker deployment needs Redis. Inside the lock, read the map with
     :func:`load_persisted_document_map` and call
     :meth:`DocumentMapLockHandle.ensure_held` right before writing it.
 

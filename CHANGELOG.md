@@ -22,6 +22,12 @@ All notable changes to this project are documented here in a high‑level, date�
 
 ## Unreleased
 
+### 2026-11-04
+
+- Chat answers no longer lose facts to masking side effects: field labels such as "IBAN" or "KVKK" are no longer stored as person or organisation names, a split ID code no longer leaves a one-letter entry that corrupted every word containing that letter, and known values are now re-masked on token edges, so glued forms ("SOYADIKAYA", "4471KAYA") are caught while ordinary words stay intact.
+- Chunk section titles are masked at ingestion, on every chunk read and in the chat approval payload, so raw values from a heading (an IBAN, an ID number) never reach the approval screen or stored chat history; a migration clears titles already stored there.
+- BM25 keyword search now splits on punctuation and apostrophe suffixes with locale-aware casing, so a question like "IBAN'a" finds the matching clause; existing indexes are rebuilt automatically on first use.
+
 ### 2026-10-31
 
 - Mobile numbers written as one digit run ("13812345678", "电话13812345678请回电", "携帯０９０１２３４５６７８です") are now masked under every policy, using per-country number shapes; shapes that order numbers or amounts also take ("9876543210") count only next to a phone cue.

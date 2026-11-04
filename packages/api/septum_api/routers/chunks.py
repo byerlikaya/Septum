@@ -3,7 +3,7 @@ from __future__ import annotations
 """FastAPI router for accessing sanitized document chunks."""
 
 import asyncio
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -13,8 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.document import Chunk, Document
 from ..models.user import User
-from ..request_limits import MAX_PRE_APPROVED_CHUNK_CHARS
-from ..services.pii_gate import gate_document_texts
+from ..request_limits import MAX_PRE_APPROVED_CHUNK_CHARS, MAX_SECTION_TITLE_CHARS
+from ..services.document_anon_store import get_document_map
+from ..services.pii_gate import gate_document_texts, section_title_masker
 from ..services.vector_store import VectorStore
 from ..utils.auth_dependency import get_current_user, require_role
 from ..utils.db_helpers import get_or_404, get_owned_or_404, load_settings
@@ -65,6 +66,27 @@ class ChunkResponse(BaseModel):
     section_title: Optional[str] = None
 
 
+async def _chunk_responses(chunks: Sequence[Chunk]) -> List[ChunkResponse]:
+    """Serialize chunks with every section title masked by its document map.
+
+    Rows ingested before titles were masked at ingestion still hold the raw
+    heading, so a stored title is never returned as it is: it is masked like
+    the chat path masks it, and dropped when the document has no map.
+    """
+    maskers = {}
+    for document_id in {c.document_id for c in chunks if c.section_title}:
+        maskers[document_id] = section_title_masker(await get_document_map(document_id))
+    responses: List[ChunkResponse] = []
+    for chunk in chunks:
+        response = ChunkResponse.model_validate(chunk)
+        if chunk.section_title:
+            response.section_title = maskers[chunk.document_id](
+                chunk.section_title, chunk.raw_text or ""
+            )
+        responses.append(response)
+    return responses
+
+
 class ChunkListResponse(BaseModel):
     """Wrapper for listing chunks."""
 
@@ -96,7 +118,7 @@ class ChunkUpdateRequest(BaseModel):
     """Payload for updating a chunk inline."""
 
     sanitized_text: Optional[str] = Field(default=None, max_length=MAX_PRE_APPROVED_CHUNK_CHARS)
-    section_title: Optional[str] = None
+    section_title: Optional[str] = Field(default=None, max_length=MAX_SECTION_TITLE_CHARS)
 
 
 @router.get(
@@ -128,9 +150,7 @@ async def list_chunks(
     result = await db.execute(stmt)
     chunks = list(result.scalars().all())
 
-    return ChunkListResponse(
-        items=[ChunkResponse.model_validate(c) for c in chunks]
-    )
+    return ChunkListResponse(items=await _chunk_responses(chunks))
 
 
 @router.get(
@@ -145,7 +165,8 @@ async def get_chunk(
     """Return a single sanitized chunk by id."""
     chunk = await get_or_404(db, Chunk, chunk_id, _CHUNK_NOT_FOUND)
     await _ensure_chunk_owner(db, chunk, user)
-    return ChunkResponse.model_validate(chunk)
+    [response] = await _chunk_responses([chunk])
+    return response
 
 
 @router.patch(
@@ -160,28 +181,38 @@ async def update_chunk(
 ) -> ChunkResponse:
     """Update mutable fields of a chunk (inline edit support).
 
-    Edited text is user-typed, so it passes the PII gate before it is
-    stored: ``sanitized_text`` never holds raw PII, and entities first seen
-    here are added to the document's (encrypted) anonymization map.
+    Edited text and section title are user-typed, so both pass the PII gate
+    before they are stored: neither ever holds raw PII (the title is sent
+    to the approval modal with the chunk), and entities first seen here are
+    added to the document's (encrypted) anonymization map.
     """
     chunk = await get_or_404(db, Chunk, chunk_id, _CHUNK_NOT_FOUND)
     await _ensure_chunk_owner(db, chunk, user)
 
-    if payload.sanitized_text is not None:
+    edits = {
+        name: normalize_unicode(value)
+        for name, value in (
+            ("sanitized_text", payload.sanitized_text),
+            ("section_title", payload.section_title),
+        )
+        if value is not None
+    }
+    if edits:
         document = await get_or_404(db, Document, chunk.document_id, _CHUNK_NOT_FOUND)
         settings = await load_settings(db)
-        [masked] = await gate_document_texts(
-            db, settings, document, [normalize_unicode(payload.sanitized_text)]
+        gated = dict(
+            zip(edits, await gate_document_texts(db, settings, document, list(edits.values())))
         )
-        chunk.sanitized_text = masked
-        chunk.char_count = len(masked)
-
-    if payload.section_title is not None:
-        chunk.section_title = payload.section_title
+        if "sanitized_text" in gated:
+            chunk.sanitized_text = gated["sanitized_text"]
+            chunk.char_count = len(chunk.sanitized_text)
+        if "section_title" in gated:
+            chunk.section_title = gated["section_title"]
 
     await db.commit()
     await db.refresh(chunk)
-    return ChunkResponse.model_validate(chunk)
+    [response] = await _chunk_responses([chunk])
+    return response
 
 
 @router.delete(
@@ -233,17 +264,16 @@ async def search_chunks(
 
     chunk_by_id = {chunk.id: chunk for chunk in chunks}
 
-    items: List[ChunkSearchHit] = []
-    for chunk_id, score in search_results:
-        chunk = chunk_by_id.get(chunk_id)
-        if chunk is None:
-            continue
-        items.append(
-            ChunkSearchHit(
-                chunk=ChunkResponse.model_validate(chunk),
-                score=float(score),
-            )
-        )
+    hits = [
+        (chunk_by_id[chunk_id], score)
+        for chunk_id, score in search_results
+        if chunk_id in chunk_by_id
+    ]
+    responses = await _chunk_responses([chunk for chunk, _ in hits])
+    items = [
+        ChunkSearchHit(chunk=response, score=float(score))
+        for response, (_, score) in zip(responses, hits)
+    ]
 
     return ChunkSearchResponse(items=items)
 

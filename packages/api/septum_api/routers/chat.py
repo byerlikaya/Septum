@@ -122,7 +122,7 @@ from ..services.chat_debug_store import (
     set_chat_debug_record,
 )
 from ..services.deanonymizer import Deanonymizer
-from ..services.document_anon_store import get_document_map
+from ..services.document_anon_store import document_map_lock, get_document_map
 from ..services.document_cluster_service import cluster_documents_by_relationship
 from ..services.entity_index_service import (
     RELATIONSHIP_THRESHOLD_MEDIUM,
@@ -144,6 +144,7 @@ from ..services.pii_gate import (
     mask_known_entities,
     remask_document_texts,
     reserve_placeholder_counters,
+    section_title_masker,
 )
 from ..services.policy_composer import PolicyComposer
 from ..services.policy_snapshot import (
@@ -662,6 +663,159 @@ async def _classify_query_intent(
     return "chat" if "CHAT" in response.strip().upper() else "search"
 
 
+async def _completed_document(db: AsyncSession, document_id: int) -> Optional[Document]:
+    """Read ``document_id`` in a fresh session; ``None`` unless it exists and is ``completed``.
+
+    A fresh session sees rows committed after the caller's session began,
+    which the caller's own transaction may not.
+    """
+    async with AsyncSession(db.bind, expire_on_commit=False) as fresh:
+        document = await fresh.get(Document, document_id)
+    if document is None or document.ingestion_status != "completed":
+        return None
+    return document
+
+
+async def _chunk_rows(db: AsyncSession, document_id: int) -> list:
+    """Read the document's chunk ids and texts in index order, in a fresh session."""
+    async with AsyncSession(db.bind) as fresh:
+        return list(
+            (
+                await fresh.execute(
+                    select(Chunk.id, Chunk.raw_text, Chunk.sanitized_text)
+                    .where(Chunk.document_id == document_id)
+                    .order_by(Chunk.index)
+                )
+            ).all()
+        )
+
+
+def _indexed_snapshot(rows: Sequence[Any], language: str) -> tuple:
+    """What a BM25 rebuild indexes: each chunk's id and text, in order, and the language."""
+    texts = tuple(
+        (row.id, row.raw_text if row.raw_text is not None else row.sanitized_text) for row in rows
+    )
+    return texts, language
+
+
+async def _rebuilt_index_still_valid(
+    db: AsyncSession, document_id: int, indexed: tuple
+) -> bool:
+    """Whether the document is still ``completed`` and would index exactly what was indexed.
+
+    Chunk ids alone are not enough: a reprocess in another worker can reuse
+    them (SQLite hands out freed ids again), so the texts and the masking
+    language are compared too. Equal content means the written index is the
+    one a fresh rebuild would write, so it is kept.
+    """
+    document = await _completed_document(db, document_id)
+    if document is None:
+        return False
+    rows = await _chunk_rows(db, document_id)
+    return _indexed_snapshot(rows, effective_masking_language(document)) == indexed
+
+
+def _discard_rebuilt_index(
+    write: "asyncio.Future[None]", bm25_retriever: "BM25Retriever", document_id: int
+) -> None:
+    """Remove the rebuilt index once its write has finished, whenever that is.
+
+    Called when the rebuild fails or is cancelled after the write started.
+    Nothing is awaited, so a cancelled task can still run it; a write still
+    in flight removes its file as soon as it lands. A write that failed
+    wrote nothing and is logged by its exception class only. A removal that
+    fails is logged and left to the next rebuild, never raised over the
+    original exception.
+    """
+
+    def remove(done: "asyncio.Future[None]") -> None:
+        if done.cancelled():
+            return
+        error = done.exception()
+        if error is not None:
+            logger.warning(
+                "Rebuild of the BM25 index of document_id=%s failed: %s",
+                document_id,
+                type(error).__name__,
+            )
+            return
+        try:
+            bm25_retriever.delete_index(document_id)
+        except OSError as exc:
+            logger.warning(
+                "Could not remove the rebuilt BM25 index of document_id=%s: %s",
+                document_id,
+                type(exc).__name__,
+            )
+
+    if write.done():
+        remove(write)
+    else:
+        write.add_done_callback(remove)
+
+
+async def _rebuild_outdated_bm25_index(
+    db: AsyncSession, bm25_retriever: "BM25Retriever", document_id: int
+) -> None:
+    """Build a document's BM25 index when it is missing or of another tokenizer version.
+
+    An outdated index is never searched (its tokens would not meet the
+    query's), and a missing one (never written, or removed by an earlier
+    rebuild below) gives no keyword signal, so it is built here from the
+    stored chunks: the raw text
+    ingestion indexed, or the sanitized text for rows that predate it, in
+    the document's masking language. The write is atomic and replaces the
+    old file in place; a document without chunk rows is left as it is.
+
+    Locks are always taken in one order, BM25 lock then map lock. Under
+    :func:`bm25_index_lock`, which ingestion holds for its own write, the
+    rebuild checks again that the index is still outdated and the document
+    still ``completed``, so a reprocess's fresh index is never overwritten.
+    After the write it takes :func:`document_map_lock`, which a delete
+    holds while it erases the document, and removes the file it wrote when
+    the document is gone, no longer ``completed``, or would now index other
+    content than it did (a reprocess in another worker, which the
+    process-local BM25 lock cannot see; compared by
+    :func:`_rebuilt_index_still_valid`); the index is then missing, so the
+    next read of a ``completed`` document builds it again. The map lock
+    spans workers only with Redis configured. If
+    anything fails or the turn is cancelled once the write has started,
+    the written file is removed too and the error is raised as it was.
+    """
+    if await asyncio.to_thread(bm25_retriever.is_current, document_id):
+        return
+    from ..services.bm25_retriever import bm25_index_lock
+
+    async with bm25_index_lock(document_id):
+        if await asyncio.to_thread(bm25_retriever.is_current, document_id):
+            return
+        document = await _completed_document(db, document_id)
+        if document is None:
+            return
+        rows = await _chunk_rows(db, document_id)
+        if not rows:
+            return
+        indexed = _indexed_snapshot(rows, effective_masking_language(document))
+        (chunk_texts, language) = indexed
+        write = asyncio.ensure_future(
+            asyncio.to_thread(
+                bm25_retriever.index_document,
+                document_id,
+                [chunk_id for chunk_id, _ in chunk_texts],
+                [text for _, text in chunk_texts],
+                language,
+            )
+        )
+        try:
+            await asyncio.shield(write)
+            async with document_map_lock(document_id):
+                if not await _rebuilt_index_still_valid(db, document_id, indexed):
+                    await asyncio.to_thread(bm25_retriever.delete_index, document_id)
+        except BaseException:
+            _discard_rebuilt_index(write, bm25_retriever, document_id)
+            raise
+
+
 async def _retrieve_chunks(
     db: AsyncSession,
     document_id: int,
@@ -690,6 +844,7 @@ async def _retrieve_chunks(
     """
     vector_store = _get_vector_store()
     bm25_retriever = _get_bm25_retriever()
+    await _rebuild_outdated_bm25_index(db, bm25_retriever, document_id)
 
     # Single hybrid search against the user's actual query. A previous
     # revision also fused a second "document theme" retrieval (first-chunk
@@ -857,10 +1012,12 @@ def _cap_context_chunks(chunks: List[Chunk], cap: int) -> List[Chunk]:
     return [c for c in chunks if id(c) in kept]
 
 
-def _build_approval_chunks(chunks: List[Chunk], texts: List[str]) -> List[ApprovalChunk]:
-    """Convert database chunks into ApprovalChunk payloads using provided texts."""
+def _build_approval_chunks(
+    chunks: List[Chunk], texts: List[str], titles: List[Optional[str]]
+) -> List[ApprovalChunk]:
+    """Convert database chunks into ApprovalChunk payloads using the masked texts and titles."""
     approval_chunks: List[ApprovalChunk] = []
-    for c, text in zip(chunks, texts):
+    for c, text, title in zip(chunks, texts, titles):
         approval_chunks.append(
             ApprovalChunk(
                 id=c.id,
@@ -871,7 +1028,7 @@ def _build_approval_chunks(chunks: List[Chunk], texts: List[str]) -> List[Approv
                 source_sheet=c.source_sheet,
                 source_timestamp_start=c.source_timestamp_start,
                 source_timestamp_end=c.source_timestamp_end,
-                section_title=c.section_title,
+                section_title=title,
             )
         )
     return approval_chunks
@@ -2010,6 +2167,24 @@ async def _unify_fresh_turn(
     return anon_maps, per_doc_remap
 
 
+def _renumbered(
+    masked: str,
+    chunk_remap: Optional[dict[str, str]],
+    strays: Optional[Tuple[set[str], AnonymizationMap]],
+) -> str:
+    """Return ``masked`` renumbered into the turn's space.
+
+    ``strays`` carries the placeholders the chunk's map holds and the turn's
+    unified map; a placeholder in the text outside that set is settled off
+    every global (see :func:`settle_strays`) into ``chunk_remap``.
+    """
+    if strays is not None and chunk_remap is not None:
+        settle_strays(masked, chunk_remap, *strays)
+    if chunk_remap:
+        masked = _apply_chunk_placeholder_remap(masked, chunk_remap)
+    return masked
+
+
 def _masked_chunk_text(
     chunk: Chunk,
     restored_chunk_texts: dict[int, str],
@@ -2017,20 +2192,30 @@ def _masked_chunk_text(
     chunk_remap: Optional[dict[str, str]],
     strays: Optional[Tuple[set[str], AnonymizationMap]] = None,
 ) -> str:
-    """Return one chunk's text masked by its map and renumbered into the turn's space.
-
-    ``strays`` carries the placeholders the chunk's map holds and the turn's
-    unified map; a placeholder in the text outside that set is settled off
-    every global (see :func:`settle_strays`) into ``chunk_remap``.
-    """
+    """Return one chunk's text masked by its map and renumbered into the turn's space."""
     chunk_text = restored_chunk_texts.get(chunk.id, chunk.sanitized_text or "")
     # Chunks were analysed at ingestion; the map is the source of truth here.
-    masked_chunk = mask_known_entities(chunk_text, chunk_map)
-    if strays is not None and chunk_remap is not None:
-        settle_strays(masked_chunk, chunk_remap, *strays)
-    if chunk_remap:
-        masked_chunk = _apply_chunk_placeholder_remap(masked_chunk, chunk_remap)
-    return masked_chunk
+    return _renumbered(mask_known_entities(chunk_text, chunk_map), chunk_remap, strays)
+
+
+def _masked_chunk_title(
+    chunk: Chunk,
+    mask_title: Callable[[Optional[str], str], Optional[str]],
+    chunk_remap: Optional[dict[str, str]],
+) -> Optional[str]:
+    """Return one chunk's section title masked by its document map and renumbered into the turn's space.
+
+    Rows ingested before titles were masked at ingestion still hold the raw
+    heading, so the title is always masked here, never sent as stored, and
+    a chunk whose document map is missing gets no title at all. The
+    title is shown in the approval modal only and never reaches the LLM, so
+    it settles no strays: the turn's numbering stays what the chunk texts
+    alone make it, which is what a retry rebuilds.
+    """
+    masked = mask_title(chunk.section_title, chunk.raw_text or "")
+    if not masked:
+        return masked
+    return _renumbered(masked, chunk_remap, None)
 
 
 def _masked_chunk_texts(
@@ -2038,8 +2223,8 @@ def _masked_chunk_texts(
     restored_chunk_texts: dict[int, str],
     anon_maps: dict[int, AnonymizationMap],
     per_doc_remap: dict[int, dict[str, str]],
-) -> List[str]:
-    """Return the turn's chunk texts as the cloud LLM sees them.
+) -> Tuple[List[str], List[Optional[str]]]:
+    """Return the turn's chunk texts as the cloud LLM sees them, and their masked titles.
 
     Documents are labelled by position, never by filename: an original
     filename routinely carries personal data and must not reach the cloud
@@ -2049,7 +2234,9 @@ def _masked_chunk_texts(
     document_labels: dict[int, int] = {}
     prev_doc_id: Optional[int] = None
     known: dict[int, set[str]] = {}
+    title_maskers: dict[int, Callable[[Optional[str], str], Optional[str]]] = {}
     texts: List[str] = []
+    titles: List[Optional[str]] = []
     for c in turn.chunks:
         header = ""
         if multi_document and c.document_id != prev_doc_id:
@@ -2062,15 +2249,16 @@ def _masked_chunk_texts(
             if c.document_id not in known:
                 known[c.document_id] = map_placeholders(doc_map)
             strays = (known[c.document_id], turn.anon_map)
+        chunk_map = doc_map or turn.anon_map
+        chunk_remap = per_doc_remap.setdefault(c.document_id, {}) if doc_map is not None else None
         masked_chunk = _masked_chunk_text(
-            c,
-            restored_chunk_texts,
-            doc_map or turn.anon_map,
-            per_doc_remap.setdefault(c.document_id, {}) if doc_map is not None else None,
-            strays,
+            c, restored_chunk_texts, chunk_map, chunk_remap, strays
         )
         texts.append(header + masked_chunk)
-    return texts
+        if c.document_id not in title_maskers:
+            title_maskers[c.document_id] = section_title_masker(doc_map)
+        titles.append(_masked_chunk_title(c, title_maskers[c.document_id], chunk_remap))
+    return texts, titles
 
 
 async def _prepare_fresh_context(turn: _ChatTurn, db: AsyncSession) -> None:
@@ -2087,11 +2275,13 @@ async def _prepare_fresh_context(turn: _ChatTurn, db: AsyncSession) -> None:
     if turn.query_seed_document_id in remasked_doc_ids:
         await _reseed_query_map(turn, db)
     anon_maps, per_doc_remap = await _unify_fresh_turn(turn)
-    sanitized_chunk_texts = _masked_chunk_texts(
+    sanitized_chunk_texts, chunk_titles = _masked_chunk_texts(
         turn, restored_chunk_texts, anon_maps, per_doc_remap
     )
     if turn.chunks:
-        turn.candidate_chunks = _build_approval_chunks(turn.chunks, sanitized_chunk_texts)
+        turn.candidate_chunks = _build_approval_chunks(
+            turn.chunks, sanitized_chunk_texts, chunk_titles
+        )
 
 
 async def _mask_turn_context(turn: _ChatTurn, db: AsyncSession) -> Optional[dict[str, Any]]:

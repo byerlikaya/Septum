@@ -13,7 +13,7 @@ wrap this class with a thin adapter that calls
 SQLAlchemy — this keeps the core package free of any DB coupling.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Sequence
 
 from presidio_analyzer import EntityRecognizer
@@ -30,6 +30,8 @@ class ComposedPolicy:
     recognizers: List[EntityRecognizer]
     regulation_ids: List[str]
     non_pii_rules: List[NonPiiRuleLike]
+    # Entity types the active regulations declare, without custom recognizer types.
+    regulation_entity_types: List[str] = field(default_factory=list)
 
 
 class PolicyComposer:
@@ -66,6 +68,7 @@ class PolicyComposer:
         for reg in active_regs:
             regulation_ids.append(reg.id)
             entity_types_set.update(reg.entity_types or [])
+        regulation_entity_types = sorted(entity_types_set)
 
         for custom in active_custom:
             if custom.is_active:
@@ -78,4 +81,5 @@ class PolicyComposer:
             recognizers=recognizers,
             regulation_ids=regulation_ids,
             non_pii_rules=list(active_non_pii),
+            regulation_entity_types=regulation_entity_types,
         )

@@ -21,11 +21,14 @@ from __future__ import annotations
 import asyncio
 import copy
 import re
+from bisect import bisect_left
 from functools import cached_property
-from typing import TYPE_CHECKING, Iterable, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Callable, Iterable, List, Optional, Sequence, Tuple
 
 from fastapi import HTTPException, status
+from septum_core.field_label_cues import field_label_cue_pattern
 from septum_core.spans import entity_range
+from septum_core.text_boundaries import CAMEL_STEP, TOKEN_END, TOKEN_START
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,7 +36,7 @@ from ..errors import ContentFreeError
 from ..models.document import Chunk, Document
 from ..models.settings import AppSettings
 from ..utils.db_helpers import document_language, effective_masking_language
-from ..utils.text_utils import normalize_unicode
+from ..utils.text_utils import normalize_for_comparison, normalize_unicode
 from .anonymization_map import PLACEHOLDER_PATTERN, AnonymizationMap
 from .document_anon_store import (
     document_map_lock,
@@ -46,6 +49,33 @@ if TYPE_CHECKING:
     from .sanitizer import PIISanitizer
 
 _SPAN_EDGE_CHARS = " \t\r\n.,;:!?()[]{}\"'"
+_WORD_CHAR = re.compile(r"\w")
+
+
+def is_letter_fragment(value: str) -> bool:
+    """Return whether ``value`` is a bare letter, too short to search for as free text.
+
+    A value made of one cased letter, optionally followed by a dot ("T",
+    "T."), may be a real entity where a recognizer found it (a sex marker
+    "K"), and is masked and registered there. Searched for in other text,
+    it would mask that letter in every word, so :func:`_originals_pattern`
+    leaves it out (the blocklist skips tokens this short too); it is found
+    only where it stands alone (see :func:`_standalone_fragments_pattern`).
+    A character of an uncased script is a whole syllable or word on its own
+    (a one-syllable surname "김", a glyph of a script written without
+    spaces) and never a fragment.
+    """
+    stem = value[:-1] if value.endswith(".") else value
+    return len(stem) == 1 and stem.isalpha() and stem.lower() != stem.upper()
+
+
+def _is_symbol_fragment(value: str) -> bool:
+    """Whether ``value`` is one letter plus symbols ("A+", "O-"), searched only as a whole token."""
+    return (
+        not is_letter_fragment(value)
+        and any(ch.isalpha() and ch.lower() != ch.upper() for ch in value)
+        and sum(1 for ch in value if ch.isalnum()) < 2
+    )
 
 
 def _known_placeholders(anon_map: AnonymizationMap) -> set[str]:
@@ -122,11 +152,16 @@ class _MaskState:
         return _originals_pattern(self._entity_map, self.known)
 
     @cached_property
+    def fragments_pattern(self) -> Optional[re.Pattern[str]]:
+        """Pattern for bare-letter originals standing alone, or ``None`` without any."""
+        return _standalone_fragments_pattern(self._entity_map, self.known)
+
+    @cached_property
     def protect_pattern(self) -> Optional[re.Pattern[str]]:
         """Pattern matching known placeholders, or ``None`` when there are none."""
         if not self.known:
             return None
-        return re.compile("|".join(re.escape(p) for p in sorted(self.known, key=len, reverse=True)))
+        return re.compile(_guarded([re.escape(p) for p in _longest_first(self.known)], self.known))
 
     def protected_ranges(self, text: str) -> List[Tuple[int, int]]:
         """Return ``(start, end)`` offsets of known placeholders in ``text``."""
@@ -135,9 +170,42 @@ class _MaskState:
         return [m.span() for m in self.protect_pattern.finditer(text)]
 
     def placeholder_for(self, match: re.Match[str]) -> str:
-        """Return the replacement for one originals match: known placeholders stay as they are."""
+        """Return the replacement for one originals match: known placeholders stay as they are.
+
+        A match of the field-label alternative replaces the value glued to
+        the label (see :func:`_originals_pattern`) and keeps the label, unless
+        the label is itself an original ("ADI" as a name in "ADIKAYA").
+        """
+        glued = match.groupdict().get(_GLUED)
+        if glued is not None:
+            cue = match.group(_CUE)
+            return self._entity_map.get(cue, cue) + self._entity_map[glued]
         original = match.group(0)
         return original if original in self.known else self._entity_map[original]
+
+
+_CUE = "cue"
+_GLUED = "glued"
+_FIELD_LABEL_CUE = field_label_cue_pattern()
+
+
+def _longest_first(values: Iterable[str]) -> List[str]:
+    """``values`` sorted longest first, so an alternation prefers the longest match."""
+    return sorted(values, key=len, reverse=True)
+
+
+def _guarded(alternatives: Sequence[str], values: Iterable[str], edge: str = "") -> str:
+    """Alternation of ``alternatives`` behind a lookahead on the first characters of ``values``.
+
+    The regex engine tries every alternative at every position; the
+    lookahead fails at once where no value can start, so a group costs one
+    character test there. ``edge`` is a zero-width check placed after the
+    lookahead. Returns ``""`` for no alternatives.
+    """
+    if not alternatives:
+        return ""
+    first = "".join(sorted({re.escape(v[0]) for v in values}))
+    return f"(?=[{first}]){edge}(?:{'|'.join(alternatives)})"
 
 
 def _originals_pattern(entity_map: dict, known: set[str]) -> Optional[re.Pattern[str]]:
@@ -145,22 +213,131 @@ def _originals_pattern(entity_map: dict, known: set[str]) -> Optional[re.Pattern
 
     Known placeholders are tried first and are emitted unchanged, so an
     original can never be substituted inside an existing placeholder.
-    Returns ``None`` when the map has no originals.
+    Letter fragments (see :func:`is_letter_fragment`) stay in the map for
+    de-anonymization but are never searched for. Returns ``None`` when the
+    map has no originals left to search for.
+
+    Edges: an original with a digit keeps digit boundaries only
+    (:func:`_original_alternative`). A letter original is open on the
+    right, so a suffix written onto a name ("Yılmazın") does not hide it;
+    masking "Ann" inside "Annäherung" is the accepted cost. Most letter
+    originals are open on the left too (:func:`_opens_anywhere`: title case,
+    several words or a long value), so they mask when glued to the word
+    before them ("ÜNVANIACME LOJİSTİK", "ProjeTitan", "4711AHMET ÇELİK").
+    A short single token in one case ("KVKK", "ST.") needs a left edge:
+    :data:`TOKEN_START` (Unicode-aware, so a name written against an
+    unspaced glyph still masks), a lowercase-to-capital step ("imzaKAYA"),
+    the end of a field label ("SOYADIKAYA", see
+    :mod:`septum_core.field_label_cues`), or the end of its own word
+    ("SOYADKAYA", "4471KAYA"). A short token inside a word ("XKAYALAR", "T"
+    in "AYDINLATMA") stays as it is, by design: glued on both sides with no
+    label at a word start before it ("SOYADKAYA1990",
+    "MÜŞTERİSOYADIKAYAFATURA") it is not found, since a match there would
+    also hit every word that merely contains it. One that ends a longer
+    word is masked there ("VALİ" -> "V[…]" when "ALİ" is an original), the
+    accepted cost of not leaking a value glued to any label. A symbol
+    fragment ("A+") matches only as a whole token (:func:`_whole_token`).
+
+    The groups, in order, each longest first: originals with a digit,
+    letter originals open on the left, short tokens glued to a field label
+    (tried before the plain short tokens, so "ALICIALI" is not read as
+    "ALI"+"CIALI"), short tokens at a word start or a case step, short
+    tokens that end their word, symbol fragments, and originals that open
+    with a non-word character. "Longest original wins" at every position
+    still holds: two originals only both match where one is a prefix of the
+    other, a prefix never gains a digit, and an original that extends an
+    open one is open too. Each group sits behind a lookahead on its first
+    characters (:func:`_guarded`).
     """
-    originals = [o for o in entity_map if o]
+    originals = [o for o in entity_map if o and not is_letter_fragment(o)]
     if not originals:
         return None
-    alternatives = [re.escape(a) for a in sorted(known, key=len, reverse=True)] + [
-        _original_alternative(o) for o in sorted(originals, key=len, reverse=True)
+    by_length = _longest_first(originals)
+    with_digit = [o for o in by_length if _has_digit(o)]
+    letters_only = [o for o in by_length if not _has_digit(o)]
+    symbols = [o for o in letters_only if _is_symbol_fragment(o)]
+    words = [o for o in letters_only if not _is_symbol_fragment(o)]
+    open_left = [o for o in words if _WORD_CHAR.match(o[0]) and _opens_anywhere(o)]
+    edged = [o for o in words if _WORD_CHAR.match(o[0]) and not _opens_anywhere(o)]
+    unedged = [o for o in words if not _WORD_CHAR.match(o[0])]
+    edged_alternatives = [re.escape(o) for o in edged]
+    edged_alternation = "|".join(edged_alternatives)
+    groups = [
+        _guarded([re.escape(k) for k in _longest_first(known)], known),
+        _guarded([_original_alternative(o) for o in with_digit], with_digit),
+        _guarded([re.escape(o) for o in open_left], open_left),
+        (
+            f"{TOKEN_START}(?P<{_CUE}>(?i:{_FIELD_LABEL_CUE}))(?P<{_GLUED}>{edged_alternation})"
+            if edged
+            else ""
+        ),
+        _guarded(edged_alternatives, edged, edge=f"(?:{TOKEN_START}|{CAMEL_STEP})"),
+        _word_end_group(edged),
+        "|".join(_whole_token(o) for o in symbols),
+        _guarded([re.escape(o) for o in unedged], unedged),
     ]
-    return re.compile("|".join(alternatives))
+    return re.compile("|".join(g for g in groups if g))
+
+
+_SHORT_TOKEN_LENGTH = 5
+_WORD_RUN = re.compile(r"\w+")
+
+
+def _word_end_group(edged: Sequence[str]) -> str:
+    """Alternative for short tokens that end their word, wherever the word starts.
+
+    Only tokens made of word characters can end a word this way. After the
+    first-character check, a lookahead checks that a word ends within the
+    longest such token from here, so the alternation is tried only near word
+    ends; short tokens are under ``_SHORT_TOKEN_LENGTH`` characters, which
+    bounds that reach.
+    """
+    words = [o for o in edged if _WORD_RUN.fullmatch(o)]
+    if not words:
+        return ""
+    reach = max(len(o) for o in words)
+    near_end = rf"(?=\w{{1,{reach}}}{TOKEN_END})"
+    return f"{_guarded([re.escape(o) for o in words], words, edge=near_end)}(?={TOKEN_END})"
+
+
+def _opens_anywhere(value: str) -> bool:
+    """Whether a letters-only original may match glued to the preceding word.
+
+    A title-case original ("Acme", "Ann") marks its own start with a
+    capital, and a longer one (several words, or at least
+    ``_SHORT_TOKEN_LENGTH`` characters, in any case: "ACME LOJİSTİK",
+    "ahmet çelik") is distinctive enough to be found inside a run
+    ("ÜNVANIACME LOJİSTİK", "adsoyadahmet çelik"). Only a short single
+    token in one case ("KVKK", "ST.") needs a word start, a field label or
+    the end of its word, since it would otherwise turn up inside ordinary
+    words. Length is counted in characters, so a padded value
+    ("A___…___B") is never short.
+    """
+    if _is_title_case(value):
+        return True
+    return any(ch.isspace() for ch in value) or len(value) >= _SHORT_TOKEN_LENGTH
+
+
+def _whole_token(value: str) -> str:
+    """Regex for ``value`` standing as a whole token: no word character on either side."""
+    before = TOKEN_START if _WORD_CHAR.match(value[0]) else r"(?<!\w)"
+    return rf"{before}{re.escape(value)}(?!\w)"
+
+
+def _is_title_case(value: str) -> bool:
+    """Whether ``value`` opens with a capital and holds a lowercase letter ("Acme Lojistik")."""
+    return value[0].isupper() and any(ch.islower() for ch in value)
+
+
+def _has_digit(value: str) -> bool:
+    """Return whether ``value`` holds a digit of any script."""
+    return any(ch.isdigit() for ch in value)
 
 
 def _mask_known_originals(text: str, state: _MaskState) -> str:
     """Replace known originals with their placeholders in one regex pass.
 
-    Originals without letters need digit boundaries (see
-    :func:`_original_alternative`).
+    Edges an original must respect are described in :func:`_originals_pattern`.
     """
     if state.originals_pattern is None:
         return text
@@ -168,17 +345,15 @@ def _mask_known_originals(text: str, state: _MaskState) -> str:
 
 
 def _original_alternative(original: str) -> str:
-    """Return the regex alternative that matches ``original`` in text.
+    """Return the regex alternative that matches an original holding a digit.
 
-    An original without letters (a date, an amount, an id such as ``3/15``)
+    Such an original (a date, an amount, an id such as ``3/15`` or an IBAN)
     must not extend a number: each end that is a digit may not touch another
-    digit, so ``3/15`` is never found inside ``13/150`` while ``A4711`` and
-    ``5(555) 1`` still mask. Originals with letters keep plain substring
-    matching.
+    digit, so ``3/15`` is never found inside ``13/150`` while ``A4711``,
+    ``XA4711`` and an IBAN glued to its label ("IBANTR33…") still mask.
+    Letter originals are grouped in :func:`_originals_pattern`.
     """
     escaped = re.escape(original)
-    if any(ch.isalpha() for ch in original):
-        return escaped
     before = r"(?<!\d)" if original[0].isdigit() else ""
     after = r"(?!\d)" if original[-1].isdigit() else ""
     return f"{before}{escaped}{after}"
@@ -193,8 +368,243 @@ def mask_known_entities(text: str, anon_map: AnonymizationMap) -> str:
     """
     if not text:
         return text
-    masked = _mask_known_originals(text, _MaskState(anon_map))
-    return anon_map.apply_blocklist(masked, language=anon_map.language)
+    return _mask_with_state(text, _MaskState(anon_map), anon_map)
+
+
+def _mask_originals(text: str, state: _MaskState) -> str:
+    """Mask the known originals, then the bare-letter originals standing alone.
+
+    Originals go first, so a longer value holding a bare letter ("A. Yılmaz")
+    is masked whole before the letter alone could be.
+    """
+    masked = _mask_known_originals(text, state)
+    if state.fragments_pattern is not None:
+        masked = state.fragments_pattern.sub(state.placeholder_for, masked)
+    return masked
+
+
+def _mask_with_state(text: str, state: _MaskState, anon_map: AnonymizationMap) -> str:
+    """:func:`mask_known_entities` with a state already built for ``anon_map``."""
+    return anon_map.apply_blocklist(_mask_originals(text, state), language=anon_map.language)
+
+
+def _heading_line(title: str, source_text: str) -> Optional[str]:
+    """Return the whole line of ``source_text`` that ``title`` opens, or ``None``."""
+    for line in source_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(title):
+            return stripped
+    return None
+
+
+def _cut_outside_placeholders(text: str, limit: int) -> str:
+    """Cut ``text`` to ``limit`` characters, moving the cut past a placeholder it would split."""
+    if len(text) <= limit:
+        return text
+    for match in PLACEHOLDER_PATTERN.finditer(text):
+        if match.start() < limit < match.end():
+            return text[: match.end()]
+    return text[:limit]
+
+
+_WHITESPACE = re.compile(r"\s+")
+_PRUNE_CHARS = 4
+
+
+def _without_spaces(value: str) -> str:
+    """``value`` with every whitespace character removed."""
+    return _WHITESPACE.sub("", value)
+
+
+# A token edge at a position, as the body pass reads it: a word start or a
+# letter of a script whose words touch ("联系人张三").
+_TOKEN_STARTS_HERE = re.compile(TOKEN_START)
+# A field label at a word start, ending where a search window ends.
+_LABEL_ENDS_HERE = re.compile(rf"{TOKEN_START}(?i:(?:{_FIELD_LABEL_CUE}))\Z")
+
+
+def _start_of_last(text: str, count: int) -> int:
+    """Offset where the last ``count`` non-space characters of ``text`` begin.
+
+    A tail is compared without whitespace, so the window for it is measured
+    in non-space characters: a value written with extra spaces
+    ("TR94  0006  1005…") is still inside it.
+    """
+    seen = 0
+    for index in range(len(text) - 1, -1, -1):
+        if not text[index].isspace():
+            seen += 1
+            if seen == count:
+                return index
+    return 0
+
+
+class _CutOffIndex:
+    """Known originals arranged for :meth:`find`, built once per title masker.
+
+    Each original is keyed by its comparison form
+    (:func:`normalize_for_comparison` in the map language). An original with
+    a digit is keyed without whitespace, so a value written with other
+    spacing ("TR94 0006" against "TR940006…") still meets it.
+    """
+
+    def __init__(self, originals: Iterable[str], language: str) -> None:
+        self._language = language
+        entries = []
+        for original in originals:
+            key = normalize_for_comparison(original, language)
+            if _has_digit(original):
+                key = _without_spaces(key)
+            entries.append((key, original))
+        entries.sort()
+        self._entries = entries
+        self._keys = [key for key, _ in entries]
+        self._longest = max((len(_without_spaces(o)) for _, o in entries), default=0)
+        self._prefixes = {
+            _without_spaces(key)[:_PRUNE_CHARS]
+            for key in self._keys
+            if len(_without_spaces(key)) >= _PRUNE_CHARS
+        }
+
+    def _opened(self, probe: str, any_original: bool) -> Optional[str]:
+        """The first original longer than ``probe`` whose key starts with it.
+
+        Without ``any_original`` (a tail glued to the word before it) only
+        originals that may match glued are taken (:func:`_opens_anywhere`).
+        """
+        index = bisect_left(self._keys, probe)
+        while index < len(self._keys) and self._keys[index].startswith(probe):
+            key, original = self._entries[index]
+            if len(key) > len(probe) and (any_original or _opens_anywhere(original)):
+                return original
+            index += 1
+        return None
+
+    def find(self, text: str) -> Optional[Tuple[int, str]]:
+        """Find where ``text`` ends in the cut-off beginning of a known original.
+
+        Returns ``(start, original)`` for the longest tail of ``text`` that
+        holds no placeholder, has at least two letters or digits (a shorter
+        tail opens too many words) and opens a longer original; case does
+        not matter ("KİRACI AHMET ÇEL" opens "Ahmet Çelik"). A tail starts
+        at a token, or glued to the preceding word when the original it
+        opens may match there (:func:`_opens_anywhere`: "KİRACIAhmet Çel"),
+        or right after a digit, a token edge of a script whose words touch,
+        or a field label at a word start, where any original may
+        ("No4471KA" and "SOYADIKAY" open "KAYA", "联系人张三" opens "张三丰"),
+        as the body pass masks a short value there.
+        Only tails after the last placeholder and with no more non-space
+        characters than the longest original are tried; a tail whose first
+        characters open no original is skipped before it is folded, and the
+        rest are looked up by
+        bisection, so the cost does not grow with ``text``.
+        """
+        if not self._entries:
+            return None
+        floor = _start_of_last(text, self._longest)
+        for match in PLACEHOLDER_PATTERN.finditer(text):
+            floor = max(floor, match.end())
+        for start in range(floor, len(text)):
+            if not text[start].isalnum():
+                continue
+            lead = _without_spaces(
+                normalize_for_comparison(text[start : start + 4 * _PRUNE_CHARS], self._language)
+            )[:_PRUNE_CHARS]
+            if len(lead) == _PRUNE_CHARS and lead not in self._prefixes:
+                continue
+            tail = text[start:]
+            if "[" in tail or sum(1 for ch in tail if ch.isalnum()) < 2:
+                continue
+            folded = normalize_for_comparison(tail, self._language)
+            any_original = (
+                _TOKEN_STARTS_HERE.match(text, start) is not None
+                or not text[start - 1].isalpha()
+                or _LABEL_ENDS_HERE.search(text, 0, start) is not None
+            )
+            for probe in dict.fromkeys((folded, _without_spaces(folded))):
+                opened = self._opened(probe, any_original)
+                if opened is not None:
+                    return start, opened
+        return None
+
+
+def section_title_masker(
+    anon_map: Optional[AnonymizationMap],
+) -> Callable[[Optional[str], str], Optional[str]]:
+    """Return a function that masks section titles against ``anon_map``.
+
+    The returned ``mask(title, source_text)`` reuses one compiled masking
+    state, so masking many titles of one document compiles the map once.
+
+    A title is the opening of a heading line, cut to a fixed length, so it
+    can end inside a value ("IBAN: TR94 0006"). When ``source_text`` (the
+    raw text the title was taken from) holds the whole heading line, that
+    line is masked first and only then cut back to the title's length, so
+    a value the cut would have split is masked whole. Otherwise the title is
+    masked on its own, except a tail that opens a known original: that tail
+    is found on the title as it was (see :meth:`_CutOffIndex.find`), before
+    any masking could split it, and replaced by the original's placeholder.
+    A bare-letter value of the map standing alone ("Cinsiyet: K") is masked
+    as in any text (see :func:`_standalone_fragments_pattern`). Without a
+    map nothing can be masked, so every title comes back as ``None``: a
+    stored title is never passed on raw. An empty or missing title comes
+    back as it is.
+    """
+    if anon_map is None:
+
+        def dropped(title: Optional[str], source_text: str = "") -> Optional[str]:
+            return title if not title else None
+
+        return dropped
+
+    state = _MaskState(anon_map)
+    cut_offs: Optional[_CutOffIndex] = None
+
+    def masked_title(title: str, source_text: str) -> str:
+        nonlocal cut_offs
+        line = _heading_line(title, normalize_unicode(source_text or ""))
+        if line is None:
+            if cut_offs is None:
+                cut_offs = _CutOffIndex(
+                    (o for o in anon_map.entity_map if o and not is_letter_fragment(o)),
+                    anon_map.language,
+                )
+            cut = cut_offs.find(title)
+            if cut is None:
+                return _mask_with_state(title, state, anon_map)
+            start, opened = cut
+            return _mask_with_state(title[:start], state, anon_map) + anon_map.entity_map[opened]
+        masked = _mask_with_state(line, state, anon_map)
+        if line == title:
+            return masked
+        return _cut_outside_placeholders(masked, len(title))
+
+    def mask(title: Optional[str], source_text: str = "") -> Optional[str]:
+        if not title:
+            return title
+        return masked_title(normalize_unicode(title), source_text)
+
+    return mask
+
+
+def _standalone_fragments_pattern(entity_map: dict, known: set[str]) -> Optional[re.Pattern[str]]:
+    """Pattern for bare-letter originals standing alone in any masked text.
+
+    A value such as "Cinsiyet: K" puts a bare-letter original
+    (:func:`is_letter_fragment`) on its own, where it is the value, not part
+    of a word. Such a fragment matches only with no word character or dot
+    before it and no word character (or dot plus word character, as in
+    "T.C.") after it, so "T" stays in "T.C." and in "AYDINLATMA". Known
+    placeholders are matched first and kept, so no fragment is found inside
+    one. Symbol fragments ("A+") need nothing here: the main pass already
+    masks them as whole tokens, a looser edge than this one.
+    """
+    values = _longest_first(o for o in entity_map if o and is_letter_fragment(o))
+    if not values:
+        return None
+    alone = rf"(?<![\w.])(?:{'|'.join(re.escape(v) for v in values)})(?!\.?\w)"
+    protected = _guarded([re.escape(p) for p in _longest_first(known)], known)
+    return re.compile(f"{protected}|{alone}" if protected else alone)
 
 
 def _outside_ranges(
@@ -241,7 +651,7 @@ def _gate_one(
         return text
     if state is None:
         state = _MaskState(anon_map)
-    masked = _mask_known_originals(normalize_unicode(text), state)
+    masked = _mask_originals(normalize_unicode(text), state)
     masked = anon_map.apply_blocklist(masked, language=language)
 
     result = sanitizer.sanitize(
@@ -495,7 +905,9 @@ __all__ = [
     "all_placeholders_known",
     "gate_document_texts",
     "gate_untrusted_texts",
+    "is_letter_fragment",
     "mask_known_entities",
+    "section_title_masker",
     "remask_document_texts",
     "reserve_placeholder_counters",
 ]

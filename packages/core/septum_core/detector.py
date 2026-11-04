@@ -21,6 +21,7 @@ implementations attached by the host: the core package itself never
 imports any network client, so it can run inside an air-gapped zone.
 """
 
+import functools
 import logging
 import re
 import threading
@@ -70,7 +71,12 @@ from .text_boundaries import (
     word_cue,
     word_final_cue,
 )
-from .text_utils import compatibility_fold, normalize_for_comparison, normalize_unicode
+from .text_utils import (
+    compatibility_fold,
+    normalize_for_comparison,
+    normalize_unicode,
+    strip_possessive_suffix,
+)
 
 use_bundled_suffix_list()
 install_fast_remove_duplicates()
@@ -225,6 +231,26 @@ _NER_MIN_SPAN_LEN_PER_LANGUAGE: Dict[str, int] = {
 # passes the span-length floor only at this confidence.
 # Trade-off: a lone glyph the model scores lower (明 of 小明 at 0.85) is dropped.
 _NER_SINGLE_GLYPH_PERSON_MIN_SCORE = 0.95
+
+_LABEL_SEPARATORS = re.compile(r"[_\W]+")
+
+
+def _comparable_label(text: str, language: str) -> str:
+    """Fold ``text`` for comparison with policy names: case, suffix and separators ignored.
+
+    "IBAN", "Iban’a" and "iban:" all compare as "iban"; "EMAIL_ADDRESS" as
+    "email address".
+    """
+    stem = strip_possessive_suffix(text.strip(), language)
+    folded = normalize_for_comparison(stem, language)
+    return _LABEL_SEPARATORS.sub(" ", folded).strip()
+
+
+@functools.lru_cache(maxsize=64)
+def _label_vocabulary(terms: Tuple[str, ...], language: str) -> frozenset[str]:
+    """``terms`` in :func:`_comparable_label` form, cached per policy and language."""
+    return frozenset(_comparable_label(term, language) for term in terms)
+
 
 class _NerGroup(NamedTuple):
     """One raw NER group after label mapping and the score floor."""
@@ -1459,6 +1485,9 @@ class Detector:
     environments can run the regex/NER stack with zero wiring.
     """
 
+    # Policy names spans are compared against; empty until a policy is applied.
+    _label_terms: Tuple[str, ...] = ()
+
     def __init__(
         self,
         config: SeptumCoreConfig,
@@ -1495,6 +1524,10 @@ class Detector:
             registry.add_recognizer(recognizer)
         self._entity_types = list(policy.entity_types)
         self._non_pii_filter = NonPiiFilter.from_rules(policy.non_pii_rules)
+        self._label_terms = (
+            *(self._expand_with_aliases(list(policy.regulation_entity_types)) or ()),
+            *policy.regulation_ids,
+        )
         self._validate_entity_coverage()
 
     def _validate_entity_coverage(self) -> None:
@@ -1629,14 +1662,22 @@ class Detector:
         # NER runs on text of any length: a short chat question or chunk can
         # hold a name, and any length floor would leave it raw.
         if self._config.use_ner_layer and normalized_text.strip():
-            spans.extend(self._ner_spans(normalized_text, language))
+            spans.extend(
+                self._drop_policy_label_spans(
+                    self._ner_spans(normalized_text, language), normalized_text, language
+                )
+            )
 
         port_enabled = self._semantic_port.is_enabled()
         spans = self._validate_semantically(
             spans, normalized_text, language, port_enabled
         )
         if self._runs_semantic_detection(normalized_text, port_enabled):
-            spans.extend(self._semantic_detection_spans(normalized_text))
+            spans.extend(
+                self._drop_policy_label_spans(
+                    self._semantic_detection_spans(normalized_text), normalized_text, language
+                )
+            )
 
         spans = self._apply_non_pii_filter(spans, normalized_text, language)
         spans = self._resolve_overlaps(spans, normalized_text, language)
@@ -1819,6 +1860,32 @@ class Detector:
             if original is not None:
                 keep_spans.append(original)
         return keep_spans
+
+    def _drop_policy_label_spans(
+        self, spans: List[DetectedSpan], normalized_text: str, language: str
+    ) -> List[DetectedSpan]:
+        """Drop model-detected spans whose whole text is a name the policy itself defines.
+
+        An entity-type name of an active regulation ("IBAN", "EMAIL_ADDRESS")
+        or a regulation id is vocabulary of the policy, so it is a field label
+        or the name of a law, never a personal value. NER models still tag
+        such all-caps acronyms as persons or organizations ("IBAN:" above an
+        IBAN, a regulation's short name in a heading), and once registered
+        the map would mask the label in every later text, the user's question
+        included. Only the NER and semantic-detection layers are filtered:
+        a pattern, validated or custom recognizer matched the text on purpose,
+        and custom entity-type names are never label terms. Only exact
+        matches go: a span that merely contains the name is kept.
+        """
+        if not self._label_terms or not spans:
+            return spans
+        vocabulary = _label_vocabulary(self._label_terms, language)
+        return [
+            s
+            for s in spans
+            if _comparable_label(normalized_text[s.start : s.end], language)
+            not in vocabulary
+        ]
 
     @staticmethod
     def _resolve_overlaps(

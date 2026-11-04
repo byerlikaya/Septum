@@ -19,7 +19,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.user import User
-from ..request_limits import MAX_CONTEXT_CHUNKS, MAX_PRE_APPROVED_CHUNK_CHARS
+from ..request_limits import (
+    MAX_CONTEXT_CHUNKS,
+    MAX_PRE_APPROVED_CHUNK_CHARS,
+    MAX_SECTION_TITLE_CHARS,
+)
 from ..services.anonymization_map import AnonymizationMap
 from ..services.approval_gate import (
     ApprovalChunk,
@@ -41,7 +45,6 @@ router = APIRouter(prefix="/api/approval", tags=["approval"])
 
 _SESSION_NOT_FOUND = "Approval session not found."
 
-MAX_SECTION_TITLE_CHARS = 512
 MAX_REJECT_REASON_CHARS = 512
 # Below the approval modal's own debounce, so normal editing never hits it;
 # it only stops a client from running the PII gate in a tight loop.
