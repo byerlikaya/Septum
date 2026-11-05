@@ -6,7 +6,9 @@
     "node": ">=22"
   },
   "scripts": {
+    "predev": "node scripts/copy-pdf-viewer-assets.mjs",
     "dev": "NODE_OPTIONS='--max_old_space_size=4096 --require ./scripts/xff-preload.cjs' next dev",
+    "prebuild": "node scripts/copy-pdf-viewer-assets.mjs",
     "build": "next build",
     "start": "NODE_OPTIONS='--require ./scripts/xff-preload.cjs' next start",
     "lint": "eslint .",
@@ -19,6 +21,7 @@
     "jspdf": "^4.2.1",
     "lucide-react": "^1.66.0",
     "next": "^16.4.3",
+    "pdfjs-dist": "^6.5.438",
     "react": "19.3.1",
     "react-cytoscapejs": "^2.0.0",
     "react-dom": "19.3.1",

@@ -18,6 +18,7 @@ import {
   getEntityOutlineClasses,
 } from "@/lib/entityColors";
 import { HighlightedText } from "./HighlightedText";
+import { PdfViewerFrame } from "./PdfViewerFrame";
 import { StaleDocumentBanner } from "./StaleDocumentBanner";
 import type {
   Chunk,
@@ -94,6 +95,7 @@ export function DocumentPreview({
   const [schemaDirty, setSchemaDirty] = useState(false);
 
   const [pdfPage, setPdfPage] = useState<number | null>(null);
+  const [rawBlob, setRawBlob] = useState<Blob | null>(null);
   const [rawObjectUrl, setRawObjectUrl] = useState<string | null>(null);
   const [rawLoadError, setRawLoadError] = useState<string | null>(null);
   const textScrollRef = useRef<HTMLDivElement>(null);
@@ -315,10 +317,12 @@ export function DocumentPreview({
         );
         if (cancelled) return;
         createdUrl = URL.createObjectURL(response.data);
+        setRawBlob(response.data);
         setRawObjectUrl(createdUrl);
         setRawLoadError(null);
       } catch {
         if (!cancelled) {
+          setRawBlob(null);
           setRawObjectUrl(null);
           setRawLoadError(tRef.current("errors.preview.document"));
         }
@@ -328,6 +332,7 @@ export function DocumentPreview({
     return () => {
       cancelled = true;
       if (createdUrl) URL.revokeObjectURL(createdUrl);
+      setRawBlob(null);
       setRawObjectUrl(null);
       setRawLoadError(null);
     };
@@ -409,9 +414,6 @@ export function DocumentPreview({
   const loadingText = t("preview.document.loading");
   const emptyText = t("preview.document.empty");
 
-  const pdfHash = pdfPage != null ? `#toolbar=1&page=${pdfPage}` : "#toolbar=1";
-  const pdfSrc = rawObjectUrl ? `${rawObjectUrl}${pdfHash}` : null;
-
   const renderOriginalDocument = () => {
     if (rawLoadError) {
       return (
@@ -455,23 +457,13 @@ export function DocumentPreview({
         </div>
       );
     }
-    if (fmt === "pdf" && pdfSrc) {
+    if (fmt === "pdf" && rawBlob) {
       return (
         <div className="flex h-full flex-col gap-2">
           <div className="text-xs font-medium text-slate-300">
             {t("documents.preview.originalDocument")}
           </div>
-          <iframe
-            src={pdfSrc}
-            className="flex-1 min-h-[40vh] w-full rounded-md border border-slate-800 bg-white"
-            title={docTitle}
-            // ``allow-same-origin`` is required for the browser's
-            // built-in PDF viewer to read the blob URL; everything
-            // else (top navigation, scripts, popups, downloads,
-            // forms) stays disabled so a malicious PDF cannot
-            // exploit a PDF.js zero-day to escape the preview iframe.
-            sandbox="allow-same-origin"
-          />
+          <PdfViewerFrame pdf={rawBlob} page={pdfPage} title={docTitle} />
         </div>
       );
     }

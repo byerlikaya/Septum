@@ -469,6 +469,7 @@ export const enMessages = {
 
   "preview.document.title": "Document Preview",
   "preview.document.loading": "Document preview is loading…",
+  "preview.document.pagesTruncated": "Showing {shown} of {total} pages.",
   "preview.document.empty": "No preview content is available for this document.",
   "preview.close": "Close",
 

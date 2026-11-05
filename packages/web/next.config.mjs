@@ -46,8 +46,9 @@ const nextConfig = {
   async headers() {
     // Defense-in-depth headers for the dashboard. Browsers ignore HSTS
     // over plain HTTP so the directive is safe to emit unconditionally.
-    // CSP intentionally allows ``data:`` and ``blob:`` for in-browser
-    // PDF / image previews of decrypted documents and ``'unsafe-inline'``
+    // CSP intentionally allows ``data:`` and ``blob:`` images and ``blob:``
+    // audio (``media-src``) for in-browser previews of decrypted documents
+    // and ``'unsafe-inline'``
     // for Tailwind-injected styles; ``frame-ancestors 'none'`` blocks
     // clickjacking + ``connect-src 'self'`` keeps the dashboard from
     // beaconing to a different host even if a future dependency tries.
@@ -69,13 +70,42 @@ const nextConfig = {
       scriptSrc,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
+      "media-src 'self' blob:",
       "font-src 'self' data:",
       connectSrc,
-      "frame-src 'self' blob:",
+      "frame-src 'self'",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
     ].join("; ");
+    // pdf.js fetches its decoders, fonts, CMaps and ICC profile from
+    // /pdf-viewer/vendor/ (the fonts load through FontFace, so font-src)
+    // and compiles the decoders with WebAssembly.
+    // A source expression cannot combine 'self' with a path and the
+    // origin is unknown at build time, so the viewer gets two policies
+    // (comma-separated, both enforced): the first keeps fetches on this
+    // origin, the second keeps them under the vendor path.
+    const pdfViewerAssetSources = [
+      "http://*:*/pdf-viewer/vendor/",
+      "https://*:*/pdf-viewer/vendor/",
+    ].join(" ");
+    const pdfViewerCsp = [
+      [
+        "default-src 'none'",
+        "script-src 'self' 'wasm-unsafe-eval'",
+        "style-src 'self'",
+        "font-src 'self'",
+        "connect-src 'self'",
+        "worker-src 'none'",
+        "frame-ancestors 'self'",
+        "base-uri 'none'",
+        "form-action 'none'",
+        "sandbox allow-scripts",
+      ].join("; "),
+      ["connect-src", "font-src"]
+        .map((directive) => `${directive} ${pdfViewerAssetSources}`)
+        .join("; "),
+    ].join(", ");
     return [
       {
         source: "/:path*",
@@ -92,6 +122,17 @@ const nextConfig = {
             key: "Permissions-Policy",
             value: "camera=(), microphone=(), geolocation=()",
           },
+        ],
+      },
+      {
+        // The PDF viewer runs in an opaque-origin sandboxed frame, so its
+        // module scripts load in CORS mode and need the wildcard origin.
+        // Later rules override same-key headers from the rule above.
+        source: "/pdf-viewer/:path*",
+        headers: [
+          { key: "Content-Security-Policy", value: pdfViewerCsp },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Access-Control-Allow-Origin", value: "*" },
         ],
       },
     ];
