@@ -16,5 +16,6 @@ export default defineConfig([
     "coverage/**",
     "node_modules/**",
     "next-env.d.ts",
+    "public/pdf-viewer/vendor/**",
   ]),
 ]);

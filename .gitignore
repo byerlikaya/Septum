@@ -46,6 +46,7 @@ coverage.xml
 # Generated / environment-specific (do not commit)
 coverage/
 packages/web/coverage/
+packages/web/public/pdf-viewer/vendor/
 
 # Node / Next.js / frontend
 node_modules/

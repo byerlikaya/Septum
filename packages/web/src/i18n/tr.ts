@@ -485,6 +485,7 @@ export const trMessages: Record<string, string> = {
 
   "preview.document.title": "Doküman Önizlemesi",
   "preview.document.loading": "Doküman önizlemesi yükleniyor…",
+  "preview.document.pagesTruncated": "{total} sayfadan ilk {shown} tanesi gösteriliyor.",
   "preview.document.empty":
     "Bu doküman için gösterilecek bir önizleme içeriği yok.",
   "preview.close": "Kapat",

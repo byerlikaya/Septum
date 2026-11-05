@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { DocumentPreview } from "../DocumentPreview";
 import { CurrentUserProvider } from "../../../lib/currentUser";
 import type { AuthUser, Document, SpreadsheetSchema, UserRole } from "@/lib/types";
@@ -90,4 +90,97 @@ it.each(["editor", "admin"] as const)("lets %s edit and save the schema", async 
   expect(await screen.findByPlaceholderText("e.g. SALARY_MEASURE")).toBeEnabled();
   expect(screen.getByRole("checkbox")).toBeEnabled();
   expect(screen.getByRole("button", { name: "documents.preview.saveSchema" })).toBeInTheDocument();
+});
+
+describe("PDF preview", () => {
+  // jsdom's Blob has no arrayBuffer(); browsers do.
+  const pdfBytes = new ArrayBuffer(8);
+  function pdfBlob(): Blob {
+    const blob = new Blob(["%PDF-1.4"], { type: "application/pdf" });
+    return Object.assign(blob, { arrayBuffer: async () => pdfBytes });
+  }
+
+  const originalCreateObjectURL = URL.createObjectURL;
+  const originalRevokeObjectURL = URL.revokeObjectURL;
+
+  beforeEach(() => {
+    URL.createObjectURL = jest.fn(() => "blob:http://localhost/pdf");
+    URL.revokeObjectURL = jest.fn();
+    mockApiGet.mockImplementation(async (url: string) => {
+      if (url === "/api/chunks") return { data: { items: [] } };
+      if (url.endsWith("/raw")) return { data: pdfBlob() };
+      throw new Error(`unexpected GET ${url}`);
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    URL.createObjectURL = originalCreateObjectURL;
+    URL.revokeObjectURL = originalRevokeObjectURL;
+  });
+
+  async function renderPdf(): Promise<HTMLIFrameElement> {
+    const doc = { ...spreadsheetDocument(), filename: "a.pdf", original_filename: "a.pdf", file_format: "pdf" };
+    render(
+      <CurrentUserProvider value={null}>
+        <DocumentPreview document={doc} open onOpenChange={jest.fn()} />
+      </CurrentUserProvider>
+    );
+    return (await screen.findByTitle("a.pdf")) as HTMLIFrameElement;
+  }
+
+  function sendFromWindow(source: Window | null, data: unknown): void {
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", { data, source }));
+    });
+  }
+
+  it("renders the viewer in an opaque-origin sandbox", async () => {
+    const frame = await renderPdf();
+
+    expect(frame.tagName).toBe("IFRAME");
+    expect(frame).toHaveAttribute("sandbox", "allow-scripts");
+    expect(frame).toHaveAttribute("src", "/pdf-viewer/index.html");
+    expect(screen.getByRole("status")).toHaveTextContent("preview.document.loading");
+  });
+
+  it("posts the PDF bytes to the frame once it reports ready", async () => {
+    const frame = await renderPdf();
+    const post = jest.spyOn(frame.contentWindow!, "postMessage").mockImplementation(() => undefined);
+
+    sendFromWindow(frame.contentWindow, { type: "ready" });
+
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    const [message, targetOrigin, transfer] = post.mock.calls[0] as unknown as [
+      unknown,
+      string,
+      ArrayBuffer[]
+    ];
+    expect(message).toEqual({ type: "document", data: pdfBytes });
+    expect(targetOrigin).toBe("*");
+    expect(transfer).toEqual([pdfBytes]);
+
+    sendFromWindow(frame.contentWindow, { type: "loaded" });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("ignores messages from any window other than the viewer frame", async () => {
+    const frame = await renderPdf();
+    const post = jest.spyOn(frame.contentWindow!, "postMessage").mockImplementation(() => undefined);
+
+    sendFromWindow(window, { type: "ready" });
+    sendFromWindow(null, { type: "error" });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(post).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent("preview.document.loading");
+  });
+
+  it("shows the error state when the viewer reports a failure", async () => {
+    const frame = await renderPdf();
+
+    sendFromWindow(frame.contentWindow, { type: "error" });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("errors.preview.document");
+  });
 });
