@@ -22,6 +22,12 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-11-05
+
+- PDF previews render in Chrome again: the decrypted PDF is now drawn by a self-hosted pdf.js viewer inside a script-only sandboxed frame with its own strict CSP, instead of the blob: frame Chrome refused to show. Very long documents are capped at 500 previewed pages with a notice.
+- API responses are no longer stored in browser or proxy caches: every `/api/` response is marked `no-store`, since documents, raw text and chat history with de-anonymized answers travel through them.
+- Audio previews play in production builds: the dashboard CSP now allows `blob:` media, which it had blocked through `default-src`.
+
 ### 2026-11-04
 
 - Chat answers no longer lose facts to masking side effects: field labels such as "IBAN" or "KVKK" are no longer stored as person or organisation names, a split ID code no longer leaves a one-letter entry that corrupted every word containing that letter, and known values are now re-masked on token edges, so glued forms ("SOYADIKAYA", "4471KAYA") are caught while ordinary words stay intact.

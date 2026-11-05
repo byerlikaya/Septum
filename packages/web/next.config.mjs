@@ -46,8 +46,9 @@ const nextConfig = {
   async headers() {
     // Defense-in-depth headers for the dashboard. Browsers ignore HSTS
     // over plain HTTP so the directive is safe to emit unconditionally.
-    // CSP intentionally allows ``data:`` and ``blob:`` images for in-browser
-    // previews of decrypted documents and ``'unsafe-inline'``
+    // CSP intentionally allows ``data:`` and ``blob:`` images and ``blob:``
+    // audio (``media-src``) for in-browser previews of decrypted documents
+    // and ``'unsafe-inline'``
     // for Tailwind-injected styles; ``frame-ancestors 'none'`` blocks
     // clickjacking + ``connect-src 'self'`` keeps the dashboard from
     // beaconing to a different host even if a future dependency tries.
@@ -69,6 +70,7 @@ const nextConfig = {
       scriptSrc,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
+      "media-src 'self' blob:",
       "font-src 'self' data:",
       connectSrc,
       "frame-src 'self'",
