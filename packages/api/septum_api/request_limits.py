@@ -24,6 +24,9 @@ MAX_RETRY_DOCUMENTS = MAX_CONTEXT_CHUNKS
 MAX_PRE_APPROVED_CHUNK_CHARS = 20_000
 """Longest chunk text a client may send (retry, approval edit, chunk edit)."""
 
+MAX_SECTION_TITLE_CHARS = 512
+"""Longest chunk section title a client may send (approval edit, chunk edit)."""
+
 MIN_CHUNK_SIZE = 100
 """Smallest text chunk size setting: the chunkers' own minimum chunk length."""
 
@@ -101,6 +104,7 @@ __all__ = [
     "MAX_RETRY_DOCUMENTS",
     "MAX_SCHEMA_LABELED_COLUMNS",
     "MAX_SCHEMA_LABEL_CHARS",
+    "MAX_SECTION_TITLE_CHARS",
     "MAX_SESSION_ID_LENGTH",
     "MAX_SHEET_COLUMNS",
     "MAX_TECHNICAL_LABEL_CHARS",
