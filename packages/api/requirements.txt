@@ -54,7 +54,7 @@ python-json-logger==4.2.0
 prometheus-client==0.26.0
 greenlet==3.5.6
 pytest==9.2.0
-pytest-asyncio==1.4.1
+pytest-asyncio==1.4.1.post1
 httpx==0.28.1
 rank-bm25==0.2.2
 pdfplumber==0.11.10
