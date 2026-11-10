@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-11-10
+
+- Document ingesters now also return their text as structural blocks (pages, sheet rows, paragraphs, headings, tables, audio segments), groundwork for chunking that keeps page, sheet and timestamp information. The flat text rebuilt from the blocks is byte-identical, so stored text and processing are unchanged.
+
 ### 2026-11-05
 
 - PDF previews render in Chrome again: the decrypted PDF is now drawn by a self-hosted pdf.js viewer inside a script-only sandboxed frame with its own strict CSP, instead of the blob: frame Chrome refused to show. Very long documents are capped at 500 previewed pages with a notice.
