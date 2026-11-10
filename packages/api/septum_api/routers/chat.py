@@ -80,7 +80,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..database import get_db
-from ..errors import MODEL_REFUSED_DETAIL
+from ..errors import (
+    CUSTOM_RULE_UNAVAILABLE_DETAIL,
+    MODEL_REFUSED_DETAIL,
+    CustomRuleUnavailableError,
+)
 from ..middleware.rate_limit import route_limit
 from ..models.document import Chunk, Document
 from ..models.regulation import RegulationRuleset
@@ -2548,6 +2552,16 @@ async def _turn_error_event(
             "type": "error",
             "code": MAP_CONFLICT,
             "message": "The document is being updated; please try again.",
+        }
+    if isinstance(exc, CustomRuleUnavailableError):
+        logger.warning(
+            "chat turn refused session_id=%s reason=%s", session_id, exc.code
+        )
+        await _record_backend_error(db, http_request, exc, 503)
+        return {
+            "type": "error",
+            "code": exc.code,
+            "message": CUSTOM_RULE_UNAVAILABLE_DETAIL,
         }
     if isinstance(exc, LLMRouterError):
         return await _llm_error_event(exc, session_id, db, http_request)

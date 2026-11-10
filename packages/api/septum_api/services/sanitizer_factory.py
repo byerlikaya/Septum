@@ -33,7 +33,7 @@ async def create_sanitizer(
     it once and pass it in; otherwise the current policy is composed here.
     """
     if policy is None:
-        policy = await PolicyComposer().compose(db)
+        policy = await PolicyComposer().compose(db, settings)
     ner_overrides = getattr(settings, "ner_model_overrides", None)
     ner_registry = get_shared_ner_registry(overrides=ner_overrides)
     return PIISanitizer(

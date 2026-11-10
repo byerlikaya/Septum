@@ -6,6 +6,12 @@ from fastapi import HTTPException
 
 MODEL_REFUSED_DETAIL = "A model failed its integrity check; the request was refused."
 
+CUSTOM_RULE_UNAVAILABLE_CODE = "custom_rule_unavailable"
+CUSTOM_RULE_UNAVAILABLE_DETAIL = (
+    "A custom detection rule could not run because the local Ollama model gave no "
+    "usable answer; the request was refused so that no unmasked value is sent."
+)
+
 
 class ContentFreeError(Exception):
     """Base for errors whose message is authored by Septum and carries no user content.
@@ -13,6 +19,17 @@ class ContentFreeError(Exception):
     Only these messages may be persisted or shown verbatim; every other
     exception is reduced to its class name.
     """
+
+
+class CustomRuleUnavailableError(ContentFreeError, RuntimeError):
+    """An ``llm_prompt`` custom rule got no usable answer from the local model.
+
+    Raised instead of returning no matches, so text the rule should have
+    masked is refused rather than sent on unmasked. The message names the
+    rule id and the failure kind only.
+    """
+
+    code = CUSTOM_RULE_UNAVAILABLE_CODE
 
 
 class CodedHTTPError(HTTPException):

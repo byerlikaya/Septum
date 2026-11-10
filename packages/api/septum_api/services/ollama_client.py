@@ -157,20 +157,31 @@ def _default_deanon_model() -> str:
     return os.getenv("OLLAMA_DEANON_MODEL", "llama3.2:3b")
 
 
-def call_ollama_sync(
+class OllamaCallError(RuntimeError):
+    """An Ollama call produced no reply: refused URL, transport/HTTP error or a malformed body.
+
+    The message is a fixed failure kind and never carries the prompt, the
+    URL or the server's text.
+    """
+
+
+def request_ollama_sync(
     prompt: str,
     base_url: str | None = None,
     model: str | None = None,
     timeout: float = 30.0,
+    allow_truncated: bool = True,
 ) -> str:
     """Synchronously call Ollama /api/generate and return the response text.
 
-    Returns ``""`` (the same contract as an unreachable server) when the
-    base URL is refused by :func:`ollama_url_problem`.
+    Raises :class:`OllamaCallError` when no reply was obtained, so a caller
+    that must not fail open can tell a failed call from an empty answer.
+    With ``allow_truncated=False`` a reply cut at the token limit
+    (``done_reason == "length"``) raises too.
     """
     url = _checked_generate_url(base_url)
     if url is None:
-        return ""
+        raise OllamaCallError("url_refused")
     payload: dict[str, Any] = {
         "model": model or _default_deanon_model(),
         "prompt": prompt,
@@ -186,9 +197,32 @@ def call_ollama_sync(
             data = response.json()
     except httpx.HTTPError as exc:
         logger.debug("Ollama sync call failed: %s", type(exc).__name__)
+        raise OllamaCallError(type(exc).__name__) from exc
+    except ValueError as exc:
+        raise OllamaCallError("invalid_body") from exc
+    out = data.get("response") if isinstance(data, dict) else None
+    if not isinstance(out, str):
+        raise OllamaCallError("invalid_body")
+    if not allow_truncated and data.get("done_reason") == "length":
+        raise OllamaCallError("truncated_reply")
+    return out
+
+
+def call_ollama_sync(
+    prompt: str,
+    base_url: str | None = None,
+    model: str | None = None,
+    timeout: float = 30.0,
+) -> str:
+    """Synchronously call Ollama /api/generate; return ``""`` when no reply was obtained.
+
+    For callers whose fallback on an empty reply is safe; see
+    :func:`request_ollama_sync` for the raising variant.
+    """
+    try:
+        return request_ollama_sync(prompt, base_url=base_url, model=model, timeout=timeout)
+    except OllamaCallError:
         return ""
-    out = data.get("response")
-    return out if isinstance(out, str) else ""
 
 
 async def call_ollama_async(

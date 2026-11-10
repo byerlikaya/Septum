@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
+from ..errors import CodedHTTPError
 from ..models.regulation import CustomRecognizer, NonPiiRule, RegulationRuleset
 from ..models.user import User
 from ..services.recognizers.registry import RecognizerRegistry
@@ -27,7 +28,7 @@ from ..utils.auth_dependency import (
     require_role,
     require_user_or_bootstrap,
 )
-from ..utils.db_helpers import validate_regex
+from ..utils.db_helpers import load_settings, validate_regex
 
 router = APIRouter(prefix="/api/regulations", tags=["regulations"])
 
@@ -249,6 +250,19 @@ async def get_regulation_entities(
     return list(ruleset.entity_types or [])
 
 
+LLM_PROMPT_REQUIRED_CODE = "llm_prompt_required"
+
+
+def _require_llm_prompt(detection_method: str, llm_prompt: Optional[str]) -> None:
+    """Refuse an ``llm_prompt`` rule whose prompt is empty: it would never detect anything."""
+    if detection_method == "llm_prompt" and not (llm_prompt or "").strip():
+        raise CodedHTTPError(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="An llm_prompt rule needs a non-empty prompt.",
+            code=LLM_PROMPT_REQUIRED_CODE,
+        )
+
+
 @router.get(
     "/custom",
     status_code=status.HTTP_200_OK,
@@ -280,6 +294,7 @@ async def create_custom_recognizer(
     """
     data = payload.model_dump()
     detection_method = data["detection_method"]
+    _require_llm_prompt(detection_method, data.get("llm_prompt"))
 
     if detection_method == "regex" and data.get("pattern"):
         error = validate_regex(data["pattern"] or "")
@@ -323,6 +338,9 @@ async def update_custom_recognizer(
     update_data = payload.model_dump(exclude_unset=True)
 
     detection_method = update_data.get("detection_method", recognizer.detection_method)
+    _require_llm_prompt(
+        detection_method, update_data.get("llm_prompt", recognizer.llm_prompt)
+    )
     pattern = update_data.get("pattern", recognizer.pattern)
     if detection_method == "regex" and pattern:
         error = validate_regex(pattern)
@@ -372,12 +390,13 @@ async def test_custom_recognizer(
     The implementation reuses :class:`RecognizerRegistry` to build a
     Presidio recognizer for the given database record and runs it over
     the provided sample text. LLM-prompt recognizers run through the local
-    Ollama-backed recognizer, so the result is empty when Ollama is disabled
-    or the recognizer cannot be constructed.
+    Ollama-backed recognizer with the stored Ollama URL and model; when the
+    model gives no usable answer the request is refused with 503 and the
+    ``custom_rule_unavailable`` code, as chat and ingestion refuse.
     """
     recognizer_model = await _get_custom_or_404(db, recognizer_id)
 
-    registry = RecognizerRegistry()
+    registry = RecognizerRegistry(await load_settings(db))
     recognizers = registry._from_custom_recognizers(  # type: ignore[attr-defined]
         [recognizer_model]
     )

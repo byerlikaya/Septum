@@ -5,7 +5,15 @@ from typing import List
 from presidio_analyzer import EntityRecognizer
 
 from septum_api.models.regulation import CustomRecognizer, RegulationRuleset
+from septum_api.models.settings import AppSettings
+from septum_api.services.anonymization_map import AnonymizationMap
 from septum_api.services.policy_composer import ComposedPolicy, PolicyComposer
+from septum_api.services.recognizers import registry as registry_module
+from septum_api.services.recognizers.registry import (
+    LLMContextRecognizer,
+    RecognizerRegistry,
+)
+from septum_api.services.sanitizer import PIISanitizer
 
 
 def _make_regulation(
@@ -133,3 +141,94 @@ def test_gdpr_hipaa_union_includes_date_and_gdpr_alone_does_not() -> None:
     assert "DATE" not in gdpr_only.entity_types
     assert "DATE" in union.entity_types
     assert "DATE_OF_BIRTH" in union.entity_types
+
+
+def _make_custom_llm_recognizer(entity_type: str, llm_prompt: str) -> CustomRecognizer:
+    return CustomRecognizer(
+        id=2,
+        name="Project Codename",
+        entity_type=entity_type,
+        detection_method="llm_prompt",
+        pattern=None,
+        keywords=None,
+        llm_prompt=llm_prompt,
+        context_words=[],
+        placeholder_label=entity_type,
+        is_active=True,
+    )
+
+
+def test_llm_prompt_custom_rule_gets_a_recognizer() -> None:
+    """An active llm_prompt rule is composed into the Ollama-backed recognizer, not dropped."""
+    custom = _make_custom_llm_recognizer("PROJECT_CODENAME", "Find internal project codenames.")
+
+    policy = PolicyComposer().compose_from_data([], [custom], [])
+
+    assert "PROJECT_CODENAME" in policy.entity_types
+    assert [type(r) for r in policy.recognizers] == [LLMContextRecognizer]
+    assert policy.recognizers[0].supported_entities == ["PROJECT_CODENAME"]
+
+
+def test_sanitizer_masks_what_the_llm_prompt_rule_detects(monkeypatch) -> None:
+    """The composed llm_prompt recognizer runs inside the sanitizer; the Ollama call is mocked."""
+    text = "The launch of Bluefinch moves to next quarter."
+    prompts: list[str] = []
+
+    def _fake_ollama(prompt: str, **_kwargs) -> str:
+        prompts.append(prompt)
+        return '[{"text": "Bluefinch"}]'
+
+    monkeypatch.setattr(registry_module, "request_ollama_sync", _fake_ollama)
+    custom = _make_custom_llm_recognizer("PROJECT_CODENAME", "Find internal project codenames.")
+    policy = PolicyComposer().compose_from_data([], [custom], [])
+    settings = AppSettings(
+        id=1,
+        use_presidio_layer=True,
+        use_ner_layer=False,
+        use_ollama_validation_layer=False,
+        use_ollama_layer=False,
+    )
+    anon_map = AnonymizationMap(document_id=1, language="en")
+
+    result = PIISanitizer(settings=settings, policy=policy).sanitize(
+        text=text, language="en", anon_map=anon_map
+    )
+
+    assert prompts
+    assert "Bluefinch" not in result.sanitized_text
+    assert "Bluefinch" in anon_map.entity_map
+
+
+def test_injected_recognizer_registry_is_honoured() -> None:
+    """A registry passed to the composer is used instead of the backend default."""
+    sentinel = EntityRecognizer(supported_entities=["PROJECT_CODENAME"], name="injected")
+
+    class _FixedRegistry(RecognizerRegistry):
+        def build(self, active_regs, active_custom):
+            return [sentinel]
+
+    custom = _make_custom_llm_recognizer("PROJECT_CODENAME", "Find internal project codenames.")
+
+    policy = PolicyComposer(_FixedRegistry()).compose_from_data([], [custom], [])
+
+    assert policy.recognizers == [sentinel]
+
+
+async def test_compose_with_snapshot_yields_llm_recognizer_only_for_active_rules(env) -> None:
+    """The DB-backed entry point used by chat and ingestion keeps active llm_prompt rules, drops inactive ones."""
+    active = _make_custom_llm_recognizer("PROJECT_CODENAME", "Find internal project codenames.")
+    inactive = _make_custom_llm_recognizer("SECRET_CLIENT", "Find secret client names.")
+    inactive.id = 3
+    inactive.name = "Secret Client"
+    inactive.is_active = False
+    async with env.session_maker() as session:
+        session.add_all([active, inactive])
+        await session.commit()
+        settings = AppSettings(id=1)
+
+        policy, snapshot = await PolicyComposer().compose_with_snapshot(session, settings)
+
+    llm_recognizers = [r for r in policy.recognizers if isinstance(r, LLMContextRecognizer)]
+    assert [r.supported_entities for r in llm_recognizers] == [["PROJECT_CODENAME"]]
+    assert "SECRET_CLIENT" not in policy.entity_types
+    assert snapshot is not None
