@@ -24,6 +24,7 @@ from typing import Any
 from .anonymization_map import AnonymizationMap
 from .config import SeptumCoreConfig
 from .detection_version import DETECTOR_VERSION
+from .document_windowing import WindowingPolicy
 from .national_ids import (
     AadhaarValidator,
     BaseIDValidator,
@@ -80,6 +81,7 @@ __all__ = [
     "ProjectedSpan",
     "project",
     "protected_ranges",
+    "WindowingPolicy",
 ]
 
 __version__ = "0.1.0"
