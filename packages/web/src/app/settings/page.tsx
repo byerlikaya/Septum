@@ -16,6 +16,8 @@ import { RagTab } from "@/components/settings/RagTab";
 import { IngestionTab } from "@/components/settings/IngestionTab";
 import { InfrastructureTab } from "@/components/settings/InfrastructureTab";
 import { NerModelsTab } from "@/components/settings/NerModelsTab";
+import { ContextualCoverageBanner } from "@/components/settings/ContextualCoverageBanner";
+import { useContextualLayerStatus } from "@/hooks/useContextualLayerStatus";
 
 type SettingsResponse = AppSettingsResponse;
 
@@ -41,6 +43,19 @@ function SettingsContent() {
   const [activeTab, setActiveTab] = useState<SettingsTab>(
     searchParams?.get("tab") === "privacy" ? "privacy" : "llm-provider"
   );
+  const coverage = useContextualLayerStatus();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const focusPanelRef = useRef(false);
+  const openCoverageTab = useCallback((tab: SettingsTab) => {
+    focusPanelRef.current = true;
+    setActiveTab(tab);
+  }, []);
+  useEffect(() => {
+    if (focusPanelRef.current) {
+      focusPanelRef.current = false;
+      panelRef.current?.focus();
+    }
+  }, [activeTab]);
   const [settings, setSettings] = useState<SettingsResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -251,6 +266,8 @@ function SettingsContent() {
         </p>
       </header>
 
+      <ContextualCoverageBanner {...coverage} onOpenTab={openCoverageTab} />
+
       <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
         <div className="flex shrink-0 gap-1 overflow-x-auto md:w-52 md:flex-col md:overflow-x-visible md:overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/80 p-2 text-sm">
           <SettingsTabButton
@@ -291,7 +308,10 @@ function SettingsContent() {
           />
         </div>
 
-        <div className="relative min-h-0 min-w-0 flex-1 overflow-y-auto rounded-lg border border-border bg-slate-900 p-3 text-slate-50 sm:p-4">
+        <div
+          ref={panelRef}
+          tabIndex={-1}
+          className="relative min-h-0 min-w-0 flex-1 overflow-y-auto rounded-lg border border-border bg-slate-900 p-3 text-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 sm:p-4">
           {showSaved && (
             <div className="absolute right-4 top-4 z-10 flex items-center gap-1.5 rounded-md bg-emerald-600/90 px-3 py-1.5 text-xs font-medium text-white shadow-lg transition-opacity duration-200">
               <Check className="h-3.5 w-3.5" />

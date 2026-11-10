@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import RegulationsPage from "../page";
 
 const mockGet = jest.fn();
+const mockStatus = jest.fn();
 
 jest.mock("../../../../lib/language", () => ({
   useLanguage: () => ({ language: "en" })
@@ -11,7 +12,8 @@ jest.mock("../../../../lib/api", () => ({
   api: {
     get: (...args: unknown[]) => mockGet(...args),
     patch: jest.fn()
-  }
+  },
+  getContextualLayerStatus: (...args: unknown[]) => mockStatus(...args)
 }));
 
 jest.mock("../../../../components/settings/CustomRuleBuilderPanel", () => ({
@@ -39,6 +41,11 @@ function mountWith(rulesets: unknown[]) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockStatus.mockResolvedValue({
+    state: "covered",
+    entity_types: [],
+    local_model_reachable: true
+  });
 });
 
 it("shows the translated description for a built-in regulation", async () => {
@@ -114,7 +121,9 @@ it("states that e-mail is always masked even when no regulation is active", asyn
 });
 
 describe("contextual layer note", () => {
-  const mountWithFlag = async (flag: boolean) => {
+  const mountWithStatus = async (status: unknown) => {
+    if (status instanceof Error) mockStatus.mockRejectedValue(status);
+    else mockStatus.mockResolvedValue(status);
     mockGet.mockImplementation((url: string) => {
       if (url === "/api/regulations")
         return Promise.resolve({
@@ -126,54 +135,89 @@ describe("contextual layer note", () => {
             })
           ]
         });
-      if (url === "/api/settings")
-        return Promise.resolve({ data: { use_ollama_semantic_layer: flag } });
       return Promise.resolve({ data: [] });
     });
     render(<RegulationsPage />);
     fireEvent.click(await screen.findByRole("button", { name: /General Data Protection/i }));
-    await screen.findByText("DIAGNOSIS");
+    await screen.findByText("EMAIL_ADDRESS");
   };
 
-  it("shows the note and a Privacy settings link while the layer is off", async () => {
-    await mountWithFlag(false);
-    expect(
-      await screen.findByText(/requires Ollama semantic detection, currently off/i)
-    ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /privacy settings/i })).toHaveAttribute(
-      "href",
-      "/settings?tab=privacy"
-    );
-  });
-
-  it("hides the note while the layer is on", async () => {
-    await mountWithFlag(true);
-    await new Promise((r) => setTimeout(r, 0));
-    expect(screen.queryByText(/currently off/i)).not.toBeInTheDocument();
-  });
-
-  it("shows no note and logs the error when settings fail to load", async () => {
-    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
-    const failure = new Error("settings unavailable");
-    mockGet.mockImplementation((url: string) => {
-      if (url === "/api/regulations")
-        return Promise.resolve({
-          data: [
-            ruleset({
-              id: "gdpr",
-              display_name: "General Data Protection Regulation",
-              entity_types: ["EMAIL_ADDRESS", "DIAGNOSIS"]
-            })
-          ]
-        });
-      if (url === "/api/settings") return Promise.reject(failure);
-      return Promise.resolve({ data: [] });
+  it("links to Privacy settings when the layer is off and the local model is reachable", async () => {
+    await mountWithStatus({
+      state: "layer_off",
+      entity_types: ["DIAGNOSIS"],
+      local_model_reachable: true
     });
-    render(<RegulationsPage />);
-    fireEvent.click(await screen.findByRole("button", { name: /General Data Protection/i }));
-    await screen.findByText("DIAGNOSIS");
-    await waitFor(() => expect(errorSpy).toHaveBeenCalledWith(failure));
-    expect(screen.queryByText(/currently off/i)).not.toBeInTheDocument();
+    expect(
+      await screen.findByText(/requires Ollama semantic detection, which is off:/i)
+    ).toBeInTheDocument();
+    expect(screen.getByText("EMAIL_ADDRESS").textContent).toBe("EMAIL_ADDRESS");
+    expect(
+      screen.getAllByText("DIAGNOSIS").some((el) => /which is off/i.test(el.textContent ?? ""))
+    ).toBe(true);
+    const links = screen.getAllByRole("link", { name: /privacy/i });
+    expect(links.length).toBe(2);
+    links.forEach((link) => expect(link).toHaveAttribute("href", "/settings?tab=privacy"));
+    expect(screen.getByRole("status")).toBeInTheDocument();
+  });
+
+  it("treats an unprobed model as unreachable: setup link, no Privacy link", async () => {
+    await mountWithStatus({
+      state: "layer_off",
+      entity_types: ["DIAGNOSIS"],
+      local_model_reachable: null
+    });
+    expect(await screen.findByText(/no local model is reachable/i)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /privacy/i })).not.toBeInTheDocument();
+    screen
+      .getAllByRole("link", { name: /set up the local model/i })
+      .forEach((link) => expect(link).toHaveAttribute("href", "/settings?tab=llm-provider"));
+  });
+
+  it("points to the local model setup, not the turn-on link, when the layer is off and the model is unreachable", async () => {
+    await mountWithStatus({
+      state: "layer_off",
+      entity_types: ["DIAGNOSIS"],
+      local_model_reachable: false
+    });
+    expect(await screen.findByText(/no local model is reachable/i)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /privacy/i })).not.toBeInTheDocument();
+    const links = screen.getAllByRole("link", { name: /set up the local model/i });
+    expect(links.length).toBe(2);
+    links.forEach((link) => expect(link).toHaveAttribute("href", "/settings?tab=llm-provider"));
+  });
+
+  it("points to the local model setup when the layer is on but the model is unavailable", async () => {
+    await mountWithStatus({
+      state: "local_model_unavailable",
+      entity_types: ["DIAGNOSIS"],
+      local_model_reachable: false
+    });
+    expect(await screen.findByText(/cannot be reached right now/i)).toBeInTheDocument();
+    expect(screen.queryByText(/which is off/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /privacy/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
+  it("shows no note and no banner when special categories are covered", async () => {
+    await mountWithStatus({ state: "covered", entity_types: ["DIAGNOSIS"], local_model_reachable: true });
+    await waitFor(() => expect(mockStatus).toHaveBeenCalled());
+    await mockStatus.mock.results[0].value;
+    expect(screen.queryByText(/which is off/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows only the neutral notice, no per-entity note, when the status call fails", async () => {
+    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    await mountWithStatus(new Error("status unavailable"));
+    await waitFor(() => expect(mockStatus).toHaveBeenCalled());
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Could not verify special-category masking coverage"
+    );
+    expect(screen.queryByText(/which is off/i)).not.toBeInTheDocument();
+    expect(screen.getByText("DIAGNOSIS").textContent).toBe("DIAGNOSIS");
+    expect(errorSpy).toHaveBeenCalled();
     errorSpy.mockRestore();
   });
 });

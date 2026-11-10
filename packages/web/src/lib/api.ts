@@ -10,6 +10,7 @@ import type {
   ChangePasswordPayload,
   ChatSessionDetail,
   ChatSessionSummary,
+  ContextualLayerStatus,
   CreateUserPayload,
   Document,
   DocumentListResponse,
@@ -23,6 +24,7 @@ import type {
   UpdateUserPayload,
   UserListItem,
 } from "./types";
+import { isContextualLayerStatus } from "./contextualCoverage";
 import { hardNavigate } from "./navigation";
 
 // Default ``""`` makes requests relative so Next.js rewrites in
@@ -403,6 +405,14 @@ export async function patchSettings<T = AppSettingsResponse>(
   payload: Record<string, unknown>,
 ): Promise<T> {
   const { data } = await api.patch<T>("/api/settings", payload);
+  return data;
+}
+
+export async function getContextualLayerStatus(): Promise<ContextualLayerStatus> {
+  const { data } = await api.get<unknown>("/api/settings/contextual-layer-status");
+  if (!isContextualLayerStatus(data)) {
+    throw new Error("Contextual layer status response was malformed");
+  }
   return data;
 }
 

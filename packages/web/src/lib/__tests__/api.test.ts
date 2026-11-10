@@ -1,4 +1,11 @@
-import api, { baseURL, extractErrorCode, extractErrorDetail, getChatDebug, resolveBaseURL } from "../api";
+import api, {
+  baseURL,
+  extractErrorCode,
+  extractErrorDetail,
+  getChatDebug,
+  getContextualLayerStatus,
+  resolveBaseURL,
+} from "../api";
 
 describe("baseURL (module-load resolution)", () => {
   // jest.setup.ts does not set NEXT_PUBLIC_API_BASE_URL, so the module
@@ -49,6 +56,30 @@ describe("getChatDebug", () => {
 
     expect(spy).toHaveBeenCalledWith("/api/chat/debug/a%2Fb%3Fc");
     spy.mockRestore();
+  });
+});
+
+describe("getContextualLayerStatus", () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it("returns a valid status body", async () => {
+    const body = { state: "layer_off", entity_types: ["DIAGNOSIS"], local_model_reachable: true };
+    const spy = jest.spyOn(api, "get").mockResolvedValue({ data: body });
+
+    await expect(getContextualLayerStatus()).resolves.toEqual(body);
+    expect(spy).toHaveBeenCalledWith("/api/settings/contextual-layer-status");
+  });
+
+  it.each([
+    ["an unknown state", { state: "mystery", entity_types: [] }],
+    ["entity_types that is not an array", { state: "covered", entity_types: "DIAGNOSIS" }],
+    ["null", null],
+    ["a string", "covered"],
+    ["an empty object", {}],
+  ])("rejects %s", async (_label, data) => {
+    jest.spyOn(api, "get").mockResolvedValue({ data });
+
+    await expect(getContextualLayerStatus()).rejects.toThrow(/malformed/);
   });
 });
 

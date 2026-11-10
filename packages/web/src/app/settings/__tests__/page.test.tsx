@@ -4,6 +4,7 @@ import SettingsPage from "../page";
 const mockGet = jest.fn();
 const mockPost = jest.fn();
 const mockPatch = jest.fn();
+const mockStatus = jest.fn();
 const mockT = (key: string) => key;
 
 jest.mock("../../../lib/i18n", () => ({
@@ -17,6 +18,7 @@ jest.mock("../../../lib/api", () => ({
     post: (...a: unknown[]) => mockPost(...a),
     patch: (...a: unknown[]) => mockPatch(...a)
   },
+  getContextualLayerStatus: (...a: unknown[]) => mockStatus(...a),
   OLLAMA_URL_NOT_ALLOWED: "ollama_url_not_allowed",
   extractErrorCode: (e: { response?: { data?: { code?: string } } }) =>
     e?.response?.data?.code ?? null,
@@ -31,9 +33,14 @@ jest.mock("../../../components/common/OllamaModelCombobox", () => ({
 beforeEach(() => {
   jest.clearAllMocks();
   jest.spyOn(console, "error").mockImplementation(() => undefined);
+  mockStatus.mockResolvedValue({ state: "covered", entity_types: [], local_model_reachable: true });
   mockGet.mockResolvedValue({
     data: { llm_provider: "anthropic", llm_model: "m", ollama_base_url: "http://localhost:11434" }
   });
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
 });
 
 it("maps a coded cloud test refusal to the translated rejection instead of the English detail", async () => {
@@ -119,4 +126,93 @@ it("shows the update error with a retry that reloads the stored value when savin
   const reloaded = (await screen.findByText("settings.rag.defaultChunkSize.label"))
     .parentElement!.querySelector("input")!;
   expect(reloaded).toHaveValue(1000);
+});
+
+describe("contextual coverage banner", () => {
+  it("shows the banner above every tab and opens the Privacy tab from the turn-on action (layer off, model now reachable)", async () => {
+    mockStatus.mockResolvedValue({
+      state: "layer_off",
+      entity_types: ["DIAGNOSIS", "RELIGION"],
+      local_model_reachable: true
+    });
+    render(<SettingsPage />);
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "settings.contextualCoverage.layerOff.reachable"
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("DIAGNOSIS, RELIGION");
+
+    fireEvent.click(screen.getByText("settings.tabs.rag.label"));
+    expect(screen.getByRole("status")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "settings.contextualCoverage.turnOn" }));
+    expect(screen.getByText("settings.tabs.privacy.label").closest("button")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(mockStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders an alert when the local model is unavailable", async () => {
+    mockStatus.mockResolvedValue({
+      state: "local_model_unavailable",
+      entity_types: ["DIAGNOSIS"],
+      local_model_reachable: false
+    });
+    render(<SettingsPage />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "settings.contextualCoverage.modelUnavailable"
+    );
+  });
+
+  it("moves focus to the LLM Provider tab panel after the set-up action switches tabs", async () => {
+    mockStatus.mockResolvedValue({
+      state: "layer_off",
+      entity_types: ["DIAGNOSIS"],
+      local_model_reachable: false
+    });
+    render(<SettingsPage />);
+
+    fireEvent.click(await screen.findByText("settings.tabs.privacy.label"));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "settings.contextualCoverage.layerOff.unreachable"
+    );
+    const setUp = screen.getByRole("button", { name: "settings.contextualCoverage.setUpModel" });
+    setUp.focus();
+    fireEvent.click(setUp);
+
+    expect(screen.getByText("settings.tabs.llm.label").closest("button")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    await waitFor(() => {
+      const active = document.activeElement as HTMLElement;
+      expect(active).not.toBe(setUp);
+      expect(active).toHaveAttribute("tabindex", "-1");
+      expect(active).toContainElement(screen.getByText("settings.common.testConnection"));
+    });
+  });
+
+  it.each(["covered", "not_applicable"])("stays silent after the call resolves for %s", async (state) => {
+    mockStatus.mockResolvedValue({ state, entity_types: [], local_model_reachable: true });
+    render(<SettingsPage />);
+
+    expect(await screen.findByText("settings.common.testConnection")).toBeInTheDocument();
+    await waitFor(() => expect(mockStatus).toHaveBeenCalledTimes(1));
+    await mockStatus.mock.results[0].value;
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows a neutral notice without blocking the page when the status call fails", async () => {
+    mockStatus.mockRejectedValue(new Error("down"));
+    render(<SettingsPage />);
+
+    expect(await screen.findByText("settings.common.testConnection")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "settings.contextualCoverage.unverified"
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });

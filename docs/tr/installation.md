@@ -253,6 +253,8 @@ Sihirbaz tamamlandığında `config.json` yazılır, admin kullanıcı oluşturu
 
 **Bağlamsal katman (özel nitelikli kişisel veri).** Yeni bir kurulumda sihirbaz tamamlandığında Septum, sağlık, din, siyasi görüş, etnik köken ve cinsel yönelim gibi özel nitelikli kişisel verileri yerel modelle maskeleyen *Ollama semantik tespit* katmanını (`use_ollama_semantic_layer`) açar. Bunu yalnızca şu koşulların hepsi sağlandığında yapar: sihirbazda yerel model seçilmiştir (sağlayıcı olarak Ollama ya da Ollama katmanı seçeneği açık); `USE_OLLAMA_SEMANTIC_LAYER_DEFAULT` açıkça `false` yapılmamıştır; etkin regülasyon paketlerinden en az biri bağlamsal varlık tipleri içerir; yapılandırılmış Ollama yanıt verir ve Lokal PII modeli (`ollama_deanon_model`) kuruludur. Aksi halde katman kapalı kalır. `USE_OLLAMA_SEMANTIC_LAYER_DEFAULT=true` ayar kaydı oluşturulurken katmanı yine zorla açar; açık `false` ise operatörün bilinçli vazgeçişidir.
 
+**Bağlamsal katman uyarısı.** Ayarlar'ın her sekmesinin üstünde ve Regülasyonlar sayfasında (bağlamsal varlık tiplerinde ayrıca kısa bir not da görünür) kapatılamayan bir uyarı bandı gösterilir. Katman kapalıyken maskelenmeyen ve bulut sağlayıcı kullanılıyorsa buluta maskesiz gidebilecek özel nitelikli kişisel veri kategorilerini sayar; lokal modele ulaşılabiliyorsa katmanı açan Gizlilik ve Anonimleştirme ayarına, aksi halde LLM Provider sekmesinde lokal modelin kurulumuna bağlantı verir. Katman açık olduğu hâlde lokal modele ulaşılamıyorsa bu kategorileri içeren istekler model geri gelene kadar reddedilir ve bant lokal modelin kurulumuna bağlantı verir. Durum kontrol edilemezse nötr bir bildirim, maskeleme kapsamının doğrulanamadığını söyler.
+
 Açmanın bedeli vardır: her doküman ve soru için ek gecikme, çalışan bir Ollama'ya bağımlılık ve katman açıkken yanıt veremezse yapılan ret. Güvenli ret davranışı için [3. katmanın maliyeti ve hata durumu](features#tespit-hattı), yerel sınırlar için [Ollama modelleri](#llm-sağlayıcıları) bölümüne bakın.
 
 ### Sihirbaza yazılacak tam değerler (tam compose yığını)
@@ -558,7 +560,7 @@ docker compose logs -f api                  # migration'ı izleyin
 
 Alembic migration'ları api boot anında otomatik uygulanır. Bir migration başarısız olursa api container'ı açıklayıcı bir hata mesajıyla sonlanır; log'u inceleyip sebebi çözdükten sonra `up -d --build`'i tekrarlayın.
 
-**Güncellemede bağlamsal katman.** Sihirbazın *Ollama semantik tespit* katmanını kendiliğinden açması yalnızca yeni kurulumlar için geçerlidir. Kurulumu zaten tamamlanmış bir sistem mevcut ayarını korur.
+**Güncellemede bağlamsal katman.** Sihirbazın *Ollama semantik tespit* katmanını kendiliğinden açması yalnızca yeni kurulumlar için geçerlidir. Kurulumu zaten tamamlanmış bir sistem mevcut ayarını korur, ancak özel nitelikli kişisel veri maskelenmiyorsa Ayarlar ve Regülasyonlar sayfaları yine uyarır.
 
 Standalone varyantı için aynı komutu kendi compose dosyasıyla çalıştırın:
 

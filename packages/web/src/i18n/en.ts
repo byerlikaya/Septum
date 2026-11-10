@@ -621,8 +621,24 @@ export const enMessages = {
   "regulations.builtin.entityCountSuffix": "entity types covered.",
   "regulations.builtin.officialLink": "View official text",
   "regulations.builtin.contextualOffNote.text":
-    "requires Ollama semantic detection, currently off.",
+    "requires Ollama semantic detection, which is off: not masked, may reach a cloud LLM unmasked.",
   "regulations.builtin.contextualOffNote.link": "Turn it on in Privacy settings",
+  "regulations.builtin.contextualOffNote.unreachableText":
+    "requires Ollama semantic detection, which is off: not masked, may reach a cloud LLM unmasked. No local model is reachable.",
+  "regulations.builtin.contextualOffNote.modelDownText":
+    "requires the local model, which cannot be reached right now; requests containing these values are refused until it is back.",
+  "regulations.builtin.contextualOffNote.setUpLink": "Set up the local model",
+  "settings.contextualCoverage.layerOff.reachable":
+    "The contextual detection layer is off, so special-category personal data is not masked and may reach a cloud LLM unmasked when a cloud provider is used. Your local model is reachable, so you can turn the layer on.",
+  "settings.contextualCoverage.layerOff.unreachable":
+    "The contextual detection layer is off, so special-category personal data is not masked and may reach a cloud LLM unmasked when a cloud provider is used. Turning it on needs a local model, and none is reachable right now.",
+  "settings.contextualCoverage.modelUnavailable":
+    "The contextual detection layer is on, but the local model cannot be reached. Requests that touch special-category personal data are refused until it is back.",
+  "settings.contextualCoverage.unverified":
+    "Could not verify special-category masking coverage",
+  "settings.contextualCoverage.typesLabel": "Affected types:",
+  "settings.contextualCoverage.turnOn": "Turn on in the Privacy & Sanitization tab",
+  "settings.contextualCoverage.setUpModel": "Set up the local model in the LLM Provider tab",
   "regulations.builtin.viewEntities": "View entity types",
   "regulations.builtin.hideEntities": "Hide entity types",
   "regulations.builtin.badge.builtin": "Built‑in",

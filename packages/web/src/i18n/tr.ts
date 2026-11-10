@@ -639,8 +639,24 @@ export const trMessages: Record<string, string> = {
   "regulations.builtin.entityCountSuffix": "varlık türünü kapsar.",
   "regulations.builtin.officialLink": "Resmi metni görüntüle",
   "regulations.builtin.contextualOffNote.text":
-    "Ollama semantik tespit gerektirir, şu an kapalı.",
+    "Ollama semantik tespit gerektirir, şu an kapalı: maskelenmez, bulut LLM'e maskelenmeden gidebilir.",
   "regulations.builtin.contextualOffNote.link": "Gizlilik ayarlarından açın",
+  "regulations.builtin.contextualOffNote.unreachableText":
+    "Ollama semantik tespit gerektirir, şu an kapalı: maskelenmez, bulut LLM'e maskelenmeden gidebilir. Erişilebilen lokal model yok.",
+  "regulations.builtin.contextualOffNote.modelDownText":
+    "lokal model gerektirir; model şu an erişilemiyor, bu değerleri içeren istekler model geri gelene kadar reddedilir.",
+  "regulations.builtin.contextualOffNote.setUpLink": "Lokal modeli kurun",
+  "settings.contextualCoverage.layerOff.reachable":
+    "Bağlamsal tespit katmanı kapalı; özel nitelikli kişisel veriler maskelenmiyor ve bulut sağlayıcı kullanılıyorsa bulut LLM'e maskelenmeden gidebilir. Lokal modele erişilebiliyor, katmanı açabilirsiniz.",
+  "settings.contextualCoverage.layerOff.unreachable":
+    "Bağlamsal tespit katmanı kapalı; özel nitelikli kişisel veriler maskelenmiyor ve bulut sağlayıcı kullanılıyorsa bulut LLM'e maskelenmeden gidebilir. Katmanı açmak için lokal model gerekir; şu an erişilebilen bir model yok.",
+  "settings.contextualCoverage.modelUnavailable":
+    "Bağlamsal tespit katmanı açık, ancak lokal modele ulaşılamıyor. Model geri gelene kadar özel nitelikli kişisel veri içeren istekler reddedilir.",
+  "settings.contextualCoverage.unverified":
+    "Özel nitelikli kişisel veri maskeleme kapsamı doğrulanamadı",
+  "settings.contextualCoverage.typesLabel": "Etkilenen türler:",
+  "settings.contextualCoverage.turnOn": "Gizlilik ve Anonimleştirme sekmesinden açın",
+  "settings.contextualCoverage.setUpModel": "LLM Provider sekmesinden lokal modeli kurun",
   "regulations.builtin.viewEntities": "Varlık türlerini göster",
   "regulations.builtin.hideEntities": "Varlık türlerini gizle",
   "regulations.builtin.badge.builtin": "Yerleşik",
