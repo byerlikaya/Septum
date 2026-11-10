@@ -9,6 +9,7 @@ slicing of long input, and masking of every word-bounded occurrence.
 from __future__ import annotations
 
 import json
+import re
 import signal
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,10 +30,11 @@ from septum_api.routers import documents as documents_module
 from septum_api.services import document_anon_store, ollama_client
 from septum_api.services.anonymization_map import AnonymizationMap
 from septum_api.services.contextual_placement import (
-    _MIN_SLICE_BYTES,
-    _contextual_slices,
+    MIN_SLICE_BYTES,
+    contextual_slices,
 )
 from septum_api.services.llm_router import LLMRouter
+from septum_api.services.ollama_detection_runner import clear_detection_cache
 from septum_api.services.policy_composer import PolicyComposer
 from septum_api.services.policy_snapshot import build_policy_snapshot
 from septum_api.services.remask_cache import remask_cache
@@ -185,7 +187,24 @@ def _detect(text: str, settings: AppSettings | None = None) -> list[Any]:
 
 
 def _text_part(prompt: str) -> str:
-    return prompt.split("Text:\n", 1)[1]
+    """The inspected text of a prompt: what its ``<data-…>`` delimiters enclose, before the repeated task."""
+    block = prompt.split("Text:\n", 1)[1]
+    match = re.fullmatch(
+        r"<data-([0-9a-f]{16})>\n(.*)\n</data-\1>\n\nTask \(repeated\): .*", block, re.DOTALL
+    )
+    assert match is not None, "the text part is not one nonce-delimited data block"
+    return match.group(2)
+
+
+def _sent_every_slice(
+    ollama: "_FakeOllama", text: str, entity_types: list[str], window: int
+) -> bool:
+    """Whether every distinct slice of ``text`` was sent; identical slices are sent once."""
+    from septum_api.services.sanitizer import _contextual_slice_budget
+
+    budget = _contextual_slice_budget(entity_types, window)
+    expected = {piece for _, piece in contextual_slices(text, budget)}
+    return {_text_part(p) for p in ollama.prompts} == expected
 
 
 def _reply_with_whole_values_of(prompt: str) -> str:
@@ -543,13 +562,13 @@ def _reply_with(value: str, entity_type: str = "DIAGNOSIS") -> str:
 
 
 def _slice_ranges(text: str) -> list[tuple[int, int]]:
-    return [(offset, offset + len(part)) for offset, part in _contextual_slices(text)]
+    return [(offset, offset + len(part)) for offset, part in contextual_slices(text)]
 
 
 def test_slicing_a_million_characters_without_whitespace_terminates_and_covers_the_text() -> None:
     text = "a" * 1_000_000
 
-    slices = _contextual_slices(text)
+    slices = contextual_slices(text)
 
     assert all(len(part) <= SLICE_LIMIT for _, part in slices)
     assert all(text[offset : offset + len(part)] == part for offset, part in slices)
@@ -625,7 +644,7 @@ def test_offsets_stay_exact_across_cuts_in_combining_marks_emoji_and_expanding_l
 
     spans = _detect(text)
 
-    assert len(_contextual_slices(text)) > 3
+    assert len(contextual_slices(text)) > 3
     assert [(s.start, s.end) for s in spans] == _occurrences(text, value)
     assert all(text[s.start : s.end] == value for s in spans)
 
@@ -903,12 +922,12 @@ def test_every_contextual_prompt_fits_the_window_whatever_the_script(
     ollama.reply = "[]"
     text = unit * (12_000 // len(unit))
 
-    _detect_types(text, ["DIAGNOSIS", "MEDICATION", "RELIGION"])
+    types = ["DIAGNOSIS", "MEDICATION", "RELIGION"]
+    _detect_types(text, types)
 
     worst = max(len(p.encode("utf-8")) for p in ollama.prompts)
     assert worst + ollama_client.OLLAMA_NUM_PREDICT < ollama_client.OLLAMA_NUM_CTX
-    covered = sum(len(_text_part(p)) for p in ollama.prompts)
-    assert covered >= len(text)
+    assert _sent_every_slice(ollama, text, types, ollama_client.OLLAMA_NUM_CTX)
 
 
 _SEVERAL_TYPES = ["MEDICATION", "MEDICAL_CONDITION", "RELIGION"]
@@ -1029,7 +1048,7 @@ def test_a_value_inside_the_overlap_window_after_the_first_slice_is_placed(
     ollama: _FakeOllama,
 ) -> None:
     text, start = _text_with_value_after(334)
-    first_end = len(_contextual_slices(text)[0][1])
+    first_end = len(contextual_slices(text)[0][1])
     assert first_end <= start
     assert start + len(VALUE) <= first_end + 200
     ollama.reply = _first_slice_only_reply()
@@ -1045,7 +1064,7 @@ def test_a_value_that_exists_only_beyond_the_slice_and_its_overlap_window_is_not
     from septum_api.errors import SemanticLayerUnavailableError
 
     text, start = _text_with_value_after(380)
-    first_end = len(_contextual_slices(text)[0][1])
+    first_end = len(contextual_slices(text)[0][1])
     assert start >= first_end + 200
     ollama.reply = _first_slice_only_reply()
 
@@ -1062,7 +1081,7 @@ def test_a_value_cut_by_the_overlap_window_is_unplaced_and_its_only_reply_refuse
     from septum_api.errors import SemanticLayerUnavailableError
 
     text, start = _text_with_value_after(364)
-    first_end = len(_contextual_slices(text)[0][1])
+    first_end = len(contextual_slices(text)[0][1])
     assert start < first_end + 200 < start + len(VALUE)
     ollama.reply = _first_slice_only_reply()
 
@@ -1079,7 +1098,7 @@ def test_slices_of_four_byte_text_stay_within_the_byte_budget_and_overlap(unit: 
     budget = _contextual_slice_budget(["DIAGNOSIS"], ollama_client.OLLAMA_NUM_CTX)
     text = unit * (12_000 // len(unit))
 
-    slices = _contextual_slices(text, budget)
+    slices = contextual_slices(text, budget)
 
     assert len(slices) > 1
     assert all(len(piece.encode("utf-8")) <= budget for _, piece in slices)
@@ -1102,7 +1121,7 @@ def _bounded_slices(text: str, budget: int) -> list[tuple[int, str]]:
     previous = signal.signal(signal.SIGALRM, _stalled)
     signal.setitimer(signal.ITIMER_REAL, _SLICING_SECONDS)
     try:
-        return _contextual_slices(text, budget)
+        return contextual_slices(text, budget)
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, previous)
@@ -1129,7 +1148,7 @@ def _dense_text_with_space_at(unit: str, position: int) -> str:
 def test_slicing_at_the_minimum_budget_progresses_when_the_only_space_sits_near_the_overlap(
     unit: str, position: int
 ) -> None:
-    _assert_slices_progress_and_overlap(_dense_text_with_space_at(unit, position), _MIN_SLICE_BYTES)
+    _assert_slices_progress_and_overlap(_dense_text_with_space_at(unit, position), MIN_SLICE_BYTES)
 
 
 def test_slicing_dense_text_progresses_at_every_budget_from_the_minimum_to_2000() -> None:
@@ -1141,14 +1160,14 @@ def test_slicing_dense_text_progresses_at_every_budget_from_the_minimum_to_2000(
     texts.append(("\U0001f600" * 199 + " ") * 30)
     texts.append(("糖" * 230 + " ") * 30)
 
-    for budget in range(_MIN_SLICE_BYTES, _MIN_SLICE_BYTES + 401):
+    for budget in range(MIN_SLICE_BYTES, MIN_SLICE_BYTES + 401):
         for text in texts:
             _assert_slices_progress_and_overlap(text, budget)
 
 
 def test_slicing_refuses_a_budget_below_the_minimum() -> None:
     with pytest.raises(ValueError):
-        _contextual_slices("a" * 5000, _MIN_SLICE_BYTES - 1)
+        contextual_slices("a" * 5000, MIN_SLICE_BYTES - 1)
 
 
 def test_a_value_after_many_four_byte_characters_gets_its_absolute_character_offset(
@@ -1199,7 +1218,7 @@ def test_a_model_trained_on_a_short_context_gets_slices_that_fit_its_window(
 
     worst = max(len(p.encode("utf-8")) for p in ollama.prompts)
     assert worst + ollama_client.OLLAMA_NUM_PREDICT < SHORT_CONTEXT
-    assert sum(len(_text_part(p)) for p in ollama.prompts) >= len(text)
+    assert _sent_every_slice(ollama, text, ["DIAGNOSIS"], SHORT_CONTEXT)
     assert {p["options"]["num_ctx"] for p in ollama.payloads} == {SHORT_CONTEXT}
 
 
@@ -1235,7 +1254,7 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     return now
 
 
-def test_the_trained_length_is_read_again_once_its_cache_entry_expires(
+async def test_the_trained_length_is_read_again_once_its_cache_entry_expires(
     ollama: _FakeOllama, clock: list[float]
 ) -> None:
     """A model tag swapped on the server is picked up without a restart."""
@@ -1246,6 +1265,7 @@ def test_the_trained_length_is_read_again_once_its_cache_entry_expires(
 
     ollama.trained_context = SHORT_CONTEXT
     clock[0] += 2
+    await clear_detection_cache()
     _detect(SENTENCE)
 
     assert len(ollama.show_requests) == 2

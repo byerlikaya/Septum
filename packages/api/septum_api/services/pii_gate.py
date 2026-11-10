@@ -383,9 +383,11 @@ def _mask_originals(text: str, state: _MaskState) -> str:
     return masked
 
 
-def _mask_with_state(text: str, state: _MaskState, anon_map: AnonymizationMap) -> str:
-    """:func:`mask_known_entities` with a state already built for ``anon_map``."""
-    return anon_map.apply_blocklist(_mask_originals(text, state), language=anon_map.language)
+def _mask_with_state(
+    text: str, state: _MaskState, anon_map: AnonymizationMap, language: Optional[str] = None
+) -> str:
+    """Mask the originals of ``state`` in ``text``, then apply ``anon_map``'s blocklist in ``language`` (the map's by default)."""
+    return anon_map.apply_blocklist(_mask_originals(text, state), language=language)
 
 
 def _heading_line(title: str, source_text: str) -> Optional[str]:
@@ -651,23 +653,57 @@ def _gate_one(
         return text
     if state is None:
         state = _MaskState(anon_map)
-    masked = _mask_originals(normalize_unicode(text), state)
-    masked = anon_map.apply_blocklist(masked, language=language)
+    masked = _premask(text, anon_map, state, language)
+    pieces = _detected_pieces(masked, sanitizer, language, state)
+    if not pieces:
+        return masked
+    reserve_placeholder_counters(anon_map)
+    return _replace_pieces(masked, pieces, anon_map, language)
 
+
+_Piece = Tuple[int, int, str, Optional[Tuple[int, int]]]
+"""A detected range to replace: ``(start, end, entity_type, core)``."""
+
+LABEL_SEPARATOR = "\n\n"
+"""Joins the labels :func:`_gate_joined` gates as one text.
+
+A paragraph break, so detectors treat each label as its own sentence.
+Labels are mapped back by offset, never by splitting on it, so a label
+that holds the separator itself is still mapped correctly.
+"""
+
+
+def _premask(
+    text: str, anon_map: AnonymizationMap, state: _MaskState, language: str
+) -> str:
+    """:func:`_mask_with_state` on ``text`` normalized to NFC."""
+    return _mask_with_state(normalize_unicode(text), state, anon_map, language)
+
+
+def _detected_pieces(
+    masked: str, sanitizer: "PIISanitizer", language: str, state: _MaskState
+) -> List[_Piece]:
+    """Run the sanitizer over ``masked`` and return what it finds outside known placeholders, trimmed."""
     result = sanitizer.sanitize(
         masked, language, AnonymizationMap(document_id=0, language=language)
     )
     protected = state.protected_ranges(masked)
-    pieces: List[Tuple[int, int, str, Optional[Tuple[int, int]]]] = []
+    pieces: List[_Piece] = []
     for span in sorted(result.detected_spans, key=lambda s: s.start):
         for p_start, p_end in _outside_ranges(span.start, span.end, protected):
             trimmed = _trim(masked, p_start, p_end)
             if trimmed is not None:
                 pieces.append((trimmed[0], trimmed[1], span.entity_type, span.core))
-    if not pieces:
-        return masked
+    return pieces
 
-    reserve_placeholder_counters(anon_map)
+
+def _replace_pieces(
+    masked: str, pieces: Sequence[_Piece], anon_map: AnonymizationMap, language: str
+) -> str:
+    """Replace each piece of ``masked`` with the placeholder of its entity, registering new ones.
+
+    Counters must already be reserved (:func:`reserve_placeholder_counters`).
+    """
     mirror_lookup = bool(anon_map.placeholder_lookup)
     parts: List[str] = []
     cursor = 0
@@ -686,6 +722,64 @@ def _gate_one(
     return anon_map.apply_blocklist("".join(parts), language=language)
 
 
+def _pieces_within(
+    pieces: Sequence[_Piece], low: int, high: int, joined: str
+) -> List[_Piece]:
+    """The parts of ``pieces`` inside ``[low, high)`` of ``joined``, trimmed and shifted to start at 0.
+
+    A piece that crosses a label's edge is cut at it, so each label gets
+    only the characters of the piece that lie in that label, at their own
+    offsets.
+    """
+    own: List[_Piece] = []
+    for start, end, entity_type, core in pieces:
+        if start >= high or end <= low:
+            continue
+        trimmed = _trim(joined, max(start, low), min(end, high))
+        if trimmed is None:
+            continue
+        shifted_core = None if core is None else (core[0] - low, core[1] - low)
+        own.append((trimmed[0] - low, trimmed[1] - low, entity_type, shifted_core))
+    return own
+
+
+def _gate_joined(
+    texts: Sequence[str],
+    anon_map: AnonymizationMap,
+    sanitizer: "PIISanitizer",
+    language: str,
+) -> List[str]:
+    """Gate ``texts`` with one sanitizer run over all of them, joined by :data:`LABEL_SEPARATOR`.
+
+    Built for short texts such as spreadsheet column labels, where a run
+    per text would cost one set of local-model calls each. Every text is
+    first masked against the known originals, then the joined text is
+    sanitized once and each detected range is mapped back by offset to the
+    texts it covers (:func:`_pieces_within`). Last, every text is masked
+    again against the map, so a value found in one text is masked in every
+    other text it occurs in, even where the detector reported only its
+    first occurrence.
+    """
+    state = _MaskState(anon_map)
+    premasked = [_premask(text, anon_map, state, language) for text in texts]
+    bounds: List[Tuple[int, int]] = []
+    cursor = 0
+    for masked in premasked:
+        bounds.append((cursor, cursor + len(masked)))
+        cursor += len(masked) + len(LABEL_SEPARATOR)
+    joined = LABEL_SEPARATOR.join(premasked)
+    pieces = _detected_pieces(joined, sanitizer, language, state)
+    if not pieces:
+        return premasked
+    reserve_placeholder_counters(anon_map)
+    gated = []
+    for (low, high), masked in zip(bounds, premasked):
+        own = _pieces_within(pieces, low, high, joined)
+        gated.append(_replace_pieces(masked, own, anon_map, language) if own else masked)
+    final_state = _MaskState(anon_map)
+    return [_mask_with_state(text, final_state, anon_map, language) for text in gated]
+
+
 async def gate_untrusted_texts(
     texts: Sequence[str],
     anon_map: AnonymizationMap,
@@ -693,13 +787,16 @@ async def gate_untrusted_texts(
     settings: AppSettings,
     language: Optional[str] = None,
     sanitizer: Optional["PIISanitizer"] = None,
+    joined: bool = False,
 ) -> List[str]:
     """Return ``texts`` with every known and newly detected PII value masked.
 
     ``anon_map`` is mutated: entities first seen here are added so the
     de-anonymizer can restore them. Callers must pass a request-local map
     (or a copy), never a cached per-document map object. A caller that
-    holds a lock may pass a ``sanitizer`` built beforehand.
+    holds a lock may pass a ``sanitizer`` built beforehand. With ``joined``
+    the texts are sanitized in one run (:func:`_gate_joined`), for many
+    short texts such as column labels.
     """
     if not any(texts):
         return list(texts)
@@ -708,6 +805,8 @@ async def gate_untrusted_texts(
     lang = language or anon_map.language
 
     def gate_all() -> List[str]:
+        if joined:
+            return _gate_joined(texts, anon_map, sanitizer, lang)
         state: Optional[_MaskState] = None
         gated: List[str] = []
         for text in texts:
@@ -796,6 +895,7 @@ async def _gate_and_merge(
     texts: Sequence[str],
     sanitizer: Optional["PIISanitizer"],
     require_existing_map: bool,
+    joined: bool = False,
 ) -> Tuple[List[str], bool]:
     """Gate ``texts`` outside the map lock, then merge and write under it.
 
@@ -823,7 +923,7 @@ async def _gate_and_merge(
         language = effective_masking_language(document)
         working.language = language
         gated = await gate_untrusted_texts(
-            texts, working, db, settings, language=language, sanitizer=sanitizer
+            texts, working, db, settings, language=language, sanitizer=sanitizer, joined=joined
         )
         async with document_map_lock(document.id) as lock:
             await _require_row(db, document)
@@ -853,6 +953,7 @@ async def gate_document_texts(
     document: Document,
     texts: Sequence[str],
     sanitizer: Optional["PIISanitizer"] = None,
+    joined: bool = False,
 ) -> List[str]:
     """Gate texts against ``document``'s map and persist the entities they add.
 
@@ -870,10 +971,11 @@ async def gate_document_texts(
     lock, so the row is re-checked once the lock is held: a document
     deleted meanwhile aborts with HTTP 404 and its map is not recreated.
     A caller gating several documents may pass one ``sanitizer`` built
-    beforehand.
+    beforehand. ``joined`` gates the texts in one sanitizer run (see
+    :func:`gate_untrusted_texts`).
     """
     gated, _ = await _gate_and_merge(
-        db, settings, document, texts, sanitizer, require_existing_map=False
+        db, settings, document, texts, sanitizer, require_existing_map=False, joined=joined
     )
     return gated
 

@@ -17,6 +17,7 @@ from septum_api.errors import SemanticLayerUnavailableError
 from septum_api.models.settings import AppSettings
 from septum_api.services import ollama_client
 from septum_api.services import sanitizer as sanitizer_module
+from septum_api.services.prompts import DATA_NONCE_SENTINEL, DetectionPrompt
 from septum_api.services.sanitizer import (
     AnonymizationMap,
     DetectedSpan,
@@ -148,7 +149,7 @@ def test_validate_keeps_matched_originals_in_item_order(adapter, monkeypatch, ca
     call = stub.calls[0]
     assert call["base_url"] == "http://ollama.test:11434"
     assert call["model"] == "deanon-model:1"
-    assert set(call) == {"prompt", "base_url", "model", "allow_truncated"}
+    assert set(call) == {"prompt", "system", "base_url", "model", "allow_truncated"}
     assert call["allow_truncated"] is False
 
 
@@ -157,7 +158,7 @@ def test_validate_prompt_receives_candidate_dicts(adapter, monkeypatch):
 
     def _prompt(**kwargs: Any) -> str:
         captured.update(kwargs)
-        return "PROMPT"
+        return DetectionPrompt("SYSTEM", "PROMPT")
 
     monkeypatch.setattr(sanitizer_module.PromptCatalog, "pii_validation_prompt", _prompt)
     stub = _validation_stub(monkeypatch, "")
@@ -174,7 +175,7 @@ def test_validate_prompt_receives_candidate_dicts(adapter, monkeypatch):
         "language": "de",
         "regulation_rules": "CTX",
     }
-    assert stub.calls[0]["prompt"] == "PROMPT"
+    assert (stub.calls[0]["system"], stub.calls[0]["prompt"]) == ("SYSTEM", "PROMPT")
 
 
 # ---------------------------------------------------------------- detect_aliases
@@ -280,13 +281,13 @@ def test_aliases_prompt_built_from_text(adapter, monkeypatch):
 
     def _prompt(text: str) -> str:
         seen.append(text)
-        return "ALIAS-PROMPT"
+        return DetectionPrompt("ALIAS-SYSTEM", "ALIAS-PROMPT")
 
     monkeypatch.setattr(sanitizer_module.PromptCatalog, "sanitizer_alias_layer", _prompt)
     stub = _stub(monkeypatch, "[]")
     adapter.detect_aliases(normalized_text="Hello Bob there")
     assert seen == ["Hello Bob there"]
-    assert stub.calls[0]["prompt"] == "ALIAS-PROMPT"
+    assert (stub.calls[0]["system"], stub.calls[0]["prompt"]) == ("ALIAS-SYSTEM", "ALIAS-PROMPT")
 
 
 # ---------------------------------------------------------------- detect_semantic
@@ -367,19 +368,23 @@ def test_semantic_non_heading_prone_type_keeps_caps(adapter, monkeypatch):
 
 
 def test_semantic_prompt_arguments(adapter, monkeypatch):
-    seen: list[tuple[str, list[str]]] = []
+    seen: list[tuple[str, list[str], str | None]] = []
 
-    def _prompt(text: str, types: list[str]) -> str:
-        seen.append((text, types))
-        return "SEM-PROMPT"
+    def _prompt(text: str, types: list[str], nonce: str | None = None) -> str:
+        seen.append((text, types, nonce))
+        return DetectionPrompt("SEM-SYSTEM", f"SEM-PROMPT-{nonce}")
 
     monkeypatch.setattr(sanitizer_module.PromptCatalog, "semantic_pii_detection", _prompt)
     stub = _strict_stub(monkeypatch, "[]")
     adapter.detect_semantic(normalized_text="abc", entity_types=["DIAGNOSIS"])
-    measured_template, *sent = seen
-    assert measured_template == ("", ["DIAGNOSIS"])
-    assert sent == [("abc", ["DIAGNOSIS"])]
-    assert stub.calls[0]["prompt"] == "SEM-PROMPT"
+    measured_template, fingerprint, sent = seen
+    assert measured_template == ("", ["DIAGNOSIS"], None)
+    assert fingerprint == ("abc", ["DIAGNOSIS"], DATA_NONCE_SENTINEL)
+    assert sent[:2] == ("abc", ["DIAGNOSIS"])
+    assert sent[2] != DATA_NONCE_SENTINEL
+    assert [(call["system"], call["prompt"]) for call in stub.calls] == [
+        ("SEM-SYSTEM", f"SEM-PROMPT-{sent[2]}")
+    ]
 
 
 # ---------------------------------------------------------------- resolve_coreference
@@ -451,7 +456,7 @@ def test_coreference_prompt_lists_person_entities_only(adapter, monkeypatch):
 
     def _prompt(**kwargs: Any) -> str:
         captured.update(kwargs)
-        return "COREF"
+        return DetectionPrompt("COREF-SYSTEM", "COREF")
 
     monkeypatch.setattr(
         sanitizer_module.PromptCatalog, "pronoun_coreference_resolution", _prompt
@@ -468,7 +473,7 @@ def test_coreference_prompt_lists_person_entities_only(adapter, monkeypatch):
         ],
         "language": "tr",
     }
-    assert stub.calls[0]["prompt"] == "COREF"
+    assert (stub.calls[0]["system"], stub.calls[0]["prompt"]) == ("COREF-SYSTEM", "COREF")
 
 
 def test_coreference_no_resolution_logs_nothing(adapter, monkeypatch, caplog):

@@ -64,20 +64,22 @@ from septum_core.text_utils import lower_preserving_offsets
 from ..errors import SemanticLayerUnavailableError
 from ..models.settings import AppSettings
 from .contextual_placement import (
-    _CONTEXTUAL_SLICE_OVERLAP,
-    _MIN_SLICE_BYTES,
-    _contextual_slices,
-    _reply_spans,
+    CONTEXTUAL_SLICE_OVERLAP,
+    contextual_slices,
+    prompt_slice_budget,
+    reply_spans,
 )
+from .ollama_call_budget import reserve_ollama_calls
 from .ollama_client import (
     OLLAMA_NUM_PREDICT,
     OllamaCallError,
     call_ollama_sync,
+    detection_reply_items,
     extract_json_array,
     ollama_context_window,
-    reply_items,
     request_ollama_sync,
 )
+from .ollama_detection_runner import DetectionCall, run_detection_calls
 from .prompts import PromptCatalog
 
 logger = logging.getLogger(__name__)
@@ -198,24 +200,11 @@ def _alias_span(item: object, normalized_text: str) -> Optional[DetectedSpan]:
     )
 
 
-_CHAT_TEMPLATE_MARGIN_TOKENS = 256
-
-
 def _contextual_slice_budget(entity_types: List[str], window: int) -> int:
-    """UTF-8 bytes one slice may take so its prompt and answer fit ``window`` tokens.
-
-    ``window`` is the model's real window (``ollama_context_window``). A
-    byte-level tokenizer never makes more tokens than the text has bytes,
-    so a prompt of N bytes is at most N tokens, plus the model's chat
-    template (``_CHAT_TEMPLATE_MARGIN_TOKENS``). Counting bytes rather than
-    characters keeps dense scripts (three bytes a character for Han or
-    Thai, four for emoji) inside the window that ASCII fills at its
-    character limit. A window too small for a slice of ``_MIN_SLICE_BYTES``
-    is refused.
-    """
-    overhead = len(PromptCatalog.semantic_pii_detection("", entity_types).encode("utf-8"))
-    budget = window - OLLAMA_NUM_PREDICT - _CHAT_TEMPLATE_MARGIN_TOKENS - overhead - 1
-    if budget < _MIN_SLICE_BYTES:
+    """UTF-8 bytes one contextual slice may take in ``window`` tokens; a window too small for one is refused."""
+    empty = PromptCatalog.semantic_pii_detection("", entity_types)
+    budget = prompt_slice_budget(empty.system + empty.user, window, OLLAMA_NUM_PREDICT)
+    if budget is None:
         raise _contextual_refusal("prompt_too_long")
     return budget
 
@@ -228,7 +217,7 @@ def _placed_reply_spans(
     Values left unplaced beside placed ones are only counted in the log,
     never quoted.
     """
-    spans, unplaced, total = _reply_spans(items, text, requested)
+    spans, unplaced, total = reply_spans(items, text, requested)
     if total and unplaced == total:
         raise _contextual_refusal("unplaceable_reply")
     if unplaced:
@@ -303,11 +292,10 @@ class OllamaSemanticAdapter:
         language: str,
         regulation_context: str,
     ) -> List[DetectedSpan]:
-        """Validate candidate spans using Ollama's context and regulation awareness.
+        """Return the candidates the validation model confirms.
 
         Only a whole answer to a whole prompt may drop a candidate: a failed
-        call, a reply cut at the token limit, or a prompt the server may have
-        cut keeps every candidate, so validation fails toward masking more.
+        call, a cut reply or a prompt the server may have cut keeps them all.
         """
         if not candidate_spans or not text:
             return list(candidate_spans)
@@ -318,9 +306,10 @@ class OllamaSemanticAdapter:
             language=language,
             regulation_rules=regulation_context,
         )
+        reserve_ollama_calls(1)
         try:
             response = request_ollama_sync(
-                prompt=prompt,
+                **prompt.request_kwargs(),
                 base_url=self._settings.ollama_base_url,
                 model=self._settings.ollama_deanon_model,
                 allow_truncated=False,
@@ -362,8 +351,9 @@ class OllamaSemanticAdapter:
             return []
 
         prompt = PromptCatalog.sanitizer_alias_layer(normalized_text)
+        reserve_ollama_calls(1)
         response = call_ollama_sync(
-            prompt=prompt,
+            **prompt.request_kwargs(),
             base_url=self._settings.ollama_base_url,
             model=self._settings.ollama_deanon_model,
         )
@@ -383,17 +373,14 @@ class OllamaSemanticAdapter:
     ) -> List[DetectedSpan]:
         """Call local Ollama to detect contextual entity types, slice by slice.
 
-        Long text is cut by :func:`.contextual_placement._contextual_slices`,
-        sized so no prompt can exceed the model's window; the spans of every
-        slice get absolute offsets and are deduplicated. A value the model
-        names is masked at each occurrence (see
-        :func:`.contextual_placement._placed_offsets`) in its slice and the
-        overlap on either side of it, so a value the model completed across
-        a cut is still placed. A failed call, a truncated reply, a reply
-        that is neither exactly ``[]`` nor a usable array, or one none of
-        whose values can be placed raises
-        :class:`SemanticLayerUnavailableError` so the text is refused rather
-        than passed on unchecked.
+        The slices (:func:`.contextual_placement.contextual_slices`) are sized
+        so no prompt exceeds the model's window and sent through
+        :func:`.ollama_detection_runner.run_detection_calls`. A named value is
+        masked at each occurrence in its slice and the overlap on either side,
+        so one the model completed across a cut is still placed. A failed or
+        truncated call, an unusable reply, or one none of whose values can be
+        placed raises :class:`SemanticLayerUnavailableError`: the text is
+        refused rather than passed on unchecked.
         """
         if not normalized_text.strip() or not entity_types:
             return []
@@ -405,13 +392,18 @@ class OllamaSemanticAdapter:
         except OllamaCallError as exc:
             raise _contextual_refusal(str(exc)) from exc
         budget = _contextual_slice_budget(entity_types, window)
+        slices = contextual_slices(normalized_text, budget)
+        replies = run_detection_calls(
+            [self._contextual_call(text_slice, entity_types) for _, text_slice in slices],
+            send=request_ollama_sync,
+            refusal=_contextual_refusal,
+        )
         spans: dict[tuple[int, int, str], DetectedSpan] = {}
-        for offset, text_slice in _contextual_slices(normalized_text, budget):
-            items = self._contextual_items(text_slice, entity_types)
+        for (offset, text_slice), items in zip(slices, replies):
             if not items:
                 continue
-            low = max(0, offset - _CONTEXTUAL_SLICE_OVERLAP)
-            high = offset + len(text_slice) + _CONTEXTUAL_SLICE_OVERLAP
+            low = max(0, offset - CONTEXTUAL_SLICE_OVERLAP)
+            high = offset + len(text_slice) + CONTEXTUAL_SLICE_OVERLAP
             for span in _placed_reply_spans(items, normalized_text[low:high], requested):
                 absolute = DetectedSpan(
                     start=span.start + low,
@@ -422,22 +414,18 @@ class OllamaSemanticAdapter:
                 spans.setdefault((absolute.start, absolute.end, absolute.entity_type), absolute)
         return sorted(spans.values(), key=lambda s: (s.start, s.end, s.entity_type))
 
-    def _contextual_items(self, text_slice: str, entity_types: List[str]) -> List[dict]:
-        """Return the items the model reports for one slice, or raise the coded refusal."""
-        prompt = PromptCatalog.semantic_pii_detection(text_slice, entity_types)
-        try:
-            response = request_ollama_sync(
-                prompt=prompt,
-                base_url=self._settings.ollama_base_url,
-                model=self._settings.ollama_deanon_model,
-                allow_truncated=False,
-            )
-        except OllamaCallError as exc:
-            raise _contextual_refusal(str(exc)) from exc
-        items = reply_items(response)
-        if items is None:
-            raise _contextual_refusal("unparsable_reply")
-        return items
+    def _contextual_call(
+        self, text_slice: str, entity_types: List[str]
+    ) -> DetectionCall[List[dict]]:
+        """The detection call of one slice: the contextual prompt, parsed by :func:`detection_reply_items`."""
+        return DetectionCall(
+            prompt=lambda nonce: PromptCatalog.semantic_pii_detection(
+                text_slice, entity_types, nonce
+            ),
+            parse=detection_reply_items,
+            base_url=self._settings.ollama_base_url,
+            model=self._settings.ollama_deanon_model,
+        )
 
     def resolve_coreference(
         self,
@@ -460,8 +448,9 @@ class OllamaSemanticAdapter:
             known_persons=person_entities,
             language=language,
         )
+        reserve_ollama_calls(1)
         response = call_ollama_sync(
-            prompt=prompt,
+            **prompt.request_kwargs(),
             base_url=self._settings.ollama_base_url,
             model=self._settings.ollama_deanon_model,
         )

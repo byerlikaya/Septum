@@ -21,13 +21,21 @@ from septum_core.recognizers.registry import (
 from septum_core.regulations.models import CustomRecognizerLike
 
 from ...errors import CustomRuleUnavailableError
+from ..contextual_placement import (
+    MIN_SLICE_BYTES,
+    contextual_slices,
+    prompt_slice_budget,
+)
 from ..ollama_client import (
+    OLLAMA_NUM_PREDICT,
     OllamaCallError,
-    reply_items,
+    detection_reply_items,
+    ollama_context_window,
     request_ollama_sync,
     use_ollama_enabled,
 )
-from ..prompts import PromptCatalog
+from ..ollama_detection_runner import DetectionCall, run_detection_calls
+from ..prompts import DetectionPrompt, PromptCatalog
 
 logger = logging.getLogger(__name__)
 
@@ -70,37 +78,65 @@ class LLMContextRecognizer(EntityRecognizer):
         if not use_ollama_enabled() or not text or not self._config.llm_prompt:
             return []
 
-        prompt = PromptCatalog.llm_custom_recognizer_prompt(
+        slices = self._slices(text)
+        replies = run_detection_calls(
+            [self._call(text_slice) for _, text_slice in slices],
+            send=request_ollama_sync,
+            refusal=self._refusal,
+        )
+        spans: dict[Tuple[int, int], None] = {}
+        for (offset, text_slice), items in zip(slices, replies):
+            for item in items:
+                span = _locate_span(item, text_slice)
+                if span is not None:
+                    spans[(span[0] + offset, span[1] + offset)] = None
+        return [
+            RecognizerResult(
+                entity_type=self._config.entity_type,
+                start=start,
+                end=end,
+                score=0.8,
+            )
+            for start, end in spans
+        ]
+
+    def _prompt(self, text: str, nonce: Optional[str] = None) -> DetectionPrompt:
+        """The rule's prompt around ``text``."""
+        return PromptCatalog.llm_custom_recognizer_prompt(
             entity_type=self._config.entity_type,
             instruction=self._config.llm_prompt,
             text=text,
+            nonce=nonce,
         )
+
+    def _call(self, text_slice: str) -> DetectionCall[List[dict]]:
+        """The detection call of one slice, parsed by :func:`detection_reply_items`."""
+        return DetectionCall(
+            prompt=lambda nonce: self._prompt(text_slice, nonce),
+            parse=detection_reply_items,
+            base_url=self._config.base_url,
+            model=self._config.model,
+        )
+
+    def _slices(self, text: str) -> List[Tuple[int, str]]:
+        """``(offset, slice)`` pairs of ``text`` whose prompts fit the model's window.
+
+        A text no longer than the smallest slice is sent whole, without
+        reading the window; a window too small for it is refused by the call.
+        For longer text an unreadable window, or one too small for the rule's
+        prompt, refuses.
+        """
+        if len(text.encode("utf-8")) <= MIN_SLICE_BYTES:
+            return [(0, text)]
         try:
-            response = request_ollama_sync(
-                prompt=prompt,
-                base_url=self._config.base_url,
-                model=self._config.model,
-                allow_truncated=False,
-            )
+            window = ollama_context_window(self._config.base_url, self._config.model)
         except OllamaCallError as exc:
             raise self._refusal(str(exc)) from exc
-        items = reply_items(response)
-        if items is None:
-            raise self._refusal("unparsable_reply")
-        results: List[RecognizerResult] = []
-        for item in items:
-            span = _locate_span(item, text)
-            if span is None:
-                continue
-            results.append(
-                RecognizerResult(
-                    entity_type=self._config.entity_type,
-                    start=span[0],
-                    end=span[1],
-                    score=0.8,
-                )
-            )
-        return results
+        empty = self._prompt("")
+        budget = prompt_slice_budget(empty.system + empty.user, window, OLLAMA_NUM_PREDICT)
+        if budget is None:
+            raise self._refusal("prompt_too_long")
+        return contextual_slices(text, budget)
 
     def _refusal(self, reason: str) -> CustomRuleUnavailableError:
         """Log the failed rule by id and name and return the error to raise."""

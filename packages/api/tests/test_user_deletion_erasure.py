@@ -258,8 +258,8 @@ async def test_document_added_during_deletion_refuses(
     real_erase = users_module.erase_document
     added: list[Document] = []
 
-    async def _upload_meanwhile(db: Any, document: Document) -> bool:
-        erased = await real_erase(db, document)
+    async def _upload_meanwhile(db: Any, document: Document, **kwargs: Any) -> bool:
+        erased = await real_erase(db, document, **kwargs)
         if not added:
             added.append(await world.add_document(target, "processing"))
         return erased
@@ -684,8 +684,8 @@ async def test_user_removed_during_the_erasure_returns_404(
     await world.add_document(target)
     real_erase = users_module.erase_document
 
-    async def _removed_meanwhile(db: Any, document: Document) -> bool:
-        erased = await real_erase(db, document)
+    async def _removed_meanwhile(db: Any, document: Document, **kwargs: Any) -> bool:
+        erased = await real_erase(db, document, **kwargs)
         async with world.session_maker() as session:
             await session.execute(text("DELETE FROM users WHERE id = :id"), {"id": target.id})
             await session.commit()
@@ -706,9 +706,9 @@ async def test_target_is_deactivated_and_committed_before_the_erasure(
     real_erase = users_module.erase_document
     seen: list[bool] = []
 
-    async def _record_target_state(db: Any, document: Document) -> bool:
+    async def _record_target_state(db: Any, document: Document, **kwargs: Any) -> bool:
         seen.append((await world.row(User, target.id)).is_active)
-        return await real_erase(db, document)
+        return await real_erase(db, document, **kwargs)
 
     monkeypatch.setattr(users_module, "erase_document", _record_target_state)
 
@@ -761,8 +761,8 @@ async def test_target_reactivated_during_the_erasure_refuses(
     await world.add_document(target)
     real_erase = users_module.erase_document
 
-    async def _reactivated_meanwhile(db: Any, document: Document) -> bool:
-        erased = await real_erase(db, document)
+    async def _reactivated_meanwhile(db: Any, document: Document, **kwargs: Any) -> bool:
+        erased = await real_erase(db, document, **kwargs)
         async with world.session_maker() as session:
             await session.execute(
                 text("UPDATE users SET is_active = 1 WHERE id = :id"), {"id": target.id}
@@ -884,3 +884,110 @@ async def test_sweep_skips_a_source_file_that_vanishes_while_listed(
 
     assert (result.source_files, result.failures) == (1, 0)
     assert not orphan.exists()
+
+
+def _counted_epoch_bumps(monkeypatch: pytest.MonkeyPatch, fail: list[bool]) -> list[bool]:
+    """Record each erasure epoch bump; while ``fail[0]`` is true a bump raises instead."""
+    from septum_api.services import ollama_detection_runner
+
+    real_bump = ollama_detection_runner.bump_erasure_epoch
+    bumps: list[bool] = []
+
+    async def _bump() -> None:
+        bumps.append(fail[0])
+        if fail[0]:
+            raise document_anon_store.DocumentMapErasureError("disk")
+        await real_bump()
+
+    monkeypatch.setattr(ollama_detection_runner, "bump_erasure_epoch", _bump)
+    return bumps
+
+
+async def test_user_delete_bumps_the_erasure_epoch_once(
+    world: _World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, target = await _admin_and_target(world)
+    owned = [await world.add_document(target) for _ in range(3)]
+    bumps = _counted_epoch_bumps(monkeypatch, [False])
+
+    resp = await world.client.delete(f"/api/users/{target.id}")
+
+    assert resp.status_code == 204, resp.text
+    assert bumps == [False]
+    for doc in owned:
+        assert await stored_tiers(doc.id) == set()
+
+
+async def test_document_delete_bumps_the_erasure_epoch_each_time(
+    world: _World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, target = await _admin_and_target(world)
+    docs = [await world.add_document(target) for _ in range(2)]
+    bumps = _counted_epoch_bumps(monkeypatch, [False])
+
+    for doc in docs:
+        resp = await world.client.delete(f"/api/documents/{doc.id}")
+        assert resp.status_code == 204, resp.text
+
+    assert bumps == [False, False]
+
+
+@pytest.mark.parametrize("bump_fails", [False, True], ids=["bump-ok", "bump-fails"])
+async def test_a_failure_mid_loop_still_bumps_the_epoch_and_a_retry_finishes(
+    world: _World, monkeypatch: pytest.MonkeyPatch, bump_fails: bool
+) -> None:
+    _, target = await _admin_and_target(world)
+    first = await world.add_document(target)
+    second = await world.add_document(target)
+    real_erase = documents_module.erase_document_artifacts
+
+    async def _failing_on_second(document_id: int, **kwargs: Any) -> None:
+        if document_id == second.id:
+            raise ArtifactErasureError("vector_index", PermissionError(13, "denied"))
+        await real_erase(document_id, **kwargs)
+
+    monkeypatch.setattr(documents_module, "erase_document_artifacts", _failing_on_second)
+    fail = [bump_fails]
+    bumps = _counted_epoch_bumps(monkeypatch, fail)
+
+    resp = await world.client.delete(f"/api/users/{target.id}")
+
+    assert resp.status_code == 500
+    assert bumps == [bump_fails]
+    if bump_fails:
+        assert resp.json()["detail"] == users_module._DETECTION_CACHE_NOT_ERASED
+    remaining = await world.row(User, target.id)
+    assert remaining is not None and not remaining.is_active
+    assert await stored_tiers(first.id) == set()
+
+    monkeypatch.setattr(documents_module, "erase_document_artifacts", real_erase)
+    fail[0] = False
+    retry = await world.client.delete(f"/api/users/{target.id}")
+
+    assert retry.status_code == 204, retry.text
+    assert bumps == [bump_fails, False]
+    assert await world.row(User, target.id) is None
+
+
+async def test_a_failed_final_bump_keeps_the_inactive_user_and_a_retry_finishes(
+    world: _World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, target = await _admin_and_target(world)
+    doc = await world.add_document(target)
+    fail = [True]
+    bumps = _counted_epoch_bumps(monkeypatch, fail)
+
+    resp = await world.client.delete(f"/api/users/{target.id}")
+
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == users_module._DETECTION_CACHE_NOT_ERASED
+    remaining = await world.row(User, target.id)
+    assert remaining is not None and not remaining.is_active
+    assert await world.row(Document, doc.id) is None
+
+    fail[0] = False
+    retry = await world.client.delete(f"/api/users/{target.id}")
+
+    assert retry.status_code == 204, retry.text
+    assert bumps == [True, False]
+    assert await world.row(User, target.id) is None

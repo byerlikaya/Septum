@@ -8,6 +8,7 @@ LLMContextRecognizer) is always enabled and routed through this client.
 Connection uses OLLAMA_BASE_URL.
 """
 
+import asyncio
 import ipaddress
 import json
 import logging
@@ -15,6 +16,7 @@ import os
 import re
 import threading
 import time
+import weakref
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
@@ -125,6 +127,52 @@ def ollama_async_http_client(timeout: float | httpx.Timeout) -> httpx.AsyncClien
     return httpx.AsyncClient(timeout=timeout, trust_env=False)
 
 
+_sync_clients: dict[float, httpx.Client] = {}
+"""The shared sync client per timeout, so every call reuses one connection pool."""
+_sync_clients_lock = threading.Lock()
+
+_async_clients: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, dict[float, httpx.AsyncClient]
+] = weakref.WeakKeyDictionary()
+"""The shared async clients of each event loop, per timeout: a client's connections belong to one loop."""
+
+
+def _shared_sync_client(timeout: float) -> httpx.Client:
+    """The process-wide sync client for ``timeout``, built by :func:`ollama_http_client` on first use."""
+    with _sync_clients_lock:
+        client = _sync_clients.get(timeout)
+        if client is None:
+            client = _sync_clients[timeout] = ollama_http_client(timeout)
+        return client
+
+
+def _shared_async_client(timeout: float) -> httpx.AsyncClient:
+    """The running loop's async client for ``timeout``, built by :func:`ollama_async_http_client` on first use."""
+    per_loop = _async_clients.setdefault(asyncio.get_running_loop(), {})
+    client = per_loop.get(timeout)
+    if client is None:
+        client = per_loop[timeout] = ollama_async_http_client(timeout)
+    return client
+
+
+async def close_ollama_clients() -> None:
+    """Close every shared sync client and the running loop's async clients.
+
+    Called when the application shuts down; a later call builds new
+    clients. Async clients of another loop are dropped, since they can only
+    be closed on their own loop.
+    """
+    with _sync_clients_lock:
+        sync_clients = list(_sync_clients.values())
+        _sync_clients.clear()
+    loop_clients = _async_clients.pop(asyncio.get_running_loop(), {})
+    _async_clients.clear()
+    for client in sync_clients:
+        client.close()
+    for async_client in loop_clients.values():
+        await async_client.aclose()
+
+
 def _checked_url(base_url: str | None, endpoint: str) -> Optional[str]:
     """Return the URL of ``endpoint`` on the Ollama server, or ``None`` if the base URL is refused.
 
@@ -186,8 +234,24 @@ class OllamaCallError(RuntimeError):
     """An Ollama call produced no reply: refused URL, transport/HTTP error or a malformed body.
 
     The message is a fixed failure kind and never carries the prompt, the
-    URL or the server's text.
+    URL or the server's text. ``retryable`` marks a failure a second
+    attempt may cure: a transport error other than a timeout, a 5xx status
+    or a malformed body. A timeout, a refused URL or a prompt that does not
+    fit is not retried.
     """
+
+    def __init__(self, kind: str, *, retryable: bool = False) -> None:
+        super().__init__(kind)
+        self.retryable = retryable
+
+
+def _http_failure(exc: httpx.HTTPError) -> OllamaCallError:
+    """The content-free error of a failed HTTP call; retryable unless it timed out or got a 4xx."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        retryable = exc.response.status_code >= 500
+    else:
+        retryable = not isinstance(exc, httpx.TimeoutException)
+    return OllamaCallError(type(exc).__name__, retryable=retryable)
 
 
 _SHOW_TIMEOUT = 10.0
@@ -201,6 +265,22 @@ _FAILED_LOOKUP_TTL_SECONDS = 30.0
 _context_windows: dict[tuple[str, str], tuple[float, Optional[int]]] = {}
 """Per server and model: the monotonic expiry time and the trained length, ``None`` for a failed read."""
 _context_windows_lock = threading.Lock()
+
+
+class _ShowFlight:
+    """One sync ``/api/show`` read in progress; other threads asking for its key wait for its outcome."""
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.trained: Optional[int] = None
+        self.failure = "unknown_context_length"
+
+
+_show_flights: dict[tuple[str, str], _ShowFlight] = {}
+"""The sync ``/api/show`` read in progress per server and model."""
+
+_async_show_flights: dict[tuple[int, tuple[str, str]], asyncio.Future[Optional[int]]] = {}
+"""The async ``/api/show`` read in progress per event loop, server and model."""
 
 
 def _trained_context_length(data: object) -> Optional[int]:
@@ -253,8 +333,8 @@ def _fetch_context_length(base_url: str, model: str) -> int:
     """
     url = _show_url(base_url)
     try:
-        with ollama_http_client(_SHOW_TIMEOUT) as client:
-            return _context_length_of(client.post(url, json={"model": model}))
+        client = _shared_sync_client(_SHOW_TIMEOUT)
+        return _context_length_of(client.post(url, json={"model": model}))
     except (httpx.HTTPError, ValueError) as exc:
         raise _metadata_failure(exc) from exc
 
@@ -263,14 +343,14 @@ async def _fetch_context_length_async(base_url: str, model: str) -> int:
     """Async twin of :func:`_fetch_context_length`."""
     url = _show_url(base_url)
     try:
-        async with ollama_async_http_client(_SHOW_TIMEOUT) as client:
-            return _context_length_of(await client.post(url, json={"model": model}))
+        client = _shared_async_client(_SHOW_TIMEOUT)
+        return _context_length_of(await client.post(url, json={"model": model}))
     except (httpx.HTTPError, ValueError) as exc:
         raise _metadata_failure(exc) from exc
 
 
-def _window_key(base_url: str | None, model: str | None) -> tuple[str, str]:
-    """Cache key of a context window: the effective base URL and model id."""
+def ollama_target(base_url: str | None, model: str | None) -> tuple[str, str]:
+    """The server and model a call with ``base_url`` and ``model`` really reaches (defaults applied)."""
     return effective_ollama_base_url(base_url), model or _default_deanon_model()
 
 
@@ -289,24 +369,42 @@ def _store_length(key: tuple[str, str], trained: Optional[int]) -> None:
 
 
 def _read_trained_length(key: tuple[str, str]) -> int:
-    """Read and cache the trained length of ``key``; a failed read is cached as ``None`` and raises."""
+    """Read and cache the trained length of ``key``; a failed read is cached as ``None`` and raises.
+
+    Single-flight: while one thread reads ``key``, every other thread
+    asking for it waits and gets the same length or the same failure kind.
+    """
+    with _context_windows_lock:
+        flight = _show_flights.get(key)
+        leader = flight is None
+        if leader:
+            flight = _show_flights[key] = _ShowFlight()
+    if not leader:
+        flight.done.wait()
+        if flight.trained is None:
+            raise OllamaCallError(flight.failure)
+        return flight.trained
     try:
         trained = _fetch_context_length(*key)
-    except OllamaCallError:
-        _store_length(key, None)
+    except OllamaCallError as exc:
+        flight.failure = str(exc)
         raise
-    _store_length(key, trained)
-    return trained
+    else:
+        flight.trained = trained
+        return trained
+    finally:
+        _store_length(key, flight.trained)
+        with _context_windows_lock:
+            _show_flights.pop(key, None)
+        flight.done.set()
 
 
 def _trained_length(base_url: str | None, model: str | None) -> Optional[int]:
     """The trained context length of ``model``, or ``None`` when it cannot be read.
 
-    For lenient callers: a failed read is remembered for
-    :data:`_FAILED_LOOKUP_TTL_SECONDS`, so a hung server is not waited on
-    again by every call.
+    For lenient callers; a failed read is remembered for :data:`_FAILED_LOOKUP_TTL_SECONDS`.
     """
-    key = _window_key(base_url, model)
+    key = ollama_target(base_url, model)
     entry = _live_entry(key)
     if entry is not None:
         return entry[1]
@@ -318,14 +416,24 @@ def _trained_length(base_url: str | None, model: str | None) -> Optional[int]:
 
 async def _trained_length_async(base_url: str | None, model: str | None) -> Optional[int]:
     """Async twin of :func:`_trained_length`, sharing its cache."""
-    key = _window_key(base_url, model)
+    key = ollama_target(base_url, model)
     entry = _live_entry(key)
     if entry is not None:
         return entry[1]
+    loop = asyncio.get_running_loop()
+    flight_key = (id(loop), key)
+    flight = _async_show_flights.get(flight_key)
+    if flight is not None:
+        return await asyncio.shield(flight)
+    flight = _async_show_flights[flight_key] = loop.create_future()
+    trained: Optional[int] = None
     try:
         trained = await _fetch_context_length_async(*key)
     except OllamaCallError:
         trained = None
+    finally:
+        _async_show_flights.pop(flight_key, None)
+        flight.set_result(trained)
     _store_length(key, trained)
     return trained
 
@@ -338,15 +446,13 @@ def _capped(trained: Optional[int]) -> Optional[int]:
 def ollama_context_window(base_url: str | None = None, model: str | None = None) -> int:
     """The window a detection call to ``model`` really gets: ``min(OLLAMA_NUM_CTX, trained context length)``.
 
-    Ollama lowers a requested ``num_ctx`` to the length the model was
-    trained on and then cuts the prompt to fit, so every length check must
-    use the smaller of the two. The trained length is read per server and
-    model and cached for :data:`_WINDOW_TTL_SECONDS`; a failed read is
-    never taken from the cache here and raises :class:`OllamaCallError`
-    (``url_refused`` or ``unknown_context_length``), so a caller that must
-    not fail open refuses instead of guessing.
+    Ollama lowers ``num_ctx`` to the trained length and cuts the prompt to
+    fit, so every length check must use the smaller. The length is cached for
+    :data:`_WINDOW_TTL_SECONDS`; a failed read is never cached here and raises
+    :class:`OllamaCallError` (``url_refused`` or ``unknown_context_length``),
+    so a caller that must not fail open refuses instead of guessing.
     """
-    key = _window_key(base_url, model)
+    key = ollama_target(base_url, model)
     entry = _live_entry(key)
     trained = entry[1] if entry is not None else None
     if trained is None:
@@ -361,7 +467,7 @@ def uses_detection_model(
     detection_model: str | None,
 ) -> bool:
     """Whether a call to ``model`` on ``base_url`` reaches the same server and model as the detection calls."""
-    return _window_key(base_url, model) == _window_key(detection_base_url, detection_model)
+    return ollama_target(base_url, model) == ollama_target(detection_base_url, detection_model)
 
 
 def ollama_request_options(
@@ -386,8 +492,12 @@ def request_ollama_sync(
     model: str | None = None,
     timeout: float = 30.0,
     allow_truncated: bool = True,
+    system: str | None = None,
 ) -> str:
     """Synchronously call Ollama /api/generate and return the response text.
+
+    ``system``, when given, goes in the request's ``system`` field, so
+    instructions travel apart from the user prompt that carries the data.
 
     Raises :class:`OllamaCallError` when no reply was obtained, so a caller
     that must not fail open can tell a failed call from an empty answer.
@@ -414,19 +524,20 @@ def request_ollama_sync(
         "stream": False,
         "options": ollama_request_options(window, {"num_predict": OLLAMA_NUM_PREDICT}),
     }
+    if system is not None:
+        payload["system"] = system
     try:
-        with ollama_http_client(timeout) as client:
-            response = client.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
+        response = _shared_sync_client(timeout).post(url, json=payload)
+        response.raise_for_status()
+        data = response.json()
     except httpx.HTTPError as exc:
         logger.debug("Ollama sync call failed: %s", type(exc).__name__)
-        raise OllamaCallError(type(exc).__name__) from exc
+        raise _http_failure(exc) from exc
     except ValueError as exc:
-        raise OllamaCallError("invalid_body") from exc
+        raise OllamaCallError("invalid_body", retryable=True) from exc
     out = data.get("response") if isinstance(data, dict) else None
     if not isinstance(out, str):
-        raise OllamaCallError("invalid_body")
+        raise OllamaCallError("invalid_body", retryable=True)
     if strict_window is not None:
         if data.get("done_reason") == "length":
             raise OllamaCallError("truncated_reply")
@@ -452,6 +563,7 @@ def call_ollama_sync(
     base_url: str | None = None,
     model: str | None = None,
     timeout: float = 30.0,
+    system: str | None = None,
 ) -> str:
     """Synchronously call Ollama /api/generate; return ``""`` when no reply was obtained.
 
@@ -459,7 +571,9 @@ def call_ollama_sync(
     :func:`request_ollama_sync` for the raising variant.
     """
     try:
-        return request_ollama_sync(prompt, base_url=base_url, model=model, timeout=timeout)
+        return request_ollama_sync(
+            prompt, base_url=base_url, model=model, timeout=timeout, system=system
+        )
     except OllamaCallError:
         return ""
 
@@ -493,10 +607,9 @@ async def call_ollama_async(
         "options": ollama_request_options(window, options),
     }
     try:
-        async with ollama_async_http_client(timeout) as client:
-            response = await client.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
+        response = await _shared_async_client(timeout).post(url, json=payload)
+        response.raise_for_status()
+        data = response.json()
     except httpx.HTTPError as exc:
         logger.debug("Ollama async call failed: %s", type(exc).__name__)
         return ""
@@ -591,3 +704,38 @@ def reply_items(response: str) -> Optional[list[dict[str, Any]]]:
     if not any(item.get("text") not in (None, "") for item in items):
         return None
     return items
+
+
+_REPLY_OFFSET_KEYS = ("start", "end")
+
+
+def detection_reply_items(response: str) -> Optional[list[dict[str, Any]]]:
+    """:func:`reply_items`, each item cut down to the keys placement reads, or ``None``.
+
+    Kept: ``text`` (a number becomes its string, as placement would read
+    it), ``refers_to`` when a string, the label as ``entity_type`` (taken
+    from ``type`` first, then ``entity_type``, as placement reads it) and
+    integer ``start`` / ``end``, which an ``llm_prompt`` rule checks
+    against the text it sent. Any other key the model adds is dropped, so
+    a cached reply holds no free text beyond the values it names. A
+    ``text`` that is an object or a list makes the reply unparsable.
+    """
+    items = reply_items(response)
+    if items is None:
+        return None
+    kept: list[dict[str, Any]] = []
+    for item in items:
+        value = item.get("text")
+        if isinstance(value, (dict, list)):
+            return None
+        slim: dict[str, Any] = {} if value is None else {"text": str(value)}
+        if isinstance(item.get("refers_to"), str):
+            slim["refers_to"] = item["refers_to"]
+        label = item.get("type") or item.get("entity_type")
+        if isinstance(label, str):
+            slim["entity_type"] = label
+        slim.update(
+            (key, item[key]) for key in _REPLY_OFFSET_KEYS if type(item.get(key)) is int
+        )
+        kept.append(slim)
+    return kept

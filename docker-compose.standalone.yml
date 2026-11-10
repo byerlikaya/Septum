@@ -20,6 +20,8 @@ services:
     image: septum:local
     pull_policy: never
     container_name: septum
+    environment:
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}
     ports:
       - "3000:3000"
     extra_hosts:

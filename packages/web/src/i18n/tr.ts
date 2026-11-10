@@ -431,6 +431,8 @@ export const trMessages: Record<string, string> = {
     "Özel tespit kurallarından biri çalıştırılamadı, çünkü yerel Ollama modeli yanıt vermedi. Hiçbir şey gönderilmedi; Ollama'yı kontrol edip tekrar deneyin.",
   "errors.customRule.promptRequired":
     "LLM istemi kuralı için bir istem gerekir; modelin neyi bulması gerektiğini yazın.",
+  "errors.localModelBudget.exceeded":
+    "Bu istek, tek bir turda izin verilenden fazla yerel model kontrolü gerektirdiği için hiçbir şey gönderilmedi. Soruyu veya bağlamı kısaltın, etkin özel yapay zeka kurallarını azaltın ya da yöneticinize danışın.",
   "errors.semanticLayer.unavailable":
     "Hassas kategori tespiti çalıştırılamadı, çünkü yerel Ollama modeli yanıt vermedi. Hiçbir şey gönderilmedi; Ollama'yı kontrol edip tekrar deneyin.",
   "errors.regulations.load":

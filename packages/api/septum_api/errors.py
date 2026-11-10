@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import HTTPException
+from septum_core.ports import SemanticLayerRefusal
 
 MODEL_REFUSED_DETAIL = "A model failed its integrity check; the request was refused."
 
@@ -18,6 +19,12 @@ SEMANTIC_LAYER_UNAVAILABLE_DETAIL = (
     "no usable answer; the request was refused so that no unmasked value is sent."
 )
 
+LOCAL_MODEL_BUDGET_EXCEEDED_CODE = "local_model_budget_exceeded"
+LOCAL_MODEL_BUDGET_EXCEEDED_DETAIL = (
+    "This request needs more local Ollama detection calls than one chat turn may make; "
+    "the request was refused so that no unmasked value is sent."
+)
+
 
 class ContentFreeError(Exception):
     """Base for errors whose message is authored by Septum and carries no user content.
@@ -27,13 +34,15 @@ class ContentFreeError(Exception):
     """
 
 
-class LocalModelUnavailableError(ContentFreeError, RuntimeError):
+class LocalModelUnavailableError(ContentFreeError, SemanticLayerRefusal, RuntimeError):
     """A detection step that depends on the local model got no usable answer.
 
     Raised instead of returning no matches, so text the step should have
     masked is refused rather than sent on unmasked. Each subclass carries a
     machine-readable ``code`` and a fixed public ``detail``; the message
-    names the failure kind only.
+    names the failure kind only. As a :class:`SemanticLayerRefusal` it is
+    re-raised by the core detector even from the layers that otherwise
+    fail open (validation, alias, coreference).
     """
 
     code: str
@@ -58,6 +67,17 @@ class SemanticLayerUnavailableError(LocalModelUnavailableError):
 
     code = SEMANTIC_LAYER_UNAVAILABLE_CODE
     detail = SEMANTIC_LAYER_UNAVAILABLE_DETAIL
+
+
+class OllamaCallBudgetExceededError(LocalModelUnavailableError):
+    """A chat turn would make more local-model detection calls than its budget allows.
+
+    Raised before the calls that would exceed it are sent. The message
+    names the counts only, never the text.
+    """
+
+    code = LOCAL_MODEL_BUDGET_EXCEEDED_CODE
+    detail = LOCAL_MODEL_BUDGET_EXCEEDED_DETAIL
 
 
 class CodedHTTPError(HTTPException):

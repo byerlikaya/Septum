@@ -252,7 +252,8 @@ def test_detection_settings_carry_the_revision_marker_while_the_contextual_layer
     assert new.digest != old.digest
 
 
-def test_documents_masked_under_the_first_contextual_placement_read_as_outdated() -> None:
+@pytest.mark.parametrize("earlier", ["contextual-applied-1", "contextual-applied-2"])
+def test_documents_masked_under_an_earlier_contextual_revision_read_as_outdated(earlier: str) -> None:
     from septum_api.services.policy_snapshot import (
         CONTEXTUAL_LAYER_REVISION,
         build_policy_snapshot,
@@ -261,12 +262,12 @@ def test_documents_masked_under_the_first_contextual_placement_read_as_outdated(
 
     row = _detection_row(use_ollama_semantic_layer=True)
     detection = detection_settings(row)
-    first = tuple("contextual-applied-1" if v == CONTEXTUAL_LAYER_REVISION else v for v in detection)
+    before = tuple(earlier if v == CONTEXTUAL_LAYER_REVISION else v for v in detection)
 
-    assert CONTEXTUAL_LAYER_REVISION == "contextual-applied-2"
+    assert CONTEXTUAL_LAYER_REVISION == "contextual-applied-3"
     assert (
         build_policy_snapshot([], [], [], detection=detection).digest
-        != build_policy_snapshot([], [], [], detection=first).digest
+        != build_policy_snapshot([], [], [], detection=before).digest
     )
 
 

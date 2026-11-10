@@ -219,6 +219,7 @@ def env(monkeypatch):
 def _document() -> Any:
     return SimpleNamespace(
         id=7,
+        user_id=None,
         language_override="tr",
         active_regulation_ids=["gdpr"],
         ingestion_status="processing",
@@ -438,3 +439,37 @@ async def test_sanitizer_failure_propagates_before_persist(env, monkeypatch):
     with pytest.raises(ValueError):
         await _run(env)
     assert all(e[0] != "persist" for e in env.events)
+
+
+async def test_ingestion_runs_without_a_local_model_call_budget(env):
+    from septum_api.services import ollama_call_budget as budget_module
+    from septum_api.services.ollama_detection_runner import DetectionCall, run_detection_calls
+    from septum_api.services.prompts import DetectionPrompt
+
+    seen: list[Any] = []
+
+    def send(**kwargs: Any) -> str:
+        return "[]"
+
+    def sanitize(text: str, language: str, anon_map: Any) -> Any:
+        seen.append(budget_module._current_budget.get())
+        calls = [
+            DetectionCall(
+                prompt=lambda nonce, i=i: DetectionPrompt("s", f"<data-{nonce}>\n{text} {i}\n</data-{nonce}>"),
+                parse=lambda reply: reply,
+                base_url=None,
+                model=None,
+            )
+            for i in range(MANY_CALLS)
+        ]
+        assert len(run_detection_calls(calls, send=send, refusal=RuntimeError)) == MANY_CALLS
+        return env.sanitizer.results[text]
+
+    env.sanitizer.sanitize = sanitize
+
+    await _run(env)
+
+    assert seen and all(budget is None for budget in seen)
+
+
+MANY_CALLS = 200

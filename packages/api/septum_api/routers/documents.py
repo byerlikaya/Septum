@@ -560,7 +560,7 @@ async def _gate_semantic_labels(
         return
     settings = await load_settings(db)
     gated_labels = iter(
-        await gate_document_texts(db, settings, document, typed_labels)
+        await gate_document_texts(db, settings, document, typed_labels, joined=True)
     )
     for c in payload.columns:
         if c.semantic_label:
@@ -1457,7 +1457,9 @@ class _DocumentGone(Exception):
     """A concurrent delete removed the row while the map lock was awaited."""
 
 
-async def erase_document(db: AsyncSession, document: Document) -> bool:
+async def erase_document(
+    db: AsyncSession, document: Document, *, clear_reply_cache: bool = True
+) -> bool:
     """Erase every stored copy of ``document`` under its map lock, then delete its row.
 
     Returns ``False`` when a concurrent delete removed the row while this
@@ -1466,6 +1468,7 @@ async def erase_document(db: AsyncSession, document: Document) -> bool:
     and 500 if a stored copy survives or the lock was lost before the
     commit; in both cases the row stays so the delete can be retried. A
     lock that expires on release after the commit is logged only.
+    ``clear_reply_cache`` is passed on to :func:`erase_document_artifacts`.
     """
     document_id = document.id
     committed = False
@@ -1478,7 +1481,9 @@ async def erase_document(db: AsyncSession, document: Document) -> bool:
                 # logged, as for any other failed body.
                 raise _DocumentGone from None
             refuse_while_processing(document)
-            await _erase_document_locked(db, document, lock)
+            await _erase_document_locked(
+                db, document, lock, clear_reply_cache=clear_reply_cache
+            )
             committed = True
     except _DocumentGone:
         return False
@@ -1495,7 +1500,11 @@ async def erase_document(db: AsyncSession, document: Document) -> bool:
 
 
 async def _erase_document_locked(
-    db: AsyncSession, document: Document, lock: DocumentMapLockHandle
+    db: AsyncSession,
+    document: Document,
+    lock: DocumentMapLockHandle,
+    *,
+    clear_reply_cache: bool = True,
 ) -> None:
     """Erase every stored copy of ``document``, then delete and commit its row.
 
@@ -1507,7 +1516,11 @@ async def _erase_document_locked(
     document_id = document.id
 
     try:
-        await erase_document_artifacts(document_id, source_path=document.encrypted_path)
+        await erase_document_artifacts(
+            document_id,
+            source_path=document.encrypted_path,
+            clear_reply_cache=clear_reply_cache,
+        )
     except ArtifactErasureError as exc:
         log_artifact_erasure_failure(document_id, exc)
         raise HTTPException(

@@ -4,8 +4,8 @@ from __future__ import annotations
 Stateless placement and slicing for the contextual detection layer.
 
 Turns the values a local model reports for a slice of text into spans at
-exact character offsets (:func:`_reply_spans`), and cuts long text into
-overlapping slices that fit a byte budget (:func:`_contextual_slices`).
+exact character offsets (:func:`reply_spans`), and cuts long text into
+overlapping slices that fit a byte budget (:func:`contextual_slices`).
 No network call, setting or refusal lives here: the Ollama adapter in
 :mod:`septum_api.services.sanitizer` owns the calls, the budget and the
 refusals.
@@ -315,7 +315,7 @@ def _placed_spans(
     return spans, complete
 
 
-def _reply_spans(
+def reply_spans(
     items: List[dict], text: str, requested: tuple[str, ...]
 ) -> tuple[List[DetectedSpan], int, int]:
     """Place every item of one reply in ``text``: the spans, the values left unplaced, and the usable values.
@@ -336,9 +336,28 @@ def _reply_spans(
 
 
 _CONTEXTUAL_SLICE_CHARS = 2000
-_CONTEXTUAL_SLICE_OVERLAP = 200
+CONTEXTUAL_SLICE_OVERLAP = 200
 # A slice must hold twice the overlap in any script, at up to 4 bytes a character.
-_MIN_SLICE_BYTES = 8 * _CONTEXTUAL_SLICE_OVERLAP
+MIN_SLICE_BYTES = 8 * CONTEXTUAL_SLICE_OVERLAP
+
+
+CHAT_TEMPLATE_MARGIN_TOKENS = 256
+"""Tokens kept free for the model's chat template around a prompt."""
+
+
+def prompt_slice_budget(empty_prompt: str, window: int, reply_tokens: int) -> Optional[int]:
+    """UTF-8 bytes one slice may take so its prompt and answer fit ``window`` tokens, or ``None``.
+
+    ``empty_prompt`` is the prompt rendered around an empty slice, ``window``
+    the model's real window. A tokenizer never makes more tokens than bytes,
+    so a prompt of N bytes is at most N tokens, plus the chat template
+    (:data:`CHAT_TEMPLATE_MARGIN_TOKENS`) and ``reply_tokens``. Counting bytes,
+    not characters, keeps dense scripts inside the window. ``None`` when the
+    window cannot hold a slice of ``MIN_SLICE_BYTES``.
+    """
+    overhead = len(empty_prompt.encode("utf-8"))
+    budget = window - reply_tokens - CHAT_TEMPLATE_MARGIN_TOKENS - overhead - 1
+    return budget if budget >= MIN_SLICE_BYTES else None
 
 
 def _utf8_length(ch: str) -> int:
@@ -360,38 +379,38 @@ def _slice_end(text: str, start: int, max_bytes: Optional[int]) -> int:
     return end
 
 
-def _contextual_slices(
+def contextual_slices(
     normalized_text: str, max_bytes: Optional[int] = None
 ) -> List[tuple[int, str]]:
     """Cut ``normalized_text`` into ``(offset, slice)`` pairs for the contextual prompt.
 
     Each slice holds at most ``_CONTEXTUAL_SLICE_CHARS`` characters and, when
-    given, ``max_bytes`` UTF-8 bytes (at least ``_MIN_SLICE_BYTES``, else
+    given, ``max_bytes`` UTF-8 bytes (at least ``MIN_SLICE_BYTES``, else
     ``ValueError``), and ends at the last whitespace of its second half when
-    there is one more than ``_CONTEXTUAL_SLICE_OVERLAP`` characters past its
-    start. The next slice starts at least ``_CONTEXTUAL_SLICE_OVERLAP``
+    there is one more than ``CONTEXTUAL_SLICE_OVERLAP`` characters past its
+    start. The next slice starts at least ``CONTEXTUAL_SLICE_OVERLAP``
     characters before that end (after a whitespace when there is one), so a
     value no longer than the overlap that crosses a cut lies whole in the
     next slice. A slice reaching past its start by more than the overlap
-    (a hard cut is at least ``_MIN_SLICE_BYTES / 4`` characters) makes every
+    (a hard cut is at least ``MIN_SLICE_BYTES / 4`` characters) makes every
     next start later than the one before.
     """
-    if max_bytes is not None and max_bytes < _MIN_SLICE_BYTES:
-        raise ValueError(f"A slice budget of {max_bytes} bytes is below {_MIN_SLICE_BYTES}.")
+    if max_bytes is not None and max_bytes < MIN_SLICE_BYTES:
+        raise ValueError(f"A slice budget of {max_bytes} bytes is below {MIN_SLICE_BYTES}.")
     length = len(normalized_text)
     slices: List[tuple[int, str]] = []
     start = 0
     while True:
         end = _slice_end(normalized_text, start, max_bytes)
         if end < length:
-            low = max(start + (end - start) // 2, start + _CONTEXTUAL_SLICE_OVERLAP + 1)
+            low = max(start + (end - start) // 2, start + CONTEXTUAL_SLICE_OVERLAP + 1)
             cut = _last_whitespace(normalized_text, low, end)
             if cut is not None:
                 end = cut
         slices.append((start, normalized_text[start:end]))
         if end >= length:
             return slices
-        overlap_start = end - _CONTEXTUAL_SLICE_OVERLAP
+        overlap_start = end - CONTEXTUAL_SLICE_OVERLAP
         ws = _last_whitespace(normalized_text, start + 1, overlap_start)
         start = ws + 1 if ws is not None else overlap_start
 

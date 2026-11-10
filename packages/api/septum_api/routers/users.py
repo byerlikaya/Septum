@@ -17,6 +17,8 @@ from ..models.document import Document
 from ..models.user import User
 from ..services.audit_logger import forget_user_in_audit_events
 from ..services.auth import hash_password, run_password_work
+from ..services.document_anon_store import DocumentMapErasureError
+from ..services.ollama_detection_runner import clear_detection_cache
 from ..utils.auth_dependency import require_interactive_session, require_role
 from ..utils.db_helpers import get_or_404
 from .auth import require_strong_password
@@ -25,6 +27,10 @@ from .documents import erase_document, refuse_while_processing
 _EMAIL_ALREADY_REGISTERED = "Email already registered"
 _USER_NOT_FOUND = "User not found"
 _LAST_ADMIN_DELETE = "Cannot delete the last active administrator"
+_DETECTION_CACHE_NOT_ERASED = (
+    "The user's cached detection results could not be erased; "
+    "the user was not deleted. Try again."
+)
 
 router = APIRouter(
     prefix="/api/users",
@@ -324,6 +330,11 @@ async def delete_user(
     inactive and no document is left: a reactivation or an upload meanwhile
     refuses with 409 and leaves the user inactive. Chat sessions and API
     keys go with the row through their ``ON DELETE CASCADE`` foreign keys.
+    The local-model detection reply cache of every worker is dropped
+    (:func:`clear_detection_cache`) once, after the document loop and
+    before the row goes, also when the loop fails part way; when that
+    fails the delete returns 500 with the user inactive, and a retry,
+    which always clears it again, finishes it.
     """
     target = await get_or_404(db, User, user_id, _USER_NOT_FOUND)
     _forbid_self(current_user, target.id, "delete")
@@ -336,8 +347,17 @@ async def delete_user(
     for document in documents:
         refuse_while_processing(document)
     await _deactivate_for_deletion(db, user_id)
-    for document in documents:
-        await erase_document(db, document)
+    try:
+        for document in documents:
+            await erase_document(db, document, clear_reply_cache=False)
+    finally:
+        try:
+            await clear_detection_cache()
+        except DocumentMapErasureError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=_DETECTION_CACHE_NOT_ERASED,
+            ) from exc
 
     target = await db.scalar(
         select(User)

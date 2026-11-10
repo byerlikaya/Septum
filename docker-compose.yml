@@ -151,6 +151,7 @@ services:
       # taken at face value. Never "*".
       FORWARDED_ALLOW_IPS: ${SEPTUM_WEB_IP:-172.28.70.10}
       OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}
     ports:
       - "127.0.0.1:8000:8000"
     extra_hosts:
@@ -327,6 +328,8 @@ services:
   ollama:
     image: ollama/ollama:0.40.14@sha256:ebaef4f4c5d93660e1f25f8ad085a112f51ccfb0e8458073e71793959dba91c9
     container_name: septum-ollama
+    environment:
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}
     ports:
       # Containers reach Ollama as http://ollama:11434; the host port is for host-side tools only.
       - "${SEPTUM_OLLAMA_BIND:-127.0.0.1}:11434:11434"

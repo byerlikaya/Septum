@@ -275,13 +275,12 @@ def _forget(document_id: int) -> None:
     _map_versions.pop(document_id, None)
 
 
-def _write_disk_atomically(document_id: int, data: bytes) -> os.stat_result:
-    """Write the disk tier via a temp file and rename; return the file's stat.
+def _replace_atomically(path: Path, data: bytes) -> os.stat_result:
+    """Replace ``path`` with ``data`` via a temp file and rename; return the new file's stat.
 
-    Readers in other workers never see a half-written file, and every
-    write produces a new inode, so the disk version changes on each write.
+    Readers in other workers never see a half-written file, and every write
+    produces a new inode, so the disk version changes on each write.
     """
-    path = _map_path(document_id)
     tmp = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
     try:
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -341,7 +340,7 @@ async def set_document_map(document_id: int, anon_map: AnonymizationMap) -> None
     encrypted_bytes = encrypt(serialized, associated_data=associated_data)
 
     # Tier 3: encrypted disk (durable; failure aborts the write)
-    disk_stat = _write_disk_atomically(document_id, encrypted_bytes)
+    disk_stat = _replace_atomically(_map_path(document_id), encrypted_bytes)
 
     # Tier 2: Redis (encrypted), then the version other workers validate
     # their memory copy against.
@@ -549,3 +548,81 @@ async def pop_document_map(document_id: int) -> None:
             f"Anonymization map of document_id={document_id} was not erased "
             f"from: {', '.join(failed_tiers)}"
         ) from disk_error
+
+
+_ERASURE_EPOCH_KEY = "erasure_epoch"
+_ERASURE_EPOCH_FILE = "erasure.epoch"
+
+
+def _erasure_epoch_path() -> Path:
+    """The disk marker of the erasure epoch, next to the map files."""
+    _ANON_MAP_DIR.mkdir(parents=True, exist_ok=True)
+    return _ANON_MAP_DIR / _ERASURE_EPOCH_FILE
+
+
+def _disk_epoch(path: Path) -> str:
+    """The marker's identity and its random content, read from one open file.
+
+    The content (the 32 hex digits :func:`bump_erasure_epoch` writes) keeps
+    two markers apart even when a reused inode gets the same timestamp and
+    size.
+    """
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        identity = _disk_version(os.fstat(fd))
+        content = os.read(fd, 32)
+    finally:
+        os.close(fd)
+    return f"{identity}:{content.decode('ascii', 'replace')}"
+
+
+async def read_erasure_epoch() -> Optional[str]:
+    """The erasure epoch every worker sees, or ``None`` when it cannot be read.
+
+    Kept like a map version: with Redis configured, a Redis key (claimed
+    with a fresh value when missing); otherwise the identity and content of
+    a marker file in the map directory (created when missing). Every document or
+    user erasure replaces it (:func:`bump_erasure_epoch`), so an in-memory
+    copy of derived content tagged with an older epoch is stale in every
+    worker. ``None`` (Redis unreachable, a disk error) means no such copy
+    may be trusted or kept.
+    """
+    if redis_configured():
+        raw = await redis_get(_ERASURE_EPOCH_KEY)
+        if raw is None:
+            candidate = uuid4().hex
+            if await redis_set_if_absent(_ERASURE_EPOCH_KEY, candidate.encode("ascii")):
+                return candidate
+            raw = await redis_get(_ERASURE_EPOCH_KEY)
+        return raw.decode("utf-8", "replace") if raw is not None else None
+    try:
+        path = _erasure_epoch_path()
+        try:
+            return _disk_epoch(path)
+        except FileNotFoundError:
+            with contextlib.suppress(FileExistsError):
+                os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+            return _disk_epoch(path)
+    except OSError as exc:
+        logger.error("Could not read the erasure epoch: %s", type(exc).__name__)
+        return None
+
+
+async def bump_erasure_epoch() -> None:
+    """Replace the erasure epoch in Redis or on disk, so every worker drops what it derived before.
+
+    A failure is logged by error class only and raises
+    :class:`DocumentMapErasureError`, so the erasure that asked for it is
+    not reported done.
+    """
+    epoch = uuid4().hex.encode("ascii")
+    if redis_configured():
+        if await redis_set(_ERASURE_EPOCH_KEY, epoch):
+            return
+        logger.error("Could not replace the erasure epoch in Redis")
+        raise DocumentMapErasureError("The erasure epoch was not replaced in: redis")
+    try:
+        _replace_atomically(_erasure_epoch_path(), epoch)
+    except OSError as exc:
+        logger.error("Could not replace the erasure epoch on disk: %s", type(exc).__name__)
+        raise DocumentMapErasureError("The erasure epoch was not replaced on: disk") from exc

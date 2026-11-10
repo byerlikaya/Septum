@@ -35,7 +35,11 @@ from .national_ids import (
     ValidationResult,
 )
 from .non_pii_filter import NonPiiFilter, SpanView
-from .ports import NullSemanticDetectionPort, SemanticDetectionPort
+from .ports import (
+    NullSemanticDetectionPort,
+    SemanticDetectionPort,
+    SemanticLayerRefusal,
+)
 from .recognizers import RecognizerRegistry
 from .regulations import (
     CustomRecognizerLike,
@@ -65,6 +69,7 @@ __all__ = [
     "SeptumCoreConfig",
     "SemanticDetectionPort",
     "NullSemanticDetectionPort",
+    "SemanticLayerRefusal",
     "RecognizerRegistry",
     "ComposedPolicy",
     "PolicyComposer",

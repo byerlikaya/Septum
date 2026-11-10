@@ -8,7 +8,7 @@ import os
 import socket
 import tempfile
 from pathlib import Path
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 import pytest
 
@@ -140,15 +140,40 @@ def _fresh_rate_limits() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _fresh_ollama_context_windows(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Start every test with no cached Ollama context window.
+def _fresh_ollama_detection_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Start every test with no shared Ollama client, cached context window or detection reply, and no retry wait.
 
-    The cache is process-wide and keyed by server and model; without this, a
-    window one test's fake server reported would answer a later test's lookup.
+    These are process-wide: a window, client or reply one test's fake server
+    produced would otherwise answer the next test's call. The map directory,
+    which also holds the erasure epoch marker, starts empty under the test's
+    own temp directory; a test that sets its own still wins.
     """
-    from septum_api.services import ollama_client
+    from septum_api.services import (
+        document_anon_store,
+        ollama_client,
+        ollama_detection_runner,
+    )
 
-    monkeypatch.setattr(ollama_client, "_context_windows", {})
+    monkeypatch.setattr(document_anon_store, "_ANON_MAP_DIR", tmp_path / "anon_maps")
+    _fresh_ollama_client(monkeypatch, ollama_client)
+    _fresh_detection_runner(monkeypatch, ollama_detection_runner)
+
+
+def _fresh_ollama_client(monkeypatch: pytest.MonkeyPatch, module: Any) -> None:
+    """Empty every shared client, cached context window and read in progress of ``ollama_client``."""
+    import weakref
+
+    monkeypatch.setattr(module, "_sync_clients", {})
+    monkeypatch.setattr(module, "_async_clients", weakref.WeakKeyDictionary())
+    monkeypatch.setattr(module, "_context_windows", {})
+    monkeypatch.setattr(module, "_show_flights", {})
+    monkeypatch.setattr(module, "_async_show_flights", {})
+
+
+def _fresh_detection_runner(monkeypatch: pytest.MonkeyPatch, module: Any) -> None:
+    """Give ``ollama_detection_runner`` an empty reply cache and no retry wait."""
+    monkeypatch.setattr(module, "_cache", module._ReplyCache())
+    monkeypatch.setattr(module, "RETRY_BACKOFF_SECONDS", 0.0)
 
 
 @pytest.fixture

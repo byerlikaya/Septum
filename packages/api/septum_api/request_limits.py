@@ -85,6 +85,16 @@ MAX_SCHEMA_LABEL_CHARS = 128
 MAX_TECHNICAL_LABEL_CHARS = 64
 """Longest technical column label a client may send."""
 
+MAX_OLLAMA_CALLS_PER_TURN = 128
+"""Most local-model detection requests one chat turn (or ``/analyze_query``, or a
+custom rule test) may send to ``/api/generate``. Every request sent counts,
+a retry attempt included: contextual, ``llm_prompt``, validation, alias and
+coreference calls. Not counted: a reply served from the detection cache, a
+duplicate of a call in the same batch (sent once), ``/api/show`` window
+reads, the intent classifier and the answer. Each request is reserved before
+it is sent; one that would exceed the budget is not sent and the turn is
+refused with ``local_model_budget_exceeded``."""
+
 MAX_DOCUMENT_ID = 2**31 - 1
 """Largest value ``documents.id`` (a 32-bit integer column) can hold."""
 
@@ -99,6 +109,7 @@ __all__ = [
     "MAX_DOCUMENT_ID",
     "MAX_LLM_MODEL_LENGTH",
     "MAX_LLM_PROVIDER_LENGTH",
+    "MAX_OLLAMA_CALLS_PER_TURN",
     "MAX_PRE_APPROVED_CHUNK_CHARS",
     "MAX_PROGRESS_IDS",
     "MAX_RETRY_DOCUMENTS",

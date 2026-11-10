@@ -185,7 +185,7 @@ async def _serve(engine: Any, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         env = _Env(session_maker, client, user)
 
-        async def _spy_document_gate(db, settings, document, texts, sanitizer=None):
+        async def _spy_document_gate(db, settings, document, texts, sanitizer=None, joined=False):
             env.gate_calls.append(list(texts))
             return list(texts)
 
@@ -441,7 +441,7 @@ class TestConcurrentUpdates:
         release_first = asyncio.Event()
         gate_entries = 0
 
-        async def _gate(db, settings, document, texts, sanitizer=None):
+        async def _gate(db, settings, document, texts, sanitizer=None, joined=False):
             nonlocal gate_entries
             gate_entries += 1
             if gate_entries == 1:
@@ -600,7 +600,7 @@ class TestConcurrentFirstCreate:
         real_lock = documents_router._lock_and_read_schema
         lock_calls: list[bool] = []
 
-        async def _gate(db, settings, document, texts, sanitizer=None):
+        async def _gate(db, settings, document, texts, sanitizer=None, joined=False):
             await env.add_schema(doc, stored)
             return list(texts)
 

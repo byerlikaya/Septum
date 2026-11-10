@@ -420,6 +420,8 @@ export const enMessages = {
     "A custom detection rule could not run because the local Ollama model did not answer. Nothing was sent; check Ollama and try again.",
   "errors.customRule.promptRequired":
     "An LLM-prompt rule needs a prompt; enter what the model should find.",
+  "errors.localModelBudget.exceeded":
+    "This request would need more local-model checks than one turn allows, so nothing was sent. Shorten the question or the context, reduce the active custom AI rules, or ask your administrator.",
   "errors.semanticLayer.unavailable":
     "Sensitive-category detection could not run because the local Ollama model did not answer. Nothing was sent; check Ollama and try again.",
   "errors.regulations.load": "An error occurred while loading regulation settings.",

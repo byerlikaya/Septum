@@ -46,6 +46,7 @@ from .entity_index_service import (
     recompute_relationships_for_document,
     replace_index_for_document,
 )
+from .ollama_detection_runner import clear_detection_cache, local_model_scope
 from .pii_gate import section_title_masker
 from .policy_composer import PolicyComposer
 from .remask_cache import remask_cache
@@ -65,6 +66,7 @@ _ARTIFACT_TIER_LABELS = {
     "vector_index": "FAISS index",
     "bm25_index": "BM25 index",
     "anonymization_map": "anonymization map",
+    "detection_cache": "local-model detection cache",
 }
 
 
@@ -103,15 +105,23 @@ def log_artifact_erasure_failure(document_id: int, exc: ArtifactErasureError) ->
 
 
 async def erase_document_artifacts(
-    document_id: int, *, source_path: Optional[str] = None
+    document_id: int,
+    *,
+    source_path: Optional[str] = None,
+    clear_reply_cache: bool = True,
 ) -> None:
     """Erase every stored copy of a document; the caller holds its map lock.
 
     Order: the source file (only when ``source_path`` is given), the FAISS
-    index, the BM25 index, then the anonymization map. A missing file or
-    index counts as already erased. The first tier that fails raises
-    :class:`ArtifactErasureError` and later tiers are not attempted. This
-    worker's re-masked chunk cache entries of the document are dropped first.
+    index, the BM25 index, the anonymization map, then the local-model
+    detection reply cache of every worker (:func:`clear_detection_cache`),
+    last so a reply cached while the erasure ran is dropped too. A missing
+    file or index counts as already erased. The first tier that fails
+    raises :class:`ArtifactErasureError` and later tiers are not attempted.
+    This worker's re-masked chunk cache entries of the document are
+    dropped first. ``clear_reply_cache=False`` skips the reply cache tier;
+    a caller erasing many documents at once then clears it once, after
+    the last of them.
     """
     remask_cache.forget_document(document_id)
     steps: list[tuple[str, Callable[[], None]]] = []
@@ -128,6 +138,12 @@ async def erase_document_artifacts(
         await pop_document_map(document_id)
     except Exception as exc:
         raise ArtifactErasureError("anonymization_map", exc) from exc
+    if not clear_reply_cache:
+        return
+    try:
+        await clear_detection_cache()
+    except DocumentMapErasureError as exc:
+        raise ArtifactErasureError("detection_cache", exc) from exc
 
 
 def _progress_emitter(on_progress: Callable[[int], None] | None) -> Callable[[int], None]:
@@ -413,9 +429,10 @@ class DocumentPipeline:
         language, language_source = masking_language(document, transcription_text)
         anon_map = AnonymizationMap(document_id=document.id, language=language)
 
-        sanitized = await _sanitize_chunks(
-            sanitizer, semantic_chunks, raw_texts_for_index, language, anon_map, emit
-        )
+        async with local_model_scope(document.user_id, budgeted=False):
+            sanitized = await _sanitize_chunks(
+                sanitizer, semantic_chunks, raw_texts_for_index, language, anon_map, emit
+            )
 
         document.transcription_text = transcription_text
         document.ocr_confidence = ingestion_confidence

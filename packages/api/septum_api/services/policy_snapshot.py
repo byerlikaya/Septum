@@ -102,27 +102,30 @@ def snapshot_entity_types(entity_types: Iterable[str]) -> List[str]:
 
 _LLM_PROMPT_DETECTION = "llm_prompt"
 
-LLM_PROMPT_RULE_REVISION = "llm-prompt-applied-1"
+LLM_PROMPT_RULE_REVISION = "llm-prompt-applied-2"
 """Marks the definition of an ``llm_prompt`` rule in the digest.
 
-Before it, such rules were composed without a recognizer and masked nothing,
-so a document sanitized while one was active recorded a digest that still
-matches its definition. The marker changes that digest, and only that one:
-those documents read as outdated and chat re-masks them. Bump it whenever
-``llm_prompt`` rules start finding what earlier documents did not.
+Before revision 1, such rules were composed without a recognizer and masked
+nothing, so a document sanitized while one was active recorded a digest that
+still matches its definition. Revision 2 sends the inspected text between
+nonce delimiters and cuts long text into slices that fit the model's window.
+The marker changes that digest, and only that one: those documents read as
+outdated and chat re-masks them. Bump it whenever ``llm_prompt`` rules start
+finding what earlier documents did not.
 """
 
-CONTEXTUAL_LAYER_REVISION = "contextual-applied-2"
+CONTEXTUAL_LAYER_REVISION = "contextual-applied-3"
 """Stands for an enabled contextual layer in :func:`detection_settings`.
 
-Before revision 1, the contextual layer was gated behind the alias layer, which the
-document sanitizer fixes off, so it never ran: a document sanitized with it
-enabled recorded a digest that claims a pass that did not happen. Under
-revision 1 it dropped values in scripts without case and all-caps values as
-headings, and values it could not place verbatim. The marker
-changes the digest only while the layer is on, so those documents read as
-outdated and chat re-masks them. Bump it whenever the contextual layer starts
-finding what earlier documents did not.
+Before revision 1, the contextual layer was gated behind the alias layer,
+which the document sanitizer fixes off, so it never ran: a document
+sanitized with it enabled recorded a digest that claims a pass that did not
+happen. Under revision 1 it dropped values in scripts without case and
+all-caps values as headings, and values it could not place verbatim.
+Revision 3 sends each slice between nonce delimiters marked as data, never
+instructions. The marker changes the digest only while the layer is on, so
+those documents read as outdated and chat re-masks them. Bump it whenever
+the contextual layer starts finding what earlier documents did not.
 """
 
 
