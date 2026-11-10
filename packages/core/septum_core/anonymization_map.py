@@ -85,9 +85,14 @@ _JOINER_SPLIT = re.compile(rf"([{_JOINERS}])")
 _WORD_CHAR = rf"[^\W{_JOINERS}]"
 # Text tokens for ``apply_blocklist``: a placeholder, or word runs joined by
 # hyphens/apostrophes ("O'Brien", "Jean-Pierre", "Kaya’nın") so a joined name
-# is looked up whole before its parts. Group 1 is non-empty for a joined run.
+# is looked up whole before its parts. Only the minted placeholder shape
+# (``PLACEHOLDER_SHAPE``) is kept whole: other bracketed text ("[notes from
+# sarah](url)", "[Ref: sarah]") is ordinary text and its words are looked up.
+# Group ``joined`` is non-empty for a joined run.
 _TEXT_TOKEN = re.compile(
-    rf"\[[^\]]+\]|{_WORD_CHAR}+((?:[{_JOINERS}]{_WORD_CHAR}+)*)", re.UNICODE
+    rf"(?P<placeholder>{PLACEHOLDER_SHAPE.pattern})"
+    rf"|{_WORD_CHAR}+(?P<joined>(?:[{_JOINERS}]{_WORD_CHAR}+)*)",
+    re.UNICODE,
 )
 _WORD = re.compile(rf"{_WORD_CHAR}+", re.UNICODE)
 # Upper bound on the parts of one joined run tried as a single name, so a long
@@ -386,10 +391,10 @@ class AnonymizationMap:
         run = match.group(0)
         replacement = seen.get(run)
         if replacement is None:
-            if match.group(1):
-                replacement = self._redact_joined(run, language)
-            elif run.startswith("["):
+            if match.group("placeholder"):
                 replacement = run
+            elif match.group("joined"):
+                replacement = self._redact_joined(run, language)
             else:
                 replacement = self._redact_word(run, language)
             seen[run] = replacement
