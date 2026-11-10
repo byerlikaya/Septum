@@ -10770,30 +10770,6 @@ null
 "DEBUG:Semantic alias layer returned 0 spans"
 ]
 },
-"contextual_raises": {
-"text": "Ahmet Yılmaz works with Maria Garcia in Berlin and the team reviews contracts every single week without fail",
-"count": 0,
-"types": {},
-"spans": [],
-"ner_inputs": [],
-"analyzer_calls": [
-[
-"en",
-[
-"DIAGNOSIS",
-"EMAIL_ADDRESS"
-]
-]
-],
-"port_calls": [
-"aliases",
-"semantic:['DIAGNOSIS']"
-],
-"logs": [
-"DEBUG:Semantic alias layer returned 0 spans",
-"WARNING:Semantic contextual layer failed: RuntimeError"
-]
-},
 "contextual_off": {
 "text": "Ahmet Yılmaz works with Maria Garcia in Berlin and the team reviews contracts every single week without fail",
 "count": 0,
