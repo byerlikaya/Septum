@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-11-11
+
+- New installations now turn on the contextual layer for special categories when setup finishes with a working local model (Ollama reachable and the local PII model installed) and an active regulation pack covers those categories; otherwise it stays off. Existing installations keep their current setting, and an explicit `USE_OLLAMA_SEMANTIC_LAYER_DEFAULT=false` opts out.
+
 ### 2026-11-10
 
 - Document ingesters now also return their text as structural blocks (pages, sheet rows, paragraphs, headings, tables, audio segments), groundwork for chunking that keeps page, sheet and timestamp information. The flat text rebuilt from the blocks is byte-identical, so stored text and processing are unchanged.

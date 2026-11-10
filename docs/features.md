@@ -62,7 +62,7 @@ coreference step is not used in production.
 
 **Layer 3 has its own setting.** It runs only while *Ollama semantic
 detection* (`use_ollama_semantic_layer`) is on; turn it on or off under
-Settings → Privacy & Sanitization. The Ollama validation setting
+Settings → Privacy & Sanitization. A new installation turns it on at the end of setup when a local model is available; see the [setup wizard](installation#first-launch--setup-wizard). The Ollama validation setting
 (`use_ollama_validation_layer`) is separate and does not switch Layer 3
 on or off. Ollama alias detection is not used in production. Layers 1 and
 2 handle structured identifiers and names; Layer 3 adds semantic

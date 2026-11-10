@@ -68,7 +68,7 @@ User question:  "Summarise the discharge plan for Elif Demir and list her follow
 Masked:         "Summarise the discharge plan for [PERSON_NAME_1] and list her follow-up medications."
 ```
 
-`[DIAGNOSIS_1]` and `[MEDICATION_1]` come from the optional Ollama semantic layer. Without that layer, diagnoses and medications are not masked.
+`[DIAGNOSIS_1]` and `[MEDICATION_1]` come from the optional Ollama semantic layer. Without that layer, diagnoses and medications are not masked. A new installation turns the layer on at the end of setup when a local model is available (see [First launch](installation#first-launch--setup-wizard)); otherwise it stays off.
 
 The LLM answers using placeholders. Septum restores real values locally before showing you the response.
 
