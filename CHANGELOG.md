@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-11-10
+
+- The retrieval benchmark now finds chunks where a heading is joined onto the previous sentence, and its baseline is re-recorded on current main because the old figures could no longer be reproduced. Recall is unchanged; MRR is lower, mostly for Chinese.
+
 ### 2026-11-05
 
 - PDF previews render in Chrome again: the decrypted PDF is now drawn by a self-hosted pdf.js viewer inside a script-only sandboxed frame with its own strict CSP, instead of the blob: frame Chrome refused to show. Very long documents are capped at 500 previewed pages with a notice.
