@@ -35,7 +35,7 @@ Kullanıcı sorusu: "Elif Demir'in taburculuk planını özetle ve takip ilaçla
 Maskeli:          "[PERSON_NAME_1]'in taburculuk planını özetle ve takip ilaçlarını listele."
 ```
 
-`[DIAGNOSIS_1]` ve `[MEDICATION_1]` isteğe bağlı Ollama semantik katmanından gelir. Bu katman kapalıysa tanılar ve ilaçlar maskelenmez.
+`[DIAGNOSIS_1]` ve `[MEDICATION_1]` isteğe bağlı Ollama semantik katmanından gelir. Bu katman kapalıysa tanılar ve ilaçlar maskelenmez. Yeni kurulumda yerel bir model varsa katman kurulumun sonunda açılır ([İlk açılış](installation#i̇lk-açılış--kurulum-sihirbazı) bölümüne bakın); aksi halde kapalı kalır.
 
 LLM placeholder'larla cevap verir. Septum, cevabı size göstermeden önce gerçek değerleri yerelde geri yazar.
 

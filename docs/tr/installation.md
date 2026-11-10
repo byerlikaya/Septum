@@ -251,6 +251,10 @@ Compose varyantlarından biri açılışı tamamladığında **http://localhost:
 
 Sihirbaz tamamlandığında `config.json` yazılır, admin kullanıcı oluşturulur ve panele yönlendirilirsiniz. Sihirbaz tek seferlik bir akıştır; kurulum bittikten sonra `/api/setup/*` uçlarına yapılan istek 403 döner.
 
+**Bağlamsal katman (özel nitelikli kişisel veri).** Yeni bir kurulumda sihirbaz tamamlandığında Septum, sağlık, din, siyasi görüş, etnik köken ve cinsel yönelim gibi özel nitelikli kişisel verileri yerel modelle maskeleyen *Ollama semantik tespit* katmanını (`use_ollama_semantic_layer`) açar. Bunu yalnızca şu koşulların hepsi sağlandığında yapar: sihirbazda yerel model seçilmiştir (sağlayıcı olarak Ollama ya da Ollama katmanı seçeneği açık); `USE_OLLAMA_SEMANTIC_LAYER_DEFAULT` açıkça `false` yapılmamıştır; etkin regülasyon paketlerinden en az biri bağlamsal varlık tipleri içerir; yapılandırılmış Ollama yanıt verir ve Lokal PII modeli (`ollama_deanon_model`) kuruludur. Aksi halde katman kapalı kalır. `USE_OLLAMA_SEMANTIC_LAYER_DEFAULT=true` ayar kaydı oluşturulurken katmanı yine zorla açar; açık `false` ise operatörün bilinçli vazgeçişidir.
+
+Açmanın bedeli vardır: her doküman ve soru için ek gecikme, çalışan bir Ollama'ya bağımlılık ve katman açıkken yanıt veremezse yapılan ret. Güvenli ret davranışı için [3. katmanın maliyeti ve hata durumu](features#tespit-hattı), yerel sınırlar için [Ollama modelleri](#llm-sağlayıcıları) bölümüne bakın.
+
 ### Sihirbaza yazılacak tam değerler (tam compose yığını)
 
 `docker compose up` ile tam yığını başlattıysanız, api container'ı paketli PostgreSQL, Redis ve Ollama'ya docker ağı üzerinden ulaşır — `localhost` üzerinden değil. Host adı olarak compose servis isimlerini kullanın:
@@ -554,6 +558,8 @@ docker compose logs -f api                  # migration'ı izleyin
 
 Alembic migration'ları api boot anında otomatik uygulanır. Bir migration başarısız olursa api container'ı açıklayıcı bir hata mesajıyla sonlanır; log'u inceleyip sebebi çözdükten sonra `up -d --build`'i tekrarlayın.
 
+**Güncellemede bağlamsal katman.** Sihirbazın *Ollama semantik tespit* katmanını kendiliğinden açması yalnızca yeni kurulumlar için geçerlidir. Kurulumu zaten tamamlanmış bir sistem mevcut ayarını korur.
+
 Standalone varyantı için aynı komutu kendi compose dosyasıyla çalıştırın:
 
 ```bash
@@ -606,7 +612,7 @@ Taşıma sırasında asla `docker volume prune` çalıştırmayın: hiçbir cont
 
 **Kimler etkilendi.**
 
-- "Ollama semantik tespiti" (`use_ollama_semantic_layer`, varsayılanı kapalı) açılmış kurulumlar. Önceki sürümlerde bu katman üretimde hiç çalışmadı; çünkü üretimde hep kapalı tutulan ayrı bir takma ad tespiti anahtarına bağlıydı. Bu yüzden özel nitelikli değerler (teşhis, ilaç, klinik notlar, din, etnik köken, siyasi görüş, cinsel yönelim, biyometrik ve genetik tanımlayıcılar) maskelenmedi.
+- "Ollama semantik tespiti" (`use_ollama_semantic_layer`) açılmış kurulumlar. Önceki sürümlerde bu katman üretimde hiç çalışmadı; çünkü üretimde hep kapalı tutulan ayrı bir takma ad tespiti anahtarına bağlıydı. Bu yüzden özel nitelikli değerler (teşhis, ilaç, klinik notlar, din, etnik köken, siyasi görüş, cinsel yönelim, biyometrik ve genetik tanımlayıcılar) maskelenmedi.
 - Yöneticinin tanımladığı, LLM istemi tespit yöntemini kullanan özel kuralların etkin olduğu kurulumlar. Bu kurallar v1.0.0'dan (Nisan 2026) bu sürüme kadar sessizce atlandı; hedefledikleri değerler bu nedenle maskelenmedi.
 
 **Ne açığa çıktı.** Sohbet soruları ve sohbete getirilen doküman parçaları, bu değerler açık hâlde olacak şekilde yapılandırılmış bulut LLM sağlayıcısına gönderildi. Saklanan veriler yerelde kaldı; doküman alımının kendisi bulut sağlayıcıya hiçbir şey göndermez. Dosya kuyruğu arka ucunu kullanan gateway kurulumlarında ayrıca gateway ana makinesindeki kuyruğun dead-letter dizinine (`{root}/{topic}/dead-letter/`) bakın; oradaki kayıtlar saklanır, kendiliğinden silinmez.

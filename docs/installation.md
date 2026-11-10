@@ -251,6 +251,10 @@ After any compose variant finishes booting, navigate to **http://localhost:3000*
 
 When the wizard finishes it writes `config.json`, creates the admin user, and redirects to the dashboard. The wizard is one-shot; hitting `/api/setup/*` after completion returns 403.
 
+**Contextual layer (special categories).** When the wizard finishes on a new installation, Septum turns on *Ollama semantic detection* (`use_ollama_semantic_layer`), the local-model layer that masks special-category data such as health, religion, political opinion, ethnicity and sexual orientation. It does so only if all of these hold: the wizard chose a local model (Ollama as the provider, or the Ollama layer option enabled); `USE_OLLAMA_SEMANTIC_LAYER_DEFAULT` is not explicitly `false`; at least one active regulation pack includes contextual entity types; and the configured Ollama answers and the Local PII model (`ollama_deanon_model`) is installed. Otherwise the layer stays off. `USE_OLLAMA_SEMANTIC_LAYER_DEFAULT=true` still forces it on when the settings row is created, and an explicit `false` is an operator opt-out.
+
+Turning it on has a cost: extra latency for each document and question, a dependency on a running Ollama, and a refusal when the layer is on but cannot answer. See [Layer 3 cost and failure](features#detection-pipeline) for the fail-closed behaviour and [Ollama models](#llm-providers) for the local limits.
+
 ### Exact values to paste (full compose stack)
 
 If you started with `docker compose up` (the full stack), the api container reaches the bundled PostgreSQL, Redis, and Ollama over the compose network — not over `localhost`. Use the compose service names as hostnames:
@@ -552,6 +556,8 @@ docker compose logs -f api                  # watch the migration run
 
 Alembic migrations apply automatically at api boot. If a migration fails, the api container exits with a descriptive error — inspect the logs, resolve the cause, retry the `up -d --build`.
 
+**Contextual layer on upgrade.** The wizard's automatic switch-on of *Ollama semantic detection* applies only to new installations. An existing installation, where setup has already completed, keeps its current setting.
+
 For the standalone variant, run the same command with its compose file:
 
 ```bash
@@ -604,7 +610,7 @@ Never run `docker volume prune` while moving: it deletes every volume no contain
 
 **Who is affected.**
 
-- Installs where "Ollama semantic detection" (`use_ollama_semantic_layer`, off by default) was turned on. In earlier releases this layer never ran in production, because it was tied to a separate alias-detection switch that production always kept off. Special-category values (diagnosis, medication, clinical notes, religion, ethnicity, political opinion, sexual orientation, biometric and genetic identifiers) were therefore not masked.
+- Installs where "Ollama semantic detection" (`use_ollama_semantic_layer`) was turned on. In earlier releases this layer never ran in production, because it was tied to a separate alias-detection switch that production always kept off. Special-category values (diagnosis, medication, clinical notes, religion, ethnicity, political opinion, sexual orientation, biometric and genetic identifiers) were therefore not masked.
 - Installs where admin-defined custom rules using the LLM-prompt detection method were active. From v1.0.0 (April 2026) until this release those rules were silently skipped, so the values they targeted were not masked.
 
 **What was exposed.** Chat questions, and document chunks retrieved into chat, were sent to the configured cloud LLM provider with those values in clear. Stored data stayed local, and document ingestion itself sends nothing to a cloud provider. On gateway installs that use the file queue backend, also check the queue's dead-letter directory on the gateway host (`{root}/{topic}/dead-letter/`); entries there are kept and are not removed automatically.
