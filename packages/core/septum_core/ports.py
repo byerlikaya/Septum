@@ -18,6 +18,16 @@ from .anonymization_map import AnonymizationMap
 from .spans import DetectedSpan
 
 
+class SemanticLayerRefusal(Exception):
+    """An adapter's refusal that must stop detection instead of being skipped.
+
+    The detector carries on without a failing validation, alias or
+    coreference layer, but an adapter raises a subclass of this when going
+    on would let unchecked text through (a local model it must not call
+    again, for example); the detector re-raises it from every layer.
+    """
+
+
 @runtime_checkable
 class SemanticDetectionPort(Protocol):
     """Adapter contract for an optional semantic / LLM detection layer.

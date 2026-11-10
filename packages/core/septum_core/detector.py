@@ -27,7 +27,7 @@ import re
 import threading
 from bisect import bisect_right
 from collections.abc import Sequence
-from typing import Dict, List, NamedTuple, Optional, Tuple
+from typing import Callable, Dict, List, NamedTuple, Optional, Tuple, TypeVar
 
 from presidio_analyzer import (
     AnalyzerEngine,
@@ -51,7 +51,11 @@ from .model_integrity import ModelIntegrityError
 from .national_ids import IBANValidator
 from .ner_model_registry import NERModelRegistry
 from .non_pii_filter import NonPiiFilter, SpanView
-from .ports import NullSemanticDetectionPort, SemanticDetectionPort
+from .ports import (
+    NullSemanticDetectionPort,
+    SemanticDetectionPort,
+    SemanticLayerRefusal,
+)
 from .presidio_dedup import install as install_fast_remove_duplicates
 from .recognizers.email import ENTITY_TYPE as EMAIL_ENTITY_TYPE
 from .recognizers.email import EmailAddressRecognizer
@@ -148,6 +152,23 @@ def _adjust_spacy_max_length(nlp_engine: object) -> None:
 
 logger = logging.getLogger(__name__)
 
+_T = TypeVar("_T")
+
+
+def _optional_layer(call: Callable[[], _T], fallback: _T, failure: str) -> _T:
+    """Run an optional semantic-layer call: ``fallback`` when it fails, a :class:`SemanticLayerRefusal` re-raised.
+
+    Only the exception class is logged, never its message, which may echo text.
+    """
+    try:
+        return call()
+    except SemanticLayerRefusal:
+        raise
+    except Exception as exc:
+        logger.warning("%s: %s", failure, type(exc).__name__)
+        return fallback
+
+
 _HIGH_PRIORITY_ENTITY_TYPES: set[str] = {
     # Structural identifiers that fight over overlapping digit spans.
     # All of these must live in the same dedup pool so the
@@ -192,6 +213,14 @@ _SEMANTIC_VALIDATION_PASSTHROUGH_TYPES: frozenset[str] = frozenset(
         "EMPLOYEE_ID",
     }
 )
+
+SEMANTIC_VALIDATION_KEEPS_MIN_SCORE = 0.95
+"""Detector score at or above which the validation layer may not drop a candidate.
+
+The validation model only filters false positives; a detection this
+confident is kept whatever the port answers, so text that steers the model
+(a decoy answer, an injected "return []") cannot unmask it.
+"""
 
 # The semantic alias layer resolves later mentions of an entity, which needs
 # a few sentences; twelve words is about 80 characters of Latin prose.
@@ -1925,24 +1954,23 @@ class Detector:
         """Run the semantic validation layer; on failure keep every candidate."""
         if not (self._config.use_semantic_validation and port_enabled and spans):
             return spans
-        try:
+
+        def validate() -> List[DetectedSpan]:
             validated_spans = self._semantic_validate_candidates(
                 text=normalized_text,
                 candidate_spans=spans,
                 language=language,
             )
-        except Exception as e:
-            logger.warning(
-                "Semantic validation layer failed, continuing with all candidates: %s",
-                type(e).__name__,
+            logger.debug(
+                "Semantic validation: %d candidates → %d validated spans",
+                len(spans),
+                len(validated_spans),
             )
-            return spans
-        logger.debug(
-            "Semantic validation: %d candidates → %d validated spans",
-            len(spans),
-            len(validated_spans),
+            return validated_spans
+
+        return _optional_layer(
+            validate, spans, "Semantic validation layer failed, continuing with all candidates"
         )
-        return validated_spans
 
     def _runs_semantic_detection(self, normalized_text: str, port_enabled: bool) -> bool:
         """Whether the alias layer runs for this text."""
@@ -1962,17 +1990,13 @@ class Detector:
 
     def _alias_spans(self, normalized_text: str) -> List[DetectedSpan]:
         """Collect the alias layer spans; a failing layer adds none."""
-        try:
-            semantic_spans = self._semantic_port.detect_aliases(
-                normalized_text=normalized_text,
-            )
-        except Exception as e:
-            logger.warning(
-                "Semantic alias layer failed, continuing without it: %s", type(e).__name__
-            )
-            return []
-        logger.debug("Semantic alias layer returned %d spans", len(semantic_spans))
-        return list(semantic_spans)
+
+        def detect() -> List[DetectedSpan]:
+            semantic_spans = list(self._semantic_port.detect_aliases(normalized_text=normalized_text))
+            logger.debug("Semantic alias layer returned %d spans", len(semantic_spans))
+            return semantic_spans
+
+        return _optional_layer(detect, [], "Semantic alias layer failed, continuing without it")
 
     def _contextual_spans(self, normalized_text: str) -> List[DetectedSpan]:
         """Run the contextual layer for the active contextual entity types.
@@ -2086,16 +2110,15 @@ class Detector:
         self, normalized_text: str, anon_map: AnonymizationMap, language: str
     ) -> None:
         """Run pronoun coreference resolution; a failure leaves the map as it is."""
-        try:
-            self._semantic_port.resolve_coreference(
+        _optional_layer(
+            lambda: self._semantic_port.resolve_coreference(
                 normalized_text=normalized_text,
                 anon_map=anon_map,
                 language=language,
-            )
-        except Exception as e:
-            logger.warning(
-                "Pronoun coreference resolution failed, continuing: %s", type(e).__name__
-            )
+            ),
+            None,
+            "Pronoun coreference resolution failed, continuing",
+        )
 
     def _filter_presidio_results(
         self,
@@ -2151,7 +2174,9 @@ class Detector:
         sent through the port: empty or malformed LLM responses must not
         strip them (privacy). Only non-passthrough spans are handed over;
         if the port yields no matches, the passthrough set is still returned
-        so structural PII never leaks even on adapter failure.
+        so structural PII never leaks even on adapter failure. A handed-over
+        span scored at or above :data:`SEMANTIC_VALIDATION_KEEPS_MIN_SCORE`
+        is kept whatever the port answers.
         """
         if not candidate_spans or not text:
             return candidate_spans
@@ -2184,8 +2209,15 @@ class Detector:
                 key=lambda s: s.start,
             )
 
+        answered = {(s.start, s.end, s.entity_type) for s in validated}
+        confident = [
+            s
+            for s in to_validate
+            if s.score >= SEMANTIC_VALIDATION_KEEPS_MIN_SCORE
+            and (s.start, s.end, s.entity_type) not in answered
+        ]
         return sorted(
-            passthrough + validated,
+            passthrough + validated + confident,
             key=lambda s: s.start,
         )
 

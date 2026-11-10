@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 import pytest
-from septum_core import SeptumCoreConfig, SeptumEngine
+from septum_core import SemanticLayerRefusal, SeptumCoreConfig, SeptumEngine
 from septum_core import detector as detector_module
 
 SENTINEL = "Sentinel Docutext Q7X9"
@@ -92,3 +92,34 @@ def test_a_contextual_layer_error_is_raised_and_logs_only_the_exception_class(
     assert not any(SENTINEL in m or "jane@example.com" in m for m in own)
     contextual_lines = [m for m in own if "contextual" in m.lower() and "fail" in m.lower()]
     assert contextual_lines == ["Semantic contextual layer failed: RuntimeError"]
+
+
+class _Refused(SemanticLayerRefusal):
+    """An adapter refusal, as the host raises when its local-model budget is spent."""
+
+
+class _RefusingPort(_LeakyFailingPort):
+    """Fails like :class:`_LeakyFailingPort`, but one layer refuses instead."""
+
+    def __init__(self, refusing: str) -> None:
+        super().__init__()
+        self.refusing = refusing
+
+    def _fail(self, name: str, text: str):
+        if name == self.refusing:
+            self.calls.append(name)
+            raise _Refused("refused")
+        super()._fail(name, text)
+
+
+@pytest.mark.parametrize("layer", ["validate_candidates", "detect_aliases", "resolve_coreference"])
+def test_a_refusal_from_a_fail_open_layer_is_raised(
+    layer: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(detector_module, "_SEMANTIC_VALIDATION_PASSTHROUGH_TYPES", frozenset())
+    port = _RefusingPort(layer)
+
+    with pytest.raises(_Refused):
+        _engine(port, contextual=False).mask(TEXT, language="en")
+
+    assert layer in port.calls
