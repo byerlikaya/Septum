@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   ChevronDown,
   ExternalLink,
@@ -11,7 +12,9 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { hasMessage, useI18n } from "@/lib/i18n";
+import { CONTEXTUAL_ENTITY_TYPES } from "@/lib/contextualEntityTypes";
 import type {
+  AppSettingsResponse,
   CustomRecognizer,
   NonPiiRule,
   RegulationRuleset
@@ -131,6 +134,19 @@ export default function RegulationsPage() {
   const [panelOpen, setPanelOpen] = useState<boolean>(false);
   const [panelMode, setPanelMode] = useState<CustomRuleBuilderMode>("create");
   const [panelRule, setPanelRule] = useState<CustomRecognizer | undefined>(undefined);
+
+  const [contextualLayerOff, setContextualLayerOff] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api
+      .get<AppSettingsResponse>("/api/settings")
+      .then((response) => {
+        setContextualLayerOff(response.data?.use_ollama_semantic_layer === false);
+      })
+      .catch((err) => {
+        console.error(err);
+      });
+  }, []);
 
   const tRef = useRef(t);
   useEffect(() => {
@@ -421,14 +437,34 @@ export default function RegulationsPage() {
                       {isExpanded && entityCount > 0 && (
                         <div className="border-t border-slate-800/60 px-4 py-2">
                           <div className="flex flex-wrap gap-1">
-                            {ruleset.entity_types.map((entity) => (
-                              <span
-                                key={entity}
-                                className="rounded bg-slate-800/80 px-1.5 py-0.5 font-mono text-[10px] text-slate-400"
-                              >
-                                {entity}
-                              </span>
-                            ))}
+                            {ruleset.entity_types.map((entity) => {
+                              const needsLayer =
+                                contextualLayerOff === true && CONTEXTUAL_ENTITY_TYPES.has(entity);
+                              return (
+                                <span
+                                  key={entity}
+                                  className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
+                                    needsLayer
+                                      ? "border border-dashed border-amber-700/60 bg-amber-950/20 text-amber-300"
+                                      : "bg-slate-800/80 text-slate-400"
+                                  }`}
+                                >
+                                  {entity}
+                                  {needsLayer && (
+                                    <span className="ml-1 font-sans">
+                                      <span className="sr-only">: </span>
+                                      {t("regulations.builtin.contextualOffNote.text")}{" "}
+                                      <Link
+                                        href="/settings?tab=privacy"
+                                        className="underline hover:text-amber-100"
+                                      >
+                                        {t("regulations.builtin.contextualOffNote.link")}
+                                      </Link>
+                                    </span>
+                                  )}
+                                </span>
+                              );
+                            })}
                           </div>
                         </div>
                       )}

@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Check } from "lucide-react";
 import api, { extractErrorCode } from "@/lib/api";
 import { LLM_TEST_ERROR_KEYS, localizeApiError, translateErrorCode } from "@/lib/apiErrors";
@@ -27,8 +28,19 @@ type SettingsTab =
   | "infrastructure";
 
 export default function SettingsPage() {
+  return (
+    <Suspense fallback={null}>
+      <SettingsContent />
+    </Suspense>
+  );
+}
+
+function SettingsContent() {
   const t = useI18n();
-  const [activeTab, setActiveTab] = useState<SettingsTab>("llm-provider");
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<SettingsTab>(
+    searchParams?.get("tab") === "privacy" ? "privacy" : "llm-provider"
+  );
   const [settings, setSettings] = useState<SettingsResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);

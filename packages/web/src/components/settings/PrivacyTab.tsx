@@ -109,15 +109,6 @@ export function PrivacyTab({
             saving={isSaving("use_ollama_validation_layer")}
           />
           <ToggleField
-            label={t("settings.privacy.layers.ollama.label")}
-            description={t("settings.privacy.layers.ollama.description")}
-            checked={settings.use_ollama_layer}
-            onToggle={async (value) => {
-              await onChange("use_ollama_layer", value);
-            }}
-            saving={isSaving("use_ollama_layer")}
-          />
-          <ToggleField
             label={t("settings.privacy.layers.ollamaSemantic.label")}
             description={t("settings.privacy.layers.ollamaSemantic.description")}
             checked={settings.use_ollama_semantic_layer}

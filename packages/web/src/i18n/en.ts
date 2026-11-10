@@ -268,9 +268,9 @@ export const enMessages = {
   "settings.llm.ollama.chatModel.label": "Chat model",
   "settings.llm.ollama.chatModel.hint":
     "Ollama model used for chat completions.",
-  "settings.llm.ollama.deanonModel.label": "De-anonymization model",
+  "settings.llm.ollama.deanonModel.label": "Local PII model",
   "settings.llm.ollama.deanonModel.hint":
-    "Ollama model used for local de-anonymization.",
+    "Ollama model for the local PII checks: PII validation, sensitive-category detection and custom LLM-prompt rules. Can be the same as the chat model.",
   "ollama.models.loading": "Loading models\u2026",
   "ollama.models.empty": "No models found. Type a model name manually.",
   "ollama.models.noMatch": "No matching models. Press Enter to use a custom name.",
@@ -307,12 +307,9 @@ export const enMessages = {
   "settings.privacy.layers.ollamaValidation.label": "Ollama validation",
   "settings.privacy.layers.ollamaValidation.description":
     "Filter NER false positives via local LLM. Adds latency; deterministic recognizers bypass this layer automatically.",
-  "settings.privacy.layers.ollama.label": "Ollama alias detection",
-  "settings.privacy.layers.ollama.description":
-    "Catch nicknames and indirect references via local LLM. Adds latency; only useful for documents with informal language.",
   "settings.privacy.layers.ollamaSemantic.label": "Ollama semantic detection",
   "settings.privacy.layers.ollamaSemantic.description":
-    "Detect DIAGNOSIS / MEDICATION / RELIGION / ETHNICITY / POLITICAL_OPINION via local LLM. Required for these entity types — no other layer can express them.",
+    "Detects these context-dependent types with the local Ollama model; no other layer covers them: diagnosis, medication, clinical note, political opinion, religion, ethnicity, sexual orientation, biometric ID, DNA profile. It only checks the types included by the active regulation packs. Adds one local model call per chunk and per chat message. If the model does not answer, the request is refused instead of being sent. Not detected by any layer: criminal convictions, trade-union or association membership, philosophical beliefs, appearance; cover them with a custom rule.",
 
 
   "settings.rag.sectionTitle": "RAG Settings",
@@ -423,6 +420,8 @@ export const enMessages = {
     "A custom detection rule could not run because the local Ollama model did not answer. Nothing was sent; check Ollama and try again.",
   "errors.customRule.promptRequired":
     "An LLM-prompt rule needs a prompt; enter what the model should find.",
+  "errors.semanticLayer.unavailable":
+    "Sensitive-category detection could not run because the local Ollama model did not answer. Nothing was sent; check Ollama and try again.",
   "errors.regulations.load": "An error occurred while loading regulation settings.",
   "errors.regulations.update": "An error occurred while updating regulation rules.",
   "errors.regulations.test": "An error occurred while testing the rule. If this is a regex rule, please ensure the pattern is valid.",
@@ -619,6 +618,9 @@ export const enMessages = {
   "regulations.builtin.loading": "Regulation rules are loading...",
   "regulations.builtin.entityCountSuffix": "entity types covered.",
   "regulations.builtin.officialLink": "View official text",
+  "regulations.builtin.contextualOffNote.text":
+    "requires Ollama semantic detection, currently off.",
+  "regulations.builtin.contextualOffNote.link": "Turn it on in Privacy settings",
   "regulations.builtin.viewEntities": "View entity types",
   "regulations.builtin.hideEntities": "Hide entity types",
   "regulations.builtin.badge.builtin": "Built‑in",
@@ -879,16 +881,16 @@ export const enMessages = {
   "setup.step.provider.ollamaNotFound.install": "Install Ollama on your machine",
   "setup.step.provider.ollamaNotFound.compose": "Or start with Docker Compose",
   "setup.step.provider.model": "Model",
-  "setup.step.provider.deanonModel": "De-anonymization Model",
-  "setup.step.provider.deanonHint": "Ollama model used to restore original names in LLM responses. Can be the same as the chat model.",
+  "setup.step.provider.deanonModel": "Local PII Model",
+  "setup.step.provider.deanonHint": "Ollama model for the local PII checks: PII validation, sensitive-category detection and custom LLM-prompt rules. Validation and sensitive-category detection run only when turned on. Can be the same as the chat model.",
   "setup.step.provider.ollamaPrivacy.title": "Local Ollama for Privacy Pipeline",
-  "setup.step.provider.ollamaPrivacy.description": "Septum uses a local Ollama instance for PII validation, alias detection, and de-anonymization — even when using a cloud LLM for chat.",
+  "setup.step.provider.ollamaPrivacy.description": "Septum can use a local Ollama instance for PII validation, sensitive-category detection and custom LLM-prompt rules, even when a cloud LLM handles chat. Validation and sensitive-category detection can be turned off in the Privacy & Sanitization tab.",
   "setup.step.provider.ollamaPrivacy.compose": "Docker Compose Ollama",
   "setup.step.provider.ollamaPrivacy.compose.description": "Using Ollama started with docker compose --profile ollama.",
   "setup.step.provider.ollamaPrivacy.external": "External Ollama Server",
-  "setup.step.provider.ollamaPrivacy.external.description": "Ollama running on this machine (loopback, localhost, host.docker.internal, host.containers.internal) or in your own private compose stack (the bundled ollama service). It receives unmasked text.",
+  "setup.step.provider.ollamaPrivacy.external.description": "Ollama running on this machine (loopback, localhost, host.docker.internal, host.containers.internal) or in your own private compose stack (the bundled ollama service). It receives unmasked text, so a remote server cannot be used.",
   "setup.step.provider.ollamaPrivacy.none": "Skip — No Ollama",
-  "setup.step.provider.ollamaPrivacy.none.description": "PII detection works with Presidio + NER only. Ollama layers will be disabled.",
+  "setup.step.provider.ollamaPrivacy.none.description": "Built-in PII detection runs without Ollama, and the Ollama validation layer is turned off. Sensitive-category detection and LLM-prompt rules need Ollama, so enable them only after it is set up.",
   "setup.step.test": "Test Connection",
   "setup.step.test.description": "Verify that your provider and model are working.",
   "setup.step.test.button": "Test Connection",
