@@ -41,7 +41,11 @@ from ..request_limits import (
     MIN_PDF_CHUNK_SIZE,
     chunk_overlap_fits,
 )
-from ..services.contextual_coverage import apply_setup_completion_default
+from ..services.contextual_coverage import (
+    ContextualLayerStatusResponse,
+    apply_setup_completion_default,
+    contextual_layer_status,
+)
 from ..services.error_logger import log_backend_message, report_error_log_failure
 from ..services.llm_errors import LLM_UNAVAILABLE, OLLAMA_URL_NOT_ALLOWED_CODE
 from ..services.llm_router import LLMRouter, LLMRouterError
@@ -350,6 +354,20 @@ class WhisperInstallResponse(BaseModel):
 
     status: str
     message: Optional[str] = None
+
+
+@router.get(
+    "/contextual-layer-status",
+    status_code=status.HTTP_200_OK,
+    response_model=ContextualLayerStatusResponse,
+)
+async def get_contextual_layer_status(
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> ContextualLayerStatusResponse:
+    """Report whether the active regulations' special categories are covered by the local model."""
+    settings = await load_settings(db)
+    return await contextual_layer_status(db, settings)
 
 
 @router.get(

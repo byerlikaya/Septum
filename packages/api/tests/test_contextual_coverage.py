@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from septum_api.database import build_default_app_settings
 from septum_api.models import Base
-from septum_api.models.regulation import RegulationRuleset
+from septum_api.models.regulation import CustomRecognizer, RegulationRuleset
 from septum_api.services import contextual_coverage
 from septum_api.services.contextual_coverage import (
     MAX_PROBE_BODY_BYTES,
@@ -68,6 +68,25 @@ async def test_contextual_types_are_the_active_intersection(db: AsyncSession) ->
     ])
     await db.commit()
     assert await active_contextual_types(db) == {"DIAGNOSIS", "RELIGION", "DNA_PROFILE"}
+
+
+async def test_active_custom_recognizer_type_counts_and_inactive_is_ignored(
+    db: AsyncSession,
+) -> None:
+    def custom(entity_type: str, active: bool) -> CustomRecognizer:
+        return CustomRecognizer(
+            name=entity_type, entity_type=entity_type, detection_method="keyword",
+            keywords=["k"], placeholder_label="C", is_active=active,
+        )
+
+    db.add_all([
+        _ruleset("plain", ["EMAIL_ADDRESS"]),
+        custom("DIAGNOSIS", True),
+        custom("RELIGION", False),
+        custom("NOT_CONTEXTUAL", True),
+    ])
+    await db.commit()
+    assert await active_contextual_types(db) == {"DIAGNOSIS"}
 
 
 async def test_no_contextual_types_when_active_packs_have_none(db: AsyncSession) -> None:

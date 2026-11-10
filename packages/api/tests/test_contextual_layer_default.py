@@ -15,7 +15,7 @@ from httpx import AsyncClient
 
 from septum_api.database import build_default_app_settings, get_db
 from septum_api.main import app
-from septum_api.models.regulation import RegulationRuleset
+from septum_api.models.regulation import CustomRecognizer, RegulationRuleset
 from septum_api.models.settings import AppSettings
 from septum_api.models.user import User
 from septum_api.utils.auth_dependency import require_admin_or_bootstrap
@@ -46,6 +46,7 @@ async def _seed(
     semantic: bool = False,
     rulesets: list[tuple[str, list[str], bool]] | None = None,
     with_user: bool = False,
+    custom: list[tuple[str, bool]] | None = None,
 ) -> None:
     gen, session = await _session()
     try:
@@ -62,6 +63,13 @@ async def _seed(
                 RegulationRuleset(
                     id=rid, display_name=rid, region="x", entity_types=types,
                     is_builtin=False, is_active=active,
+                )
+            )
+        for entity_type, active in custom or []:
+            session.add(
+                CustomRecognizer(
+                    name=entity_type, entity_type=entity_type, detection_method="keyword",
+                    keywords=["k"], placeholder_label="C", is_active=active,
                 )
             )
         if with_user:
@@ -309,6 +317,19 @@ async def test_no_contextual_types_means_off_and_no_probe(
     assert await _stored() is False
     assert not route.called
     assert _reasons(caplog) == ["no_contextual_types"]
+
+
+async def test_custom_recognizer_alone_enables_the_default(
+    router_client: AsyncClient, respx_mock, caplog: pytest.LogCaptureFixture
+) -> None:
+    await _seed(rulesets=[("plain", ["PERSON_NAME"], True)], custom=[("DIAGNOSIS", True)])
+    route = respx_mock.get(TAGS).mock(return_value=_installed("llama3.2:3b"))
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        resp = await _complete(router_client)
+    assert resp.status_code == 200
+    assert await _stored() is True
+    assert route.call_count == 1
+    assert _reasons(caplog) == ["enabled"]
 
 
 async def test_row_already_on_before_completion_is_not_probed(
