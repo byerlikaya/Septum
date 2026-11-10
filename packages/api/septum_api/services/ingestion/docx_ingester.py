@@ -18,13 +18,13 @@ This ingester is responsible for:
 import asyncio
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, Iterator, List
+from typing import Any, Dict, Iterator, List, Set
 
 from docx import Document as DocxDocument  # type: ignore[import]
 from docx.oxml import parse_xml  # type: ignore[import]
 
 from ...utils.crypto import decrypt
-from .base import BaseIngester, IngestionResult
+from .base import BaseIngester, IngestionResult, TextBlock, join_blocks
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _MC = "{http://schemas.openxmlformats.org/markup-compatibility/2006}"
@@ -76,14 +76,80 @@ def _related_part_elements(document: Any) -> Iterator[Any]:
         yield element if element is not None else parse_xml(part.blob)
 
 
-def _document_text(document: Any) -> str:
-    """Body text, then each distinct related part's text, separated by blank lines."""
-    sections = [_part_text(document.element.body)]
+def _heading_style_ids(document: Any) -> Set[str]:
+    """Ids of paragraph styles that mark a heading.
+
+    A style is a heading when it declares an outline level or is one of the
+    built-in heading styles (``Title`` and ``Heading N``).
+    """
+    ids: Set[str] = set()
+    for style in document.styles:
+        element = style.element
+        if element.find(f"{_W}pPr/{_W}outlineLvl") is not None:
+            ids.add(style.style_id)
+            continue
+        name = (style.name or "").lower()
+        if name == "title" or name.startswith("heading "):
+            ids.add(style.style_id)
+    return ids
+
+
+def _is_heading(paragraph: Any, heading_styles: Set[str]) -> bool:
+    """Whether a body paragraph is a heading by its own outline level or its style."""
+    if paragraph.find(f"{_W}pPr/{_W}outlineLvl") is not None:
+        return True
+    style = paragraph.find(f"{_W}pPr/{_W}pStyle")
+    return style is not None and style.get(f"{_W}val") in heading_styles
+
+
+def _body_blocks(document: Any) -> List[TextBlock]:
+    """One block per top-level body element, in document order.
+
+    Paragraphs are ``heading`` or ``paragraph`` blocks, tables are ``table``
+    blocks. Leading and trailing blank elements are dropped, as the flat body
+    text is stripped. An element whose text has no paragraph terminator makes
+    the split unreliable, so no blocks are returned.
+    """
+    heading_styles = _heading_style_ids(document)
+    blocks: List[TextBlock] = []
+    for child in document.element.body:
+        out: List[str] = []
+        _walk(child, out)
+        text = "".join(out)
+        if not text:
+            continue
+        if not text.endswith("\n"):
+            return []
+        if child.tag == f"{_W}tbl":
+            kind = "table"
+        elif child.tag == f"{_W}p" and _is_heading(child, heading_styles):
+            kind = "heading"
+        else:
+            kind = "paragraph"
+        blocks.append(TextBlock(text=text[:-1], kind=kind))
+    while blocks and not blocks[0].text.strip():
+        blocks.pop(0)
+    while blocks and not blocks[-1].text.strip():
+        blocks.pop()
+    if blocks:
+        blocks[0].text = blocks[0].text.lstrip()
+        blocks[-1].text = blocks[-1].text.rstrip()
+    return blocks
+
+
+def _document_blocks(document: Any) -> List[TextBlock]:
+    """Body blocks, then each distinct related part's text as a ``part`` block."""
+    body = _part_text(document.element.body)
+    blocks = _body_blocks(document)
+    if join_blocks(blocks) != body:
+        blocks = [TextBlock(text=body, kind="paragraph")] if body else []
+    seen = [body]
     for element in _related_part_elements(document):
         text = _part_text(element)
-        if text and text not in sections:
-            sections.append(text)
-    return "\n\n".join(section for section in sections if section)
+        if text and text not in seen:
+            seen.append(text)
+            blocks.append(TextBlock(text=text, kind="part"))
+    return blocks
 
 
 class DocxIngester(BaseIngester):
@@ -118,7 +184,8 @@ class DocxIngester(BaseIngester):
 
         document = DocxDocument(BytesIO(docx_bytes))
 
-        full_text = _document_text(document)
+        blocks = _document_blocks(document)
+        full_text = join_blocks(blocks)
 
         metadata: Dict[str, Any] = {
             "paragraph_count": len(document.paragraphs),
@@ -126,5 +193,5 @@ class DocxIngester(BaseIngester):
             "file_format": file_format,
         }
 
-        return IngestionResult(text=full_text, metadata=metadata)
+        return IngestionResult(text=full_text, metadata=metadata, blocks=blocks)
 
