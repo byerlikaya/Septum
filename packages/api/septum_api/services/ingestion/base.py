@@ -18,7 +18,58 @@ formats) may be logged by callers.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Dict, List, Optional, Protocol, Sequence
+
+_LINE_JOINED_KINDS = frozenset({"rows", "paragraph", "heading", "table"})
+_UNSEPARATED_KINDS = frozenset({"segment"})
+
+
+@dataclass(slots=True)
+class TextBlock:
+    """A structural unit of extracted text, with the position it came from.
+
+    Attributes:
+        text: The block's text, exactly as it appears in the flat document text.
+        kind: Structural role (``page``, ``fields``, ``heading``, ``paragraph``,
+            ``table``, ``part``, ``sheet_header``, ``rows``, ``segment``, ``text``).
+        page: One-based page number for paginated formats.
+        sheet: Sheet name for spreadsheet formats.
+        t_start: Start offset in seconds for time-based formats.
+        t_end: End offset in seconds for time-based formats.
+        row_offsets: For a ``rows`` block, the offset in ``text`` at which
+            each row starts, in order; rows are separated by one newline.
+    """
+
+    text: str
+    kind: str
+    page: Optional[int] = None
+    sheet: Optional[str] = None
+    t_start: Optional[float] = None
+    t_end: Optional[float] = None
+    row_offsets: Optional[Sequence[int]] = None
+
+
+def _separator(kind: str) -> str:
+    """Text placed before a block of ``kind`` when it follows another block."""
+    if kind in _UNSEPARATED_KINDS:
+        return ""
+    return "\n" if kind in _LINE_JOINED_KINDS else "\n\n"
+
+
+def join_blocks(blocks: Sequence[TextBlock]) -> str:
+    """Rebuild the flat document text from ``blocks``.
+
+    The separator before each block after the first depends only on that
+    block's kind: a newline for ``rows``, ``paragraph``, ``heading`` and
+    ``table``, nothing for ``segment`` (it carries its own whitespace), and a
+    blank line for every other kind.
+    """
+    parts: List[str] = []
+    for index, block in enumerate(blocks):
+        if index:
+            parts.append(_separator(block.kind))
+        parts.append(block.text)
+    return "".join(parts)
 
 
 @dataclass(slots=True)
@@ -43,6 +94,9 @@ class IngestionResult:
         raw_segments: Optional, structured representation of the extraction
             output (e.g., Whisper segments). This field is intended purely
             for in-memory consumers and must not be logged or persisted.
+        blocks: The same text split into structural blocks. ``join_blocks``
+            of the blocks equals ``text`` exactly. When an ingester gives
+            none, a non-empty ``text`` becomes a single ``text`` block.
     """
 
     text: str
@@ -50,6 +104,12 @@ class IngestionResult:
     confidence: Optional[float] = None
     warnings: List[str] = field(default_factory=list)
     raw_segments: Optional[List[Dict[str, Any]]] = None
+    blocks: List[TextBlock] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Fall back to one block holding the whole text."""
+        if not self.blocks and self.text:
+            self.blocks = [TextBlock(text=self.text, kind="text")]
 
 
 class BaseIngester(Protocol):
