@@ -11,10 +11,11 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import { hasMessage, useI18n } from "@/lib/i18n";
+import { useContextualLayerStatus } from "@/hooks/useContextualLayerStatus";
+import { hasMessage, useI18n, type MessageKey } from "@/lib/i18n";
 import { CONTEXTUAL_ENTITY_TYPES } from "@/lib/contextualEntityTypes";
 import type {
-  AppSettingsResponse,
+  ContextualLayerStatus,
   CustomRecognizer,
   NonPiiRule,
   RegulationRuleset
@@ -22,10 +23,46 @@ import type {
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { ErrorAlert } from "@/components/common/ErrorAlert";
 import { DataTable } from "@/components/common/DataTable";
+import { ContextualCoverageBanner } from "@/components/settings/ContextualCoverageBanner";
+import {
+  coverageTabHref,
+  resolveCoverageAction,
+  type CoverageTarget,
+} from "@/lib/contextualCoverage";
 import { CustomRuleBuilderPanel } from "@/components/settings/CustomRuleBuilderPanel";
 
 type Tab = "builtin" | "custom" | "advanced";
 type CustomRuleBuilderMode = "create" | "edit";
+
+interface ContextualNote {
+  textKey: MessageKey;
+  linkKey: MessageKey;
+  tab: CoverageTarget;
+}
+
+function contextualNote(
+  status: ContextualLayerStatus | null,
+  entity: string
+): ContextualNote | null {
+  if (!status || !CONTEXTUAL_ENTITY_TYPES.has(entity)) return null;
+  const action = resolveCoverageAction(status);
+  if (!action) return null;
+  if (action.kind === "turnOn") {
+    return {
+      textKey: "regulations.builtin.contextualOffNote.text",
+      linkKey: "regulations.builtin.contextualOffNote.link",
+      tab: action.tab,
+    };
+  }
+  return {
+    textKey:
+      status.state === "local_model_unavailable"
+        ? "regulations.builtin.contextualOffNote.modelDownText"
+        : "regulations.builtin.contextualOffNote.unreachableText",
+    linkKey: "regulations.builtin.contextualOffNote.setUpLink",
+    tab: action.tab,
+  };
+}
 
 const HELP_BANNER_PALETTE = {
   sky: {
@@ -135,18 +172,7 @@ export default function RegulationsPage() {
   const [panelMode, setPanelMode] = useState<CustomRuleBuilderMode>("create");
   const [panelRule, setPanelRule] = useState<CustomRecognizer | undefined>(undefined);
 
-  const [contextualLayerOff, setContextualLayerOff] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    api
-      .get<AppSettingsResponse>("/api/settings")
-      .then((response) => {
-        setContextualLayerOff(response.data?.use_ollama_semantic_layer === false);
-      })
-      .catch((err) => {
-        console.error(err);
-      });
-  }, []);
+  const { status: coverageStatus, error: coverageError } = useContextualLayerStatus();
 
   const tRef = useRef(t);
   useEffect(() => {
@@ -314,6 +340,8 @@ export default function RegulationsPage() {
         </p>
       </header>
 
+      <ContextualCoverageBanner status={coverageStatus} error={coverageError} />
+
       {/* Tabs */}
       <div className="shrink-0 flex items-center gap-1 overflow-x-auto border-b border-slate-800">
         {tabs.map((tab) => (
@@ -438,27 +466,26 @@ export default function RegulationsPage() {
                         <div className="border-t border-slate-800/60 px-4 py-2">
                           <div className="flex flex-wrap gap-1">
                             {ruleset.entity_types.map((entity) => {
-                              const needsLayer =
-                                contextualLayerOff === true && CONTEXTUAL_ENTITY_TYPES.has(entity);
+                              const note = contextualNote(coverageStatus, entity);
                               return (
                                 <span
                                   key={entity}
                                   className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
-                                    needsLayer
+                                    note
                                       ? "border border-dashed border-amber-700/60 bg-amber-950/20 text-amber-300"
                                       : "bg-slate-800/80 text-slate-400"
                                   }`}
                                 >
                                   {entity}
-                                  {needsLayer && (
+                                  {note && (
                                     <span className="ml-1 font-sans">
                                       <span className="sr-only">: </span>
-                                      {t("regulations.builtin.contextualOffNote.text")}{" "}
+                                      {t(note.textKey)}{" "}
                                       <Link
-                                        href="/settings?tab=privacy"
+                                        href={coverageTabHref(note.tab)}
                                         className="underline hover:text-amber-100"
                                       >
-                                        {t("regulations.builtin.contextualOffNote.link")}
+                                        {t(note.linkKey)}
                                       </Link>
                                     </span>
                                   )}

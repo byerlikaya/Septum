@@ -1,3 +1,5 @@
+import type { ContextualCoverageState } from "./contextualCoverage";
+
 export type IngestionStatus = "pending" | "processing" | "completed" | "failed";
 
 export type UserRole = "admin" | "editor" | "viewer";
@@ -280,6 +282,12 @@ export interface NonPiiRule {
   entity_types: string[];
   min_score?: number | null;
   is_active: boolean;
+}
+
+export interface ContextualLayerStatus {
+  state: ContextualCoverageState;
+  entity_types: string[];
+  local_model_reachable: boolean | null;
 }
 
 export interface AppSettingsResponse {
