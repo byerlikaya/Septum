@@ -22,6 +22,12 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-11-10
+
+- Document ingesters now also return their text as structural blocks (pages, sheet rows, paragraphs, headings, tables, audio segments), groundwork for chunking that keeps page, sheet and timestamp information. The flat text rebuilt from the blocks is byte-identical, so stored text and processing are unchanged.
+- The retrieval benchmark now finds chunks where a heading is joined onto the previous sentence, and its baseline is re-recorded on current main because the old figures could no longer be reproduced. Recall is unchanged; MRR is lower, mostly for Chinese.
+- Known names inside bracketed text (Markdown link text, citations, notes) are now masked: the residual name check skipped any `[...]` as if it were a placeholder, and now skips only real placeholders. The narrower pattern also removes a slowdown on text with many unclosed brackets.
+
 ### 2026-11-05
 
 - PDF previews render in Chrome again: the decrypted PDF is now drawn by a self-hosted pdf.js viewer inside a script-only sandboxed frame with its own strict CSP, instead of the blob: frame Chrome refused to show. Very long documents are capped at 500 previewed pages with a notice.

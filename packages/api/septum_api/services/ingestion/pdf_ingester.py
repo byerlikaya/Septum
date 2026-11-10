@@ -32,7 +32,7 @@ from septum_core.model_integrity import ModelRefusal
 
 from ...utils.crypto import decrypt
 from ...utils.text_utils import strip_control_characters
-from .base import BaseIngester, IngestionResult
+from .base import BaseIngester, IngestionResult, TextBlock, join_blocks
 from .ocr import run_ocr
 from .table_extractor import TableFieldExtractor
 
@@ -53,6 +53,11 @@ Besides the pdfplumber/pdfminer error types, page-level table extraction
 raises plain ``ValueError``/``KeyError``/``TypeError``/``AssertionError`` on
 malformed page content that PyMuPDF still reads.
 """
+
+
+def _page_blocks(texts: List[str]) -> List[TextBlock]:
+    """One ``page`` block per page text, numbered from 1."""
+    return [TextBlock(text=text, kind="page", page=number) for number, text in enumerate(texts, 1)]
 
 
 class PdfIngester(BaseIngester):
@@ -95,7 +100,8 @@ class PdfIngester(BaseIngester):
 
         with fitz.open(stream=data, filetype="pdf") as doc:
             texts, ocr_confidences = self._extract_pages_with_optional_ocr(doc)
-            full_text = "\n\n".join(texts)
+            blocks = _page_blocks(texts)
+            full_text = join_blocks(blocks)
 
             metadata: Dict[str, Any] = {
                 "page_count": doc.page_count,
@@ -112,6 +118,7 @@ class PdfIngester(BaseIngester):
             text=full_text,
             metadata=metadata,
             confidence=avg_confidence,
+            blocks=blocks,
         )
 
     async def ingest(
@@ -143,7 +150,7 @@ class PdfIngester(BaseIngester):
 
         with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
             texts, ocr_confidences = self._extract_pages_with_optional_ocr(doc)
-            full_text = "\n\n".join(texts)
+            blocks = _page_blocks(texts)
 
             metadata: Dict[str, Any] = {
                 "page_count": doc.page_count,
@@ -161,7 +168,7 @@ class PdfIngester(BaseIngester):
                     field_lines = ["=== Extracted Fields ===\n"] + [
                         f"{f.label} : {f.value}" for f in fields
                     ]
-                    full_text = "\n".join(field_lines) + "\n\n" + full_text
+                    blocks.insert(0, TextBlock(text="\n".join(field_lines), kind="fields"))
                     metadata["extracted_fields_count"] = len(fields)
         except _FIELD_EXTRACTION_PARSE_ERRORS as exc:
             logger.warning("Form field extraction failed, continuing with text only: %s", type(exc).__name__)
@@ -173,9 +180,10 @@ class PdfIngester(BaseIngester):
         )
 
         return IngestionResult(
-            text=full_text,
+            text=join_blocks(blocks),
             metadata=metadata,
             confidence=avg_confidence,
+            blocks=blocks,
         )
 
     _MIN_IMAGE_DIMENSION = 150

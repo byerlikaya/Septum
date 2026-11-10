@@ -19,7 +19,7 @@ from typing import Any, Dict, List
 from openpyxl import load_workbook  # type: ignore[import]
 
 from ...utils.crypto import decrypt
-from .base import BaseIngester, IngestionResult
+from .base import BaseIngester, IngestionResult, TextBlock, join_blocks
 from .sheet_text import render_sheet
 
 
@@ -52,15 +52,15 @@ class XlsxIngester(BaseIngester):
 
         workbook = _open_workbook(file_path)
 
-        sheet_texts: List[str] = []
+        blocks: List[TextBlock] = []
         sheet_metadata: List[Dict[str, Any]] = []
 
         for sheet in workbook.worksheets:
-            sheet_text, row_count, header_cells = render_sheet(
+            sheet_blocks, row_count, header_cells = render_sheet(
                 sheet.title, sheet.iter_rows(values_only=True)
             )
-            if sheet_text:
-                sheet_texts.append(sheet_text)
+            if sheet_blocks:
+                blocks.extend(sheet_blocks)
 
             sheet_metadata.append(
                 {
@@ -70,7 +70,7 @@ class XlsxIngester(BaseIngester):
                 }
             )
 
-        full_text = "\n\n".join(sheet_texts)
+        full_text = join_blocks(blocks)
 
         metadata: Dict[str, Any] = {
             "sheet_count": len(workbook.worksheets),
@@ -79,7 +79,7 @@ class XlsxIngester(BaseIngester):
             "file_format": file_format,
         }
 
-        return IngestionResult(text=full_text, metadata=metadata)
+        return IngestionResult(text=full_text, metadata=metadata, blocks=blocks)
 
 
 def _open_workbook(file_path: Path) -> Any:

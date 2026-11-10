@@ -19,7 +19,7 @@ from typing import Any, Dict, List
 import pandas as pd
 
 from ...utils.crypto import decrypt
-from .base import BaseIngester, IngestionResult
+from .base import BaseIngester, IngestionResult, TextBlock, join_blocks
 from .sheet_text import render_sheet
 
 
@@ -53,7 +53,7 @@ class OdsIngester(BaseIngester):
         encrypted_bytes = file_path.read_bytes()
         ods_bytes = decrypt(encrypted_bytes)
 
-        sheet_texts: List[str] = []
+        blocks: List[TextBlock] = []
         sheet_metadata: List[Dict[str, Any]] = []
 
         with pd.ExcelFile(BytesIO(ods_bytes), engine="odf") as xl:
@@ -61,11 +61,11 @@ class OdsIngester(BaseIngester):
                 # The raw grid, positions and value types kept: no header row
                 # is taken out and integers are not widened to floats.
                 df = pd.read_excel(xl, sheet_name=sheet_name, header=None, dtype=object)
-                sheet_text, row_count, header_cells = render_sheet(
+                sheet_blocks, row_count, header_cells = render_sheet(
                     str(sheet_name), df.itertuples(index=False, name=None)
                 )
-                if sheet_text:
-                    sheet_texts.append(sheet_text)
+                if sheet_blocks:
+                    blocks.extend(sheet_blocks)
                 sheet_metadata.append(
                     {
                         "sheet_name": sheet_name,
@@ -74,7 +74,7 @@ class OdsIngester(BaseIngester):
                     }
                 )
 
-        full_text = "\n\n".join(sheet_texts)
+        full_text = join_blocks(blocks)
 
         metadata: Dict[str, Any] = {
             "sheet_count": len(sheet_metadata),
@@ -83,4 +83,4 @@ class OdsIngester(BaseIngester):
             "file_format": file_format,
         }
 
-        return IngestionResult(text=full_text, metadata=metadata)
+        return IngestionResult(text=full_text, metadata=metadata, blocks=blocks)
