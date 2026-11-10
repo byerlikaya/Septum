@@ -463,7 +463,7 @@ docker compose exec ollama ollama pull aya-expanse:8b
 docker compose exec ollama ollama list     # see what's downloaded
 ```
 
-The active model for chat vs semantic detection is chosen from the Settings → LLM tab after the wizard.
+After the wizard, two Ollama model fields are in Settings → LLM Provider; they show when Ollama is the chat provider. **Chat model** (`ollama_chat_model`) answers chat requests. The field labelled **Local PII model** (`ollama_deanon_model`) is the model the local detection layers use: Ollama validation, Ollama semantic detection and custom `llm_prompt` rules. It does not restore placeholders, which is local string replacement. The two can be the same model.
 
 ---
 
@@ -572,6 +572,8 @@ Volumes are preserved across the rebuild because they are named volumes.
 - **Timeouts.** Raising `SEPTUM_GATEWAY_TIMEOUT_SECONDS` requires raising `SEPTUM_GATEWAY_CLIENT_TIMEOUT_SECONDS` to match. `SEPTUM_GATEWAY_TIMEOUT_SECONDS` is now a total deadline per attempt. Earlier releases used httpx per-phase timeouts, which did not bound a slow response.
 - **Startup refusal.** With `USE_GATEWAY_DEFAULT=true`, the api refuses to start unless `SEPTUM_QUEUE_URL` or `SEPTUM_QUEUE_DIR` is set.
 - **Queue Redis data volume.** The queue Redis no longer has a data volume. Existing installs should remove the old queue Redis data volume before starting, because it still holds old queue data. On the gateway host, `<project>_septum-gateway-redis-data` can always be removed. On a full dev stack host, remove `<project>_septum-redis-data` only if that host does not also run the air-gapped stack from the same project directory, because both stacks use that volume name. `<project>` is the Compose project name.
+- **Local model failures now fail closed.** With "Ollama semantic detection" turned on, or with any custom rule that uses the LLM-prompt detection method active, a local Ollama model that cannot give a usable answer (unreachable, timeout, truncated or unparsable reply, or a prompt that does not fit the model's context) now stops the request. Chat is refused with an error, other endpoints return `503`, and document processing fails. Nothing is sent unmasked.
+- **Ollama chat context window.** When Ollama is the chat provider, Septum now asks Ollama for the chat model's full trained context window (read from Ollama) instead of the server default, so long prompts are not cut. For models trained on long contexts (for example 128k tokens) this can use much more memory on the Ollama host. The local detection calls are capped at 8192 tokens; when the chat model is the same as the detection model, both use that capped window so the model is not reloaded between them.
 
 **Model caches after an upgrade.** Model caches from an earlier version may not match the pinned revisions. On the next online start, a pinned snapshot that holds leftover unpinned files is purged and fetched once; offline, it is refused until it is fetched again. An air-gapped install must run the `fetch` command again on a connected host and copy the models volume and the user-pins file, as described in [variant 3](#3-air-gapped-zone-only). A stored bare custom NER id is refused with `ner_model_unpinned`. A stored Whisper model name outside the openai-whisper registry (such as a local checkpoint path) is refused with `whisper_model_not_allowed`. Both must be changed in Settings. Unless warmup is disabled, the startup log then warns, with error codes only, about each stored custom NER model or Whisper model that would be refused.
 
@@ -590,6 +592,21 @@ docker run --rm -v septum_septum-data:/from -v septum-data:/to alpine cp -a /fro
 ```
 
 Never run `docker volume prune` while moving: it deletes every volume no container currently uses, including the ones that hold your data.
+
+### Advisory: special-category and LLM-prompt rule masking
+
+**Who is affected.**
+
+- Installs where "Ollama semantic detection" (`use_ollama_semantic_layer`, off by default) was turned on. In earlier releases this layer never ran in production, because it was tied to a separate alias-detection switch that production always kept off. Special-category values (diagnosis, medication, clinical notes, religion, ethnicity, political opinion, sexual orientation, biometric and genetic identifiers) were therefore not masked.
+- Installs where admin-defined custom rules using the LLM-prompt detection method were active. From v1.0.0 (April 2026) until this release those rules were silently skipped, so the values they targeted were not masked.
+
+**What was exposed.** Chat questions, and document chunks retrieved into chat, were sent to the configured cloud LLM provider with those values in clear. Stored data stayed local, and document ingestion itself sends nothing to a cloud provider. On gateway installs that use the file queue backend, also check the queue's dead-letter directory on the gateway host (`{root}/{topic}/dead-letter/`); entries there are kept and are not removed automatically.
+
+**What this release does.** Both mechanisms now run. Documents processed while either was active are flagged as outdated, but only while the setting is still on or the rule still exists; if you have since turned the setting off or deleted the rule, reprocess the documents handled during that period yourself. Their content is re-masked in chat before anything is sent. Reprocess the flagged documents so that stored chunks and search indexes no longer hold those values in clear.
+
+**What you should do.** You are the data controller, so assess your own obligations, for example breach documentation and notification under GDPR Art. 33/34 and KVKK Art. 12(5), assess whether sending special-category data to that provider had a legal basis (GDPR Art. 9 and Chapter V on international transfers; KVKK Art. 6 and Art. 9), and review your cloud provider's retention and deletion options.
+
+**Local Ollama.** By design the raw text goes to the local Ollama model, because it is the input to detection. Check that your Ollama server does not log prompts in production (for example, keep its debug logging off).
 
 ---
 

@@ -33,9 +33,8 @@
 ## Detection Pipeline
 
 Septum runs a three-layer detection pipeline, entirely locally. Each layer
-is additive — layers are merged through a coreference resolver so the same
-person shows up as a single `[PERSON_NAME_1]` placeholder regardless of how they
-were named.
+is additive. The anonymisation map then links later mentions of a known person
+to that person's placeholder (see Coreference resolution below).
 
 <p align="center">
   <a href="#detection-pipeline"><img src="../assets/detection-pipeline.svg" alt="Septum three-layer detection pipeline — Presidio, NER, Ollama, then coreference merge" width="1100" /></a>
@@ -45,20 +44,39 @@ were named.
 |:---:|:---|:---|
 | 1 | **Presidio** — regex patterns with algorithmic validators (Luhn, IBAN MOD-97, TCKN, CPF, SSN). Context-aware recognisers with multilingual keywords. | EMAIL_ADDRESS, PHONE_NUMBER, IP_ADDRESS, CREDIT_CARD_NUMBER, IBAN, NATIONAL_ID, MEDICAL_RECORD_NUMBER, HEALTH_INSURANCE_ID, POSTAL_ADDRESS, DATE_OF_BIRTH, DATE, MAC_ADDRESS, URL, COORDINATES, COOKIE_ID, DEVICE_ID, SOCIAL_SECURITY_NUMBER, CPF, PASSPORT_NUMBER, DRIVERS_LICENSE, TAX_ID, LICENSE_PLATE, EMPLOYEE_ID, CUSTOMER_REFERENCE_ID |
 | 2 | **NER** — HuggingFace transformer NER, with models chosen per language group. Coverage differs by language; see [NER model coverage](document-ingestion.md#ner-model-coverage). ALL CAPS input auto-normalised to title case. LOCATION + ORGANIZATION_NAME pass through a multi-word-or-high-score gate to drop common-noun mis-fires. | PERSON_NAME, LOCATION, ORGANIZATION_NAME |
-| 3 | **Ollama** — local LLM for context validation, alias detection, and semantic entities. | PERSON_NAME aliases/nicknames; DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE |
+| 3 | **Ollama semantic detection** — local LLM for sensitive categories that patterns and NER cannot express. | DIAGNOSIS, MEDICATION, RELIGION, POLITICAL_OPINION, SEXUAL_ORIENTATION, ETHNICITY, CLINICAL_NOTE, BIOMETRIC_ID, DNA_PROFILE |
 
 **NER models.** Settings → NER Models sets the model for each language. Several comma-separated ids run as an ensemble and their results are combined. A custom model is entered as `org/name@<40-character commit SHA>` and must provide safetensors weights; a bare id is refused with `ner_model_unpinned`. On first use, which must be online, its files are checked against the Hub's metadata for that commit. Installs that saved a bare custom id must update the setting, or that language's documents and chats fail with the same code.
 
-**Coreference resolution.** After all three layers have produced spans, the
-sanitiser collapses co-referring mentions: `"Elif"`, `"E. Demir"`, and
-`"Ms. Demir"` in the same document all map to `[PERSON_NAME_1]`. This works
-across sentences and across chunks of the same document.
+**Coreference resolution.** The anonymisation map links name mentions by
+matching name tokens; no model is involved. Once a person such as `Elif Demir`
+is detected, a later mention that carries one of that person's name tokens,
+such as `Elif` or the surname `Demir`, reuses the same `[PERSON_NAME_1]`
+placeholder, while no other person in the document has that token. This works
+across sentences and across chunks of the same document. A token that two
+people in the document share is not linked: it is masked with a neutral
+placeholder that names neither person. A title written as a word, such as
+`Ms. Demir`, counts as a name token, so that mention is not linked to
+`Elif Demir` and can receive its own placeholder. The Ollama pronoun
+coreference step is not used in production.
 
-**Layer 3 is optional.** Set `use_ollama_semantic_layer=false` in settings
-to skip it. Layers 1 and 2 handle structured identifiers and names; Layer
-3 adds semantic sensitive-category detection that regex and NER cannot
-cover. Detection accuracy depends on the Ollama model — Septum defaults
-to `aya-expanse:8b`.
+**Layer 3 has its own setting.** It runs only while *Ollama semantic
+detection* (`use_ollama_semantic_layer`) is on; turn it on or off under
+Settings → Privacy & Sanitization. The Ollama validation setting
+(`use_ollama_validation_layer`) is separate and does not switch Layer 3
+on or off. Ollama alias detection is not used in production. Layers 1 and
+2 handle structured identifiers and names; Layer 3 adds semantic
+sensitive-category detection that regex and NER cannot cover. The layer may also mask a heading or label the model reports; that costs some context but never leaks a value. Detection
+accuracy depends on the Ollama model in use.
+
+**Layer 3 cost and failure.** With the setting on, Layer 3 runs on every
+text, including short chat questions: one local model call per chunk at
+ingestion and per chat message, more for long texts. Long inputs are sent
+to the local model in slices. If the local model cannot answer (unreachable,
+timed out, a truncated or unparsable reply, a prompt too long for the model's context, or a reply none of whose values can be found in the text), or if the configured model's context window is too small for the request, the request is refused and
+nothing is sent to the cloud: chat shows an error, other endpoints answer
+`503`, and document processing fails. The layer reads the configured model's trained context length from Ollama and uses at most 8192 tokens of it. A model trained on a short context (for example 4096 tokens) leaves too little room for the text once the answer budget is reserved, so with such a model the layer refuses every request instead of sending anything; choose a model with a larger context window (the default `llama3.2:3b` is fine). If some reported values can be placed in the text and one cannot, the one that cannot be found is logged as a count and is not masked, and the request continues. Documents processed while the setting
+was on are flagged for re-masking.
 
 ---
 

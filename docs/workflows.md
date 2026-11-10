@@ -25,7 +25,9 @@ Step by step:
 2. **Local PII detection on the message.** The same three-layer
    pipeline that processes uploaded documents (Presidio + NER +
    optional Ollama) scans the message *before anything else happens*.
-   Every entity gets a deterministic placeholder.
+   Every entity gets a deterministic placeholder. With Ollama semantic
+   detection on, the local model must answer this scan; if it cannot, the
+   message is refused and nothing is sent to the cloud.
 3. **Auto-RAG routing.** If you didn't explicitly select documents, a
    local Ollama classifier decides whether the question wants document
    context (auto-RAG) or is fine as a plain chatbot turn (pure LLM).

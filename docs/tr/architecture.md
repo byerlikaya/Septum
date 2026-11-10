@@ -114,7 +114,7 @@ Basitleştirilmiş bir örnek:
 
 2. **Septum**:
    - Sorgunun ve ilgili dokümanların dilini ve PII içeriğini tespit eder.
-   - Kimlik bilgilerini placeholder'larla değiştirir (`[PERSON_NAME_1]` gibi). `[DIAGNOSIS_1]` gibi teşhis ve ilaç placeholder'ları isteğe bağlı Ollama semantik katmanını gerektirir.
+   - Kimlik bilgilerini placeholder'larla değiştirir (`[PERSON_NAME_1]` gibi). `[DIAGNOSIS_1]` gibi teşhis ve ilaç placeholder'ları isteğe bağlı Ollama semantik katmanını gerektirir. Bu katmanın yerel modeli yanıt veremezse istek reddedilir ve yukarı akışa hiçbir şey gönderilmez.
    - Gerekirse anonimleştirilmiş chunk'ları vektör veritabanından çeker.
    - Buluta ne gideceğini gösteren bir **onay ekranı** sunabilir.
    - Yalnızca maskelenmiş içeriği, yapılandırılmış LLM sağlayıcısına iletir.
@@ -239,7 +239,7 @@ PII motoru: tespit, maskeleme, geri yazma, regülasyon bileşimi. Kod sözleşme
 
 - `detector.py` — `Detector` sınıfı çok katmanlı hattı sarar (Presidio → Transformers NER → `SemanticDetectionPort` adaptörü üzerinden isteğe bağlı semantik doğrulama).
 - `masker.py`, `unmasker.py` — placeholder üretimi ve geri çevirimi.
-- `anonymization_map.py` — coreference çözümlü, oturum bazlı `PII ↔ placeholder` haritası.
+- `anonymization_map.py` — ad token'larıyla anmaları bağlayan (model kullanmayan), oturum bazlı `PII ↔ placeholder` haritası.
 - `engine.py` — `SeptumEngine` facade: `engine.mask(text)` / `engine.unmask(text, session_id)`. Uzun süre çalışan MCP alt-işlemleri için TTL tahliyeli bellek içi oturum kayıt defterini içerir.
 - `regulations/` — `PolicyComposer` aktif regülasyon ruleset'lerini birleştirir; paket-arası tekrarlayan tanıyıcılar build sırasında deduplicate edilir (~46 → 29 recognizer / mask çağrısı).
 - `recognizers/` — 17 regülasyon paketi (GDPR, KVKK, HIPAA, CCPA, LGPD, PIPEDA, PDPA_TH, PDPA_SG, APPI, PIPL, POPIA, DPDP, UK_GDPR, PDPL_SA, NZPA, Australia_PA, CPRA). Her paket kendi `ENTITY_TYPES` sabitini tanımlar; böylece bağımsız motor, API seed'inin gördüğü aynı varlık listesini görür. `recognizers/__init__.py` kanonik `RegulationId` StrEnum'ını, `BUILTIN_REGULATION_IDS` tuple'ını ve api / mcp / standalone giriş noktalarındaki üç tekrarlanan env parser'ın yerini alan `parse_active_regulations_env(value)` helper'ını export eder.
@@ -383,7 +383,7 @@ Next.js tarafında modern en iyi uygulamalar takip edilir:
 
 ### Bilinen sınırlamalar
 
-- **Coreference, token çakışmasına dayanır.** Adların token'ları çakıştığında anmalar aynı placeholder'ı paylaşır; örneğin "Elif" ile "Elif Demir", ya da "Demir" ile "Elif Demir". Aynı dokümanda aynı soyadı taşıyan iki farklı kişi, aynı placeholder'ı alabilir. Bir doküman aynı soyadlı birkaç kişiden söz ettiğinde, onay mekanizmasındaki maskeli prompt'u kontrol edin.
+- **Anma bağlama, model değil token eşleşmesine dayanır.** Bir anma, adının token'ları (ikiden uzun olanlar) o kişiye ait ve dokümanda başka hiçbir kişide yoksa, kişinin mevcut placeholder'ına bağlanır; örneğin "Elif Demir"den sonra "Elif" ya da "Demir". Bunun iki sınırı vardır. Tespit edilmiş iki kişiye ait bir soyad, hiçbir kişiyi adlandırmayan nötr bir placeholder ile maskelenir. Adı hiç tespit edilmeyen bir kişinin soyadı ise, o soyadı taşıyan tespit edilmiş kişinin placeholder'ı ile maskelenir; çünkü soyad geçtiği her yerde maskelenir. Unvan olarak yazılan kelime, örneğin "Hanım Demir", bir ad token'ı sayılır; bu anma "Elif Demir"e bağlanmaz. Bir doküman aynı soyadlı birkaç kişiden söz ettiğinde, onay mekanizmasındaki maskeli prompt'u kontrol edin.
 - **Karma yazı sistemli e-posta yerel kısımları dört harfte kesilir.** Yerel kısımda, boşluksuz ya da ekleri bitişik yazılan bir alfabenin (örneğin Çince, Japonca, Tayca, Korece, Laoca, Kmerce, Myanmarca) dörtten fazla harften oluşan dizisinin hemen ardından başka bir alfabeden harf (Latin, Kiril vb.) geliyorsa, adresin nerede başladığı anlaşılamadığından adresin geri kalanıyla birlikte yalnızca bu dizinin son dört harfi maskelenir. Yerel kısım baştan sona böyle bir alfabeyle yazılmışsa ya da dizinin ardından rakam veya noktalama geliyorsa adres bütün olarak maskelenir. Onay mekanizmasındaki maskeli prompt'u kontrol edin.
 
 ---

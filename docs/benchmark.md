@@ -49,7 +49,7 @@ All 17 built-in regulations active, evaluated across **five independent data sou
 
 **Ollama semantic subset** (DIAGNOSIS / MEDICATION / RELIGION / POLITICAL_OPINION / ETHNICITY / SEXUAL_ORIENTATION — entity types Presidio and NER cannot express): 60 entities across 31 docs, **F1 96.6%** (Precision 98.3%, Recall 95.0%).
 
-**Ollama ablation** — same 205-doc corpus (semantic + alias + NER) with Ollama OFF vs ON: **+3.49 pp recall, +1.95 pp F1**. This is the honest measurement of Ollama's marginal value; on the semantic subset alone Ollama lifts recall from near-zero to 95% because no other layer can express those categories.
+**Ollama ablation** — same 205-doc corpus (semantic + alias + NER) with Ollama OFF vs ON: **+3.49 pp recall, +1.95 pp F1**. This is the honest measurement of Ollama's marginal value; on the semantic subset alone Ollama lifts recall from near-zero to 95% because no other layer can express those categories. The Ollama rows were measured with the alias layer on, because the benchmark enables the Ollama layer as a whole; production does not run the alias layer.
 
 ## External reference datasets
 
@@ -89,7 +89,9 @@ Measured with the previous NER set, F1 is uniform and very high across Latin-scr
 > LOCATION output goes through a conservative gate (multi-word OR confidence
 > ≥ 0.95) so common-noun mis-fires like Turkish "Doğum" or German form
 > headers are filtered out while real placenames like "İstanbul", "Berlin"
-> still pass through. Ollama (L3) validates candidates and catches aliases.
+> still pass through. Ollama (L3) validates candidates when its setting is on,
+> and the contextual layer finds the special categories. The alias layer ran
+> in this benchmark only; production does not use it.
 > Benchmark includes adversarial edge cases (spaced IBANs, dotted phone
 > numbers, etc.) that lower Presidio recall to real-world levels.
 > Reproducible: [`pytest packages/api/tests/benchmark_detection.py -v -s`](../packages/api/tests/benchmark_detection.py)

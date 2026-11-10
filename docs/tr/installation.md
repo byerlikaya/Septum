@@ -465,7 +465,7 @@ docker compose exec ollama ollama pull aya-expanse:8b
 docker compose exec ollama ollama list     # indirilenleri listeler
 ```
 
-Sohbet için ve semantik tespit için kullanılacak modeller, sihirbazdan sonra Ayarlar → LLM sekmesinden ayrı ayrı seçilebilir.
+Sihirbazdan sonra iki Ollama model alanı Ayarlar → LLM Provider bölümünde yer alır; Ollama sohbet sağlayıcısı seçiliyken görünürler. **Chat model** (`ollama_chat_model`) sohbet isteklerini yanıtlar. **Lokal PII modeli** (`ollama_deanon_model`) yerel tespit katmanlarının kullandığı modeldir: Ollama doğrulama, Ollama semantik tespit ve `llm_prompt` tipi özel kurallar. Placeholder'ları geri çevirmez; bu adım yerel metin değiştirmesidir. İkisi aynı model olabilir.
 
 ---
 
@@ -574,6 +574,8 @@ Yeniden derleme boyunca veriler korunur çünkü volume'lar isimlendirilmiş vol
 - **Zaman aşımları.** `SEPTUM_GATEWAY_TIMEOUT_SECONDS` değerini artırdığınızda `SEPTUM_GATEWAY_CLIENT_TIMEOUT_SECONDS` değerini de buna uygun artırmanız gerekir. `SEPTUM_GATEWAY_TIMEOUT_SECONDS` artık deneme başına toplam süre sınırıdır. Önceki sürümler httpx faz-bazlı zaman aşımlarını kullanıyordu; bunlar yavaş bir yanıtı sınırlamıyordu.
 - **Başlatma reddi.** `USE_GATEWAY_DEFAULT=true` iken, `SEPTUM_QUEUE_URL` ya da `SEPTUM_QUEUE_DIR` ayarlı değilse api başlamayı reddeder.
 - **Kuyruk Redis veri volume'u.** Kuyruk Redis'inin artık veri volume'u yoktur. Mevcut kurulumlar, başlamadan önce eski kuyruk Redis veri volume'unu kaldırmalıdır; içinde hâlâ eski kuyruk verisi bulunur. Gateway host'unda `<project>_septum-gateway-redis-data` her zaman kaldırılabilir. Tam geliştirme yığını çalışan bir host'ta `<project>_septum-redis-data` yalnızca aynı proje dizininden air-gapped yığını da çalıştırmayan bir host'ta kaldırılmalıdır; çünkü iki yığın bu volume adını kullanır. (`<project>` Compose proje adıdır.)
+- **Yerel model hatasında kapalı başarısızlık.** "Ollama semantik tespiti" açıkken ya da LLM istemi tespit yöntemini kullanan herhangi bir özel kural etkinken, yerel Ollama modeli kullanılabilir bir yanıt veremezse (ulaşılamıyor, zaman aşımı, kesilmiş ya da ayrıştırılamayan yanıt, ya da modelin bağlamına sığmayan bir istem) istek artık durdurulur. Sohbet hata ile reddedilir, diğer uç noktalar `503` döner ve doküman işleme başarısız olur. Hiçbir şey maskelenmeden gönderilmez.
+- **Ollama sohbet bağlam penceresi.** Sohbet sağlayıcısı Ollama olduğunda Septum, sunucu varsayılanı yerine sohbet modelinin eğitildiği tam bağlam penceresini (Ollama'dan okunur) ister; böylece uzun istemler kesilmez. Uzun bağlamla eğitilmiş modellerde (örneğin 128 bin token) bu, Ollama host'unda çok daha fazla bellek kullanabilir. Yerel tespit çağrıları 8192 token ile sınırlıdır; sohbet modeli tespit modeliyle aynıysa ikisi de bu sınırlı pencereyi kullanır, böylece model aralarında yeniden yüklenmez.
 
 **Yükseltme sonrası model önbellekleri.** Önceki sürümden kalan model önbellekleri sabitlenmiş commit'lerle eşleşmeyebilir. Bir sonraki çevrimiçi açılışta, bekleyen denetlenmemiş dosyalar içeren sabitlenmiş bir snapshot temizlenir ve bir kez yeniden indirilir; çevrimdışıysa, yeniden çekilene kadar reddedilir. Air-gapped bir kurulum, `fetch` komutunu bağlantılı bir host'ta yeniden çalıştırıp models volume'unu ve user-pins dosyasını kopyalamalıdır; ayrıntılar [3. varyant](#3-yalnız-air-gapped-bölge) bölümündedir. Kayıtlı commit'siz özel NER kimliği `ner_model_unpinned` koduyla, openai-whisper kayıt defteri dışındaki bir Whisper model adı (yerel bir checkpoint yolu gibi) ise `whisper_model_not_allowed` koduyla reddedilir; ikisi de Ayarlar'dan değiştirilmelidir. Ön yükleme kapalı değilse, başlangıç günlüğü reddedilecek her saklı özel NER modeli veya Whisper modeli için yalnızca hata kodlarıyla uyarı verir.
 
@@ -592,6 +594,21 @@ docker run --rm -v septum_septum-data:/from -v septum-data:/to alpine cp -a /fro
 ```
 
 Taşıma sırasında asla `docker volume prune` çalıştırmayın: hiçbir container'ın kullanmadığı tüm volume'ları, verilerinizi tutanlar dahil, siler.
+
+### Duyuru: özel nitelikli veriler ve LLM istemi kurallarında maskeleme
+
+**Kimler etkilendi.**
+
+- "Ollama semantik tespiti" (`use_ollama_semantic_layer`, varsayılanı kapalı) açılmış kurulumlar. Önceki sürümlerde bu katman üretimde hiç çalışmadı; çünkü üretimde hep kapalı tutulan ayrı bir takma ad tespiti anahtarına bağlıydı. Bu yüzden özel nitelikli değerler (teşhis, ilaç, klinik notlar, din, etnik köken, siyasi görüş, cinsel yönelim, biyometrik ve genetik tanımlayıcılar) maskelenmedi.
+- Yöneticinin tanımladığı, LLM istemi tespit yöntemini kullanan özel kuralların etkin olduğu kurulumlar. Bu kurallar v1.0.0'dan (Nisan 2026) bu sürüme kadar sessizce atlandı; hedefledikleri değerler bu nedenle maskelenmedi.
+
+**Ne açığa çıktı.** Sohbet soruları ve sohbete getirilen doküman parçaları, bu değerler açık hâlde olacak şekilde yapılandırılmış bulut LLM sağlayıcısına gönderildi. Saklanan veriler yerelde kaldı; doküman alımının kendisi bulut sağlayıcıya hiçbir şey göndermez. Dosya kuyruğu arka ucunu kullanan gateway kurulumlarında ayrıca gateway ana makinesindeki kuyruğun dead-letter dizinine (`{root}/{topic}/dead-letter/`) bakın; oradaki kayıtlar saklanır, kendiliğinden silinmez.
+
+**Bu sürüm ne yapıyor.** İki mekanizma da artık çalışıyor. Bunlardan biri etkinken işlenen dokümanlar güncel olmayan doküman olarak işaretlenir ve içerikleri sohbette, hiçbir şey gönderilmeden önce yeniden maskelenir. İşaretleme yalnızca ayar hâlâ açıkken ya da kural hâlâ duruyorken yapılır; ayarı sonradan kapattıysanız ya da kuralı sildiyseniz, o dönemde işlenen dokümanları kendiniz yeniden işleyin. Saklanan parçalar ve arama indeksleri bu değerleri artık açık hâlde tutmaması için işaretli dokümanları da yeniden işleyin.
+
+**Yapmanız gerekenler.** Veri sorumlusu sizsiniz; bu yüzden kendi yükümlülüklerinizi değerlendirin (örneğin GDPR m. 33/34 ve KVKK m. 12(5) kapsamında ihlalin belgelenmesi ve bildirimi) ve özel nitelikli verilerin o sağlayıcıya gönderilmesinin hukuki dayanağı olup olmadığını değerlendirin (GDPR m. 9 ve yurt dışına aktarımlara ilişkin Bölüm V; KVKK m. 6 ve m. 9) ve bulut sağlayıcınızın saklama ve silme seçeneklerini gözden geçirin.
+
+**Yerel Ollama.** Tasarım gereği ham metin yerel Ollama modeline gider; çünkü tespitin girdisi odur. Ollama sunucunuzun üretimde istemleri günlüğe yazmadığından emin olun (örneğin hata ayıklama günlüğünü kapalı tutun).
 
 ---
 

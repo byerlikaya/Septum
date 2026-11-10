@@ -76,7 +76,8 @@ summarisation in this context is undeniable.
 2. Activate Layer 3 (Ollama semantic detection) so the pipeline picks
    up not just structured PHI (names, MRNs, dates of birth) but also semantic
    categories that pattern matching can't express: `DIAGNOSIS`,
-   `MEDICATION`, `BIOMETRIC_ID`, `CLINICAL_NOTE`.
+   `MEDICATION`, `BIOMETRIC_ID`, `CLINICAL_NOTE`. If the local model cannot
+   answer, document processing fails and nothing reaches the cloud.
 3. The attending asks: *"Summarise the discharge plan for Elif Demir
    and list her follow-up medications."*
 4. The masked prompt + chunks travel to the cloud LLM. The model sees
