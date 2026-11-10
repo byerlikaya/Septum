@@ -45,6 +45,23 @@ class SanitizeResult:
     detected_spans: List[ResolvedSpan] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class DetectionResult:
+    """Overlap-resolved detection output for one text, before any masking.
+
+    ``text`` is the Unicode-normalized input and the coordinate space of every
+    span offset. It holds raw, unmasked text: never log it, serialize it, cache
+    it to disk or send it over septum-queue. ``semantic_enabled`` records
+    whether the semantic port was on during detection so ``apply`` makes the
+    same coreference decision.
+    """
+
+    text: str = field(repr=False)
+    language: str
+    spans: Tuple[DetectedSpan, ...] = ()
+    semantic_enabled: bool = field(kw_only=True)
+
+
 def clip_core(
     start: int, end: int, core: Optional[Tuple[int, int]]
 ) -> Tuple[int, int]:

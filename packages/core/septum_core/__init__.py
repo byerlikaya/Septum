@@ -42,7 +42,7 @@ from .regulations import (
     RegulationRulesetLike,
 )
 from .regulations.composer import ComposedPolicy, PolicyComposer
-from .spans import DetectedSpan, ResolvedSpan, SanitizeResult
+from .spans import DetectedSpan, DetectionResult, ResolvedSpan, SanitizeResult
 from .unmasker import Unmasker
 
 __all__ = [
@@ -73,6 +73,7 @@ __all__ = [
     "SpanView",
     "DetectedSpan",
     "ResolvedSpan",
+    "DetectionResult",
     "SanitizeResult",
 ]
 

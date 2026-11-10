@@ -54,7 +54,13 @@ from .span_processing import (
     expand_person_name_spans,
     merge_adjacent_person_name_spans,
 )
-from .spans import DetectedSpan, ResolvedSpan, SanitizeResult, entity_range
+from .spans import (
+    DetectedSpan,
+    DetectionResult,
+    ResolvedSpan,
+    SanitizeResult,
+    entity_range,
+)
 from .suffix_list import use_bundled_suffix_list
 from .text_boundaries import (
     TOKEN_END,
@@ -1643,15 +1649,16 @@ class Detector:
         registry.add_recognizer(TaxIDRecognizer())
         registry.add_recognizer(LicensePlateRecognizer())
 
-    def sanitize(
-        self,
-        text: str,
-        language: str,
-        anon_map: AnonymizationMap,
-    ) -> SanitizeResult:
-        """Run the multi-layer sanitizer on the given text."""
+    def detect(self, text: str, language: str) -> DetectionResult:
+        """Detect PII spans and resolve overlaps without touching any anonymization map.
+
+        Offsets in the returned spans refer to ``DetectionResult.text``, the
+        Unicode-normalized form of ``text``. Pass the result to :meth:`apply`
+        to assign placeholders; the spans are non-overlapping candidates in
+        no guaranteed order.
+        """
         if not text:
-            return SanitizeResult(sanitized_text=text, entity_count=0)
+            return DetectionResult(text=text, language=language, semantic_enabled=False)
 
         normalized_text = normalize_unicode(text)
         spans: List[DetectedSpan] = []
@@ -1681,12 +1688,47 @@ class Detector:
 
         spans = self._apply_non_pii_filter(spans, normalized_text, language)
         spans = self._resolve_overlaps(spans, normalized_text, language)
+        return DetectionResult(
+            text=normalized_text,
+            language=language,
+            spans=tuple(spans),
+            semantic_enabled=port_enabled,
+        )
+
+    def apply(
+        self,
+        detection: DetectionResult,
+        anon_map: AnonymizationMap,
+    ) -> SanitizeResult:
+        """Assign placeholders for ``detection`` in ``anon_map`` and mask its text.
+
+        Placeholders are numbered in span-start order, so the same detection
+        applied to an equal map is deterministic.
+
+        Raises ``ValueError`` when a span does not satisfy
+        ``0 <= start < end <= len(detection.text)``; nothing is masked then.
+        """
+        normalized_text = detection.text
+        for span in detection.spans:
+            if not 0 <= span.start < span.end <= len(normalized_text):
+                raise ValueError(
+                    f"span [{span.start}, {span.end}) is outside the detection text "
+                    f"of length {len(normalized_text)}"
+                )
+        language = detection.language
+        spans = detection.spans
+        if not normalized_text:
+            return SanitizeResult(sanitized_text=normalized_text, entity_count=0)
 
         sanitized, count, resolved_spans = self._apply_replacements(
             normalized_text, spans, anon_map, language
         )
 
-        if self._config.use_semantic_detection and port_enabled and anon_map.entity_map:
+        if (
+            self._config.use_semantic_detection
+            and detection.semantic_enabled
+            and anon_map.entity_map
+        ):
             self._resolve_coreference(normalized_text, anon_map, language)
 
         sanitized = anon_map.apply_blocklist(sanitized, language)
@@ -1702,6 +1744,15 @@ class Detector:
             entity_type_counts=type_counts,
             detected_spans=resolved_spans,
         )
+
+    def sanitize(
+        self,
+        text: str,
+        language: str,
+        anon_map: AnonymizationMap,
+    ) -> SanitizeResult:
+        """Run the multi-layer sanitizer on the given text (``detect`` then ``apply``)."""
+        return self.apply(self.detect(text, language), anon_map)
 
     def _presidio_spans(self, normalized_text: str) -> List[DetectedSpan]:
         """Run the Presidio layer and return its filtered results as spans."""
