@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { api } from "@/lib/api";
+import { api, extractErrorCode } from "@/lib/api";
+import { translateErrorCode } from "@/lib/apiErrors";
 import { useI18n } from "@/lib/i18n";
 import type { CustomRecognizer, DetectionMethod } from "@/lib/types";
 import { parseCommaSeparated } from "@/lib/utils";
@@ -92,6 +93,7 @@ export function CustomRuleBuilderPanel({
     []
   );
   const [deletePending, setDeletePending] = useState<boolean>(false);
+  const [promptAttempted, setPromptAttempted] = useState<boolean>(false);
 
   const [syncedInputs, setSyncedInputs] = useState<{
     open: boolean;
@@ -139,6 +141,7 @@ export function CustomRuleBuilderPanel({
       setSaving(false);
       setTesting(false);
       setDeletePending(false);
+      setPromptAttempted(false);
       setTestStatus({ state: "idle" });
       setTestMatches([]);
     }
@@ -159,6 +162,9 @@ export function CustomRuleBuilderPanel({
   if (!open || !form) return null;
 
   const isCreateMode = mode === "create";
+  const promptMissing =
+    form.detection_method === "llm_prompt" && !form.llm_prompt.trim();
+  const showPromptError = promptAttempted && promptMissing;
 
   const handleFieldChange = <K extends keyof CustomRuleFormState>(
     key: K,
@@ -225,6 +231,12 @@ export function CustomRuleBuilderPanel({
   };
 
   const handleTestRule = async (): Promise<void> => {
+    if (promptMissing) {
+      setPromptAttempted(true);
+      setTestMatches([]);
+      return;
+    }
+
     if (!form.sample_text.trim()) {
       setTestStatus({
         state: "error",
@@ -325,6 +337,11 @@ export function CustomRuleBuilderPanel({
   };
 
   const handleSave = async (): Promise<void> => {
+    if (promptMissing) {
+      setPromptAttempted(true);
+      return;
+    }
+
     if (
       !form.name.trim() ||
       !form.entity_type.trim() ||
@@ -364,7 +381,9 @@ export function CustomRuleBuilderPanel({
       console.error(error);
       setTestStatus({
         state: "error",
-        message: t("regulations.panel.save.error")
+        message:
+          translateErrorCode(extractErrorCode(error), t) ??
+          t("regulations.panel.save.error")
       });
     } finally {
       setSaving(false);
@@ -563,10 +582,20 @@ export function CustomRuleBuilderPanel({
 
           {form.detection_method === "llm_prompt" && (
             <div className="space-y-1.5">
-              <label className="text-[11px] font-medium text-slate-200">
+              <label
+                htmlFor="custom-rule-llm-prompt"
+                className="text-[11px] font-medium text-slate-200"
+              >
                 {t("regulations.panel.method.llm.title")}
               </label>
               <textarea
+                id="custom-rule-llm-prompt"
+                aria-invalid={showPromptError}
+                aria-describedby={
+                  showPromptError
+                    ? "custom-rule-llm-prompt-error"
+                    : "custom-rule-llm-prompt-helper"
+                }
                 className="h-24 w-full resize-none rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-hidden ring-0 transition focus:border-sky-500"
                 value={form.llm_prompt}
                 onChange={(event) =>
@@ -576,9 +605,22 @@ export function CustomRuleBuilderPanel({
                   "regulations.panel.method.llm.placeholder"
                 )}
               />
-              <p className="text-[10px] text-slate-400">
-                {t("regulations.panel.method.llm.helper")}
-              </p>
+              {showPromptError ? (
+                <p
+                  id="custom-rule-llm-prompt-error"
+                  role="alert"
+                  className="text-[10px] text-red-300"
+                >
+                  {t("errors.customRule.promptRequired")}
+                </p>
+              ) : (
+                <p
+                  id="custom-rule-llm-prompt-helper"
+                  className="text-[10px] text-slate-400"
+                >
+                  {t("regulations.panel.method.llm.helper")}
+                </p>
+              )}
             </div>
           )}
 

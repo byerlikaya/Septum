@@ -430,6 +430,10 @@ export const trMessages: Record<string, string> = {
     "Özel NER modeli sabitlenmemiş. Ayarlar → NER Modelleri bölümünde org/name@<40 karakterlik commit SHA> biçiminde girin. Yalnızca safetensors modelleri kabul edilir.",
   "errors.model.whisperNotAllowed":
     "Bu Whisper modeli desteklenmiyor. Ayarlar bölümündeki desteklenen model listesinden bir model seçin.",
+  "errors.customRule.unavailable":
+    "Özel tespit kurallarından biri çalıştırılamadı, çünkü yerel Ollama modeli yanıt vermedi. Hiçbir şey gönderilmedi; Ollama'yı kontrol edip tekrar deneyin.",
+  "errors.customRule.promptRequired":
+    "LLM istemi kuralı için bir istem gerekir; modelin neyi bulması gerektiğini yazın.",
   "errors.regulations.load":
     "Regülasyon ayarları yüklenirken bir hata oluştu.",
   "errors.regulations.update":
