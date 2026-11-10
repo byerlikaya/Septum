@@ -85,6 +85,20 @@ describe("semantic layer refusal code", () => {
   });
 });
 
+describe("local model budget refusal code", () => {
+  it("maps local_model_budget_exceeded in every code map to a key present in en and tr", () => {
+    const en: Record<string, string> = enMessages;
+    const tr: Record<string, string> = trMessages;
+    for (const keys of [HTTP_ERROR_KEYS, CHAT_STREAM_ERROR_KEYS, INGESTION_ERROR_KEYS]) {
+      expect(translateErrorCode("local_model_budget_exceeded", t, keys)).toBe(
+        "errors.localModelBudget.exceeded",
+      );
+    }
+    expect(en["errors.localModelBudget.exceeded"].trim()).not.toBe("");
+    expect(tr["errors.localModelBudget.exceeded"].trim()).not.toBe("");
+  });
+});
+
 describe("chat document-consistency codes", () => {
   it("maps document_changed and map_conflict to translated keys", () => {
     expect(translateErrorCode("document_changed", t, CHAT_STREAM_ERROR_KEYS)).toBe(
