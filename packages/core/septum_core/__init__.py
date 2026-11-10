@@ -24,6 +24,7 @@ from typing import Any
 from .anonymization_map import AnonymizationMap
 from .config import SeptumCoreConfig
 from .detection_version import DETECTOR_VERSION
+from .document_windowing import WindowingPolicy
 from .national_ids import (
     AadhaarValidator,
     BaseIDValidator,
@@ -42,7 +43,8 @@ from .regulations import (
     RegulationRulesetLike,
 )
 from .regulations.composer import ComposedPolicy, PolicyComposer
-from .spans import DetectedSpan, ResolvedSpan, SanitizeResult
+from .span_projection import ProjectedChunk, ProjectedSpan, project, protected_ranges
+from .spans import DetectedSpan, DetectionResult, ResolvedSpan, SanitizeResult
 from .unmasker import Unmasker
 
 __all__ = [
@@ -73,7 +75,13 @@ __all__ = [
     "SpanView",
     "DetectedSpan",
     "ResolvedSpan",
+    "DetectionResult",
     "SanitizeResult",
+    "ProjectedChunk",
+    "ProjectedSpan",
+    "project",
+    "protected_ranges",
+    "WindowingPolicy",
 ]
 
 __version__ = "0.1.0"

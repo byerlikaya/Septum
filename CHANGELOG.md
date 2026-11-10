@@ -27,6 +27,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 - Document ingesters now also return their text as structural blocks (pages, sheet rows, paragraphs, headings, tables, audio segments), groundwork for chunking that keeps page, sheet and timestamp information. The flat text rebuilt from the blocks is byte-identical, so stored text and processing are unchanged.
 - The retrieval benchmark now finds chunks where a heading is joined onto the previous sentence, and its baseline is re-recorded on current main because the old figures could no longer be reproduced. Recall is unchanged; MRR is lower, mostly for Chinese.
 - Known names inside bracketed text (Markdown link text, citations, notes) are now masked: the residual name check skipped any `[...]` as if it were a placeholder, and now skips only real placeholders. The narrower pattern also removes a slowdown on text with many unclosed brackets.
+- Personal data detection can now run once over a whole document and apply its results to any set of text ranges, so every chunk that touches a detected value shows the same placeholder wherever the chunk boundary falls. Very large documents (above one million characters) are scanned in overlapping windows, with pattern-based checks still run over the full text so a value crossing a window edge is masked whole; on a two-million-character document this more than halves the time and memory needed. Masking results for existing documents are unchanged.
 
 ### 2026-11-05
 

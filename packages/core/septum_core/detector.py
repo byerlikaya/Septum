@@ -26,14 +26,22 @@ import logging
 import re
 import threading
 from bisect import bisect_right
+from collections.abc import Sequence
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
-from presidio_analyzer import AnalyzerEngine, EntityRecognizer, RecognizerResult
+from presidio_analyzer import (
+    AnalyzerEngine,
+    EntityRecognizer,
+    PatternRecognizer,
+    RecognizerResult,
+)
+from presidio_analyzer.predefined_recognizers import PhoneRecognizer
 
 from .anonymization_map import SANITIZER_STOPWORDS, AnonymizationMap
 from .config import SeptumCoreConfig
 from .date_grammar import find_dates
 from .date_grammar import warm_up as warm_up_date_grammar
+from .document_windowing import WindowingPolicy, merge_window_spans, plan_text_windows
 from .language_resolution import (
     canonical_language_code,
     script_min_span_length,
@@ -54,7 +62,13 @@ from .span_processing import (
     expand_person_name_spans,
     merge_adjacent_person_name_spans,
 )
-from .spans import DetectedSpan, ResolvedSpan, SanitizeResult, entity_range
+from .spans import (
+    DetectedSpan,
+    DetectionResult,
+    ResolvedSpan,
+    SanitizeResult,
+    entity_range,
+)
 from .suffix_list import use_bundled_suffix_list
 from .text_boundaries import (
     TOKEN_END,
@@ -1467,6 +1481,15 @@ class LicensePlateRecognizer(BaseCustomRecognizer):
         return results
 
 
+_FULL_TEXT_RECOGNIZER_TYPES: Tuple[type, ...] = (
+    PatternRecognizer,
+    BaseCustomRecognizer,
+    EmailAddressRecognizer,
+    PhoneRecognizer,
+)
+"""Deterministic recognizers safe to run over a whole document; no model behind them."""
+
+
 class Detector:
     """High-level orchestrator for multi-layer PII detection and masking.
 
@@ -1643,17 +1666,56 @@ class Detector:
         registry.add_recognizer(TaxIDRecognizer())
         registry.add_recognizer(LicensePlateRecognizer())
 
-    def sanitize(
+    def detect(
         self,
         text: str,
         language: str,
-        anon_map: AnonymizationMap,
-    ) -> SanitizeResult:
-        """Run the multi-layer sanitizer on the given text."""
+        *,
+        boundaries: Sequence[int] = (),
+        windowing: WindowingPolicy = WindowingPolicy(),
+    ) -> DetectionResult:
+        """Detect PII spans and resolve overlaps without touching any anonymization map.
+
+        Offsets in the returned spans refer to ``DetectionResult.text``, the
+        Unicode-normalized form of ``text``. Pass the result to :meth:`apply`
+        to assign placeholders; the spans are non-overlapping candidates in
+        no guaranteed order.
+
+        A normalized text longer than ``windowing.max_whole_chars`` is
+        detected on overlapping windows (see :mod:`.document_windowing`); the
+        non-PII filter and overlap resolution still run once on the merged
+        full-text spans, so the result is a normal ``DetectionResult``.
+        ``boundaries`` are optional preferred cut offsets (block or paragraph
+        ends) into ``text``; they are honoured only when ``text`` is already
+        normalized, since normalization can shift offsets, and never change
+        which spans are found, only where windows are cut.
+        """
         if not text:
-            return SanitizeResult(sanitized_text=text, entity_count=0)
+            return DetectionResult(text=text, language=language, semantic_enabled=False)
 
         normalized_text = normalize_unicode(text)
+        port_enabled = self._semantic_port.is_enabled()
+        if len(normalized_text) > windowing.max_whole_chars:
+            hints = boundaries if normalized_text == text else ()
+            spans = self._windowed_candidates(
+                normalized_text, language, port_enabled, windowing, hints
+            )
+        else:
+            spans = self._candidate_spans(normalized_text, language, port_enabled)
+
+        spans = self._apply_non_pii_filter(spans, normalized_text, language)
+        spans = self._resolve_overlaps(spans, normalized_text, language)
+        return DetectionResult(
+            text=normalized_text,
+            language=language,
+            spans=tuple(spans),
+            semantic_enabled=port_enabled,
+        )
+
+    def _candidate_spans(
+        self, normalized_text: str, language: str, port_enabled: bool
+    ) -> List[DetectedSpan]:
+        """Run every enabled detection layer on ``normalized_text``; no overlap resolution."""
         spans: List[DetectedSpan] = []
 
         if self._config.use_presidio_layer:
@@ -1668,7 +1730,6 @@ class Detector:
                 )
             )
 
-        port_enabled = self._semantic_port.is_enabled()
         spans = self._validate_semantically(
             spans, normalized_text, language, port_enabled
         )
@@ -1678,15 +1739,109 @@ class Detector:
                     self._semantic_detection_spans(normalized_text), normalized_text, language
                 )
             )
+        return spans
 
-        spans = self._apply_non_pii_filter(spans, normalized_text, language)
-        spans = self._resolve_overlaps(spans, normalized_text, language)
+    def _windowed_candidates(
+        self,
+        normalized_text: str,
+        language: str,
+        port_enabled: bool,
+        windowing: WindowingPolicy,
+        boundaries: Sequence[int],
+    ) -> List[DetectedSpan]:
+        """Candidate spans of a very large text, found window by window.
+
+        Every layer runs on each window; windows run one after another so
+        only one window's layer state is alive at a time. A pattern match
+        has no length bound, so one straddling a cut can be cut short or
+        missed by both windows; the Presidio recognizers that need no NLP
+        model therefore also run once on the whole text, and the merge keeps
+        those of their spans that no window saw whole. The spaCy, NER and
+        semantic layers never see the whole text.
+        """
+        windows = plan_text_windows(normalized_text, windowing, boundaries)
+        per_window = [
+            self._candidate_spans(
+                normalized_text[w.start : w.end], language, port_enabled
+            )
+            for w in windows
+        ]
+        full_text = (
+            self._pattern_spans(normalized_text) if self._config.use_presidio_layer else []
+        )
+        return merge_window_spans(windows, per_window, full_text)
+
+    def _pattern_spans(self, normalized_text: str) -> List[DetectedSpan]:
+        """Run only the deterministic recognizers over the whole text.
+
+        Allow-list, not deny-list: a recognizer runs here only when it is an
+        instance of ``_FULL_TEXT_RECOGNIZER_TYPES`` (Presidio
+        ``PatternRecognizer``, Septum ``BaseCustomRecognizer``, the e-mail
+        recognizer and Presidio's ``PhoneRecognizer``). Any other recognizer
+        in the registry, spaCy or model-backed, is skipped and never sees the
+        whole text. No NLP pass runs: ``nlp_artifacts`` is ``None``.
+
+        Compared with :meth:`AnalyzerEngine.analyze` this skips context
+        enhancement (a span found only here keeps its recognizer's base
+        score), ``score_threshold``, ``allow_list`` and the decision-process
+        metadata.
+        """
+        entities = self._expand_with_aliases(self._entity_types)
+        recognizers = self._analyzer.registry.get_recognizers(
+            language=_PRESIDIO_DEFAULT_LANGUAGE, entities=entities, all_fields=not entities
+        )
+        wanted = entities or self._analyzer.get_supported_entities(
+            language=_PRESIDIO_DEFAULT_LANGUAGE
+        )
+        results: List[RecognizerResult] = []
+        for recognizer in recognizers:
+            if not isinstance(recognizer, _FULL_TEXT_RECOGNIZER_TYPES):
+                continue
+            if not recognizer.is_loaded:
+                recognizer.load()
+                recognizer.is_loaded = True
+            results.extend(
+                recognizer.analyze(text=normalized_text, entities=wanted, nlp_artifacts=None)
+                or []
+            )
+        results = EntityRecognizer.remove_duplicates(results)
+        results = self._filter_presidio_results(results, normalized_text)
+        return self._from_presidio_results(results)
+
+    def apply(
+        self,
+        detection: DetectionResult,
+        anon_map: AnonymizationMap,
+    ) -> SanitizeResult:
+        """Assign placeholders for ``detection`` in ``anon_map`` and mask its text.
+
+        Placeholders are numbered in span-start order, so the same detection
+        applied to an equal map is deterministic.
+
+        Raises ``ValueError`` when a span does not satisfy
+        ``0 <= start < end <= len(detection.text)``; nothing is masked then.
+        """
+        normalized_text = detection.text
+        for span in detection.spans:
+            if not 0 <= span.start < span.end <= len(normalized_text):
+                raise ValueError(
+                    f"span [{span.start}, {span.end}) is outside the detection text "
+                    f"of length {len(normalized_text)}"
+                )
+        language = detection.language
+        spans = detection.spans
+        if not normalized_text:
+            return SanitizeResult(sanitized_text=normalized_text, entity_count=0)
 
         sanitized, count, resolved_spans = self._apply_replacements(
             normalized_text, spans, anon_map, language
         )
 
-        if self._config.use_semantic_detection and port_enabled and anon_map.entity_map:
+        if (
+            self._config.use_semantic_detection
+            and detection.semantic_enabled
+            and anon_map.entity_map
+        ):
             self._resolve_coreference(normalized_text, anon_map, language)
 
         sanitized = anon_map.apply_blocklist(sanitized, language)
@@ -1702,6 +1857,15 @@ class Detector:
             entity_type_counts=type_counts,
             detected_spans=resolved_spans,
         )
+
+    def sanitize(
+        self,
+        text: str,
+        language: str,
+        anon_map: AnonymizationMap,
+    ) -> SanitizeResult:
+        """Run the multi-layer sanitizer on the given text (``detect`` then ``apply``)."""
+        return self.apply(self.detect(text, language), anon_map)
 
     def _presidio_spans(self, normalized_text: str) -> List[DetectedSpan]:
         """Run the Presidio layer and return its filtered results as spans."""
@@ -1845,18 +2009,12 @@ class Detector:
             language=language,
             spans=span_views,
         )
+        originals: Dict[tuple[int, int, str, float], DetectedSpan] = {}
+        for s in spans:
+            originals.setdefault((s.start, s.end, s.entity_type, s.score), s)
         keep_spans: List[DetectedSpan] = []
         for view in filtered_views:
-            original = next(
-                (
-                    s for s in spans
-                    if s.start == view.start
-                    and s.end == view.end
-                    and s.entity_type == view.entity_type
-                    and s.score == view.score
-                ),
-                None,
-            )
+            original = originals.get((view.start, view.end, view.entity_type, view.score))
             if original is not None:
                 keep_spans.append(original)
         return keep_spans
