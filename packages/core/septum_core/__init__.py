@@ -42,6 +42,7 @@ from .regulations import (
     RegulationRulesetLike,
 )
 from .regulations.composer import ComposedPolicy, PolicyComposer
+from .span_projection import ProjectedChunk, ProjectedSpan, project, protected_ranges
 from .spans import DetectedSpan, DetectionResult, ResolvedSpan, SanitizeResult
 from .unmasker import Unmasker
 
@@ -75,6 +76,10 @@ __all__ = [
     "ResolvedSpan",
     "DetectionResult",
     "SanitizeResult",
+    "ProjectedChunk",
+    "ProjectedSpan",
+    "project",
+    "protected_ranges",
 ]
 
 __version__ = "0.1.0"
