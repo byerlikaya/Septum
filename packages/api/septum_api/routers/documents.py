@@ -47,7 +47,7 @@ from sqlalchemy.orm import defer, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 
 from ..database import get_db
-from ..errors import public_error_text
+from ..errors import CustomRuleUnavailableError, public_error_text
 from ..middleware.upload_limits import MAX_UPLOAD_BYTES, TOO_LARGE_DETAIL
 from ..models.audit_event import AuditEvent
 from ..models.document import Chunk as DocumentChunk
@@ -858,7 +858,11 @@ async def _record_background_failure(
             .values(
                 ingestion_status="failed",
                 ingestion_error=public_error_text(exc, "Ingestion failed"),
-                ingestion_error_code=exc.code if isinstance(exc, ModelRefusal) else None,
+                ingestion_error_code=(
+                    exc.code
+                    if isinstance(exc, (ModelRefusal, CustomRuleUnavailableError))
+                    else None
+                ),
             )
         )
         await bg_db.commit()

@@ -100,9 +100,25 @@ def snapshot_entity_types(entity_types: Iterable[str]) -> List[str]:
     return sorted(set(entity_types))
 
 
+_LLM_PROMPT_DETECTION = "llm_prompt"
+
+LLM_PROMPT_RULE_REVISION = "llm-prompt-applied-1"
+"""Marks the definition of an ``llm_prompt`` rule in the digest.
+
+Before it, such rules were composed without a recognizer and masked nothing,
+so a document sanitized while one was active recorded a digest that still
+matches its definition. The marker changes that digest, and only that one:
+those documents read as outdated and chat re-masks them. Bump it whenever
+``llm_prompt`` rules start finding what earlier documents did not.
+"""
+
+
 def custom_recognizer_definition(recognizer: Any) -> tuple:
-    """Return the fields of a custom recognizer that decide what it detects."""
-    return (
+    """Return the fields of a custom recognizer that decide what it detects.
+
+    An ``llm_prompt`` rule also carries :data:`LLM_PROMPT_RULE_REVISION`.
+    """
+    definition = (
         recognizer.entity_type,
         recognizer.detection_method,
         recognizer.pattern,
@@ -110,6 +126,14 @@ def custom_recognizer_definition(recognizer: Any) -> tuple:
         recognizer.llm_prompt,
         recognizer.context_words,
     )
+    if recognizer.detection_method == _LLM_PROMPT_DETECTION:
+        return (*definition, LLM_PROMPT_RULE_REVISION)
+    return definition
+
+
+def has_llm_prompt_rule(custom_definitions: Iterable[Sequence[Any]]) -> bool:
+    """Whether any definition from :func:`custom_recognizer_definition` is an ``llm_prompt`` rule."""
+    return any(d[1] == _LLM_PROMPT_DETECTION for d in custom_definitions)
 
 
 def non_pii_rule_definition(rule: Any) -> tuple:
@@ -123,7 +147,7 @@ def non_pii_rule_definition(rule: Any) -> tuple:
     )
 
 
-def detection_settings(settings: Any) -> tuple:
+def detection_settings(settings: Any, llm_prompt_active: bool = False) -> tuple:
     """Return the settings that decide which spans the document sanitizer finds.
 
     Included: ``use_presidio_layer``, ``use_ner_layer``,
@@ -134,10 +158,14 @@ def detection_settings(settings: Any) -> tuple:
     layers is on. Left out: Ollama endpoint URLs, and ``use_ollama_layer``
     (semantic detection), which the sanitizer factory fixes off for document
     text (``DOCUMENT_SANITIZER_ENABLE_OLLAMA``).
+
+    With ``llm_prompt_active`` (an active ``llm_prompt`` custom rule) the
+    model those rules call is appended as well, whatever the layers; without
+    one the tuple is unchanged, so such policies keep their digest.
     """
     validation = bool(settings.use_ollama_validation_layer)
     contextual = bool(settings.use_ollama_semantic_layer)
-    return (
+    detection: tuple = (
         bool(settings.use_presidio_layer),
         bool(settings.use_ner_layer),
         validation,
@@ -145,6 +173,9 @@ def detection_settings(settings: Any) -> tuple:
         sorted((settings.ner_model_overrides or {}).items()),
         settings.ollama_deanon_model if validation or contextual else None,
     )
+    if llm_prompt_active:
+        return (*detection, settings.ollama_deanon_model)
+    return detection
 
 
 def _canonical(definitions: Iterable[Sequence[Any]]) -> List[str]:
@@ -169,9 +200,12 @@ def build_policy_snapshot(
     stands for the default settings of a fresh install; production callers
     always pass the settings row their sanitizer uses.
     """
-    if detection is None:
-        detection = detection_settings(build_default_app_settings())
     definitions = [list(d) for d in custom_definitions]
+    if detection is None:
+        detection = detection_settings(
+            build_default_app_settings(),
+            llm_prompt_active=has_llm_prompt_rule(definitions),
+        )
     types: set[str] = {d[0] for d in definitions}
     for entity_types in regulation_entity_types:
         types.update(entity_types or [])
@@ -212,12 +246,14 @@ async def current_policy_snapshot(db: AsyncSession) -> PolicySnapshot:
     settings_row = (
         await db.execute(select(*_DETECTION_SETTING_COLUMNS).where(AppSettings.id == 1))
     ).first()
+    custom_definitions = [custom_recognizer_definition(r) for r in custom_rows.all()]
     detection = detection_settings(
-        settings_row if settings_row is not None else build_default_app_settings()
+        settings_row if settings_row is not None else build_default_app_settings(),
+        llm_prompt_active=has_llm_prompt_rule(custom_definitions),
     )
     return build_policy_snapshot(
         regulation_rows.scalars().all(),
-        [tuple(r) for r in custom_rows.all()],
+        custom_definitions,
         [tuple(r) for r in non_pii_rows.all()],
         detection=detection,
     )
@@ -271,6 +307,7 @@ __all__ = [
     "current_policy_snapshot",
     "custom_recognizer_definition",
     "detection_settings",
+    "has_llm_prompt_rule",
     "non_pii_rule_definition",
     "document_staleness",
     "snapshot_entity_types",

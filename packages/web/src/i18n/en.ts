@@ -419,6 +419,10 @@ export const enMessages = {
     "The custom NER model is not pinned. Enter it as org/name@<40-character commit SHA> in Settings → NER Models. Only safetensors models are accepted.",
   "errors.model.whisperNotAllowed":
     "This Whisper model is not supported. Choose a model from the supported list in Settings.",
+  "errors.customRule.unavailable":
+    "A custom detection rule could not run because the local Ollama model did not answer. Nothing was sent; check Ollama and try again.",
+  "errors.customRule.promptRequired":
+    "An LLM-prompt rule needs a prompt; enter what the model should find.",
   "errors.regulations.load": "An error occurred while loading regulation settings.",
   "errors.regulations.update": "An error occurred while updating regulation rules.",
   "errors.regulations.test": "An error occurred while testing the rule. If this is a regex rule, please ensure the pattern is valid.",

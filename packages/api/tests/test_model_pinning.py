@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from septum_api import main as main_module
 from septum_api.cli import models as cli_models
-from septum_api.errors import MODEL_REFUSED_DETAIL
+from septum_api.errors import MODEL_REFUSED_DETAIL, CustomRuleUnavailableError
 from septum_api.models import Base
 from septum_api.models.document import Document
 from septum_api.routers import chat as chat_module
@@ -494,9 +494,10 @@ async def doc_session(tmp_path: Path):
         (UnpinnedModelError(UNPINNED), "ner_model_unpinned"),
         (whisper_models.WhisperModelNotAllowed("refused"), "whisper_model_not_allowed"),
         (_FutureRefusal("refused"), "future_refusal"),
+        (CustomRuleUnavailableError("rule 7 could not run"), "custom_rule_unavailable"),
         (RuntimeError("anything else"), None),
     ],
-    ids=["integrity", "unpinned", "whisper", "any-model-refusal", "other"],
+    ids=["integrity", "unpinned", "whisper", "any-model-refusal", "custom-rule", "other"],
 )
 async def test_failed_ingestion_records_the_refusal_code(
     doc_session, exc: BaseException, code: str | None

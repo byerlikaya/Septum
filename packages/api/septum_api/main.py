@@ -55,7 +55,11 @@ from .env_flags import (
     parse_float_default_flags,
     parse_int_default_flags,
 )
-from .errors import MODEL_REFUSED_DETAIL
+from .errors import (
+    CUSTOM_RULE_UNAVAILABLE_DETAIL,
+    MODEL_REFUSED_DETAIL,
+    CustomRuleUnavailableError,
+)
 from .models.settings import AppSettings
 from .routers import api_keys as api_keys_router
 from .routers import approval as approval_router
@@ -670,6 +674,33 @@ async def model_refusal_handler(request: Request, exc: ModelRefusal) -> JSONResp
     return JSONResponse(
         status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
         content={"detail": MODEL_REFUSED_DETAIL, "code": exc.code},
+    )
+
+
+@app.exception_handler(CustomRuleUnavailableError)
+async def custom_rule_unavailable_handler(
+    request: Request, exc: CustomRuleUnavailableError
+) -> JSONResponse:
+    """Turn an llm_prompt rule that got no answer into 503 with its code.
+
+    The text the rule should have screened is refused, never passed on
+    unmasked. The detail is fixed text; the error log keeps the rule id.
+    """
+    try:
+        if engine_is_ready():
+            async with get_session_maker()() as db:
+                await log_backend_error(
+                    db=db,
+                    request=request,
+                    exc=exc,
+                    level="ERROR",
+                    status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+    except Exception as log_exc:
+        report_error_log_failure(log_exc)
+    return JSONResponse(
+        status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": CUSTOM_RULE_UNAVAILABLE_DETAIL, "code": exc.code},
     )
 
 

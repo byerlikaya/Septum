@@ -31,7 +31,7 @@ def ollama(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         return "raw"
 
     monkeypatch.setattr(registry_module, "use_ollama_enabled", lambda: state["enabled"])
-    monkeypatch.setattr(registry_module, "call_ollama_sync", _call)
+    monkeypatch.setattr(registry_module, "request_ollama_sync", _call)
     monkeypatch.setattr(registry_module, "extract_json_array", lambda response: state["items"])
     return state
 
