@@ -769,13 +769,13 @@ async def test_ingestion_pipeline_masks_in_the_override_language(monkeypatch):
     monkeypatch.setattr(document_pipeline, "TextNormalizer", _Normalizer)
     pipeline = document_pipeline.DocumentPipeline(SimpleNamespace())
     monkeypatch.setattr(pipeline, "_build_chunks", _chunks)
-    document = SimpleNamespace(id=9, language_override="tr", detected_language="en")
+    document = SimpleNamespace(id=9, user_id=None, language_override="tr", detected_language="en")
     with pytest.raises(_Stop):
         await pipeline.run(None, document, "pdf", "Ahmet Yılmaz", None)
     assert seen == {"map_language": "tr", "detector_language": "tr"}
 
     seen.clear()
-    legacy = SimpleNamespace(id=9, language_override="tur", detected_language="en")
+    legacy = SimpleNamespace(id=9, user_id=None, language_override="tur", detected_language="en")
     with pytest.raises(_Stop):
         await pipeline.run(None, legacy, "pdf", "Ahmet Yılmaz", None)
     assert seen == {"map_language": "en", "detector_language": "en"}
@@ -910,7 +910,7 @@ async def test_ingestion_audit_event_records_the_override_language(monkeypatch):
 
     def _document(override):
         return SimpleNamespace(
-            id=9, language_override=override, detected_language="en",
+            id=9, user_id=None, language_override=override, detected_language="en",
             active_regulation_ids=[], original_filename="a.pdf",
         )
 
@@ -1094,7 +1094,7 @@ async def test_remask_after_a_correction_uses_the_new_language(monkeypatch):
     async def _working(*_args):
         return working
 
-    async def _gate(texts, _map, _db, _settings, language=None, sanitizer=None):
+    async def _gate(texts, _map, _db, _settings, language=None, sanitizer=None, joined=False):
         seen.append(language)
         return list(texts)
 
@@ -1183,7 +1183,7 @@ async def test_ingestion_ignores_an_override_that_contradicts_the_script(
     monkeypatch.setattr(document_pipeline, "TextNormalizer", _Normalizer)
     pipeline = document_pipeline.DocumentPipeline(SimpleNamespace())
     monkeypatch.setattr(pipeline, "_build_chunks", _chunks)
-    document = SimpleNamespace(id=9, language_override=override, detected_language=detected)
+    document = SimpleNamespace(id=9, user_id=None, language_override=override, detected_language=detected)
     with caplog.at_level(logging.WARNING, logger=db_helpers.__name__):
         with pytest.raises(_Stop):
             await pipeline.run(None, document, "pdf", text, None)
@@ -1321,7 +1321,7 @@ async def test_remask_writes_the_effective_language_into_the_persisted_map(monke
     async def _load(_document_id):
         return stored
 
-    async def _gate(texts, _map, _db, _settings, language=None, sanitizer=None):
+    async def _gate(texts, _map, _db, _settings, language=None, sanitizer=None, joined=False):
         return list(texts)
 
     async def _write(_document_id, anon_map):
@@ -1472,7 +1472,7 @@ async def test_pipeline_records_the_masking_language_it_used(monkeypatch):
     for override, detected, text, expected in cases:
         seen.clear()
         document = SimpleNamespace(
-            id=9, language_override=override, detected_language=detected,
+            id=9, user_id=None, language_override=override, detected_language=detected,
             active_regulation_ids=[], original_filename="a.pdf",
             sanitized_language=None, ingestion_status="processing",
         )

@@ -61,7 +61,8 @@ def env(monkeypatch):
         events.append(("settings",))
         return "SETTINGS"
 
-    async def gate(db, settings, document, texts):
+    async def gate(db, settings, document, texts, joined=False):
+        assert joined is True
         events.append(("gate", settings, document, list(texts)))
         return [f"G({t})" for t in texts]
 

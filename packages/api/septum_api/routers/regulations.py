@@ -9,6 +9,7 @@ This router exposes:
 * A simple test endpoint for validating recognizer behavior against sample text.
 """
 
+import asyncio
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -20,6 +21,7 @@ from ..database import get_db
 from ..errors import CodedHTTPError
 from ..models.regulation import CustomRecognizer, NonPiiRule, RegulationRuleset
 from ..models.user import User
+from ..services.ollama_detection_runner import local_model_scope
 from ..services.recognizers.registry import RecognizerRegistry
 from ..utils.auth_dependency import (
     get_current_user,
@@ -392,7 +394,9 @@ async def test_custom_recognizer(
     the provided sample text. LLM-prompt recognizers run through the local
     Ollama-backed recognizer with the stored Ollama URL and model; when the
     model gives no usable answer the request is refused with 503 and the
-    ``custom_rule_unavailable`` code, as chat and ingestion refuse.
+    ``custom_rule_unavailable`` code, as chat and ingestion refuse. The
+    recognizer runs in a worker thread under one local-model call budget,
+    like a chat turn.
     """
     recognizer_model = await _get_custom_or_404(db, recognizer_id)
 
@@ -404,11 +408,13 @@ async def test_custom_recognizer(
         return CustomRecognizerTestResponse(matches=[])
 
     recognizer = recognizers[0]
-    results = recognizer.analyze(
-        text=payload.sample_text,
-        entities=[recognizer_model.entity_type],
-        nlp_artifacts=None,
-    )
+    async with local_model_scope(_user.id, budgeted=True):
+        results = await asyncio.to_thread(
+            recognizer.analyze,
+            text=payload.sample_text,
+            entities=[recognizer_model.entity_type],
+            nlp_artifacts=None,
+        )
 
     matches: List[CustomRecognizerTestMatch] = []
     for r in results:

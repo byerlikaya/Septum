@@ -123,7 +123,8 @@ async def test_schema_descriptions_gate_only_semantic_labels(
 ) -> None:
     gated: list[list[str]] = []
 
-    async def _gate(texts, anon_map, db, settings):
+    async def _gate(texts, anon_map, db, settings, joined=False):
+        assert joined is True
         gated.append(list(texts))
         return [f"<{t}>" if t else t for t in texts]
 

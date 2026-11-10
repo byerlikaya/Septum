@@ -355,6 +355,8 @@ async def lifespan(app: FastAPI):
         shutdown_password_executor,
         warm_dummy_password_hash,
     )
+    from .services.ollama_client import close_ollama_clients
+    from .services.ollama_detection_runner import shutdown_detection_runner
 
     bootstrap.validate_setup_token_env()
     flags = parse_bool_default_flags()
@@ -400,6 +402,8 @@ async def lifespan(app: FastAPI):
                     with suppress(asyncio.CancelledError):
                         await task
             shutdown_password_executor()
+            shutdown_detection_runner()
+            await close_ollama_clients()
 
 
 from .middleware.rate_limit import (

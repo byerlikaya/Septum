@@ -139,6 +139,7 @@ from ..services.error_logger import (
 )
 from ..services.llm_errors import LLM_UNAVAILABLE
 from ..services.llm_router import LLMRouter, LLMRouterError, _chunk_text
+from ..services.ollama_detection_runner import local_model_scope
 from ..services.pii_gate import (
     DocumentGoneError,
     DocumentMapConflictError,
@@ -1137,7 +1138,7 @@ async def _schema_column_descriptions(
     gated: List[str] = []
     if labelled:
         gated = await gate_untrusted_texts(
-            [_stored_label(c) for c in labelled], anon_map, db, settings
+            [_stored_label(c) for c in labelled], anon_map, db, settings, joined=True
         )
     label_by_index = {c.index: label for c, label in zip(labelled, gated)}
     descriptions: List[str] = []
@@ -1525,7 +1526,8 @@ async def chat_analyze_query(
     )
     language = query_language(body.message, target_document)
     anon_map = AnonymizationMap(document_id=0, language=language)
-    await _sanitize_query(body.message, language, settings, anon_map, db)
+    async with local_model_scope(user.id, budgeted=True):
+        await _sanitize_query(body.message, language, settings, anon_map, db)
 
     query_entities: List[Tuple[str, str]] = []
     for original, placeholder in anon_map.entity_map.items():
@@ -2589,13 +2591,47 @@ async def _chat_event_stream(
 
     Phases: sanitize the query, select the context, ``meta``, mask the
     context into the turn's unified numbering, the optional approval gate,
-    the LLM call with local de-anonymization, then the answer chunks.
+    the LLM call with local de-anonymization, then the answer chunks. The
+    turn runs under one local-model call budget
+    (:data:`~septum_api.request_limits.MAX_OLLAMA_CALLS_PER_TURN`) and uses
+    the local-model detection cache of the requesting user only.
     """
     # Generated up-front so per-phase timing logs can correlate every
     # phase of this turn under a single session_id, even if the user has
     # not supplied one.
     session_id = request.session_id or uuid4().hex
     debug_id = new_debug_id()
+    events = _chat_turn_events(
+        request,
+        message_text,
+        document_ids_list,
+        requested_documents,
+        retry_documents,
+        db,
+        current_user,
+        http_request,
+        session_id,
+        debug_id,
+    )
+    async with local_model_scope(current_user.id, budgeted=True):
+        async with contextlib.aclosing(events):
+            async for event in events:
+                yield event
+
+
+async def _chat_turn_events(
+    request: ChatRequest,
+    message_text: str,
+    document_ids_list: List[int],
+    requested_documents: dict[int, Document],
+    retry_documents: dict[int, Document],
+    db: AsyncSession,
+    current_user: User,
+    http_request: Request,
+    session_id: str,
+    debug_id: str,
+) -> AsyncGenerator[bytes, None]:
+    """The events of :func:`_chat_event_stream`, run inside its call budget."""
     try:
         turn = await _open_turn(
             request,
