@@ -17,6 +17,7 @@ import re
 import threading
 import time
 import weakref
+from collections.abc import Iterable
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
@@ -107,6 +108,13 @@ OLLAMA_URL_REFUSED_MESSAGE = (
 def ollama_url_refused(base_url: str | None) -> bool:
     """Return True when the effective Ollama base URL is refused by :func:`ollama_url_problem`."""
     return ollama_url_problem(effective_ollama_base_url(base_url)) is not None
+
+
+def ollama_model_installed(wanted: str, names: Iterable[str]) -> bool:
+    """Return True when ``wanted`` equals an installed name or its base name before ``:``."""
+    if not wanted:
+        return False
+    return any(name and wanted in (name, name.split(":")[0]) for name in names)
 
 
 def require_allowed_ollama_url(base_url: str | None) -> str:

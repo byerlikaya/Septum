@@ -41,6 +41,7 @@ from ..request_limits import (
     MIN_PDF_CHUNK_SIZE,
     chunk_overlap_fits,
 )
+from ..services.contextual_coverage import apply_setup_completion_default
 from ..services.error_logger import log_backend_message, report_error_log_failure
 from ..services.llm_errors import LLM_UNAVAILABLE, OLLAMA_URL_NOT_ALLOWED_CODE
 from ..services.llm_router import LLMRouter, LLMRouterError
@@ -48,6 +49,7 @@ from ..services.ollama_client import (
     OLLAMA_URL_REFUSED_MESSAGE,
     effective_ollama_base_url,
     ollama_async_http_client,
+    ollama_model_installed,
     ollama_url_problem,
     ollama_url_refused,
 )
@@ -387,6 +389,7 @@ async def update_settings_endpoint(
     admin account is created.
     """
     settings = await load_settings(db)
+    was_setup_completed = bool(settings.setup_completed)
 
     update_data = payload.model_dump(exclude_unset=True)
 
@@ -406,6 +409,7 @@ async def update_settings_endpoint(
         setattr(settings, field_name, value)
     if "chunk_size" in update_data or "chunk_overlap" in update_data:
         await _require_chunk_overlap_within_half(db, settings.id)
+    await apply_setup_completion_default(db, settings, was_setup_completed, update_data)
 
     await db.commit()
     await db.refresh(settings)
@@ -537,7 +541,7 @@ async def test_local_models_endpoint(
     models_data = response.json()
     available = [m.get("name", "") for m in models_data.get("models", [])]
     chat_model = settings.ollama_chat_model or ""
-    model_found = any(chat_model == m or chat_model == m.split(":")[0] for m in available)
+    model_found = ollama_model_installed(chat_model, available)
 
     if not model_found and chat_model:
         return TestConnectionResponse(
