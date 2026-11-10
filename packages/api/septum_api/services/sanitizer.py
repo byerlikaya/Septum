@@ -19,7 +19,6 @@ without leaking any of that wiring into the air-gapped core package.
 """
 
 import logging
-import re
 from typing import List, Optional
 
 from septum_core.anonymization_map import AnonymizationMap
@@ -62,36 +61,26 @@ from septum_core.spans import DetectedSpan, ResolvedSpan, SanitizeResult
 from septum_core.text_boundaries import is_span_boundary
 from septum_core.text_utils import lower_preserving_offsets
 
+from ..errors import SemanticLayerUnavailableError
 from ..models.settings import AppSettings
-from .ollama_client import call_ollama_sync, extract_json_array
+from .contextual_placement import (
+    _CONTEXTUAL_SLICE_OVERLAP,
+    _MIN_SLICE_BYTES,
+    _contextual_slices,
+    _reply_spans,
+)
+from .ollama_client import (
+    OLLAMA_NUM_PREDICT,
+    OllamaCallError,
+    call_ollama_sync,
+    extract_json_array,
+    ollama_context_window,
+    reply_items,
+    request_ollama_sync,
+)
 from .prompts import PromptCatalog
 
 logger = logging.getLogger(__name__)
-
-_OLLAMA_ID_LIKE_TYPES: frozenset[str] = frozenset({"BIOMETRIC_ID", "DNA_PROFILE"})
-
-_OLLAMA_HEADING_PRONE_TYPES: frozenset[str] = frozenset({
-    "DIAGNOSIS", "MEDICATION", "CLINICAL_NOTE", "RELIGION",
-    "ETHNICITY", "POLITICAL_OPINION", "SEXUAL_ORIENTATION",
-    "BIOMETRIC_ID", "DNA_PROFILE",
-})
-
-
-def _is_heading_like(text: str) -> bool:
-    """Detect ALL-CAPS short phrases that are almost always section headings."""
-    stripped = text.strip()
-    if not stripped or not any(c.isalpha() for c in stripped):
-        return False
-    words = stripped.split()
-    if len(words) > 6:
-        return False
-    return stripped == stripped.upper()
-
-
-def _is_section_marker(text: str) -> bool:
-    """Detect numbered or bulleted section labels (e.g. ``2. ``, ``11) ``)."""
-    return bool(re.match(r"^\d+[\.\)]\s", text.strip()))
-
 
 _ALIAS_ENTITY_TYPES: frozenset[str] = frozenset({"PERSON_NAME", "ALIAS", "FIRST_NAME", "LAST_NAME"})
 _PERSON_PLACEHOLDER_TYPES: tuple[str, ...] = ("PERSON_NAME", "FIRST_NAME", "LAST_NAME", "ALIAS")
@@ -209,35 +198,42 @@ def _alias_span(item: object, normalized_text: str) -> Optional[DetectedSpan]:
     )
 
 
-def _is_implausible_semantic_value(etype: str, text_str: str) -> bool:
-    """Reject ID-like values without digits and heading-like values for heading-prone types."""
-    if etype in _OLLAMA_ID_LIKE_TYPES and not any(c.isdigit() for c in text_str):
-        return True
-    return etype in _OLLAMA_HEADING_PRONE_TYPES and (
-        _is_heading_like(text_str) or _is_section_marker(text_str)
-    )
+_CHAT_TEMPLATE_MARGIN_TOKENS = 256
 
 
-def _semantic_span(item: object, normalized_text: str, valid_types: set[str]) -> Optional[DetectedSpan]:
-    """Turn one semantic-layer item into a span, or ``None`` when it is rejected."""
-    if not isinstance(item, dict):
-        return None
-    text_val = item.get("text")
-    etype = str(item.get("type", "")).upper().replace(" ", "_")
-    if not text_val or etype not in valid_types:
-        return None
-    text_str = str(text_val).strip()
-    if len(text_str) < 4:
-        return None
-    offsets = _unique_span_offsets(normalized_text, text_str)
-    if offsets is None or _is_implausible_semantic_value(etype, text_str):
-        return None
-    return DetectedSpan(
-        start=offsets[0],
-        end=offsets[1],
-        entity_type=etype,
-        score=0.80,
-    )
+def _contextual_slice_budget(entity_types: List[str], window: int) -> int:
+    """UTF-8 bytes one slice may take so its prompt and answer fit ``window`` tokens.
+
+    ``window`` is the model's real window (``ollama_context_window``). A
+    byte-level tokenizer never makes more tokens than the text has bytes,
+    so a prompt of N bytes is at most N tokens, plus the model's chat
+    template (``_CHAT_TEMPLATE_MARGIN_TOKENS``). Counting bytes rather than
+    characters keeps dense scripts (three bytes a character for Han or
+    Thai, four for emoji) inside the window that ASCII fills at its
+    character limit. A window too small for a slice of ``_MIN_SLICE_BYTES``
+    is refused.
+    """
+    overhead = len(PromptCatalog.semantic_pii_detection("", entity_types).encode("utf-8"))
+    budget = window - OLLAMA_NUM_PREDICT - _CHAT_TEMPLATE_MARGIN_TOKENS - overhead - 1
+    if budget < _MIN_SLICE_BYTES:
+        raise _contextual_refusal("prompt_too_long")
+    return budget
+
+
+def _placed_reply_spans(
+    items: List[dict], text: str, requested: tuple[str, ...]
+) -> List[DetectedSpan]:
+    """Place one reply's values in ``text``, or raise when none of them can be placed.
+
+    Values left unplaced beside placed ones are only counted in the log,
+    never quoted.
+    """
+    spans, unplaced, total = _reply_spans(items, text, requested)
+    if total and unplaced == total:
+        raise _contextual_refusal("unplaceable_reply")
+    if unplaced:
+        logger.warning("Contextual layer could not place %d of %d reported values", unplaced, total)
+    return spans
 
 
 def _placeholder_for_reference(
@@ -276,6 +272,12 @@ def _register_pronoun(item: dict, anon_map: AnonymizationMap, language: str) -> 
     return True
 
 
+def _contextual_refusal(reason: str) -> SemanticLayerUnavailableError:
+    """Log the failure kind and return the content-free error to raise."""
+    logger.warning("Contextual layer got no usable answer from the local model: %s", reason)
+    return SemanticLayerUnavailableError(f"The contextual detection layer could not run ({reason}).")
+
+
 class OllamaSemanticAdapter:
     """Host-side :class:`SemanticDetectionPort` implementation backed by Ollama.
 
@@ -301,7 +303,12 @@ class OllamaSemanticAdapter:
         language: str,
         regulation_context: str,
     ) -> List[DetectedSpan]:
-        """Validate candidate spans using Ollama's context and regulation awareness."""
+        """Validate candidate spans using Ollama's context and regulation awareness.
+
+        Only a whole answer to a whole prompt may drop a candidate: a failed
+        call, a reply cut at the token limit, or a prompt the server may have
+        cut keeps every candidate, so validation fails toward masking more.
+        """
         if not candidate_spans or not text:
             return list(candidate_spans)
 
@@ -311,11 +318,18 @@ class OllamaSemanticAdapter:
             language=language,
             regulation_rules=regulation_context,
         )
-        response = call_ollama_sync(
-            prompt=prompt,
-            base_url=self._settings.ollama_base_url,
-            model=self._settings.ollama_deanon_model,
-        )
+        try:
+            response = request_ollama_sync(
+                prompt=prompt,
+                base_url=self._settings.ollama_base_url,
+                model=self._settings.ollama_deanon_model,
+                allow_truncated=False,
+            )
+        except OllamaCallError as exc:
+            logger.warning(
+                "Ollama validation got no whole answer (%s); keeping all candidates", exc
+            )
+            return list(candidate_spans)
         if not response or not response.strip():
             logger.warning(
                 "Ollama validation returned empty response; keeping all candidates"
@@ -367,22 +381,63 @@ class OllamaSemanticAdapter:
         normalized_text: str,
         entity_types: List[str],
     ) -> List[DetectedSpan]:
-        """Call local Ollama to detect semantic entity types."""
-        prompt = PromptCatalog.semantic_pii_detection(normalized_text, entity_types)
-        response = call_ollama_sync(
-            prompt=prompt,
-            base_url=self._settings.ollama_base_url,
-            model=self._settings.ollama_deanon_model,
-        )
-        if not response or not response.strip():
-            return []
+        """Call local Ollama to detect contextual entity types, slice by slice.
 
-        valid_types = set(entity_types)
-        spans = (
-            _semantic_span(item, normalized_text, valid_types)
-            for item in extract_json_array(response)
-        )
-        return [span for span in spans if span is not None]
+        Long text is cut by :func:`.contextual_placement._contextual_slices`,
+        sized so no prompt can exceed the model's window; the spans of every
+        slice get absolute offsets and are deduplicated. A value the model
+        names is masked at each occurrence (see
+        :func:`.contextual_placement._placed_offsets`) in its slice and the
+        overlap on either side of it, so a value the model completed across
+        a cut is still placed. A failed call, a truncated reply, a reply
+        that is neither exactly ``[]`` nor a usable array, or one none of
+        whose values can be placed raises
+        :class:`SemanticLayerUnavailableError` so the text is refused rather
+        than passed on unchecked.
+        """
+        if not normalized_text.strip() or not entity_types:
+            return []
+        requested = tuple(dict.fromkeys(entity_types))
+        try:
+            window = ollama_context_window(
+                self._settings.ollama_base_url, self._settings.ollama_deanon_model
+            )
+        except OllamaCallError as exc:
+            raise _contextual_refusal(str(exc)) from exc
+        budget = _contextual_slice_budget(entity_types, window)
+        spans: dict[tuple[int, int, str], DetectedSpan] = {}
+        for offset, text_slice in _contextual_slices(normalized_text, budget):
+            items = self._contextual_items(text_slice, entity_types)
+            if not items:
+                continue
+            low = max(0, offset - _CONTEXTUAL_SLICE_OVERLAP)
+            high = offset + len(text_slice) + _CONTEXTUAL_SLICE_OVERLAP
+            for span in _placed_reply_spans(items, normalized_text[low:high], requested):
+                absolute = DetectedSpan(
+                    start=span.start + low,
+                    end=span.end + low,
+                    entity_type=span.entity_type,
+                    score=span.score,
+                )
+                spans.setdefault((absolute.start, absolute.end, absolute.entity_type), absolute)
+        return sorted(spans.values(), key=lambda s: (s.start, s.end, s.entity_type))
+
+    def _contextual_items(self, text_slice: str, entity_types: List[str]) -> List[dict]:
+        """Return the items the model reports for one slice, or raise the coded refusal."""
+        prompt = PromptCatalog.semantic_pii_detection(text_slice, entity_types)
+        try:
+            response = request_ollama_sync(
+                prompt=prompt,
+                base_url=self._settings.ollama_base_url,
+                model=self._settings.ollama_deanon_model,
+                allow_truncated=False,
+            )
+        except OllamaCallError as exc:
+            raise _contextual_refusal(str(exc)) from exc
+        items = reply_items(response)
+        if items is None:
+            raise _contextual_refusal("unparsable_reply")
+        return items
 
     def resolve_coreference(
         self,
@@ -467,7 +522,11 @@ class PIISanitizer(Detector):
         core_config = _settings_to_core_config(settings, enable_ollama_layer)
         semantic_port: SemanticDetectionPort = OllamaSemanticAdapter(
             settings=settings,
-            enabled=core_config.use_semantic_detection or core_config.use_semantic_validation,
+            enabled=(
+                core_config.use_semantic_detection
+                or core_config.use_semantic_validation
+                or core_config.use_semantic_contextual_detection
+            ),
         )
         super().__init__(
             config=core_config,

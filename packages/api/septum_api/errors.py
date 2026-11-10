@@ -12,6 +12,12 @@ CUSTOM_RULE_UNAVAILABLE_DETAIL = (
     "usable answer; the request was refused so that no unmasked value is sent."
 )
 
+SEMANTIC_LAYER_UNAVAILABLE_CODE = "semantic_layer_unavailable"
+SEMANTIC_LAYER_UNAVAILABLE_DETAIL = (
+    "The contextual detection layer could not run because the local Ollama model gave "
+    "no usable answer; the request was refused so that no unmasked value is sent."
+)
+
 
 class ContentFreeError(Exception):
     """Base for errors whose message is authored by Septum and carries no user content.
@@ -21,15 +27,37 @@ class ContentFreeError(Exception):
     """
 
 
-class CustomRuleUnavailableError(ContentFreeError, RuntimeError):
+class LocalModelUnavailableError(ContentFreeError, RuntimeError):
+    """A detection step that depends on the local model got no usable answer.
+
+    Raised instead of returning no matches, so text the step should have
+    masked is refused rather than sent on unmasked. Each subclass carries a
+    machine-readable ``code`` and a fixed public ``detail``; the message
+    names the failure kind only.
+    """
+
+    code: str
+    detail: str
+
+
+class CustomRuleUnavailableError(LocalModelUnavailableError):
     """An ``llm_prompt`` custom rule got no usable answer from the local model.
 
-    Raised instead of returning no matches, so text the rule should have
-    masked is refused rather than sent on unmasked. The message names the
-    rule id and the failure kind only.
+    The message names the rule id and the failure kind only.
     """
 
     code = CUSTOM_RULE_UNAVAILABLE_CODE
+    detail = CUSTOM_RULE_UNAVAILABLE_DETAIL
+
+
+class SemanticLayerUnavailableError(LocalModelUnavailableError):
+    """The contextual semantic layer got no usable answer from the local model.
+
+    The message names the failure kind only, never the text or the reply.
+    """
+
+    code = SEMANTIC_LAYER_UNAVAILABLE_CODE
+    detail = SEMANTIC_LAYER_UNAVAILABLE_DETAIL
 
 
 class CodedHTTPError(HTTPException):

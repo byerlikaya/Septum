@@ -139,6 +139,18 @@ def _fresh_rate_limits() -> None:
     get_limiter().reset()
 
 
+@pytest.fixture(autouse=True)
+def _fresh_ollama_context_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Start every test with no cached Ollama context window.
+
+    The cache is process-wide and keyed by server and model; without this, a
+    window one test's fake server reported would answer a later test's lookup.
+    """
+    from septum_api.services import ollama_client
+
+    monkeypatch.setattr(ollama_client, "_context_windows", {})
+
+
 @pytest.fixture
 async def router_client(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

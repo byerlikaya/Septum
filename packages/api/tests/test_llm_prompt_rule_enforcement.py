@@ -53,6 +53,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 SECRET = "Bluefinch"
 TEXT = f"The launch of {SECRET} moves to next quarter."
 FOUND = f'[{{"text": "{SECRET}"}}]'
+MEASURED_PROMPT_TOKENS = 600
 
 
 class _Response:
@@ -81,6 +82,9 @@ class _FakeOllama:
         self.error: Exception | None = None
         self.status = 200
         self.body: Any = {"response": reply}
+        self.trained_context = 131072
+        self.show_status = 200
+        self.show_calls: list[tuple[str, dict]] = []
 
     def __call__(self, timeout: Any) -> "_FakeOllama":
         return self
@@ -92,9 +96,15 @@ class _FakeOllama:
         return None
 
     def post(self, url: str, json: dict) -> _Response:
+        if url.endswith("/api/show"):
+            self.show_calls.append((url, json))
+            info = {"general.architecture": "llama", "llama.context_length": self.trained_context}
+            return _Response(self.show_status, {"model_info": info})
         self.calls.append((url, json))
         if self.error is not None:
             raise self.error
+        if isinstance(self.body, dict):
+            return _Response(self.status, {"prompt_eval_count": MEASURED_PROMPT_TOKENS, **self.body})
         return _Response(self.status, self.body)
 
 
@@ -351,6 +361,66 @@ def test_rule_reply_outcomes(ollama: _FakeOllama, body: dict, expected: Any) -> 
         assert [(r.start, r.end) for r in _recognizer().analyze(ID_TEXT)] == expected
 
 
+@pytest.mark.parametrize(
+    "prompt_eval_count",
+    [
+        lambda: ollama_client.OLLAMA_NUM_CTX - ollama_client.OLLAMA_NUM_PREDICT,
+        lambda: None,
+    ],
+    ids=["overflow", "unmeasured"],
+)
+def test_a_rule_prompt_the_server_may_have_cut_is_refused(
+    ollama: _FakeOllama, prompt_eval_count: Any
+) -> None:
+    ollama.body = {"response": "[]", "prompt_eval_count": prompt_eval_count()}
+
+    with pytest.raises(CustomRuleUnavailableError):
+        _recognizer().analyze(ID_TEXT)
+
+    assert ollama.calls[0][1]["options"]["num_ctx"] == ollama_client.OLLAMA_NUM_CTX
+
+
+@pytest.mark.parametrize(
+    "trained_context, expected_window",
+    [(131072, ollama_client.OLLAMA_NUM_CTX), (4096, 4096)],
+    ids=["default-window", "short-trained-window"],
+)
+@pytest.mark.parametrize("margin", [0, 1], ids=["at-the-ceiling", "beyond-it"])
+def test_a_rule_prompt_over_the_model_window_is_refused_as_context_overflow(
+    ollama: _FakeOllama, trained_context: int, expected_window: int, margin: int
+) -> None:
+    ollama.trained_context = trained_context
+    count = expected_window - ollama_client.OLLAMA_NUM_PREDICT + margin
+    ollama.body = {"response": "[]", "prompt_eval_count": count}
+
+    with pytest.raises(CustomRuleUnavailableError) as raised:
+        _recognizer().analyze(ID_TEXT)
+
+    assert "context_overflow" in str(raised.value)
+    assert ollama.calls[0][1]["options"]["num_ctx"] == expected_window
+
+
+def test_a_rule_prompt_just_inside_a_short_trained_window_is_answered(
+    ollama: _FakeOllama,
+) -> None:
+    ollama.trained_context = 4096
+    ollama.body = {"response": "[]", "prompt_eval_count": 4096 - ollama_client.OLLAMA_NUM_PREDICT - 1}
+
+    assert _recognizer().analyze(ID_TEXT) == []
+
+
+def test_a_rule_whose_model_window_cannot_be_read_is_refused_without_a_prompt(
+    ollama: _FakeOllama,
+) -> None:
+    ollama.show_status = 404
+
+    with pytest.raises(CustomRuleUnavailableError) as raised:
+        _recognizer().analyze(ID_TEXT)
+
+    assert "unknown_context_length" in str(raised.value)
+    assert ollama.calls == []
+
+
 def test_other_ollama_callers_keep_the_empty_reply_contract(ollama: _FakeOllama) -> None:
     """call_ollama_sync still answers "" on a failed call; only the rule path raises."""
     ollama.error = _connect_error()
@@ -405,7 +475,7 @@ async def test_route_failure_becomes_a_coded_503(monkeypatch: pytest.MonkeyPatch
     request = SimpleNamespace(scope={}, headers={}, client=None, method="POST")
     exc = CustomRuleUnavailableError("Custom detection rule 7 could not run (ConnectError).")
 
-    response = await main_module.custom_rule_unavailable_handler(request, exc)
+    response = await main_module.local_model_unavailable_handler(request, exc)
 
     assert response.status_code == 503
     assert response.body == (
@@ -414,11 +484,12 @@ async def test_route_failure_becomes_a_coded_503(monkeypatch: pytest.MonkeyPatch
     )
 
 
-def test_the_handler_is_registered_for_the_error() -> None:
-    assert (
-        main_module.app.exception_handlers[CustomRuleUnavailableError]
-        is main_module.custom_rule_unavailable_handler
+def test_the_error_resolves_to_the_local_model_handler() -> None:
+    handlers = main_module.app.exception_handlers
+    resolved = next(
+        handlers[cls] for cls in CustomRuleUnavailableError.__mro__ if cls in handlers
     )
+    assert resolved is main_module.local_model_unavailable_handler
 
 
 def _stored_settings() -> AppSettings:
@@ -551,6 +622,33 @@ async def test_chat_turn_with_a_failing_rule_streams_the_coded_error_and_calls_n
     assert not [e for e in events if e["type"] == "answer_chunk"]
     assert chat.router_calls == 0
     assert ollama.calls
+
+
+@pytest.mark.parametrize(
+    "prompt_eval_count",
+    [ollama_client.OLLAMA_NUM_CTX - ollama_client.OLLAMA_NUM_PREDICT, ollama_client.OLLAMA_NUM_CTX],
+    ids=["at-the-limit", "beyond-the-window"],
+)
+async def test_chat_turn_with_a_long_text_the_server_cut_is_refused_with_the_code_and_no_cloud_call(
+    chat: _ChatEnv, ollama: _FakeOllama, prompt_eval_count: int
+) -> None:
+    ollama.body = {"response": "[]", "prompt_eval_count": prompt_eval_count}
+    long_message = f"When does {SECRET} ship? " + "Please answer in detail. " * 600
+
+    events = await _ask(chat, long_message)
+
+    errors = [e for e in events if e["type"] == "error"]
+    assert errors == [
+        {
+            "type": "error",
+            "code": CUSTOM_RULE_UNAVAILABLE_CODE,
+            "message": CUSTOM_RULE_UNAVAILABLE_DETAIL,
+        }
+    ]
+    assert not [e for e in events if e["type"] == "answer_chunk"]
+    assert chat.router_calls == 0
+    assert chat.prompts == []
+    assert ollama.calls[0][1]["options"]["num_ctx"] == ollama_client.OLLAMA_NUM_CTX
 
 
 async def test_chat_turn_masks_the_query_with_the_rule_when_ollama_answers(

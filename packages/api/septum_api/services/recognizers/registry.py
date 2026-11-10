@@ -11,7 +11,6 @@ client, which is not available inside the air-gapped core package.
 """
 
 import logging
-import re
 from dataclasses import dataclass
 from typing import Any, Callable, List, Optional, Tuple
 
@@ -24,7 +23,7 @@ from septum_core.regulations.models import CustomRecognizerLike
 from ...errors import CustomRuleUnavailableError
 from ..ollama_client import (
     OllamaCallError,
-    extract_json_array,
+    reply_items,
     request_ollama_sync,
     use_ollama_enabled,
 )
@@ -85,7 +84,7 @@ class LLMContextRecognizer(EntityRecognizer):
             )
         except OllamaCallError as exc:
             raise self._refusal(str(exc)) from exc
-        items = _reply_items(response)
+        items = reply_items(response)
         if items is None:
             raise self._refusal("unparsable_reply")
         results: List[RecognizerResult] = []
@@ -114,31 +113,6 @@ class LLMContextRecognizer(EntityRecognizer):
         return CustomRuleUnavailableError(
             f"Custom detection rule {self._config.rule_id} could not run ({reason})."
         )
-
-
-_EMPTY_REPLY_RE = re.compile(r"(?:```(?:json)?\s*)?\[\s*\]\s*(?:```)?", re.IGNORECASE)
-"""A whole reply that is an empty JSON array, optionally fenced: the model found nothing."""
-
-
-def _reply_items(response: str) -> Optional[List[dict]]:
-    """Return the span items of a rule reply, or ``None`` when it cannot be trusted.
-
-    Only a reply that is exactly an empty array (optionally fenced) means
-    "found nothing". String items are taken as span texts. A reply with no
-    item that is a non-empty string or a dict with a non-empty ``text`` is
-    unparsable, so a malformed answer never passes as an empty one.
-    """
-    if _EMPTY_REPLY_RE.fullmatch(response.strip()):
-        return []
-    items: List[dict] = []
-    for item in extract_json_array(response):
-        if isinstance(item, str):
-            item = {"text": item}
-        if isinstance(item, dict):
-            items.append(item)
-    if not any(item.get("text") not in (None, "") for item in items):
-        return None
-    return items
 
 
 def _locate_span(item: dict, text: str) -> Optional[Tuple[int, int]]:

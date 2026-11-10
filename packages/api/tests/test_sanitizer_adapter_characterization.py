@@ -13,7 +13,9 @@ import logging
 from typing import Any
 
 import pytest
+from septum_api.errors import SemanticLayerUnavailableError
 from septum_api.models.settings import AppSettings
+from septum_api.services import ollama_client
 from septum_api.services import sanitizer as sanitizer_module
 from septum_api.services.sanitizer import (
     AnonymizationMap,
@@ -64,6 +66,13 @@ def _messages(caplog: pytest.LogCaptureFixture) -> list[tuple[int, str]]:
 # ---------------------------------------------------------------- validate_candidates
 
 
+def _validation_stub(monkeypatch: pytest.MonkeyPatch, response: Any) -> _OllamaStub:
+    """Stub the raising Ollama call validation uses, so a cut reply can never drop a candidate."""
+    stub = _OllamaStub(response)
+    monkeypatch.setattr(sanitizer_module, "request_ollama_sync", stub)
+    return stub
+
+
 def _candidates() -> list[DetectedSpan]:
     return [
         DetectedSpan(start=0, end=5, entity_type="PERSON_NAME", score=0.9),
@@ -76,7 +85,7 @@ _VALIDATE_TEXT = "Alice in London at ACME today"
 
 
 def test_validate_no_candidates_returns_empty_without_call(adapter, monkeypatch):
-    stub = _stub(monkeypatch, "[]")
+    stub = _validation_stub(monkeypatch, "[]")
     assert adapter.validate_candidates(
         text=_VALIDATE_TEXT, candidate_spans=[], language="en", regulation_context="r"
     ) == []
@@ -84,7 +93,7 @@ def test_validate_no_candidates_returns_empty_without_call(adapter, monkeypatch)
 
 
 def test_validate_empty_text_returns_copy_without_call(adapter, monkeypatch):
-    stub = _stub(monkeypatch, "[]")
+    stub = _validation_stub(monkeypatch, "[]")
     cands = _candidates()
     out = adapter.validate_candidates(
         text="", candidate_spans=cands, language="en", regulation_context="r"
@@ -107,7 +116,7 @@ def test_validate_empty_text_returns_copy_without_call(adapter, monkeypatch):
     ],
 )
 def test_validate_fallbacks_keep_all_candidates(adapter, monkeypatch, caplog, response, message):
-    _stub(monkeypatch, response)
+    _validation_stub(monkeypatch, response)
     cands = _candidates()
     with caplog.at_level(logging.DEBUG, logger=_LOGGER):
         out = adapter.validate_candidates(
@@ -127,7 +136,7 @@ def test_validate_keeps_matched_originals_in_item_order(adapter, monkeypatch, ca
         ' {"text": "anything", "entity_type": "PERSON_NAME", "start": 0, "end": 5},'
         ' {"text": "ACME", "entity_type": "ORGANIZATION_NAME", "start": 19, "end": 23}]'
     )
-    stub = _stub(monkeypatch, response)
+    stub = _validation_stub(monkeypatch, response)
     cands = _candidates()
     with caplog.at_level(logging.DEBUG, logger=_LOGGER):
         out = adapter.validate_candidates(
@@ -139,7 +148,8 @@ def test_validate_keeps_matched_originals_in_item_order(adapter, monkeypatch, ca
     call = stub.calls[0]
     assert call["base_url"] == "http://ollama.test:11434"
     assert call["model"] == "deanon-model:1"
-    assert set(call) == {"prompt", "base_url", "model"}
+    assert set(call) == {"prompt", "base_url", "model", "allow_truncated"}
+    assert call["allow_truncated"] is False
 
 
 def test_validate_prompt_receives_candidate_dicts(adapter, monkeypatch):
@@ -150,7 +160,7 @@ def test_validate_prompt_receives_candidate_dicts(adapter, monkeypatch):
         return "PROMPT"
 
     monkeypatch.setattr(sanitizer_module.PromptCatalog, "pii_validation_prompt", _prompt)
-    stub = _stub(monkeypatch, "")
+    stub = _validation_stub(monkeypatch, "")
     adapter.validate_candidates(
         text=_VALIDATE_TEXT, candidate_spans=_candidates(), language="de", regulation_context="CTX"
     )
@@ -285,12 +295,21 @@ def test_aliases_prompt_built_from_text(adapter, monkeypatch):
 _SEMANTIC_TYPES = ["DIAGNOSIS", "BIOMETRIC_ID", "RELIGION", "MEDICATION"]
 
 
-@pytest.mark.parametrize("response", [None, "", "   "])
-def test_semantic_empty_response_returns_empty(adapter, monkeypatch, caplog, response):
-    _stub(monkeypatch, response)
-    with caplog.at_level(logging.DEBUG, logger=_LOGGER):
-        assert adapter.detect_semantic(normalized_text="text", entity_types=_SEMANTIC_TYPES) == []
-    assert _messages(caplog) == []
+def _strict_stub(monkeypatch: pytest.MonkeyPatch, response: Any) -> _OllamaStub:
+    """Stub the raising Ollama call the contextual layer uses, and its model-window lookup."""
+    stub = _OllamaStub(response)
+    monkeypatch.setattr(sanitizer_module, "request_ollama_sync", stub)
+    monkeypatch.setattr(
+        sanitizer_module, "ollama_context_window", lambda *_: ollama_client.OLLAMA_NUM_CTX
+    )
+    return stub
+
+
+@pytest.mark.parametrize("response", ["", "   "])
+def test_semantic_blank_response_is_refused(adapter, monkeypatch, response):
+    _strict_stub(monkeypatch, response)
+    with pytest.raises(SemanticLayerUnavailableError):
+        adapter.detect_semantic(normalized_text="text", entity_types=_SEMANTIC_TYPES)
 
 
 def test_semantic_span_filtering_and_offsets(adapter, monkeypatch, caplog):
@@ -316,21 +335,31 @@ def test_semantic_span_filtering_and_offsets(adapter, monkeypatch, caplog):
         '{"text": "Faith", "type": "RELIGION"}'
         "]"
     )
-    stub = _stub(monkeypatch, response)
+    stub = _strict_stub(monkeypatch, response)
     with caplog.at_level(logging.DEBUG, logger=_LOGGER):
         spans = adapter.detect_semantic(normalized_text=text, entity_types=_SEMANTIC_TYPES)
     assert _triples(spans) == [
+        (8, 11, "DIAGNOSIS", 0.80),
+        (12, 18, "DIAGNOSIS", 0.80),
         (12, 25, "DIAGNOSIS", 0.80),
+        (33, 40, "BIOMETRIC_ID", 0.80),
         (47, 54, "BIOMETRIC_ID", 0.80),
         (60, 65, "RELIGION", 0.80),
+        (66, 74, "RELIGION", 0.80),
+        (82, 90, "MEDICATION", 0.80),
+        (103, 110, "MEDICATION", 0.80),
+        (118, 125, "MEDICATION", 0.80),
     ]
-    assert _messages(caplog) == []
+    assert _messages(caplog) == [
+        (logging.WARNING, "Contextual layer could not place 2 of 11 reported values")
+    ]
     assert stub.calls[0]["base_url"] == "http://ollama.test:11434"
     assert stub.calls[0]["model"] == "deanon-model:1"
+    assert stub.calls[0]["allow_truncated"] is False
 
 
 def test_semantic_non_heading_prone_type_keeps_caps(adapter, monkeypatch):
-    _stub(monkeypatch, '[{"text": "ACME CORP", "type": "EMPLOYER"}]')
+    _strict_stub(monkeypatch, '[{"text": "ACME CORP", "type": "EMPLOYER"}]')
     spans = adapter.detect_semantic(
         normalized_text="Works at ACME CORP now", entity_types=["EMPLOYER"]
     )
@@ -345,9 +374,11 @@ def test_semantic_prompt_arguments(adapter, monkeypatch):
         return "SEM-PROMPT"
 
     monkeypatch.setattr(sanitizer_module.PromptCatalog, "semantic_pii_detection", _prompt)
-    stub = _stub(monkeypatch, "[]")
+    stub = _strict_stub(monkeypatch, "[]")
     adapter.detect_semantic(normalized_text="abc", entity_types=["DIAGNOSIS"])
-    assert seen == [("abc", ["DIAGNOSIS"])]
+    measured_template, *sent = seen
+    assert measured_template == ("", ["DIAGNOSIS"])
+    assert sent == [("abc", ["DIAGNOSIS"])]
     assert stub.calls[0]["prompt"] == "SEM-PROMPT"
 
 

@@ -207,3 +207,83 @@ async def test_pipeline_digest_uses_the_settings_it_sanitized_with(
     assert await _needs_reprocessing(env, doc.id) is False
     await _update_settings(env, use_ner_layer=True)
     assert await _needs_reprocessing(env, doc.id) is True
+
+
+def _detection_row(**overrides: Any) -> AppSettings:
+    row = build_default_app_settings()
+    row.use_presidio_layer = True
+    row.use_ner_layer = False
+    row.use_ollama_validation_layer = False
+    row.use_ollama_semantic_layer = False
+    row.ner_model_overrides = {}
+    row.ollama_deanon_model = "m:1b"
+    for name, value in overrides.items():
+        setattr(row, name, value)
+    return row
+
+
+def _tuple_before_the_revision_marker(row: AppSettings) -> tuple:
+    contextual = bool(row.use_ollama_semantic_layer)
+    validation = bool(row.use_ollama_validation_layer)
+    return (
+        bool(row.use_presidio_layer),
+        bool(row.use_ner_layer),
+        validation,
+        contextual,
+        sorted((row.ner_model_overrides or {}).items()),
+        row.ollama_deanon_model if validation or contextual else None,
+    )
+
+
+def test_detection_settings_carry_the_revision_marker_while_the_contextual_layer_is_on() -> None:
+    from septum_api.services.policy_snapshot import (
+        CONTEXTUAL_LAYER_REVISION,
+        build_policy_snapshot,
+        detection_settings,
+    )
+
+    row = _detection_row(use_ollama_semantic_layer=True)
+
+    detection = detection_settings(row)
+
+    assert CONTEXTUAL_LAYER_REVISION in [v for v in detection if not isinstance(v, bool)]
+    old = build_policy_snapshot([], [], [], detection=_tuple_before_the_revision_marker(row))
+    new = build_policy_snapshot([], [], [], detection=detection)
+    assert new.digest != old.digest
+
+
+def test_documents_masked_under_the_first_contextual_placement_read_as_outdated() -> None:
+    from septum_api.services.policy_snapshot import (
+        CONTEXTUAL_LAYER_REVISION,
+        build_policy_snapshot,
+        detection_settings,
+    )
+
+    row = _detection_row(use_ollama_semantic_layer=True)
+    detection = detection_settings(row)
+    first = tuple("contextual-applied-1" if v == CONTEXTUAL_LAYER_REVISION else v for v in detection)
+
+    assert CONTEXTUAL_LAYER_REVISION == "contextual-applied-2"
+    assert (
+        build_policy_snapshot([], [], [], detection=detection).digest
+        != build_policy_snapshot([], [], [], detection=first).digest
+    )
+
+
+@pytest.mark.parametrize("validation", [False, True])
+def test_detection_settings_are_unchanged_while_the_contextual_layer_is_off(
+    validation: bool,
+) -> None:
+    from septum_api.services.policy_snapshot import detection_settings
+
+    row = _detection_row(
+        use_ollama_semantic_layer=False,
+        use_ollama_validation_layer=validation,
+        ner_model_overrides={"en": "acme/ner"},
+    )
+
+    assert detection_settings(row) == _tuple_before_the_revision_marker(row)
+    assert detection_settings(row, llm_prompt_active=True) == (
+        *_tuple_before_the_revision_marker(row),
+        row.ollama_deanon_model,
+    )

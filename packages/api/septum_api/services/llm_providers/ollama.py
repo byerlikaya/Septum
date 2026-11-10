@@ -48,11 +48,16 @@ class OllamaProvider(LLMProvider):
             raise LLMRouterError("Ollama provider received an empty prompt.")
 
         settings = self._config.settings
+        base_url = ollama_client.effective_ollama_base_url(settings.ollama_base_url)
+        model = settings.ollama_chat_model or settings.llm_model
         response = await ollama_client.call_ollama_async(
             prompt=prompt,
-            base_url=ollama_client.effective_ollama_base_url(settings.ollama_base_url),
-            model=settings.ollama_chat_model or settings.llm_model,
+            base_url=base_url,
+            model=model,
             timeout=120.0,
+            full_context=not ollama_client.uses_detection_model(
+                base_url, model, settings.ollama_base_url, settings.ollama_deanon_model
+            ),
         )
         if not response or not response.strip():
             raise LLMRouterError(

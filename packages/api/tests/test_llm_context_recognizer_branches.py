@@ -1,6 +1,7 @@
 """Characterization of LLMContextRecognizer.analyze (pins behaviour before a refactor).
 
-Ollama is never called: the client functions are replaced in the registry module.
+Ollama is never called: the client functions are replaced in the registry and
+Ollama client modules.
 """
 
 from __future__ import annotations
@@ -8,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from septum_api.services import ollama_client
 from septum_api.services.recognizers import registry as registry_module
 from septum_api.services.recognizers.registry import (
     LLMContextConfig,
@@ -32,7 +34,7 @@ def ollama(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
     monkeypatch.setattr(registry_module, "use_ollama_enabled", lambda: state["enabled"])
     monkeypatch.setattr(registry_module, "request_ollama_sync", _call)
-    monkeypatch.setattr(registry_module, "extract_json_array", lambda response: state["items"])
+    monkeypatch.setattr(ollama_client, "extract_json_array", lambda response: state["items"])
     return state
 
 

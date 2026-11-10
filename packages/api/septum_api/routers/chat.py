@@ -81,9 +81,8 @@ from sqlalchemy.orm import selectinload
 
 from ..database import get_db
 from ..errors import (
-    CUSTOM_RULE_UNAVAILABLE_DETAIL,
     MODEL_REFUSED_DETAIL,
-    CustomRuleUnavailableError,
+    LocalModelUnavailableError,
 )
 from ..middleware.rate_limit import route_limit
 from ..models.document import Chunk, Document
@@ -370,10 +369,11 @@ async def _sanitize_query(
 ) -> tuple[str, int, dict[str, int]]:
     """Run the sanitizer on the incoming user message.
 
-    Defaults to ``enable_ollama=False`` because the alias/pronoun layers add
-    several seconds of latency per call. The user query is short and its own
-    PII is reliably caught by Presidio + NER. The document's anon_map is
-    already populated during ingestion (where Ollama runs once).
+    ``enable_ollama`` gates only the Ollama alias layer and pronoun
+    coreference, and defaults to ``False`` because they add several seconds
+    of latency per call. The Ollama validation and contextual layers follow
+    their own stored settings whatever its value; a contextual layer that
+    gets no usable answer raises :class:`SemanticLayerUnavailableError`.
     """
     sanitizer = await create_sanitizer(db, settings, enable_ollama=enable_ollama)
     result = await asyncio.to_thread(
@@ -642,17 +642,20 @@ async def _classify_query_intent(
     document_names: list[str],
     ollama_base_url: str,
     ollama_model: str,
+    detection_model: str,
 ) -> str | None:
     """Classify whether a query requires document search or is casual chat.
 
     Uses the local Ollama model for privacy-preserving intent detection.
     Returns ``"search"``, ``"chat"``, or ``None`` if classification is
-    unavailable (Ollama down / not configured).
+    unavailable (Ollama down / not configured). The call asks for the
+    model's whole context unless ``ollama_model`` is the detection model,
+    which keeps the detection calls' window so it is not reloaded.
     """
     if not ollama_base_url or not ollama_model:
         return None
 
-    from ..services.ollama_client import call_ollama_async
+    from ..services.ollama_client import call_ollama_async, uses_detection_model
 
     prompt = PromptCatalog.intent_classification(query, document_names)
     response = await call_ollama_async(
@@ -661,6 +664,9 @@ async def _classify_query_intent(
         model=ollama_model,
         timeout=5.0,
         options={"num_predict": 5, "temperature": 0.0},
+        full_context=not uses_detection_model(
+            ollama_base_url, ollama_model, ollama_base_url, detection_model
+        ),
     )
     if not response:
         return None
@@ -1917,6 +1923,7 @@ async def _classify_unless_entity_match(
         document_names=doc_names,
         ollama_base_url=turn.settings.ollama_base_url,
         ollama_model=turn.settings.ollama_chat_model,
+        detection_model=turn.settings.ollama_deanon_model,
     )
     if intent == "chat":
         turn.rag_mode = "none"
@@ -2553,7 +2560,7 @@ async def _turn_error_event(
             "code": MAP_CONFLICT,
             "message": "The document is being updated; please try again.",
         }
-    if isinstance(exc, CustomRuleUnavailableError):
+    if isinstance(exc, LocalModelUnavailableError):
         logger.warning(
             "chat turn refused session_id=%s reason=%s", session_id, exc.code
         )
@@ -2561,7 +2568,7 @@ async def _turn_error_event(
         return {
             "type": "error",
             "code": exc.code,
-            "message": CUSTOM_RULE_UNAVAILABLE_DETAIL,
+            "message": exc.detail,
         }
     if isinstance(exc, LLMRouterError):
         return await _llm_error_event(exc, session_id, db, http_request)

@@ -218,5 +218,5 @@ async def test_ollama_clients_disable_env_proxies(
     else:
         ollama_client.call_ollama_sync("p", base_url="http://localhost:11434")
 
-    assert len(seen) == 1
-    assert seen[0]["trust_env"] is False
+    assert len(seen) == 2, "one client for the model metadata, one for the prompt"
+    assert all(kwargs["trust_env"] is False for kwargs in seen)
