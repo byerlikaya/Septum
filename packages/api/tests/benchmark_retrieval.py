@@ -316,11 +316,41 @@ def fill_query(text: str, doc_key: Optional[int], lang: str, values: dict[tuple[
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+def _locate_whitespace_normalised(source: str, body: str, cursor: int) -> Optional[Span]:
+    """Match ``body`` against ``source[cursor:]`` with whitespace runs collapsed to one space.
+
+    Returns the span in original ``source`` offsets, or None.
+    """
+    needle = " ".join(body.split())
+    if not needle:
+        return None
+    chars: list[str] = []
+    offsets: list[int] = []
+    in_gap = False
+    for index in range(cursor, len(source)):
+        char = source[index]
+        if char.isspace():
+            if in_gap or not chars:
+                continue
+            in_gap = True
+            chars.append(" ")
+        else:
+            in_gap = False
+            chars.append(char)
+        offsets.append(index)
+    haystack = "".join(chars)
+    at = haystack.find(needle)
+    if at == -1:
+        return None
+    return offsets[at], offsets[at + len(needle) - 1] + 1
+
+
 def locate_chunk(source: str, chunk: str, cursor: int) -> Optional[Span]:
     """Char span of ``chunk`` in ``source`` at or after ``cursor``, or None.
 
-    Exact match first; a chunk the chunker normalised (stripped or merged
-    across a gap) is anchored on its first and last 30 characters.
+    Exact match first, then a whitespace-normalised match (a chunker that
+    joins parts with a space where the source has a line break), then a chunk
+    anchored on its first and last 30 characters.
     """
     body = chunk.strip()
     if not body:
@@ -328,6 +358,9 @@ def locate_chunk(source: str, chunk: str, cursor: int) -> Optional[Span]:
     start = source.find(body, cursor)
     if start != -1:
         return start, start + len(body)
+    span = _locate_whitespace_normalised(source, body, cursor)
+    if span is not None:
+        return span
     head, tail = body[:30], body[-30:]
     head_at = source.find(head, cursor)
     if head_at == -1:

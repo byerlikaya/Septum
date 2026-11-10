@@ -173,7 +173,7 @@ The run uses the document chunker, the per-chunk sanitizer, the FAISS vector sto
 | Questions | 140: 129 answerable, 11 negative |
 | Answerable, by type | lexical 45 · paraphrase 45 · entity 24 · cross-lingual 15 |
 | Negative | 11 questions that none of the documents answers |
-| Index | 187 chunks; every chunk maps to a span of its source document |
+| Index | 210 chunks; every chunk maps to a span of its source document |
 | Digest | `df81576cd611d809dd59eed997ec789cced8315301796ea75bcc11b97179efec` (SHA-256 over every fixture file) |
 
 Documents and questions are hand-written. Each personal-data slot in a document is filled with a value from a seeded generator (seed 42). A question that refers to such a value uses the value of its own document, so a run always produces the same text.
@@ -191,7 +191,7 @@ Documents and questions are hand-written. Each personal-data slot in a document 
 | Latency | 5 timed repeats per query, sanitized queries, one retriever call including query embedding |
 | Hardware | Apple M4 Max, 14 CPU cores, 10 torch threads, Darwin 27.0.0 arm64 |
 | Seed | 42 |
-| Commit | `67b3ba07`, the `git_sha` recorded in the run output |
+| Commit | `f7ebacf4`, the `git_sha` recorded in the run output |
 
 ### Results
 
@@ -199,36 +199,36 @@ Documents and questions are hand-written. Each personal-data slot in a document 
 
 | Language | n | Recall@5 | Recall@10 | MRR | nDCG@10 |
 |:---|:---:|:---:|:---:|:---:|:---:|
-| en | 43 | 0.930 [0.860, 1.000] | 1.000 [1.000, 1.000] | 0.661 [0.553, 0.763] | 0.737 [0.655, 0.820] |
-| tr | 43 | 0.977 [0.930, 1.000] | 1.000 [1.000, 1.000] | 0.841 [0.752, 0.919] | 0.880 [0.812, 0.939] |
-| zh | 43 | 0.953 [0.884, 1.000] | 1.000 [1.000, 1.000] | 0.772 [0.670, 0.855] | 0.828 [0.751, 0.891] |
-| **overall** | **129** | **0.953 [0.915, 0.984]** | **1.000 [1.000, 1.000]** | **0.758 [0.699, 0.807]** | **0.815 [0.771, 0.853]** |
+| en | 43 | 0.930 [0.860, 1.000] | 1.000 [1.000, 1.000] | 0.721 [0.613, 0.820] | 0.782 [0.699, 0.859] |
+| tr | 43 | 0.977 [0.930, 1.000] | 1.000 [1.000, 1.000] | 0.798 [0.711, 0.888] | 0.848 [0.782, 0.915] |
+| zh | 43 | 0.953 [0.884, 1.000] | 1.000 [1.000, 1.000] | 0.626 [0.531, 0.724] | 0.718 [0.646, 0.793] |
+| **overall** | **129** | **0.953 [0.915, 0.984]** | **1.000 [1.000, 1.000]** | **0.715 [0.655, 0.769]** | **0.783 [0.737, 0.825]** |
 
-Compared with the previously recorded baseline, sanitized hybrid MRR drops from 0.772 to 0.758 and Recall@5 from 0.961 to 0.953, because organisation and place names now become placeholders.
+Compared with the previously recorded baseline, sanitized hybrid Recall@5 is unchanged at 0.953 and MRR drops from 0.758 to 0.715. The structured chunker now cuts at most 1,200 characters, so the index holds 210 chunks instead of 187, and the harness now maps every chunk back to its source span (it previously missed chunks where the chunker joined a heading onto the preceding sentence).
 
 **Retrievers compared (overall, n = 129), raw and sanitized query modes.**
 
 | Retriever | Mode | Recall@5 | Recall@10 | MRR | nDCG@10 |
 |:---|:---|:---:|:---:|:---:|:---:|
-| dense | raw | 0.953 [0.907, 0.984] | 1.000 [1.000, 1.000] | 0.748 [0.690, 0.801] | 0.809 [0.765, 0.849] |
-| dense | sanitized | 0.938 [0.891, 0.977] | 1.000 [1.000, 1.000] | 0.716 [0.657, 0.772] | 0.786 [0.741, 0.828] |
-| bm25 | raw | 0.930 [0.876, 0.969] | 1.000 [1.000, 1.000] | 0.740 [0.677, 0.796] | 0.799 [0.753, 0.842] |
-| bm25 | sanitized | 0.915 [0.860, 0.953] | 1.000 [1.000, 1.000] | 0.741 [0.679, 0.798] | 0.799 [0.753, 0.843] |
-| hybrid | raw | 0.961 [0.922, 0.992] | 1.000 [1.000, 1.000] | 0.783 [0.724, 0.834] | 0.833 [0.787, 0.872] |
-| hybrid | sanitized | 0.953 [0.915, 0.984] | 1.000 [1.000, 1.000] | 0.758 [0.699, 0.807] | 0.815 [0.771, 0.853] |
-| auto_rag | raw | 0.550 [0.465, 0.636] | 0.612 [0.527, 0.690] | 0.441 [0.368, 0.514] | 0.483 [0.409, 0.555] |
-| auto_rag | sanitized | 0.465 [0.380, 0.551] | 0.535 [0.450, 0.620] | 0.352 [0.280, 0.419] | 0.396 [0.322, 0.463] |
+| dense | raw | 0.953 [0.907, 0.984] | 1.000 [1.000, 1.000] | 0.678 [0.618, 0.736] | 0.755 [0.711, 0.801] |
+| dense | sanitized | 0.938 [0.891, 0.977] | 1.000 [1.000, 1.000] | 0.663 [0.602, 0.719] | 0.746 [0.699, 0.788] |
+| bm25 | raw | 0.953 [0.915, 0.984] | 1.000 [1.000, 1.000] | 0.671 [0.604, 0.729] | 0.748 [0.700, 0.792] |
+| bm25 | sanitized | 0.930 [0.884, 0.969] | 1.000 [1.000, 1.000] | 0.695 [0.632, 0.756] | 0.765 [0.717, 0.812] |
+| hybrid | raw | 0.961 [0.922, 0.992] | 1.000 [1.000, 1.000] | 0.714 [0.654, 0.768] | 0.781 [0.734, 0.825] |
+| hybrid | sanitized | 0.953 [0.915, 0.984] | 1.000 [1.000, 1.000] | 0.715 [0.655, 0.769] | 0.783 [0.737, 0.825] |
+| auto_rag | raw | 0.597 [0.519, 0.682] | 0.651 [0.566, 0.729] | 0.459 [0.387, 0.536] | 0.505 [0.434, 0.579] |
+| auto_rag | sanitized | 0.519 [0.434, 0.597] | 0.558 [0.473, 0.636] | 0.386 [0.311, 0.458] | 0.428 [0.352, 0.501] |
 
-**Auto-RAG on negatives (11 questions).** A question counts as a false retrieval when a chunk scores at or above the 0.35 threshold. The false-retrieval rate is 0.727 [0.455, 0.909] for raw queries and 0.818 [0.545, 1.000] for sanitized queries. The top-1 scores overlap: for raw queries the 90th percentile of negatives is 0.577 and the 10th percentile of answerable questions is 0.473.
+**Auto-RAG on negatives (11 questions).** A question counts as a false retrieval when a chunk scores at or above the 0.35 threshold. The false-retrieval rate is 0.727 [0.455, 0.909] for raw queries and 0.818 [0.545, 1.000] for sanitized queries. The top-1 scores overlap: for raw queries the 90th percentile of negatives is 0.605 and the 10th percentile of answerable questions is 0.480.
 
 **Latency** (sanitized queries, milliseconds, one machine):
 
 | Retriever | p50 (ms) | p95 (ms) | Samples |
 |:---|:---:|:---:|:---:|
-| dense | 13.673 | 15.352 | 645 |
-| bm25 | 0.236 | 0.321 | 645 |
-| hybrid | 13.615 | 25.746 | 645 |
-| auto_rag | 405.836 | 459.363 | 700 |
+| dense | 13.481 | 18.223 | 645 |
+| bm25 | 0.239 | 0.303 | 645 |
+| hybrid | 14.021 | 18.089 | 645 |
+| auto_rag | 567.134 | 693.718 | 700 |
 
 Samples are queries times 5 repeats; auto_rag runs all 140 questions, the others the 129 answerable ones.
 
@@ -236,11 +236,11 @@ Samples are queries times 5 repeats; auto_rag runs all 140 questions, the others
 
 | Step | Time |
 |:---|:---:|
-| Chunking, 30 documents | 1.655 s |
-| Embedding and indexing | 1.486 s |
-| Per-chunk sanitization, 30 documents | 15.137 s |
-| Leak-block sanitization, en / tr / zh | 18.828 s / 24.728 s / 67.168 s |
-| Whole run, wall clock | 625.450 s |
+| Chunking, 30 documents | 2.162 s |
+| Embedding and indexing | 2.755 s |
+| Per-chunk sanitization, 30 documents | 17.227 s |
+| Leak-block sanitization, en / tr / zh | 22.553 s / 38.732 s / 84.660 s |
+| Whole run, wall clock | 806.147 s |
 
 ### PII leak check
 

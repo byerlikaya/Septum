@@ -142,7 +142,7 @@ Bu benchmark PII tespitini değil erişimi (retrieval) ölçer. Sanitizer'ın NE
 | Sorular | 140: 129 cevaplanabilir, 11 olumsuz |
 | Cevaplanabilir, tipe göre | lexical 45 · paraphrase 45 · entity 24 · cross-lingual 15 |
 | Olumsuz | hiçbir belgenin cevaplamadığı 11 soru |
-| İndeks | 187 chunk; her chunk kaynak belgesinde bir aralığa eşlenmiş |
+| İndeks | 210 chunk; her chunk kaynak belgesinde bir aralığa eşlenmiş |
 | Digest | `df81576cd611d809dd59eed997ec789cced8315301796ea75bcc11b97179efec` (her fixture dosyası üzerinde SHA-256) |
 
 Belgeler ve sorular elle yazılmıştır. Bir belgedeki her kişisel veri yuvası, sabit tohumlu (seed 42) bir üreticinin değeriyle doldurulur. Bir sorunun işaret ettiği değer, kendi belgesindeki değerdir; bu yüzden her çalıştırma aynı metni üretir.
@@ -160,7 +160,7 @@ Belgeler ve sorular elle yazılmıştır. Bir belgedeki her kişisel veri yuvas�
 | Gecikme | Sorgu başına 5 ölçülmüş tekrar, maskelenmiş sorgular, sorgu embedding'i dahil tek bir retriever çağrısı |
 | Donanım | Apple M4 Max, 14 CPU çekirdeği, 10 torch thread, Darwin 27.0.0 arm64 |
 | Seed | 42 |
-| Commit | `67b3ba07` (çalıştırma çıktısındaki `git_sha`) |
+| Commit | `f7ebacf4` (çalıştırma çıktısındaki `git_sha`) |
 
 ### Sonuçlar
 
@@ -168,36 +168,36 @@ Belgeler ve sorular elle yazılmıştır. Bir belgedeki her kişisel veri yuvas�
 
 | Dil | n | Recall@5 | Recall@10 | MRR | nDCG@10 |
 |:---|:---:|:---:|:---:|:---:|:---:|
-| en | 43 | 0,930 [0,860, 1,000] | 1,000 [1,000, 1,000] | 0,661 [0,553, 0,763] | 0,737 [0,655, 0,820] |
-| tr | 43 | 0,977 [0,930, 1,000] | 1,000 [1,000, 1,000] | 0,841 [0,752, 0,919] | 0,880 [0,812, 0,939] |
-| zh | 43 | 0,953 [0,884, 1,000] | 1,000 [1,000, 1,000] | 0,772 [0,670, 0,855] | 0,828 [0,751, 0,891] |
-| **genel** | **129** | **0,953 [0,915, 0,984]** | **1,000 [1,000, 1,000]** | **0,758 [0,699, 0,807]** | **0,815 [0,771, 0,853]** |
+| en | 43 | 0,930 [0,860, 1,000] | 1,000 [1,000, 1,000] | 0,721 [0,613, 0,820] | 0,782 [0,699, 0,859] |
+| tr | 43 | 0,977 [0,930, 1,000] | 1,000 [1,000, 1,000] | 0,798 [0,711, 0,888] | 0,848 [0,782, 0,915] |
+| zh | 43 | 0,953 [0,884, 1,000] | 1,000 [1,000, 1,000] | 0,626 [0,531, 0,724] | 0,718 [0,646, 0,793] |
+| **genel** | **129** | **0,953 [0,915, 0,984]** | **1,000 [1,000, 1,000]** | **0,715 [0,655, 0,769]** | **0,783 [0,737, 0,825]** |
 
-Önceden kaydedilen taban ölçümle karşılaştırıldığında maskelenmiş hybrid MRR 0,772'den 0,758'e, Recall@5 ise 0,961'den 0,953'e geriledi; kurum ve yer adları artık placeholder'a dönüştüğü için.
+Önceden kaydedilen taban ölçümle karşılaştırıldığında maskelenmiş hybrid Recall@5 0,953'te değişmedi, MRR ise 0,758'den 0,715'e geriledi. Structured parçalayıcı artık en fazla 1.200 karakterde keser; bu yüzden indeks 187 yerine 210 chunk içerir. Harness ise artık her chunk'ı kaynak aralığına eşler (önceden, parçalayıcının bir başlığı önceki cümleye eklediği chunk'ları kaçırıyordu).
 
 **Karşılaştırılan retriever'lar (genel, n = 129), ham ve maskelenmiş sorgu modları.**
 
 | Retriever | Mod | Recall@5 | Recall@10 | MRR | nDCG@10 |
 |:---|:---|:---:|:---:|:---:|:---:|
-| dense | ham | 0,953 [0,907, 0,984] | 1,000 [1,000, 1,000] | 0,748 [0,690, 0,801] | 0,809 [0,765, 0,849] |
-| dense | maskelenmiş | 0,938 [0,891, 0,977] | 1,000 [1,000, 1,000] | 0,716 [0,657, 0,772] | 0,786 [0,741, 0,828] |
-| bm25 | ham | 0,930 [0,876, 0,969] | 1,000 [1,000, 1,000] | 0,740 [0,677, 0,796] | 0,799 [0,753, 0,842] |
-| bm25 | maskelenmiş | 0,915 [0,860, 0,953] | 1,000 [1,000, 1,000] | 0,741 [0,679, 0,798] | 0,799 [0,753, 0,843] |
-| hybrid | ham | 0,961 [0,922, 0,992] | 1,000 [1,000, 1,000] | 0,783 [0,724, 0,834] | 0,833 [0,787, 0,872] |
-| hybrid | maskelenmiş | 0,953 [0,915, 0,984] | 1,000 [1,000, 1,000] | 0,758 [0,699, 0,807] | 0,815 [0,771, 0,853] |
-| auto_rag | ham | 0,550 [0,465, 0,636] | 0,612 [0,527, 0,690] | 0,441 [0,368, 0,514] | 0,483 [0,409, 0,555] |
-| auto_rag | maskelenmiş | 0,465 [0,380, 0,551] | 0,535 [0,450, 0,620] | 0,352 [0,280, 0,419] | 0,396 [0,322, 0,463] |
+| dense | ham | 0,953 [0,907, 0,984] | 1,000 [1,000, 1,000] | 0,678 [0,618, 0,736] | 0,755 [0,711, 0,801] |
+| dense | maskelenmiş | 0,938 [0,891, 0,977] | 1,000 [1,000, 1,000] | 0,663 [0,602, 0,719] | 0,746 [0,699, 0,788] |
+| bm25 | ham | 0,953 [0,915, 0,984] | 1,000 [1,000, 1,000] | 0,671 [0,604, 0,729] | 0,748 [0,700, 0,792] |
+| bm25 | maskelenmiş | 0,930 [0,884, 0,969] | 1,000 [1,000, 1,000] | 0,695 [0,632, 0,756] | 0,765 [0,717, 0,812] |
+| hybrid | ham | 0,961 [0,922, 0,992] | 1,000 [1,000, 1,000] | 0,714 [0,654, 0,768] | 0,781 [0,734, 0,825] |
+| hybrid | maskelenmiş | 0,953 [0,915, 0,984] | 1,000 [1,000, 1,000] | 0,715 [0,655, 0,769] | 0,783 [0,737, 0,825] |
+| auto_rag | ham | 0,597 [0,519, 0,682] | 0,651 [0,566, 0,729] | 0,459 [0,387, 0,536] | 0,505 [0,434, 0,579] |
+| auto_rag | maskelenmiş | 0,519 [0,434, 0,597] | 0,558 [0,473, 0,636] | 0,386 [0,311, 0,458] | 0,428 [0,352, 0,501] |
 
-**Olumsuzlarda auto-RAG (11 soru).** Bir soru, en az bir chunk 0,35 eşiğinin üstünde ya da eşitte skor aldığında yanlış erişim sayılır. Yanlış erişim oranı ham sorgularda 0,727 [0,455, 0,909], maskelenmiş sorgularda 0,818 [0,545, 1,000]'dır. En yüksek (top-1) skorlar örtüşür: ham sorgularda olumsuzların 90. yüzdeliği 0,577, cevaplanabilir soruların 10. yüzdeliği 0,473'tür.
+**Olumsuzlarda auto-RAG (11 soru).** Bir soru, en az bir chunk 0,35 eşiğinin üstünde ya da eşitte skor aldığında yanlış erişim sayılır. Yanlış erişim oranı ham sorgularda 0,727 [0,455, 0,909], maskelenmiş sorgularda 0,818 [0,545, 1,000]'dır. En yüksek (top-1) skorlar örtüşür: ham sorgularda olumsuzların 90. yüzdeliği 0,605, cevaplanabilir soruların 10. yüzdeliği 0,480'tür.
 
 **Gecikme** (maskelenmiş sorgular, milisaniye, tek makine):
 
 | Retriever | p50 (ms) | p95 (ms) | Örnek |
 |:---|:---:|:---:|:---:|
-| dense | 13,673 | 15,352 | 645 |
-| bm25 | 0,236 | 0,321 | 645 |
-| hybrid | 13,615 | 25,746 | 645 |
-| auto_rag | 405,836 | 459,363 | 700 |
+| dense | 13,481 | 18,223 | 645 |
+| bm25 | 0,239 | 0,303 | 645 |
+| hybrid | 14,021 | 18,089 | 645 |
+| auto_rag | 567,134 | 693,718 | 700 |
 
 Örnek sayısı, sorgu sayısının 5 tekrarla çarpımıdır; auto_rag tüm 140 soruyu, diğerleri 129 cevaplanabilir soruyu çalıştırır.
 
@@ -205,11 +205,11 @@ Belgeler ve sorular elle yazılmıştır. Bir belgedeki her kişisel veri yuvas�
 
 | Adım | Süre |
 |:---|:---:|
-| Parçalama, 30 belge | 1,655 s |
-| Embedding ve indeksleme | 1,486 s |
-| Chunk başına sanitizasyon, 30 belge | 15,137 s |
-| Sızıntı bloğu sanitizasyonu, en / tr / zh | 18,828 s / 24,728 s / 67,168 s |
-| Tüm çalıştırma, duvar saati | 625,450 s |
+| Parçalama, 30 belge | 2,162 s |
+| Embedding ve indeksleme | 2,755 s |
+| Chunk başına sanitizasyon, 30 belge | 17,227 s |
+| Sızıntı bloğu sanitizasyonu, en / tr / zh | 22,553 s / 38,732 s / 84,660 s |
+| Tüm çalıştırma, duvar saati | 806,147 s |
 
 ### PII sızıntı kontrolü
 
