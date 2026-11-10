@@ -27,7 +27,7 @@ from ...env_flags import env_int
 from ...errors import ContentFreeError
 from ...utils.crypto import decrypt
 from ...utils.device import get_device
-from .base import BaseIngester, IngestionResult
+from .base import BaseIngester, IngestionResult, TextBlock
 
 _WHISPER_SAMPLE_RATE = 16000
 _PCM_BYTES_PER_SECOND = _WHISPER_SAMPLE_RATE * 2
@@ -250,6 +250,61 @@ def _window_options(language: Optional[str], prompt: str) -> Dict[str, Any]:
     return options
 
 
+def _segment_blocks(text: str, segments: List[Dict[str, Any]]) -> List[TextBlock]:
+    """Split ``text`` into one ``segment`` block per Whisper segment, with its times.
+
+    Each segment is located in ``text`` in order; the whitespace between
+    segments belongs to the following block, so joining the blocks gives
+    ``text`` exactly. When a segment cannot be located the whole text is one
+    block spanning the first start to the last end.
+    """
+    located: List[Tuple[int, int, Dict[str, Any]]] = []
+    position = 0
+    for segment in segments:
+        needle = str(segment.get("text") or "").strip()
+        if not needle:
+            continue
+        found = text.find(needle, position)
+        if found < 0:
+            located = []
+            break
+        position = found + len(needle)
+        located.append((found, position, segment))
+
+    def _time(segment: Dict[str, Any], key: str) -> Optional[float]:
+        value = segment.get(key)
+        return float(value) if isinstance(value, (int, float)) else None
+
+    if not located:
+        if not text:
+            return []
+        starts = [_time(seg, "start") for seg in segments]
+        ends = [_time(seg, "end") for seg in segments]
+        return [
+            TextBlock(
+                text=text,
+                kind="segment",
+                t_start=starts[0] if starts else None,
+                t_end=ends[-1] if ends else None,
+            )
+        ]
+
+    blocks: List[TextBlock] = []
+    cursor = 0
+    for index, (_, end, segment) in enumerate(located):
+        stop = len(text) if index == len(located) - 1 else end
+        blocks.append(
+            TextBlock(
+                text=text[cursor:stop],
+                kind="segment",
+                t_start=_time(segment, "start"),
+                t_end=_time(segment, "end"),
+            )
+        )
+        cursor = stop
+    return blocks
+
+
 def _assemble_transcript(
     results: List[Tuple[float, Dict[str, Any]]],
     reported_language: Optional[str],
@@ -374,6 +429,7 @@ class AudioIngester(BaseIngester):
             metadata=metadata,
             warnings=warnings,
             raw_segments=segments,
+            blocks=_segment_blocks(text, segments),
         )
 
     async def ingest(
@@ -445,6 +501,7 @@ class AudioIngester(BaseIngester):
             metadata=metadata,
             warnings=warnings,
             raw_segments=segments,
+            blocks=_segment_blocks(text, segments),
         )
 
     async def _decode_in_memory(self, audio_bytes: bytes) -> np.ndarray:

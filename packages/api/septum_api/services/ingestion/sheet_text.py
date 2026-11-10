@@ -11,9 +11,11 @@ written, and empty rows produce no text.
 
 from __future__ import annotations
 
+from array import array
 from typing import Any, Iterable, List, Optional, Sequence, Tuple
 
 from ...models.spreadsheet_schema import generated_technical_label
+from .base import TextBlock
 
 
 def _is_empty(value: Any) -> bool:
@@ -40,8 +42,13 @@ def _trimmed(row: Sequence[Any]) -> List[Optional[str]]:
 
 def render_sheet(
     title: str, rows: Iterable[Sequence[Any]]
-) -> Tuple[str, int, Optional[List[str]]]:
-    """Return a sheet's text block (empty when it has no values), row count and header labels."""
+) -> Tuple[List[TextBlock], int, Optional[List[str]]]:
+    """Return a sheet's blocks (none when it has no values), row count and header labels.
+
+    The blocks are one ``sheet_header`` block followed by one ``rows`` block
+    holding every line, the labels line first, newline-separated; its
+    ``row_offsets`` give where each line starts. Both carry the sheet name.
+    """
     row_count = 0
     grid: List[List[Optional[str]]] = []
     for row in rows:
@@ -50,12 +57,25 @@ def render_sheet(
         if cells:
             grid.append(cells)
     if not grid:
-        return "", row_count, None
+        return [], row_count, None
 
     offset = min(next(i for i, cell in enumerate(cells) if cell is not None) for cells in grid)
     width = max(len(cells) for cells in grid) - offset
     labels = [generated_technical_label(idx) for idx in range(width)]
     lines = ["\t".join(labels)]
     lines.extend("\t".join(cell or "" for cell in cells[offset:]) for cells in grid[1:])
+    grid.clear()
     header = f"# Sheet: {title} — columns: " + " | ".join(labels)
-    return header + "\n" + "\n".join(lines), row_count, labels
+    offsets = array("Q")
+    position = 0
+    for line in lines:
+        offsets.append(position)
+        position += len(line) + 1
+    return (
+        [
+            TextBlock(text=header, kind="sheet_header", sheet=title),
+            TextBlock(text="\n".join(lines), kind="rows", sheet=title, row_offsets=offsets),
+        ],
+        row_count,
+        labels,
+    )
