@@ -202,6 +202,30 @@ def _canonical(definitions: Iterable[Sequence[Any]]) -> List[str]:
     )
 
 
+def union_entity_types(
+    regulation_entity_types: Iterable[Optional[Sequence[str]]],
+    custom_entity_types: Iterable[str],
+) -> set[str]:
+    """Return every active regulation's types plus each active custom recognizer's type."""
+    types: set[str] = set(custom_entity_types)
+    for entity_types in regulation_entity_types:
+        types.update(entity_types or [])
+    return types
+
+
+async def active_entity_types(db: AsyncSession) -> frozenset[str]:
+    """Return the entity types of the active regulation rulesets and custom recognizers."""
+    regulations = await db.execute(
+        select(RegulationRuleset.entity_types).where(RegulationRuleset.is_active.is_(True))
+    )
+    custom = await db.execute(
+        select(CustomRecognizer.entity_type).where(CustomRecognizer.is_active.is_(True))
+    )
+    return frozenset(
+        union_entity_types(regulations.scalars().all(), custom.scalars().all())
+    )
+
+
 def build_policy_snapshot(
     regulation_entity_types: Iterable[Optional[Sequence[str]]],
     custom_definitions: Iterable[Sequence[Any]],
@@ -224,10 +248,9 @@ def build_policy_snapshot(
             build_default_app_settings(),
             llm_prompt_active=has_llm_prompt_rule(definitions),
         )
-    types: set[str] = {d[0] for d in definitions}
-    for entity_types in regulation_entity_types:
-        types.update(entity_types or [])
-    entity_types = snapshot_entity_types(types)
+    entity_types = snapshot_entity_types(
+        union_entity_types(regulation_entity_types, (d[0] for d in definitions))
+    )
     canonical = json.dumps(
         {
             "detector": DETECTOR_VERSION,

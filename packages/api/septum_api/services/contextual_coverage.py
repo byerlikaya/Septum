@@ -13,14 +13,14 @@ import asyncio
 import enum
 import json
 import logging
+import time
 
 import httpx
+from pydantic import BaseModel
 from septum_core.detector import _CONTEXTUAL_ENTITY_TYPES
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..env_flags import env_bool
-from ..models.regulation import RegulationRuleset
 from ..models.settings import AppSettings
 from .ollama_client import (
     effective_ollama_base_url,
@@ -28,12 +28,14 @@ from .ollama_client import (
     ollama_model_installed,
     ollama_url_problem,
 )
+from .policy_snapshot import active_entity_types
 
 logger = logging.getLogger(__name__)
 
 PROBE_TIMEOUT_SECONDS = 3.0
 MAX_PROBE_BODY_BYTES = 1024 * 1024
 OPT_OUT_ENV = "USE_OLLAMA_SEMANTIC_LAYER_DEFAULT"
+PROBE_CACHE_TTL_SECONDS = 30.0
 
 
 class DefaultReason(enum.StrEnum):
@@ -52,14 +54,8 @@ class DefaultReason(enum.StrEnum):
 
 
 async def active_contextual_types(db: AsyncSession) -> frozenset[str]:
-    """Return the contextual entity types listed by the active regulation rulesets."""
-    rows = await db.execute(
-        select(RegulationRuleset.entity_types).where(RegulationRuleset.is_active.is_(True))
-    )
-    listed: set[str] = set()
-    for (entity_types,) in rows:
-        listed.update(entity_types or [])
-    return frozenset(listed & _CONTEXTUAL_ENTITY_TYPES)
+    """Return the contextual entity types declared by active rulesets or custom recognizers."""
+    return await active_entity_types(db) & _CONTEXTUAL_ENTITY_TYPES
 
 
 async def _read_bounded(response: httpx.Response) -> bytes | None:
@@ -154,3 +150,88 @@ async def apply_setup_completion_default(
     reason = await decide_contextual_default(db, settings)
     settings.use_ollama_semantic_layer = reason is DefaultReason.ENABLED
     logger.info("Contextual layer default at setup completion: %s", reason.value)
+
+
+class CoverageState(enum.StrEnum):
+    """How well special-category masking is covered right now."""
+
+    COVERED = "covered"
+    LAYER_OFF = "layer_off"
+    LOCAL_MODEL_UNAVAILABLE = "local_model_unavailable"
+    NOT_APPLICABLE = "not_applicable"
+
+
+class ContextualLayerStatusResponse(BaseModel):
+    """Whether special-category data is masked; carries no URL, model name or document data.
+
+    ``local_model_reachable`` is None when no probe was made.
+    """
+
+    state: CoverageState
+    entity_types: list[str]
+    local_model_reachable: bool | None = None
+
+
+_probe_cache: dict[tuple[str, str], tuple[float, bool]] = {}
+_probe_in_flight: dict[tuple[str, str], asyncio.Task[bool]] = {}
+
+
+def _monotonic() -> float:
+    return time.monotonic()
+
+
+async def _probe_and_cache(key: tuple[str, str], settings: AppSettings) -> bool:
+    """Probe once and store the result."""
+    try:
+        reachable = await probe_local_pii_model(settings) is DefaultReason.ENABLED
+        _probe_cache[key] = (_monotonic(), reachable)
+        return reachable
+    finally:
+        _probe_in_flight.pop(key, None)
+
+
+async def _local_model_reachable(base_url: str, model: str, settings: AppSettings) -> bool:
+    """Return whether the local model probe succeeds, reusing a result younger than the TTL.
+
+    The cache is keyed by the effective base URL and the model, so changing
+    either probes again. Concurrent misses share one probe task, which a
+    cancelled caller does not abort.
+    """
+    key = (base_url, model)
+    cached = _probe_cache.get(key)
+    if cached is not None and _monotonic() - cached[0] < PROBE_CACHE_TTL_SECONDS:
+        return cached[1]
+    task = _probe_in_flight.get(key)
+    if task is None:
+        task = asyncio.create_task(_probe_and_cache(key, settings))
+        _probe_in_flight[key] = task
+    return await asyncio.shield(task)
+
+
+async def contextual_layer_status(db: AsyncSession, settings: AppSettings) -> ContextualLayerStatusResponse:
+    """Report whether the active regulations' special categories are masked.
+
+    No probe is made when no contextual type is active. ``settings`` is detached
+    from the session and the caller's transaction is rolled back before the
+    network call so no database lock is held across it; callers must not read
+    ORM objects from that session afterwards.
+    """
+    types = sorted(await active_contextual_types(db))
+    layer_on = bool(settings.use_ollama_semantic_layer)
+    base_url = effective_ollama_base_url(settings.ollama_base_url)
+    model = settings.ollama_deanon_model or ""
+    db.expunge(settings)
+    await db.rollback()
+    if not types:
+        return ContextualLayerStatusResponse(
+            state=CoverageState.NOT_APPLICABLE, entity_types=types
+        )
+    reachable = await _local_model_reachable(base_url, model, settings)
+    if not layer_on:
+        return ContextualLayerStatusResponse(
+            state=CoverageState.LAYER_OFF, entity_types=types, local_model_reachable=reachable
+        )
+    state = CoverageState.COVERED if reachable else CoverageState.LOCAL_MODEL_UNAVAILABLE
+    return ContextualLayerStatusResponse(
+        state=state, entity_types=types, local_model_reachable=reachable
+    )
