@@ -90,6 +90,7 @@ services:
       SEPTUM_QUEUE_URL: ${SEPTUM_QUEUE_URL:-redis://septum-api:${SEPTUM_QUEUE_API_PASSWORD:?SEPTUM_QUEUE_API_PASSWORD must be set (see .env.example)}@zone-edge:6379/0}
       # The in-zone Ollama service (no egress).
       OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}
       FRONTEND_ORIGIN: http://localhost:3000
       # Only the web container's proxy may set X-Forwarded-For; anything
       # else (incl. the Docker gateway behind the published port) is
@@ -213,6 +214,8 @@ services:
   ollama:
     image: ollama/ollama:0.40.14@sha256:ebaef4f4c5d93660e1f25f8ad085a112f51ccfb0e8458073e71793959dba91c9
     container_name: septum-ollama
+    environment:
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}
     networks: [zone]
     volumes:
       - ollama-data:/root/.ollama
