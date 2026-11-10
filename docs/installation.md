@@ -253,6 +253,8 @@ When the wizard finishes it writes `config.json`, creates the admin user, and re
 
 **Contextual layer (special categories).** When the wizard finishes on a new installation, Septum turns on *Ollama semantic detection* (`use_ollama_semantic_layer`), the local-model layer that masks special-category data such as health, religion, political opinion, ethnicity and sexual orientation. It does so only if all of these hold: the wizard chose a local model (Ollama as the provider, or the Ollama layer option enabled); `USE_OLLAMA_SEMANTIC_LAYER_DEFAULT` is not explicitly `false`; at least one active regulation pack includes contextual entity types; and the configured Ollama answers and the Local PII model (`ollama_deanon_model`) is installed. Otherwise the layer stays off. `USE_OLLAMA_SEMANTIC_LAYER_DEFAULT=true` still forces it on when the settings row is created, and an explicit `false` is an operator opt-out.
 
+**Contextual layer warning.** A banner at the top of every Settings tab and on the Regulations page (where contextual entity types also get a short note) cannot be dismissed. With the layer off, it names the special categories that are not masked and may reach a cloud LLM unmasked when a cloud provider is used; it links to the Privacy & Sanitization setting that turns the layer on if the local model is reachable, otherwise to setting up the local model on the LLM Provider tab. With the layer on but the local model unreachable, requests containing those categories are refused until the model is back, and the banner links to setting up the local model. If the status cannot be checked, a neutral notice says masking coverage could not be verified.
+
 Turning it on has a cost: extra latency for each document and question, a dependency on a running Ollama, and a refusal when the layer is on but cannot answer. See [Layer 3 cost and failure](features#detection-pipeline) for the fail-closed behaviour and [Ollama models](#llm-providers) for the local limits.
 
 ### Exact values to paste (full compose stack)
@@ -556,7 +558,7 @@ docker compose logs -f api                  # watch the migration run
 
 Alembic migrations apply automatically at api boot. If a migration fails, the api container exits with a descriptive error — inspect the logs, resolve the cause, retry the `up -d --build`.
 
-**Contextual layer on upgrade.** The wizard's automatic switch-on of *Ollama semantic detection* applies only to new installations. An existing installation, where setup has already completed, keeps its current setting.
+**Contextual layer on upgrade.** The wizard's automatic switch-on of *Ollama semantic detection* applies only to new installations. An existing installation, where setup has already completed, keeps its current setting, but the Settings and Regulations pages still warn when special categories are not masked.
 
 For the standalone variant, run the same command with its compose file:
 

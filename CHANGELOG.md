@@ -24,7 +24,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ### 2026-11-11
 
-- New installations now turn on the contextual layer for special categories when setup finishes with a working local model (Ollama reachable and the local PII model installed) and an active regulation pack covers those categories; otherwise it stays off. Existing installations keep their current setting, and an explicit `USE_OLLAMA_SEMANTIC_LAYER_DEFAULT=false` opts out.
+- New installations now turn on the contextual layer for special categories when setup finishes with a working local model (Ollama reachable and the local PII model installed) and an active regulation pack covers those categories; otherwise it stays off. Existing installations keep their current setting, and an explicit `USE_OLLAMA_SEMANTIC_LAYER_DEFAULT=false` opts out. The Settings and Regulations pages now warn when special categories are not being masked, or when the local model is unreachable and requests are refused.
 
 ### 2026-11-10
 
