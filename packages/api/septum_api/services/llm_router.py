@@ -275,6 +275,12 @@ class LLMRouter:
                 base_url=self._settings.ollama_base_url,
                 model=ollama_model,
                 timeout=60.0,
+                full_context=not ollama_client.uses_detection_model(
+                    self._settings.ollama_base_url,
+                    ollama_model,
+                    self._settings.ollama_base_url,
+                    self._settings.ollama_deanon_model,
+                ),
             )
         except Exception as exc:
             logger.error(

@@ -129,7 +129,7 @@ A simplified example flow:
 
 2. **Septum**:
    - Detects language and relevant PII in the query and related documents.
-   - Replaces identifiers with placeholders (e.g. `[PERSON_NAME_1]`). Diagnosis and medication placeholders such as `[DIAGNOSIS_1]` need the optional Ollama semantic layer.
+   - Replaces identifiers with placeholders (e.g. `[PERSON_NAME_1]`). Diagnosis and medication placeholders such as `[DIAGNOSIS_1]` need the optional Ollama semantic layer. If that layer's local model cannot answer, the request is refused and nothing is sent upstream.
    - Retrieves anonymised chunks from the vector store (RAG).
    - Optionally shows an **approval view** of what will be sent upstream.
    - Calls the configured LLM provider with masked context only.
@@ -267,8 +267,8 @@ Zero network dependencies by contract — no `httpx` / `requests` /
   (Presidio → Transformers NER → optional semantic validation via a
   `SemanticDetectionPort` adapter).
 - `masker.py`, `unmasker.py` — placeholder creation and restoration.
-- `anonymization_map.py` — session-scoped `PII ↔ placeholder` map with
-  coreference resolution.
+- `anonymization_map.py` — session-scoped `PII ↔ placeholder` map that links
+  name mentions by token matching (no model).
 - `engine.py` — `SeptumEngine` facade: `engine.mask(text)` /
   `engine.unmask(text, session_id)`. Includes an in-memory session
   registry with TTL eviction for long-running MCP subprocesses.
@@ -488,7 +488,7 @@ The Next.js side follows these conventions:
 
 ### Known limitations
 
-- **Coreference is token-overlap matching.** Mentions share a placeholder when their name tokens overlap, for example "Elif" and "Elif Demir", or "Demir" and "Elif Demir". Two different people who share a surname in the same document can therefore receive the same placeholder. Check the masked prompt at the approval gate when a document names several people with the same surname.
+- **Name linking is token matching, not model-based coreference.** A mention joins an existing person's placeholder when its name tokens (longer than two characters) match that person's and no other person in the document holds them, for example "Elif" or "Demir" after "Elif Demir". Two limits follow. A surname that belongs to two detected people is masked with a neutral placeholder, so it does not name either person. A person whose name is never detected has their surname masked with the placeholder of the detected person who has that surname, because the surname is masked wherever it appears. A title written as a word, such as "Ms. Demir", counts as a name token, so that mention is not linked to "Elif Demir". Check the masked prompt at the approval gate when a document names several people with the same surname.
 - **Mixed-script e-mail local parts are cut at four letters.** When a run of more than four letters of a script written without spaces or with attached particles (for example Chinese, Japanese, Thai, Korean, Lao, Khmer, Myanmar) is directly followed, inside the local part, by a letter of another script (Latin, Cyrillic, and so on), only the last four letters of that run are masked with the rest of the address, because Septum cannot tell where the address starts. A local part written wholly in such a script, or a run followed by a digit or punctuation, is masked whole. Check the masked prompt at the approval gate.
 
 ---

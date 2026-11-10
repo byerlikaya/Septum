@@ -204,6 +204,7 @@ async def test_llm_router_falls_back_to_ollama_on_transport_error(
         base_url: str | None = None,  # noqa: ARG001
         model: str | None = None,  # noqa: ARG001
         timeout: float = 30.0,  # noqa: ARG001
+        full_context: bool = False,
     ) -> str:
         recorded_prompts.append(prompt)
         return "Local Ollama fallback answer."

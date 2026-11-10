@@ -1736,7 +1736,13 @@ class Detector:
         if self._runs_semantic_detection(normalized_text, port_enabled):
             spans.extend(
                 self._drop_policy_label_spans(
-                    self._semantic_detection_spans(normalized_text), normalized_text, language
+                    self._alias_spans(normalized_text), normalized_text, language
+                )
+            )
+        if self._runs_contextual_detection(normalized_text, port_enabled):
+            spans.extend(
+                self._drop_policy_label_spans(
+                    self._contextual_spans(normalized_text), normalized_text, language
                 )
             )
         return spans
@@ -1939,36 +1945,41 @@ class Detector:
         return validated_spans
 
     def _runs_semantic_detection(self, normalized_text: str, port_enabled: bool) -> bool:
-        """Whether the alias and contextual layers run for this text."""
+        """Whether the alias layer runs for this text."""
         return (
             self._config.use_semantic_detection
             and port_enabled
             and word_count(normalized_text.strip()) >= _MIN_WORDS_FOR_SEMANTIC_ALIAS
         )
 
-    def _semantic_detection_spans(self, normalized_text: str) -> List[DetectedSpan]:
-        """Collect the alias and contextual layer spans; a failing layer adds none."""
-        spans: List[DetectedSpan] = []
+    def _runs_contextual_detection(self, normalized_text: str, port_enabled: bool) -> bool:
+        """Whether the contextual layer runs for this text; it has no length floor."""
+        return (
+            self._config.use_semantic_contextual_detection
+            and port_enabled
+            and bool(normalized_text.strip())
+        )
+
+    def _alias_spans(self, normalized_text: str) -> List[DetectedSpan]:
+        """Collect the alias layer spans; a failing layer adds none."""
         try:
             semantic_spans = self._semantic_port.detect_aliases(
                 normalized_text=normalized_text,
             )
-            logger.debug(
-                "Semantic alias layer returned %d spans",
-                len(semantic_spans),
-            )
-            spans.extend(semantic_spans)
         except Exception as e:
             logger.warning(
                 "Semantic alias layer failed, continuing without it: %s", type(e).__name__
             )
-
-        if self._config.use_semantic_contextual_detection:
-            spans.extend(self._contextual_spans(normalized_text))
-        return spans
+            return []
+        logger.debug("Semantic alias layer returned %d spans", len(semantic_spans))
+        return list(semantic_spans)
 
     def _contextual_spans(self, normalized_text: str) -> List[DetectedSpan]:
-        """Run the contextual layer for the active contextual entity types."""
+        """Run the contextual layer for the active contextual entity types.
+
+        A failure is logged by exception class only and re-raised: a run that
+        could not check for contextual values must not pass as clean.
+        """
         semantic_types = [
             et for et in (self._entity_types or [])
             if et in _CONTEXTUAL_ENTITY_TYPES
@@ -1982,7 +1993,7 @@ class Detector:
             )
         except Exception as e:
             logger.warning("Semantic contextual layer failed: %s", type(e).__name__)
-            return []
+            raise
         logger.debug(
             "Semantic contextual layer returned %d spans",
             len(contextual_spans),

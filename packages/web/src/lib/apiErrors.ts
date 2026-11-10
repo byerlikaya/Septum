@@ -11,6 +11,7 @@ export const WHISPER_MODEL_NOT_ALLOWED = "whisper_model_not_allowed";
 
 export const CUSTOM_RULE_UNAVAILABLE = "custom_rule_unavailable";
 export const LLM_PROMPT_REQUIRED = "llm_prompt_required";
+export const SEMANTIC_LAYER_UNAVAILABLE = "semantic_layer_unavailable";
 
 const MODEL_ERROR_KEYS: CodeKeys = {
   [MODEL_INTEGRITY_FAILED]: "errors.model.integrityFailed",
@@ -21,6 +22,7 @@ const MODEL_ERROR_KEYS: CodeKeys = {
 export const HTTP_ERROR_KEYS: CodeKeys = {
   [OLLAMA_URL_NOT_ALLOWED]: "settings.llm.ollama.baseUrl.rejected",
   [CUSTOM_RULE_UNAVAILABLE]: "errors.customRule.unavailable",
+  [SEMANTIC_LAYER_UNAVAILABLE]: "errors.semanticLayer.unavailable",
   [LLM_PROMPT_REQUIRED]: "errors.customRule.promptRequired",
   ...MODEL_ERROR_KEYS,
 };
@@ -38,11 +40,13 @@ export const CHAT_STREAM_ERROR_KEYS: CodeKeys = {
   [OLLAMA_URL_NOT_ALLOWED]: "chat.error.ollamaUrlNotAllowed",
   [STREAM_LINE_TOO_LONG]: "chat.error.streamLineTooLong",
   [CUSTOM_RULE_UNAVAILABLE]: "errors.customRule.unavailable",
+  [SEMANTIC_LAYER_UNAVAILABLE]: "errors.semanticLayer.unavailable",
   ...MODEL_ERROR_KEYS,
 };
 
 export const INGESTION_ERROR_KEYS: CodeKeys = {
   [CUSTOM_RULE_UNAVAILABLE]: "errors.customRule.unavailable",
+  [SEMANTIC_LAYER_UNAVAILABLE]: "errors.semanticLayer.unavailable",
   ...MODEL_ERROR_KEYS,
 };
 

@@ -37,7 +37,7 @@ Tipik bir sorgu: *"Mühendislik organizasyonunun H1 değerlendirmelerinde yükse
 **Semantik katman açıkken Septum yolu.**
 
 1. Hasta kayıtları yüklenir — kağıt formların OCR'lı taramaları dahil.
-2. Layer 3 (Ollama semantik tespit) etkinleştirilir; böylece hat yalnız yapısal PHI'yi (isim, MRN, doğum tarihi) değil, örüntü eşleştirmenin ifade edemeyeceği semantik kategorileri de yakalar: `DIAGNOSIS`, `MEDICATION`, `BIOMETRIC_ID`, `CLINICAL_NOTE`.
+2. Layer 3 (Ollama semantik tespit) etkinleştirilir; böylece hat yalnız yapısal PHI'yi (isim, MRN, doğum tarihi) değil, örüntü eşleştirmenin ifade edemeyeceği semantik kategorileri de yakalar: `DIAGNOSIS`, `MEDICATION`, `BIOMETRIC_ID`, `CLINICAL_NOTE`. Yerel model yanıt veremezse doküman işleme başarısız olur ve buluta hiçbir şey gönderilmez.
 3. İlgilenen hekim sorar: *"Elif Demir'in taburculuk planını özetle ve takip ilaçlarını listele."*
 4. Maskelenmiş prompt ve parçalar bulut LLM'e iletilir. Model şunu görür: `"[PERSON_NAME_1], 2023'te [DIAGNOSIS_1] tanısı aldı ve [MEDICATION_1] kullanmaya başladı…"` — klinik açıdan anlamlı yapı, hastanın adı ve kimlik bilgileri yerine placeholder'lar. Teşhis ve ilaç placeholder'ları yalnızca 2. adımda kurulan Layer 3 açıkken oluşur.
 5. De-anonimleştirilmiş özet hekimin hasta görünümünde belirir.

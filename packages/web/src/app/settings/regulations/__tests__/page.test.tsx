@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import RegulationsPage from "../page";
 
 const mockGet = jest.fn();
@@ -111,4 +111,69 @@ it("states that e-mail is always masked even when no regulation is active", asyn
   expect(
     await screen.findByText("E-mail addresses are always masked, whatever regulations are active.")
   ).toBeInTheDocument();
+});
+
+describe("contextual layer note", () => {
+  const mountWithFlag = async (flag: boolean) => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === "/api/regulations")
+        return Promise.resolve({
+          data: [
+            ruleset({
+              id: "gdpr",
+              display_name: "General Data Protection Regulation",
+              entity_types: ["EMAIL_ADDRESS", "DIAGNOSIS"]
+            })
+          ]
+        });
+      if (url === "/api/settings")
+        return Promise.resolve({ data: { use_ollama_semantic_layer: flag } });
+      return Promise.resolve({ data: [] });
+    });
+    render(<RegulationsPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /General Data Protection/i }));
+    await screen.findByText("DIAGNOSIS");
+  };
+
+  it("shows the note and a Privacy settings link while the layer is off", async () => {
+    await mountWithFlag(false);
+    expect(
+      await screen.findByText(/requires Ollama semantic detection, currently off/i)
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /privacy settings/i })).toHaveAttribute(
+      "href",
+      "/settings?tab=privacy"
+    );
+  });
+
+  it("hides the note while the layer is on", async () => {
+    await mountWithFlag(true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText(/currently off/i)).not.toBeInTheDocument();
+  });
+
+  it("shows no note and logs the error when settings fail to load", async () => {
+    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+    const failure = new Error("settings unavailable");
+    mockGet.mockImplementation((url: string) => {
+      if (url === "/api/regulations")
+        return Promise.resolve({
+          data: [
+            ruleset({
+              id: "gdpr",
+              display_name: "General Data Protection Regulation",
+              entity_types: ["EMAIL_ADDRESS", "DIAGNOSIS"]
+            })
+          ]
+        });
+      if (url === "/api/settings") return Promise.reject(failure);
+      return Promise.resolve({ data: [] });
+    });
+    render(<RegulationsPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /General Data Protection/i }));
+    await screen.findByText("DIAGNOSIS");
+    await waitFor(() => expect(errorSpy).toHaveBeenCalledWith(failure));
+    expect(screen.queryByText(/currently off/i)).not.toBeInTheDocument();
+    errorSpy.mockRestore();
+  });
 });

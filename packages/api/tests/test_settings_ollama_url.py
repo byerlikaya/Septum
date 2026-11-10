@@ -186,7 +186,7 @@ async def test_runtime_client_allows_local_url(monkeypatch: pytest.MonkeyPatch) 
     out = await ollama_client.call_ollama_async("p", base_url="http://localhost:11434", model="m")
 
     assert out == "ok"
-    assert seen == ["http://localhost:11434/api/generate"]
+    assert seen == ["http://localhost:11434/api/show", "http://localhost:11434/api/generate"]
 
 
 def _pull_events(body: str) -> list[dict]:

@@ -594,6 +594,7 @@ class TestAutoRag:
                 "document_names": ["own.pdf"],
                 "ollama_base_url": seen[0]["ollama_base_url"],
                 "ollama_model": seen[0]["ollama_model"],
+                "detection_model": seen[0]["detection_model"],
             }
         ]
         assert _phase("retrieve_chunks_auto") not in turn.logs

@@ -11,13 +11,14 @@ from .policy_composer import ComposedPolicy, PolicyComposer
 from .sanitizer import PIISanitizer
 
 DOCUMENT_SANITIZER_ENABLE_OLLAMA = False
-"""Semantic-detection setting of the sanitizer that masks stored document text.
+"""Alias-layer setting of the sanitizer that masks stored document text.
 
 The ingestion pipeline and the chat-time re-mask of outdated chunks both
 build their sanitizer with it, so a chunk masked late is masked exactly as a
-reprocess would mask it. The Ollama semantic detection layer stays off for
-both; the Ollama validation and contextual layers follow the stored settings
-(``use_ollama_validation_layer``, ``use_ollama_semantic_layer``) in both.
+reprocess would mask it. The Ollama alias layer and pronoun coreference stay
+off for both. The Ollama validation and contextual layers do not depend on
+it: each follows its own stored setting (``use_ollama_validation_layer``,
+``use_ollama_semantic_layer``) in both.
 """
 
 

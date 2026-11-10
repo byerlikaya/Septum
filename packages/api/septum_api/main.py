@@ -56,9 +56,8 @@ from .env_flags import (
     parse_int_default_flags,
 )
 from .errors import (
-    CUSTOM_RULE_UNAVAILABLE_DETAIL,
     MODEL_REFUSED_DETAIL,
-    CustomRuleUnavailableError,
+    LocalModelUnavailableError,
 )
 from .models.settings import AppSettings
 from .routers import api_keys as api_keys_router
@@ -677,14 +676,16 @@ async def model_refusal_handler(request: Request, exc: ModelRefusal) -> JSONResp
     )
 
 
-@app.exception_handler(CustomRuleUnavailableError)
-async def custom_rule_unavailable_handler(
-    request: Request, exc: CustomRuleUnavailableError
+@app.exception_handler(LocalModelUnavailableError)
+async def local_model_unavailable_handler(
+    request: Request, exc: LocalModelUnavailableError
 ) -> JSONResponse:
-    """Turn an llm_prompt rule that got no answer into 503 with its code.
+    """Turn a local-model detection step that got no answer into 503 with its code.
 
-    The text the rule should have screened is refused, never passed on
-    unmasked. The detail is fixed text; the error log keeps the rule id.
+    Covers every subclass (an ``llm_prompt`` rule, the contextual layer):
+    the text the step should have screened is refused, never passed on
+    unmasked. The detail is the subclass's fixed text; the error log keeps
+    the code and the content-free failure kind.
     """
     try:
         if engine_is_ready():
@@ -700,7 +701,7 @@ async def custom_rule_unavailable_handler(
         report_error_log_failure(log_exc)
     return JSONResponse(
         status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
-        content={"detail": CUSTOM_RULE_UNAVAILABLE_DETAIL, "code": exc.code},
+        content={"detail": exc.detail, "code": exc.code},
     )
 
 

@@ -268,9 +268,9 @@ export const trMessages: Record<string, string> = {
   "settings.llm.ollama.chatModel.label": "Chat model",
   "settings.llm.ollama.chatModel.hint":
     "Chat completion'lar için kullanılan Ollama modeli.",
-  "settings.llm.ollama.deanonModel.label": "De-anonymization model",
+  "settings.llm.ollama.deanonModel.label": "Lokal PII modeli",
   "settings.llm.ollama.deanonModel.hint":
-    "Lokal de-anonymization için kullanılan Ollama modeli.",
+    "Lokal PII kontrolleri için kullanılan Ollama modeli: PII doğrulama, özel nitelikli veri tespiti ve LLM istemi içeren özel kurallar. Chat model ile aynı olabilir.",
   "ollama.models.loading": "Modeller yükleniyor\u2026",
   "ollama.models.empty": "Model bulunamadı. Model adını manuel olarak yazabilirsiniz.",
   "ollama.models.noMatch": "Eşleşen model yok. Özel bir model adı yazabilirsiniz.",
@@ -309,12 +309,9 @@ export const trMessages: Record<string, string> = {
   "settings.privacy.layers.ollamaValidation.label": "Ollama doğrulama",
   "settings.privacy.layers.ollamaValidation.description":
     "NER yanlış pozitiflerini yerel LLM ile filtreler. Gecikme ekler; deterministik tanıyıcılar bu katmanı otomatik atlar.",
-  "settings.privacy.layers.ollama.label": "Ollama lakap tespiti",
-  "settings.privacy.layers.ollama.description":
-    "Takma adlar ve dolaylı referansları yerel LLM ile yakalar. Gecikme ekler; yalnızca konuşma dili içeren belgelerde anlamlı.",
   "settings.privacy.layers.ollamaSemantic.label": "Ollama semantik tespit",
   "settings.privacy.layers.ollamaSemantic.description":
-    "DIAGNOSIS / MEDICATION / RELIGION / ETHNICITY / POLITICAL_OPINION tipleri yerel LLM ile yakalanır. Bu tipler için gerekli — başka katman bunları ifade edemez.",
+    "Bağlama bağlı şu türleri yerel Ollama modeliyle tespit eder; başka hiçbir katman bunları yakalayamaz: tanı, ilaç, klinik not, siyasi görüş, din, etnik köken, cinsel yönelim, biyometrik kimlik, DNA profili. Yalnızca etkin mevzuat paketlerinin kapsadığı türleri kontrol eder. Her parça ve her sohbet mesajı için bir yerel model çağrısı ekler. Model yanıt vermezse istek gönderilmez, reddedilir. Hiçbir katmanın tespit etmediği veriler, örneğin sabıka kaydı, sendika veya dernek üyeliği, felsefi inanç, kılık kıyafet; bunlar için özel kural tanımlayın.",
 
 
   "settings.rag.sectionTitle": "RAG Ayarları",
@@ -434,6 +431,8 @@ export const trMessages: Record<string, string> = {
     "Özel tespit kurallarından biri çalıştırılamadı, çünkü yerel Ollama modeli yanıt vermedi. Hiçbir şey gönderilmedi; Ollama'yı kontrol edip tekrar deneyin.",
   "errors.customRule.promptRequired":
     "LLM istemi kuralı için bir istem gerekir; modelin neyi bulması gerektiğini yazın.",
+  "errors.semanticLayer.unavailable":
+    "Hassas kategori tespiti çalıştırılamadı, çünkü yerel Ollama modeli yanıt vermedi. Hiçbir şey gönderilmedi; Ollama'yı kontrol edip tekrar deneyin.",
   "errors.regulations.load":
     "Regülasyon ayarları yüklenirken bir hata oluştu.",
   "errors.regulations.update":
@@ -637,6 +636,9 @@ export const trMessages: Record<string, string> = {
   "regulations.builtin.loading": "Regülasyon kuralları yükleniyor...",
   "regulations.builtin.entityCountSuffix": "varlık türünü kapsar.",
   "regulations.builtin.officialLink": "Resmi metni görüntüle",
+  "regulations.builtin.contextualOffNote.text":
+    "Ollama semantik tespit gerektirir, şu an kapalı.",
+  "regulations.builtin.contextualOffNote.link": "Gizlilik ayarlarından açın",
   "regulations.builtin.viewEntities": "Varlık türlerini göster",
   "regulations.builtin.hideEntities": "Varlık türlerini gizle",
   "regulations.builtin.badge.builtin": "Yerleşik",
@@ -894,16 +896,16 @@ export const trMessages: Record<string, string> = {
   "setup.step.provider.ollamaNotFound.install": "Ollama'yı makinenize kurun",
   "setup.step.provider.ollamaNotFound.compose": "Veya Docker Compose ile başlatın",
   "setup.step.provider.model": "Model",
-  "setup.step.provider.deanonModel": "De-anonymization Model",
-  "setup.step.provider.deanonHint": "LLM response'larındaki placeholder'ları orijinal değerlere çevirmek için kullanılan Ollama modeli. Chat model ile aynı olabilir.",
+  "setup.step.provider.deanonModel": "Lokal PII Modeli",
+  "setup.step.provider.deanonHint": "Lokal PII kontrolleri için kullanılan Ollama modeli: PII doğrulama, özel nitelikli veri tespiti ve LLM istemi içeren özel kurallar. Doğrulama ve özel nitelikli veri tespiti yalnızca açıkken çalışır. Chat model ile aynı olabilir.",
   "setup.step.provider.ollamaPrivacy.title": "Privacy Pipeline için Lokal Ollama",
-  "setup.step.provider.ollamaPrivacy.description": "Septum, cloud LLM kullanılsa bile PII doğrulama, alias tespiti ve de-anonymization için lokal Ollama kullanır.",
+  "setup.step.provider.ollamaPrivacy.description": "Septum, sohbet için cloud LLM kullansa bile PII doğrulama, özel nitelikli veri tespiti ve LLM istemi içeren özel kurallar için lokal Ollama kullanabilir. Doğrulama ve özel nitelikli veri tespiti Gizlilik ve Anonimleştirme sekmesinden kapatılabilir.",
   "setup.step.provider.ollamaPrivacy.compose": "Docker Compose Ollama",
   "setup.step.provider.ollamaPrivacy.compose.description": "docker compose --profile ollama ile başlatılan Ollama instance'ı.",
   "setup.step.provider.ollamaPrivacy.external": "Harici Ollama Server",
   "setup.step.provider.ollamaPrivacy.external.description": "Bu makinede (loopback, localhost, host.docker.internal, host.containers.internal) ya da kendi özel compose yığınınızda (birlikte gelen ollama servisi) çalışan Ollama. Maskelenmemiş metin aldığı için uzak sunucu kullanılamaz.",
   "setup.step.provider.ollamaPrivacy.none": "Atla — Ollama Yok",
-  "setup.step.provider.ollamaPrivacy.none.description": "PII tespiti sadece Presidio + NER ile çalışır. Ollama layer'ları devre dışı kalır.",
+  "setup.step.provider.ollamaPrivacy.none.description": "Yerleşik PII tespiti Ollama olmadan çalışır ve Ollama doğrulama katmanı kapalı kalır. Özel nitelikli veri tespiti ile LLM istemi içeren kurallar Ollama gerektirir; Ollama kurulduktan sonra etkinleştirin.",
   "setup.step.test": "Bağlantıyı Test Et",
   "setup.step.test.description": "Sağlayıcınızın ve modelinizin çalıştığını doğrulayın.",
   "setup.step.test.button": "Bağlantıyı Test Et",

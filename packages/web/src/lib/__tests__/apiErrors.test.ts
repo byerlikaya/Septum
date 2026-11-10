@@ -71,6 +71,20 @@ describe("custom rule refusal code", () => {
   });
 });
 
+describe("semantic layer refusal code", () => {
+  it("maps semantic_layer_unavailable in every code map to a key present in en and tr", () => {
+    const en: Record<string, string> = enMessages;
+    const tr: Record<string, string> = trMessages;
+    for (const keys of [HTTP_ERROR_KEYS, CHAT_STREAM_ERROR_KEYS, INGESTION_ERROR_KEYS]) {
+      expect(translateErrorCode("semantic_layer_unavailable", t, keys)).toBe(
+        "errors.semanticLayer.unavailable",
+      );
+    }
+    expect(en["errors.semanticLayer.unavailable"].trim()).not.toBe("");
+    expect(tr["errors.semanticLayer.unavailable"].trim()).not.toBe("");
+  });
+});
+
 describe("chat document-consistency codes", () => {
   it("maps document_changed and map_conflict to translated keys", () => {
     expect(translateErrorCode("document_changed", t, CHAT_STREAM_ERROR_KEYS)).toBe(

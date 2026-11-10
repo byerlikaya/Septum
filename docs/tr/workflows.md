@@ -13,7 +13,7 @@ Septum'un en kritik kullanıcı yüzeyi. Kullanıcı, içinde PII bulunsun ya da
 Adım adım:
 
 1. **Mesajınızı yazın.** Sohbet girişi serbest metin alır; isim, e-posta, kimlik numarası ya da kurumsal bir e-postanın tamamını önceden temizlemek zorunda değilsiniz.
-2. **Mesaj üzerinde yerel PII tespiti.** Yüklenen dokümanlarda çalışan üç katmanlı hat (Presidio + NER + opsiyonel Ollama) *daha hiçbir şey olmadan önce* mesajı tarar. Tespit edilen her varlık deterministik bir placeholder'a dönüşür.
+2. **Mesaj üzerinde yerel PII tespiti.** Yüklenen dokümanlarda çalışan üç katmanlı hat (Presidio + NER + opsiyonel Ollama) *daha hiçbir şey olmadan önce* mesajı tarar. Tespit edilen her varlık deterministik bir placeholder'a dönüşür. Ollama semantik tespit açıksa bu tarama yerel modelin yanıtını gerektirir; yanıt verilemezse mesaj reddedilir ve buluta hiçbir şey gönderilmez.
 3. **Otomatik RAG yönlendirmesi.** Doküman seçimi yapılmamışsa yerel Ollama sınıflandırıcısı, sorunun bir doküman bağlamına ihtiyaç duyup duymadığına (otomatik RAG) ya da düz bir sohbet yanıtının yeterli olduğuna (düz LLM) karar verir. Ayrıntı için [Features sayfasındaki Auto-RAG bölümü](features#otomatik-rag-yönlendirme).
 4. **Hibrit retrieval.** Otomatik RAG devreye girdiğinde BM25 anahtar kelime araması ile FAISS semantik araması paralel çalışır; sonuçlar Reciprocal Rank Fusion ile birleştirilir. Çekilen parçalar, diskte zaten maskeli halde duran parçalardır — air-gapped bölgeden ham metin hiçbir aşamada çıkmaz.
 5. **Onay mekanizması.** Üç panel açılır: maskelenmiş prompt'unuz, getirilen parçalar ve buluta gidecek hazır istek. Onaylar ya da reddedersiniz — aşağıdaki [Onay mekanizması](#onay-mekanizması) bölümüne bakın.

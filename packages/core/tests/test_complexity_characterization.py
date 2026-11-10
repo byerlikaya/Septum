@@ -420,9 +420,6 @@ _SANITIZE_SCENARIOS: list[dict] = [
     {"id": "contextual_no_types", "text": _LONG,
      "cfg": {"use_semantic_detection": True, "use_semantic_contextual_detection": True, "use_ner_layer": False},
      "port": {"semantic": [DetectedSpan(41, 47, "DIAGNOSIS", 0.8)]}, "entity_types": ["PERSON_NAME"]},
-    {"id": "contextual_raises", "text": _LONG,
-     "cfg": {"use_semantic_detection": True, "use_semantic_contextual_detection": True, "use_ner_layer": False},
-     "port": {"semantic_raises": True}, "entity_types": ["DIAGNOSIS"]},
     {"id": "contextual_off", "text": _LONG,
      "cfg": {"use_semantic_detection": True, "use_ner_layer": False},
      "port": {"semantic": [DetectedSpan(41, 47, "DIAGNOSIS", 0.8)]}, "entity_types": ["DIAGNOSIS"]},
@@ -535,6 +532,18 @@ def test_stage_digests_are_unchanged(computed, stage):
 @pytest.mark.parametrize("scenario_id", [s["id"] for s in _SANITIZE_SCENARIOS])
 def test_sanitize_scenario_is_unchanged(computed, scenario_id):
     assert computed["sanitize"][scenario_id] == _GOLDEN["sanitize"][scenario_id]
+
+
+def test_a_raising_contextual_layer_propagates_out_of_sanitize():
+    scenario = {
+        "id": "contextual_raises", "text": _LONG,
+        "cfg": {"use_semantic_detection": True, "use_semantic_contextual_detection": True,
+                "use_ner_layer": False},
+        "port": {"semantic_raises": True}, "entity_types": ["DIAGNOSIS"],
+    }
+
+    with pytest.raises(RuntimeError, match="boom"):
+        _run_sanitize(scenario)
 
 
 if __name__ == "__main__":

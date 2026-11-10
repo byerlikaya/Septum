@@ -112,6 +112,19 @@ those documents read as outdated and chat re-masks them. Bump it whenever
 ``llm_prompt`` rules start finding what earlier documents did not.
 """
 
+CONTEXTUAL_LAYER_REVISION = "contextual-applied-2"
+"""Stands for an enabled contextual layer in :func:`detection_settings`.
+
+Before revision 1, the contextual layer was gated behind the alias layer, which the
+document sanitizer fixes off, so it never ran: a document sanitized with it
+enabled recorded a digest that claims a pass that did not happen. Under
+revision 1 it dropped values in scripts without case and all-caps values as
+headings, and values it could not place verbatim. The marker
+changes the digest only while the layer is on, so those documents read as
+outdated and chat re-masks them. Bump it whenever the contextual layer starts
+finding what earlier documents did not.
+"""
+
 
 def custom_recognizer_definition(recognizer: Any) -> tuple:
     """Return the fields of a custom recognizer that decide what it detects.
@@ -152,12 +165,14 @@ def detection_settings(settings: Any, llm_prompt_active: bool = False) -> tuple:
 
     Included: ``use_presidio_layer``, ``use_ner_layer``,
     ``use_ollama_validation_layer``, ``use_ollama_semantic_layer`` (the
-    contextual layer), ``ner_model_overrides``, and ``ollama_deanon_model``,
+    contextual layer; :data:`CONTEXTUAL_LAYER_REVISION` while on, ``False``
+    while off, so policies without it keep their digest),
+    ``ner_model_overrides``, and ``ollama_deanon_model``,
     the model the validation and contextual layers call, which decides which
     candidate spans survive; the model counts only while one of those two
     layers is on. Left out: Ollama endpoint URLs, and ``use_ollama_layer``
-    (semantic detection), which the sanitizer factory fixes off for document
-    text (``DOCUMENT_SANITIZER_ENABLE_OLLAMA``).
+    (alias detection and coreference), which the sanitizer factory fixes off
+    for document text (``DOCUMENT_SANITIZER_ENABLE_OLLAMA``).
 
     With ``llm_prompt_active`` (an active ``llm_prompt`` custom rule) the
     model those rules call is appended as well, whatever the layers; without
@@ -169,7 +184,7 @@ def detection_settings(settings: Any, llm_prompt_active: bool = False) -> tuple:
         bool(settings.use_presidio_layer),
         bool(settings.use_ner_layer),
         validation,
-        contextual,
+        CONTEXTUAL_LAYER_REVISION if contextual else False,
         sorted((settings.ner_model_overrides or {}).items()),
         settings.ollama_deanon_model if validation or contextual else None,
     )

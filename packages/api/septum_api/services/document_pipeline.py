@@ -370,10 +370,10 @@ class DocumentPipeline:
 
         remask_cache.forget_document(document.id)
 
-        # Ollama semantic detection stays off at ingestion (coreference is
-        # handled at masking time via the blocklist); the Ollama validation
-        # and contextual layers follow the stored settings. Chat re-masks
-        # outdated chunks with the same configuration.
+        # The Ollama alias layer and pronoun coreference stay off at
+        # ingestion; the Ollama validation and contextual layers each follow
+        # their own stored setting. Chat re-masks outdated chunks with the
+        # same configuration.
         policy, policy_snapshot = await PolicyComposer().compose_with_snapshot(
             db, self._settings
         )
