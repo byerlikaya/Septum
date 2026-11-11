@@ -99,6 +99,16 @@ describe("local model budget refusal code", () => {
   });
 });
 
+describe("chunk too large ingestion code", () => {
+  it("maps chunk_too_large in the ingestion map to a key present in en and tr", () => {
+    const en: Record<string, string> = enMessages;
+    const tr: Record<string, string> = trMessages;
+    expect(translateErrorCode("chunk_too_large", t, INGESTION_ERROR_KEYS)).toBe("errors.chunkTooLarge");
+    expect(en["errors.chunkTooLarge"].trim()).not.toBe("");
+    expect(tr["errors.chunkTooLarge"].trim()).not.toBe("");
+  });
+});
+
 describe("chat document-consistency codes", () => {
   it("maps document_changed and map_conflict to translated keys", () => {
     expect(translateErrorCode("document_changed", t, CHAT_STREAM_ERROR_KEYS)).toBe(
