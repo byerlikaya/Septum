@@ -8,10 +8,8 @@ Block ``i`` owns the region from its own start to the next block's start,
 separator included, so every cut at a block boundary leaves the separator
 with the chunk before it and the chunks leave no gap.
 
-``length_fn`` and ``max_length`` are the hook for a token cap: sizes are
-measured with ``length_fn`` (characters by default), ``max_length`` caps the
-chunk length in those units, and the hard character cap
-``MAX_PRE_APPROVED_CHUNK_CHARS`` always applies on top.
+Sizes are characters; the hard character cap ``MAX_PRE_APPROVED_CHUNK_CHARS``
+applies to every chunk.
 """
 
 from __future__ import annotations
@@ -27,7 +25,7 @@ from ...request_limits import (
     max_chunk_overlap,
 )
 from ..ingestion.base import TextBlock, join_blocks
-from .cutting import Cutter, LengthFn
+from .cutting import Cutter
 from .records import ChunkRecord
 
 Strategy = Literal["structured", "sliding", "table", "audio"]
@@ -163,8 +161,6 @@ def chunk_blocks(
     overlap: int = 200,
     spreadsheet_chunk_size: int = 200,
     audio_chunk_size: float = 60.0,
-    length_fn: LengthFn = len,
-    max_length: Optional[int] = None,
 ) -> List[ChunkRecord]:
     """Chunk ``blocks`` with ``strategy``; deterministic for equal input.
 
@@ -176,8 +172,7 @@ def chunk_blocks(
     seconds; groups start only at segment boundaries, and a group longer than
     the ceiling is still cut inside a segment, on a text boundary. ``chunk_size`` is clamped to
     ``[MIN_CHUNK_SIZE, MAX_PRE_APPROVED_CHUNK_CHARS]`` and ``overlap`` to
-    ``[0, chunk_size // 2]`` characters; under a token cap the overlapped tail is
-    also kept within half the token budget. ``protected`` are document-level ``(start, end)``
+    ``[0, chunk_size // 2]`` characters. ``protected`` are document-level ``(start, end)``
     ranges a cut never falls strictly inside; see ``cutting`` for the one
     case where a chunk outgrows its budget because of one. A chunk is
     whitespace-only only when a block is.
@@ -185,14 +180,13 @@ def chunk_blocks(
     if strategy not in _STRATEGIES:
         raise ValueError(f"unknown chunking strategy: {strategy!r}")
     text = join_blocks(blocks)
-    cutter = Cutter(text, protected, length_fn, MAX_PRE_APPROVED_CHUNK_CHARS)
+    cutter = Cutter(text, protected, MAX_PRE_APPROVED_CHUNK_CHARS)
     if not text:
         return []
     layout = _Layout(blocks, strategy, cutter)
-    ceiling = max(1, max_length) if max_length else MAX_PRE_APPROVED_CHUNK_CHARS
 
     if strategy in ("structured", "sliding"):
-        budget = min(max(chunk_size, MIN_CHUNK_SIZE), MAX_PRE_APPROVED_CHUNK_CHARS, ceiling)
+        budget = min(max(chunk_size, MIN_CHUNK_SIZE), MAX_PRE_APPROVED_CHUNK_CHARS)
         window = min(
             max(overlap, 0),
             max_chunk_overlap(min(max(chunk_size, MIN_CHUNK_SIZE), MAX_PRE_APPROVED_CHUNK_CHARS)),
@@ -210,7 +204,7 @@ def chunk_blocks(
         spans = []
         for lo, hi in zip(edges, edges[1:]):
             usable = inner[bisect_right(inner, lo) : bisect_left(inner, hi)]
-            spans.extend(cutter.pack(lo, hi, usable, ceiling, 0))
+            spans.extend(cutter.pack(lo, hi, usable, MAX_PRE_APPROVED_CHUNK_CHARS, 0))
 
     return [
         layout.record(index, text, strategy, start, end)

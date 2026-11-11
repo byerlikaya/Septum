@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from septum_api.services.document_pipeline import DocumentPipeline
 from septum_api.services.ingestion.base import IngestionResult, TextBlock
 
@@ -185,7 +187,7 @@ async def _ingest(
     """
     from contextlib import asynccontextmanager
 
-    from sanitizer_doubles import CharTokenCounter, PatternDetector, literal
+    from sanitizer_doubles import PatternDetector, literal
     from septum_api.database import build_default_app_settings
     from septum_api.models import Base
     from septum_api.models.document import Chunk, Document
@@ -217,7 +219,6 @@ async def _ingest(
         return detector
 
     monkeypatch.setattr(dp, "create_sanitizer", _create_sanitizer)
-    monkeypatch.setattr(dp, "_token_counter", CharTokenCounter)
     monkeypatch.setattr(dp, "document_map_lock", _map_lock)
     monkeypatch.setattr(dp, "set_document_map", _noop)
     monkeypatch.setattr(dp, "replace_index_for_document", _noop)
@@ -232,7 +233,7 @@ async def _ingest(
     if chunk_records is not None:
         monkeypatch.setattr(
             dp.DocumentPipeline, "_chunk_records",
-            lambda self, fmt, blks, protected, counter: chunk_records(join_blocks(blks)),
+            lambda self, fmt, blks, protected: chunk_records(join_blocks(blks)),
         )
     app_settings = build_default_app_settings()
     for key, value in settings.items():
@@ -469,24 +470,25 @@ async def test_pipeline_logs_never_carry_document_text(tmp_path, monkeypatch, ca
         assert "signed the lease" not in message
 
 
-def test_structured_and_sliding_chunks_fit_both_the_token_cap_and_the_char_setting() -> None:
-    from septum_api.services import document_pipeline as dp
+@pytest.mark.parametrize(
+    ("file_format", "expected_size"), [("pdf", 1200), ("docx", 1200), ("image", 300), ("txt", 300)]
+)
+def test_structured_and_sliding_chunks_follow_the_char_settings(
+    file_format: str, expected_size: int
+) -> None:
+    words = "a bb ccc dddd eeeee ffffff ggggggg hhhhhhhh iiiiiiiii jjjjjjjjjj " * 200
+    pipeline = DocumentPipeline(
+        SimpleNamespace(chunk_size=300, chunk_overlap=60, pdf_chunk_size=1200)
+    )
 
-    class _WordCounter:
-        cap = 12
-
-        def count(self, text: str) -> int:
-            return len(text.split())
-
-    words = "a bb ccc dddd eeeee ffffff ggggggg hhhhhhhh iiiiiiiii jjjjjjjjjj " * 30
-    pipeline = DocumentPipeline(SimpleNamespace(chunk_size=100, chunk_overlap=0))
-
-    chunks = pipeline._chunk_records("image", [TextBlock(words, "text")], [], _WordCounter())
+    chunks = pipeline._chunk_records(file_format, [TextBlock(words, "text")], [])
 
     assert len(chunks) > 5
-    assert all(len(c.text) <= 100 and len(c.text.split()) <= 12 for c in chunks)
-    length = dp._within_both(_WordCounter(), 100)
-    assert length("x" * 100) == 12 and length("x" * 101) == 13
+    assert all(len(c.text) <= expected_size for c in chunks)
+    assert max(len(c.text) for c in chunks) > expected_size * 0.8
+    gaps = [chunks[i].end - chunks[i + 1].start for i in range(len(chunks) - 1)]
+    assert all(0 <= gap <= 60 for gap in gaps)
+    assert sum(gaps) / len(gaps) > 30
 
 
 def test_rows_are_normalized_one_by_one_and_their_offsets_rebuilt() -> None:

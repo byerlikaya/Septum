@@ -19,11 +19,9 @@ from __future__ import annotations
 
 import operator
 from bisect import bisect_left, bisect_right
-from typing import Any, Callable, Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 from septum_core.text_boundaries import BOUNDARY_CHARS, is_script_break
-
-LengthFn = Callable[[str], int]
 
 _SENTENCE_END = frozenset(".!?…。！？।؟۔։።")
 _SPACELESS_END = frozenset("。！？")
@@ -31,7 +29,6 @@ _SPACELESS_END = frozenset("。！？")
 _LEVEL_SENTENCE = 1
 _LEVEL_WHITESPACE = 2
 _LEVEL_WORD = 3
-_REFINEMENTS = 3
 
 
 def _index(value: Any) -> int:
@@ -73,15 +70,12 @@ class Cutter:
         self,
         text: str,
         protected: Iterable[Tuple[int, int]],
-        length_fn: LengthFn,
         cap: int,
     ) -> None:
         self._text = text
         self._ranges = merge_ranges(protected, len(text))
         self._starts = [a for a, _ in self._ranges]
-        self._length_fn = length_fn
         self._cap = cap
-        self._ratio = 0.0
         self._run_lo: List[int] = []
         self._run_hi: List[int] = []
         self._run_ends: List[bool] = []
@@ -141,54 +135,8 @@ class Cutter:
         return 0
 
     def _fit(self, s: int, hi: int, budget: int) -> int:
-        """Largest end ``e`` in ``(s, hi]`` whose text fits ``budget`` and the character cap.
-
-        Measures only near an estimate of where the budget runs out (the
-        characters-per-unit ratio of the previous chunk), widens or narrows
-        geometrically, then bisects the bracket, so a chunk costs a handful
-        of probes of about its own size however long the text is.
-        """
-        limit = min(hi, s + self._cap)
-        if self._length_fn is len:
-            return max(s + 1, min(limit, s + budget))
-        text, measure = self._text, self._length_fn
-        sizes: Dict[int, int] = {}
-
-        def fits(e: int) -> bool:
-            sizes[e] = measure(text[s:e])
-            return sizes[e] <= budget
-
-        good, bad = s + 1, limit + 1
-        probe = max(s + 1, min(limit, s + int(budget * (self._ratio or 1.0)) + 1))
-        up = False
-        for _ in range(_REFINEMENTS):
-            up = fits(probe)
-            if up:
-                good = max(good, probe)
-            else:
-                bad = min(bad, probe)
-            aim = s + int((probe - s) * budget / sizes[probe]) if sizes[probe] > 0 else 0
-            if not good < aim < bad or aim in sizes:
-                break
-            probe = aim
-        step, gallop = 1, True
-        while bad - good > 1:
-            if gallop:
-                nxt = good + step if up else bad - step
-                nxt = min(max(nxt, good + 1), bad - 1)
-            else:
-                nxt = (good + bad) // 2
-            if fits(nxt):
-                good = nxt
-                gallop = gallop and up
-            else:
-                bad = nxt
-                gallop = gallop and not up
-            step *= 2
-        measured = sizes.get(good, 0)
-        if measured > 0:
-            self._ratio = (good - s) / measured
-        return good
+        """Largest end ``e`` in ``(s, hi]`` within ``budget`` characters and the character cap."""
+        return max(s + 1, min(hi, s + self._cap, s + budget))
 
     def _cut(self, s: int, e: int, lowest: int) -> int:
         """Best cut in ``[lowest, e]``, else a hard cut at ``e`` moved out of any range."""
@@ -226,28 +174,6 @@ class Cutter:
         a, b = self._ranges[bisect_left(self._starts, p) - 1]
         return a if a > s else b
 
-    def _fit_overlap(self, c: int, overlap: int, limit: int) -> int:
-        """Largest ``n <= overlap`` whose tail ``text[c - n:c]`` measures at most ``limit``.
-
-        Free for character lengths (a plain minimum). Otherwise one probe at ``overlap`` and, only
-        when it is too long, a bisection of about ``log2(overlap)`` probes.
-        """
-        if overlap <= 0:
-            return overlap
-        if self._length_fn is len:
-            return min(overlap, limit)
-        text, measure = self._text, self._length_fn
-        if measure(text[c - overlap : c]) <= limit:
-            return overlap
-        good, bad = 0, overlap
-        while bad - good > 1:
-            mid = (good + bad) // 2
-            if measure(text[c - mid : c]) <= limit:
-                good = mid
-            else:
-                bad = mid
-        return good
-
     def pack(
         self,
         lo: int,
@@ -256,13 +182,12 @@ class Cutter:
         budget: int,
         overlap: int,
     ) -> List[Tuple[int, int]]:
-        """Cover ``[lo, hi)`` with ranges of at most ``budget`` length units.
+        """Cover ``[lo, hi)`` with ranges of at most ``budget`` characters.
 
         ``anchors`` are preferred cuts (block boundaries); the largest valid
         anchor that fits wins. Inside a stretch with no anchor, cuts follow
         the priority in the module docstring and consecutive ranges overlap
-        by up to ``overlap`` characters, fewer when the overlapped tail would
-        measure more than half of ``budget``. A cut moves the window forward by at
+        by up to ``overlap`` characters, at most half the range. A cut moves the window forward by at
         least half of the nominal step (``budget - overlap``).
         """
         usable = sorted({a for a in anchors if lo < a < hi and self.is_valid(a)})
@@ -283,7 +208,7 @@ class Cutter:
                 if c <= last:
                     s = last
                     continue
-                nxt = self._next_start(s, c, self._fit_overlap(c, min(ov, c - s), budget // 2))
+                nxt = self._next_start(s, c, min(ov, c - s))
             if c >= hi:
                 out.append((s, hi))
                 return out

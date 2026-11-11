@@ -14,7 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from sanitizer_doubles import CharTokenCounter, PatternDetector, literal
+from sanitizer_doubles import PatternDetector, literal
 from septum_api.database import build_default_app_settings
 from septum_api.models import Base
 from septum_api.models.document import Chunk, Document
@@ -70,7 +70,6 @@ async def env(tmp_path, monkeypatch):
 
     monkeypatch.setattr(dp, "create_sanitizer", _create_sanitizer)
     monkeypatch.setattr(dp, "TextNormalizer", _Normalizer)
-    monkeypatch.setattr(dp, "_token_counter", CharTokenCounter)
     monkeypatch.setattr(dp, "document_map_lock", _map_lock)
     monkeypatch.setattr(dp, "set_document_map", _noop)
     monkeypatch.setattr(dp, "replace_index_for_document", _noop)
@@ -276,7 +275,7 @@ def test_each_format_is_cut_with_its_strategy(file_format: str, strategy: str) -
     else:
         blocks = [TextBlock("para one is here.", "paragraph"), TextBlock("para two is here. " * 80, "paragraph")]
 
-    records = pipeline._chunk_records(file_format, blocks, [], CharTokenCounter())
+    records = pipeline._chunk_records(file_format, blocks, [])
 
     assert records and {r.strategy for r in records} == {strategy}
 

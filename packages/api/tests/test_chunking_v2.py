@@ -204,22 +204,6 @@ def test_hard_cut_is_the_last_resort() -> None:
     assert [len(c.text) for c in chunks] == [100, 100, 50]
 
 
-def test_length_function_caps_the_chunk() -> None:
-    rng = random.Random(7)
-    text = _words(rng, 300)
-    chunks = chunk_blocks(
-        [TextBlock(text, "text")],
-        "sliding",
-        chunk_size=1_000,
-        overlap=0,
-        length_fn=lambda s: len(s.split()),
-        max_length=20,
-    )
-
-    _assert_covers(chunks, text)
-    assert all(len(c.text.split()) <= 20 for c in chunks)
-
-
 def test_empty_input_gives_no_chunks() -> None:
     assert chunk_blocks([], "structured") == []
     assert chunk_blocks([TextBlock("", "text")], "sliding") == []
@@ -638,14 +622,14 @@ def test_table_cut_inside_a_protected_cell_moves_to_a_valid_row_edge() -> None:
     assert all(not _strictly_inside(c.start, protected) and not _strictly_inside(c.end, protected) for c in chunks)
 
 
-def test_table_oversize_row_is_split_by_the_length_ceiling() -> None:
-    blocks = [TextBlock("# Sheet: W", "sheet_header", sheet="W"), TextBlock("a\tb\n" + "q" * 500, "rows", sheet="W", row_offsets=[0, 4])]
+def test_table_oversize_row_is_split_by_the_character_cap() -> None:
+    blocks = [TextBlock("# Sheet: W", "sheet_header", sheet="W"), TextBlock("a\tb\n" + "q" * (3 * MAX_PRE_APPROVED_CHUNK_CHARS), "rows", sheet="W", row_offsets=[0, 4])]
     text = join_blocks(blocks)
-    chunks = chunk_blocks(blocks, "table", spreadsheet_chunk_size=2, max_length=120)
+    chunks = chunk_blocks(blocks, "table", spreadsheet_chunk_size=2)
 
     _assert_covers(chunks, text)
-    assert all(len(c.text) <= 120 for c in chunks)
-    assert len(chunks) > 4
+    assert all(len(c.text) <= MAX_PRE_APPROVED_CHUNK_CHARS for c in chunks)
+    assert len(chunks) > 3
 
 
 def test_structured_packs_small_blocks_together_up_to_the_budget() -> None:
@@ -790,103 +774,6 @@ def test_section_title_offsets_point_at_the_raw_title() -> None:
         assert source.startswith(chunk.section_title)
     long = [c for c in chunks if c.section_title and len(c.section_title) == MAX_SECTION_TITLE_CHARS]
     assert long and long[0].section_title_end - long[0].section_title_start == MAX_SECTION_TITLE_CHARS + 50
-
-
-@pytest.mark.parametrize("strategy", ["structured", "sliding"])
-def test_token_cap_probes_stay_near_the_chunk_size(strategy: str) -> None:
-    rng = random.Random(3)
-    paras = [_words(rng, rng.randint(20, 120)) + "." for _ in range(400)]
-    blocks = (
-        [TextBlock(p, "paragraph") for p in paras]
-        if strategy == "structured"
-        else [TextBlock("\n\n".join(paras), "text")]
-    )
-    size = len(join_blocks(blocks))
-    seen = {"calls": 0, "chars": 0, "longest": 0}
-
-    def tokens(value: str) -> int:
-        seen["calls"] += 1
-        seen["chars"] += len(value)
-        seen["longest"] = max(seen["longest"], len(value))
-        return (len(value) + 3) // 4
-
-    chunks = chunk_blocks(blocks, strategy, length_fn=tokens, max_length=128, chunk_size=10**6)
-    assert all(tokens(c.text) <= 128 for c in chunks[:-1])
-    seen.update(calls=0, chars=0, longest=0)
-    chunk_blocks(blocks, strategy, length_fn=tokens, max_length=128, chunk_size=10**6)
-    # A chunk is 128 tokens = about 512 characters; a scan from the chunk start to the end of the
-    # text would probe `size` characters, far above every bound below.
-    assert seen["longest"] <= 4 * 128 * 4
-    assert seen["calls"] / len(chunks) <= 6
-    assert seen["chars"] <= 6 * 128 * 4 * len(chunks)
-    assert seen["chars"] < size * len(chunks) // 50
-
-
-def _word_count(value: str) -> int:
-    return len(value.split())
-
-
-def _quarter_chars(value: str) -> int:
-    return (len(value) + 3) // 4
-
-
-def _script_weighted(value: str) -> int:
-    wide = sum(1 for ch in value if ord(ch) > 0x2E80)
-    return wide + (len(value) - wide + 3) // 4
-
-
-def _swinging_text(rng: random.Random, length: int) -> str:
-    parts: List[str] = []
-    total = 0
-    while total < length:
-        if rng.random() < 0.5:
-            piece = _words(rng, rng.randint(20, 80)) + " "
-        else:
-            piece = "".join(rng.choice("这是一个用于测试的文本它没有标点") for _ in range(rng.randint(30, 200)))
-        parts.append(piece)
-        total += len(piece)
-    return "".join(parts)[:length]
-
-
-def _reference_fit(text: str, s: int, hi: int, budget: int, cap: int, measure) -> int:
-    limit = min(hi, s + cap)
-    best = s + 1
-    for e in range(s + 1, limit + 1):
-        if measure(text[s:e]) > budget:
-            break
-        best = e
-    return best
-
-
-@pytest.mark.parametrize("measure", [_word_count, _quarter_chars, _script_weighted])
-@pytest.mark.parametrize("budget", [1, 3, 17, 120, 900])
-def test_fit_matches_a_linear_reference_for_monotone_length_functions(measure, budget: int) -> None:
-    from septum_api.services.chunking.cutting import Cutter
-
-    for seed in range(8):
-        rng = random.Random(seed)
-        text = _swinging_text(rng, 2500)
-        cap = rng.choice([40, 300, 10**6])
-        cutter = Cutter(text, [], measure, cap)
-        for _ in range(10):
-            s = rng.randrange(0, len(text) - 1)
-            hi = rng.choice([len(text), min(len(text), s + rng.randint(1, 700))])
-            if hi <= s:
-                continue
-            assert cutter._fit(s, hi, budget) == _reference_fit(text, s, hi, budget, cap, measure), (seed, s, hi)
-
-
-@pytest.mark.parametrize("measure", [_word_count, _script_weighted])
-def test_fit_stays_exact_when_walking_a_text_whose_ratio_swings(measure) -> None:
-    from septum_api.services.chunking.cutting import Cutter
-
-    text = _swinging_text(random.Random(99), 4000)
-    cutter = Cutter(text, [], measure, 10**6)
-    s = 0
-    while s < len(text) - 1:
-        expected = _reference_fit(text, s, len(text), 25, 10**6, measure)
-        assert cutter._fit(s, len(text), 25) == expected
-        s = max(s + 1, expected - 3)
 
 
 def _table_reference(blocks: List[TextBlock], cells: int, protected: Sequence[Range]) -> List[Range]:
@@ -1103,10 +990,9 @@ def test_no_offset_of_any_record_or_title_falls_strictly_inside_a_protected_rang
         ranges = _ranges(rng, n) + [(0, k), (k, n), (min(n, ts + 500), min(n, ts + 520)), (ts, min(n, ts + 512))]
         ranges += [(max(0, t - rng.randint(1, 30)), min(n, t + rng.randint(1, 30))) for t in title_starts]
         ranges += [(a, min(n, a + rng.randint(1, 5))) for a in range(0, n, rng.randint(2, 7))]
-        for kwargs in ({}, {"max_length": 1, "length_fn": lambda s: len(s.encode())}):
-            for protected in (ranges, ranges[-40:], [(0, k), (k, n)]):
-                chunks = chunk_blocks(blocks, strategy, protected=protected, chunk_size=MIN_CHUNK_SIZE, overlap=20, **kwargs)
-                _assert_cuts_outside_ranges(chunks, protected, n)
+        for protected in (ranges, ranges[-40:], [(0, k), (k, n)]):
+            chunks = chunk_blocks(blocks, strategy, protected=protected, chunk_size=MIN_CHUNK_SIZE, overlap=20)
+            _assert_cuts_outside_ranges(chunks, protected, n)
 
 
 def test_heading_starting_inside_a_range_moves_the_title_to_the_range_end() -> None:
@@ -1137,7 +1023,7 @@ def test_a_heading_starting_inside_a_range_takes_the_title_from_the_range_end() 
         ([(heading - 3, heading + 4), (heading + 4, heading + 8)], heading + 4),
     ]
     for ranges, expected in cases:
-        cutter = Cutter(text, ranges, len, MAX_PRE_APPROVED_CHUNK_CHARS)
+        cutter = Cutter(text, ranges, MAX_PRE_APPROVED_CHUNK_CHARS)
         first = heading
         while first < heading + 16 and not cutter.is_valid(first):
             first += 1
@@ -1146,5 +1032,5 @@ def test_a_heading_starting_inside_a_range_takes_the_title_from_the_range_end() 
         assert _Layout(blocks, "structured", cutter).title_at(heading + 20) == (title, first, heading + 16)
         chunks = chunk_blocks(blocks, "structured", protected=ranges, chunk_size=100, overlap=0)
         assert (chunks[-1].section_title, chunks[-1].section_title_start) == (title, first)
-    swallowed = Cutter(text, [(heading - 3, heading + 16)], len, MAX_PRE_APPROVED_CHUNK_CHARS)
+    swallowed = Cutter(text, [(heading - 3, heading + 16)], MAX_PRE_APPROVED_CHUNK_CHARS)
     assert _Layout(blocks, "structured", swallowed).title_at(heading + 20) is None

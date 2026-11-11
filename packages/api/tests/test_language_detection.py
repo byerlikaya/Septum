@@ -6,7 +6,6 @@ from collections import Counter
 
 import pytest
 from langdetect import DetectorFactory
-from sanitizer_doubles import CharTokenCounter
 from septum_core.language_resolution import language_table_codes
 from septum_core.spans import DetectionResult
 
@@ -770,7 +769,6 @@ async def test_ingestion_pipeline_masks_in_the_override_language(monkeypatch):
     monkeypatch.setattr(document_pipeline, "create_sanitizer", _sanitizer)
     monkeypatch.setattr(document_pipeline, "TextNormalizer", _Normalizer)
     pipeline = document_pipeline.DocumentPipeline(build_default_app_settings())
-    monkeypatch.setattr(document_pipeline, "_token_counter", CharTokenCounter)
     document = SimpleNamespace(id=9, user_id=None, language_override="tr", detected_language="en")
     with pytest.raises(_Stop):
         await pipeline.run(None, document, "pdf", IngestionResult(text="Ahmet Yılmaz", metadata={}))
@@ -907,7 +905,6 @@ async def test_ingestion_audit_event_records_the_override_language(monkeypatch):
     monkeypatch.setattr(document_pipeline, "recompute_relationships_for_document", _noop)
     monkeypatch.setattr(document_pipeline, "log_pii_detected", _log)
     pipeline = document_pipeline.DocumentPipeline(build_default_app_settings())
-    monkeypatch.setattr(document_pipeline, "_token_counter", CharTokenCounter)
     monkeypatch.setattr(pipeline, "_persist_chunks", _persist)
 
     def _document(override):
@@ -1181,7 +1178,6 @@ async def test_ingestion_ignores_an_override_that_contradicts_the_script(
     monkeypatch.setattr(document_pipeline, "create_sanitizer", _sanitizer)
     monkeypatch.setattr(document_pipeline, "TextNormalizer", _Normalizer)
     pipeline = document_pipeline.DocumentPipeline(build_default_app_settings())
-    monkeypatch.setattr(document_pipeline, "_token_counter", CharTokenCounter)
     document = SimpleNamespace(id=9, user_id=None, language_override=override, detected_language=detected)
     with caplog.at_level(logging.WARNING, logger=db_helpers.__name__):
         with pytest.raises(_Stop):
@@ -1459,7 +1455,6 @@ async def test_pipeline_records_the_masking_language_it_used(monkeypatch):
     monkeypatch.setattr(document_pipeline, "replace_index_for_document", _noop)
     monkeypatch.setattr(document_pipeline, "recompute_relationships_for_document", _noop)
     pipeline = document_pipeline.DocumentPipeline(build_default_app_settings())
-    monkeypatch.setattr(document_pipeline, "_token_counter", CharTokenCounter)
     monkeypatch.setattr(pipeline, "_persist_chunks", _persist)
 
     han = "合同双方应当按照约定全面履行自己的义务。"

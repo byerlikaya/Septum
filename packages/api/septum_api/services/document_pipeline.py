@@ -21,7 +21,6 @@ from ..models.settings import AppSettings
 from ..request_limits import (
     MAX_PRE_APPROVED_CHUNK_CHARS,
     MAX_SECTION_TITLE_CHARS,
-    MIN_CHUNK_SIZE,
     MIN_PDF_CHUNK_SIZE,
 )
 from ..utils.db_helpers import (
@@ -36,7 +35,7 @@ from .audit_logger import (
     log_pii_detected,
 )
 from .bm25_retriever import BM25Retriever, bm25_index_lock
-from .chunking import ChunkRecord, TokenCounter, chunk_blocks
+from .chunking import ChunkRecord, chunk_blocks
 from .document_anon_store import (
     DocumentMapErasureError,
     document_map_lock,
@@ -55,7 +54,7 @@ from .remask_cache import remask_cache
 from .sanitizer import PIISanitizer, ResolvedSpan
 from .sanitizer_factory import DOCUMENT_SANITIZER_ENABLE_OLLAMA, create_sanitizer
 from .text_normalizer import TextNormalizer
-from .vector_store import VectorStore, get_shared_sentence_transformer
+from .vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -172,26 +171,6 @@ _STRATEGY_BY_FORMAT: Dict[str, str] = {
 
 _PAGINATED_STRATEGY_FORMATS = frozenset({"pdf", "docx"})
 """Formats whose structured chunks use the PDF/DOCX chunk size setting."""
-
-
-def _token_counter() -> TokenCounter:
-    """Token counter of the embedder the FAISS index is built with (loads it once)."""
-    return TokenCounter.from_model(get_shared_sentence_transformer())
-
-
-def _within_both(counter: TokenCounter, char_budget: int) -> Callable[[str], int]:
-    """A length in token-cap units that fits the cap only when tokens AND characters fit.
-
-    ``max(tokens, ceil(chars * cap / char_budget))`` is at most ``cap`` exactly
-    when the text has at most ``cap`` tokens and at most ``char_budget``
-    characters, so the character setting stays in force under the token cap.
-    """
-    cap = counter.cap
-
-    def length(text: str) -> int:
-        return max(counter.count(text), -(-len(text) * cap // char_budget))
-
-    return length
 
 
 def _row_texts(block: TextBlock) -> List[str]:
@@ -598,7 +577,7 @@ class DocumentPipeline:
 
         def cut_and_project() -> Tuple[List[ChunkRecord], List[ProjectedChunk]]:
             ranges = protected_ranges(detection, resolved, anon_map)
-            records = self._chunk_records(file_format, blocks, ranges, _token_counter())
+            records = self._chunk_records(file_format, blocks, ranges)
             return records, project(detection, resolved, [(r.start, r.end) for r in records], anon_map)
 
         records, projected = await asyncio.to_thread(cut_and_project)
@@ -614,13 +593,11 @@ class DocumentPipeline:
         file_format: str,
         blocks: Sequence[TextBlock],
         protected: Sequence[Tuple[int, int]],
-        counter: TokenCounter,
     ) -> List[ChunkRecord]:
-        """Cut the document with its format's strategy under the embedder's token cap.
+        """Cut the document with its format's strategy and the character settings.
 
         Table and audio chunks are sized by cells and seconds; structured
-        and sliding chunks must fit both the character setting and the
-        token cap (:func:`_within_both`).
+        and sliding chunks by the format's character size and overlap.
         """
         settings = self._settings
         strategy = _STRATEGY_BY_FORMAT.get(file_format, "sliding")
@@ -628,23 +605,19 @@ class DocumentPipeline:
             return chunk_blocks(
                 blocks, "table", protected=protected,
                 spreadsheet_chunk_size=settings.spreadsheet_chunk_size,
-                length_fn=counter.count, max_length=counter.cap,
             )
         if strategy == "audio":
             return chunk_blocks(
                 blocks, "audio", protected=protected,
                 audio_chunk_size=float(settings.audio_chunk_size),
-                length_fn=counter.count, max_length=counter.cap,
             )
         if file_format in _PAGINATED_STRATEGY_FORMATS:
-            char_budget = max(settings.pdf_chunk_size, MIN_PDF_CHUNK_SIZE)
+            chunk_size = max(settings.pdf_chunk_size, MIN_PDF_CHUNK_SIZE)
         else:
-            char_budget = settings.chunk_size
-        char_budget = min(max(char_budget, MIN_CHUNK_SIZE), MAX_PRE_APPROVED_CHUNK_CHARS)
+            chunk_size = settings.chunk_size
         return chunk_blocks(
             blocks, strategy, protected=protected,
-            chunk_size=MAX_PRE_APPROVED_CHUNK_CHARS, overlap=settings.chunk_overlap,
-            length_fn=_within_both(counter, char_budget), max_length=counter.cap,
+            chunk_size=chunk_size, overlap=settings.chunk_overlap,
         )
 
     async def _index_document(

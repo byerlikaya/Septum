@@ -12,7 +12,6 @@ from __future__ import annotations
 import unicodedata
 from contextlib import asynccontextmanager
 
-from sanitizer_doubles import CharTokenCounter
 from septum_core.spans import DetectionResult, SanitizeResult
 from septum_core.text_utils import normalize_unicode
 
@@ -65,13 +64,12 @@ async def _run_pipeline(tmp_path, monkeypatch, rules=()):
 
     real_chunk_records = dp.DocumentPipeline._chunk_records
 
-    def _spy_chunk_records(self, file_format, blocks, protected, counter):
+    def _spy_chunk_records(self, file_format, blocks, protected):
         seen["chunked"].append("".join(block.text for block in blocks))
-        return real_chunk_records(self, file_format, blocks, protected, counter)
+        return real_chunk_records(self, file_format, blocks, protected)
 
     monkeypatch.setattr(dp, "create_sanitizer", _create_sanitizer)
     monkeypatch.setattr(dp.DocumentPipeline, "_chunk_records", _spy_chunk_records)
-    monkeypatch.setattr(dp, "_token_counter", CharTokenCounter)
     monkeypatch.setattr(dp.DocumentPipeline, "_index_document", _noop)
     monkeypatch.setattr(dp, "document_map_lock", _map_lock)
     monkeypatch.setattr(dp, "set_document_map", _noop)

@@ -1,7 +1,9 @@
-path:packages/api/tests/test_migrations.py
-path:packages/web/src/hooks/__tests__/useChatStream.test.tsx
-path:packages/api/septum_api/main.py
-path:packages/api/septum_api/services/auth.py
-path:packages/api/tests/conftest.py
-path:packages/api/tests/test_settings_chunk_bounds.py
-path:packages/api/tests/test_users_admin_guard.py
+path:packages/api/tests/test_migrations.py  # migrations rewritten to match the ORM models
+path:packages/web/src/hooks/__tests__/useChatStream.test.tsx  # raising calls isolated into dedicated tests
+path:packages/api/septum_api/main.py  # slowapi replaced by the identity-keyed rate limiter
+path:packages/api/septum_api/services/auth.py  # bcrypt moved onto a bounded executor
+path:packages/api/tests/conftest.py  # setup token fixture replaces the open setup path
+path:packages/api/tests/test_settings_chunk_bounds.py  # structured chunk cap moved bounds into settings
+path:packages/api/tests/test_users_admin_guard.py  # admin guard tests merged with the chunk-cap branch
+path:packages/api/tests/test_chunking_tokens.py  # tests the deleted TokenCounter module, removed together with it
+path:packages/api/tests/test_chunking_v2.py  # tests of the deleted length_fn/max_length token-cap chunker API

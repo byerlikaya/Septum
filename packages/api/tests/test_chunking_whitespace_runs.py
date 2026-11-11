@@ -40,7 +40,7 @@ def test_level_matches_the_unmemoised_definition() -> None:
     rng = random.Random(7)
     alphabet = "ab. \n\t!x "
     text = "".join(rng.choice(alphabet) for _ in range(3000))
-    cutter = Cutter(text, [], len, 10_000)
+    cutter = Cutter(text, [], 10_000)
     offsets = list(range(1, len(text) + 1))
     rng.shuffle(offsets)
     for i in offsets:
@@ -67,7 +67,7 @@ def _packing_work(n: int) -> tuple[int, float]:
             return _Char(item) if isinstance(key, int) else item
 
     text = _Text("start" + " " * n + "end")
-    cutter = Cutter(text, [], len, 10_000)
+    cutter = Cutter(text, [], 10_000)
     started = time.perf_counter()
     ranges = cutter.pack(0, len(text), [], 1_000, 100)
     elapsed = time.perf_counter() - started
@@ -85,7 +85,7 @@ def test_a_long_whitespace_run_is_packed_in_linear_time() -> None:
 
 def test_a_long_whitespace_run_is_memoised_in_constant_space() -> None:
     text = "start" + " " * 1_000_000 + "end"
-    cutter = Cutter(text, [], len, 20_000)
+    cutter = Cutter(text, [], 20_000)
     ranges = cutter.pack(0, len(text), [], 800, 200)
     assert ranges[0][0] == 0 and ranges[-1][1] == len(text)
     assert len(cutter._run_lo) <= 2

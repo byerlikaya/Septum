@@ -73,12 +73,3 @@ class PatternDetector:
             detected_spans=resolved,
         )
 
-
-class CharTokenCounter:
-    """``TokenCounter`` double: one token per character, with a fixed cap."""
-
-    def __init__(self, cap: int = 10_000) -> None:
-        self.cap = cap
-
-    def count(self, text: str) -> int:
-        return len(text)

@@ -17,7 +17,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from sanitizer_doubles import CharTokenCounter
 from septum_api.errors import ChunkTooLargeError
 from septum_api.models.entity_detection import EntityDetection
 from septum_api.request_limits import MAX_PRE_APPROVED_CHUNK_CHARS
@@ -147,9 +146,8 @@ def env(monkeypatch):
 
     monkeypatch.setattr(dp, "TextNormalizer", _Normalizer)
     monkeypatch.setattr(dp, "supported_language_code", lambda code: f"sup:{code}")
-    monkeypatch.setattr(dp, "_token_counter", CharTokenCounter)
 
-    def chunk_records(self, file_format, blocks, protected, counter):
+    def chunk_records(self, file_format, blocks, protected):
         events.append(("chunk", file_format, list(protected)))
         text = "\n".join(b.text for b in blocks)
         return state.get("records") or _block_records(text, blocks)
