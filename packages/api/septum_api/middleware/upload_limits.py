@@ -25,6 +25,13 @@ from ..env_flags import env_int
 MAX_UPLOAD_BYTES = env_int("MAX_UPLOAD_BYTES", 500 * 1024 * 1024, 1, 2**40)
 """Largest file an upload may carry; the endpoint refuses more with 413."""
 
+MAX_EXTRACTED_TEXT_CHARS = env_int("MAX_EXTRACTED_TEXT_CHARS", 10_000_000, 1, 2**31 - 1)
+"""Most characters of normalized extracted text a document may carry into detection.
+
+Counts characters of the text after normalization; a longer document fails
+with ``extracted_text_too_large`` instead of being truncated.
+"""
+
 MULTIPART_OVERHEAD_BYTES = 64 * 1024
 """Room for multipart boundaries and part headers on top of the file itself."""
 

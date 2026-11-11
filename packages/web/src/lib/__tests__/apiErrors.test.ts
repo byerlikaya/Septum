@@ -109,6 +109,18 @@ describe("chunk too large ingestion code", () => {
   });
 });
 
+describe("extracted text too large ingestion code", () => {
+  it("maps extracted_text_too_large in the ingestion map to a key present in en and tr", () => {
+    const en: Record<string, string> = enMessages;
+    const tr: Record<string, string> = trMessages;
+    expect(translateErrorCode("extracted_text_too_large", t, INGESTION_ERROR_KEYS)).toBe(
+      "errors.extractedTextTooLarge",
+    );
+    expect(en["errors.extractedTextTooLarge"].trim()).not.toBe("");
+    expect(tr["errors.extractedTextTooLarge"].trim()).not.toBe("");
+  });
+});
+
 describe("chat document-consistency codes", () => {
   it("maps document_changed and map_conflict to translated keys", () => {
     expect(translateErrorCode("document_changed", t, CHAT_STREAM_ERROR_KEYS)).toBe(

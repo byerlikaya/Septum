@@ -26,6 +26,7 @@ the MCP layer convert a failing call into an ``isError`` tool result
 without re-parsing exception traces.
 """
 
+import functools
 import logging
 import os
 import re
@@ -57,6 +58,9 @@ logger = logging.getLogger(__name__)
 
 
 _DEFAULT_MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
+_DEFAULT_MAX_TEXT_CHARS = 10_000_000
+_MAX_TEXT_CHARS_ENV = "MAX_EXTRACTED_TEXT_CHARS"
+_MAX_TEXT_CHARS_BOUND = 2**31 - 1
 _BRACKET_TOKEN = re.compile(r"\[[^\[\]]+\]")
 
 
@@ -205,6 +209,47 @@ def _scan_file_max_size() -> int:
     except ValueError:
         return _DEFAULT_MAX_FILE_SIZE_BYTES
     return max(1, value)
+
+
+def _max_text_chars() -> int:
+    """Return the character cap for text handed to detection.
+
+    Reads ``MAX_EXTRACTED_TEXT_CHARS`` on each call. An unset or blank value
+    gives the default silently; an unparsable one, one below 1 or one above
+    the API's bound gives the default and logs one warning naming the
+    variable but not its value, so the cap always applies.
+    """
+    raw = os.getenv(_MAX_TEXT_CHARS_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_MAX_TEXT_CHARS
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if 1 <= value <= _MAX_TEXT_CHARS_BOUND:
+        return value
+    _warn_invalid_text_cap_once()
+    return _DEFAULT_MAX_TEXT_CHARS
+
+
+@functools.lru_cache(maxsize=1)
+def _warn_invalid_text_cap_once() -> None:
+    logger.warning(
+        "%s is invalid or out of range (1..%d); using the default",
+        _MAX_TEXT_CHARS_ENV,
+        _MAX_TEXT_CHARS_BOUND,
+    )
+
+
+def _text_too_large(text: str) -> Optional[str]:
+    """Return a content-free refusal when ``text`` exceeds the cap, else ``None``."""
+    limit = _max_text_chars()
+    if len(text) <= limit:
+        return None
+    return (
+        f"extracted_text_too_large: text exceeds the {_MAX_TEXT_CHARS_ENV} "
+        f"limit of {limit} characters."
+    )
 
 
 _TEXT_MUST_BE_NON_EMPTY = "'text' must be a non-empty string."
@@ -386,6 +431,9 @@ def mask_text(
     raw_text = _require_string(text)
     if raw_text is None:
         return _err(_TEXT_MUST_BE_NON_EMPTY)
+    refusal = _text_too_large(raw_text)
+    if refusal is not None:
+        return _err(refusal)
 
     lang = _require_string(language) or "en"
     try:
@@ -517,6 +565,9 @@ def detect_pii(
     raw_text = _require_string(text)
     if raw_text is None:
         return _err(_TEXT_MUST_BE_NON_EMPTY)
+    refusal = _text_too_large(raw_text)
+    if refusal is not None:
+        return _err(refusal)
 
     lang = _require_string(language) or "en"
     try:
@@ -583,6 +634,9 @@ def scan_file(
         return _err(_read_error_message(read_result, target.max_bytes))
     if not read_result.text.strip():
         return _err("file_path is empty or contains no extractable text.")
+    refusal = _text_too_large(read_result.text)
+    if refusal is not None:
+        return _err(refusal)
 
     do_mask = bool(mask)
     lang = _require_string(language) or "en"

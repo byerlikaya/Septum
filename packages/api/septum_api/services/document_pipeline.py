@@ -13,7 +13,13 @@ from septum_core.text_utils import normalize_unicode
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..errors import ChunkTooLargeError, ContentFreeError, DocumentTextMismatchError
+from ..errors import (
+    ChunkTooLargeError,
+    ContentFreeError,
+    DocumentTextMismatchError,
+    ExtractedTextTooLargeError,
+)
+from ..middleware import upload_limits
 from ..models.document import Chunk as DocumentChunk
 from ..models.document import Document
 from ..models.entity_detection import EntityDetection
@@ -476,6 +482,11 @@ class DocumentPipeline:
         rules = await TextNormalizer().compile(db)
         blocks = _normalized_blocks(ingestion_result.blocks, rules)
         text = join_blocks(blocks)
+        if len(text) > upload_limits.MAX_EXTRACTED_TEXT_CHARS:
+            raise ExtractedTextTooLargeError(
+                "Extracted text exceeds the MAX_EXTRACTED_TEXT_CHARS limit "
+                f"of {upload_limits.MAX_EXTRACTED_TEXT_CHARS} characters."
+            )
         judged_override = supported_language_code(document.language_override)
         language, language_source = masking_language(document, text)
         anon_map = AnonymizationMap(document_id=document.id, language=language)

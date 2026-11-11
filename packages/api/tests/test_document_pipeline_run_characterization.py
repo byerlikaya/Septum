@@ -17,13 +17,15 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from septum_api.errors import ChunkTooLargeError
+from septum_core.spans import DetectedSpan, DetectionResult, SanitizeResult
+
+from septum_api.errors import ChunkTooLargeError, ExtractedTextTooLargeError
+from septum_api.middleware import upload_limits
 from septum_api.models.entity_detection import EntityDetection
 from septum_api.request_limits import MAX_PRE_APPROVED_CHUNK_CHARS
 from septum_api.services import document_pipeline as dp
 from septum_api.services.chunking import ChunkRecord
 from septum_api.services.ingestion.base import IngestionResult, TextBlock, block_starts
-from septum_core.spans import DetectedSpan, DetectionResult, SanitizeResult
 
 
 class _Db:
@@ -472,6 +474,24 @@ async def test_detector_text_that_differs_from_the_blocks_fails_closed(env, monk
     assert "apply" not in kinds and "persist" not in kinds
 
 
+async def test_extracted_text_at_the_cap_is_processed(env, monkeypatch):
+    monkeypatch.setattr(upload_limits, "MAX_EXTRACTED_TEXT_CHARS", len(TEXT))
+    await _run(env)
+    assert any(e[0] == "detect" for e in env.events)
+
+
+async def test_extracted_text_over_the_cap_fails_before_detection_without_text(env, monkeypatch):
+    monkeypatch.setattr(upload_limits, "MAX_EXTRACTED_TEXT_CHARS", len(TEXT) - 1)
+    with pytest.raises(ExtractedTextTooLargeError) as caught:
+        await _run(env)
+    assert caught.value.code == "extracted_text_too_large"
+    assert "MAX_EXTRACTED_TEXT_CHARS" in str(caught.value)
+    assert "Alice" not in str(caught.value)
+    assert str(len(TEXT)) not in str(caught.value)
+    kinds = [e[0] for e in env.events]
+    assert not {"detect", "apply", "persist"} & set(kinds)
+
+
 async def test_masked_chunk_over_the_limit_fails_without_text(env):
     name = "Alice" * (MAX_PRE_APPROVED_CHUNK_CHARS // 5 + 1)
     env.state["blocks"] = [TextBlock(name, "text")]
@@ -503,7 +523,10 @@ async def test_oversize_raw_chunk_is_allowed_when_its_masked_text_fits(env):
 
 async def test_ingestion_runs_without_a_local_model_call_budget(env):
     from septum_api.services import ollama_call_budget as budget_module
-    from septum_api.services.ollama_detection_runner import DetectionCall, run_detection_calls
+    from septum_api.services.ollama_detection_runner import (
+        DetectionCall,
+        run_detection_calls,
+    )
     from septum_api.services.prompts import DetectionPrompt
 
     seen: list[Any] = []
