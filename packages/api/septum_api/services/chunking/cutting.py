@@ -31,6 +31,7 @@ _SPACELESS_END = frozenset("。！？")
 _LEVEL_SENTENCE = 1
 _LEVEL_WHITESPACE = 2
 _LEVEL_WORD = 3
+_REFINEMENTS = 3
 
 
 def _index(value: Any) -> int:
@@ -126,14 +127,15 @@ class Cutter:
 
         good, bad = s + 1, limit + 1
         probe = max(s + 1, min(limit, s + int(budget * (self._ratio or 1.0)) + 1))
-        for refine in (True, False):
+        up = False
+        for _ in range(_REFINEMENTS):
             up = fits(probe)
             if up:
                 good = max(good, probe)
             else:
                 bad = min(bad, probe)
             aim = s + int((probe - s) * budget / sizes[probe]) if sizes[probe] > 0 else 0
-            if not refine or not good < aim < bad:
+            if not good < aim < bad or aim in sizes:
                 break
             probe = aim
         step, gallop = 1, True
