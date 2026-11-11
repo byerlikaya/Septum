@@ -31,6 +31,7 @@ from septum_api.routers import chat as chat_module
 from septum_api.routers import documents as documents_module
 from septum_api.services import document_anon_store, ollama_client
 from septum_api.services.anonymization_map import AnonymizationMap
+from septum_api.services.ingestion.base import IngestionResult
 from septum_api.services.llm_router import LLMRouter
 from septum_api.services.pii_gate import gate_untrusted_texts
 from septum_api.services.policy_composer import PolicyComposer
@@ -713,11 +714,10 @@ async def test_ingestion_with_a_failing_rule_marks_the_document_failed_with_the_
     doc_id, _ = await env.add_document(status="processing")
 
     async def _ingest(**kwargs: Any) -> Any:
-        return SimpleNamespace(
+        return IngestionResult(
             text=f"Status report. The {SECRET} launch moves to next quarter.",
             confidence=1.0,
             metadata={},
-            warnings=[],
         )
 
     monkeypatch.setattr(documents_module._INGESTION_ROUTER, "ingest", _ingest)

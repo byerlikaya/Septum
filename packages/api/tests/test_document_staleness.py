@@ -34,6 +34,7 @@ from septum_api.services import document_anon_store, pii_gate
 from septum_api.services import document_pipeline as dp
 from septum_api.services.anonymization_map import AnonymizationMap
 from septum_api.services.approval_gate import ApprovalChunk, ApprovalDecision
+from septum_api.services.ingestion.base import IngestionResult
 from septum_api.services.llm_router import LLMRouter
 from septum_api.services.policy_snapshot import build_policy_snapshot
 from septum_api.services.remask_cache import remask_cache
@@ -264,15 +265,7 @@ class TestSnapshot:
         async def _noop(*args, **kwargs):
             return None
 
-        async def _no_chunks(self, file_format, text):
-            return []
-
-        async def _persist(self, db, document_id, chunks, raw_texts):
-            return []
-
         monkeypatch.setattr(dp, "create_sanitizer", _noop)
-        monkeypatch.setattr(dp.DocumentPipeline, "_build_chunks", _no_chunks)
-        monkeypatch.setattr(dp.DocumentPipeline, "_persist_chunks", _persist)
         monkeypatch.setattr(dp, "document_map_lock", _map_lock)
         monkeypatch.setattr(dp, "set_document_map", _noop)
         monkeypatch.setattr(dp, "replace_index_for_document", _noop)
@@ -285,8 +278,7 @@ class TestSnapshot:
                 db=session,
                 document=doc,
                 file_format="pdf",
-                ingested_text="",
-                ingestion_confidence=None,
+                ingestion_result=IngestionResult(text="", metadata={}),
             )
 
         async with env.session_maker() as session:
@@ -354,6 +346,44 @@ class TestStalenessFields:
 
         doc_id = await env.add_document(_hipaa_types())
         monkeypatch.setattr(policy_snapshot, "DETECTOR_VERSION", "next")
+
+        assert (await env.get_doc(doc_id))["needs_reprocessing"] is True
+
+    async def test_new_chunker_version_flags_documents(
+        self, env: _Env, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from septum_api.services import policy_snapshot
+
+        doc_id = await env.add_document(_hipaa_types())
+        assert (await env.get_doc(doc_id))["needs_reprocessing"] is False
+        monkeypatch.setattr(policy_snapshot, "CHUNKER_VERSION", "next")
+
+        doc = await env.get_doc(doc_id)
+        assert doc["needs_reprocessing"] is True
+        assert doc["missing_entity_types"] == []
+
+    async def test_digest_recorded_before_the_chunker_version_is_stale(self, env: _Env) -> None:
+        import hashlib
+        import json
+
+        from septum_api.services.policy_snapshot import detection_settings
+        from septum_core import DETECTOR_VERSION
+
+        from septum_api.services.chunking import CHUNKER_VERSION
+
+        def digest_of(fields: dict) -> str:
+            canonical = json.dumps(fields, sort_keys=True, ensure_ascii=False)
+            return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+        before_chunker = {
+            "detector": DETECTOR_VERSION,
+            "custom": [],
+            "non_pii": [],
+            "settings": list(detection_settings(build_default_app_settings())),
+        }
+        assert digest_of({**before_chunker, "chunker": CHUNKER_VERSION}) == _current_digest()
+        digest = digest_of(before_chunker)
+        doc_id = await env.add_document(_hipaa_types(), digest=digest)
 
         assert (await env.get_doc(doc_id))["needs_reprocessing"] is True
 

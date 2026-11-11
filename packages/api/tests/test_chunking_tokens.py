@@ -196,6 +196,15 @@ def test_from_model_rejects_a_model_with_no_room_for_text() -> None:
         TokenCounter.from_model(_FakeModel(max_seq_length=2, specials=2))
 
 
+def test_pipeline_token_counter_uses_the_index_embedder(counter: TokenCounter) -> None:
+    from septum_api.services import document_pipeline
+
+    pipeline_counter = document_pipeline._token_counter()
+
+    assert pipeline_counter.cap == counter.cap
+    assert pipeline_counter.count(PARAGRAPHS[1]) == counter.count(PARAGRAPHS[1])
+
+
 def _shared_lengths(chunks: List[Any]) -> List[int]:
     return [max(0, a.end - b.start) for a, b in zip(chunks, chunks[1:])]
 

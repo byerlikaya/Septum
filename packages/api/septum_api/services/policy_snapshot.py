@@ -3,15 +3,16 @@
 A document records the policy its chunks were sanitized under: the sorted
 entity types (``Document.sanitized_entity_types``) and a digest
 (``Document.sanitized_policy_digest``) of what decides detection beyond the
-types: the detector version of septum-core, the definitions of the active
-custom recognizers and non-PII (allow-list) rules, and the settings that
+types: the detector version of septum-core, the chunker version, the
+definitions of the active custom recognizers and non-PII (allow-list)
+rules, and the settings that
 decide which detection layers run (see :func:`detection_settings`). A
 completed document is stale when
 
 * the current policy names an entity type the snapshot lacks (a snapshot with
   more types than the current policy never flags: over-masking is safe), or
 * the digest is missing or differs from the current one (a new detector
-  version, a custom recognizer added, edited or removed, a non-PII rule
+  or chunker version, a custom recognizer added, edited or removed, a non-PII rule
   added, edited or removed — removing one is the case that matters, since
   the current policy then masks values the stored chunks left in clear — or
   a detection layer, NER model or Ollama validation model changed).
@@ -39,6 +40,7 @@ from ..models.document import Document
 from ..models.regulation import CustomRecognizer, NonPiiRule, RegulationRuleset
 from ..models.settings import AppSettings
 from ..utils.db_helpers import effective_masking_language
+from .chunking import CHUNKER_VERSION
 
 _CUSTOM_DEFINITION_COLUMNS = (
     CustomRecognizer.entity_type,
@@ -236,8 +238,8 @@ def build_policy_snapshot(
 
     The entity types are the union the policy composer builds: every active
     regulation's types plus each active custom recognizer's type. The digest
-    is the SHA-256 of a canonical JSON form of the detector version, the
-    sorted custom recognizer and non-PII rule definitions and the detection
+    is the SHA-256 of a canonical JSON form of the detector and chunker
+    versions, the sorted custom recognizer and non-PII rule definitions and the detection
     settings (``detection``, from :func:`detection_settings`). ``None``
     stands for the default settings of a fresh install; production callers
     always pass the settings row their sanitizer uses.
@@ -254,6 +256,7 @@ def build_policy_snapshot(
     canonical = json.dumps(
         {
             "detector": DETECTOR_VERSION,
+            "chunker": CHUNKER_VERSION,
             "custom": _canonical(definitions),
             "non_pii": _canonical(non_pii_definitions),
             "settings": list(detection),

@@ -363,11 +363,11 @@ class TestBackgroundAndFailures:
 
         for doc_id in range(4):
             async with sqlite_sessions() as db:
-                await documents_router._record_background_failure(
+                await documents_router.record_background_failure(
                     db, doc_id, RuntimeError("ingestion failed"), user_id=7
                 )
         async with sqlite_sessions() as db:
-            await documents_router._record_background_failure(
+            await documents_router.record_background_failure(
                 db, 99, RuntimeError("ingestion failed"), user_id=8
             )
         async with sqlite_sessions() as db:

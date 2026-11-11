@@ -20,6 +20,7 @@ from septum_api.models.document import Document
 from septum_api.models.settings import AppSettings
 from septum_api.models.user import User
 from septum_api.services import document_pipeline as dp
+from septum_api.services.ingestion.base import IngestionResult
 from septum_api.services.policy_snapshot import current_policy_snapshot
 from septum_api.utils.auth_dependency import get_current_user
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -167,12 +168,6 @@ async def test_pipeline_digest_uses_the_settings_it_sanitized_with(
     async def _noop(*args, **kwargs):
         return None
 
-    async def _no_chunks(self, file_format, text):
-        return []
-
-    async def _persist(self, db, document_id, chunks, raw_texts):
-        return []
-
     for name, value in (
         ("create_sanitizer", _noop),
         ("document_map_lock", _map_lock),
@@ -181,8 +176,6 @@ async def test_pipeline_digest_uses_the_settings_it_sanitized_with(
         ("recompute_relationships_for_document", _noop),
     ):
         monkeypatch.setattr(dp, name, value)
-    monkeypatch.setattr(dp.DocumentPipeline, "_build_chunks", _no_chunks)
-    monkeypatch.setattr(dp.DocumentPipeline, "_persist_chunks", _persist)
     await _update_settings(env, use_ner_layer=False, ner_model_overrides={"en": "acme/ner"})
 
     async with env["sm"]() as session:
@@ -197,7 +190,7 @@ async def test_pipeline_digest_uses_the_settings_it_sanitized_with(
         await session.commit()
         await dp.DocumentPipeline(settings=settings).run(
             db=session, document=doc, file_format="pdf",
-            ingested_text="", ingestion_confidence=None,
+            ingestion_result=IngestionResult(text="", metadata={}),
         )
         expected = (await current_policy_snapshot(session)).digest
 

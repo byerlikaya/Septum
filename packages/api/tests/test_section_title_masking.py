@@ -14,9 +14,10 @@ from typing import Optional
 import pytest
 from septum_api.services import pii_gate
 from septum_api.services.anonymization_map import AnonymizationMap
-from septum_api.services.chunking_strategy import Chunk as SemanticChunk
-from septum_api.services.document_pipeline import _mask_section_titles, _sanitize_chunks
-from septum_core.spans import SanitizeResult
+from sanitizer_doubles import PatternDetector, literal
+from septum_api.request_limits import MAX_SECTION_TITLE_CHARS
+from septum_api.services.chunking import ChunkRecord
+from septum_api.services.document_pipeline import _masked_titles
 
 
 def _mask_title(
@@ -32,15 +33,6 @@ def _contract_map() -> AnonymizationMap:
     amap.add_entity("TR94 0006 2000 1010 0007 1234 56", "IBAN")
     amap.add_entity("Ahmet Çelik", "PERSON_NAME")
     return amap
-
-
-class _LabelledIbanSanitizer:
-    """Masks only the IBAN value, as the real sanitizer would."""
-
-    def sanitize(self, text: str, language: str, anon_map: AnonymizationMap) -> SanitizeResult:
-        value = "TR94 0006 2000 1010 0007 1234 56"
-        placeholder = anon_map.add_entity(value, "IBAN")
-        return SanitizeResult(sanitized_text=text.replace(value, placeholder), entity_count=1)
 
 
 FIRST_IBAN = "TR94 0006 2000 1010 0007 1234 56"
@@ -117,64 +109,12 @@ def test_title_without_a_map_is_dropped() -> None:
     assert _mask_title(None, "", None) is None
 
 
-def test_ingestion_masks_every_title_once_the_map_is_complete() -> None:
-    amap = _contract_map()
-    raw = ["IBAN: : TR94 0006 2000 1010 0007 1234 56\nAd Soyad: Ahmet Çelik", "devam eden metin"]
-    title = "IBAN: : TR94 0006 2000 1010 0007 1234 56"
-    chunks = [
-        SemanticChunk(text="IBAN: : [IBAN_1]\nAd Soyad: [PERSON_NAME_1]", index=0, section_title=title),
-        SemanticChunk(text="devam eden metin", index=1, section_title=title),
-    ]
-
-    _mask_section_titles(chunks, raw, amap)
-
-    assert [c.section_title for c in chunks] == ["IBAN: : [IBAN_1]", "IBAN: : [IBAN_1]"]
-
-
-def test_ingestion_title_in_no_raw_text_and_missing_title() -> None:
-    chunks = [
-        SemanticChunk(text="a", index=0, section_title="Ad Soyad: Ahmet Çelik, IBAN TR94 0006"),
-        SemanticChunk(text="b", index=1, section_title=None),
-    ]
-
-    _mask_section_titles(chunks, ["a", "b"], _contract_map())
-
-    assert [c.section_title for c in chunks] == ["Ad Soyad: [PERSON_NAME_1], IBAN [IBAN_1]", None]
-
-
-async def test_sanitize_chunks_stores_masked_titles() -> None:
-    title = "IBAN: TR94 0006 2000 1010 0007 1234 56"
-    raw = f"{title}\nAd Soyad: X"
-    chunk = SemanticChunk(text=raw, index=0, section_title=title)
-
-    result = await _sanitize_chunks(
-        _LabelledIbanSanitizer(), [chunk], [raw], "tr",
-        AnonymizationMap(document_id=1, language="tr"), lambda _: None,
-    )
-
-    [stored] = result.stored_chunks
-    assert stored.section_title == "IBAN: [IBAN_1]"
-    assert "TR94" not in stored.section_title
-
-
 def test_heading_line_decides_which_value_a_cut_title_opens() -> None:
     title = SECOND_LINE[:15]
 
     assert _mask_title(title, f"x\n{SECOND_LINE}\n", _two_iban_map()) == (
         "IBAN: [IBAN_2]"
     )
-
-
-def test_ingestion_reads_the_heading_line_from_the_chunk_that_holds_it() -> None:
-    title = SECOND_LINE[:15]
-    chunks = [
-        SemanticChunk(text="a", index=0, section_title=title),
-        SemanticChunk(text="b", index=1, section_title=title),
-    ]
-
-    _mask_section_titles(chunks, ["no heading here", f"x\n{SECOND_LINE}\n"], _two_iban_map())
-
-    assert [c.section_title for c in chunks] == ["IBAN: [IBAN_2]", "IBAN: [IBAN_2]"]
 
 
 @pytest.mark.parametrize(
@@ -344,3 +284,74 @@ def test_cut_tail_in_a_script_without_spaces_masks() -> None:
 
     assert pii_gate.mask_known_entities("联系人张三丰", amap) == "联系人[PERSON_NAME_1]"
     assert _mask_title("联系人张三", "", amap) == "联系人[PERSON_NAME_1]"
+
+
+def _ingestion_titles(
+    text: str, titles: list[tuple[Optional[str], Optional[int], Optional[int]]], *rules
+) -> list[Optional[str]]:
+    """Titles as the pipeline stores them: projected from the whole document, then cut."""
+    detector = PatternDetector(*rules)
+    amap = AnonymizationMap(document_id=1, language="tr")
+    detection = detector.detect(text, "tr")
+    resolved = detector.apply(detection, amap).detected_spans
+    records = [
+        ChunkRecord(
+            index=i, start=0, end=len(text), text=text, strategy="structured",
+            section_title=title, section_title_start=start, section_title_end=end,
+        )
+        for i, (title, start, end) in enumerate(titles)
+    ]
+    return _masked_titles(detection, resolved, amap, records)
+
+
+def test_ingestion_title_cut_inside_a_value_is_projected_whole() -> None:
+    heading = f"IBAN: {FIRST_IBAN}"
+    text = f"{heading}\nAd Soyad: X"
+
+    stored = _ingestion_titles(
+        text, [(heading[:15], 0, len(heading))], literal(FIRST_IBAN, "IBAN")
+    )
+
+    assert stored == ["IBAN: [IBAN_1]"]
+    assert all("TR94" not in title for title in stored)
+
+
+def test_ingestion_missing_and_empty_titles_are_kept_and_unusable_ones_dropped() -> None:
+    text = f"IBAN: {FIRST_IBAN}"
+
+    stored = _ingestion_titles(
+        text,
+        [(None, None, None), ("", 0, 4), ("IBAN", None, None)],
+        literal(FIRST_IBAN, "IBAN"),
+    )
+
+    assert stored == [None, "", None]
+
+
+def test_ingestion_long_title_is_cut_before_a_placeholder_it_would_split() -> None:
+    lead = "x" * (MAX_SECTION_TITLE_CHARS - 5)
+    heading = f"{lead} {FIRST_IBAN} tail"
+
+    [stored] = _ingestion_titles(
+        heading, [(heading[:MAX_SECTION_TITLE_CHARS], 0, len(heading))],
+        literal(FIRST_IBAN, "IBAN"),
+    )
+
+    assert stored == f"{lead} "
+    assert len(stored) <= MAX_SECTION_TITLE_CHARS
+
+
+def test_ingestion_chunk_under_a_heading_carries_that_headings_masked_title() -> None:
+    heading = f"IBAN: {FIRST_IBAN}"
+    text = f"{heading}\nAd Soyad: X\ndevam eden metin"
+    body_start = len(heading) + 1
+
+    stored = _ingestion_titles(
+        text,
+        [(heading, 0, len(heading)), (heading, 0, len(heading))],
+        literal(FIRST_IBAN, "IBAN"),
+    )
+
+    assert body_start < len(text)
+    assert stored == ["IBAN: [IBAN_1]", "IBAN: [IBAN_1]"]
+    assert all(FIRST_IBAN not in title and "TR94" not in title for title in stored)

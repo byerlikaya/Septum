@@ -80,6 +80,24 @@ class OllamaCallBudgetExceededError(LocalModelUnavailableError):
     detail = LOCAL_MODEL_BUDGET_EXCEEDED_DETAIL
 
 
+CHUNK_TOO_LARGE_CODE = "chunk_too_large"
+
+
+class ChunkTooLargeError(ContentFreeError, RuntimeError):
+    """A chunk is still longer than the chunk limit after masking.
+
+    Raised by the document pipeline before anything is stored. Masked text is
+    never truncated, so the document fails instead; the message names only
+    the limit, never the document's text.
+    """
+
+    code = CHUNK_TOO_LARGE_CODE
+
+
+class DocumentTextMismatchError(ContentFreeError, RuntimeError):
+    """The detector normalized the document text differently from the chunker's blocks."""
+
+
 class CodedHTTPError(HTTPException):
     """HTTP error with a machine-readable ``code`` in the response body.
 

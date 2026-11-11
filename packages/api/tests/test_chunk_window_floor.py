@@ -14,8 +14,10 @@ from septum_api.request_limits import (
     MAX_PRE_APPROVED_CHUNK_CHARS,
     MIN_CHUNK_SIZE,
 )
+from sanitizer_doubles import CharTokenCounter
 from septum_api.services.chunking_strategy import SlidingWindowChunker
 from septum_api.services.document_pipeline import DocumentPipeline
+from septum_api.services.ingestion.base import TextBlock
 
 TEXT = "x" * 10_000
 NO_OVERLAP_CHUNKS = -(-len(TEXT) // MIN_CHUNK_SIZE)
@@ -45,16 +47,16 @@ def test_valid_settings_are_used_unchanged() -> None:
     assert [len(chunk.text) for chunk in chunks] == [800, 800, 800]
 
 
-def _pipeline_with(**settings: int) -> SimpleNamespace:
-    return SimpleNamespace(
-        _settings=SimpleNamespace(**settings),
-        _merge_title_chunks=DocumentPipeline._merge_title_chunks,
-    )
+def _pipeline_with(**settings: int) -> DocumentPipeline:
+    return DocumentPipeline(SimpleNamespace(**settings))
 
 
-async def test_pipeline_text_chunks_from_a_crawling_stored_pair_stay_bounded() -> None:
+def test_pipeline_text_chunks_from_a_crawling_stored_pair_stay_bounded() -> None:
     pipeline = _pipeline_with(chunk_size=100, chunk_overlap=99, pdf_chunk_size=1200)
 
-    chunks = await DocumentPipeline._build_chunks(pipeline, "txt", TEXT)
+    chunks = pipeline._chunk_records(
+        "image", [TextBlock(TEXT, "text")], [], CharTokenCounter(cap=MAX_PRE_APPROVED_CHUNK_CHARS)
+    )
 
     assert len(chunks) <= 2 * NO_OVERLAP_CHUNKS + 1
+    assert all(len(chunk.text) <= MIN_CHUNK_SIZE for chunk in chunks)

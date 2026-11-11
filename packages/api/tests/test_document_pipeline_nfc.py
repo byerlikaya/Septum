@@ -1,4 +1,4 @@
-"""The document pipeline composes Unicode to NFC once, before chunking.
+"""The document pipeline composes Unicode to NFC before detection and chunking.
 
 The detector composes its input before computing span offsets, so if the
 preview text (``transcription_text``), the normalization rules and the
@@ -12,9 +12,11 @@ from __future__ import annotations
 import unicodedata
 from contextlib import asynccontextmanager
 
-from septum_core.spans import SanitizeResult
+from sanitizer_doubles import CharTokenCounter
+from septum_core.spans import DetectionResult, SanitizeResult
+from septum_core.text_utils import normalize_unicode
 
-from septum_api.services.chunking_strategy import Chunk as SemanticChunk
+from septum_api.services.ingestion.base import IngestionResult
 
 _COMPOSED = "Şule Çelik İzmir'de oturuyor."
 _DECOMPOSED = unicodedata.normalize("NFD", _COMPOSED)
@@ -24,8 +26,9 @@ async def _run_pipeline(tmp_path, monkeypatch, rules=()):
     """Run the pipeline on decomposed text and return what each stage saw."""
     from septum_api.database import build_default_app_settings
     from septum_api.models import Base
-    from septum_api.models.document import Document
+    from septum_api.models.document import Chunk, Document
     from septum_api.services import document_pipeline as dp
+    from sqlalchemy import select
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     assert _DECOMPOSED != _COMPOSED
@@ -34,7 +37,7 @@ async def _run_pipeline(tmp_path, monkeypatch, rules=()):
         await conn.run_sync(Base.metadata.create_all)
     maker = async_sessionmaker(bind=engine, expire_on_commit=False)
 
-    seen: dict[str, list[str]] = {"chunked": [], "sanitized": [], "persisted": []}
+    seen: dict[str, list[str]] = {"sanitized": [], "chunked": []}
 
     class _Lock:
         async def ensure_held(self) -> None:
@@ -48,24 +51,28 @@ async def _run_pipeline(tmp_path, monkeypatch, rules=()):
         return None
 
     class _Sanitizer:
-        def sanitize(self, text, language, anon_map):
+        def detect(self, text, language, *, boundaries=()):
             seen["sanitized"].append(text)
-            return SanitizeResult(sanitized_text=text, entity_count=0)
+            return DetectionResult(
+                text=normalize_unicode(text), language=language, semantic_enabled=False
+            )
+
+        def apply(self, detection, anon_map):
+            return SanitizeResult(sanitized_text=detection.text, entity_count=0)
 
     async def _create_sanitizer(db, settings, enable_ollama=None, policy=None):
         return _Sanitizer()
 
-    async def _one_chunk(self, file_format, text):
-        seen["chunked"].append(text)
-        return [SemanticChunk(text=text, index=0)]
+    real_chunk_records = dp.DocumentPipeline._chunk_records
 
-    async def _persist(self, db, document_id, chunks, raw_texts):
-        seen["persisted"].extend(raw_texts)
-        return []
+    def _spy_chunk_records(self, file_format, blocks, protected, counter):
+        seen["chunked"].append("".join(block.text for block in blocks))
+        return real_chunk_records(self, file_format, blocks, protected, counter)
 
     monkeypatch.setattr(dp, "create_sanitizer", _create_sanitizer)
-    monkeypatch.setattr(dp.DocumentPipeline, "_build_chunks", _one_chunk)
-    monkeypatch.setattr(dp.DocumentPipeline, "_persist_chunks", _persist)
+    monkeypatch.setattr(dp.DocumentPipeline, "_chunk_records", _spy_chunk_records)
+    monkeypatch.setattr(dp, "_token_counter", CharTokenCounter)
+    monkeypatch.setattr(dp.DocumentPipeline, "_index_document", _noop)
     monkeypatch.setattr(dp, "document_map_lock", _map_lock)
     monkeypatch.setattr(dp, "set_document_map", _noop)
     monkeypatch.setattr(dp, "replace_index_for_document", _noop)
@@ -83,12 +90,14 @@ async def _run_pipeline(tmp_path, monkeypatch, rules=()):
 
             await dp.DocumentPipeline(settings=build_default_app_settings()).run(
                 db=session, document=doc, file_format="pdf",
-                ingested_text=_DECOMPOSED, ingestion_confidence=None,
+                ingestion_result=IngestionResult(text=_DECOMPOSED, metadata={}),
             )
 
         async with maker() as session:
             stored = await session.get(Document, doc.id)
             seen["transcription"] = [stored.transcription_text]
+            chunks = (await session.execute(select(Chunk).order_by(Chunk.index))).scalars()
+            seen["persisted"] = [c.raw_text for c in chunks]
     finally:
         await engine.dispose()
     return seen

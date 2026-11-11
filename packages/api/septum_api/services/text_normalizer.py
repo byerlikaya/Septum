@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import List
+from typing import Callable, List
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,19 +19,26 @@ class TextNormalizer:
 
         if not text:
             return text
+        return (await self.compile(db))(text)
 
-        rules = await self._load_rules(db)
-        result = text
+    async def compile(self, db: AsyncSession) -> Callable[[str], str]:
+        """Load the active rules once; return a function applying them in priority order.
 
-        for rule in rules:
+        Invalid patterns are skipped; they can be fixed via the settings UI.
+        """
+        compiled: List[tuple[re.Pattern[str], str]] = []
+        for rule in await self._load_rules(db):
             try:
-                pattern = re.compile(rule.pattern)
+                compiled.append((re.compile(rule.pattern), rule.replacement))
             except re.error:
-                # Invalid patterns are ignored; they can be fixed via the settings UI.
                 continue
-            result = pattern.sub(rule.replacement, result)
 
-        return result
+        def apply(text: str) -> str:
+            for pattern, replacement in compiled:
+                text = pattern.sub(replacement, text)
+            return text
+
+        return apply
 
     async def _load_rules(self, db: AsyncSession) -> List[TextNormalizationRule]:
         """Load all active normalization rules ordered by priority."""

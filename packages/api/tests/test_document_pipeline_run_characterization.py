@@ -1,10 +1,11 @@
 """Characterization tests for :meth:`DocumentPipeline.run`.
 
 Records the full ordered sequence of side effects of a pipeline run
-(progress ticks, sanitizer calls, persisted chunks, entity detection rows,
-commits, map storage, entity index, audit event, FAISS/BM25 indexing and
-final document state) against in-memory fakes, so the method can be split
-into helpers without changing what an ingestion writes or in which order.
+(progress ticks, one detection over the whole document, persisted chunks,
+entity detection rows, commits, map storage, entity index, audit event,
+FAISS/BM25 indexing and final document state) against in-memory fakes, so
+the method can be split into helpers without changing what an ingestion
+writes or in which order.
 """
 
 from __future__ import annotations
@@ -16,9 +17,14 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from sanitizer_doubles import CharTokenCounter
+from septum_api.errors import ChunkTooLargeError
 from septum_api.models.entity_detection import EntityDetection
+from septum_api.request_limits import MAX_PRE_APPROVED_CHUNK_CHARS
 from septum_api.services import document_pipeline as dp
-from septum_api.services.sanitizer import ResolvedSpan
+from septum_api.services.chunking import ChunkRecord
+from septum_api.services.ingestion.base import IngestionResult, TextBlock, block_starts
+from septum_core.spans import DetectedSpan, DetectionResult, SanitizeResult
 
 
 class _Db:
@@ -50,60 +56,69 @@ class _Db:
         self.events.append(("rollback",))
 
 
+NAMES = ("Alice", "Bob", "Carl")
+BLOCKS = [
+    TextBlock("alpha Alice", "paragraph", page=1),
+    TextBlock("beta", "paragraph", page=2),
+    TextBlock("gamma Bob Carl", "paragraph", page=3),
+]
+TEXT = "N:alpha Alice\nN:beta\nN:gamma Bob Carl"
+
+
 class _Sanitizer:
-    def __init__(self, events: list[tuple], results: dict[str, Any]) -> None:
+    """Finds ``NAMES`` once over the whole text; ``apply`` is the core replacement step."""
+
+    def __init__(self, events: list[tuple]) -> None:
         self.events = events
-        self.results = results
         self.maps: list[Any] = []
 
-    def sanitize(self, text: str, language: str, anon_map: Any) -> Any:
-        self.events.append(("sanitize", text, language))
+    def detect(self, text: str, language: str, *, boundaries=()) -> DetectionResult:
+        self.events.append(("detect", text, language, tuple(boundaries)))
+        spans = []
+        for name in NAMES:
+            start = text.find(name)
+            while start >= 0:
+                spans.append(DetectedSpan(start, start + len(name), "PERSON_NAME", 0.9))
+                start = text.find(name, start + 1)
+        return DetectionResult(text=text, language=language, spans=tuple(spans), semantic_enabled=False)
+
+    def apply(self, detection: DetectionResult, anon_map: Any) -> SanitizeResult:
+        from septum_core.detector import Detector
+
+        self.events.append(("apply", len(detection.spans)))
         self.maps.append(anon_map)
-        return self.results[text]
+        masked, count, resolved = Detector._apply_replacements(
+            detection.text, list(detection.spans), anon_map, detection.language
+        )
+        counts: dict[str, int] = {}
+        for span in detection.spans:
+            counts[span.entity_type] = counts.get(span.entity_type, 0) + 1
+        return SanitizeResult(
+            sanitized_text=masked, entity_count=count, entity_type_counts=counts,
+            detected_spans=resolved,
+        )
 
 
-def _result(sanitized: str, count: int, types: dict[str, int], spans: list[ResolvedSpan]) -> Any:
-    return SimpleNamespace(
-        sanitized_text=sanitized,
-        entity_count=count,
-        entity_type_counts=types,
-        detected_spans=spans,
-    )
-
-
-def _span(start: int, end: int, etype: str, ph: str) -> ResolvedSpan:
-    return ResolvedSpan(start=start, end=end, entity_type=etype, placeholder=ph, score=0.9)
-
-
-def _chunk(text: str, index: int, page: Any = None, title: Any = None) -> Any:
-    return dp.SemanticChunk(
-        text=text, index=index, source_page=page, section_title=title, char_count=len(text)
-    )
-
-
-DEFAULT_RESULTS = {
-    "N:alpha Alice": _result("alpha [PERSON_1]", 1, {"PERSON_NAME": 1}, [_span(6, 11, "PERSON_NAME", "[PERSON_1]")]),
-    "N:beta": _result("beta", 0, {}, []),
-    "N:gamma Bob Carl": _result(
-        "gamma [PERSON_2] [PERSON_3]",
-        2,
-        {"PERSON_NAME": 2},
-        [_span(6, 9, "PERSON_NAME", "[PERSON_2]"), _span(10, 14, "PERSON_NAME", "[PERSON_3]")],
-    ),
-}
+def _block_records(text: str, blocks: list[TextBlock]) -> list[ChunkRecord]:
+    """One chunk per block; the last block's chunk carries a section title."""
+    starts = block_starts(blocks)
+    ends = starts[1:] + [len(text)]
+    return [
+        ChunkRecord(
+            index=i, start=a, end=b, text=text[a:b], strategy="structured", page=blocks[i].page,
+            section_title="Intro" if i == 0 else None,
+            section_title_start=0 if i == 0 else None,
+            section_title_end=len(blocks[0].text) if i == 0 else None,
+        )
+        for i, (a, b) in enumerate(zip(starts, ends))
+    ]
 
 
 @pytest.fixture
 def env(monkeypatch):
     events: list[tuple] = []
     state: dict[str, Any] = {
-        "chunks": [
-            _chunk("alpha Alice", 0, page=1, title="Intro"),
-            _chunk("beta", 1, page=2),
-            _chunk("gamma Bob Carl", 3, title="End"),
-        ],
-        "results": dict(DEFAULT_RESULTS),
-        "persisted_ids": {0: 11, 1: 12, 3: None},
+        "blocks": list(BLOCKS),
         "index_error": None,
         "audit_event": SimpleNamespace(id=555),
         "exists": True,
@@ -117,7 +132,7 @@ def env(monkeypatch):
             return "POLICY", SimpleNamespace(entity_types=["PERSON_NAME"], digest="d1")
 
     monkeypatch.setattr(dp, "PolicyComposer", _Composer)
-    sanitizer = _Sanitizer(events, state["results"])
+    sanitizer = _Sanitizer(events)
 
     async def create_sanitizer(db, settings, enable_ollama=None, policy=None):
         events.append(("create_sanitizer", enable_ollama, policy))
@@ -125,18 +140,21 @@ def env(monkeypatch):
 
     monkeypatch.setattr(dp, "create_sanitizer", create_sanitizer)
 
-    async def build_chunks(self, file_format, text):
-        events.append(("build_chunks", file_format, text))
-        return state["chunks"]
-
-    monkeypatch.setattr(dp.DocumentPipeline, "_build_chunks", build_chunks)
-
     class _Normalizer:
-        async def normalize(self, db, text):
-            return f"N:{text}"
+        async def compile(self, db):
+            events.append(("normalizer",))
+            return lambda text: f"N:{text}"
 
     monkeypatch.setattr(dp, "TextNormalizer", _Normalizer)
     monkeypatch.setattr(dp, "supported_language_code", lambda code: f"sup:{code}")
+    monkeypatch.setattr(dp, "_token_counter", CharTokenCounter)
+
+    def chunk_records(self, file_format, blocks, protected, counter):
+        events.append(("chunk", file_format, list(protected)))
+        text = "\n".join(b.text for b in blocks)
+        return state.get("records") or _block_records(text, blocks)
+
+    monkeypatch.setattr(dp.DocumentPipeline, "_chunk_records", chunk_records)
 
     def masking_language(document, text):
         events.append(("masking_language", text))
@@ -146,16 +164,15 @@ def env(monkeypatch):
 
     persisted: dict[str, Any] = {}
 
-    async def persist(self, db, document_id, stored_chunks, raw_texts):
+    async def persist(self, db, chunks):
         persisted["stored"] = [
-            (c.text, c.index, c.source_page, c.section_title, c.char_count) for c in stored_chunks
+            (c.sanitized_text, c.raw_text, c.index, c.source_page, c.section_title, c.char_count)
+            for c in chunks
         ]
-        persisted["raw"] = list(raw_texts)
-        events.append(("persist", document_id))
-        return [
-            SimpleNamespace(index=c.index, id=state["persisted_ids"].get(c.index))
-            for c in stored_chunks
-        ]
+        events.append(("persist", len(chunks)))
+        for chunk in chunks:
+            chunk.id = 11 + chunk.index
+        return list(chunks)
 
     monkeypatch.setattr(dp.DocumentPipeline, "_persist_chunks", persist)
 
@@ -232,35 +249,39 @@ async def _run(env, document=None, progress=True, confidence=0.5):
     ticks: list[int] = []
     db = _Db(env.events, exists=env.state["exists"])
     document = document or _document()
+    blocks = env.state["blocks"]
     await dp.DocumentPipeline(settings="SETTINGS").run(
         db=db,
         document=document,
         file_format="pdf",
-        ingested_text="RAW",
-        ingestion_confidence=confidence,
+        ingestion_result=IngestionResult(
+            text="\n".join(b.text for b in blocks), metadata={}, confidence=confidence,
+            blocks=blocks,
+        ),
         on_progress=ticks.append if progress else None,
     )
     return document, ticks, db
 
 
-TRANSCRIPT = "N:alpha Alice\n\nN:beta\n\nN:gamma Bob Carl"
+TRANSCRIPT = "N:alpha Alice\n\n\nN:beta\n\n\nN:gamma Bob Carl"
+RAW_CHUNKS = ["N:alpha Alice\n", "N:beta\n", "N:gamma Bob Carl"]
 
 
 async def test_full_run_sequence(env):
     document, ticks, db = await _run(env)
-    assert ticks == [30, 60, 90, 92, 96]
+    assert ticks == [60, 70, 90, 92, 96]
     assert document.entity_index_version == dp.ENTITY_INDEX_VERSION
     assert env.events == [
         ("forget", 7),
         ("compose", "SETTINGS"),
         ("create_sanitizer", dp.DOCUMENT_SANITIZER_ENABLE_OLLAMA, "POLICY"),
-        ("build_chunks", "pdf", "RAW"),
-        ("masking_language", TRANSCRIPT),
-        ("sanitize", "N:alpha Alice", "en"),
-        ("sanitize", "N:beta", "en"),
-        ("sanitize", "N:gamma Bob Carl", "en"),
-        ("persist", 7),
-        ("add_all", 1),
+        ("normalizer",),
+        ("masking_language", TEXT),
+        ("detect", TEXT, "en", (0, 14, 21)),
+        ("apply", 3),
+        ("chunk", "pdf", [(8, 13), (29, 32), (33, 37)]),
+        ("persist", 3),
+        ("add_all", 3),
         ("commit",),
         ("refresh",),
         ("lock_enter", 7),
@@ -274,25 +295,30 @@ async def test_full_run_sequence(env):
         ("log_pii",),
         ("execute", "UPDATE"),
         ("commit",),
-        ("faiss", 7, [11, 12, None], ["N:alpha Alice", "N:beta", "N:gamma Bob Carl"]),
-        ("bm25", 7, [11, 12, None], ["N:alpha Alice", "N:beta", "N:gamma Bob Carl"]),
-        ("clear_override", TRANSCRIPT, ("sup:tr", False), "processing"),
+        ("faiss", 7, [11, 12, 13], RAW_CHUNKS),
+        ("bm25", 7, [11, 12, 13], RAW_CHUNKS),
+        ("clear_override", TEXT, ("sup:tr", False), "processing"),
         ("commit",),
     ]
     assert env.persisted["stored"] == [
-        ("alpha [PERSON_1]", 0, 1, "Intro", 16),
-        ("beta", 1, 2, None, 4),
-        ("gamma [PERSON_2] [PERSON_3]", 3, None, "End", 27),
+        ("N:alpha [PERSON_NAME_1]\n", RAW_CHUNKS[0], 0, 1, "N:alpha [PERSON_NAME_1]", 24),
+        ("N:beta\n", RAW_CHUNKS[1], 1, 2, None, 7),
+        ("N:gamma [PERSON_NAME_2] [PERSON_NAME_3]", RAW_CHUNKS[2], 2, 3, None, 39),
     ]
-    assert env.persisted["raw"] == ["N:alpha Alice", "N:beta", "N:gamma Bob Carl"]
     rows = db.added
     assert all(isinstance(r, EntityDetection) for r in rows)
     assert [
         (r.document_id, r.chunk_id, r.entity_type, r.placeholder, r.start_offset, r.end_offset, r.score)
         for r in rows
-    ] == [(7, 11, "PERSON_NAME", "[PERSON_1]", 6, 11, 0.9)]
+    ] == [
+        (7, 11, "PERSON_NAME", "[PERSON_NAME_1]", 8, 13, 0.9),
+        (7, 13, "PERSON_NAME", "[PERSON_NAME_2]", 8, 11, 0.9),
+        (7, 13, "PERSON_NAME", "[PERSON_NAME_3]", 12, 16, 0.9),
+    ]
+    for row, raw in zip(rows, [RAW_CHUNKS[0], RAW_CHUNKS[2], RAW_CHUNKS[2]]):
+        assert raw[row.start_offset : row.end_offset] in NAMES
     anon_map = env.persisted["map"]
-    assert all(m is anon_map for m in env.sanitizer.maps)
+    assert env.sanitizer.maps == [anon_map]
     assert (anon_map.document_id, anon_map.language) == (7, "en")
     assert env.persisted["audit"] == {
         "document_id": 7,
@@ -300,7 +326,7 @@ async def test_full_run_sequence(env):
         "entity_type_counts": {"PERSON_NAME": 3},
         "total_count": 3,
         "extra": {"source": "document_ingestion", "language": "en", "language_source": "detected"},
-        "placeholder_samples": [],
+        "placeholder_samples": ["[PERSON_NAME_1]", "[PERSON_NAME_2]", "[PERSON_NAME_3]"],
     }
     assert {
         k: getattr(document, k)
@@ -355,31 +381,21 @@ async def test_bm25_write_waits_for_the_index_lock(monkeypatch):
     assert written == [7]
 
 
-async def test_override_source_and_placeholder_samples(env, monkeypatch):
+async def test_override_source_is_recorded(env):
     env.state["language_source"] = "override"
-
-    def fill_map(text, language, anon_map):
-        for i in range(7):
-            anon_map.entity_map[f"orig{i}"] = f"[P_{i}]"
-        return _result(text, 1, {"X": 1}, [])
-
-    monkeypatch.setattr(env.sanitizer, "sanitize", fill_map)
-    env.state["chunks"] = [_chunk("only", 0)]
-    env.state["persisted_ids"] = {0: 11}
+    env.state["blocks"] = [TextBlock("only", "text")]
     await _run(env)
-    assert env.persisted["audit"]["placeholder_samples"] == [f"[P_{i}]" for i in range(5)]
-    assert env.persisted["audit"]["extra"]["language_source"] == "override"
     assert ("clear_override", "N:only", ("sup:tr", True), "processing") in env.events
-    assert ("add_all", 0) not in env.events
-    assert all(e[0] != "execute" for e in env.events)
+    kinds = [e[0] for e in env.events]
+    assert "add_all" not in kinds and "log_pii" not in kinds and "execute" not in kinds
 
 
 async def test_no_entities_skips_audit_and_detection_rows(env):
-    env.state["chunks"] = [_chunk("beta", 1)]
+    env.state["blocks"] = [TextBlock("beta", "text")]
     document, ticks, db = await _run(env)
     kinds = [e[0] for e in env.events]
     assert "log_pii" not in kinds and "add_all" not in kinds and "execute" not in kinds
-    assert ticks == [90, 92, 96]
+    assert ticks == [60, 70, 90, 92, 96]
     assert document.entity_count == 0 and document.chunk_count == 1
 
 
@@ -390,12 +406,12 @@ async def test_audit_event_none_skips_detection_link(env):
     assert "log_pii" in kinds and "execute" not in kinds
 
 
-async def test_empty_document_skips_indexing(env):
-    env.state["chunks"] = []
+async def test_empty_document_skips_detection_and_indexing(env):
+    env.state["blocks"] = []
     document, ticks, _ = await _run(env, progress=True, confidence=None)
     assert ticks == []
     kinds = [e[0] for e in env.events]
-    assert "faiss" not in kinds and "bm25" not in kinds and "sanitize" not in kinds
+    assert not {"faiss", "bm25", "detect", "apply", "chunk"} & set(kinds)
     assert ("masking_language", "") in env.events
     assert document.transcription_text == "" and document.ocr_confidence is None
     assert document.chunk_count == 0 and document.ingestion_status == "completed"
@@ -431,14 +447,60 @@ async def test_entity_index_failure_is_logged_and_rolled_back(env, caplog):
     assert document.ingestion_status == "completed"
 
 
-async def test_sanitizer_failure_propagates_before_persist(env, monkeypatch):
-    def boom(text, language, anon_map):
+async def test_detector_failure_propagates_before_persist(env, monkeypatch):
+    def boom(text, language, *, boundaries=()):
         raise ValueError("x")
 
-    monkeypatch.setattr(env.sanitizer, "sanitize", boom)
+    monkeypatch.setattr(env.sanitizer, "detect", boom)
     with pytest.raises(ValueError):
         await _run(env)
     assert all(e[0] != "persist" for e in env.events)
+
+
+async def test_detector_text_that_differs_from_the_blocks_fails_closed(env, monkeypatch):
+    real = env.sanitizer.detect
+
+    def shifted(text, language, *, boundaries=()):
+        result = real(text, language, boundaries=boundaries)
+        return DetectionResult(
+            text=result.text + " ", language=language, spans=result.spans, semantic_enabled=False
+        )
+
+    monkeypatch.setattr(env.sanitizer, "detect", shifted)
+    with pytest.raises(dp.DocumentTextMismatchError) as caught:
+        await _run(env)
+    assert "Alice" not in str(caught.value)
+    kinds = [e[0] for e in env.events]
+    assert "apply" not in kinds and "persist" not in kinds
+
+
+async def test_masked_chunk_over_the_limit_fails_without_text(env):
+    name = "Alice" * (MAX_PRE_APPROVED_CHUNK_CHARS // 5 + 1)
+    env.state["blocks"] = [TextBlock(name, "text")]
+    env.sanitizer.detect = lambda text, language, *, boundaries=(): DetectionResult(
+        text=text, language=language, semantic_enabled=False,
+        spans=tuple(
+            DetectedSpan(i, i + 5, "PERSON_NAME", 0.9) for i in range(2, len(text), 5)
+        ),
+    )
+    with pytest.raises(ChunkTooLargeError) as caught:
+        await _run(env)
+    assert caught.value.code == "chunk_too_large"
+    assert "Alice" not in str(caught.value)
+    assert all(e[0] != "persist" for e in env.events)
+
+
+async def test_oversize_raw_chunk_is_allowed_when_its_masked_text_fits(env):
+    name = "Alice" * (MAX_PRE_APPROVED_CHUNK_CHARS // 5 + 1)
+    env.state["blocks"] = [TextBlock(name, "text")]
+    env.sanitizer.detect = lambda text, language, *, boundaries=(): DetectionResult(
+        text=text, language=language, semantic_enabled=False,
+        spans=(DetectedSpan(2, len(text), "PERSON_NAME", 0.9),),
+    )
+    await _run(env)
+    [(masked, raw, *_)] = env.persisted["stored"]
+    assert len(raw) > MAX_PRE_APPROVED_CHUNK_CHARS
+    assert masked == "N:[PERSON_NAME_1]"
 
 
 async def test_ingestion_runs_without_a_local_model_call_budget(env):
@@ -447,11 +509,12 @@ async def test_ingestion_runs_without_a_local_model_call_budget(env):
     from septum_api.services.prompts import DetectionPrompt
 
     seen: list[Any] = []
+    real = env.sanitizer.detect
 
     def send(**kwargs: Any) -> str:
         return "[]"
 
-    def sanitize(text: str, language: str, anon_map: Any) -> Any:
+    def detect(text: str, language: str, *, boundaries=()) -> Any:
         seen.append(budget_module._current_budget.get())
         calls = [
             DetectionCall(
@@ -463,9 +526,9 @@ async def test_ingestion_runs_without_a_local_model_call_budget(env):
             for i in range(MANY_CALLS)
         ]
         assert len(run_detection_calls(calls, send=send, refusal=RuntimeError)) == MANY_CALLS
-        return env.sanitizer.results[text]
+        return real(text, language, boundaries=boundaries)
 
-    env.sanitizer.sanitize = sanitize
+    env.sanitizer.detect = detect
 
     await _run(env)
 
