@@ -977,6 +977,8 @@ def test_llm_prompt_rule_revision_is_bumped() -> None:
 class _FakeSanitizer:
     """Reports fixed ``(value, type, occurrence)`` spans of the text it is given; counts runs."""
 
+    context_gate = False
+
     def __init__(self, find: Callable[[str], List[DetectedSpan]]) -> None:
         self.find = find
         self.texts: List[str] = []

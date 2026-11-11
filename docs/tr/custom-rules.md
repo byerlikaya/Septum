@@ -155,17 +155,38 @@ vermez.
 
 Her özel kural şu ek kontrolleri paylaşır:
 
-- **Bağlam kelimeleri** *(opsiyonel)* — kuralın tetiklenmesi için aynı chunk
-  içinde geçmesi gereken ek kelimeler. Aşırı false-positive üreten regex'leri
-  bastırmak için kullanın. Örnek: 11 haneli ID'lere ait bir kural `Hasta`
-  veya `Patient` bağlam kelimesi gerektirebilir.
+- **Bağlam kelimeleri** *(opsiyonel)* — yalnızca regex ve anahtar kelime
+  kuralları için. Bir eşleşme, yalnızca bu kelimelerden en az biri eşleşmenin
+  kendisinde ya da eşleşmeden en fazla 100 karakter öncesinde veya
+  sonrasında geçiyorsa korunur. Aşırı
+  false-positive üreten kuralları bastırmak için kullanın. Örnek: 11 haneli
+  ID'lere ait bir kural `Hasta` veya `Patient` bağlam kelimesi gerektirebilir.
+  - Eşleştirme büyük/küçük harf ve aksan farkını yok sayar, tam kelime arar:
+    `ID`, `IDEA` içinde bulunmaz; pencere kenarında kesilen kelime sayılmaz.
+    Çok kelimeli bir bağlam kelimesinin içindeki boşluk dizileri yok sayılır,
+    yani `hasta no` satır sonu aşan metinde de eşleşir.
+  - Liste boşsa kural her eşleşmede tetiklenir.
+  - Noktalama ile başlayan veya biten bir kelime (`No:`, `Tel.`) o ucunda
+    yazıldığı gibi eşleşir; uçtaki harf ve rakamlar için yine tam kelime
+    sınırı gerekir.
+  - Kapıyı yalnızca doküman metni (işleme, yeniden işleme) ve kuralın Test
+    düğmesi uygular. Geri kalan her şey bağlam kelimelerini dikkate almaz,
+    kural her eşleşmeyi maskeler: kullanıcının yazdığı her şey (sohbet
+    soruları, onay adımında düzenlenen veya eklenen metin, chunk
+    düzenlemeleri, sütun etiketleri, kural seti adları) ve dokümanı
+    güncelliğini yitirdiği için sohbette yeniden maskelenen chunk'lar.
+  - Sınırlar: en fazla 100 bağlam kelimesi, her biri en fazla 128 karakter.
+  - LLM prompt kuralları bağlam kelimelerini dikkate almaz ve form bu alanı
+    onlar için gizler; bağlamı prompt'un içine yazın.
+  - Bağlam kelimelerini değiştirmek, kuralla işlenmiş dokümanları eski
+    sayar; değişikliğin uygulanması için dokümanları yeniden işleyin.
 - **Aktif** — silmeden devre dışı.
 - **Örnek metin** + **Test** — inline regresyon kontrolü. Her düzenlemeden
   sonra kullanın; veri kalıcılaştırmaz, hem pozitif hem negatif vakaları
   hızlıca doğrulamanın yolu.
 
 Test endpoint'i ingestion'ın kullandığı kod yolunu çağırır; "test'te çalışıyor"
-demek "gerçek dokümanlarda çalışıyor" demektir — chunk metni örneğe benziyorsa.
+demek "gerçek dokümanlarda çalışıyor" demektir — doküman metni örneğe benziyorsa.
 
 ## Denetim & hata ayıklama
 

@@ -158,18 +158,37 @@ endpoint returns an empty match list in that case and gives no error.
 
 Every custom rule shares this set of secondary controls:
 
-- **Context words** *(optional)* — additional words that must appear within the
-  same chunk for the rule to fire. Use this to suppress a regex that otherwise
-  produces too many false positives. Example: a rule for 11-digit
-  identifiers can require `Patient` in context.
+- **Context words** *(optional)* — regex and keyword rules only. A match is
+  kept only when at least one of these words appears in the match itself or
+  within 100 characters before or after it. Use this to suppress a
+  rule that otherwise produces too many false positives. Example: a rule for
+  11-digit identifiers can require `Patient` in context.
+  - Matching ignores case and accents and needs whole words: `ID` is not
+    found inside `IDEA`, and a word cut off at the window edge does not
+    count. Whitespace runs inside a multi-word context word are ignored, so
+    `patient id` also matches across a line break.
+  - An empty list means the rule fires on every match.
+  - A word that starts or ends with punctuation (`No:`, `Tel.`) matches as
+    typed at that end; letters and digits at an edge still need a
+    whole-word boundary.
+  - The gate applies only to document text (ingestion, reprocessing) and the
+    rule's Test button. Everything else ignores context words, so the rule
+    masks every match: everything a user types (chat questions, text edited
+    or added in the approval step, chunk edits, column labels, ruleset
+    names) and chunks re-masked in chat because their document is outdated.
+  - Limits: at most 100 context words, each at most 128 characters.
+  - LLM-prompt rules ignore context words and the form hides the field for
+    them; put that context in the prompt instead.
+  - Changing the context words marks documents processed under the rule as
+    stale; reprocess them to apply the change.
 - **Active** — toggles without deleting.
 - **Sample text** + **Test** — the inline regression check. Use this for every
   edit; it persists no data and is a fast way to verify both positive and
   negative cases.
 
 The test endpoint internally calls the same code path that ingestion uses, so
-"works in test" implies "works on real documents" assuming the chunk text looks
-like the sample.
+"works in test" implies "works on real documents" assuming the document text
+looks like the sample.
 
 ## Audit & debugging
 

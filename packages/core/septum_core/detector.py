@@ -59,6 +59,7 @@ from .ports import (
 from .presidio_dedup import install as install_fast_remove_duplicates
 from .recognizers.email import ENTITY_TYPE as EMAIL_ENTITY_TYPE
 from .recognizers.email import EmailAddressRecognizer
+from .recognizers.registry import ContextGatedPatternRecognizer
 from .regulations.composer import ComposedPolicy
 from .span_processing import (
     absorb_overlapping_spans,
@@ -1535,6 +1536,10 @@ class Detector:
     adapter that implements :class:`SemanticDetectionPort`; core keeps
     a :class:`NullSemanticDetectionPort` as the default so non-network
     environments can run the regex/NER stack with zero wiring.
+
+    ``context_gate`` decides whether custom rules with context words keep
+    only matches near one of them (documents, the default) or every match
+    (a user's chat query, which rarely carries the context its rule expects).
     """
 
     # Policy names spans are compared against; empty until a policy is applied.
@@ -1546,8 +1551,10 @@ class Detector:
         ner_registry: Optional[NERModelRegistry] = None,
         policy: Optional[ComposedPolicy] = None,
         semantic_port: Optional[SemanticDetectionPort] = None,
+        context_gate: bool = True,
     ) -> None:
         self._config = config
+        self._context_gate = context_gate
         self._ner_registry = ner_registry or NERModelRegistry()
         self._semantic_port: SemanticDetectionPort = (
             semantic_port or NullSemanticDetectionPort()
@@ -1558,6 +1565,11 @@ class Detector:
         self._register_custom_recognizers()
         if policy is not None:
             self._apply_policy(policy)
+
+    @property
+    def context_gate(self) -> bool:
+        """Whether custom rules with context words keep only matches near one of them."""
+        return self._context_gate
 
     def _apply_policy(self, policy: ComposedPolicy) -> None:
         """
@@ -1570,9 +1582,14 @@ class Detector:
 
         After applying the policy, runs a coverage validation that logs
         warnings for entity types with no matching Presidio recognizer.
+
+        A detector built with ``context_gate=False`` registers custom rules
+        without their context-word gate, so they keep every match.
         """
         registry = self._analyzer.registry
         for recognizer in policy.recognizers:
+            if not self._context_gate and isinstance(recognizer, ContextGatedPatternRecognizer):
+                recognizer = recognizer.without_gate()
             registry.add_recognizer(recognizer)
         self._entity_types = list(policy.entity_types)
         self._non_pii_filter = NonPiiFilter.from_rules(policy.non_pii_rules)
@@ -1791,8 +1808,10 @@ class Detector:
         has no length bound, so one straddling a cut can be cut short or
         missed by both windows; the Presidio recognizers that need no NLP
         model therefore also run once on the whole text, and the merge keeps
-        those of their spans that no window saw whole. The spaCy, NER and
-        semantic layers never see the whole text.
+        those of their spans that no window saw whole. A context-gated custom
+        rule's whole-text spans are always kept: a window can lack the context
+        word that lies across its cut. The spaCy, NER and semantic layers
+        never see the whole text.
         """
         windows = plan_text_windows(normalized_text, windowing, boundaries)
         per_window = [
@@ -1801,12 +1820,18 @@ class Detector:
             )
             for w in windows
         ]
-        full_text = (
-            self._pattern_spans(normalized_text) if self._config.use_presidio_layer else []
+        if not self._config.use_presidio_layer:
+            return merge_window_spans(windows, per_window)
+        return merge_window_spans(
+            windows,
+            per_window,
+            self._pattern_spans(normalized_text, context_gated=False),
+            self._pattern_spans(normalized_text, context_gated=True),
         )
-        return merge_window_spans(windows, per_window, full_text)
 
-    def _pattern_spans(self, normalized_text: str) -> List[DetectedSpan]:
+    def _pattern_spans(
+        self, normalized_text: str, context_gated: Optional[bool] = None
+    ) -> List[DetectedSpan]:
         """Run only the deterministic recognizers over the whole text.
 
         Allow-list, not deny-list: a recognizer runs here only when it is an
@@ -1820,6 +1845,9 @@ class Detector:
         enhancement (a span found only here keeps its recognizer's base
         score), ``score_threshold``, ``allow_list`` and the decision-process
         metadata.
+
+        ``context_gated`` limits the run to the context-gated custom rules
+        (``True``) or to the other recognizers (``False``); ``None`` runs all.
         """
         entities = self._expand_with_aliases(self._entity_types)
         recognizers = self._analyzer.registry.get_recognizers(
@@ -1831,6 +1859,10 @@ class Detector:
         results: List[RecognizerResult] = []
         for recognizer in recognizers:
             if not isinstance(recognizer, _FULL_TEXT_RECOGNIZER_TYPES):
+                continue
+            if context_gated is not None and context_gated != isinstance(
+                recognizer, ContextGatedPatternRecognizer
+            ):
                 continue
             if not recognizer.is_loaded:
                 recognizer.load()

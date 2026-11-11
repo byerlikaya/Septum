@@ -191,7 +191,10 @@ export function CustomRuleBuilderPanel({
       detectionMethod === "keyword_list"
         ? parseCommaSeparated(form.keywordsText)
         : undefined;
-    const contextWords = parseCommaSeparated(form.contextWordsText);
+    const contextWords =
+      detectionMethod === "llm_prompt"
+        ? []
+        : parseCommaSeparated(form.contextWordsText);
 
     return {
       name: form.name.trim(),
@@ -214,7 +217,10 @@ export function CustomRuleBuilderPanel({
       detectionMethod === "keyword_list"
         ? parseCommaSeparated(form.keywordsText)
         : undefined;
-    const contextWords = parseCommaSeparated(form.contextWordsText);
+    const contextWords =
+      detectionMethod === "llm_prompt"
+        ? []
+        : parseCommaSeparated(form.contextWordsText);
 
     return {
       name: form.name.trim(),
@@ -562,7 +568,7 @@ export function CustomRuleBuilderPanel({
           {form.detection_method === "keyword_list" && (
             <div className="space-y-1.5">
               <label className="text-[11px] font-medium text-slate-200">
-                {t("regulations.panel.field.contextWords")}
+                {t("regulations.panel.method.keyword.title")}
               </label>
               <textarea
                 className="h-16 w-full resize-none rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-hidden ring-0 transition focus:border-sky-500"
@@ -624,25 +630,27 @@ export function CustomRuleBuilderPanel({
             </div>
           )}
 
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-medium text-slate-200">
-              {t("regulations.panel.field.contextWords")}
-            </label>
-            <input
-              type="text"
-              className="w-full rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-hidden ring-0 transition focus:border-sky-500"
-              value={form.contextWordsText}
-              onChange={(event) =>
-                handleFieldChange("contextWordsText", event.target.value)
-              }
-              placeholder={t(
-                "regulations.panel.field.contextWords.placeholder"
-              )}
-            />
-            <p className="text-[10px] text-slate-400">
-              {t("regulations.panel.field.contextWords.helper")}
-            </p>
-          </div>
+          {form.detection_method !== "llm_prompt" && (
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-medium text-slate-200">
+                {t("regulations.panel.field.contextWords")}
+              </label>
+              <input
+                type="text"
+                className="w-full rounded-md border border-border bg-slate-950/60 px-2 py-1 text-xs text-slate-50 outline-hidden ring-0 transition focus:border-sky-500"
+                value={form.contextWordsText}
+                onChange={(event) =>
+                  handleFieldChange("contextWordsText", event.target.value)
+                }
+                placeholder={t(
+                  "regulations.panel.field.contextWords.placeholder"
+                )}
+              />
+              <p className="text-[10px] text-slate-400">
+                {t("regulations.panel.field.contextWords.helper")}
+              </p>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <label className="text-[11px] font-medium text-slate-200">

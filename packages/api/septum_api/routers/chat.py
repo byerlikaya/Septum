@@ -144,6 +144,7 @@ from ..services.pii_gate import (
     DocumentGoneError,
     DocumentMapConflictError,
     DocumentMapMissingError,
+    create_user_text_sanitizer,
     gate_untrusted_texts,
     mask_known_entities,
     remask_document_texts,
@@ -164,10 +165,7 @@ from ..services.retry_numbering import (
     sign_numbering,
     verify_numbering,
 )
-from ..services.sanitizer_factory import (
-    DOCUMENT_SANITIZER_ENABLE_OLLAMA,
-    create_sanitizer,
-)
+from ..services.sanitizer_factory import DOCUMENT_SANITIZER_ENABLE_OLLAMA
 from ..services.text_normalizer import TextNormalizer
 from ..utils.auth_dependency import get_current_user
 from ..utils.db_helpers import (
@@ -375,8 +373,10 @@ async def _sanitize_query(
     of latency per call. The Ollama validation and contextual layers follow
     their own stored settings whatever its value; a contextual layer that
     gets no usable answer raises :class:`SemanticLayerUnavailableError`.
+    Custom rules mask every match here, without their context-word gate:
+    a short question seldom carries the context a document would.
     """
-    sanitizer = await create_sanitizer(db, settings, enable_ollama=enable_ollama)
+    sanitizer = await create_user_text_sanitizer(db, settings, enable_ollama=enable_ollama)
     result = await asyncio.to_thread(
         sanitizer.sanitize,
         message,
@@ -457,9 +457,11 @@ async def _resanitize_outdated_chunks(
 
     A chunk already re-masked under the same policy is taken from
     :data:`remask_cache` while the document map still resolves it; the rest
-    go through :func:`remask_document_texts` with the sanitizer the ingestion
+    go through :func:`remask_document_texts` with the layers the ingestion
     pipeline uses (same settings, same
-    :data:`DOCUMENT_SANITIZER_ENABLE_OLLAMA`). Placeholders the document map
+    :data:`DOCUMENT_SANITIZER_ENABLE_OLLAMA`), but without custom rules'
+    context-word gate (:func:`create_user_text_sanitizer`): a chunk alone
+    lacks the text around it, and may carry a user's edit. Placeholders the document map
     already knows are never re-detected, and entities the current policy
     finds are added to the document's own (encrypted) map, so the turn's
     unified numbering, the de-anonymizer and a retry of the turn all resolve
@@ -489,7 +491,7 @@ async def _resanitize_outdated_chunks(
         if not misses:
             continue
         if sanitizer is None:
-            sanitizer = await create_sanitizer(
+            sanitizer = await create_user_text_sanitizer(
                 db, settings, enable_ollama=DOCUMENT_SANITIZER_ENABLE_OLLAMA, policy=policy
             )
         texts, written = await remask_document_texts(

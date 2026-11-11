@@ -752,7 +752,7 @@ export const enMessages = {
   "regulations.panel.field.contextWords.placeholder":
     "patient, file, ref, account",
   "regulations.panel.field.contextWords.helper":
-    "Helper words that should increase the score when they appear nearby (separate with commas).",
+    "On documents, the rule only fires when one of these words appears in the match or within 100 characters of it. Text you type (chat questions, approval edits) is always masked. Separate with commas; leave empty to always fire.",
   "regulations.panel.field.sample": "Test Sample",
   "regulations.panel.field.sample.placeholder":
     "Paste a sample text here to test your rule before saving.",

@@ -49,6 +49,8 @@ _PLACEHOLDER_RE = re.compile(r"\[[A-Z][A-Z_]*_\d+\]")
 class _PolicySanitizer:
     """Sanitizer double that finds the fixture values of the active types only."""
 
+    context_gate = False
+
     def __init__(self, entity_types: list[str], log: list[str]) -> None:
         self._types = entity_types
         self._log = log
@@ -111,9 +113,13 @@ async def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[
 
     state: dict[str, Any] = {"doc_id": doc.id, "prompts": [], "sanitized": [], "sm": session_maker}
 
-    async def _create_sanitizer(db, settings, enable_ollama=False, policy=None):
+    async def _create_sanitizer(
+        db, settings, enable_ollama=False, policy=None, context_gate=True
+    ):
         types = policy.entity_types if policy is not None else await current_policy_entity_types(db)
-        return _PolicySanitizer(list(types), state["sanitized"])
+        sanitizer = _PolicySanitizer(list(types), state["sanitized"])
+        sanitizer.context_gate = context_gate
+        return sanitizer
 
     async def _retrieve(db, document_id, query, top_k, chunk_count, relevance_threshold):
         rows = await db.execute(select(Chunk).where(Chunk.document_id == document_id))
@@ -127,7 +133,6 @@ async def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[
     monkeypatch.setattr(document_anon_store, "_ANON_MAP_DIR", tmp_path / "maps")
     monkeypatch.setattr(document_anon_store, "_document_maps", {})
     remask_cache.clear()
-    monkeypatch.setattr(chat_module, "create_sanitizer", _create_sanitizer)
     monkeypatch.setattr(pii_gate, "create_sanitizer", _create_sanitizer)
     monkeypatch.setattr(chat_module, "_retrieve_chunks", _retrieve)
     monkeypatch.setattr(LLMRouter, "complete", _complete)

@@ -43,6 +43,7 @@ from .document_anon_store import (
     load_persisted_document_map,
     set_document_map,
 )
+from .policy_composer import ComposedPolicy
 from .sanitizer_factory import create_sanitizer
 
 if TYPE_CHECKING:
@@ -780,6 +781,37 @@ def _gate_joined(
     return [_mask_with_state(text, final_state, anon_map, language) for text in gated]
 
 
+async def create_user_text_sanitizer(
+    db: AsyncSession,
+    settings: AppSettings,
+    enable_ollama: bool = False,
+    policy: Optional[ComposedPolicy] = None,
+) -> "PIISanitizer":
+    """Build the sanitizer for text a user typed or may have edited.
+
+    Custom rules mask every match here, without their context-word gate: a
+    short question or label seldom carries the context a document would, and
+    an edited chunk may have lost it. Missing a value costs more than
+    masking one too many. Chat queries, everything gated by this module and
+    the chat re-mask of outdated chunks (a chunk alone lacks the text around
+    it) use it.
+    """
+    return await create_sanitizer(
+        db, settings, enable_ollama=enable_ollama, policy=policy, context_gate=False
+    )
+
+
+def _require_ungated(sanitizer: Optional["PIISanitizer"]) -> None:
+    """Refuse a sanitizer that keeps custom rules' context-word gate.
+
+    Gated custom rules would let a value typed without its context words
+    through to the cloud LLM. A sanitizer that does not expose
+    ``context_gate`` is taken as gated; ``None`` (build one here) is allowed.
+    """
+    if sanitizer is not None and getattr(sanitizer, "context_gate", True):
+        raise ValueError("User text needs a sanitizer from create_user_text_sanitizer")
+
+
 async def gate_untrusted_texts(
     texts: Sequence[str],
     anon_map: AnonymizationMap,
@@ -794,14 +826,16 @@ async def gate_untrusted_texts(
     ``anon_map`` is mutated: entities first seen here are added so the
     de-anonymizer can restore them. Callers must pass a request-local map
     (or a copy), never a cached per-document map object. A caller that
-    holds a lock may pass a ``sanitizer`` built beforehand. With ``joined``
-    the texts are sanitized in one run (:func:`_gate_joined`), for many
-    short texts such as column labels.
+    holds a lock may pass a ``sanitizer`` built beforehand by
+    :func:`create_user_text_sanitizer`; a context-gated one raises
+    :class:`ValueError`. With ``joined`` the texts are sanitized in one run
+    (:func:`_gate_joined`), for many short texts such as column labels.
     """
+    _require_ungated(sanitizer)
     if not any(texts):
         return list(texts)
     if sanitizer is None:
-        sanitizer = await create_sanitizer(db, settings, enable_ollama=False)
+        sanitizer = await create_user_text_sanitizer(db, settings)
     lang = language or anon_map.language
 
     def gate_all() -> List[str]:
@@ -910,10 +944,12 @@ async def _gate_and_merge(
     :func:`effective_masking_language`), not the language the map was built
     in, and the written map carries that language so every later reader
     (chat's unified map, :func:`mask_known_entities`) sees the same value.
-    Returns the gated texts and whether the map was written.
+    Returns the gated texts and whether the map was written. A context-gated
+    ``sanitizer`` raises :class:`ValueError` before anything is read.
     """
+    _require_ungated(sanitizer)
     if sanitizer is None and any(texts):
-        sanitizer = await create_sanitizer(db, settings, enable_ollama=False)
+        sanitizer = await create_user_text_sanitizer(db, settings)
     for _ in range(_MAP_MERGE_ATTEMPTS):
         await _require_row(db, document)
         base = await load_persisted_document_map(document.id)
@@ -971,8 +1007,8 @@ async def gate_document_texts(
     lock, so the row is re-checked once the lock is held: a document
     deleted meanwhile aborts with HTTP 404 and its map is not recreated.
     A caller gating several documents may pass one ``sanitizer`` built
-    beforehand. ``joined`` gates the texts in one sanitizer run (see
-    :func:`gate_untrusted_texts`).
+    beforehand by :func:`create_user_text_sanitizer`. ``joined`` gates the
+    texts in one sanitizer run (see :func:`gate_untrusted_texts`).
     """
     gated, _ = await _gate_and_merge(
         db, settings, document, texts, sanitizer, require_existing_map=False, joined=joined
@@ -993,7 +1029,10 @@ async def remask_document_texts(
     map: one that is missing, or erased while the turn runs (a reprocess or
     delete), raises :class:`DocumentMapMissingError` instead of a partial map
     being rebuilt from these texts alone. Returns the texts and whether the
-    map gained entities.
+    map gained entities. ``sanitizer`` must come from
+    :func:`create_user_text_sanitizer`: a chunk alone lacks the text around
+    it that a context word may sit in, and its stored text may carry a
+    user's chunk edit.
     """
     return await _gate_and_merge(
         db, settings, document, texts, sanitizer, require_existing_map=True
@@ -1005,6 +1044,7 @@ __all__ = [
     "DocumentMapConflictError",
     "DocumentMapMissingError",
     "all_placeholders_known",
+    "create_user_text_sanitizer",
     "gate_document_texts",
     "gate_untrusted_texts",
     "is_letter_fragment",

@@ -16,9 +16,14 @@ with a warning. This keeps all network/LLM plumbing outside the
 air-gapped core.
 """
 
+import functools
 import importlib
 import logging
 import re
+import unicodedata
+from array import array
+from bisect import bisect_left, bisect_right
+from itertools import accumulate
 from typing import Callable, List, Optional, Sequence
 
 from presidio_analyzer import (
@@ -28,11 +33,165 @@ from presidio_analyzer import (
 )
 
 from ..regulations.models import CustomRecognizerLike, RegulationRulesetLike
-from ..text_boundaries import token_bounded
+from ..text_boundaries import TOKEN_END, TOKEN_START, token_bounded
 
 logger = logging.getLogger(__name__)
 
 LLMRecognizerFactory = Callable[[CustomRecognizerLike], Optional[EntityRecognizer]]
+
+CONTEXT_WINDOW_CHARS = 100
+"""Characters on each side of a match searched for a rule's context words."""
+
+_EXTRA_FOLDS = str.maketrans({"\u0131": "i"})
+"""Letters that case folding leaves apart from their plain form."""
+
+
+@functools.lru_cache(maxsize=65536)
+def _fold_char(ch: str) -> str:
+    """Fold one character: whitespace to a space, case and diacritics removed."""
+    if ch.isspace():
+        return " "
+    decomposed = unicodedata.normalize("NFKD", ch)
+    stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return stripped.casefold().translate(_EXTRA_FOLDS)
+
+
+def _fold_table(text: str) -> dict[int, str]:
+    """Translation table folding every distinct character of ``text``."""
+    return {ord(ch): _fold_char(ch) for ch in set(text)}
+
+
+def _fold_for_context(word: str) -> str:
+    """Folded form of a context word: trimmed, each whitespace run one space."""
+    return " ".join(word.translate(_fold_table(word)).split())
+
+
+def _same_index(index: int) -> int:
+    """Origin of a folded index when every character folds to exactly one."""
+    return index
+
+
+def _origin_lookup(text: str, table: dict[int, str]) -> Callable[[int], int]:
+    """Map an index of ``text.translate(table)`` to its source character's index."""
+    if all(len(folded) == 1 for folded in table.values()):
+        return _same_index
+    ends = array("q", accumulate(map(len, map(table.__getitem__, map(ord, text)))))
+    return functools.partial(bisect_right, ends)
+
+
+_WORD_CHAR = re.compile(r"\w")
+
+
+def _context_word_body(word: str) -> str:
+    """Regex for a folded context word without its start edge.
+
+    A space in the word matches any run of whitespace. An end that is a word
+    character must sit at a token boundary, so "ID" is not found in "IDEA";
+    an end that is punctuation ("No:") already separates the word from its
+    neighbour, so it matches literally.
+    """
+    end = TOKEN_END if _WORD_CHAR.match(word[-1]) else ""
+    return " +".join(re.escape(part) for part in word.split(" ")) + end
+
+
+def _compile_context_regex(words: set[str]) -> Optional[re.Pattern[str]]:
+    """One overlapping-search regex for folded context words; ``None`` for none.
+
+    Group 1 of each match is the longest word starting at that position.
+    Words starting with a word character must start at a token boundary,
+    checked once for all of them, so each alternative opens with a literal
+    the regex engine can rule out cheaply; words starting with punctuation
+    ("#id", "(ref)") match their start literally. The two kinds never start
+    at the same position. A leading first-character class lets most
+    positions fail before any alternative is tried.
+    """
+    if not words:
+        return None
+    ordered = sorted(words, key=lambda w: (-len(w), w))
+    bounded = [_context_word_body(w) for w in ordered if _WORD_CHAR.match(w[0])]
+    literal = [_context_word_body(w) for w in ordered if not _WORD_CHAR.match(w[0])]
+    branches = []
+    if bounded:
+        branches.append(f"{TOKEN_START}(?:{'|'.join(bounded)})")
+    if literal:
+        branches.append(f"(?:{'|'.join(literal)})")
+    first_chars = "".join(re.escape(c) for c in sorted({w[0] for w in words}))
+    return re.compile(f"(?=[{first_chars}])(?=({'|'.join(branches)}))")
+
+
+class ContextGatedPatternRecognizer(PatternRecognizer):
+    """Pattern recognizer that keeps a match only when a context word is near it.
+
+    The window of a match runs from :data:`CONTEXT_WINDOW_CHARS` characters
+    before its start to :data:`CONTEXT_WINDOW_CHARS` characters after its
+    end, the match included. A match is kept when a context word occurs in
+    the original text as a whole token (ignoring case, diacritics and
+    whitespace runs; an edge of the word that is punctuation matches as is)
+    and at least one of its characters lies in the window. The word is
+    judged on the full text, not on the window: a word cut by the window
+    edge ("XID" seen as "ID") does not count, and one that crosses the edge
+    does. With no context words the recognizer behaves like
+    :class:`PatternRecognizer`.
+    """
+
+    def __init__(self, *args, context_words: Sequence[str] = (), **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        folded = {_fold_for_context(w) for w in context_words if w}
+        folded.discard("")
+        self._context_regex = _compile_context_regex(folded)
+
+    def without_gate(self) -> PatternRecognizer:
+        """The same patterns as a plain recognizer that keeps every match."""
+        return PatternRecognizer(
+            supported_entity=self.supported_entities[0],
+            patterns=self.patterns,
+            name=self.name,
+            supported_language=self.supported_language,
+        )
+
+    @staticmethod
+    def _context_hits(
+        context_regex: re.Pattern[str], text: str
+    ) -> tuple[array, array]:
+        """Locate every context word of ``text`` in one pass over its folded form.
+
+        Returns the source index of each kept hit's first character, ascending,
+        and for each kept hit the furthest source index of a last character
+        among it and the hits before it. A hit's last character includes the
+        characters folded to nothing after it (a trailing combining mark). A
+        hit that does not extend that furthest index is not kept: an earlier
+        hit, starting no later, already reaches as far, so no window query
+        changes.
+        """
+        table = _fold_table(text)
+        origin = _origin_lookup(text, table)
+        firsts = array("q")
+        reach = array("q")
+        furthest = -1
+        for match in context_regex.finditer(text.translate(table)):
+            end = match.end(1)
+            last = max(origin(end - 1), origin(end) - 1)
+            if last > furthest:
+                furthest = last
+                firsts.append(origin(match.start(1)))
+                reach.append(furthest)
+        return firsts, reach
+
+    def analyze(self, text, entities, nlp_artifacts=None, regex_flags=None):
+        """Run the pattern match, then drop results without a nearby context word."""
+        results = super().analyze(text, entities, nlp_artifacts, regex_flags)
+        context_regex = self._context_regex
+        if context_regex is None or not results:
+            return results
+        firsts, reach = self._context_hits(context_regex, text)
+
+        def has_context(start: int, end: int) -> bool:
+            high = min(len(text), end + CONTEXT_WINDOW_CHARS)
+            starting_before = bisect_left(firsts, high)
+            low = max(0, start - CONTEXT_WINDOW_CHARS)
+            return starting_before > 0 and reach[starting_before - 1] >= low
+
+        return [r for r in results if has_context(r.start, r.end)]
 
 
 def _recognizer_dedup_key(recognizer: EntityRecognizer):
@@ -109,6 +268,28 @@ def _load_pack_recognizers(
             type(exc).__name__,
         )
         return None
+
+
+def has_context_words(custom: CustomRecognizerLike) -> bool:
+    """Whether a custom rule has a context word that is not blank."""
+    return any(w and w.strip() for w in custom.context_words or ())
+
+
+def _pattern_recognizer(
+    custom: CustomRecognizerLike, pattern: Pattern
+) -> PatternRecognizer:
+    """Build ``pattern``'s recognizer, context-gated when the rule has context words."""
+    options = {
+        "supported_entity": custom.entity_type,
+        "patterns": [pattern],
+        "name": custom.name,
+        "supported_language": "en",
+    }
+    if has_context_words(custom):
+        return ContextGatedPatternRecognizer(
+            context_words=custom.context_words, **options
+        )
+    return PatternRecognizer(**options)
 
 
 class RecognizerRegistry:
@@ -222,12 +403,7 @@ class RecognizerRegistry:
             regex=compiled.pattern,
             score=0.6,
         )
-        return PatternRecognizer(
-            supported_entity=custom.entity_type,
-            patterns=[pattern],
-            name=custom.name,
-            supported_language="en",
-        )
+        return _pattern_recognizer(custom, pattern)
 
     @staticmethod
     def _build_keyword_recognizer(
@@ -249,12 +425,7 @@ class RecognizerRegistry:
             regex=f"(?=(?:{alternation})){token_bounded(alternation)}",
             score=0.7,
         )
-        return PatternRecognizer(
-            supported_entity=custom.entity_type,
-            patterns=[pattern],
-            name=custom.name,
-            supported_language="en",
-        )
+        return _pattern_recognizer(custom, pattern)
 
     def _build_llm_recognizer(
         self,

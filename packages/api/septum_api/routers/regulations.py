@@ -10,10 +10,10 @@ This router exposes:
 """
 
 import asyncio
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -76,6 +76,14 @@ class CustomRecognizerResponse(BaseModel):
 
 DetectionMethod = Literal["regex", "keyword_list", "llm_prompt"]
 
+MAX_CONTEXT_WORDS = 100
+MAX_CONTEXT_WORD_LENGTH = 128
+
+ContextWords = Annotated[
+    List[Annotated[str, StringConstraints(max_length=MAX_CONTEXT_WORD_LENGTH)]],
+    Field(max_length=MAX_CONTEXT_WORDS),
+]
+
 
 class CustomRecognizerCreatePayload(BaseModel):
     """Request body for creating a new custom recognizer."""
@@ -86,7 +94,7 @@ class CustomRecognizerCreatePayload(BaseModel):
     pattern: Optional[str] = None
     keywords: Optional[List[str]] = None
     llm_prompt: Optional[str] = None
-    context_words: List[str] = Field(default_factory=list)
+    context_words: ContextWords = Field(default_factory=list)
     placeholder_label: str
     is_active: bool = True
 
@@ -100,9 +108,17 @@ class CustomRecognizerUpdatePayload(BaseModel):
     pattern: Optional[str] = None
     keywords: Optional[List[str]] = None
     llm_prompt: Optional[str] = None
-    context_words: Optional[List[str]] = None
+    context_words: Optional[ContextWords] = None
     placeholder_label: Optional[str] = None
     is_active: Optional[bool] = None
+
+    @field_validator("context_words")
+    @classmethod
+    def _context_words_not_null(cls, value: Optional[List[str]]) -> List[str]:
+        """Refuse an explicit null: the column is required; send [] to clear it."""
+        if value is None:
+            raise ValueError("context_words cannot be null; send [] to clear it")
+        return value
 
 
 class CustomRecognizerTestRequest(BaseModel):
@@ -254,15 +270,27 @@ async def get_regulation_entities(
 
 LLM_PROMPT_REQUIRED_CODE = "llm_prompt_required"
 
+LLM_PROMPT_DETECTION = "llm_prompt"
+"""Detection method of a rule whose local model reads the text itself."""
+
 
 def _require_llm_prompt(detection_method: str, llm_prompt: Optional[str]) -> None:
     """Refuse an ``llm_prompt`` rule whose prompt is empty: it would never detect anything."""
-    if detection_method == "llm_prompt" and not (llm_prompt or "").strip():
+    if detection_method == LLM_PROMPT_DETECTION and not (llm_prompt or "").strip():
         raise CodedHTTPError(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="An llm_prompt rule needs a non-empty prompt.",
             code=LLM_PROMPT_REQUIRED_CODE,
         )
+
+
+def _stored_context_words(
+    detection_method: str, context_words: Optional[List[str]]
+) -> List[str]:
+    """Context words to store: none for an ``llm_prompt`` rule, whose model judges context."""
+    if detection_method == LLM_PROMPT_DETECTION:
+        return []
+    return context_words or []
 
 
 @router.get(
@@ -313,7 +341,7 @@ async def create_custom_recognizer(
         pattern=data.get("pattern"),
         keywords=data.get("keywords"),
         llm_prompt=data.get("llm_prompt"),
-        context_words=data.get("context_words") or [],
+        context_words=_stored_context_words(detection_method, data.get("context_words")),
         placeholder_label=data["placeholder_label"],
         is_active=data.get("is_active", True),
     )
@@ -354,6 +382,9 @@ async def update_custom_recognizer(
 
     for field_name, value in update_data.items():
         setattr(recognizer, field_name, value)
+    recognizer.context_words = _stored_context_words(
+        recognizer.detection_method, recognizer.context_words
+    )
 
     await db.commit()
     await db.refresh(recognizer)

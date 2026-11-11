@@ -29,7 +29,7 @@ from septum_api.models.settings import AppSettings
 from septum_api.models.user import User
 from septum_api.routers import chat as chat_module
 from septum_api.routers import documents as documents_module
-from septum_api.services import document_anon_store, ollama_client
+from septum_api.services import document_anon_store, ollama_client, pii_gate
 from septum_api.services.anonymization_map import AnonymizationMap
 from septum_api.services.ingestion.base import IngestionResult
 from septum_api.services.llm_router import LLMRouter
@@ -211,8 +211,9 @@ async def test_documents_masked_under_an_llm_prompt_rule_become_outdated(env) ->
 
 
 async def test_policy_without_llm_prompt_rules_keeps_its_digest(env) -> None:
-    """Documents masked under regex/keyword rules only stay current."""
+    """Documents masked under regex/keyword rules without context words stay current."""
     rule = _regex_rule()
+    rule.context_words = []
     await _store(env, rule)
     defaults = build_default_app_settings()
     pre_fix = build_policy_snapshot(
@@ -800,3 +801,161 @@ async def test_updating_a_rule_to_an_llm_prompt_rule_without_a_prompt_is_refused
     assert (switched.status_code, switched.json().get("code")) == (422, "llm_prompt_required")
     assert renamed.status_code == 200
     assert renamed.json()["llm_prompt"] == "Find internal project codenames."
+
+
+async def test_documents_masked_before_the_context_gate_become_outdated(env) -> None:
+    """A regex rule with context words moves the digest off the one recorded before the gate."""
+    rule = _regex_rule()
+    await _store(env, rule)
+    defaults = build_default_app_settings()
+    pre_gate = build_policy_snapshot(
+        [], [_pre_fix_definition(rule)], [], detection=detection_settings(defaults)
+    )
+
+    async with env.session_maker() as session:
+        read = await current_policy_snapshot(session)
+        _, composed = await PolicyComposer().compose_with_snapshot(session, defaults)
+
+    assert read.digest == composed.digest
+    assert read.digest != pre_gate.digest
+
+
+GATED_VALUE = "PFN-123456"
+
+
+async def test_chat_query_masks_a_gated_rule_match_without_context(env) -> None:
+    await _store(env, _regex_rule())
+    anon_map = AnonymizationMap(document_id=0, language="en")
+
+    async with env.session_maker() as session:
+        sanitized, count, _ = await chat_module._sanitize_query(
+            f"Who owns {GATED_VALUE}?", "en", _settings(), anon_map, session
+        )
+
+    assert GATED_VALUE not in sanitized
+    assert count == 1
+
+
+async def test_document_sanitizer_keeps_the_context_gate(env) -> None:
+    await _store(env, _regex_rule())
+
+    async with env.session_maker() as session:
+        sanitizer = await create_sanitizer(session, _settings())
+    without = sanitizer.sanitize(
+        f"Who owns {GATED_VALUE}?", "en", AnonymizationMap(document_id=1, language="en")
+    )
+    with_context = sanitizer.sanitize(
+        f"The file {GATED_VALUE} is closed.", "en", AnonymizationMap(document_id=1, language="en")
+    )
+
+    assert GATED_VALUE in without.sanitized_text
+    assert GATED_VALUE not in with_context.sanitized_text
+
+
+async def test_edited_approval_chunk_masks_a_gated_rule_match_without_context(env) -> None:
+    await _store(env, _regex_rule())
+    anon_map = AnonymizationMap(document_id=0, language="en")
+
+    async with env.session_maker() as session:
+        [gated] = await chat_module._gate_edited_chunks(
+            ["Offered chunk."], [f"Who owns {GATED_VALUE}?"], anon_map, session, _settings()
+        )
+
+    assert GATED_VALUE not in gated
+
+
+async def test_column_labels_and_ruleset_names_mask_a_gated_rule_match_without_context(
+    env,
+) -> None:
+    await _store(env, _regex_rule())
+    anon_map = AnonymizationMap(document_id=0, language="en")
+
+    async with env.session_maker() as session:
+        labels = await gate_untrusted_texts(
+            [f"Owner {GATED_VALUE}", "Amount"], anon_map, session, _settings(), joined=True
+        )
+        names = await chat_module._prompt_regulation_names(
+            [("GDPR", True), (f"Rules {GATED_VALUE}", False)], anon_map, session, _settings()
+        )
+
+    assert GATED_VALUE not in labels[0]
+    assert labels[1] == "Amount"
+    assert names[0] == "GDPR"
+    assert GATED_VALUE not in names[1]
+
+
+async def test_chunk_edits_mask_a_gated_rule_match_without_context(env) -> None:
+    await _store(env, _regex_rule())
+    doc_id, _ = await env.add_document()
+
+    async with env.session_maker() as session:
+        document = await session.get(Document, doc_id)
+        [gated] = await pii_gate.gate_document_texts(
+            session, _settings(), document, [f"Owner {GATED_VALUE}"]
+        )
+
+    assert GATED_VALUE not in gated
+
+
+async def test_outdated_chunk_remask_masks_a_gated_rule_match_without_context(env) -> None:
+    await _store(env, _regex_rule())
+    doc_id, _ = await env.add_document()
+    await document_anon_store.set_document_map(
+        doc_id, AnonymizationMap(document_id=doc_id, language="en")
+    )
+    remask_cache.clear()
+
+    async with env.session_maker() as session:
+        document = await session.get(Document, doc_id)
+        chunk = (
+            await session.execute(select(Chunk).where(Chunk.document_id == doc_id))
+        ).scalar_one()
+        chunk.sanitized_text = f"Owner {GATED_VALUE}"
+        restored, changed = await chat_module._resanitize_outdated_chunks(
+            session, _settings(), [chunk], {doc_id: document}
+        )
+    remask_cache.clear()
+
+    assert GATED_VALUE not in restored[chunk.id]
+    assert "[PATIENT_FILE_NUMBER_" in restored[chunk.id]
+    assert changed == {doc_id}
+
+
+async def test_user_text_gates_refuse_a_context_gated_sanitizer(env) -> None:
+    await _store(env, _regex_rule())
+    doc_id, _ = await env.add_document()
+    text = f"Owner {GATED_VALUE}"
+
+    async with env.session_maker() as session:
+        gated = await create_sanitizer(session, _settings())
+        ungated = await pii_gate.create_user_text_sanitizer(session, _settings())
+        document = await session.get(Document, doc_id)
+        with pytest.raises(ValueError):
+            await gate_untrusted_texts(
+                [text], AnonymizationMap(document_id=0, language="en"), session, _settings(),
+                sanitizer=gated,
+            )
+        with pytest.raises(ValueError):
+            await pii_gate.gate_document_texts(
+                session, _settings(), document, [text], sanitizer=gated
+            )
+        with pytest.raises(ValueError):
+            await pii_gate.remask_document_texts(session, _settings(), document, [text], gated)
+        assert await document_anon_store.load_persisted_document_map(doc_id) is None
+        [masked] = await gate_untrusted_texts(
+            [text], AnonymizationMap(document_id=0, language="en"), session, _settings(),
+            sanitizer=ungated,
+        )
+
+    assert (gated.context_gate, ungated.context_gate) == (True, False)
+    assert GATED_VALUE not in masked
+
+
+async def test_user_text_gates_refuse_a_sanitizer_without_a_gate_flag() -> None:
+    anon_map = AnonymizationMap(document_id=0, language="en")
+    with pytest.raises(ValueError):
+        await gate_untrusted_texts([f"Owner {GATED_VALUE}"], anon_map, None, None, sanitizer=object())
+    document = SimpleNamespace(id=1)
+    with pytest.raises(ValueError):
+        await pii_gate.remask_document_texts(None, None, document, ["text"], object())
+    assert anon_map.entity_map == {}
