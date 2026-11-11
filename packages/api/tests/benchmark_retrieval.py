@@ -1,9 +1,11 @@
 """Retrieval benchmark for Septum.
 
-Exercises the shipped retrieval stack: ``DocumentPipeline._build_chunks``
-for chunking, the production sanitizer for per-chunk masking, ``VectorStore``
-(FAISS) and ``BM25Retriever`` for indexing, and ``VectorStore.hybrid_search``
-for ranking. The index lives under ``tmp_path`` and the encryption key is
+Exercises the shipped retrieval stack: the production whole-document path
+(``DocumentPipeline`` block normalization, one detection over the whole text,
+placeholders in document order, protected ranges, ``_chunk_records`` with the
+character settings, per-chunk projection), ``VectorStore`` (FAISS) and
+``BM25Retriever`` for indexing the raw chunk slices, and
+``VectorStore.hybrid_search`` for ranking. The index lives under ``tmp_path`` and the encryption key is
 generated per test; the real data directory and bootstrap config are never
 touched. Everything runs offline: the embedder is the pinned, hash-verified
 snapshot in the local Hugging Face cache, and no LLM is called.
@@ -12,10 +14,12 @@ The smoke test (``-k smoke``) checks the embedder pin and one hybrid query.
 The full run (``-k full_retrieval``) builds the hand-authored evaluation set
 (``retrieval_eval/``), measures quality per retriever and query mode, records
 the leak block, and writes one JSON file when ``SEPTUM_BENCHMARK_OUT`` is set.
+The full run is also a gate (``gate_failures``): leak and quality-guard limits.
 
 Environment:
   SEPTUM_BENCHMARK_EMBEDDING_MODEL  embedding model id (default: the production MiniLM)
   SEPTUM_BENCHMARK_CHUNKER          pipeline | structured | sliding (default pipeline)
+  SEPTUM_BENCHMARK_CHUNK_OVERLAP    chunk overlap in characters, overriding the 200 default (optional)
   SEPTUM_BENCHMARK_RETRIEVERS       comma list of dense,bm25,hybrid,auto_rag
   SEPTUM_BENCHMARK_QUERY_MODE       raw | sanitized | both (default both; sanitized is the headline)
   SEPTUM_BENCHMARK_LATENCY_REPEATS  timed repetitions per query (default 5)
@@ -48,6 +52,7 @@ from typing import Awaitable, Callable, Optional, Sequence
 import pytest
 import torch
 from langdetect import DetectorFactory
+from septum_core.span_projection import project, protected_ranges
 from septum_core.model_integrity import (
     ModelIntegrityError,
     ensure_pinned_snapshot,
@@ -60,16 +65,17 @@ from septum_api.routers.chat import _DEFAULT_RELEVANCE_THRESHOLD
 from septum_api.seeds.regulations import builtin_regulations
 from septum_api.services.anonymization_map import AnonymizationMap
 from septum_api.services.bm25_retriever import BM25Retriever
-from septum_api.services.chunking_strategy import (
-    SlidingWindowChunker,
-    StructuredDocumentChunker,
-)
-from septum_api.services.document_pipeline import DocumentPipeline
+from septum_api.services.document_pipeline import DocumentPipeline, _normalized_blocks
+from septum_api.services.ingestion.base import TextBlock, block_starts, join_blocks
 from septum_api.services.ner_model_registry import get_shared_ner_registry
 from septum_api.services.policy_composer import PolicyComposer
 from septum_api.services.sanitizer import PIISanitizer
 from septum_api.services.sanitizer_factory import DOCUMENT_SANITIZER_ENABLE_OLLAMA
-from septum_api.services.vector_store import _DEFAULT_ST_MODEL, VectorStore
+from septum_api.services.vector_store import (
+    _DEFAULT_ST_MODEL,
+    VectorStore,
+    get_shared_sentence_transformer,
+)
 from septum_api.utils import crypto
 from septum_api.utils.db_helpers import detect_language
 from tests import benchmark_detection as bd
@@ -111,15 +117,26 @@ ANSWERABLE_TYPES = ("lexical", "paraphrase", "entity", "cross_lingual")
 METRICS = ("recall@5", "recall@10", "mrr", "ndcg@10")
 UNRELATED: tuple[int, int] = (-1, -1)
 POOL_SIZE = 120
-LEAK_START_VALUES = 300
+LEAK_DOC_VALUES = 2400
 LEAK_MIN_CROSSING = 50
-LEAK_MAX_VALUES = 4800
+LEAK_MAX_DOCS = 12
+LEAK_VIEW_PAD = 60
 LEAK_GAP_CHARS = (120, 180)
+DEFAULT_CHUNK_OVERLAP = 200
+GATE_MIN_RECALL_AT_5 = 0.951
+GATE_MIN_MRR = 0.709
+GATE_ZERO_LITERAL_TYPES = ("EMAIL_ADDRESS", "PHONE_NUMBER", "IBAN")
 CHUNKER_DESCRIPTIONS = {
-    "pipeline": "txt: sliding(chunk_size, chunk_overlap); pdf: structured(max(pdf_chunk_size, 800))",
-    "structured": "structured(max(pdf_chunk_size, 800)) for every document",
-    "sliding": "sliding(chunk_size, chunk_overlap) for every document",
+    "pipeline": (
+        "whole-document detection, then the production strategy per format "
+        "(txt/pdf structured, chunk_size or max(pdf_chunk_size, 800) characters, "
+        "chunk_overlap) and per-chunk projection"
+    ),
+    "structured": "whole-document detection, structured chunks (chunk_size) for every document",
+    "sliding": "whole-document detection, sliding chunks (chunk_size, chunk_overlap) for every document",
 }
+CHUNKER_FORMATS = {"pipeline": None, "structured": "txt", "sliding": "text"}
+"""File format the production chunk strategy is looked up with; ``None`` is the document's own."""
 RETRIEVER_NAMES = ("dense", "bm25", "hybrid", "auto_rag")
 QUERY_MODE_CHOICES = ("raw", "sanitized", "both")
 IDENTIFIER_TYPES = frozenset({"EMAIL_ADDRESS", "PHONE_NUMBER", "IBAN"})
@@ -186,6 +203,7 @@ class BenchmarkConfig:
     query_modes: tuple[str, ...]
     latency_repeats: int
     out: Optional[Path]
+    chunk_overlap: int = DEFAULT_CHUNK_OVERLAP
 
     @property
     def headline_mode(self) -> str:
@@ -211,6 +229,9 @@ def load_config() -> BenchmarkConfig:
     repeats = int(os.environ.get("SEPTUM_BENCHMARK_LATENCY_REPEATS", DEFAULT_LATENCY_REPEATS))
     if repeats < 1:
         raise ValueError("SEPTUM_BENCHMARK_LATENCY_REPEATS must be at least 1")
+    overlap = int(os.environ.get("SEPTUM_BENCHMARK_CHUNK_OVERLAP", DEFAULT_CHUNK_OVERLAP))
+    if overlap < 0:
+        raise ValueError("SEPTUM_BENCHMARK_CHUNK_OVERLAP must not be negative")
     out = os.environ.get("SEPTUM_BENCHMARK_OUT")
     return BenchmarkConfig(
         embedding_model=EMBEDDING_MODEL,
@@ -219,6 +240,7 @@ def load_config() -> BenchmarkConfig:
         query_modes=modes,
         latency_repeats=repeats,
         out=Path(out) if out else None,
+        chunk_overlap=overlap,
     )
 
 
@@ -387,32 +409,95 @@ def map_chunk_spans(source: str, chunk_texts: Sequence[str]) -> list[Optional[Sp
 #  CHUNKER AND RETRIEVER REGISTRIES
 # ═══════════════════════════════════════════════════════════════════════════
 
-Chunker = Callable[[DocumentPipeline, AppSettings, str, str], Awaitable[list[str]]]
+class _EmbedderTokens:
+    """Counts tokens with the production embedder's tokenizer, only to measure chunks over its input limit."""
+
+    def __init__(self) -> None:
+        model = get_shared_sentence_transformer()
+        self._tokenizer = model.tokenizer
+        self.cap = int(model.max_seq_length) - self._tokenizer.num_special_tokens_to_add(pair=False)
+
+    def count(self, text: str) -> int:
+        return len(self._tokenizer(text, add_special_tokens=False, truncation=False)["input_ids"])
 
 
-async def _chunk_pipeline(pipeline: DocumentPipeline, settings: AppSettings, fmt: str, text: str) -> list[str]:
-    """Production chunking; the registry chunkers share this signature, so unused arguments are kept."""
-    return [c.text for c in await pipeline._build_chunks(fmt, text)]
+@dataclass(frozen=True)
+class ChunkContext:
+    """What the production path needs besides the document: pipeline and sanitizer."""
+
+    pipeline: DocumentPipeline
+    sanitizer: PIISanitizer
 
 
-async def _chunk_structured(pipeline: DocumentPipeline, settings: AppSettings, fmt: str, text: str) -> list[str]:
-    chunker = StructuredDocumentChunker(max_chunk_size=max(settings.pdf_chunk_size, 800))
-    return [c.text for c in await asyncio.to_thread(chunker.chunk, text)]
+@dataclass(frozen=True)
+class ChunkedDocument:
+    """One document cut the production way: raw slices, their exact spans, their masked projections."""
+
+    texts: list[str]
+    spans: list[Span]
+    sanitized: list[str]
+    detect_s: float
+    cut_s: float
+    document_view: Callable[[Sequence[Span]], list[str]]
+    """Masked text of arbitrary ranges of the document, as the whole-document view shows them."""
 
 
-async def _chunk_sliding(pipeline: DocumentPipeline, settings: AppSettings, fmt: str, text: str) -> list[str]:
-    chunker = SlidingWindowChunker(
-        chunk_size=max(settings.chunk_size, 1),
-        overlap=max(min(settings.chunk_overlap, settings.chunk_size - 1), 0),
+Chunker = Callable[[ChunkContext, str, str, str, AnonymizationMap], Awaitable[ChunkedDocument]]
+
+
+def _document_blocks(text: str) -> tuple[list[TextBlock], str]:
+    """One text block, NFC-normalized as ingestion does (no database rules); the joined text."""
+    blocks = _normalized_blocks([TextBlock(text=text, kind="text")], lambda value: value)
+    return blocks, join_blocks(blocks)
+
+
+async def _chunk_document(
+    ctx: ChunkContext, strategy_format: Optional[str], fmt: str, text: str, lang: str, anon_map: AnonymizationMap
+) -> ChunkedDocument:
+    """Mirror ``DocumentPipeline._mask_document`` without the database and model-scope plumbing.
+
+    Detect once on the whole text, apply to ``anon_map`` (placeholders in document order),
+    cut the chunks outside the protected ranges, project each chunk.
+    """
+    blocks, joined = _document_blocks(text)
+    if joined != text:
+        raise ValueError("block normalization changed the evaluation text; gold offsets would shift")
+    started = time.perf_counter()
+    detection = await asyncio.to_thread(ctx.sanitizer.detect, joined, lang, boundaries=block_starts(blocks))
+    if detection.text != joined:
+        raise ValueError("the detector normalized the evaluation text differently from its blocks")
+    applied = await asyncio.to_thread(ctx.sanitizer.apply, detection, anon_map)
+    detect_s = time.perf_counter() - started
+    resolved = applied.detected_spans
+
+    def cut_and_project():
+        ranges = protected_ranges(detection, resolved, anon_map)
+        records = ctx.pipeline._chunk_records(strategy_format or fmt, blocks, ranges)
+        return records, project(detection, resolved, [(r.start, r.end) for r in records], anon_map)
+
+    started = time.perf_counter()
+    records, projected = await asyncio.to_thread(cut_and_project)
+    cut_s = time.perf_counter() - started
+    return ChunkedDocument(
+        texts=[r.text for r in records],
+        spans=[(r.start, r.end) for r in records],
+        sanitized=[p.masked_text for p in projected],
+        detect_s=detect_s,
+        cut_s=cut_s,
+        document_view=lambda ranges: [
+            p.masked_text for p in project(detection, resolved, list(ranges), anon_map)
+        ],
     )
-    return [c.text for c in await asyncio.to_thread(chunker.chunk, text)]
 
 
-CHUNKERS: dict[str, Chunker] = {
-    "pipeline": _chunk_pipeline,
-    "structured": _chunk_structured,
-    "sliding": _chunk_sliding,
-}
+def _chunker_for(name: str) -> Chunker:
+    async def chunk(ctx: ChunkContext, fmt: str, text: str, lang: str, anon_map: AnonymizationMap) -> ChunkedDocument:
+        return await _chunk_document(ctx, CHUNKER_FORMATS[name], fmt, text, lang, anon_map)
+
+    return chunk
+
+
+CHUNKERS: dict[str, Chunker] = {name: _chunker_for(name) for name in CHUNKER_DESCRIPTIONS}
 
 
 @dataclass
@@ -636,10 +721,10 @@ def _snap_to_space(text: str, end: int) -> int:
     return end
 
 
-def _leak_text(lang: str, n_values: int) -> tuple[str, list[tuple[str, str, int, int]]]:
-    """Filler text with one synthetic value after every 120 to 180 filler characters."""
+def _leak_text(lang: str, n_values: int, part: int) -> tuple[str, list[tuple[str, str, int, int]]]:
+    """Filler text with one synthetic value after every 120 to 180 filler characters; ``part`` seeds each document."""
     filler = _filler_text(lang)
-    rng = random.Random(f"{SEED}|leak|{lang}|{n_values}")
+    rng = random.Random(f"{SEED}|leak|{lang}|{n_values}|{part}")
     pieces: list[str] = []
     placed: list[tuple[str, str, int, int]] = []
     position = 0
@@ -673,6 +758,7 @@ class _LeakRecord:
     literal: bool
     fragment: bool
     fragment_scorable: bool
+    violation: bool = False
 
 
 def _rate(hits: int, total: int) -> Optional[float]:
@@ -717,26 +803,28 @@ class _ChunkedLeak:
     alignments: dict[int, list[Opcode]] = field(default_factory=dict)
 
 
-async def _choose_leak_text(
-    pipeline: DocumentPipeline, settings: AppSettings, lang: str
-) -> tuple[int, list[tuple[str, str, int, int]], list[str], list[Optional[Span]]]:
-    """Double the value count until enough values cross a chunk boundary, or the cap is reached."""
-    n_values = LEAK_START_VALUES
-    while True:
-        text, placed = _leak_text(lang, n_values)
-        chunk_texts = await _chunk_pipeline(pipeline, settings, "txt", text)
-        spans = map_chunk_spans(text, chunk_texts)
-        mapped = [s for s in spans if s is not None]
-        crossing_count = sum(
-            1 for _, _, vs, ve in placed if classify_boundary((vs, ve), mapped) == "crossing"
-        )
-        if crossing_count >= LEAK_MIN_CROSSING or n_values >= LEAK_MAX_VALUES:
-            return n_values, placed, chunk_texts, spans
-        n_values *= 2
+def _region_exposure(
+    value: str, value_class: str, raw: str, masked: str, opcodes: list[Opcode], start: int, end: int
+) -> tuple[bool, bool]:
+    """(literal, fragment) exposure of ``value`` inside its own region ``[start, end)`` of ``raw``.
+
+    Only the sanitized text aligned to that region is inspected, so another occurrence of the
+    same value elsewhere in the text is never counted.
+    """
+    lo, hi = sanitized_span(opcodes, max(start, 0), min(end, len(raw)))
+    region = masked[lo:hi]
+    return has_literal_leak(value, region), has_fragment_leak(value, value_class, region)
 
 
-def _score_value(leak: _ChunkedLeak, slot_type: str, value: str, vs: int, ve: int) -> Optional[_LeakRecord]:
-    """Leak flags for one placed value over every chunk it overlaps; None when no chunk covers it."""
+def _score_value(
+    leak: _ChunkedLeak, slot_type: str, value: str, vs: int, ve: int, document_view: tuple[int, str, str]
+) -> Optional[_LeakRecord]:
+    """Leak flags for one placed value over every chunk it overlaps; None when no chunk covers it.
+
+    ``document_view`` is ``(offset, raw, masked)`` of a window around the value as the
+    whole-document masking shows it. ``violation`` is set when some chunk exposes the value
+    (literally or as a fragment, inside its own region) although the whole-document view does not.
+    """
     value_class = _leak_class(slot_type)
     scorable = fragment_scorable(value, value_class)
     literal = False
@@ -746,51 +834,74 @@ def _score_value(leak: _ChunkedLeak, slot_type: str, value: str, vs: int, ve: in
         if span is None or not (span[0] < ve and span[1] > vs):
             continue
         touched = True
-        literal = literal or has_literal_leak(value, leak.sanitized[i])
-        if scorable and not fragment:
-            if i not in leak.alignments:
-                leak.alignments[i] = alignment(leak.chunk_texts[i], leak.sanitized[i])
-            raw = leak.chunk_texts[i]
-            lead = len(raw) - len(raw.lstrip())
-            origin = span[0] - lead
-            lo, hi = sanitized_span(leak.alignments[i], max(vs - origin, 0), min(ve - origin, len(raw)))
-            fragment = has_fragment_leak(value, value_class, leak.sanitized[i][lo:hi])
+        if i not in leak.alignments:
+            leak.alignments[i] = alignment(leak.chunk_texts[i], leak.sanitized[i])
+        chunk_literal, chunk_fragment = _region_exposure(
+            value, value_class, leak.chunk_texts[i], leak.sanitized[i], leak.alignments[i],
+            vs - span[0], ve - span[0],
+        )
+        literal = literal or chunk_literal
+        fragment = fragment or chunk_fragment
     if not touched:
         return None
-    return _LeakRecord(slot_type, classify_boundary((vs, ve), leak.mapped), literal, fragment, scorable)
+    offset, raw, masked = document_view
+    doc_literal, doc_fragment = _region_exposure(
+        value, value_class, raw, masked, alignment(raw, masked), vs - offset, ve - offset
+    )
+    violation = (literal or fragment) and not (doc_literal or doc_fragment)
+    return _LeakRecord(
+        slot_type, classify_boundary((vs, ve), leak.mapped), literal, fragment, scorable, violation
+    )
 
 
-async def _leak_block(
-    pipeline: DocumentPipeline, settings: AppSettings, sanitizer: PIISanitizer, lang: str, timing: dict
-) -> dict:
-    n_values, placed, chunk_texts, spans = await _choose_leak_text(pipeline, settings, lang)
-    anon_map = AnonymizationMap(document_id=-1, language=lang)
-    sanitized: list[str] = []
-    started = time.perf_counter()
-    for chunk in chunk_texts:
-        sanitized.append(sanitizer.sanitize(chunk, lang, anon_map).sanitized_text)
-    timing.setdefault("leak_sanitize_s", {})[lang] = round(time.perf_counter() - started, 3)
+async def _leak_block(ctx: ChunkContext, lang: str, timing: dict) -> dict:
+    """Leak rates over what production stores: each chunk's projected ``sanitized_text``.
 
-    leak = _ChunkedLeak(chunk_texts, spans, sanitized, [s for s in spans if s is not None])
+    Documents of ``LEAK_DOC_VALUES`` values are processed one at a time, each with its own map,
+    until ``LEAK_MIN_CROSSING`` values cross a chunk edge or ``LEAK_MAX_DOCS`` documents are used.
+    """
     records: list[_LeakRecord] = []
     unknown = 0
     fragment_unscorable = 0
-    for slot_type, value, vs, ve in placed:
-        fragment_unscorable += int(not fragment_scorable(value, _leak_class(slot_type)))
-        record = _score_value(leak, slot_type, value, vs, ve)
-        if record is None:
-            unknown += 1
-        else:
-            records.append(record)
+    chunk_total = 0
+    documents = 0
+    elapsed = 0.0
+    while documents < LEAK_MAX_DOCS:
+        text, placed = _leak_text(lang, LEAK_DOC_VALUES, documents)
+        documents += 1
+        chunked = await CHUNKERS["pipeline"](
+            ctx, "txt", text, lang, AnonymizationMap(document_id=-documents, language=lang)
+        )
+        elapsed += chunked.detect_s + chunked.cut_s
+        chunk_total += len(chunked.texts)
+        spans = list(chunked.spans)
+        leak = _ChunkedLeak(chunked.texts, spans, chunked.sanitized, spans)
+        windows = [
+            (max(vs - LEAK_VIEW_PAD, 0), min(ve + LEAK_VIEW_PAD, len(text))) for _, _, vs, ve in placed
+        ]
+        masked_windows = await asyncio.to_thread(chunked.document_view, windows)
+        for (slot_type, value, vs, ve), (w0, w1), masked in zip(placed, windows, masked_windows):
+            fragment_unscorable += int(not fragment_scorable(value, _leak_class(slot_type)))
+            record = _score_value(leak, slot_type, value, vs, ve, (w0, text[w0:w1], masked))
+            if record is None:
+                unknown += 1
+            else:
+                records.append(record)
+        if sum(1 for r in records if r.kind == "crossing") >= LEAK_MIN_CROSSING:
+            break
+    timing.setdefault("leak_sanitize_s", {})[lang] = round(elapsed, 3)
+    n_values = documents * LEAK_DOC_VALUES
 
     crossing_count = sum(1 for r in records if r.kind == "crossing")
     return {
         "values": n_values,
-        "chunks": len(chunk_texts),
-        "unmapped_chunks": sum(1 for s in spans if s is None),
+        "documents": documents,
+        "chunks": chunk_total,
+        "unmapped_chunks": 0,
         "unknown": unknown,
         "fragment_unscorable": fragment_unscorable,
         "below_min_crossing": crossing_count < LEAK_MIN_CROSSING,
+        "invariant_violations": sum(1 for r in records if r.violation),
         **_arms(records),
         "excluding_organization_name": _arms([r for r in records if r.slot_type != SEPARATED_LEAK_TYPE]),
         "by_type": {
@@ -891,11 +1002,12 @@ async def run_benchmark(
     """Index the evaluation corpus, run every retriever and query mode, and assemble the result document."""
     DetectorFactory.seed = 42
     pipeline = DocumentPipeline(settings)
+    ctx = ChunkContext(pipeline, sanitizer)
     chunker = CHUNKERS[config.chunker]
     timing: dict = {}
     wall_started = time.perf_counter()
 
-    # Ingestion: chunk, sanitize per chunk with one map per document, then index raw chunk text.
+    # Ingestion: detect once per document, cut and project the chunks, then index the raw chunk slices.
     documents: dict[int, EvalDocument] = {}
     by_id: dict[str, int] = {}
     for key, meta in enumerate(load_docs(), start=1):
@@ -911,24 +1023,23 @@ async def run_benchmark(
 
     chunks: dict[int, IndexedChunk] = {}
     next_chunk_id = 1
-    chunk_started = time.perf_counter()
     doc_chunk_texts: dict[int, list[str]] = {}
+    detect_s = 0.0
+    cut_s = 0.0
     for doc in documents.values():
-        texts = await chunker(pipeline, settings, doc.meta.file_format, doc.filled)
-        doc_chunk_texts[doc.key] = texts
-        spans = map_chunk_spans(doc.filled, texts)
-        for text, span in zip(texts, spans):
+        chunked = await chunker(ctx, doc.meta.file_format, doc.filled, doc.meta.lang, doc.anon_map)
+        detect_s += chunked.detect_s
+        cut_s += chunked.cut_s
+        doc_chunk_texts[doc.key] = chunked.texts
+        for text, span in zip(chunked.texts, chunked.spans):
             chunks[next_chunk_id] = IndexedChunk(next_chunk_id, doc.key, text, span)
             doc.chunk_ids.append(next_chunk_id)
             next_chunk_id += 1
-    timing["chunk_s"] = round(time.perf_counter() - chunk_started, 3)
-    unmapped = sum(1 for c in chunks.values() if c.span is None)
-
-    sanitize_started = time.perf_counter()
-    for doc in documents.values():
-        for text in doc_chunk_texts[doc.key]:
-            sanitizer.sanitize(text, doc.meta.lang, doc.anon_map)
-    timing["sanitize_s"] = round(time.perf_counter() - sanitize_started, 3)
+    embedder_counter = _EmbedderTokens()
+    over_limit = sum(1 for c in chunks.values() if embedder_counter.count(c.text) > embedder_counter.cap)
+    timing["chunk_s"] = round(cut_s, 3)
+    timing["sanitize_s"] = round(detect_s, 3)
+    unmapped = 0
 
     index_started = time.perf_counter()
     for doc in documents.values():
@@ -936,6 +1047,7 @@ async def run_benchmark(
             store.index_document(doc.key, doc.chunk_ids, doc_chunk_texts[doc.key])
             bm25.index_document(doc.key, doc.chunk_ids, doc_chunk_texts[doc.key])
     timing["embed_index_s"] = round(time.perf_counter() - index_started, 3)
+    timing["ingest_embed_s"] = round(timing["chunk_s"] + timing["sanitize_s"] + timing["embed_index_s"], 3)
     dim = int(store._encode_texts(["dimension probe"]).shape[1])
 
     cases = _build_cases(sanitizer, documents, load_queries(), by_id)
@@ -953,7 +1065,7 @@ async def run_benchmark(
 
     leak = {}
     for lang in LANGS:
-        leak[lang] = await _leak_block(pipeline, settings, sanitizer, lang, timing)
+        leak[lang] = await _leak_block(ctx, lang, timing)
 
     answerable = [c for c in cases if c.doc_key is not None]
     timing["wall_s"] = round(time.perf_counter() - wall_started, 3)
@@ -994,7 +1106,10 @@ async def run_benchmark(
                     qtype: sum(1 for c in answerable if c.query.type == qtype) for qtype in ANSWERABLE_TYPES
                 },
             },
-            "index": {"chunks": len(chunks), "unmapped_chunks": unmapped},
+            "index": {
+                "chunks": len(chunks), "unmapped_chunks": unmapped,
+                "over_embedder_limit": over_limit,
+            },
         },
         "results": results,
         "leak": leak,
@@ -1083,12 +1198,53 @@ def render_markdown(result: dict) -> str:
     low_crossing = [lang for lang, b in result["leak"].items() if b["below_min_crossing"]]
     if low_crossing:
         lines.append(f"\nFewer than {LEAK_MIN_CROSSING} crossing values for: {', '.join(low_crossing)}")
+    violations = ", ".join(f"{lang} {b['invariant_violations']}" for lang, b in result["leak"].items())
+    lines.append(f"\nInvariant violations (chunk exposes a value the whole-document view masks): {violations}")
     return "\n".join(lines)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  TESTS
 # ═══════════════════════════════════════════════════════════════════════════
+
+def gate_failures(result: dict) -> list[str]:
+    """Every gate criterion the run misses, as readable lines; empty when the run passes.
+
+    Leak, per language: no sampled value may be exposed by a chunk's projected text (inside the
+    value's own region) while the whole-document masking hides it (``invariant_violations`` must
+    be 0), and no EMAIL/PHONE/IBAN value may leak literally. The crossing-minus-control
+    fragment difference, the absolute rates and the crossing sample size are reported, not gated:
+    the chunker never cuts a detected value, so the crossing arm holds only values the detector
+    missed, which makes that difference a composition effect rather than a boundary effect.
+    Quality guard (production embedder, ``pipeline`` chunker): the sanitized hybrid headline
+    keeps Recall@5 and MRR at or above the re-based floors.
+    """
+    failures: list[str] = []
+    for lang, block in result["leak"].items():
+        violations = block["invariant_violations"]
+        if violations:
+            failures.append(
+                f"leak {lang}: {violations} value occurrences exposed by a chunk but masked "
+                "in the whole-document view, must be 0"
+            )
+        for slot_type in GATE_ZERO_LITERAL_TYPES:
+            literal = block["by_type"][slot_type]["literal"]
+            if literal["leaks"]:
+                failures.append(f"leak {lang}: {slot_type} literal leak {literal['leaks']} of {literal['n']}, must be 0")
+    config = result["config"]
+    if config["chunker"]["name"] == "pipeline" and config["embedding_model"] == _DEFAULT_ST_MODEL:
+        headline = result["results"].get("hybrid", {}).get("sanitized", {}).get("overall")
+        if not headline or not headline.get("n"):
+            failures.append("quality guard: no sanitized hybrid headline in this run")
+        else:
+            recall = headline["recall@5"]["mean"]
+            reciprocal = headline["mrr"]["mean"]
+            if recall < GATE_MIN_RECALL_AT_5:
+                failures.append(f"quality guard: sanitized hybrid Recall@5 {recall:.3f} is below {GATE_MIN_RECALL_AT_5}")
+            if reciprocal < GATE_MIN_MRR:
+                failures.append(f"quality guard: sanitized hybrid MRR {reciprocal:.3f} is below {GATE_MIN_MRR}")
+    return failures
+
 
 def _load_embedder_or_skip(store: VectorStore):
     try:
@@ -1130,12 +1286,15 @@ async def test_smoke_hybrid_search(
     _assert_pinned(store, EMBEDDING_MODEL)
     pin = require_pin(EMBEDDING_MODEL)
 
-    pipeline = DocumentPipeline(_make_settings(chunk_size=200, chunk_overlap=0, use_ner=False))
-    chunks = await pipeline._build_chunks("txt", "\n\n".join(_PARAGRAPHS))
-    assert len(chunks) >= 2
+    settings = _make_settings(chunk_size=200, chunk_overlap=0, use_ner=False)
+    ctx = ChunkContext(DocumentPipeline(settings), _build_sanitizer(settings))
+    chunked = await CHUNKERS["pipeline"](
+        ctx, "txt", "\n\n".join(_PARAGRAPHS), "en", AnonymizationMap(document_id=1, language="en")
+    )
+    texts = chunked.texts
+    assert len(texts) >= 2
 
-    chunk_ids = [c.index for c in chunks]
-    texts = [c.text for c in chunks]
+    chunk_ids = list(range(1, len(texts) + 1))
     store.index_document(1, chunk_ids, texts)
     bm25.index_document(1, chunk_ids, texts)
 
@@ -1145,7 +1304,7 @@ async def test_smoke_hybrid_search(
     )
     ranked = [cid for cid, _ in results]
     print(
-        f"\nmodel={EMBEDDING_MODEL} revision={pin.revision} chunks={len(chunks)} "
+        f"\nmodel={EMBEDDING_MODEL} revision={pin.revision} chunks={len(texts)} "
         f"ranked={ranked} target={chunk_ids[target]}"
     )
     assert ranked[0] == chunk_ids[target]
@@ -1162,7 +1321,7 @@ async def test_full_retrieval_benchmark(
     _load_embedder_or_skip(store)
     _assert_pinned(store, config.embedding_model)
 
-    settings = _make_settings()
+    settings = _make_settings(chunk_overlap=config.chunk_overlap)
     sanitizer = _build_sanitizer(settings)
     result = await run_benchmark(config, store, bm25, settings, sanitizer)
 
@@ -1172,8 +1331,11 @@ async def test_full_retrieval_benchmark(
     print("\n" + render_markdown(result))
     print(
         f"\nwall={result['timing']['wall_s']}s chunk={result['timing']['chunk_s']}s "
-        f"embed_index={result['timing']['embed_index_s']}s sanitize={result['timing']['sanitize_s']}s"
+        f"embed_index={result['timing']['embed_index_s']}s detect={result['timing']['sanitize_s']}s "
+        f"ingest_embed={result['timing']['ingest_embed_s']}s"
     )
 
     assert result["eval"]["counts"]["queries"] == 140
     assert result["eval"]["index"]["chunks"] > 0
+    failures = gate_failures(result)
+    assert not failures, "retrieval gate failed:\n" + "\n".join(failures)

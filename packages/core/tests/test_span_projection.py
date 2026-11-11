@@ -469,3 +469,72 @@ def test_spans_apply_legitimately_drops_are_accepted() -> None:
     (chunk,) = project(detection, [kept], [(0, len(text))], _fresh_map())
 
     assert chunk.masked_text == "[EMAIL_ADDRESS_1]   cdefghij"
+
+
+def _reference_project(detection, spans, anon_map, chunk_start, chunk_end):
+    """Masked text and projected spans from a full scan of every edit, no bisect."""
+    from septum_core.span_projection import _edits, _projected
+
+    text = detection.text
+    parts: list[str] = []
+    projected = []
+    cursor = chunk_start
+    for edit in _edits(detection, sorted(spans, key=lambda s: s.start), anon_map):
+        if edit.end <= chunk_start or edit.start >= chunk_end:
+            continue
+        parts.append(text[cursor : max(edit.start, chunk_start)])
+        parts.append(edit.text)
+        if edit.span is not None:
+            projected.append(_projected(edit.span, text, chunk_start, chunk_end))
+        cursor = min(edit.end, chunk_end)
+    parts.append(text[cursor:chunk_end])
+    return "".join(parts), tuple(projected)
+
+
+def _synthetic_document(rng: random.Random, known_name: str):
+    """Text, spans (adjacent, single-character and wide) and a map that knows ``known_name``."""
+    pieces: list[str] = []
+    spans: list[ResolvedSpan] = []
+    length = 0
+    for number in range(rng.randint(1, 14)):
+        gap = rng.choice(["", "", " ", "ab ", "  ", " " + known_name + " ", known_name])
+        pieces.append(gap)
+        length += len(gap)
+        width = rng.choice([1, 1, 2, 5, 12])
+        pieces.append("Q" * width)
+        spans.append(_span(length, length + width, f"[EMAIL_ADDRESS_{number + 1}]"))
+        length += width
+    pieces.append(rng.choice(["", " tail", " " + known_name]))
+    return "".join(pieces), spans
+
+
+@pytest.mark.parametrize("seed", range(60))
+def test_projection_equals_a_full_scan_reference_for_random_ranges(seed) -> None:
+    rng = random.Random(seed)
+    known = "Johnson"
+    text, spans = _synthetic_document(rng, known)
+    anon_map = _fresh_map()
+    anon_map.add_entity(known, "PERSON_NAME")
+    detection = _detection(text, spans)
+    edge_points = sorted(
+        {0, len(text)}
+        | {s.start for s in spans}
+        | {s.end for s in spans}
+        | {p + d for s in spans for p in (s.start, s.end) for d in (-1, 1) if 0 <= p + d <= len(text)}
+    )
+    ranges = [(0, len(text)), (0, 1), (len(text) - 1, len(text))]
+    for _ in range(60):
+        points = edge_points if rng.random() < 0.6 else range(len(text) + 1)
+        start = rng.choice(points)
+        end = rng.choice([p for p in points if p > start] or [len(text)])
+        if start < end:
+            ranges.append((start, end))
+
+    chunks = project(detection, spans, ranges, anon_map)
+
+    assert [(c.start, c.end) for c in chunks] == ranges
+    for chunk in chunks:
+        masked, projected = _reference_project(detection, spans, anon_map, chunk.start, chunk.end)
+        assert chunk.masked_text == masked
+        assert chunk.spans == projected
+        assert [c.masked_text for c in project(detection, spans, [(chunk.start, chunk.end)], anon_map)] == [masked]

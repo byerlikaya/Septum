@@ -47,7 +47,7 @@ from sqlalchemy.orm import defer, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 
 from ..database import get_db
-from ..errors import LocalModelUnavailableError, public_error_text
+from ..errors import ChunkTooLargeError, LocalModelUnavailableError, public_error_text
 from ..middleware.upload_limits import MAX_UPLOAD_BYTES, TOO_LARGE_DETAIL
 from ..models.audit_event import AuditEvent
 from ..models.document import Chunk as DocumentChunk
@@ -121,6 +121,7 @@ def _scope_to_owner(stmt, user: User):
     if user.role == "admin":
         return stmt
     return stmt.where(Document.user_id == user.id)
+
 
 try:  # python-magic with system libmagic; may fail if libmagic is missing.
     import magic as _magic  # type: ignore[import]
@@ -826,7 +827,7 @@ async def _ensure_spreadsheet_schema(
     await db.commit()
 
 
-async def _record_background_failure(
+async def record_background_failure(
     bg_db: AsyncSession, doc_id: int, exc: BaseException, user_id: int
 ) -> None:
     """Record an ingestion failure on a document, recovering the session if needed.
@@ -860,7 +861,9 @@ async def _record_background_failure(
                 ingestion_error=public_error_text(exc, "Ingestion failed"),
                 ingestion_error_code=(
                     exc.code
-                    if isinstance(exc, (ModelRefusal, LocalModelUnavailableError))
+                    if isinstance(
+                        exc, (ModelRefusal, LocalModelUnavailableError, ChunkTooLargeError)
+                    )
                     else None
                 ),
             )
@@ -1117,8 +1120,7 @@ async def _ingest_upload(
         db=bg_db,
         document=bg_doc,
         file_format=file_format,
-        ingested_text=ingestion_result.text,
-        ingestion_confidence=ingestion_result.confidence,
+        ingestion_result=ingestion_result,
         on_progress=lambda pct: set_progress(doc_id, pct),
     )
 
@@ -1135,7 +1137,7 @@ async def _run_upload_ingestion(doc_id: int, source: _UploadedSource, user_id: i
         try:
             await _ingest_upload(bg_db, bg_doc, doc_id, source)
         except Exception as bg_exc:
-            await _record_background_failure(bg_db, doc_id, bg_exc, user_id)
+            await record_background_failure(bg_db, doc_id, bg_exc, user_id)
         finally:
             clear_progress(doc_id)
 
@@ -1567,6 +1569,98 @@ def _processing_conflict() -> HTTPException:
     )
 
 
+async def claim_for_reingest(
+    db: AsyncSession, document_id: int, *, only_completed: bool = False
+) -> bool:
+    """Claim a document for a rebuild: set it to ``processing`` and drop its chunks and detections.
+
+    The status is claimed with a conditional update, so two concurrent callers
+    cannot both start a run. By default any status but ``processing`` is
+    claimable; ``only_completed`` narrows that to ``completed``. Returns
+    ``False`` (after a rollback) when the claim was lost.
+    """
+    if only_completed:
+        claimable = Document.ingestion_status == "completed"
+    else:
+        claimable = Document.ingestion_status != "processing"
+    claimed = await db.execute(
+        update(Document)
+        .where(Document.id == document_id, claimable)
+        .values(
+            ingestion_status="processing",
+            ingestion_error=None,
+            ingestion_error_code=None,
+            chunk_count=0,
+            entity_count=0,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if claimed.rowcount != 1:
+        await db.rollback()
+        return False
+
+    from sqlalchemy import delete as sa_delete
+
+    await db.execute(
+        sa_delete(EntityDetection).where(EntityDetection.document_id == document_id)
+    )
+    await db.execute(
+        sa_delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
+    )
+    await db.commit()
+    return True
+
+
+async def reingest_document(
+    bg_db: AsyncSession,
+    bg_doc: Document,
+    on_progress: Optional[Callable[[int], None]] = None,
+) -> None:
+    """Erase a claimed document's artifacts and run ingestion and the pipeline again.
+
+    The caller has set the row to ``processing`` and deleted its chunks and
+    detection rows. Shared by the reprocess endpoint and the maintenance
+    script, so both rebuild a document the same way.
+    """
+    doc_id = bg_doc.id
+    file_format = bg_doc.file_format
+    await DocumentPipeline.cleanup_artifacts(doc_id)
+
+    bg_doc.active_regulation_ids = await _snapshot_active_regulations(bg_db)
+    bg_settings = await load_settings(bg_db)
+
+    ingester_kwargs = _build_ingester_kwargs(file_format, bg_settings)
+    ingestion_result = await _INGESTION_ROUTER.ingest(
+        file_path=Path(bg_doc.encrypted_path),
+        mime_type=bg_doc.file_type,
+        file_format=file_format,
+        ingester_kwargs=ingester_kwargs,
+    )
+    if on_progress is not None:
+        on_progress(1)
+
+    bg_doc.detected_language = await asyncio.to_thread(
+        _detect_document_language, file_format, ingestion_result
+    )
+    bg_doc.ocr_confidence = ingestion_result.confidence
+    await bg_db.commit()
+
+    if file_format == "audio" and not (ingestion_result.text or "").strip():
+        bg_doc.ingestion_status = "failed"
+        bg_doc.ingestion_error = "Audio transcription produced no text."
+        await bg_db.commit()
+        return
+
+    pipeline = DocumentPipeline(settings=bg_settings)
+    await pipeline.run(
+        db=bg_db,
+        document=bg_doc,
+        file_format=file_format,
+        ingestion_result=ingestion_result,
+        on_progress=on_progress,
+    )
+
+
 @router.post(
     "/{document_id}/reprocess",
     status_code=status.HTTP_200_OK,
@@ -1595,35 +1689,9 @@ async def reprocess_document(
             detail="Encrypted source file not found on disk.",
         )
 
-    claimed = await db.execute(
-        update(Document)
-        .where(Document.id == document_id, Document.ingestion_status != "processing")
-        .values(
-            ingestion_status="processing",
-            ingestion_error=None,
-            ingestion_error_code=None,
-            chunk_count=0,
-            entity_count=0,
-        )
-        .execution_options(synchronize_session=False)
-    )
-    if claimed.rowcount == 0:
-        await db.rollback()
+    if not await claim_for_reingest(db, document_id):
         raise _processing_conflict()
-
-    from sqlalchemy import delete as sa_delete
-
-    await db.execute(
-        sa_delete(EntityDetection).where(EntityDetection.document_id == document_id)
-    )
-    await db.execute(
-        sa_delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
-    )
-    await db.commit()
     await db.refresh(document)
-
-    file_format = document.file_format
-    mime_type = document.file_type
 
     async def _reprocess_background(doc_id: int) -> None:
         from ..database import get_session_maker
@@ -1634,43 +1702,11 @@ async def reprocess_document(
             if bg_doc is None:
                 return
             try:
-                await DocumentPipeline.cleanup_artifacts(doc_id)
-
-                bg_doc.active_regulation_ids = await _snapshot_active_regulations(bg_db)
-                bg_settings = await load_settings(bg_db)
-
-                ingester_kwargs = _build_ingester_kwargs(file_format, bg_settings)
-                ingestion_result = await _INGESTION_ROUTER.ingest(
-                    file_path=encrypted_path,
-                    mime_type=mime_type,
-                    file_format=file_format,
-                    ingester_kwargs=ingester_kwargs,
-                )
-                set_progress(doc_id, 1)
-
-                bg_doc.detected_language = await asyncio.to_thread(
-                    _detect_document_language, file_format, ingestion_result
-                )
-                bg_doc.ocr_confidence = ingestion_result.confidence
-                await bg_db.commit()
-
-                if file_format == "audio" and not (ingestion_result.text or "").strip():
-                    bg_doc.ingestion_status = "failed"
-                    bg_doc.ingestion_error = "Audio transcription produced no text."
-                    await bg_db.commit()
-                    return
-
-                pipeline = DocumentPipeline(settings=bg_settings)
-                await pipeline.run(
-                    db=bg_db,
-                    document=bg_doc,
-                    file_format=file_format,
-                    ingested_text=ingestion_result.text,
-                    ingestion_confidence=ingestion_result.confidence,
-                    on_progress=lambda pct: set_progress(doc_id, pct),
+                await reingest_document(
+                    bg_db, bg_doc, on_progress=lambda pct: set_progress(doc_id, pct)
                 )
             except Exception as bg_exc:  # noqa: BLE001
-                await _record_background_failure(bg_db, doc_id, bg_exc, user.id)
+                await record_background_failure(bg_db, doc_id, bg_exc, user.id)
             finally:
                 clear_progress(doc_id)
 

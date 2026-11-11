@@ -2,20 +2,27 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+from septum_core.anonymization_map import PLACEHOLDER_PATTERN
+from septum_core.span_projection import ProjectedChunk, project, protected_ranges
+from septum_core.spans import DetectionResult
 from septum_core.text_utils import normalize_unicode
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..errors import ContentFreeError
+from ..errors import ChunkTooLargeError, ContentFreeError, DocumentTextMismatchError
 from ..models.document import Chunk as DocumentChunk
 from ..models.document import Document
 from ..models.entity_detection import EntityDetection
 from ..models.settings import AppSettings
-from ..request_limits import MIN_PDF_CHUNK_SIZE
+from ..request_limits import (
+    MAX_PRE_APPROVED_CHUNK_CHARS,
+    MAX_SECTION_TITLE_CHARS,
+    MIN_PDF_CHUNK_SIZE,
+)
 from ..utils.db_helpers import (
     masking_language,
     override_fits_text,
@@ -28,13 +35,7 @@ from .audit_logger import (
     log_pii_detected,
 )
 from .bm25_retriever import BM25Retriever, bm25_index_lock
-from .chunking_strategy import (
-    Chunk as SemanticChunk,
-)
-from .chunking_strategy import (
-    SlidingWindowChunker,
-    StructuredDocumentChunker,
-)
+from .chunking import ChunkRecord, chunk_blocks
 from .document_anon_store import (
     DocumentMapErasureError,
     document_map_lock,
@@ -46,8 +47,8 @@ from .entity_index_service import (
     recompute_relationships_for_document,
     replace_index_for_document,
 )
+from .ingestion.base import IngestionResult, TextBlock, block_starts, join_blocks
 from .ollama_detection_runner import clear_detection_cache, local_model_scope
-from .pii_gate import section_title_masker
 from .policy_composer import PolicyComposer
 from .remask_cache import remask_cache
 from .sanitizer import PIISanitizer, ResolvedSpan
@@ -156,122 +157,176 @@ def _progress_emitter(on_progress: Callable[[int], None] | None) -> Callable[[in
     return _emit
 
 
-@dataclass
-class _SanitizedChunks:
-    """Per-run sanitization output: chunks to store plus entity tallies."""
+_STRATEGY_BY_FORMAT: Dict[str, str] = {
+    "pdf": "structured",
+    "docx": "structured",
+    "txt": "structured",
+    "xlsx": "table",
+    "ods": "table",
+    "csv": "table",
+    "tsv": "table",
+    "audio": "audio",
+}
+"""Chunking strategy per file format; any other format uses ``sliding``."""
 
-    stored_chunks: List[SemanticChunk] = field(default_factory=list)
-    total_entities: int = 0
-    type_counts: Dict[str, int] = field(default_factory=dict)
-    per_chunk_spans: Dict[int, List[ResolvedSpan]] = field(default_factory=dict)
+_PAGINATED_STRATEGY_FORMATS = frozenset({"pdf", "docx"})
+"""Formats whose structured chunks use the PDF/DOCX chunk size setting."""
 
 
-def _mask_section_titles(
-    chunks: Sequence[SemanticChunk],
-    raw_texts: Sequence[str],
-    anon_map: AnonymizationMap,
-) -> None:
-    """Replace every chunk's raw section title with its masked form, in place.
+def _row_texts(block: TextBlock) -> List[str]:
+    """The rows of a ``rows`` block, without the newline that separates them."""
+    text, offsets = block.text, list(block.row_offsets or [])
+    ends = [start - 1 for start in offsets[1:]] + [len(text)]
+    return [text[start:end] for start, end in zip(offsets, ends)]
 
-    A title is the opening of a heading line in the raw text, so it carries
-    raw values ("IBAN: TR94 …") and must be masked like the chunk text. It
-    runs once the whole document is sanitized, so ``anon_map`` knows every
-    value the heading holds. Each distinct title is masked once, against
-    the first chunk whose raw text holds it (where the whole heading line is
-    readable); the other chunks of the section reuse that result. A title
-    no raw text holds is masked on its own, cut-off value tail included
-    (see :func:`section_title_masker`).
+
+def _normalized_blocks(
+    blocks: Sequence[TextBlock], rules: Callable[[str], str]
+) -> List[TextBlock]:
+    """Each block NFC-composed, then normalized by ``rules``, then composed again.
+
+    A ``rows`` block is normalized row by row and its ``row_offsets`` are
+    rebuilt, so a rule that changes a row's length never shifts the next
+    row's start.
     """
-    mask = section_title_masker(anon_map)
-    masked: Dict[str, Optional[str]] = {}
-    for chunk, raw in zip(chunks, raw_texts):
-        title = chunk.section_title
-        if title and title not in masked and title in raw:
-            masked[title] = mask(title, raw)
-    for chunk in chunks:
-        title = chunk.section_title
-        if title:
-            if title not in masked:
-                masked[title] = mask(title, "")
-            chunk.section_title = masked[title]
+
+    def normalize(text: str) -> str:
+        return normalize_unicode(rules(normalize_unicode(text)))
+
+    out: List[TextBlock] = []
+    for block in blocks:
+        if block.kind == "rows" and block.row_offsets:
+            rows = [normalize(row) for row in _row_texts(block)]
+            offsets: List[int] = []
+            position = 0
+            for row in rows:
+                offsets.append(position)
+                position += len(row) + 1
+            out.append(replace(block, text="\n".join(rows), row_offsets=offsets))
+        else:
+            out.append(replace(block, text=normalize(block.text)))
+    return out
 
 
-async def _sanitize_chunks(
-    sanitizer: PIISanitizer,
-    semantic_chunks: Sequence[SemanticChunk],
-    raw_texts: Sequence[str],
-    language: str,
+def _sheet_numbers(blocks: Sequence[TextBlock]) -> Dict[str, int]:
+    """One-based number of each sheet, in order of first appearance.
+
+    Chunks store this number, never the sheet name: a name can hold
+    personal data, and its masked form lives in the chunk's section title.
+    """
+    numbers: Dict[str, int] = {}
+    for block in blocks:
+        if block.sheet is not None and block.sheet not in numbers:
+            numbers[block.sheet] = len(numbers) + 1
+    return numbers
+
+
+def _cut_title(masked: str) -> str:
+    """``masked`` cut to ``MAX_SECTION_TITLE_CHARS``, before a placeholder the cut would split."""
+    if len(masked) <= MAX_SECTION_TITLE_CHARS:
+        return masked
+    for match in PLACEHOLDER_PATTERN.finditer(masked):
+        if match.start() < MAX_SECTION_TITLE_CHARS < match.end():
+            return masked[: match.start()]
+    return masked[:MAX_SECTION_TITLE_CHARS]
+
+
+def _masked_titles(
+    detection: DetectionResult,
+    resolved: Sequence[ResolvedSpan],
     anon_map: AnonymizationMap,
-    emit: Callable[[int], None],
-) -> _SanitizedChunks:
-    """Sanitize every chunk into ``anon_map`` and collect what is persisted."""
-    result = _SanitizedChunks()
-    num_chunks = max(len(semantic_chunks), 1)
-    for chunk_idx, (semantic_chunk, normalized_raw) in enumerate(
-        zip(semantic_chunks, raw_texts)
-    ):
-        emit(int((chunk_idx + 1) * 90 / num_chunks))
-        sanitize_result = await asyncio.to_thread(
-            sanitizer.sanitize,
-            normalized_raw,
-            language,
-            anon_map,
+    records: Sequence[ChunkRecord],
+) -> List[Optional[str]]:
+    """Every chunk's section title, masked.
+
+    The whole title source ``[section_title_start, section_title_end)`` is
+    projected with the document spans, so a value the raw title's cut
+    would split is masked whole, and only then cut to length. A title
+    without a usable source range is dropped, never stored raw.
+    """
+    sources = sorted(
+        {
+            (r.section_title_start, r.section_title_end)
+            for r in records
+            if r.section_title
+            and r.section_title_start is not None
+            and r.section_title_end is not None
+            and r.section_title_start < r.section_title_end
+        }
+    )
+    masked = {
+        (p.start, p.end): _cut_title(p.masked_text)
+        for p in (project(detection, resolved, sources, anon_map) if sources else [])
+    }
+    return [
+        masked.get((r.section_title_start, r.section_title_end)) if r.section_title else r.section_title
+        for r in records
+    ]
+
+
+def _require_fitting(projected: Sequence[ProjectedChunk]) -> None:
+    """Refuse the document when a masked chunk exceeds the chunk limit.
+
+    A chunk may outgrow its budget only because one protected range is
+    longer; its masked text is usually shorter, and is never truncated.
+    """
+    if any(len(p.masked_text) > MAX_PRE_APPROVED_CHUNK_CHARS for p in projected):
+        raise ChunkTooLargeError(
+            f"A chunk is longer than {MAX_PRE_APPROVED_CHUNK_CHARS} characters "
+            "after masking; the document was not stored."
         )
-        result.total_entities += sanitize_result.entity_count
-        for etype, ecount in sanitize_result.entity_type_counts.items():
-            result.type_counts[etype] = result.type_counts.get(etype, 0) + ecount
-        if sanitize_result.detected_spans:
-            result.per_chunk_spans[semantic_chunk.index] = sanitize_result.detected_spans
-        # Persist the sanitized form of the chunk — the field name
-        # ``sanitized_text`` carries exactly that contract, and storing
-        # the raw value here meant that any PII span the detector
-        # missed (spaced IBAN variants, NER-missed names, novel label
-        # shapes) would leak through the chat-time string-replace pass
-        # untouched because the anon_map never learned about it.
-        # Vector / BM25 indexes keep the raw form via ``raw_texts``
-        # so semantic search quality is unaffected, and those indexes
-        # stay local.
-        sanitized_chunk_text = sanitize_result.sanitized_text
-        result.stored_chunks.append(
-            SemanticChunk(
-                text=sanitized_chunk_text,
-                index=semantic_chunk.index,
-                source_page=semantic_chunk.source_page,
-                section_title=semantic_chunk.section_title,
-                char_count=len(sanitized_chunk_text),
-            )
+
+
+def _chunk_rows(
+    document_id: int,
+    records: Sequence[ChunkRecord],
+    projected: Sequence[ProjectedChunk],
+    titles: Sequence[Optional[str]],
+    sheet_numbers: Dict[str, int],
+) -> List[DocumentChunk]:
+    """The chunk rows to store: masked text, raw slice, position metadata, masked title."""
+    return [
+        DocumentChunk(
+            document_id=document_id,
+            index=record.index,
+            sanitized_text=chunk.masked_text,
+            raw_text=record.text,
+            char_count=len(chunk.masked_text),
+            source_page=record.page,
+            source_slide=None,
+            source_sheet=sheet_numbers.get(record.sheet) if record.sheet is not None else None,
+            source_timestamp_start=record.t_start,
+            source_timestamp_end=record.t_end,
+            section_title=title,
         )
-    _mask_section_titles(result.stored_chunks, raw_texts, anon_map)
-    return result
+        for record, chunk, title in zip(records, projected, titles)
+    ]
 
 
 def _detection_rows(
     document_id: int,
     chunks: Sequence[DocumentChunk],
-    per_chunk_spans: Dict[int, List[ResolvedSpan]],
+    projected: Sequence[ProjectedChunk],
 ) -> List[EntityDetection]:
-    """Build one detection row per span of every chunk that was persisted."""
-    if not per_chunk_spans:
-        return []
-    chunk_index_to_id = {c.index: c.id for c in chunks}
-    rows: List[EntityDetection] = []
-    for chunk_index, resolved_spans in per_chunk_spans.items():
-        chunk_id = chunk_index_to_id.get(chunk_index)
-        if chunk_id is None:
-            continue
-        rows.extend(
-            EntityDetection(
-                document_id=document_id,
-                chunk_id=chunk_id,
-                entity_type=rs.entity_type,
-                placeholder=rs.placeholder,
-                start_offset=rs.start,
-                end_offset=rs.end,
-                score=rs.score,
-            )
-            for rs in resolved_spans
+    """One detection row per span a stored chunk shows, offsets relative to its raw text.
+
+    A span cut by a chunk edge gets a row in every chunk it touches, with
+    the part inside that chunk, so the preview highlights what each chunk
+    masks.
+    """
+    return [
+        EntityDetection(
+            document_id=document_id,
+            chunk_id=chunk.id,
+            entity_type=span.entity_type,
+            placeholder=span.placeholder,
+            start_offset=span.start,
+            end_offset=span.end,
+            score=span.score,
         )
-    return rows
+        for chunk, projection in zip(chunks, projected)
+        for span in projection.spans
+    ]
 
 
 async def _store_document_map(
@@ -321,7 +376,8 @@ async def _refresh_entity_index(
 async def _audit_detections(
     db: AsyncSession,
     document: Document,
-    sanitized: _SanitizedChunks,
+    type_counts: Dict[str, int],
+    total_entities: int,
     anon_map: AnonymizationMap,
     extra: Dict[str, str],
     detection_rows: Sequence[EntityDetection],
@@ -332,8 +388,8 @@ async def _audit_detections(
         db,
         document_id=document.id,
         regulation_ids=list(document.active_regulation_ids or []),
-        entity_type_counts=sanitized.type_counts,
-        total_count=sanitized.total_entities,
+        entity_type_counts=type_counts,
+        total_count=total_entities,
         extra=extra,
         placeholder_samples=placeholder_samples,
     )
@@ -344,6 +400,17 @@ async def _audit_detections(
             .values(audit_event_id=audit_event.id)
         )
         await db.commit()
+
+
+@dataclass(frozen=True)
+class _MaskedDocument:
+    """One run's detection over the whole document and the chunks cut from it."""
+
+    records: List[ChunkRecord]
+    projected: List[ProjectedChunk]
+    titles: List[Optional[str]]
+    entity_count: int
+    type_counts: Dict[str, int]
 
 
 class DocumentPipeline:
@@ -357,17 +424,23 @@ class DocumentPipeline:
         db: AsyncSession,
         document: Document,
         file_format: str,
-        ingested_text: str,
-        ingestion_confidence: float | None,
+        ingestion_result: IngestionResult,
         on_progress: Callable[[int], None] | None = None,
     ) -> None:
-        """Create chunks, build anonymization map, and index them in the vector store.
+        """Detect PII once on the whole document, cut chunks, store and index them.
 
-        Chunks are persisted using normalized raw text (no placeholders) so that
-        document views and chunk search operate on the original content. PII
-        detection is still executed per chunk in order to populate the
-        anonymization map and entity counters, but the sanitized strings are not
-        stored; masking happens only when chunks are sent to the LLM.
+        Flow: every block is normalized (NFC, then the text normalization
+        rules) and the blocks are joined; the masking language is decided on
+        that text; detection runs once over it (windowed above the core
+        threshold) and placeholders are assigned in document order. The
+        chunker then cuts outside the protected ranges, and each chunk is
+        projected: ``sanitized_text`` is its masked form, ``raw_text`` the
+        raw slice (preview and indexes only, never sent on). A value cut by
+        a chunk edge shows its whole placeholder in both chunks. Entity
+        counts are those of the whole document, so overlapping chunks never
+        count a value twice. A chunk still longer than the chunk limit after
+        masking fails the run with :class:`ChunkTooLargeError` before
+        anything is stored.
 
         ``ingestion_status`` stays ``processing`` until every artifact (map,
         FAISS and BM25 indexes) is written, and the delete endpoint refuses
@@ -400,53 +473,35 @@ class DocumentPipeline:
             policy=policy,
         )
 
-        # Compose once, here. The detector composes its input before it
-        # computes span offsets, so the preview text, the normalization
-        # rules and the indexes must see the same composed string or a
-        # decomposed (NFD) upload would leave every stored offset pointing
-        # at the wrong characters in the preview.
-        ingested_text = normalize_unicode(ingested_text)
-        semantic_chunks = await self._build_chunks(file_format, ingested_text)
-
-        normalizer = TextNormalizer()
-        raw_texts_for_index: List[str] = [
-            await normalizer.normalize(db, semantic_chunk.text)
-            for semantic_chunk in semantic_chunks
-        ]
-        # ``transcription_text`` powers the local document-preview UI,
-        # which renders the ORIGINAL text with the per-entity highlight
-        # overlays so the user can verify what was detected and where.
-        # That preview never leaves the air-gapped zone, so it is safe
-        # — and useful — to show the raw form here even though every
-        # other on-disk surface (chunks, anon_map, indexes) keeps PII
-        # masked or hashed. Concatenating the per-chunk raw text keeps
-        # the preview in sync with the chunk boundaries used for
-        # entity offset highlighting. The masking language is decided on
-        # this same string, which staleness later re-judges
-        # (``effective_masking_language``), so the two always agree.
-        transcription_text = "\n\n".join(raw_texts_for_index)
+        rules = await TextNormalizer().compile(db)
+        blocks = _normalized_blocks(ingestion_result.blocks, rules)
+        text = join_blocks(blocks)
         judged_override = supported_language_code(document.language_override)
-        language, language_source = masking_language(document, transcription_text)
+        language, language_source = masking_language(document, text)
         anon_map = AnonymizationMap(document_id=document.id, language=language)
 
-        async with local_model_scope(document.user_id, budgeted=False):
-            sanitized = await _sanitize_chunks(
-                sanitizer, semantic_chunks, raw_texts_for_index, language, anon_map, emit
-            )
+        masked = await self._mask_document(
+            sanitizer, document, file_format, blocks, text, language, anon_map, emit
+        )
+        records, projected = masked.records, masked.projected
 
+        # The local preview joins the raw chunk texts and places each
+        # detection row by its chunk-relative offsets (see ``_detection_rows``).
+        transcription_text = "\n\n".join(r.text for r in records)
         document.transcription_text = transcription_text
-        document.ocr_confidence = ingestion_confidence
+        document.ocr_confidence = ingestion_result.confidence
 
         chunks = await self._persist_chunks(
-            db, document.id, sanitized.stored_chunks, raw_texts_for_index
+            db,
+            _chunk_rows(document.id, records, projected, masked.titles, _sheet_numbers(blocks)),
         )
 
-        detection_rows = _detection_rows(document.id, chunks, sanitized.per_chunk_spans)
+        detection_rows = _detection_rows(document.id, chunks, projected)
         if detection_rows:
             db.add_all(detection_rows)
 
         document.chunk_count = len(chunks)
-        document.entity_count = sanitized.total_entities
+        document.entity_count = masked.entity_count
         await db.commit()
         await db.refresh(document)
 
@@ -454,11 +509,12 @@ class DocumentPipeline:
         if await _refresh_entity_index(db, document.id, anon_map):
             document.entity_index_version = ENTITY_INDEX_VERSION
 
-        if sanitized.total_entities > 0:
+        if masked.entity_count > 0:
             await _audit_detections(
                 db,
                 document,
-                sanitized,
+                masked.type_counts,
+                masked.entity_count,
                 anon_map,
                 {
                     "source": "document_ingestion",
@@ -468,20 +524,101 @@ class DocumentPipeline:
                 detection_rows,
             )
 
-        if chunks and raw_texts_for_index:
-            await self._index_document(document.id, chunks, raw_texts_for_index, language, emit)
+        if chunks:
+            await self._index_document(
+                document.id, chunks, [r.text for r in records], language, emit
+            )
 
         document.sanitized_entity_types = policy_snapshot.entity_types
         document.sanitized_policy_digest = policy_snapshot.digest
         document.sanitized_language = language
         await self._clear_refused_override(
-            db, document, transcription_text,
+            db, document, text,
             judged=(judged_override, language_source == "override"),
         )
         document.ingestion_status = "completed"
         document.ingestion_error = None
         document.ingestion_error_code = None
         await db.commit()
+
+    async def _mask_document(
+        self,
+        sanitizer: PIISanitizer,
+        document: Document,
+        file_format: str,
+        blocks: Sequence[TextBlock],
+        text: str,
+        language: str,
+        anon_map: AnonymizationMap,
+        emit: Callable[[int], None],
+    ) -> _MaskedDocument:
+        """Detect once on ``text``, fill ``anon_map``, cut and project the chunks.
+
+        An empty document has no chunks and calls neither the detector nor
+        the embedder. Raises :class:`DocumentTextMismatchError` when the
+        detector's normalized text is not ``text`` (the chunk offsets would
+        not match the span offsets) and :class:`ChunkTooLargeError` for a
+        masked chunk over the limit; neither message holds document text.
+        """
+        if not text:
+            return _MaskedDocument([], [], [], 0, {})
+        async with local_model_scope(document.user_id, budgeted=False):
+            detection = await asyncio.to_thread(
+                sanitizer.detect, text, language, boundaries=block_starts(blocks)
+            )
+            if detection.text != text:
+                raise DocumentTextMismatchError(
+                    "The detector normalized the document text differently from its blocks."
+                )
+            emit(60)
+            applied = await asyncio.to_thread(sanitizer.apply, detection, anon_map)
+        resolved = applied.detected_spans
+        emit(70)
+
+        def cut_and_project() -> Tuple[List[ChunkRecord], List[ProjectedChunk]]:
+            ranges = protected_ranges(detection, resolved, anon_map)
+            records = self._chunk_records(file_format, blocks, ranges)
+            return records, project(detection, resolved, [(r.start, r.end) for r in records], anon_map)
+
+        records, projected = await asyncio.to_thread(cut_and_project)
+        _require_fitting(projected)
+        titles = _masked_titles(detection, resolved, anon_map, records)
+        emit(90)
+        return _MaskedDocument(
+            records, projected, titles, applied.entity_count, dict(applied.entity_type_counts)
+        )
+
+    def _chunk_records(
+        self,
+        file_format: str,
+        blocks: Sequence[TextBlock],
+        protected: Sequence[Tuple[int, int]],
+    ) -> List[ChunkRecord]:
+        """Cut the document with its format's strategy and the character settings.
+
+        Table and audio chunks are sized by cells and seconds; structured
+        and sliding chunks by the format's character size and overlap.
+        """
+        settings = self._settings
+        strategy = _STRATEGY_BY_FORMAT.get(file_format, "sliding")
+        if strategy == "table":
+            return chunk_blocks(
+                blocks, "table", protected=protected,
+                spreadsheet_chunk_size=settings.spreadsheet_chunk_size,
+            )
+        if strategy == "audio":
+            return chunk_blocks(
+                blocks, "audio", protected=protected,
+                audio_chunk_size=float(settings.audio_chunk_size),
+            )
+        if file_format in _PAGINATED_STRATEGY_FORMATS:
+            chunk_size = max(settings.pdf_chunk_size, MIN_PDF_CHUNK_SIZE)
+        else:
+            chunk_size = settings.chunk_size
+        return chunk_blocks(
+            blocks, strategy, protected=protected,
+            chunk_size=chunk_size, overlap=settings.chunk_overlap,
+        )
 
     async def _index_document(
         self,
@@ -551,96 +688,13 @@ class DocumentPipeline:
             )
         )
 
-    async def _build_chunks(
-        self,
-        file_format: str,
-        raw_text: str,
-    ) -> Sequence[SemanticChunk]:
-        if file_format in {"pdf", "docx"}:
-            max_chunk_size = max(self._settings.pdf_chunk_size, MIN_PDF_CHUNK_SIZE)
-            chunker = StructuredDocumentChunker(max_chunk_size=max_chunk_size)
-        else:
-            max_chunk_size = self._settings.chunk_size
-            chunker = SlidingWindowChunker(
-                chunk_size=max_chunk_size,
-                overlap=self._settings.chunk_overlap,
-            )
-
-        semantic_chunks = await asyncio.to_thread(chunker.chunk, raw_text)
-        return self._merge_title_chunks(semantic_chunks, max_chunk_size)
-
     async def _persist_chunks(
-        self,
-        db: AsyncSession,
-        document_id: int,
-        semantic_chunks: Sequence[SemanticChunk],
-        raw_texts: Optional[Sequence[str]] = None,
+        self, db: AsyncSession, chunks: Sequence[DocumentChunk]
     ) -> List[DocumentChunk]:
-        chunks: List[DocumentChunk] = []
-        for idx, semantic_chunk in enumerate(semantic_chunks):
-            raw_text = (
-                raw_texts[idx]
-                if raw_texts is not None and idx < len(raw_texts)
-                else None
-            )
-            chunk = DocumentChunk(
-                document_id=document_id,
-                index=semantic_chunk.index,
-                sanitized_text=semantic_chunk.text,
-                raw_text=raw_text,
-                char_count=semantic_chunk.char_count,
-                source_page=semantic_chunk.source_page,
-                source_slide=None,
-                source_sheet=None,
-                source_timestamp_start=None,
-                source_timestamp_end=None,
-                section_title=semantic_chunk.section_title,
-            )
-            db.add(chunk)
-            chunks.append(chunk)
-
+        """Store ``chunks``; the insert assigns each its id (sessions keep loaded state on commit)."""
+        db.add_all(chunks)
         await db.commit()
-        for chunk in chunks:
-            await db.refresh(chunk)
-        return chunks
-
-    @staticmethod
-    def _merge_title_chunks(
-        semantic_chunks: Sequence[SemanticChunk],
-        max_chunk_size: int,
-    ) -> List[SemanticChunk]:
-        merged_chunks: List[SemanticChunk] = []
-        i = 0
-        length = len(semantic_chunks)
-        while i < length:
-            current = semantic_chunks[i]
-
-            if (
-                current.char_count < 50
-                and current.section_title
-                and i + 1 < length
-            ):
-                next_chunk = semantic_chunks[i + 1]
-                merged_text = f"{current.text.strip()}\n{next_chunk.text}"
-                if len(merged_text) > max_chunk_size:
-                    merged_chunks.append(current)
-                    i += 1
-                    continue
-                merged_title = current.section_title or next_chunk.section_title
-
-                merged_chunk = SemanticChunk(
-                    text=merged_text,
-                    index=current.index,
-                    source_page=current.source_page or next_chunk.source_page,
-                    section_title=merged_title,
-                    char_count=len(merged_text),
-                )
-                merged_chunks.append(merged_chunk)
-                i += 2
-            else:
-                merged_chunks.append(current)
-                i += 1
-        return merged_chunks
+        return list(chunks)
 
     @staticmethod
     def _index_chunks(

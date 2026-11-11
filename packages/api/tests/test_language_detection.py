@@ -7,7 +7,10 @@ from collections import Counter
 import pytest
 from langdetect import DetectorFactory
 from septum_core.language_resolution import language_table_codes
+from septum_core.spans import DetectionResult
 
+from septum_api.database import build_default_app_settings
+from septum_api.services.ingestion.base import IngestionResult
 from septum_api.utils.db_helpers import detect_language
 from tests.benchmark_retrieval import fill_document, fill_query
 from tests.retrieval_eval import load_docs, load_queries
@@ -600,6 +603,7 @@ async def test_language_override_is_stored_as_its_base_code(monkeypatch):
         return None
 
     added: list = []
+
     async def _execute(statement):
         selected = statement.selected_columns[0].key
         value = {"transcription_text": None, "id": 3}[selected]
@@ -749,7 +753,7 @@ async def test_ingestion_pipeline_masks_in_the_override_language(monkeypatch):
             return None, None
 
     class _Sanitizer:
-        def sanitize(self, _text, language, _anon_map):
+        def detect(self, _text, language, *, boundaries=()):
             seen["detector_language"] = language
             raise _Stop
 
@@ -757,27 +761,23 @@ async def test_ingestion_pipeline_masks_in_the_override_language(monkeypatch):
         return _Sanitizer()
 
     class _Normalizer:
-        async def normalize(self, _db, text):
-            return text
-
-    async def _chunks(_format, text):
-        return [SimpleNamespace(text=text, index=0)]
+        async def compile(self, _db):
+            return lambda value: value
 
     monkeypatch.setattr(document_pipeline, "AnonymizationMap", _Map)
     monkeypatch.setattr(document_pipeline, "PolicyComposer", _Composer)
     monkeypatch.setattr(document_pipeline, "create_sanitizer", _sanitizer)
     monkeypatch.setattr(document_pipeline, "TextNormalizer", _Normalizer)
-    pipeline = document_pipeline.DocumentPipeline(SimpleNamespace())
-    monkeypatch.setattr(pipeline, "_build_chunks", _chunks)
+    pipeline = document_pipeline.DocumentPipeline(build_default_app_settings())
     document = SimpleNamespace(id=9, user_id=None, language_override="tr", detected_language="en")
     with pytest.raises(_Stop):
-        await pipeline.run(None, document, "pdf", "Ahmet Yılmaz", None)
+        await pipeline.run(None, document, "pdf", IngestionResult(text="Ahmet Yılmaz", metadata={}))
     assert seen == {"map_language": "tr", "detector_language": "tr"}
 
     seen.clear()
     legacy = SimpleNamespace(id=9, user_id=None, language_override="tur", detected_language="en")
     with pytest.raises(_Stop):
-        await pipeline.run(None, legacy, "pdf", "Ahmet Yılmaz", None)
+        await pipeline.run(None, legacy, "pdf", IngestionResult(text="Ahmet Yılmaz", metadata={}))
     assert seen == {"map_language": "en", "detector_language": "en"}
 
 
@@ -841,12 +841,15 @@ async def test_ingestion_audit_event_records_the_override_language(monkeypatch):
             return None, None
 
     class _Sanitizer:
-        def sanitize(self, text, _language, _anon_map):
+        def detect(self, text, language, *, boundaries=()):
+            return DetectionResult(text=text, language=language, semantic_enabled=False)
+
+        def apply(self, detection, _anon_map):
             return SimpleNamespace(
                 entity_count=1,
                 entity_type_counts={"PERSON_NAME": 1},
                 detected_spans=[],
-                sanitized_text=text,
+                sanitized_text=detection.text,
             )
 
     added: list = []
@@ -890,11 +893,8 @@ async def test_ingestion_audit_event_records_the_override_language(monkeypatch):
         raise _Stop
 
     class _Normalizer:
-        async def normalize(self, _db, text):
-            return text
-
-    async def _chunks(_format, text):
-        return [SimpleNamespace(text=text, index=0, source_page=None, section_title=None)]
+        async def compile(self, _db):
+            return lambda value: value
 
     monkeypatch.setattr(document_pipeline, "PolicyComposer", _Composer)
     monkeypatch.setattr(document_pipeline, "create_sanitizer", _sanitizer)
@@ -904,8 +904,7 @@ async def test_ingestion_audit_event_records_the_override_language(monkeypatch):
     monkeypatch.setattr(document_pipeline, "replace_index_for_document", _noop)
     monkeypatch.setattr(document_pipeline, "recompute_relationships_for_document", _noop)
     monkeypatch.setattr(document_pipeline, "log_pii_detected", _log)
-    pipeline = document_pipeline.DocumentPipeline(SimpleNamespace())
-    monkeypatch.setattr(pipeline, "_build_chunks", _chunks)
+    pipeline = document_pipeline.DocumentPipeline(build_default_app_settings())
     monkeypatch.setattr(pipeline, "_persist_chunks", _persist)
 
     def _document(override):
@@ -917,7 +916,7 @@ async def test_ingestion_audit_event_records_the_override_language(monkeypatch):
     for override, expected in (("tr", "tr"), ("tur", "en"), (None, "en")):
         audit.clear()
         with pytest.raises(_Stop):
-            await pipeline.run(_Db(), _document(override), "pdf", "Ahmet Yılmaz", None)
+            await pipeline.run(_Db(), _document(override), "pdf", IngestionResult(text="Ahmet Yılmaz", metadata={}))
         source = "override" if override == expected else "detected"
         assert audit == {
             "source": "document_ingestion", "language": expected, "language_source": source,
@@ -1163,7 +1162,7 @@ async def test_ingestion_ignores_an_override_that_contradicts_the_script(
             return None, None
 
     class _Sanitizer:
-        def sanitize(self, _text, language, _anon_map):
+        def detect(self, _text, language, *, boundaries=()):
             seen["detector_language"] = language
             raise _Stop
 
@@ -1171,22 +1170,18 @@ async def test_ingestion_ignores_an_override_that_contradicts_the_script(
         return _Sanitizer()
 
     class _Normalizer:
-        async def normalize(self, _db, value):
-            return value
-
-    async def _chunks(_format, value):
-        return [SimpleNamespace(text=value, index=0)]
+        async def compile(self, _db):
+            return lambda value: value
 
     monkeypatch.setattr(document_pipeline, "AnonymizationMap", _Map)
     monkeypatch.setattr(document_pipeline, "PolicyComposer", _Composer)
     monkeypatch.setattr(document_pipeline, "create_sanitizer", _sanitizer)
     monkeypatch.setattr(document_pipeline, "TextNormalizer", _Normalizer)
-    pipeline = document_pipeline.DocumentPipeline(SimpleNamespace())
-    monkeypatch.setattr(pipeline, "_build_chunks", _chunks)
+    pipeline = document_pipeline.DocumentPipeline(build_default_app_settings())
     document = SimpleNamespace(id=9, user_id=None, language_override=override, detected_language=detected)
     with caplog.at_level(logging.WARNING, logger=db_helpers.__name__):
         with pytest.raises(_Stop):
-            await pipeline.run(None, document, "pdf", text, None)
+            await pipeline.run(None, document, "pdf", IngestionResult(text=text, metadata={}))
     assert seen == {"map_language": expected, "detector_language": expected}
     assert db_helpers.masking_language(document, text) == (expected, source)
     records = [r.getMessage() for r in caplog.records if r.name == db_helpers.__name__]
@@ -1402,10 +1397,14 @@ async def test_pipeline_records_the_masking_language_it_used(monkeypatch):
             return None, SimpleNamespace(entity_types=["X"], digest="d")
 
     class _Sanitizer:
-        def sanitize(self, text, language, _anon_map):
+        def detect(self, text, language, *, boundaries=()):
             seen.append(language)
+            return DetectionResult(text=text, language=language, semantic_enabled=False)
+
+        def apply(self, detection, _anon_map):
             return SimpleNamespace(
-                entity_count=0, entity_type_counts={}, detected_spans=[], sanitized_text=text
+                entity_count=0, entity_type_counts={}, detected_spans=[],
+                sanitized_text=detection.text,
             )
 
     added: list = []
@@ -1445,11 +1444,8 @@ async def test_pipeline_records_the_masking_language_it_used(monkeypatch):
         return []
 
     class _Normalizer:
-        async def normalize(self, _db, text):
-            return text
-
-    async def _chunks(_format, text):
-        return [SimpleNamespace(text=text, index=0, source_page=None, section_title=None)]
+        async def compile(self, _db):
+            return lambda value: value
 
     monkeypatch.setattr(document_pipeline, "PolicyComposer", _Composer)
     monkeypatch.setattr(document_pipeline, "create_sanitizer", _sanitizer)
@@ -1458,8 +1454,7 @@ async def test_pipeline_records_the_masking_language_it_used(monkeypatch):
     monkeypatch.setattr(document_pipeline, "set_document_map", _noop)
     monkeypatch.setattr(document_pipeline, "replace_index_for_document", _noop)
     monkeypatch.setattr(document_pipeline, "recompute_relationships_for_document", _noop)
-    pipeline = document_pipeline.DocumentPipeline(SimpleNamespace())
-    monkeypatch.setattr(pipeline, "_build_chunks", _chunks)
+    pipeline = document_pipeline.DocumentPipeline(build_default_app_settings())
     monkeypatch.setattr(pipeline, "_persist_chunks", _persist)
 
     han = "合同双方应当按照约定全面履行自己的义务。"
@@ -1478,7 +1473,7 @@ async def test_pipeline_records_the_masking_language_it_used(monkeypatch):
         )
         added.clear()
         stored["override"] = override
-        await pipeline.run(_Db(), document, "pdf", text, None)
+        await pipeline.run(_Db(), document, "pdf", IngestionResult(text=text, metadata={}))
         assert seen == [expected]
         assert document.sanitized_language == expected
         assert document.ingestion_status == "completed"

@@ -41,6 +41,7 @@ from septum_api.routers import documents as documents_router
 from septum_api.services import vector_store as vector_store_module
 from septum_api.services import whisper_models
 from septum_api.services.ingestion import pdf_ingester as pdf_ingester_module
+from septum_api.services.ingestion.base import IngestionResult
 from septum_api.services.ingestion.ocr import paddle_provider
 from septum_api.services.ingestion.pdf_ingester import PdfIngester
 
@@ -509,7 +510,7 @@ async def test_failed_ingestion_records_the_refusal_code(
         doc_id = doc.id
 
     async with doc_session() as session:
-        await documents_router._record_background_failure(session, doc_id, exc, user_id=1)
+        await documents_router.record_background_failure(session, doc_id, exc, user_id=1)
 
     async with doc_session() as session:
         row = (await session.execute(select(Document).where(Document.id == doc_id))).scalar_one()
@@ -827,15 +828,7 @@ async def test_successful_pipeline_run_clears_a_previous_error_code(
     async def _noop(*args, **kwargs):
         return None
 
-    async def _no_chunks(self, file_format, text):
-        return []
-
-    async def _persist(self, db, document_id, chunks, raw_texts):
-        return []
-
     monkeypatch.setattr(dp, "create_sanitizer", _noop)
-    monkeypatch.setattr(dp.DocumentPipeline, "_build_chunks", _no_chunks)
-    monkeypatch.setattr(dp.DocumentPipeline, "_persist_chunks", _persist)
     monkeypatch.setattr(dp, "document_map_lock", _map_lock)
     monkeypatch.setattr(dp, "set_document_map", _noop)
     monkeypatch.setattr(dp, "replace_index_for_document", _noop)
@@ -849,8 +842,7 @@ async def test_successful_pipeline_run_clears_a_previous_error_code(
             db=session,
             document=doc,
             file_format="pdf",
-            ingested_text="",
-            ingestion_confidence=None,
+            ingestion_result=IngestionResult(text="", metadata={}),
         )
 
     async with doc_session() as session:

@@ -223,12 +223,13 @@ def upload_env(monkeypatch, tmp_path):
     class _Router:
         async def ingest(self, **kwargs):
             rec.events.append(("ingest", kwargs))
-            return SimpleNamespace(
+            state["ingested"] = SimpleNamespace(
                 text=state["text"],
                 confidence=0.75,
                 metadata=state["metadata"],
                 warnings=state["warnings"],
             )
+            return state["ingested"]
 
     monkeypatch.setattr(documents, "_INGESTION_ROUTER", _Router())
 
@@ -259,7 +260,7 @@ def upload_env(monkeypatch, tmp_path):
     async def fake_failure(bg_db, doc_id, exc, user_id):
         rec.events.append(("failure", doc_id, exc, user_id))
 
-    monkeypatch.setattr(documents, "_record_background_failure", fake_failure)
+    monkeypatch.setattr(documents, "record_background_failure", fake_failure)
     monkeypatch.setattr(
         document_progress, "set_progress", lambda doc_id, pct: rec.events.append(("progress", doc_id, pct))
     )
@@ -405,8 +406,7 @@ async def test_background_success_runs_ingestion_and_pipeline(upload_env):
                 "db": bg,
                 "document": upload_env.state["bg_doc"],
                 "file_format": "pdf",
-                "ingested_text": "extracted text",
-                "ingestion_confidence": 0.75,
+                "ingestion_result": upload_env.state["ingested"],
             },
         ),
         ("clear", 7),

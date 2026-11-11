@@ -251,7 +251,8 @@ def project(
         parts: List[str] = []
         projected: List[ProjectedSpan] = []
         cursor = chunk_start
-        for edit in edits[bisect_right(ends, chunk_start) :]:
+        for index in range(bisect_right(ends, chunk_start), len(edits)):
+            edit = edits[index]
             if edit.start >= chunk_end:
                 break
             parts.append(text[cursor : max(edit.start, chunk_start)])

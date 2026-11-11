@@ -33,6 +33,7 @@ from septum_api.services.contextual_placement import (
     MIN_SLICE_BYTES,
     contextual_slices,
 )
+from septum_api.services.ingestion.base import IngestionResult
 from septum_api.services.llm_router import LLMRouter
 from septum_api.services.ollama_detection_runner import clear_detection_cache
 from septum_api.services.policy_composer import PolicyComposer
@@ -459,11 +460,10 @@ async def test_ingestion_marks_the_document_failed_with_the_code(
     doc_id, _ = await env.add_document(status="processing")
 
     async def _ingest(**kwargs: Any) -> Any:
-        return SimpleNamespace(
+        return IngestionResult(
             text=f"Status report. {SENTENCE} Follow-up next month.",
             confidence=1.0,
             metadata={},
-            warnings=[],
         )
 
     monkeypatch.setattr(documents_module._INGESTION_ROUTER, "ingest", _ingest)

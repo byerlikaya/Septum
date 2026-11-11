@@ -72,6 +72,18 @@ def join_blocks(blocks: Sequence[TextBlock]) -> str:
     return "".join(parts)
 
 
+def block_starts(blocks: Sequence[TextBlock]) -> List[int]:
+    """Offset of each block's text in ``join_blocks(blocks)``."""
+    starts: List[int] = []
+    position = 0
+    for index, block in enumerate(blocks):
+        if index:
+            position += len(_separator(block.kind))
+        starts.append(position)
+        position += len(block.text)
+    return starts
+
+
 @dataclass(slots=True)
 class IngestionResult:
     """Represents the outcome of a single document ingestion operation.
