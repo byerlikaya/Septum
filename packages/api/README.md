@@ -38,7 +38,7 @@ pip install -r packages/api/requirements.txt
 | `septum_api.seeds` | Built-in regulation ruleset seed data. |
 | `alembic/`, `alembic.ini` | Postgres schema migrations. Run with `alembic upgrade head` from `packages/api/`. |
 | `scripts/docker-entrypoint.sh` | Container entrypoint: bootstrap config → alembic upgrade → uvicorn. |
-| `requirements.txt` | Heavy ML / OCR / Whisper / ingestion deps (torch, Presidio, spaCy, PaddleOCR, Whisper, FAISS, BM25, langchain, …). Not in `pyproject.toml` so `pip install septum-api` stays lean. |
+| `requirements.txt` | Heavy ML / OCR / Whisper / ingestion deps (torch, Presidio, spaCy, PaddleOCR, Whisper, FAISS, BM25, …). Not in `pyproject.toml` so `pip install septum-api` stays lean. |
 
 ## Usage (programmatic)
 

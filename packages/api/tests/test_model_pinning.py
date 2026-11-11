@@ -925,47 +925,6 @@ async def test_patching_whisper_model_to_null_is_not_refused(
     assert resp.status_code == 200, resp.text
 
 
-# --- chunking ---------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "method", ["_split_large_section_semantic", "_fallback_semantic_chunking"]
-)
-def test_chunking_does_not_fall_back_past_a_model_refusal(
-    monkeypatch: pytest.MonkeyPatch, method: str
-) -> None:
-    from septum_api.services.chunking_strategy import StructuredDocumentChunker
-
-    def _refuse(self):
-        raise ModelIntegrityError(vector_store_module._DEFAULT_ST_MODEL, INTEGRITY_REASON)
-
-    monkeypatch.setattr(StructuredDocumentChunker, "_get_semantic_splitter", _refuse)
-    chunker = StructuredDocumentChunker()
-    args = ("para one\n\npara two", None) if method.startswith("_split") else ("para one\n\npara two",)
-    chunk = getattr(chunker, method)
-
-    with pytest.raises(ModelIntegrityError):
-        chunk(*args)
-
-
-@pytest.mark.parametrize(
-    "method", ["_split_large_section_semantic", "_fallback_semantic_chunking"]
-)
-def test_chunking_still_falls_back_on_ordinary_errors(
-    monkeypatch: pytest.MonkeyPatch, method: str
-) -> None:
-    from septum_api.services.chunking_strategy import StructuredDocumentChunker
-
-    def _fail(self):
-        raise RuntimeError("splitter broke")
-
-    monkeypatch.setattr(StructuredDocumentChunker, "_get_semantic_splitter", _fail)
-    chunker = StructuredDocumentChunker()
-    args = ("para one\n\npara two", None) if method.startswith("_split") else ("para one\n\npara two",)
-
-    assert getattr(chunker, method)(*args)
-
-
 # --- warmup settings check --------------------------------------------------
 
 

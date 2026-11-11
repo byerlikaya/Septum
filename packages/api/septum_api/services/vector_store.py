@@ -77,8 +77,9 @@ def get_shared_sentence_transformer(
 ) -> SentenceTransformer:
     """Return a process-wide SentenceTransformer singleton.
 
-    The model (~500 MB) is loaded once and shared between VectorStore
-    and StructuredDocumentChunker to avoid duplicate memory usage.
+    The model (~500 MB) is loaded once per process and reused by every
+    VectorStore instance and the startup warmup to avoid duplicate memory
+    usage.
     Thread-safe with double-checked locking.
 
     The model must have a manifest pin: it is loaded on CPU from the
@@ -347,7 +348,7 @@ class VectorStore:
         """Return the lazy-loaded multilingual MiniLM encoder.
 
         Delegates to the process-wide :func:`get_shared_sentence_transformer`
-        so that VectorStore and StructuredDocumentChunker share one copy.
+        so that every VectorStore instance shares one copy.
         """
         if self._model is not None:
             return self._model
@@ -418,7 +419,7 @@ class VectorStoreService:
     """Chunk-oriented service wrapper around :class:`VectorStore`.
 
     This service exposes a higher-level interface that works directly with
-    chunk objects (e.g. LangChain-style documents) which provide
+    chunk objects (e.g. document-like objects) which provide
     ``page_content`` and ``metadata['chunk_index']`` attributes. It is
     intended to be used by the document processing pipeline.
     """

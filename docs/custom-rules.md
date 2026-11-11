@@ -52,7 +52,7 @@ Every rule has these common fields:
 
 ## Method 1 — Regex
 
-A regex rule scans the chunk text and emits a span for every match. This is the
+A regex rule scans the document text and emits a span for every match. This is the
 fastest detection method and the one you should reach for first.
 
 ### Example: clinical study protocol code
@@ -114,10 +114,10 @@ After saving, **Test** confirms `1 match — Project Bluebird`.
 
 ## Method 3 — LLM prompt
 
-LLM-prompt rules pass the chunk text plus an instruction to a local Ollama model
-and parse the JSON response into spans. This is the right tool for categories
-that defy regex — medical conditions, opinions, sensitive cultural markers,
-informal aliases — at the cost of `~1–5s` per chunk under
+LLM-prompt rules pass the document text, in slices, plus an instruction to a local
+Ollama model and parse the JSON response into spans. This is the right tool for
+categories that defy regex — medical conditions, opinions, sensitive cultural
+markers, informal aliases — at the cost of `~1–5s` per slice under
 `llama3.2:3b` and proportionally more for larger models.
 
 ### Example: medication mentions
@@ -146,9 +146,13 @@ endpoint returns an empty match list in that case and gives no error.
 > noise that increases parse failures.
 
 > **Tip — context window**
-> Septum sends one chunk at a time (default `chunk_size = 800` chars). Phrase
-> the prompt to operate on a "block of text" rather than "the whole document"
-> so the model behaves consistently across chunks.
+> Rules run on the whole document before it is chunked, so `chunk_size` does not
+> affect them. Septum sends the text to the model one slice at a time: at most
+> 2,000 characters, fewer if the model's context window requires it, with
+> neighbouring slices sharing 200 characters. Phrase the prompt to operate on a
+> "block of text" rather than "the whole document" so the model behaves
+> consistently across slices. A value longer than 200 characters that crosses a
+> slice boundary can still be missed.
 
 ## Common fields & test loop
 
@@ -181,5 +185,6 @@ Every detection produced by a custom recognizer:
    by the same `_HIGH_PRIORITY_ENTITY_TYPES` table the rest of Septum uses.
 
 If a rule fires in test but not on a real document, open the document preview
-and check the chunk text — PDF extraction sometimes splits a target across
-chunks, in which case raise the `chunk_size` or use a smaller `chunk_overlap`.
+and check the extracted text — PDF extraction sometimes breaks a target across
+lines or pages, so it no longer matches the rule. Chunk size and overlap do not
+change what a rule detects; adjust the rule's pattern or prompt instead.
