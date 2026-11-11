@@ -31,7 +31,7 @@ pip install -r packages/api/requirements.txt
 | `septum_api.seeds` | Yerleşik regülasyon ruleset'lerinin seed verisi. |
 | `alembic/`, `alembic.ini` | Postgres şema migration'ları. `packages/api/` dizini altından `alembic upgrade head` ile uygulanır. |
 | `scripts/docker-entrypoint.sh` | Container giriş betiği: bootstrap config → alembic upgrade → uvicorn. |
-| `requirements.txt` | Ağır ML / OCR / Whisper / ingest bağımlılıkları (torch, Presidio, spaCy, PaddleOCR, Whisper, FAISS, BM25, langchain, …). `pyproject.toml`'da tutulmaz; böylece `pip install septum-api` hafif kalır. |
+| `requirements.txt` | Ağır ML / OCR / Whisper / ingest bağımlılıkları (torch, Presidio, spaCy, PaddleOCR, Whisper, FAISS, BM25, …). `pyproject.toml`'da tutulmaz; böylece `pip install septum-api` hafif kalır. |
 
 ## Programatik kullanım
 
