@@ -178,6 +178,7 @@ def merge_window_spans(
     windows: Sequence[TextWindow],
     window_spans: Sequence[Sequence[DetectedSpan]],
     full_text_spans: Sequence[DetectedSpan] = (),
+    full_text_verdict_spans: Sequence[DetectedSpan] = (),
 ) -> list[DetectedSpan]:
     """Join per-window spans (window-local offsets) into full-text spans.
 
@@ -186,8 +187,11 @@ def merge_window_spans(
     (highest score). ``full_text_spans`` (full-text offsets) come from layers
     that ran on the whole text as well as on every window: one lying inside a
     window without touching its cut is dropped, since that window reported it
-    with the window's own score and filters; the rest count as whole. The
-    result is a candidate list for overlap resolution, not a resolved one.
+    with the window's own score and filters; the rest count as whole.
+    ``full_text_verdict_spans`` (full-text offsets) come from recognizers
+    whose verdict needs text around the match that a window can lack; they
+    always count as whole. The result is a candidate list for overlap
+    resolution, not a resolved one.
     """
     whole: list[DetectedSpan] = []
     cut: list[DetectedSpan] = []
@@ -196,6 +200,7 @@ def merge_window_spans(
             moved = _shifted(span, window.start)
             (cut if _touches_cut(moved, window) else whole).append(moved)
     whole.extend(s for s in full_text_spans if not _seen_whole(s, windows))
+    whole.extend(full_text_verdict_spans)
 
     whole.sort(key=lambda s: (s.start, s.end))
     starts = [s.start for s in whole]
