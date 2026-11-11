@@ -387,6 +387,14 @@ async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:
             "documents",
             "ALTER TABLE documents ADD COLUMN entity_index_version INTEGER",
         ),
+        (
+            "chunks",
+            "ALTER TABLE chunks ADD COLUMN start_char INTEGER",
+        ),
+        (
+            "chunks",
+            "ALTER TABLE chunks ADD COLUMN end_char INTEGER",
+        ),
     ]
 
     async with eng.begin() as conn:

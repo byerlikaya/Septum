@@ -120,6 +120,10 @@ export interface Chunk {
    *  original characters. Nullable for chunks ingested before this
    *  field existed; preview falls back to ``sanitized_text``. */
   raw_text?: string | null;
+  /** Half-open range of ``raw_text`` inside the document's joined text;
+   *  null for chunks ingested before offsets were stored. */
+  start_char?: number | null;
+  end_char?: number | null;
   char_count: number;
   source_page: number | null;
   source_slide: number | null;

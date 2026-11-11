@@ -184,3 +184,43 @@ describe("PDF preview", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("errors.preview.document");
   });
 });
+
+describe("chunk overlap", () => {
+  afterEach(cleanup);
+
+  it("shows overlapped text and its detection once", async () => {
+    const mk = (id: number, raw: string, start: number, end: number) => ({
+      id, document_id: 3, index: id, sanitized_text: "x", raw_text: raw,
+      start_char: start, end_char: end, char_count: raw.length,
+      source_page: null, source_slide: null, source_sheet: null,
+      source_timestamp_start: null, source_timestamp_end: null, section_title: null
+    });
+    const det = (id: number, chunkId: number, s: number, e: number) => ({
+      id, chunk_id: chunkId, entity_type: "EMAIL", placeholder: `[E${id}]`,
+      start_offset: s, end_offset: e, score: 0.9
+    });
+    mockApiGet.mockImplementation(async (url: string) => {
+      if (url === "/api/chunks") {
+        return { data: { items: [mk(1, "hello bob@x.io", 0, 14), mk(2, "bob@x.io and end", 6, 22)] } };
+      }
+      if (url.endsWith("/raw")) throw new Error("no raw");
+      if (url.endsWith("/anon-summary")) throw new Error("none");
+      throw new Error(`unexpected GET ${url}`);
+    });
+    mockGetEntityDetections.mockResolvedValue({ items: [det(1, 1, 6, 14), det(2, 2, 0, 8)], total: 2 });
+
+    render(
+      <CurrentUserProvider value={null}>
+        <DocumentPreview
+          document={{ ...spreadsheetDocument(), file_format: "docx" }}
+          open
+          onOpenChange={jest.fn()}
+        />
+      </CurrentUserProvider>
+    );
+
+    await waitFor(() => expect(document.querySelectorAll("[data-entity-row-id]")).toHaveLength(1));
+    expect(document.querySelectorAll("[data-detection-id]")).toHaveLength(1);
+    expect(document.body.textContent).toContain("hello bob@x.io and end");
+  });
+});
