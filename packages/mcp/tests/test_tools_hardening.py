@@ -470,3 +470,95 @@ def test_scan_file_refuses_fifo_and_device(tmp_path: Path, monkeypatch) -> None:
     assert fifo["ok"] is False
     assert fifo["error"] == tools._SCAN_PATH_UNAVAILABLE
     assert device["ok"] is False
+
+
+class _CountingEngine:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def mask(self, text, language="en"):
+        self.calls += 1
+        raise AssertionError("detection ran")
+
+    def release(self, session_id) -> None:
+        return None
+
+
+@pytest.mark.parametrize("tool_name", ["mask_text", "detect_pii"])
+def test_text_over_the_cap_is_refused_before_detection(monkeypatch, tool_name) -> None:
+    from septum_mcp import tools
+
+    monkeypatch.setenv("MAX_EXTRACTED_TEXT_CHARS", "10")
+    engine = _CountingEngine()
+    sensitive = "alice@example.com"
+
+    result = getattr(tools, tool_name)(engine, text=sensitive)
+
+    assert result["ok"] is False
+    assert result["error"].startswith("extracted_text_too_large")
+    assert "MAX_EXTRACTED_TEXT_CHARS" in result["error"]
+    assert sensitive not in result["error"]
+    assert engine.calls == 0
+
+
+def test_text_at_the_cap_reaches_detection(monkeypatch) -> None:
+    from septum_mcp import tools
+
+    monkeypatch.setenv("MAX_EXTRACTED_TEXT_CHARS", "10")
+    engine = _CountingEngine()
+
+    result = tools.mask_text(engine, text="x" * 10)
+
+    assert result == {"ok": False, "error": "mask_text failed"}
+    assert engine.calls == 1
+
+
+def test_scan_file_text_over_the_cap_is_refused_before_detection(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from septum_mcp import tools
+
+    monkeypatch.setenv("MAX_EXTRACTED_TEXT_CHARS", "10")
+    source = tmp_path / "long.txt"
+    source.write_text("alice@example.com is long enough", encoding="utf-8")
+    engine = _CountingEngine()
+
+    result = tools.scan_file(engine, file_root=None, file_path=str(source))
+
+    assert result["ok"] is False
+    assert result["error"].startswith("extracted_text_too_large")
+    assert "alice" not in result["error"]
+    assert engine.calls == 0
+
+
+@pytest.mark.parametrize("value", ["", "abc", "0", "-5", str(2**31)])
+def test_unusable_cap_value_falls_back_to_the_default(monkeypatch, value) -> None:
+    from septum_mcp import tools
+
+    monkeypatch.setenv("MAX_EXTRACTED_TEXT_CHARS", value)
+
+    assert tools._max_text_chars() == 10_000_000
+
+
+def test_invalid_cap_warns_once_without_the_value(monkeypatch, caplog) -> None:
+    from septum_mcp import tools
+
+    tools._warn_invalid_text_cap_once.cache_clear()
+    monkeypatch.setenv("MAX_EXTRACTED_TEXT_CHARS", "99999999999")
+
+    with caplog.at_level("WARNING", logger=tools.logger.name):
+        assert tools._max_text_chars() == 10_000_000
+        assert tools._max_text_chars() == 10_000_000
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert len(messages) == 1
+    assert "MAX_EXTRACTED_TEXT_CHARS" in messages[0]
+    assert "99999999999" not in messages[0]
+
+
+def test_cap_at_the_api_bound_is_accepted(monkeypatch) -> None:
+    from septum_mcp import tools
+
+    monkeypatch.setenv("MAX_EXTRACTED_TEXT_CHARS", str(2**31 - 1))
+
+    assert tools._max_text_chars() == 2**31 - 1

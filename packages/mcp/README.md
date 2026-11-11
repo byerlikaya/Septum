@@ -204,6 +204,7 @@ SEPTUM_MCP_HTTP_TOKEN=<random-token> \
 | `SEPTUM_MCP_MAX_UNMASK_PLACEHOLDERS` | `25` | Per-session restore budget: most distinct placeholders `unmask_response` may restore for one session across all its calls. A call that would exceed it fails and nothing is restored; re-restoring an already restored placeholder is free. Positive integer; invalid values fall back to the default. |
 | `SEPTUM_MCP_FILE_ROOT` | unset | Directory `scan_file` is confined to. Optional on stdio; on HTTP/SSE `scan_file` refuses every path while unset. It must exist as a directory when the server starts (otherwise startup fails with a clear error) and is pinned then: a root behind a symlink is allowed and fixed to its target, and replacing the root path later refuses reads instead of moving the boundary. The server only reads from it, so mount it read-only (the bundled compose files mount `septum-mcp-scan` at `/data/scan:ro`). |
 | `SEPTUM_MCP_MAX_FILE_BYTES` | `52428800` | Largest file `scan_file` will read (50 MB). |
+| `MAX_EXTRACTED_TEXT_CHARS` | `10000000` | Most characters `mask_text`, `detect_pii` and the text `scan_file` extracts may have; longer text is refused with `extracted_text_too_large`. The same variable the API reads, but the MCP server reads it itself: a value that is not a whole number or is outside 1–2147483647 falls back to the default with one warning. |
 
 **HTTP transport only (ignored in stdio mode):**
 

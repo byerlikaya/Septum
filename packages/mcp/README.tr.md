@@ -167,6 +167,7 @@ SEPTUM_MCP_HTTP_TOKEN=<rastgele-token> \
 | `SEPTUM_MCP_MAX_UNMASK_PLACEHOLDERS` | `25` | Session başına geri yazma bütçesi: `unmask_response`'un bir session için tüm çağrıları boyunca geri yazabileceği en fazla farklı placeholder sayısı. Bütçeyi aşacak çağrı hata döner ve hiçbir şey geri yazılmaz; daha önce geri yazılmış bir placeholder'ı yeniden geri yazmak bütçeden düşmez. Pozitif tam sayı; geçersiz değerler varsayılana döner. |
 | `SEPTUM_MCP_FILE_ROOT` | ayarsız | `scan_file`'ın sınırlandığı dizin. stdio'da isteğe bağlıdır; HTTP/SSE'de ayarlanmadıkça `scan_file` her yolu reddeder. Sunucu başlarken dizin olarak var olmalıdır (yoksa başlatma açık bir hatayla durur) ve o anda sabitlenir: sembolik bağlantı arkasındaki bir köke izin verilir ve hedefine sabitlenir; kök yolu sonradan değiştirilirse sınır taşınmaz, okumalar reddedilir. Sunucu bu dizinden yalnızca okur; salt okunur bağlayın (paketle gelen compose dosyaları `septum-mcp-scan`'i `/data/scan:ro` olarak bağlar). |
 | `SEPTUM_MCP_MAX_FILE_BYTES` | `52428800` | `scan_file`'ın okuyacağı en büyük dosya boyutu (50 MB). |
+| `MAX_EXTRACTED_TEXT_CHARS` | `10000000` | `mask_text`, `detect_pii` ve `scan_file`'ın çıkardığı metnin sahip olabileceği en fazla karakter sayısı; daha uzun metin `extracted_text_too_large` ile reddedilir. API'nin okuduğu değişkenin aynısıdır, ancak MCP sunucusu onu kendisi okur: tam sayı olmayan ya da 1–2147483647 dışındaki değer, tek bir uyarıyla varsayılana döner. |
 
 **Yalnız HTTP taşımasında (stdio modunda yok sayılır):**
 
