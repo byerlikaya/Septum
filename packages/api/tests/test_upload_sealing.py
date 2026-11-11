@@ -203,3 +203,22 @@ def test_max_upload_bytes_is_parsed_and_range_checked() -> None:
         assert result.returncode != 0
         assert "EnvFlagError" in result.stderr
         assert "MAX_UPLOAD_BYTES" in result.stderr
+
+
+def test_max_extracted_text_chars_is_parsed_and_range_checked() -> None:
+    """MAX_EXTRACTED_TEXT_CHARS goes through env_int: out of range or non-numeric is refused at import."""
+
+    from septum_api.middleware import upload_limits
+
+    assert upload_limits.MAX_EXTRACTED_TEXT_CHARS == 10_000_000
+    code = "import septum_api.middleware.upload_limits"
+    for value in ("0", "lots", str(2**31)):
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "MAX_EXTRACTED_TEXT_CHARS": value},
+        )
+        assert result.returncode != 0
+        assert "EnvFlagError" in result.stderr
+        assert "MAX_EXTRACTED_TEXT_CHARS" in result.stderr

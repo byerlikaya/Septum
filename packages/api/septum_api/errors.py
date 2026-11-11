@@ -94,6 +94,21 @@ class ChunkTooLargeError(ContentFreeError, RuntimeError):
     code = CHUNK_TOO_LARGE_CODE
 
 
+EXTRACTED_TEXT_TOO_LARGE_CODE = "extracted_text_too_large"
+
+
+class ExtractedTextTooLargeError(ContentFreeError, RuntimeError):
+    """A document's extracted text is longer than the extracted-text limit.
+
+    Raised by the document pipeline before any detection runs. The text is
+    never truncated, so the document fails instead; the message names only
+    the limit and its environment variable, never the document's text or
+    its length.
+    """
+
+    code = EXTRACTED_TEXT_TOO_LARGE_CODE
+
+
 class DocumentTextMismatchError(ContentFreeError, RuntimeError):
     """The detector normalized the document text differently from the chunker's blocks."""
 

@@ -181,6 +181,38 @@ async def test_reprocess_with_failing_cleanup_marks_document_failed_without_path
     assert ingest_calls == []
 
 
+async def test_reprocess_refused_by_the_text_cap_leaves_no_derived_data(
+    env: _Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from septum_api.services.document_pipeline import ExtractedTextTooLargeError
+
+    doc, _ = await env.add_document()
+    async with env.session_maker() as session:
+        row = await session.get(Document, doc)
+        row.transcription_text = "Alice Smith signed."
+        row.sanitized_entity_types = ["PERSON_NAME"]
+        row.sanitized_policy_digest = "digest"
+        row.sanitized_language = "en"
+        await session.commit()
+
+    async def _ingest(**kwargs):
+        raise ExtractedTextTooLargeError("too long")
+
+    monkeypatch.setattr(documents_module._INGESTION_ROUTER, "ingest", _ingest)
+
+    resp = await env.client.post(f"/api/documents/{doc}/reprocess")
+
+    assert resp.status_code == 200
+    stored = await env.document(doc)
+    assert stored.ingestion_status == "failed"
+    assert stored.transcription_text is None
+    assert stored.sanitized_entity_types is None
+    assert stored.sanitized_policy_digest is None
+    assert stored.sanitized_language is None
+    assert await env.count(Chunk, doc) == 0
+    assert await env.count(EntityDetection, doc) == 0
+
+
 async def test_delete_after_a_concurrent_delete_returns_404(
     env: _Env, monkeypatch: pytest.MonkeyPatch
 ) -> None:

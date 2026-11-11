@@ -33,7 +33,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from septum_api import main as main_module
 from septum_api.cli import models as cli_models
-from septum_api.errors import MODEL_REFUSED_DETAIL, CustomRuleUnavailableError
+from septum_api.errors import (
+    MODEL_REFUSED_DETAIL,
+    CustomRuleUnavailableError,
+    ExtractedTextTooLargeError,
+)
 from septum_api.models import Base
 from septum_api.models.document import Document
 from septum_api.routers import chat as chat_module
@@ -496,9 +500,13 @@ async def doc_session(tmp_path: Path):
         (whisper_models.WhisperModelNotAllowed("refused"), "whisper_model_not_allowed"),
         (_FutureRefusal("refused"), "future_refusal"),
         (CustomRuleUnavailableError("rule 7 could not run"), "custom_rule_unavailable"),
+        (ExtractedTextTooLargeError("too long"), "extracted_text_too_large"),
         (RuntimeError("anything else"), None),
     ],
-    ids=["integrity", "unpinned", "whisper", "any-model-refusal", "custom-rule", "other"],
+    ids=[
+        "integrity", "unpinned", "whisper", "any-model-refusal", "custom-rule",
+        "extracted-text", "other",
+    ],
 )
 async def test_failed_ingestion_records_the_refusal_code(
     doc_session, exc: BaseException, code: str | None

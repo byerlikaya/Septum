@@ -47,7 +47,12 @@ from sqlalchemy.orm import defer, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 
 from ..database import get_db
-from ..errors import ChunkTooLargeError, LocalModelUnavailableError, public_error_text
+from ..errors import (
+    ChunkTooLargeError,
+    ExtractedTextTooLargeError,
+    LocalModelUnavailableError,
+    public_error_text,
+)
 from ..middleware.upload_limits import MAX_UPLOAD_BYTES, TOO_LARGE_DETAIL
 from ..models.audit_event import AuditEvent
 from ..models.document import Chunk as DocumentChunk
@@ -862,7 +867,13 @@ async def record_background_failure(
                 ingestion_error_code=(
                     exc.code
                     if isinstance(
-                        exc, (ModelRefusal, LocalModelUnavailableError, ChunkTooLargeError)
+                        exc,
+                        (
+                            ModelRefusal,
+                            LocalModelUnavailableError,
+                            ChunkTooLargeError,
+                            ExtractedTextTooLargeError,
+                        ),
                     )
                     else None
                 ),
@@ -1572,7 +1583,10 @@ def _processing_conflict() -> HTTPException:
 async def claim_for_reingest(
     db: AsyncSession, document_id: int, *, only_completed: bool = False
 ) -> bool:
-    """Claim a document for a rebuild: set it to ``processing`` and drop its chunks and detections.
+    """Claim a document for a rebuild: set it to ``processing`` and drop its derived data.
+
+    Chunks, detections, the extracted text and the recorded sanitization
+    policy go, so a rebuild that is then refused leaves no stale copy behind.
 
     The status is claimed with a conditional update, so two concurrent callers
     cannot both start a run. By default any status but ``processing`` is
@@ -1592,6 +1606,10 @@ async def claim_for_reingest(
             ingestion_error_code=None,
             chunk_count=0,
             entity_count=0,
+            transcription_text=None,
+            sanitized_entity_types=None,
+            sanitized_policy_digest=None,
+            sanitized_language=None,
         )
         .execution_options(synchronize_session=False)
     )
