@@ -15,25 +15,50 @@
     "test": "jest"
   },
   "dependencies": {
-    "axios": "^1.21.0",
-    "cytoscape": "^3.34.4",
+    "axios": "^1.21.1",
+    "cytoscape": "^3.35.0",
     "cytoscape-fcose": "^2.2.0",
     "jspdf": "^4.2.1",
-    "lucide-react": "^1.69.0",
-    "next": "^16.4.5",
+    "lucide-react": "^1.72.0",
+    "next": "^16.4.6",
     "pdfjs-dist": "^6.5.438",
     "react": "19.3.1",
     "react-cytoscapejs": "^2.0.0",
     "react-dom": "19.3.1",
-    "react-dropzone": "^20.1.4"
+    "react-dropzone": "^20.2.0"
   },
   "overrides": {
     "next": {
       "postcss": "^8.5.30"
+    },
+    "eslint": {
+      "minimatch": "^11.0.8"
+    },
+    "@eslint/config-array": {
+      "minimatch": "^11.0.8"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.8"
+    },
+    "glob": {
+      "minimatch": "^11.0.8"
+    },
+    "@jest/reporters": {
+      "glob": "^14.0.5"
+    },
+    "jest-config": {
+      "glob": "^14.0.5"
+    },
+    "jest-runtime": {
+      "glob": "^14.0.5"
+    },
+    "test-exclude": {
+      "glob": "^14.0.5",
+      "minimatch": "^11.0.8"
     }
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.3.4",
+    "@tailwindcss/postcss": "^4.3.5",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@types/cytoscape": "^3.31.0",
@@ -42,11 +67,11 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "eslint": "^10.14.0",
-    "eslint-config-next": "^16.4.5",
+    "eslint-config-next": "^16.4.6",
     "jest": "^30.5.2",
     "jest-environment-jsdom": "^30.5.2",
     "postcss": "^8.5.32",
-    "tailwindcss": "^4.3.3",
+    "tailwindcss": "^4.3.5",
     "typescript": "^6.0.3"
   }
 }
