@@ -35,13 +35,38 @@ describe("isContextualLayerStatus", () => {
   it.each(["covered", "layer_off", "local_model_unavailable", "not_applicable"])(
     "accepts the known state %s",
     (state) => {
-      expect(isContextualLayerStatus({ state, entity_types: [] })).toBe(true);
+      expect(
+        isContextualLayerStatus({ state, entity_types: [], local_model_reachable: null })
+      ).toBe(true);
+    }
+  );
+
+  it.each([true, false, null])("accepts local_model_reachable=%s", (reachable) => {
+    expect(
+      isContextualLayerStatus({
+        state: "covered",
+        entity_types: [],
+        local_model_reachable: reachable,
+      })
+    ).toBe(true);
+  });
+
+  it.each([["yes"], [1], [undefined], [{}]])(
+    "rejects a wrong-typed local_model_reachable %p",
+    (reachable) => {
+      expect(
+        isContextualLayerStatus({
+          state: "covered",
+          entity_types: [],
+          local_model_reachable: reachable,
+        })
+      ).toBe(false);
     }
   );
 
   it.each([
-    ["an unknown state", { state: "mystery", entity_types: [] }],
-    ["entity_types that is not an array", { state: "covered", entity_types: "DIAGNOSIS" }],
+    ["an unknown state", { state: "mystery", entity_types: [], local_model_reachable: null }],
+    ["entity_types that is not an array", { state: "covered", entity_types: "DIAGNOSIS", local_model_reachable: null }],
     ["null", null],
     ["a string", "covered"],
     ["an empty object", {}],

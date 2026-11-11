@@ -120,3 +120,45 @@ async def test_null_context_words_on_update_is_refused(router_client: Any) -> No
 
     assert (nulled.status_code, renamed.status_code) == (422, 200)
     assert renamed.json()["context_words"] == ["file"]
+
+
+@pytest.mark.parametrize(
+    "entity_type",
+    ["A" * 65, "BAD[TYPE", "BAD]TYPE", "BAD\nTYPE", "BAD\rTYPE", "BAD\x00TYPE", ""],
+)
+async def test_entity_type_outside_placeholder_shape_is_refused(
+    router_client: Any, entity_type: str
+) -> None:
+    headers = await _admin(router_client)
+    created = await router_client.post(
+        "/api/regulations/custom", headers=headers, json=_rule_body(entity_type=entity_type)
+    )
+    assert created.status_code == 422, created.text
+
+    ok = await router_client.post(
+        "/api/regulations/custom", headers=headers, json=_rule_body()
+    )
+    assert ok.status_code == 201, ok.text
+    patched = await router_client.patch(
+        f"/api/regulations/custom/{ok.json()['id']}",
+        headers=headers,
+        json={"entity_type": entity_type},
+    )
+    assert patched.status_code == 422, patched.text
+
+
+async def test_entity_type_within_placeholder_shape_is_accepted(router_client: Any) -> None:
+    headers = await _admin(router_client)
+    created = await router_client.post(
+        "/api/regulations/custom",
+        headers=headers,
+        json=_rule_body(entity_type="Project code " + "X" * 51),
+    )
+    assert created.status_code == 201, created.text
+    patched = await router_client.patch(
+        f"/api/regulations/custom/{created.json()['id']}",
+        headers=headers,
+        json={"entity_type": "MRN2"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["entity_type"] == "MRN2"

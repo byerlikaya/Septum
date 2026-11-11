@@ -10,10 +10,10 @@ const DETECTOR_PATH = path.resolve(
 );
 
 describe("CONTEXTUAL_ENTITY_TYPES", () => {
-  it("matches _CONTEXTUAL_ENTITY_TYPES in the core detector", () => {
+  it("matches CONTEXTUAL_ENTITY_TYPES in the core detector", () => {
     const source = readFileSync(DETECTOR_PATH, "utf8");
     const block = source.match(
-      /_CONTEXTUAL_ENTITY_TYPES[^=]*=\s*frozenset\(\{([\s\S]*?)\}\)/
+      /\bCONTEXTUAL_ENTITY_TYPES\b[^=]*=\s*frozenset\(\{([\s\S]*?)\}\)/
     );
     expect(block).not.toBeNull();
     const pythonTypes = Array.from(block![1].matchAll(/"([A-Z_]+)"/g), (m) => m[1]);

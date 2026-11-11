@@ -24,13 +24,13 @@ from typing import List, Optional
 from septum_core.anonymization_map import AnonymizationMap
 from septum_core.config import SeptumCoreConfig
 from septum_core.detector import (
-    _CONTEXTUAL_ENTITY_TYPES,
     _HIGH_PRIORITY_ENTITY_TYPES,
     _NER_LAYER_ENTITY_TYPES,
     _PARENT_TYPE_COVERAGE,
     _PRESIDIO_DEFAULT_LANGUAGE,
     _PRESIDIO_ENTITY_ALIASES,
     _PRESIDIO_REVERSE_ALIASES,
+    CONTEXTUAL_ENTITY_TYPES,
     BaseCustomRecognizer,
     CookieIDRecognizer,
     CoordinatesRecognizer,
@@ -572,7 +572,7 @@ __all__ = [
     "URLRecognizer",
     "ValidatedIBANRecognizer",
     "_HIGH_PRIORITY_ENTITY_TYPES",
-    "_CONTEXTUAL_ENTITY_TYPES",
+    "CONTEXTUAL_ENTITY_TYPES",
     "_NER_LAYER_ENTITY_TYPES",
     "_OLLAMA_VALIDATION_PASSTHROUGH_TYPES",
     "_PARENT_TYPE_COVERAGE",

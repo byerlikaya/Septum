@@ -14,6 +14,7 @@ from typing import Annotated, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from septum_core.anonymization_map import PLACEHOLDER_SHAPE
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -85,6 +86,18 @@ ContextWords = Annotated[
 ]
 
 
+def _validate_entity_type(value: str) -> str:
+    """Refuse an entity type that would mint a placeholder outside the core shape."""
+    if (
+        any(ch.isspace() and ch != " " or not ch.isprintable() for ch in value)
+        or PLACEHOLDER_SHAPE.fullmatch(f"[{value}_1]") is None
+    ):
+        raise ValueError(
+            "entity_type must be 1-64 printable characters without brackets or line breaks"
+        )
+    return value
+
+
 class CustomRecognizerCreatePayload(BaseModel):
     """Request body for creating a new custom recognizer."""
 
@@ -97,6 +110,12 @@ class CustomRecognizerCreatePayload(BaseModel):
     context_words: ContextWords = Field(default_factory=list)
     placeholder_label: str
     is_active: bool = True
+
+    @field_validator("entity_type")
+    @classmethod
+    def _entity_type_shape(cls, value: str) -> str:
+        """Keep the entity type within the placeholder shape."""
+        return _validate_entity_type(value)
 
 
 class CustomRecognizerUpdatePayload(BaseModel):
@@ -111,6 +130,12 @@ class CustomRecognizerUpdatePayload(BaseModel):
     context_words: Optional[ContextWords] = None
     placeholder_label: Optional[str] = None
     is_active: Optional[bool] = None
+
+    @field_validator("entity_type")
+    @classmethod
+    def _entity_type_shape(cls, value: Optional[str]) -> Optional[str]:
+        """Keep a supplied entity type within the placeholder shape."""
+        return value if value is None else _validate_entity_type(value)
 
     @field_validator("context_words")
     @classmethod
@@ -416,7 +441,7 @@ async def test_custom_recognizer(
     recognizer_id: int,
     payload: CustomRecognizerTestRequest,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role("admin")),
+    user: User = Depends(require_role("admin")),
 ) -> CustomRecognizerTestResponse:
     """Test a custom recognizer against a sample text.
 
@@ -439,7 +464,7 @@ async def test_custom_recognizer(
         return CustomRecognizerTestResponse(matches=[])
 
     recognizer = recognizers[0]
-    async with local_model_scope(_user.id, budgeted=True):
+    async with local_model_scope(user.id, budgeted=True):
         results = await asyncio.to_thread(
             recognizer.analyze,
             text=payload.sample_text,

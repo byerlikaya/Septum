@@ -357,8 +357,10 @@ def document_staleness(
 
 
 __all__ = [
+    "CONTEXT_GATE_REVISION",
     "DocumentStaleness",
     "PolicySnapshot",
+    "active_entity_types",
     "build_policy_snapshot",
     "current_policy_entity_types",
     "current_policy_snapshot",
@@ -368,4 +370,5 @@ __all__ = [
     "non_pii_rule_definition",
     "document_staleness",
     "snapshot_entity_types",
+    "union_entity_types",
 ]
