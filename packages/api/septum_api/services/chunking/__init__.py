@@ -2,5 +2,6 @@
 
 from .records import ChunkRecord
 from .strategies import Strategy, chunk_blocks
+from .tokens import TokenCounter
 
-__all__ = ["ChunkRecord", "Strategy", "chunk_blocks"]
+__all__ = ["ChunkRecord", "Strategy", "TokenCounter", "chunk_blocks"]
