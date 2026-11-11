@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-11-12
+
+- Documents whose extracted text exceeds a configurable limit (`MAX_EXTRACTED_TEXT_CHARS`, default 10 million characters) are now refused before any personal-data detection with a translated message instead of exhausting memory; nothing is masked or stored, and a refused reprocess also drops the previous preview text. The MCP tools apply the same limit, and the custom-rule Test sample is capped at 20,000 characters.
+
 ### 2026-11-11
 
 - New installations now turn on the contextual layer for special categories when setup finishes with a working local model (Ollama reachable and the local PII model installed) and an active regulation pack covers those categories; otherwise it stays off. Existing installations keep their current setting, and an explicit `USE_OLLAMA_SEMANTIC_LAYER_DEFAULT=false` opts out. The Settings and Regulations pages now warn when special categories are not being masked, or when the local model is unreachable and requests are refused.
