@@ -215,6 +215,36 @@ def test_revision_025_adds_nullable_entity_index_version_and_is_idempotent(
     assert "entity_index_version" not in after_downgrade
 
 
+def test_revision_027_adds_nullable_chunk_offsets_and_is_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "at_026.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.upgrade(cfg, "026")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    before = {c["name"] for c in sa.inspect(engine).get_columns("chunks")}
+
+    command.upgrade(cfg, "027")
+    columns = {c["name"]: c for c in sa.inspect(engine).get_columns("chunks")}
+
+    command.stamp(cfg, "026")
+    command.upgrade(cfg, "027")
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+    after_rerun = [c["name"] for c in sa.inspect(engine).get_columns("chunks")]
+
+    command.downgrade(cfg, "026")
+    after_downgrade = {c["name"] for c in sa.inspect(engine).get_columns("chunks")}
+    engine.dispose()
+
+    for name in ("start_char", "end_char"):
+        assert name not in before
+        assert columns[name]["nullable"] is True
+        assert after_rerun.count(name) == 1
+        assert name not in after_downgrade
+
+
 def test_revision_021_replaces_single_column_document_index_and_is_reversible(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -93,6 +93,12 @@ class Chunk(Base):
     # this column existed; preview UI falls back to ``sanitized_text``
     # when ``raw_text`` is null.
     raw_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Half-open [start_char, end_char) span of ``raw_text`` inside the
+    # document's joined extracted text, so the preview can place chunks
+    # without repeating their overlap. NULL for chunks ingested before
+    # these columns existed.
+    start_char: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    end_char: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     char_count: Mapped[int] = mapped_column(Integer, nullable=False)
     source_page: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     source_slide: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

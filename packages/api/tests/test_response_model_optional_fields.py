@@ -39,6 +39,8 @@ _CASES: list[tuple[type[BaseModel], dict, tuple[str, ...]]] = [
         ChunkResponse,
         {"id": 1, "document_id": 1, "index": 0, "sanitized_text": "x", "char_count": 1},
         (
+            "start_char",
+            "end_char",
             "source_page",
             "source_slide",
             "source_sheet",

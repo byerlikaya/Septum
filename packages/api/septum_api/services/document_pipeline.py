@@ -297,6 +297,8 @@ def _chunk_rows(
             index=record.index,
             sanitized_text=chunk.masked_text,
             raw_text=record.text,
+            start_char=record.start,
+            end_char=record.end,
             char_count=len(chunk.masked_text),
             source_page=record.page,
             source_slide=None,

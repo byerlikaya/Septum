@@ -125,6 +125,14 @@ def _assert_masked(chunks, rows) -> None:
         assert by_id[row.chunk_id].raw_text[row.start_offset : row.end_offset] == NAME
 
 
+def _assert_offsets_slice_the_joined_text(chunks, blocks) -> None:
+    joined = join_blocks(blocks)
+    for chunk in chunks:
+        assert chunk.start_char is not None and chunk.end_char is not None
+        assert chunk.raw_text == joined[chunk.start_char : chunk.end_char]
+    assert chunks[0].start_char == 0 and chunks[-1].end_char == len(joined)
+
+
 async def test_pdf_page_blocks_keep_their_page_numbers_on_stored_chunks(env) -> None:
     pages = [
         f"pg{number} " + ("filler words fill the page. " * 20)
@@ -142,6 +150,7 @@ async def test_pdf_page_blocks_keep_their_page_numbers_on_stored_chunks(env) -> 
     assert all(f"pg{c.source_page}" in c.raw_text for c in chunks)
     assert all(c.source_sheet is None and c.source_timestamp_start is None for c in chunks)
     assert doc.entity_count == 1 and doc.chunk_count == len(chunks)
+    _assert_offsets_slice_the_joined_text(chunks, blocks)
 
 
 async def test_xlsx_rows_stay_whole_after_a_length_changing_rule(env) -> None:
@@ -190,6 +199,7 @@ async def test_audio_segments_keep_their_time_range_on_stored_chunks(env) -> Non
     assert all(s < e for s, e in zip(starts, ends))
     assert all(c.source_page is None and c.source_sheet is None for c in chunks)
     assert doc.entity_count == 1
+    _assert_offsets_slice_the_joined_text(chunks, blocks)
 
 
 async def test_a_rule_that_shrinks_text_keeps_detection_offsets_aligned(env) -> None:
@@ -426,3 +436,25 @@ async def test_reprocess_script_counts_a_failure_and_prints_only_its_type(
     assert failed == 1
     assert "failed (ValueError)" in out
     assert NAME not in out
+
+
+async def test_overlapping_sliding_chunks_store_offsets_that_slice_the_joined_text(env) -> None:
+    blocks = [TextBlock("lorem ipsum dolor sit amet " * 30 + NAME, "text")]
+
+    chunks, _, _ = await _ingest(env, blocks, "txt", chunk_size=100, chunk_overlap=50)
+
+    assert len(chunks) >= 3
+    assert any(b.start_char < a.end_char for a, b in zip(chunks, chunks[1:]))
+    _assert_offsets_slice_the_joined_text(chunks, blocks)
+
+
+async def test_spreadsheet_chunks_store_offsets_that_slice_the_joined_text(env) -> None:
+    grid = [["h1", "h2"]] + [[f"id {r}", f"plain {r}"] for r in range(40)]
+    first, _, _ = render_sheet("S1", grid)
+    second, _, _ = render_sheet("S2", grid)
+    blocks = first + second
+
+    chunks, _, _ = await _ingest(env, blocks, "xlsx", spreadsheet_chunk_size=20)
+
+    assert len(chunks) > 3
+    _assert_offsets_slice_the_joined_text(chunks, blocks)
