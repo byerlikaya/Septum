@@ -279,8 +279,11 @@ def _refuse_chunk_overlap_above_half(settings: AppSettings, update_data: dict[st
     """Raise 422 unless the overlap stays at most half of the chunk size once the update applies.
 
     Checked against the stored values for whichever of the two is not in the
-    update, so neither can be moved past the other in separate requests. The
-    overlap only applies to ``chunk_size``; the PDF chunker has none.
+    update, so neither can be moved past the other in separate requests. Only
+    ``chunk_size`` is compared: ``pdf_chunk_size`` also uses the overlap, to
+    split an oversized block, but the chunker clamps the overlap to half of the
+    size it is given, so a smaller ``pdf_chunk_size`` yields a shorter
+    effective overlap there instead of a crawling window.
     """
     if "chunk_size" not in update_data and "chunk_overlap" not in update_data:
         return
