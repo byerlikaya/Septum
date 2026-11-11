@@ -49,7 +49,7 @@ Her kuralda ortak alanlar:
 
 ## Yöntem 1 — Regex
 
-Regex kuralı chunk metnini tarar ve her eşleşme için bir span üretir. En hızlı
+Regex kuralı doküman metnini tarar ve her eşleşme için bir span üretir. En hızlı
 tespit yolu; ilk başvurmanız gereken yöntem.
 
 ### Örnek: klinik çalışma protokol kodu
@@ -111,10 +111,10 @@ Kaydet sonrası **Test** `1 eşleşme — Project Bluebird` rapor eder.
 
 ## Yöntem 3 — LLM prompt
 
-LLM-prompt kuralları chunk metni + bir talimatı yerel Ollama modeline yollar
+LLM-prompt kuralları doküman metnini dilimler hâlinde + bir talimatı yerel Ollama modeline yollar
 ve JSON cevabını span'lere parse eder. Regex ile yakalanamayan kategoriler
 için doğru araç — tıbbi durumlar, görüşler, hassas kültürel işaretler,
-lakaplar — ama `llama3.2:3b` ile chunk başına `~1–5s`, daha büyük
+lakaplar — ama `llama3.2:3b` ile dilim başına `~1–5s`, daha büyük
 modellerde orantılı olarak daha fazla maliyet getirir.
 
 ### Örnek: ilaç adı tespiti
@@ -143,9 +143,13 @@ vermez.
 > artıran gürültüdür.
 
 > **İpucu — bağlam penceresi**
-> Septum tek seferde bir chunk gönderir (varsayılan `chunk_size = 800` karakter).
-> Prompt'u "tüm doküman" yerine "bir metin bloğu" üzerinde çalışacak şekilde
-> ifade edin ki chunk'lar arası tutarlı davransın.
+> Kurallar doküman chunk'lanmadan önce tüm doküman üzerinde çalışır; bu yüzden
+> `chunk_size` onları etkilemez. Septum metni modele dilim dilim gönderir: bir
+> dilim en fazla 2.000 karakterdir (modelin bağlam penceresi gerektiriyorsa
+> daha kısadır) ve komşu dilimler 200 karakter paylaşır. Prompt'u "tüm doküman"
+> yerine "bir metin bloğu" üzerinde çalışacak şekilde ifade edin ki dilimler
+> arasında tutarlı davransın. Bir dilim sınırını aşan, 200 karakterden uzun bir
+> değer yine de kaçabilir.
 
 ## Ortak alanlar & test döngüsü
 
@@ -178,6 +182,7 @@ demek "gerçek dokümanlarda çalışıyor" demektir — chunk metni örneğe be
    tarafından belirlenir.
 
 Bir kural test'te ateşliyor ama gerçek dokümanda ateşlemiyorsa, doküman
-önizlemeyi açıp chunk metnini kontrol edin — PDF extraction bazen hedefi
-chunk'lar arasına böler; bu durumda `chunk_size`'ı yükseltin veya
-`chunk_overlap`'i küçültün.
+önizlemeyi açıp çıkarılan metni kontrol edin — PDF extraction bazen hedefi
+satırlara veya sayfalara böler ve değer kuralla artık eşleşmez. Chunk boyutu ve
+örtüşmesi bir kuralın neyi yakaladığını değiştirmez; bunun yerine kuralın
+desenini veya prompt'unu ayarlayın.
