@@ -157,9 +157,9 @@ _T = TypeVar("_T")
 
 
 def _optional_layer(call: Callable[[], _T], fallback: _T, failure: str) -> _T:
-    """Run an optional semantic-layer call: ``fallback`` when it fails, a :class:`SemanticLayerRefusal` re-raised.
+    """Run an optional semantic-layer call, returning ``fallback`` if it fails.
 
-    Only the exception class is logged, never its message, which may echo text.
+    A :class:`SemanticLayerRefusal` is re-raised. Only the exception class is logged, never its message, which may echo text.
     """
     try:
         return call()
@@ -375,7 +375,7 @@ _PARENT_TYPE_COVERAGE: dict[str, str] = {
     "FINANCIAL_ACCOUNT": "CREDIT_CARD_NUMBER",
 }
 
-_CONTEXTUAL_ENTITY_TYPES: frozenset[str] = frozenset({
+CONTEXTUAL_ENTITY_TYPES: frozenset[str] = frozenset({
     "DIAGNOSIS", "MEDICATION", "CLINICAL_NOTE",
     "POLITICAL_OPINION", "RELIGION", "ETHNICITY", "SEXUAL_ORIENTATION",
     "BIOMETRIC_ID", "DNA_PROFILE",
@@ -1630,7 +1630,7 @@ class Detector:
             if presidio_type in supported:
                 supported.add(septum_type)
 
-        skip = _NER_LAYER_ENTITY_TYPES | _CONTEXTUAL_ENTITY_TYPES | frozenset(_PARENT_TYPE_COVERAGE)
+        skip = _NER_LAYER_ENTITY_TYPES | CONTEXTUAL_ENTITY_TYPES | frozenset(_PARENT_TYPE_COVERAGE)
         uncovered = [
             et for et in self._entity_types
             if et not in supported and et not in skip
@@ -2038,7 +2038,7 @@ class Detector:
         """
         semantic_types = [
             et for et in (self._entity_types or [])
-            if et in _CONTEXTUAL_ENTITY_TYPES
+            if et in CONTEXTUAL_ENTITY_TYPES
         ]
         if not semantic_types:
             return []

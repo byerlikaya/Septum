@@ -17,7 +17,7 @@ import time
 
 import httpx
 from pydantic import BaseModel
-from septum_core.detector import _CONTEXTUAL_ENTITY_TYPES
+from septum_core.detector import CONTEXTUAL_ENTITY_TYPES
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..env_flags import env_bool
@@ -55,7 +55,7 @@ class DefaultReason(enum.StrEnum):
 
 async def active_contextual_types(db: AsyncSession) -> frozenset[str]:
     """Return the contextual entity types declared by active rulesets or custom recognizers."""
-    return await active_entity_types(db) & _CONTEXTUAL_ENTITY_TYPES
+    return await active_entity_types(db) & CONTEXTUAL_ENTITY_TYPES
 
 
 async def _read_bounded(response: httpx.Response) -> bytes | None:

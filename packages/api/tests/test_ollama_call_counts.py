@@ -62,7 +62,7 @@ from septum_api.services.sanitizer import (
     PIISanitizer,
 )
 from septum_core.detector import (
-    _CONTEXTUAL_ENTITY_TYPES,
+    CONTEXTUAL_ENTITY_TYPES,
     SEMANTIC_VALIDATION_KEEPS_MIN_SCORE,
 )
 from septum_core.ports import SemanticLayerRefusal
@@ -616,7 +616,7 @@ TYPICAL_RULE_INSTRUCTION = (
 @pytest.mark.parametrize(
     "empty",
     [
-        lambda: PromptCatalog.semantic_pii_detection("", sorted(_CONTEXTUAL_ENTITY_TYPES)),
+        lambda: PromptCatalog.semantic_pii_detection("", sorted(CONTEXTUAL_ENTITY_TYPES)),
         lambda: PromptCatalog.llm_custom_recognizer_prompt("PROJECT_CODE", TYPICAL_RULE_INSTRUCTION, ""),
     ],
 )
