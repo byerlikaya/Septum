@@ -36,6 +36,8 @@ export function isContextualLayerStatus(value: unknown): value is ContextualLaye
   const candidate = value as Partial<ContextualLayerStatus>;
   return (
     CONTEXTUAL_COVERAGE_STATES.some((state) => state === candidate.state) &&
-    Array.isArray(candidate.entity_types)
+    Array.isArray(candidate.entity_types) &&
+    (candidate.local_model_reachable === null ||
+      typeof candidate.local_model_reachable === "boolean")
   );
 }
