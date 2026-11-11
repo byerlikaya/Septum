@@ -22,6 +22,7 @@ from ..database import get_db
 from ..errors import CodedHTTPError
 from ..models.regulation import CustomRecognizer, NonPiiRule, RegulationRuleset
 from ..models.user import User
+from ..request_limits import MAX_PRE_APPROVED_CHUNK_CHARS
 from ..services.ollama_detection_runner import local_model_scope
 from ..services.recognizers.registry import RecognizerRegistry
 from ..utils.auth_dependency import (
@@ -34,6 +35,9 @@ from ..utils.auth_dependency import (
 from ..utils.db_helpers import load_settings, validate_regex
 
 router = APIRouter(prefix="/api/regulations", tags=["regulations"])
+
+MAX_RECOGNIZER_SAMPLE_CHARS = MAX_PRE_APPROVED_CHUNK_CHARS
+"""Longest sample text the recognizer test endpoint accepts."""
 
 
 class RegulationRulesetResponse(BaseModel):
@@ -149,7 +153,7 @@ class CustomRecognizerUpdatePayload(BaseModel):
 class CustomRecognizerTestRequest(BaseModel):
     """Request body for testing a custom recognizer against sample text."""
 
-    sample_text: str
+    sample_text: str = Field(max_length=MAX_RECOGNIZER_SAMPLE_CHARS)
 
 
 class CustomRecognizerTestMatch(BaseModel):
