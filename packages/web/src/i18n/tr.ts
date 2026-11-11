@@ -770,7 +770,7 @@ export const trMessages: Record<string, string> = {
   "regulations.panel.field.contextWords.placeholder":
     "hasta, dosya, ref, hesap",
   "regulations.panel.field.contextWords.helper":
-    "Yakında göründüklerinde skoru yükseltmesi gereken yardımcı kelimeler (virgülle ayırın).",
+    "Belgelerde kural, bu kelimelerden biri eşleşmenin içinde ya da 100 karakter çevresinde geçiyorsa çalışır. Sizin yazdığınız metinler (sohbet soruları, onay adımındaki düzenlemeler) her zaman maskelenir. Virgülle ayırın; boş bırakırsanız kural her zaman çalışır.",
   "regulations.panel.field.sample": "Test Örneği",
   "regulations.panel.field.sample.placeholder":
     "Kaydetmeden önce kuralınızı test etmek için buraya bir örnek metin yapıştırın.",
