@@ -11,6 +11,7 @@ import api, {
 import { useI18n } from "@/lib/i18n";
 import { canEditDocuments, useCurrentUser } from "@/lib/currentUser";
 import { getDocumentDisplayName } from "@/lib/utils";
+import { buildPreviewLayout, chunkPreviewText } from "@/lib/previewLayout";
 import { CopyButton } from "@/components/common/CopyButton";
 import {
   getEntityBadgeClasses,
@@ -110,9 +111,15 @@ export function DocumentPreview({
     tRef.current = t;
   });
 
+  const previewLayout = useMemo(
+    () => buildPreviewLayout(chunks, detections),
+    [chunks, detections]
+  );
+  const visibleDetections = previewLayout.visibleDetections;
+
   const filteredDetections = useMemo(
-    () => selectDetections(detections, activeFilter),
-    [detections, activeFilter]
+    () => selectDetections(visibleDetections, activeFilter),
+    [visibleDetections, activeFilter]
   );
 
   // Chip bar counts must mirror the "Detected entities" panel: one entry per
@@ -124,11 +131,11 @@ export function DocumentPreview({
   // at all — i.e. legacy documents ingested before entity_detections existed.
   const detectionSummary = useMemo(() => {
     const entities: Record<string, number> = {};
-    for (const d of detections) {
+    for (const d of visibleDetections) {
       entities[d.entity_type] = (entities[d.entity_type] ?? 0) + 1;
     }
-    return { entities, total: detections.length };
-  }, [detections]);
+    return { entities, total: visibleDetections.length };
+  }, [visibleDetections]);
 
   const chipSummary =
     detections.length > 0 ? detectionSummary : anonSummary;
@@ -183,7 +190,7 @@ export function DocumentPreview({
     (next: string | null) => {
       setActiveFilter(next);
       setOccurrenceIndex(0);
-      const first = selectDetections(detections, next)[0];
+      const first = selectDetections(visibleDetections, next)[0];
       if (first) {
         setTimeout(() => scrollToDetection(first.id), 100);
         const chunk = chunks.find((c) => c.id === first.chunk_id);
@@ -192,7 +199,7 @@ export function DocumentPreview({
         }
       }
     },
-    [detections, chunks, scrollToDetection]
+    [visibleDetections, chunks, scrollToDetection]
   );
 
   useEffect(() => {
@@ -347,20 +354,11 @@ export function DocumentPreview({
     document.file_format.toLowerCase() === "xls" ||
     document.file_format.toLowerCase() === "ods";
 
-  // Prefer the raw extracted text for the local preview UI: entity
-  // highlight overlays are computed from offsets relative to the raw
-  // string, so showing the masked text here would (a) misalign the
-  // highlights and (b) defeat the verification workflow that lets the
-  // user see what was actually detected. The masked text is what
-  // leaves the air-gapped zone via chat — the preview never does.
-  // Falls back to ``sanitized_text`` for chunks ingested before the
-  // ``raw_text`` column existed.
-  const previewTextOf = (chunk: { raw_text?: string | null; sanitized_text: string }): string =>
-    chunk.raw_text ?? chunk.sanitized_text;
-
+  // Chunk overlap is trimmed using stored character offsets so repeated
+  // text and the detections inside it appear once.
   const combinedText =
     chunks.length > 0
-      ? chunks.map(previewTextOf).join("\n\n")
+      ? previewLayout.text
       : document.transcription_text ?? "";
 
   const fmt = document.file_format.toLowerCase();
@@ -508,7 +506,7 @@ export function DocumentPreview({
                 : getEntityOutlineClasses(det.entity_type);
               const chunk = chunks.find((c) => c.id === det.chunk_id);
               const entityText = chunk
-                ? previewTextOf(chunk).slice(det.start_offset, det.end_offset)
+                ? chunkPreviewText(chunk).slice(det.start_offset, det.end_offset)
                 : det.placeholder;
               const scorePct = Math.round(det.score * 100);
               return (
@@ -572,13 +570,12 @@ export function DocumentPreview({
         className="flex-1 overflow-auto rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-relaxed text-slate-100 whitespace-pre-wrap wrap-break-word"
       >
         {chunks.length > 0 && detections.length > 0 ? (
-          chunks.map((chunk, idx) => {
-            const chunkDetections = detections.filter(d => d.chunk_id === chunk.id);
+          previewLayout.chunks.map(({ chunk, text, separator, detections: chunkDetections }) => {
             return (
               <span key={chunk.id}>
-                {idx > 0 && "\n\n"}
+                {separator}
                 <HighlightedText
-                  text={previewTextOf(chunk)}
+                  text={text}
                   detections={chunkDetections}
                   activeEntityType={activeFilter}
                   activeDetectionId={activeDetectionId}
