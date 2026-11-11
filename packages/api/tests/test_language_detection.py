@@ -1123,9 +1123,9 @@ async def test_remask_after_a_correction_uses_the_new_language(monkeypatch):
     legacy = SimpleNamespace(
         id=4, language_override=None, detected_language="tur", transcription_text="Some text",
     )
-    await pii_gate.remask_document_texts(None, None, corrected, ["Hans Müller wohnt in Berlin."], object())
-    await pii_gate.remask_document_texts(None, None, contradicting, ["李明负责交付合同。"], object())
-    await pii_gate.remask_document_texts(None, None, legacy, ["Some text"], object())
+    await pii_gate.remask_document_texts(None, None, corrected, ["Hans Müller wohnt in Berlin."], SimpleNamespace(context_gate=False))
+    await pii_gate.remask_document_texts(None, None, contradicting, ["李明负责交付合同。"], SimpleNamespace(context_gate=False))
+    await pii_gate.remask_document_texts(None, None, legacy, ["Some text"], SimpleNamespace(context_gate=False))
     # The read path trusts the stored override: a script-contradicting one is
     # refused at PATCH time and cleared by the pipeline, never re-judged here.
     assert seen == ["de", "en", "en"]
@@ -1340,14 +1340,14 @@ async def test_remask_writes_the_effective_language_into_the_persisted_map(monke
         id=4, language_override="de", detected_language="en",
         transcription_text="Hans Müller wohnt in Berlin.",
     )
-    _, changed = await pii_gate.remask_document_texts(None, None, corrected, ["[PERSON_NAME_1] wohnt."], object())
+    _, changed = await pii_gate.remask_document_texts(None, None, corrected, ["[PERSON_NAME_1] wohnt."], SimpleNamespace(context_gate=False))
     assert (changed, written) == (True, ["de"])
 
     written.clear()
     same = SimpleNamespace(
         id=4, language_override=None, detected_language="en", transcription_text="Hans lives here.",
     )
-    _, changed = await pii_gate.remask_document_texts(None, None, same, ["[PERSON_NAME_1] lives."], object())
+    _, changed = await pii_gate.remask_document_texts(None, None, same, ["[PERSON_NAME_1] lives."], SimpleNamespace(context_gate=False))
     assert (changed, written) == (False, [])
 
 

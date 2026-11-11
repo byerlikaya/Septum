@@ -73,6 +73,8 @@ class _DateSanitizer:
     leave known placeholders intact.
     """
 
+    context_gate = False
+
     def __init__(self) -> None:
         self.texts: list[str] = []
 
@@ -218,8 +220,12 @@ async def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         env = _Env(session_maker, engine, client, user)
 
-        async def _create_sanitizer(db, settings, enable_ollama=False, policy=None):
-            env.sanitizer_kwargs.append({"enable_ollama": enable_ollama})
+        async def _create_sanitizer(
+            db, settings, enable_ollama=False, policy=None, context_gate=True
+        ):
+            env.sanitizer_kwargs.append(
+                {"enable_ollama": enable_ollama, "context_gate": context_gate}
+            )
             return env.sanitizer
 
         async def _retrieve(db, document_id, query, top_k, chunk_count, relevance_threshold):
@@ -234,7 +240,6 @@ async def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[
         monkeypatch.setattr(document_anon_store, "_ANON_MAP_DIR", tmp_path / "maps")
         monkeypatch.setattr(document_anon_store, "_document_maps", {})
         remask_cache.clear()
-        monkeypatch.setattr(chat_module, "create_sanitizer", _create_sanitizer)
         monkeypatch.setattr(pii_gate, "create_sanitizer", _create_sanitizer)
         monkeypatch.setattr(chat_module, "_retrieve_chunks", _retrieve)
         monkeypatch.setattr(LLMRouter, "complete", _complete)
@@ -890,7 +895,7 @@ class TestRemaskConfigAndScope:
         assert remask_calls
         assert env.sanitizer_kwargs
         assert all(
-            k == {"enable_ollama": DOCUMENT_SANITIZER_ENABLE_OLLAMA}
+            k == {"enable_ollama": DOCUMENT_SANITIZER_ENABLE_OLLAMA, "context_gate": False}
             for k in env.sanitizer_kwargs
         )
 

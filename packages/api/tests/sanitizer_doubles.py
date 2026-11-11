@@ -17,6 +17,8 @@ class PatternSanitizer:
     the whole match.
     """
 
+    context_gate = False
+
     def __init__(self, *rules: Rule) -> None:
         self._rules = rules
 

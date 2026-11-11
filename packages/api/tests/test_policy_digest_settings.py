@@ -281,3 +281,22 @@ def test_detection_settings_are_unchanged_while_the_contextual_layer_is_off(
         *_tuple_before_the_revision_marker(row),
         row.ollama_deanon_model,
     )
+
+
+def test_context_words_revision_marks_only_gated_rules() -> None:
+    from types import SimpleNamespace
+
+    from septum_api.services.policy_snapshot import (
+        CONTEXT_GATE_REVISION,
+        custom_recognizer_definition,
+    )
+
+    def rule(method: str, words: list[str]):
+        return SimpleNamespace(
+            entity_type="X", detection_method=method, pattern="a", keywords=None,
+            llm_prompt=None, context_words=words,
+        )
+
+    assert custom_recognizer_definition(rule("regex", ["w"]))[-1] == CONTEXT_GATE_REVISION
+    assert CONTEXT_GATE_REVISION not in custom_recognizer_definition(rule("regex", []))
+    assert CONTEXT_GATE_REVISION not in custom_recognizer_definition(rule("keyword_list", [" "]))

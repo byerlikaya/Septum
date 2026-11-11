@@ -119,14 +119,22 @@ class _FakeGate:
 class _NoEntitySanitizer:
     """Sanitizer double that detects nothing, so no NER model is loaded."""
 
+    context_gate = False
+
     def sanitize(self, text: str, language: str, anon_map: Any) -> SanitizeResult:
         return SanitizeResult(sanitized_text=text, entity_count=0, detected_spans=[])
 
 
 async def _create_sanitizer(
-    db: Any, settings: Any, enable_ollama: bool = False, policy: Any = None
+    db: Any,
+    settings: Any,
+    enable_ollama: bool = False,
+    policy: Any = None,
+    context_gate: bool = True,
 ) -> _NoEntitySanitizer:
-    return _NoEntitySanitizer()
+    sanitizer = _NoEntitySanitizer()
+    sanitizer.context_gate = context_gate
+    return sanitizer
 
 
 class _FakeDeanonymizer:
@@ -195,7 +203,6 @@ async def open_chat_env(
         monkeypatch.setattr(chat_module, "get_document_map", _no_map)
         monkeypatch.setattr(chat_module, "_classify_query_intent", _classify)
         monkeypatch.setattr(chat_module, "Deanonymizer", _FakeDeanonymizer)
-        monkeypatch.setattr(chat_module, "create_sanitizer", _create_sanitizer)
         monkeypatch.setattr(pii_gate, "create_sanitizer", _create_sanitizer)
         monkeypatch.setattr(chat_module, "get_approval_gate", lambda: env.gate)
         monkeypatch.setattr(LLMRouter, "complete", _complete)

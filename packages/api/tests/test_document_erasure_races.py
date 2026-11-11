@@ -79,6 +79,8 @@ async def test_delete_during_processing_is_refused(env: _Env) -> None:
 class _SilentSanitizer:
     """Sanitizer double that detects nothing; the gate now runs it before the lock."""
 
+    context_gate = False
+
     def sanitize(self, text, language, anon_map):
         return SanitizeResult(sanitized_text=text, entity_count=0, detected_spans=[])
 
@@ -91,9 +93,13 @@ async def test_chunk_edit_racing_a_delete_does_not_recreate_the_map(
     gate_entered = asyncio.Event()
     edit_task: list[asyncio.Task] = []
 
-    async def _create_sanitizer(db, settings, enable_ollama=False):
+    async def _create_sanitizer(
+        db, settings, enable_ollama=False, policy=None, context_gate=True
+    ):
         gate_entered.set()
-        return _SilentSanitizer()
+        sanitizer = _SilentSanitizer()
+        sanitizer.context_gate = context_gate
+        return sanitizer
 
     real_pop = pipeline_module.pop_document_map
 
@@ -106,7 +112,7 @@ async def test_chunk_edit_racing_a_delete_does_not_recreate_the_map(
                 )
             )
         )
-        await gate_entered.wait()
+        await asyncio.wait_for(gate_entered.wait(), 30)
         await asyncio.sleep(0.1)
 
     monkeypatch.setattr(pii_gate, "create_sanitizer", _create_sanitizer)
@@ -128,7 +134,9 @@ async def test_gate_aborts_when_the_document_row_is_gone(
 
     doc, _ = await env.add_document()
 
-    async def _create_sanitizer(db, settings, enable_ollama=False):
+    async def _create_sanitizer(
+        db, settings, enable_ollama=False, policy=None, context_gate=True
+    ):
         return object()
 
     monkeypatch.setattr(pii_gate, "create_sanitizer", _create_sanitizer)
@@ -302,7 +310,9 @@ async def test_gate_refuses_to_write_the_map_under_a_lost_lock(
     doc, _ = await env.add_document()
     writes: list[int] = []
 
-    async def _create_sanitizer(db, settings, enable_ollama=False):
+    async def _create_sanitizer(
+        db, settings, enable_ollama=False, policy=None, context_gate=True
+    ):
         return object()
 
     async def _gate(texts, working, db, settings, language=None, sanitizer=None, joined=False):
@@ -336,7 +346,9 @@ async def test_chunk_edit_over_an_unreadable_map_fails_without_overwriting_it(
     map_file.write_bytes(corrupted)
     document_anon_store._forget(doc)
 
-    async def _create_sanitizer(db, settings, enable_ollama=False):
+    async def _create_sanitizer(
+        db, settings, enable_ollama=False, policy=None, context_gate=True
+    ):
         return object()
 
     monkeypatch.setattr(pii_gate, "create_sanitizer", _create_sanitizer)

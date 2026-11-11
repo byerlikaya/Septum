@@ -82,10 +82,10 @@ async def test_chat_query_masks_a_name_in_short_text(
 ) -> None:
     detector, ner = _detector(name)
 
-    async def _create_sanitizer(db, settings, enable_ollama=False):
+    async def _create_sanitizer(db, settings, enable_ollama=False, policy=None, context_gate=True):
         return detector
 
-    monkeypatch.setattr(chat_module, "create_sanitizer", _create_sanitizer)
+    monkeypatch.setattr(pii_gate, "create_sanitizer", _create_sanitizer)
     anon_map = AnonymizationMap(document_id=0, language=language)
 
     masked, count, _ = await chat_module._sanitize_query(text, language, None, anon_map, None)

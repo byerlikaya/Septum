@@ -173,9 +173,11 @@ async def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[
         session.add(user)
         await session.commit()
 
-    sanitizer = PIISanitizer(settings=_presidio_only_settings())
+    sanitizer = PIISanitizer(settings=_presidio_only_settings(), context_gate=False)
 
-    async def _create_sanitizer(db, settings, enable_ollama=False, policy=None):
+    async def _create_sanitizer(
+        db, settings, enable_ollama=False, policy=None, context_gate=True
+    ):
         return sanitizer
 
     async def _retrieve(db, document_id, query, top_k, chunk_count, relevance_threshold):
@@ -194,7 +196,6 @@ async def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[
 
         monkeypatch.setattr(document_anon_store, "_ANON_MAP_DIR", tmp_path / "maps")
         monkeypatch.setattr(document_anon_store, "_document_maps", {})
-        monkeypatch.setattr(chat_module, "create_sanitizer", _create_sanitizer)
         monkeypatch.setattr(pii_gate, "create_sanitizer", _create_sanitizer)
         monkeypatch.setattr(chat_module, "_retrieve_chunks", _retrieve)
         monkeypatch.setattr(chat_module, "get_approval_gate", lambda: env.gate)
@@ -1331,9 +1332,13 @@ class TestMapLockLoss:
 
         real_create = pii_gate.create_sanitizer
 
-        async def _tracking_create(db, settings, enable_ollama=False):
+        async def _tracking_create(
+            db, settings, enable_ollama=False, policy=None, context_gate=True
+        ):
             fake.events.append("sanitizer")
-            return await real_create(db, settings, enable_ollama=enable_ollama)
+            return await real_create(
+                db, settings, enable_ollama=enable_ollama, policy=policy, context_gate=context_gate
+            )
 
         monkeypatch.setattr(document_anon_store, "get_redis", _get_redis)
         monkeypatch.setattr(pii_gate, "create_sanitizer", _tracking_create)

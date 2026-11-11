@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, List, Optional, Sequence
 
 from septum_core import DETECTOR_VERSION
+from septum_core.recognizers.registry import has_context_words
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -131,10 +132,20 @@ the contextual layer starts finding what earlier documents did not.
 """
 
 
+CONTEXT_GATE_REVISION = "context-gate-1"
+"""Marks a regex or keyword rule that has context words in the digest.
+
+Before this revision such a rule matched without checking its context words;
+now a match needs one of them nearby. Rules without context words detect the
+same as before and keep their digest.
+"""
+
+
 def custom_recognizer_definition(recognizer: Any) -> tuple:
     """Return the fields of a custom recognizer that decide what it detects.
 
-    An ``llm_prompt`` rule also carries :data:`LLM_PROMPT_RULE_REVISION`.
+    An ``llm_prompt`` rule also carries :data:`LLM_PROMPT_RULE_REVISION`; a
+    regex or keyword rule with context words carries :data:`CONTEXT_GATE_REVISION`.
     """
     definition = (
         recognizer.entity_type,
@@ -146,6 +157,8 @@ def custom_recognizer_definition(recognizer: Any) -> tuple:
     )
     if recognizer.detection_method == _LLM_PROMPT_DETECTION:
         return (*definition, LLM_PROMPT_RULE_REVISION)
+    if has_context_words(recognizer):
+        return (*definition, CONTEXT_GATE_REVISION)
     return definition
 
 

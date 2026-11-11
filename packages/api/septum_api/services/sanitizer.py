@@ -506,6 +506,7 @@ class PIISanitizer(Detector):
         ner_registry: Optional[NERModelRegistry] = None,
         policy: Optional[ComposedPolicy] = None,
         enable_ollama_layer: Optional[bool] = None,
+        context_gate: bool = True,
     ) -> None:
         self._settings = settings
         core_config = _settings_to_core_config(settings, enable_ollama_layer)
@@ -522,6 +523,7 @@ class PIISanitizer(Detector):
             ner_registry=ner_registry,
             policy=policy,
             semantic_port=semantic_port,
+            context_gate=context_gate,
         )
 
     def _ollama_validate_pii_candidates(
