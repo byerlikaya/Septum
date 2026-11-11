@@ -82,11 +82,51 @@ class Cutter:
         self._length_fn = length_fn
         self._cap = cap
         self._ratio = 0.0
+        self._run_lo: List[int] = []
+        self._run_hi: List[int] = []
+        self._run_ends: List[bool] = []
 
     def is_valid(self, offset: int) -> bool:
         """Whether ``offset`` is outside every protected range (range edges are fine)."""
         i = bisect_left(self._starts, offset) - 1
         return i < 0 or self._ranges[i][1] <= offset
+
+    def next_valid(self, offset: int) -> int:
+        """Smallest offset at or after ``offset`` outside every protected range."""
+        i = bisect_left(self._starts, offset) - 1
+        if i >= 0 and self._ranges[i][1] > offset:
+            return self._ranges[i][1]
+        return offset
+
+    def _ends_sentence(self, j: int) -> bool:
+        """Whether the whitespace run ending at ``j`` follows a newline or sentence end.
+
+        Each walked run is remembered as one ``[lo, hi]`` record (sorted by
+        ``lo``), so a long run is walked once however many offsets inside it
+        are asked about, and memory grows with the number of runs, not their
+        length.
+        """
+        text, los, his, ends = self._text, self._run_lo, self._run_hi, self._run_ends
+        k = bisect_right(los, j) - 1
+        floor = his[k] if k >= 0 else -1
+        if k >= 0 and j <= floor:
+            return ends[k]
+        top = j
+        while j > floor and text[j] != "\n" and text[j].isspace():
+            j -= 1
+        if j > floor:
+            result = text[j] == "\n" or text[j] in _SENTENCE_END
+        else:
+            result = ends[k] if k >= 0 else False
+        if j == top:
+            return result
+        if j <= floor and k >= 0:
+            his[k] = top
+        else:
+            los.insert(k + 1, j + 1)
+            his.insert(k + 1, top)
+            ends.insert(k + 1, result)
+        return result
 
     def _level(self, i: int) -> int:
         """Boundary quality at offset ``i`` (0 when ``i`` is no boundary)."""
@@ -95,14 +135,7 @@ class Cutter:
         if prev == "\n" or prev in _SPACELESS_END:
             return _LEVEL_SENTENCE
         if prev.isspace():
-            j = i - 2
-            while j >= 0 and text[j].isspace():
-                if text[j] == "\n":
-                    return _LEVEL_SENTENCE
-                j -= 1
-            if j >= 0 and text[j] in _SENTENCE_END:
-                return _LEVEL_SENTENCE
-            return _LEVEL_WHITESPACE
+            return _LEVEL_SENTENCE if self._ends_sentence(i - 2) else _LEVEL_WHITESPACE
         if prev in BOUNDARY_CHARS or is_script_break(text, i):
             return _LEVEL_WORD
         return 0
@@ -193,6 +226,28 @@ class Cutter:
         a, b = self._ranges[bisect_left(self._starts, p) - 1]
         return a if a > s else b
 
+    def _fit_overlap(self, c: int, overlap: int, limit: int) -> int:
+        """Largest ``n <= overlap`` whose tail ``text[c - n:c]`` measures at most ``limit``.
+
+        Free for character lengths (a plain minimum). Otherwise one probe at ``overlap`` and, only
+        when it is too long, a bisection of about ``log2(overlap)`` probes.
+        """
+        if overlap <= 0:
+            return overlap
+        if self._length_fn is len:
+            return min(overlap, limit)
+        text, measure = self._text, self._length_fn
+        if measure(text[c - overlap : c]) <= limit:
+            return overlap
+        good, bad = 0, overlap
+        while bad - good > 1:
+            mid = (good + bad) // 2
+            if measure(text[c - mid : c]) <= limit:
+                good = mid
+            else:
+                bad = mid
+        return good
+
     def pack(
         self,
         lo: int,
@@ -206,7 +261,8 @@ class Cutter:
         ``anchors`` are preferred cuts (block boundaries); the largest valid
         anchor that fits wins. Inside a stretch with no anchor, cuts follow
         the priority in the module docstring and consecutive ranges overlap
-        by up to ``overlap`` characters. A cut moves the window forward by at
+        by up to ``overlap`` characters, fewer when the overlapped tail would
+        measure more than half of ``budget``. A cut moves the window forward by at
         least half of the nominal step (``budget - overlap``).
         """
         usable = sorted({a for a in anchors if lo < a < hi and self.is_valid(a)})
@@ -227,7 +283,7 @@ class Cutter:
                 if c <= last:
                     s = last
                     continue
-                nxt = self._next_start(s, c, ov)
+                nxt = self._next_start(s, c, self._fit_overlap(c, min(ov, c - s), budget // 2))
             if c >= hi:
                 out.append((s, hi))
                 return out

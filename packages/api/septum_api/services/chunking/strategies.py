@@ -81,9 +81,7 @@ class _Layout:
         if i < 0:
             return None
         full, source_start, source_end = self._titles[i], self._title_starts[i], self._title_ends[i]
-        first = source_start
-        while first < source_end and not self._cutter.is_valid(first):
-            first += 1
+        first = min(self._cutter.next_valid(source_start), source_end)
         if first >= source_end and source_end > source_start:
             return None
         title = full[first - source_start :]
@@ -178,7 +176,8 @@ def chunk_blocks(
     seconds; groups start only at segment boundaries, and a group longer than
     the ceiling is still cut inside a segment, on a text boundary. ``chunk_size`` is clamped to
     ``[MIN_CHUNK_SIZE, MAX_PRE_APPROVED_CHUNK_CHARS]`` and ``overlap`` to
-    ``[0, chunk_size // 2]``. ``protected`` are document-level ``(start, end)``
+    ``[0, chunk_size // 2]`` characters; under a token cap the overlapped tail is
+    also kept within half the token budget. ``protected`` are document-level ``(start, end)``
     ranges a cut never falls strictly inside; see ``cutting`` for the one
     case where a chunk outgrows its budget because of one. A chunk is
     whitespace-only only when a block is.
@@ -194,7 +193,10 @@ def chunk_blocks(
 
     if strategy in ("structured", "sliding"):
         budget = min(max(chunk_size, MIN_CHUNK_SIZE), MAX_PRE_APPROVED_CHUNK_CHARS, ceiling)
-        window = min(max(overlap, 0), max_chunk_overlap(budget))
+        window = min(
+            max(overlap, 0),
+            max_chunk_overlap(min(max(chunk_size, MIN_CHUNK_SIZE), MAX_PRE_APPROVED_CHUNK_CHARS)),
+        )
         anchors = layout.starts[1:] if strategy == "structured" else []
         spans = cutter.pack(0, len(text), anchors, budget, window)
     else:

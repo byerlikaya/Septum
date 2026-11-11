@@ -802,19 +802,24 @@ def test_token_cap_probes_stay_near_the_chunk_size(strategy: str) -> None:
         else [TextBlock("\n\n".join(paras), "text")]
     )
     size = len(join_blocks(blocks))
-    seen = {"calls": 0, "chars": 0}
+    seen = {"calls": 0, "chars": 0, "longest": 0}
 
     def tokens(value: str) -> int:
         seen["calls"] += 1
         seen["chars"] += len(value)
+        seen["longest"] = max(seen["longest"], len(value))
         return (len(value) + 3) // 4
 
     chunks = chunk_blocks(blocks, strategy, length_fn=tokens, max_length=128, chunk_size=10**6)
     assert all(tokens(c.text) <= 128 for c in chunks[:-1])
-    seen["calls"] = seen["chars"] = 0
+    seen.update(calls=0, chars=0, longest=0)
     chunk_blocks(blocks, strategy, length_fn=tokens, max_length=128, chunk_size=10**6)
+    # A chunk is 128 tokens = about 512 characters; a scan from the chunk start to the end of the
+    # text would probe `size` characters, far above every bound below.
+    assert seen["longest"] <= 4 * 128 * 4
     assert seen["calls"] / len(chunks) <= 6
-    assert seen["chars"] <= 6 * size
+    assert seen["chars"] <= 6 * 128 * 4 * len(chunks)
+    assert seen["chars"] < size * len(chunks) // 50
 
 
 def _word_count(value: str) -> int:
@@ -1114,3 +1119,32 @@ def test_heading_starting_inside_a_range_moves_the_title_to_the_range_end() -> N
     for c in titled:
         assert (c.section_title_start, c.section_title) == (hs + 4, "ing text")
         assert text[c.section_title_start : c.section_title_end] == "ing text"
+
+
+def test_a_heading_starting_inside_a_range_takes_the_title_from_the_range_end() -> None:
+    from septum_api.services.chunking.cutting import Cutter
+    from septum_api.services.chunking.strategies import _Layout
+
+    blocks = [
+        TextBlock("lead text", "paragraph"),
+        TextBlock("Jane Doe results", "heading"),
+        TextBlock("body " * 100, "paragraph"),
+    ]
+    text = join_blocks(blocks)
+    heading = text.index("Jane Doe results")
+    cases = [
+        ([(heading - 3, heading + 8)], heading + 8),
+        ([(heading - 3, heading + 4), (heading + 4, heading + 8)], heading + 4),
+    ]
+    for ranges, expected in cases:
+        cutter = Cutter(text, ranges, len, MAX_PRE_APPROVED_CHUNK_CHARS)
+        first = heading
+        while first < heading + 16 and not cutter.is_valid(first):
+            first += 1
+        assert first == expected
+        title = "Jane Doe results"[first - heading :]
+        assert _Layout(blocks, "structured", cutter).title_at(heading + 20) == (title, first, heading + 16)
+        chunks = chunk_blocks(blocks, "structured", protected=ranges, chunk_size=100, overlap=0)
+        assert (chunks[-1].section_title, chunks[-1].section_title_start) == (title, first)
+    swallowed = Cutter(text, [(heading - 3, heading + 16)], len, MAX_PRE_APPROVED_CHUNK_CHARS)
+    assert _Layout(blocks, "structured", swallowed).title_at(heading + 20) is None

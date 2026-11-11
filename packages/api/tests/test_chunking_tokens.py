@@ -194,3 +194,37 @@ def test_from_model_cap_is_max_seq_length_minus_specials(
 def test_from_model_rejects_a_model_with_no_room_for_text() -> None:
     with pytest.raises(ValueError):
         TokenCounter.from_model(_FakeModel(max_seq_length=2, specials=2))
+
+
+def _shared_lengths(chunks: List[Any]) -> List[int]:
+    return [max(0, a.end - b.start) for a, b in zip(chunks, chunks[1:])]
+
+
+def test_token_cap_keeps_the_configured_character_overlap(counter: TokenCounter) -> None:
+    blocks = _blocks(60)
+    text = join_blocks(blocks)
+    calls: List[int] = []
+
+    def measure(value: str) -> int:
+        calls.append(1)
+        return counter.count(value)
+
+    chunks = chunk_blocks(
+        blocks, "sliding", chunk_size=2000, overlap=200, length_fn=measure, max_length=counter.cap
+    )
+    shared = _shared_lengths(chunks)
+    assert len(chunks) > 2
+    assert max(shared) <= 200
+    assert sum(1 for n in shared if n > 63) >= len(shared) // 2
+    assert max(counter.count(text[c.start : c.end]) for c in chunks) <= counter.cap
+    for a, b in zip(chunks, chunks[1:]):
+        assert b.start > a.start
+        assert counter.count(text[b.start : a.end]) <= counter.cap // 2
+    assert len(calls) / len(chunks) < 30
+
+
+def test_character_only_overlap_is_unchanged_by_the_token_path() -> None:
+    blocks = [TextBlock("word " * 600, "paragraph")]
+    chunks = chunk_blocks(blocks, "sliding", chunk_size=400, overlap=100)
+    shared = _shared_lengths(chunks)
+    assert shared and max(shared) <= 100 and max(shared) > 60
