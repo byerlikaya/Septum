@@ -14,6 +14,7 @@ export const LLM_PROMPT_REQUIRED = "llm_prompt_required";
 export const SEMANTIC_LAYER_UNAVAILABLE = "semantic_layer_unavailable";
 export const LOCAL_MODEL_BUDGET_EXCEEDED = "local_model_budget_exceeded";
 export const CHUNK_TOO_LARGE = "chunk_too_large";
+export const EXTRACTED_TEXT_TOO_LARGE = "extracted_text_too_large";
 
 const MODEL_ERROR_KEYS: CodeKeys = {
   [MODEL_INTEGRITY_FAILED]: "errors.model.integrityFailed",
@@ -50,6 +51,7 @@ export const CHAT_STREAM_ERROR_KEYS: CodeKeys = {
 
 export const INGESTION_ERROR_KEYS: CodeKeys = {
   [CHUNK_TOO_LARGE]: "errors.chunkTooLarge",
+  [EXTRACTED_TEXT_TOO_LARGE]: "errors.extractedTextTooLarge",
   [CUSTOM_RULE_UNAVAILABLE]: "errors.customRule.unavailable",
   [SEMANTIC_LAYER_UNAVAILABLE]: "errors.semanticLayer.unavailable",
   [LOCAL_MODEL_BUDGET_EXCEEDED]: "errors.localModelBudget.exceeded",

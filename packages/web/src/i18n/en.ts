@@ -424,6 +424,8 @@ export const enMessages = {
     "This request would need more local-model checks than one turn allows, so nothing was sent. Shorten the question or the context, reduce the active custom AI rules, or ask your administrator.",
   "errors.chunkTooLarge":
     "A section of this document is too long to process safely, even after masking. Split the document and upload it again.",
+  "errors.extractedTextTooLarge":
+    "This document has more text than this server is set to process, so it was not processed. Split it into smaller files or shorter recordings, or ask your administrator to raise the limit.",
   "errors.semanticLayer.unavailable":
     "Sensitive-category detection could not run because the local Ollama model did not answer. Nothing was sent; check Ollama and try again.",
   "errors.regulations.load": "An error occurred while loading regulation settings.",

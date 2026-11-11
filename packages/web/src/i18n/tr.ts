@@ -435,6 +435,8 @@ export const trMessages: Record<string, string> = {
     "Bu istek, tek bir turda izin verilenden fazla yerel model kontrolü gerektirdiği için hiçbir şey gönderilmedi. Soruyu veya bağlamı kısaltın, etkin özel yapay zeka kurallarını azaltın ya da yöneticinize danışın.",
   "errors.chunkTooLarge":
     "Belgenin bir bölümü maskelendikten sonra bile güvenle işlenemeyecek kadar uzun. Belgeyi bölüp yeniden yükleyin.",
+  "errors.extractedTextTooLarge":
+    "Bu belge, sunucunun işleyebileceği metin sınırını aşıyor; bu yüzden işlenmedi. Belgeyi daha küçük dosyalara ya da daha kısa kayıtlara bölün veya yöneticinizden sınırı yükseltmesini isteyin.",
   "errors.semanticLayer.unavailable":
     "Hassas kategori tespiti çalıştırılamadı, çünkü yerel Ollama modeli yanıt vermedi. Hiçbir şey gönderilmedi; Ollama'yı kontrol edip tekrar deneyin.",
   "errors.regulations.load":
