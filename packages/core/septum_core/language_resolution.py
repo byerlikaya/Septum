@@ -405,18 +405,26 @@ class _ScriptProfile:
         return count > 0 and count >= _SCRIPT_RULES[script].min_share * self.letters
 
 
-def _profile_of(sample: str) -> _ScriptProfile:
-    """Count letters per table script in an already bounded ``sample``.
+def script_letter_counts(sample: str) -> Tuple[Dict[str, int], int]:
+    """Letters per table script in an already bounded ``sample``, and its letter total.
 
-    ``dominant`` is the table script with the most letters, unless the
-    letters of scripts outside the table outnumber it; a tie goes to the
-    table script, and between table scripts to the more specific one.
+    The counts add up across texts, so a caller judging a growing run can sum
+    them instead of re-reading the text (see :func:`deciding_script_from_counts`).
     """
     counts = {
         script: len(sample) - len(pattern.sub("", sample))
         for script, pattern in _SCRIPT_PATTERNS.items()
     }
-    letters = sum(map(str.isalpha, sample))
+    return counts, sum(map(str.isalpha, sample))
+
+
+def _profile_from_counts(counts: Dict[str, int], letters: int) -> _ScriptProfile:
+    """Profile of per-script letter counts.
+
+    ``dominant`` is the table script with the most letters, unless the
+    letters of scripts outside the table outnumber it; a tie goes to the
+    table script, and between table scripts to the more specific one.
+    """
     other = letters - sum(counts.values())
     best = max(
         counts,
@@ -425,6 +433,11 @@ def _profile_of(sample: str) -> _ScriptProfile:
     if counts[best] == 0 or counts[best] < other:
         return _ScriptProfile(counts=counts, letters=letters, dominant=None)
     return _ScriptProfile(counts=counts, letters=letters, dominant=best)
+
+
+def _profile_of(sample: str) -> _ScriptProfile:
+    """Count letters per table script in an already bounded ``sample``."""
+    return _profile_from_counts(*script_letter_counts(sample))
 
 
 def _deciding_script(profile: _ScriptProfile) -> Optional[str]:
@@ -450,6 +463,21 @@ def _deciding_script(profile: _ScriptProfile) -> Optional[str]:
             -profile.counts[script],
         ),
     )
+
+
+def deciding_script(sample: str) -> Optional[str]:
+    """Name of the table script that decides the language of ``sample``, if any.
+
+    The script :func:`resolve_language` reasons with: the dominant one, or a
+    more specific script inside its language family (kana within Han text).
+    ``None`` when no table script dominates, e.g. text with no letters.
+    """
+    return _deciding_script(_profile_of(sample))
+
+
+def deciding_script_from_counts(counts: Dict[str, int], letters: int) -> Optional[str]:
+    """:func:`deciding_script` from :func:`script_letter_counts` output (or sums of it)."""
+    return _deciding_script(_profile_from_counts(counts, letters))
 
 
 def _script_allows(profile: _ScriptProfile, language: str, deciding: Optional[str]) -> bool:
@@ -561,11 +589,14 @@ def resolve_language(
     *,
     context_language: Optional[str] = None,
     default: str = "en",
+    script_counts: Optional[Tuple[Dict[str, int], int]] = None,
 ) -> str:
     """Pick the ISO 639-1 language of ``sample`` from ranked detector candidates.
 
     ``sample`` is :func:`detection_sample` of the text, the same string the
-    detector read; it is profiled as given.
+    detector read; it is profiled as given. A caller that already holds
+    ``script_letter_counts(sample)`` passes it as ``script_counts`` to skip the
+    second count; unset, the sample is counted here.
 
     Candidate probabilities are summed per canonical code, so ``zh-cn`` and
     ``zh-tw`` support one ``zh``. The top candidate wins when its
@@ -585,7 +616,9 @@ def resolve_language(
     fallback = iso_language_code(default)
     if fallback is None:
         raise ValueError("default must be an ISO 639 language code")
-    profile = _profile_of(sample)
+    profile = (
+        _profile_from_counts(*script_counts) if script_counts is not None else _profile_of(sample)
+    )
     deciding = _deciding_script(profile)
     top = max(totals, key=lambda code: totals[code]) if totals else None
     top_allowed = top is not None and _script_allows(profile, top, deciding)

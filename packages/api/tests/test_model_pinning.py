@@ -58,7 +58,7 @@ INTEGRITY_REASON = "file 'model.safetensors' does not match its pinned hash"
 
 _LOADER_NAMES = {"pipeline", "SentenceTransformer", "from_pretrained", "PaddleOCR"}
 _PINNED_LOADERS = {
-    ("core/septum_core/ner_model_registry.py", "get_pipelines"),
+    ("core/septum_core/ner_model_registry.py", "get_pipelines_for_models"),
     ("api/septum_api/services/vector_store.py", "get_shared_sentence_transformer"),
     ("api/septum_api/services/ingestion/ocr/paddle_provider.py", "_paddle_ocr_predict"),
 }
@@ -114,6 +114,14 @@ def test_every_pinned_loader_still_constructs_its_model() -> None:
     for rel, scope in _PINNED_LOADERS:
         names = {n for n, s in _calls_by_function(_PACKAGES / rel) if s == scope}
         assert names & _LOADER_NAMES, f"{rel}:{scope} no longer loads a model"
+
+
+def test_the_ner_loader_resolves_every_model_through_its_pinned_snapshot() -> None:
+    path = _PACKAGES / "core/septum_core/ner_model_registry.py"
+    names = {n for n, s in _calls_by_function(path) if s == "get_pipelines_for_models"}
+
+    assert "ensure_model_snapshot" in names
+    assert "pipeline" in names
 
 
 def test_hub_downloads_happen_only_in_model_integrity() -> None:

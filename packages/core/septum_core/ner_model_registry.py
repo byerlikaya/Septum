@@ -19,7 +19,7 @@ behaviour — detectors that rely on the NER layer must install the extra.
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import Dict, Mapping, Optional
+from typing import Dict, Iterable, Mapping, Optional, Sequence
 
 # Eagerly import the transformers symbol at module load time. The
 # transformers package uses a ``_LazyModule`` for top-level attribute
@@ -96,6 +96,13 @@ _UNSET_MAX_LENGTH = 10**12
 # Labels Septum deliberately does not treat as entities. Any other model label
 # that no mapping recognises is reported once when the model loads.
 _IGNORED_NER_LABELS = frozenset({"O", "DATE", "MISC"})
+
+# NER models one document may load beyond its dominant language's set when its
+# segments are in other languages. Every model is ~500 MB resident; past the
+# cap the remaining segments fall back to the general-purpose set.
+MAX_EXTRA_NER_MODELS = 3
+
+_FALLBACK_KEY = "fallback"
 
 
 class _WindowedNERPipeline:
@@ -386,8 +393,14 @@ class NERModelRegistry:
         :class:`~septum_core.model_integrity.ModelIntegrityError` instead of
         loading anything unverified.
         """
-        lang = canonical_language_code(language) or "en"
-        model_ids = self._resolve_model_ids(lang)
+        return self.get_pipelines_for_models(self.model_ids(language))
+
+    def get_pipelines_for_models(self, model_ids: Sequence[str]) -> list[object]:
+        """Return the cached pipelines of ``model_ids``, loading the missing ones.
+
+        The loading rules of :meth:`get_pipelines` apply to every id.
+        """
+        model_ids = list(model_ids)
 
         # Fast path — every model already loaded.
         loaded = [self._loaded_models.get(mid) for mid in model_ids]
@@ -423,6 +436,58 @@ class NERModelRegistry:
                     )
                 self._loaded_models[mid] = loaded_pipe
         return [self._loaded_models[mid] for mid in model_ids]
+
+    def model_ids(self, language: str) -> list[str]:
+        """Model ids of the ensemble for ``language`` (an override wins over the default map)."""
+        return self._resolve_model_ids(canonical_language_code(language) or "en")
+
+    def plan_segment_models(
+        self,
+        dominant: str,
+        languages: Iterable[str],
+        max_extra: int = MAX_EXTRA_NER_MODELS,
+    ) -> Dict[str, tuple[str, ...]]:
+        """Model ids to run on a segment of each language of a mixed-language document.
+
+        Keys are canonical language codes, ``dominant`` included. A segment in
+        the dominant language runs the dominant set, exactly as a
+        single-language document would. Any other segment runs the union of
+        its own language's set and the dominant set, so a segment judged in the
+        wrong language never has fewer models than today. ``languages`` is
+        taken in priority order (put the language covering most text first).
+        Models beyond the dominant set are counted over the whole document; a
+        language whose own set would take the count past ``max_extra`` uses the
+        fallback set plus the dominant one instead, and when even that would
+        exceed the cap, or when the model map has neither the language nor a
+        fallback, the dominant set alone (today's behaviour). The cap bounds
+        how many models one document loads; the dominant set is never dropped.
+        """
+        dominant_key = canonical_language_code(dominant)
+        base = tuple(self.model_ids(dominant))
+        plan: Dict[str, tuple[str, ...]] = {dominant_key: base}
+        extras: set[str] = set()
+        for language in languages:
+            key = canonical_language_code(language)
+            if key in plan:
+                continue
+            for candidate in (self._known_model_ids(language), self._known_model_ids(_FALLBACK_KEY)):
+                if candidate is None:
+                    continue
+                new = {m for m in candidate if m not in base and m not in extras}
+                if len(extras) + len(new) <= max_extra:
+                    extras |= new
+                    plan[key] = tuple(dict.fromkeys((*base, *candidate)))
+                    break
+            else:
+                plan[key] = base
+        return plan
+
+    def _known_model_ids(self, language: str) -> Optional[list[str]]:
+        """Model ids for ``language``, or ``None`` when the model map has neither it nor a fallback."""
+        try:
+            return self._resolve_model_ids(canonical_language_code(language) or "en")
+        except KeyError:
+            return None
 
     def get_pipeline(self, language: str) -> object:
         """Return the first NER pipeline for ``language`` (legacy entry-point).

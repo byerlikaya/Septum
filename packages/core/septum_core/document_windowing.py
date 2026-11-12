@@ -147,6 +147,39 @@ def plan_text_windows(
         )
 
 
+def plan_padded_windows(
+    text: str, ranges: Sequence[tuple[int, int]], padding: int
+) -> list[TextWindow]:
+    """One window per ``(start, end)`` range, widened by about ``padding`` characters each side.
+
+    The padding is context for a model that scores the range: it sees the
+    words around the range's edges. Each widened edge lands on a newline,
+    then whitespace, within a quarter of ``padding`` (never inside a
+    combining sequence), and stays on the text's own side of the range, so a
+    window always contains its range. A window reaching the text's start or
+    end is marked ``first`` or ``last`` (no cut there). The windows overlap
+    their neighbours, so :func:`merge_window_spans` joins their spans.
+    """
+    length = len(text)
+    slack = max(1, padding // 4)
+    windows: list[TextWindow] = []
+    for start, end in ranges:
+        wanted_start = start - padding
+        begin = (
+            0
+            if wanted_start <= 0
+            else _cut_at_or_before(text, wanted_start, max(0, wanted_start - slack), (), 0)
+        )
+        wanted_end = end + padding
+        finish = (
+            length
+            if wanted_end >= length
+            else _cut_at_or_before(text, wanted_end, max(end, wanted_end - slack), (), 0)
+        )
+        windows.append(TextWindow(begin, finish, begin == 0, finish >= length))
+    return windows
+
+
 def _touches_cut(span: DetectedSpan, window: TextWindow) -> bool:
     return (not window.first and span.start <= window.start) or (
         not window.last and span.end >= window.end
