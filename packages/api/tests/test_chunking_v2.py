@@ -20,7 +20,7 @@ from septum_api.request_limits import (
     max_chunk_overlap,
 )
 from septum_api.services.chunking import ChunkRecord, chunk_blocks
-from septum_api.services.chunking.cutting import merge_ranges
+from septum_api.services.chunking.cutting import Cutter, merge_ranges
 from septum_api.services.ingestion.audio_ingester import _segment_blocks
 from septum_api.services.ingestion.base import TextBlock, join_blocks
 from septum_api.services.ingestion.docx_ingester import _document_blocks
@@ -140,6 +140,45 @@ def test_overlap_start_is_snapped_outside_a_protected_range() -> None:
 
     _assert_covers(chunks, text)
     assert all(not _strictly_inside(c.start, protected) for c in chunks)
+
+
+def _filler(n: int) -> str:
+    return "字" * n
+
+
+def _next_start(text: str, c: int, overlap: int, protected: Sequence[Range] = ()) -> int:
+    return Cutter(text, protected, cap=10_000)._next_start(0, c, overlap)
+
+
+def test_overlap_start_prefers_a_sentence_end_over_an_earlier_script_break() -> None:
+    text = _filler(63) + "," + _filler(6) + "。" + _filler(40)
+    assert _next_start(text, 100, 40) == text.index("。") + 1
+
+
+def test_overlap_start_prefers_a_sentence_end_over_an_earlier_word_break() -> None:
+    text = "a" * 60 + " word" + "b" * 10 + ". " + "c" * 40
+    assert _next_start(text, 100, 40) == text.index(". ") + 2
+
+
+def test_overlap_start_ignores_a_sentence_end_in_the_second_half() -> None:
+    text = "x" * 63 + "," + "x" * 20 + "。" + "x" * 20
+    assert text.index("。") > 80
+    assert _next_start(text, 100, 40) == text.index(",") + 1
+
+
+def test_overlap_start_prefers_whitespace_over_a_word_break_in_the_first_half() -> None:
+    text = "a" * 60 + "-" + "b" * 5 + " " + "c" * 60
+    assert _next_start(text, 100, 40) == text.index(" ") + 1
+
+
+def test_overlap_start_without_any_boundary_is_the_aimed_offset() -> None:
+    assert _next_start("x" * 200, 100, 40) == 60
+
+
+def test_overlap_start_in_the_first_half_skips_a_protected_range() -> None:
+    text = _filler(63) + "。" + _filler(6) + "。" + _filler(40)
+    first = text.index("。") + 1
+    assert _next_start(text, 100, 40, [(first - 3, first + 2)]) == text.rindex("。") + 1
 
 
 @pytest.mark.parametrize(

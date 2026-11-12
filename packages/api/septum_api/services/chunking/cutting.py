@@ -160,13 +160,29 @@ class Cutter:
     def _next_start(self, s: int, c: int, overlap: int) -> int:
         """Start of the chunk after one that began at ``s`` and was cut at ``c``.
 
-        Aims ``overlap`` characters before ``c``, moves forward to a word
-        boundary, and never lands inside a protected range.
+        Aims ``overlap`` characters before ``c``. In the first half of that
+        window it takes the earliest boundary of the best level (sentence,
+        then whitespace, then word); with none there, the first boundary of
+        any level in the rest of the window, else the aimed offset. The start
+        never lands inside a protected range.
         """
         p = c - overlap
         if p <= s:
             return c
-        for q in range(p, c):
+        half = min(p + overlap // 2 + 1, c)
+        best = _LEVEL_WORD + 1
+        pick = -1
+        for q in range(p, half):
+            if not self.is_valid(q):
+                continue
+            level = self._level(q)
+            if level == _LEVEL_SENTENCE:
+                return q
+            if level and level < best:
+                best, pick = level, q
+        if pick >= 0:
+            return pick
+        for q in range(half, c):
             if self.is_valid(q) and self._level(q):
                 return q
         if self.is_valid(p):
