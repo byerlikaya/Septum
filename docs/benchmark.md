@@ -175,7 +175,7 @@ The run uses the production ingestion path: personal data is detected once over 
 | Questions | 140: 129 answerable, 11 negative |
 | Answerable, by type | lexical 45 · paraphrase 45 · entity 24 · cross-lingual 15 |
 | Negative | 11 questions that none of the documents answers |
-| Index | 194 chunks; every chunk maps to a span of its source document. 184 of them (94.8%) are longer than the embedder's 128-token window, so the embedder truncates them when it embeds (measured) |
+| Index | 191 chunks; every chunk maps to a span of its source document. 179 of them (93.7%) are longer than the embedder's 128-token window, so the embedder truncates them when it embeds (measured) |
 | Digest | `df81576cd611d809dd59eed997ec789cced8315301796ea75bcc11b97179efec` (SHA-256 over every fixture file) |
 
 Documents and questions are hand-written. Each personal-data slot in a document is filled with a value from a seeded generator (seed 42). A question that refers to such a value uses the value of its own document, so a run always produces the same text.
@@ -186,14 +186,14 @@ Documents and questions are hand-written. Each personal-data slot in a document 
 |:---|:---|
 | Embedding model | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, revision `e8f8c211226b894fcb81acc59f3b34ba3efd5f42` (pinned) |
 | Dimension | 384 |
-| Chunker | `pipeline`. Personal data is detected once over the whole document and the masks are projected onto the chunks. Chunks are cut on block, then sentence or script, then word boundaries, and never inside a detected value. The budgets are plain character counts: 800, 1,200 for documents labelled PDF (their text is passed in directly, with no PDF parsing), and 200 overlap. There is no embedder token cap: one was tried and dropped because it lowered quality (sanitized hybrid Recall@5 0.853 and MRR 0.633 with a 126-token cap, against 0.992 and 0.743 without) |
+| Chunker | `pipeline`. Personal data is detected once over the whole document and the masks are projected onto the chunks. Chunks are cut on block, then sentence or script, then word boundaries, and never inside a detected value. The next chunk's overlap starts at the earliest boundary of the best level (sentence, then whitespace, then word) within the first half of the overlap window. The budgets are plain character counts: 800, 1,200 for documents labelled PDF (their text is passed in directly, with no PDF parsing), and 200 overlap. There is no embedder token cap: one was tried and dropped because it lowered quality (sanitized hybrid Recall@5 0.853 and MRR 0.633 with a 126-token cap, against 0.992 and 0.743 without, measured on the code of that time) |
 | Retrieval | top 10; auto-RAG relevance threshold 0.35 |
 | Query modes | raw and sanitized; sanitized is the headline |
 | Confidence intervals | 95% percentile bootstrap of the mean, 1,000 resamples, seed 42 |
 | Latency | 5 timed repeats per query, sanitized queries, one retriever call including query embedding |
 | Hardware | Apple M4 Max, 14 CPU cores, 10 torch threads, Darwin 27.0.0 arm64 |
 | Seed | 42 |
-| Commit | `bc259d50` (the `git_sha` recorded in the run output) plus the token-cap removal (`5342ce04`) and the benchmark harness changes of the same release |
+| Commit | `7d22460d` (the `git_sha` recorded in the run output) plus the overlap-start change (`012cfdd`); measured on 2026-11-11 at 23:01 UTC |
 
 ### Results
 
@@ -201,36 +201,36 @@ Documents and questions are hand-written. Each personal-data slot in a document 
 
 | Language | n | Recall@5 | Recall@10 | MRR | nDCG@10 |
 |:---|:---:|:---:|:---:|:---:|:---:|
-| en | 43 | 0.977 [0.930, 1.000] | 1.000 [1.000, 1.000] | 0.621 [0.511, 0.729] | 0.714 [0.630, 0.795] |
-| tr | 43 | 1.000 [1.000, 1.000] | 1.000 [1.000, 1.000] | 0.867 [0.791, 0.940] | 0.900 [0.843, 0.955] |
-| zh | 43 | 1.000 [1.000, 1.000] | 1.000 [1.000, 1.000] | 0.741 [0.642, 0.829] | 0.806 [0.732, 0.873] |
-| **overall** | **129** | **0.992 [0.969, 1.000]** | **1.000 [1.000, 1.000]** | **0.743 [0.682, 0.799]** | **0.807 [0.761, 0.848]** |
+| en | 43 | 1.000 [1.000, 1.000] | 1.000 [1.000, 1.000] | 0.700 [0.601, 0.802] | 0.774 [0.700, 0.852] |
+| tr | 43 | 1.000 [1.000, 1.000] | 1.000 [1.000, 1.000] | 0.858 [0.775, 0.935] | 0.894 [0.831, 0.951] |
+| zh | 43 | 0.977 [0.930, 1.000] | 1.000 [1.000, 1.000] | 0.717 [0.629, 0.807] | 0.788 [0.723, 0.856] |
+| **overall** | **129** | **0.992 [0.977, 1.000]** | **1.000 [1.000, 1.000]** | **0.758 [0.700, 0.807]** | **0.819 [0.775, 0.856]** |
 
-Compared with the previously recorded baseline, sanitized hybrid Recall@5 rises from 0.953 to 0.992 and MRR from 0.715 to 0.743. With raw questions, hybrid Recall@5 rises from 0.961 to 0.992 and MRR from 0.714 to 0.757. The index holds 194 chunks instead of 210, because chunks are now cut at block, sentence and word boundaries instead of at fixed offsets. The English MRR went the other way: it drops from 0.721 to 0.621 while English Recall@5 rises from 0.930 to 0.977, so the right chunk is found more often but ranks lower. Turkish and Chinese MRR rise (0.798 to 0.867 and 0.626 to 0.741). The per-language intervals are wide (n = 43), and the cause of the English drop was not investigated.
+Compared with the previously recorded baseline, sanitized hybrid Recall@5 is unchanged at 0.992 and MRR rises from 0.743 to 0.758. With raw questions, hybrid Recall@5 rises from 0.992 to 1.000 and MRR from 0.757 to 0.773. The index holds 191 chunks instead of 194; the only chunker change since the previous baseline is the overlap-start rule. By language (sanitized hybrid), English Recall@5 rises from 0.977 to 1.000 and MRR from 0.621 to 0.700; Turkish MRR falls from 0.867 to 0.858, and Chinese Recall@5 from 1.000 to 0.977 and MRR from 0.741 to 0.717. The per-language intervals are wide (n = 43), so these per-language moves are not read as effects.
 
 **Retrievers compared (overall, n = 129), raw and sanitized query modes.**
 
 | Retriever | Mode | Recall@5 | Recall@10 | MRR | nDCG@10 |
 |:---|:---|:---:|:---:|:---:|:---:|
-| dense | raw | 0.953 [0.915, 0.984] | 1.000 [1.000, 1.000] | 0.718 [0.657, 0.774] | 0.784 [0.737, 0.827] |
-| dense | sanitized | 0.953 [0.915, 0.984] | 1.000 [1.000, 1.000] | 0.693 [0.629, 0.748] | 0.765 [0.716, 0.808] |
-| bm25 | raw | 0.992 [0.969, 1.000] | 1.000 [1.000, 1.000] | 0.707 [0.643, 0.762] | 0.779 [0.731, 0.820] |
-| bm25 | sanitized | 0.984 [0.961, 1.000] | 1.000 [1.000, 1.000] | 0.714 [0.648, 0.772] | 0.784 [0.735, 0.828] |
-| hybrid | raw | 0.992 [0.969, 1.000] | 1.000 [1.000, 1.000] | 0.757 [0.695, 0.811] | 0.816 [0.769, 0.858] |
-| hybrid | sanitized | 0.992 [0.969, 1.000] | 1.000 [1.000, 1.000] | 0.743 [0.682, 0.799] | 0.807 [0.761, 0.848] |
-| auto_rag | raw | 0.550 [0.465, 0.628] | 0.682 [0.605, 0.752] | 0.444 [0.372, 0.512] | 0.497 [0.428, 0.563] |
-| auto_rag | sanitized | 0.496 [0.403, 0.574] | 0.628 [0.543, 0.705] | 0.382 [0.313, 0.450] | 0.437 [0.369, 0.502] |
+| dense | raw | 0.961 [0.930, 0.992] | 1.000 [1.000, 1.000] | 0.720 [0.658, 0.774] | 0.789 [0.742, 0.830] |
+| dense | sanitized | 0.961 [0.930, 0.992] | 1.000 [1.000, 1.000] | 0.696 [0.637, 0.754] | 0.771 [0.727, 0.815] |
+| bm25 | raw | 1.000 [1.000, 1.000] | 1.000 [1.000, 1.000] | 0.716 [0.653, 0.771] | 0.787 [0.739, 0.828] |
+| bm25 | sanitized | 0.992 [0.977, 1.000] | 1.000 [1.000, 1.000] | 0.722 [0.658, 0.778] | 0.792 [0.743, 0.833] |
+| hybrid | raw | 1.000 [1.000, 1.000] | 1.000 [1.000, 1.000] | 0.773 [0.719, 0.820] | 0.830 [0.789, 0.866] |
+| hybrid | sanitized | 0.992 [0.977, 1.000] | 1.000 [1.000, 1.000] | 0.758 [0.700, 0.807] | 0.819 [0.775, 0.856] |
+| auto_rag | raw | 0.550 [0.457, 0.628] | 0.682 [0.604, 0.760] | 0.429 [0.352, 0.497] | 0.488 [0.413, 0.553] |
+| auto_rag | sanitized | 0.496 [0.411, 0.574] | 0.628 [0.543, 0.705] | 0.369 [0.295, 0.436] | 0.430 [0.358, 0.495] |
 
-**Auto-RAG on negatives (11 questions).** A question counts as a false retrieval when a chunk scores at or above the 0.35 threshold. The false-retrieval rate is 0.727 [0.455, 0.909] for raw queries and 0.818 [0.545, 1.000] for sanitized queries. The top-1 scores overlap: for raw queries the 90th percentile of negatives is 0.618 and the 10th percentile of answerable questions is 0.459.
+**Auto-RAG on negatives (11 questions).** A question counts as a false retrieval when a chunk scores at or above the 0.35 threshold. The false-retrieval rate is 0.727 [0.455, 0.909] for raw queries and 0.818 [0.545, 1.000] for sanitized queries. The top-1 scores overlap: for raw queries the 90th percentile of negatives is 0.618 and the 10th percentile of answerable questions is 0.467.
 
 **Latency** (sanitized queries, milliseconds, one machine):
 
 | Retriever | p50 (ms) | p95 (ms) | Samples |
 |:---|:---:|:---:|:---:|
-| dense | 15.057 | 22.097 | 645 |
-| bm25 | 0.294 | 0.379 | 645 |
-| hybrid | 16.052 | 22.724 | 645 |
-| auto_rag | 414.493 | 490.195 | 700 |
+| dense | 11.025 | 12.337 | 645 |
+| bm25 | 0.237 | 0.286 | 645 |
+| hybrid | 11.562 | 13.061 | 645 |
+| auto_rag | 325.273 | 349.408 | 700 |
 
 Samples are queries times 5 repeats; auto_rag runs all 140 questions, the others the 129 answerable ones.
 
@@ -238,13 +238,13 @@ Samples are queries times 5 repeats; auto_rag runs all 140 questions, the others
 
 | Step | Time |
 |:---|:---:|
-| Chunking, 30 documents | 0.060 s |
-| Embedding and indexing | 2.982 s |
-| Sanitization, 30 documents | 17.001 s |
-| Leak-block sanitization, en / tr / zh | 114.465 s / 374.155 s / 422.228 s |
-| Whole run, wall clock | 1483.163 s |
+| Chunking, 30 documents | 0.034 s |
+| Embedding and indexing | 1.36 s |
+| Sanitization, 30 documents | 11.808 s |
+| Leak-block sanitization, en / tr / zh | 189.216 s / 309.62 s / 474.507 s |
+| Whole run, wall clock | 1465.178 s |
 
-The leak block now holds 12,000 (en), 16,800 (tr) and 12,000 (zh) values, up from 1,200, 1,200 and 2,400 (see below).
+The leak block holds 24,000 (en), 28,800 (tr) and 28,800 (zh) values (see below).
 
 ### PII leak check
 
@@ -259,41 +259,41 @@ The gate is an invariant, not a rate. A value that is exposed in any chunk must 
 | Crossing value | A value that contains a chunk boundary (a chunk start or end falls strictly inside it). |
 | Control value | A value that no chunk boundary falls inside. |
 
-Each language's slot-free corpus paragraphs are the filler, and one synthetic value is inserted after every 120 to 180 filler characters. Each language uses enough filler documents (en 5, tr 7, zh 5) to produce at least 50 crossing values; the sample holds 12,000 (en), 16,800 (tr) and 12,000 (zh) values, of which 57 (en), 51 (tr) and 51 (zh) are crossing values.
+Each language's slot-free corpus paragraphs are the filler, and one synthetic value is inserted after every 120 to 180 filler characters. The sample holds 24,000 (en), 28,800 (tr) and 28,800 (zh) values, of which 56 (en), 20 (tr) and 0 (zh) are crossing values. The harness adds filler documents (2,400 values each) until a language has 50 crossing values or reaches the maximum of 12 documents. en reached 50 with 10 documents; tr and zh used all 12 and stayed below 50 (zh has none), which is why their crossing rates and differences are not decided by this sample. The gate is the invariant.
 
 **Per language** (all values; literal and fragment leak rates):
 
 | Lang | Crossing n | Literal: crossing | Literal: control | Literal: difference | Fragment: crossing | Fragment: control | Fragment: difference |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| en | 57 | 0.088 | 0.125 | -0.037 | 0.088 | 0.126 | -0.038 |
-| tr | 51 | 0.039 | 0.104 | -0.065 | 0.039 | 0.100 | -0.061 |
-| zh | 51 | 0.157 | 0.104 | +0.053 | 0.157 | 0.104 | +0.053 |
+| en | 56 | 0.018 | 0.124 | -0.106 | 0.018 | 0.125 | -0.107 |
+| tr | 20 | 0.050 | 0.104 | -0.054 | 0.100 | 0.100 | 0.000 |
+| zh | 0 | - | 0.105 | - | - | 0.105 | - |
 
 **Excluding ORGANIZATION_NAME** (this type is detected by the NER layer alone, with no pattern recognizer behind it; the view reports the leak block without it):
 
 | Lang | Crossing n | Literal: crossing | Literal: control | Literal: difference | Fragment: crossing | Fragment: control | Fragment: difference |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| en | 53 | 0.019 | 0.135 | -0.116 | 0.019 | 0.136 | -0.117 |
-| tr | 49 | 0.000 | 0.122 | -0.122 | 0.000 | 0.117 | -0.117 |
-| zh | 51 | 0.157 | 0.124 | +0.033 | 0.157 | 0.124 | +0.033 |
+| en | 55 | 0.000 | 0.137 | -0.137 | 0.000 | 0.137 | -0.137 |
+| tr | 18 | 0.000 | 0.121 | -0.121 | 0.000 | 0.116 | -0.116 |
+| zh | 0 | - | 0.125 | - | - | 0.125 | - |
 
 **Literal leak rate by type** (all values, crossing and control; leaks/n):
 
 | Type | en | tr | zh |
 |:---|:---:|:---:|:---:|
-| PERSON_NAME | 0.081 (163/2006) | 0.000 (0/2819) | 0.423 (842/1991) |
-| LOCATION | 0.586 (1182/2016) | 0.611 (1708/2797) | 0.197 (399/2023) |
-| ORGANIZATION_NAME | 0.074 (148/2009) | 0.012 (32/2747) | 0.005 (10/1982) |
-| EMAIL_ADDRESS | 0.000 (0/1980) | 0.000 (0/2789) | 0.000 (0/1958) |
-| PHONE_NUMBER | 0.000 (0/2031) | 0.000 (0/2904) | 0.000 (0/2036) |
-| IBAN | 0.000 (0/1958) | 0.000 (0/2744) | 0.000 (0/2010) |
+| PERSON_NAME | 0.085 (332/3912) | 0.000 (0/4809) | 0.430 (2040/4748) |
+| LOCATION | 0.585 (2395/4091) | 0.617 (2924/4742) | 0.200 (975/4870) |
+| ORGANIZATION_NAME | 0.061 (242/3982) | 0.012 (57/4702) | 0.004 (20/4748) |
+| EMAIL_ADDRESS | 0.000 (0/4038) | 0.000 (0/4848) | 0.000 (0/4852) |
+| PHONE_NUMBER | 0.000 (0/3986) | 0.000 (0/4910) | 0.000 (0/4840) |
+| IBAN | 0.000 (0/3991) | 0.000 (0/4789) | 0.000 (0/4742) |
 
 Reading the numbers:
 
 - The invariant holds: 0 violations in en, tr and zh. Chunking exposes nothing that the whole-document masking hid.
-- The raw values that remain are detection-recall misses, and they are raw in the whole document as well. They are not caused by chunking. The leaking types are person names and locations: control values, with no boundary inside, leak literally at 0.104 to 0.125. Chinese person names leak in 842 of 1,991 values and Chinese places in 399 of 2,023; short Chinese names and place names are the clearest case. This is a known limitation of the detector, not something this benchmark fixes.
+- The raw values that remain are detection-recall misses, and they are raw in the whole document as well. They are not caused by chunking. The leaking types are person names and locations: control values, with no boundary inside, leak literally at 0.104 to 0.124. Chinese person names leak in 2,040 of 4,748 values and Chinese places in 975 of 4,870; short Chinese names and place names are the clearest case. This is a known limitation of the detector, not something this benchmark fixes.
 - For these synthetic values in these generated formats, email, phone and IBAN values never leak, literally or as fragments (0 leaks in every language). Real-world formats may differ and are not covered by this measurement.
-- Crossing values leak less than control values in en (-0.037) and tr (-0.065) and more in zh (+0.053, 8 of 51 crossing values against a control rate of 0.104). Because crossing values here can only be values the detector missed, this difference is not read as an effect of chunk boundaries, and it is no longer a gate. Each crossing sample is about 50 values, so a single value moves a rate by about 0.02.
+- No Chinese value crosses a chunk boundary any more, so zh has no crossing rate. In en the crossing rate is lower than the control rate (-0.106, 1 of 56 crossing values) and in tr as well (-0.054, 1 of 20). Because crossing values here can only be values the detector missed, this difference is not read as an effect of chunk boundaries, and it is not a gate. With 20 crossing values in tr a single value moves the rate by 0.05, and in en by about 0.02.
 
 ### Reproduce
 
@@ -336,8 +336,8 @@ The report refuses runs with a different schema version or evaluation digest, be
 - The sample is small: 43 answerable questions per language and 11 negatives. The 95% intervals are wide, most of all for auto-RAG false retrieval.
 - The set saturates at Recall@10 for dense, bm25 and hybrid (1.000 in every row), so Recall@5, MRR and nDCG@10 are the discriminating metrics. Dense, bm25 and hybrid overlap within their 95% CIs at Recall@5 and MRR, so do not read them as different.
 - Latency comes from one machine and one run. It says nothing about other hardware.
-- Most chunks (94.8%) are longer than the embedder's 128-token window, so the dense embedding covers only the start of each chunk.
-- English MRR fell (0.721 to 0.621) while English Recall@5 rose; the cause was not investigated.
+- Most chunks (93.7%) are longer than the embedder's 128-token window, so the dense embedding covers only the start of each chunk.
+- English MRR (0.700) is still below the 0.721 recorded before the boundary-aware chunker, while English Recall@5 is higher (1.000 against 0.930); the cause was not investigated.
 - The remaining raw personal data in the leak check is detection recall, mostly person and place names, and short Chinese names and places in particular. It is raw in the whole document too, and chunking does not change it.
 - The fragment check for Han, kana and Hangul is a heuristic. It can over- or under-count partial name matches.
 - The baseline covers one embedder and one chunker. The other configurations are not reported here.

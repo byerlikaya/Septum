@@ -26,6 +26,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 - Documents whose extracted text exceeds a configurable limit (`MAX_EXTRACTED_TEXT_CHARS`, default 10 million characters) are now refused before any personal-data detection with a translated message instead of exhausting memory; nothing is masked or stored, and a refused reprocess also drops the previous preview text. The MCP tools apply the same limit, and the custom-rule Test sample is capped at 20,000 characters.
 - The document preview no longer shows the text where neighbouring chunks overlap twice, and detections inside that overlap are no longer listed or counted twice. Chunks now store their position in the document to make this possible, so existing documents show as needing reprocessing and keep the old preview layout until they are reprocessed.
+- Where neighbouring chunks overlap, the overlap now starts at a sentence (or else whitespace) boundary when one lies in the first half of the overlap window, instead of at the first boundary of any kind. In scripts written without spaces the old rule often started mid-sentence and could split a short name the detector missed. On the retrieval benchmark sanitized hybrid MRR rose from 0.743 to 0.758 with Recall@5 unchanged; existing documents show as needing reprocessing.
 
 ### 2026-11-11
 
