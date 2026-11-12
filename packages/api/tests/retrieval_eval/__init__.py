@@ -12,8 +12,10 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Sequence
 
 EVAL_DIR = Path(__file__).resolve().parent
+MIXED_DIR_NAME = "mixed"
 
 SLOT_SYNTAX = r"\{\{PII:([A-Z_]+):([1-9][0-9]*)\}\}"
 SLOT_PATTERN = re.compile(SLOT_SYNTAX)
@@ -60,6 +62,42 @@ class EvalQuery:
     gold_quotes: tuple[str, ...] = field(default_factory=tuple)
 
 
+@dataclass(frozen=True)
+class MixedDoc:
+    """A mixed-language document; ``segment_langs`` holds one language per blank-line separated block."""
+
+    doc_id: str
+    lang: str
+    path: str
+    structure: str
+    domain: str
+    file_format: str
+    layout: str
+    segment_langs: tuple[str, ...]
+
+    @property
+    def abs_path(self) -> Path:
+        return EVAL_DIR / self.path
+
+    def read_text(self) -> str:
+        return self.abs_path.read_text(encoding="utf-8")
+
+    def segments(self) -> list[tuple[str, str]]:
+        """``(language, block)`` pairs in document order."""
+        return split_segments(self.read_text(), self.segment_langs)
+
+
+def split_segments(text: str, segment_langs: Sequence[str]) -> list[tuple[str, str]]:
+    """Pair each blank-line separated block of ``text`` with its segment language.
+
+    Raises ``ValueError`` when the number of blocks differs from the number of languages.
+    """
+    blocks = text.rstrip("\n").split("\n\n")
+    if len(blocks) != len(segment_langs):
+        raise ValueError(f"{len(blocks)} blocks but {len(segment_langs)} segment languages")
+    return list(zip(segment_langs, blocks))
+
+
 def _read_jsonl(name: str) -> list[dict]:
     lines = (EVAL_DIR / name).read_text(encoding="utf-8").splitlines()
     return [json.loads(line) for line in lines if line.strip()]
@@ -82,6 +120,18 @@ def load_queries() -> list[EvalQuery]:
             gold_quotes=tuple(row["gold_quotes"]),
         )
         for row in _read_jsonl("queries.jsonl")
+    ]
+
+
+def load_mixed_docs() -> list[MixedDoc]:
+    """Return the mixed-language slice documents in file order.
+
+    The slice lives outside ``corpus/`` and is not part of ``fixture_digest``, so adding to it never
+    invalidates the recorded single-language baseline; ``mixed_fixture_digest`` covers it instead.
+    """
+    return [
+        MixedDoc(**{**row, "segment_langs": tuple(row["segment_langs"])})
+        for row in _read_jsonl(f"{MIXED_DIR_NAME}/docs.jsonl")
     ]
 
 
@@ -137,6 +187,25 @@ def fixture_digest() -> str:
     """SHA-256 over relative path and bytes of every fixture file."""
     h = hashlib.sha256()
     for path in fixture_files():
+        h.update(path.relative_to(EVAL_DIR).as_posix().encode("utf-8"))
+        h.update(b"\x00")
+        h.update(path.read_bytes())
+        h.update(b"\x00")
+    return h.hexdigest()
+
+
+def mixed_fixture_files() -> list[Path]:
+    """Files of the mixed-language slice, in stable sorted order."""
+    return sorted(
+        (p for p in (EVAL_DIR / MIXED_DIR_NAME).iterdir() if p.suffix in (".txt", ".jsonl")),
+        key=lambda p: p.relative_to(EVAL_DIR).as_posix(),
+    )
+
+
+def mixed_fixture_digest() -> str:
+    """SHA-256 over relative path and bytes of every mixed-slice file."""
+    h = hashlib.sha256()
+    for path in mixed_fixture_files():
         h.update(path.relative_to(EVAL_DIR).as_posix().encode("utf-8"))
         h.update(b"\x00")
         h.update(path.read_bytes())

@@ -1,0 +1,25 @@
+Smart Thermostat Model T-20: Installation and Operation Manual
+
+Thank you for choosing the T-20 thermostat from {{PII:ORGANIZATION_NAME:1}}. Please read this manual before installation and keep it for later reference. Installation must be carried out by a qualified electrician. Product support is available from the service centre in {{PII:LOCATION:1}} on weekdays between 9:00 and 17:00.
+
+1. Safety. Switch off the mains supply at the fuse box before opening the wall plate. Do not install the thermostat in damp rooms, near a window that is frequently open, or in direct sunlight. The device is intended for heating systems with a maximum load of ten amperes. Never attempt to repair the thermostat yourself; opening the housing voids the warranty.
+
+2. Mounting. Mark the two drill holes on the wall about one and a half metres above the floor, insert the supplied plugs, and screw the back plate in place. Connect the supply cables to the terminals marked L and N, and the heating circuit to the terminals marked 1 and 2. Snap the front cover onto the back plate until it clicks.
+
+3. First start. After switching the power on, the display shows the language menu. Select your language with the dial and confirm by pressing it. The thermostat then searches for the home wireless network; choose your network, enter the password and wait for the confirmation symbol. The first connection can take up to two minutes.
+
+4. Heating schedule. Up to six switching times per day can be set in the app. Comfort temperature is adjustable from 16 to 28 degrees and the economy temperature from 10 to 20 degrees. The thermostat learns how fast the house warms up and starts heating early enough to reach the comfort temperature at the scheduled time.
+
+T-20 智能温控器：中文使用说明
+
+感谢您选用{{PII:ORGANIZATION_NAME:2}}生产的T-20温控器。本说明书的中文部分与英文部分内容一致，请在安装前仔细阅读并妥善保存。设备必须由持证电工安装。售后服务中心位于{{PII:LOCATION:2}}，工作日九点至十七点提供电话和现场服务。
+
+安全须知。打开墙面底座之前，请先在配电箱处切断电源。不要把温控器安装在潮湿的房间、经常开窗的窗边或阳光直射的位置。本设备适用于最大负载十安培的采暖系统。切勿自行拆修，擅自打开外壳将使保修失效。
+
+安装步骤。在离地面约一点五米的墙上标出两个钻孔位置，装入随机配送的膨胀塞，用螺丝固定底板。电源线接到标有L和N的端子，采暖回路接到标有1和2的端子，然后把前盖按到底板上，听到咔嗒声即安装到位。
+
+首次使用。接通电源后，屏幕显示语言菜单，用旋钮选择语言并按下确认。随后温控器会搜索家庭无线网络，请选择您的网络并输入密码，等待出现连接成功的图标。第一次连接最长可能需要两分钟。
+
+时间表与温度。在手机应用中，每天最多可设置六个切换时间点。舒适温度可在十六度至二十八度之间调节，节能温度可在十度至二十度之间调节。温控器会学习房屋升温的速度，并提前开始加热，以便在设定时间达到舒适温度。
+
+故障处理。如果屏幕不亮，请检查电源和保险丝；如果无法连接网络，请把路由器与温控器的距离缩短到十米以内，并重新输入密码。仍然无法解决时，请联系售后服务中心，并准备好机身背面的序列号。

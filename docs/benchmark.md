@@ -298,6 +298,25 @@ Reading the numbers:
 - For these synthetic values in these generated formats, email, phone and IBAN values never leak, literally or as fragments (0 leaks in every language). Real-world formats may differ and are not covered by this measurement.
 - Only 3 Chinese values cross a chunk boundary, and none of them leaks, so the zh crossing rate (0.000) rests on 3 values. In en the crossing rate is lower than the control rate (-0.106, 1 of 56 crossing values) and in tr as well (-0.056, 1 of 21). Because crossing values here can only be values the detector missed, this difference is not read as an effect of chunk boundaries, and it is not a gate. With 21 crossing values in tr a single value moves the rate by about 0.05, and in en by about 0.02.
 
+#### Mixed-language documents
+
+A separate slice of 7 synthetic mixed-language documents measures leaks when one document holds more than one language: Turkish text with an English annex (2), English text with a Chinese section (2), Chinese text with English sections (2), and one document that interleaves en, tr and zh paragraphs. Each run places 400 values per document and there are 3 runs (8,400 values); each value comes from the pool of the language of the paragraph it follows. The slice has its own fixture digest and does not change the retrieval numbers.
+
+Today a document is masked with one language, detected from its beginning. A value in a segment whose language equals that masking language is matched; any other is mismatched. The single-language reference uses the same density (400 values per document), because the 2,400-value documents above repeat values, and a repeated name is masked everywhere once it is detected.
+
+| Segment language | Literal leak: matched | Literal leak: mismatched | Single-language reference |
+|:---|:---:|:---:|:---:|
+| en | 0.235 (n=1,823) | 0.048 (n=2,568) | 0.162 (n=1,200) |
+| tr | 0.127 (n=1,899) | — (n=0) | 0.117 (n=1,200) |
+| zh | 0.072 (n=1,365) | 0.358 (n=745) | 0.052 (n=1,200) |
+
+- Chinese segments inside documents masked as another language leak about five times as often as Chinese segments masked as Chinese (0.358 vs 0.072). This is the known limitation of per-document language; per-segment language detection is planned.
+- The interleaved document is detected as Turkish, so the tr column has no mismatched values.
+- In a separate diagnostic, English organization-name recall dropped when Chinese paragraphs were added to the same document: the English ORGANIZATION_NAME literal leak was 0.044 with no Chinese blocks and 0.166 with a Chinese block every 4 paragraphs (n≈175–180 each). This is consistent with matched en leaking more than its reference; the cause inside the model is not established.
+- Mismatched en (0.048) leaks less than the en reference (0.162). This is reported as measured and is not explained here.
+
+Measured on one full run, 2026-11-12, M4 Max.
+
 ### Reproduce
 
 Run from `packages/api`. Each embedder must already be in the local Hugging Face cache; `HF_HUB_OFFLINE=1` keeps the run offline, and the full run skips if the pinned embedder is missing.

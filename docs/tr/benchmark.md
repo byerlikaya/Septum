@@ -265,6 +265,25 @@ Sayıların okunuşu:
 - Bu sentetik değerlerde ve üretilen biçimlerde e-posta, telefon ve IBAN değerleri ne literal ne de fragment olarak sızar (her dilde 0 sızıntı). Gerçek dünyadaki biçimler farklı olabilir ve bu ölçümün kapsamında değildir.
 - Yalnızca 3 Çince değer chunk sınırını aşıyor ve hiçbiri sızmıyor; bu yüzden zh çapraz oranı (0,000) 3 değere dayanır. en'de çapraz oran kontrol oranından düşüktür (-0,106; 56 çapraz değerin 1'i), tr'de de öyle (-0,056; 21 değerin 1'i). Buradaki çapraz değerler yalnızca dedektörün kaçırdığı değerler olabileceğinden bu fark chunk sınırlarının etkisi diye okunmaz ve geçit değildir. tr'de 21 çapraz değerle tek bir değer oranı yaklaşık 0,05, en'de yaklaşık 0,02 oynatır.
 
+#### Karma dilli belgeler
+
+Ayrı bir dilim, tek belgede birden fazla dil bulunduğunda sızıntıyı ölçer: 7 sentetik karma dilli belge. Bunlar İngilizce ekli Türkçe metin (2), Çince bölümlü İngilizce metin (2), İngilizce bölümlü Çince metin (2) ve en, tr ve zh paragraflarını iç içe geçiren bir belgedir. Her çalıştırma belge başına 400 değer yerleştirir; 3 çalıştırma yapılır (8.400 değer). Her değer, ardından geldiği paragrafın dilinin havuzundan seçilir. Dilimin kendi fixture özeti vardır ve retrieval sayılarını değiştirmez.
+
+Bugün bir belge, başlangıcından tespit edilen tek bir dille maskelenir. Dili bu maskeleme diliyle aynı olan bir segmentteki değer eşleşen, diğerleri eşleşmeyen sayılır. Tek dilli referans aynı yoğunlukta (belge başına 400 değer) verilir; çünkü yukarıdaki 2.400 değerlik belgelerde değerler tekrar eder ve tekrar eden bir isim, bir kez tespit edildiğinde her yerde maskelenir.
+
+| Segment dili | Literal sızıntı: eşleşen | Literal sızıntı: eşleşmeyen | Tek dilli referans |
+|:---|:---:|:---:|:---:|
+| en | 0,235 (n=1.823) | 0,048 (n=2.568) | 0,162 (n=1.200) |
+| tr | 0,127 (n=1.899) | — (n=0) | 0,117 (n=1.200) |
+| zh | 0,072 (n=1.365) | 0,358 (n=745) | 0,052 (n=1.200) |
+
+- Başka bir dille maskelenen belgelerdeki Çince segmentler, Çince olarak maskelenenlere göre yaklaşık beş kat sık sızar (0,358 ve 0,072). Bu, belge başına dil seçiminin bilinen sınırlamasıdır; segment başına dil tespiti planlanmaktadır.
+- İç içe geçmiş belge Türkçe olarak tespit edilir; bu yüzden tr sütununda eşleşmeyen değer yoktur.
+- Ayrı bir tanılama ölçümünde, aynı belgeye Çince paragraflar eklendiğinde İngilizce kurum adı yakalaması düştü: İngilizce ORGANIZATION_NAME literal sızıntısı Çince blok yokken 0,044, her 4 paragrafta bir Çince blok varken 0,166 oldu (her biri n≈175–180). Bu, eşleşen en değerlerinin referanstan fazla sızmasıyla uyumludur; modelin içindeki neden belirlenmemiştir.
+- Eşleşmeyen en değerleri (0,048), en referansından (0,162) daha az sızar. Bu sonuç ölçüldüğü gibi verilmiştir ve burada açıklanmamaktadır.
+
+Ölçüm tek bir tam çalıştırmadan alınmıştır: 2026-11-12, M4 Max.
+
 ### Yeniden üretme
 
 `packages/api` dizininden çalıştırın. Her embedder yerel Hugging Face önbelleğinde bulunmalıdır; `HF_HUB_OFFLINE=1` çalıştırmayı çevrimdışı tutar ve sabitlenmiş embedder yoksa tam çalıştırma atlanır.

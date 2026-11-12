@@ -1,0 +1,33 @@
+设备租赁合同
+
+出租方：{{PII:ORGANIZATION_NAME:1}}（以下简称甲方）。承租方：{{PII:ORGANIZATION_NAME:2}}（以下简称乙方）。本合同由甲方代表{{PII:PERSON_NAME:1}}与乙方代表{{PII:PERSON_NAME:2}}于{{PII:LOCATION:1}}签订。双方经友好协商，就设备租赁事宜达成如下条款，共同遵守。
+
+第一条 租赁标的。甲方将其所有的医用影像设备一台出租给乙方使用，设备的型号、数量和配件清单见附件。乙方应当按照设备说明书和甲方的培训要求使用设备，未经甲方书面同意，不得转租、转让或者抵押设备。
+
+第二条 租赁期限。租赁期限为三年，自设备验收合格之日起计算。租赁期满前九十日，乙方应当书面通知甲方是否续租。双方未就续租达成一致的，乙方应当在期满后十日内把设备返还给甲方，并配合完成清点。
+
+第三条 租金及支付。租金按季度支付，乙方应当在每季度第一个月的十日前把租金汇入甲方指定账户。逾期支付的，每逾期一日按应付租金的千分之一支付违约金。租金标准在租赁期内保持不变，但因国家税率调整产生的差额由乙方承担。
+
+第四条 维修与保养。设备的日常保养由乙方负责，定期检修和零部件更换由甲方负责。设备发生故障的，乙方应当在二十四小时内通知甲方，甲方应当在接到通知后四十八小时内派员处理。因乙方使用不当造成的损坏，维修费用由乙方承担。
+
+第五条 保密义务。双方对在合同履行过程中知悉的对方商业秘密负有保密义务，合同终止后五年内仍然有效。乙方应当保护设备中存储的患者数据，采取加密和访问控制措施，不得把数据传输给任何第三方。
+
+第六条 设备交付与验收。甲方应当在合同签订后三十日内把设备运抵乙方指定地点，并负责安装和调试。乙方应当在安装完成后五个工作日内组织验收，验收合格的，双方签署验收确认书；验收不合格的，甲方应当在十日内免费整改并重新提交验收。
+
+第七条 操作培训。甲方应当为乙方的操作人员提供不少于两天的现场培训，培训内容包括设备的基本原理、日常操作、常见故障的判断以及安全防护要求。培训结束后，甲方应当向合格人员出具培训证明，乙方应当安排持证人员操作设备。
+
+第八条 保险与风险。租赁期内，设备的财产保险由甲方投保，保险费用计入租金。设备在乙方占有期间发生毁损、灭失的，乙方应当立即通知甲方并协助办理理赔手续。因不可抗力造成的损失，双方按照有关法律规定各自承担相应责任。
+
+第九条 合同变更与解除。任何一方要求变更合同内容的，应当提前三十日书面通知对方，经双方协商一致后签订补充协议。乙方连续两个季度未支付租金的，甲方有权解除合同并收回设备；甲方未按约定履行维修义务的，乙方有权要求减免相应期间的租金。
+
+第十条 设备返还。合同终止时，乙方应当把设备连同全部配件和技术资料完整返还给甲方，设备的正常损耗除外。返还前，乙方应当清除设备中存储的全部数据，并由双方共同确认。逾期返还的，乙方应当按日租金的两倍支付占用费。
+
+第十一条 违约责任与争议解决。任何一方违反本合同约定的，应当向守约方赔偿由此造成的实际损失。因本合同引起的争议，双方应先协商解决；协商不成的，提交甲方所在地人民法院诉讼解决。本合同一式两份，双方各执一份，自双方签字盖章之日起生效。
+
+Schedule 1. Equipment and Handover (English)
+
+The leased equipment consists of one diagnostic imaging unit, its control console, a set of standard accessories and the operating software in the version current at the date of handover. The lessor delivers the equipment to the lessee's premises and installs it at its own cost. The lessee provides a room that meets the electrical and shielding requirements listed in the installation guide.
+
+Acceptance. The lessee inspects the equipment within five Business Days of installation. Acceptance is confirmed by a signed protocol; defects noted in the protocol are corrected by the lessor without charge. The rental term starts on the date of the signed protocol and not on the date of delivery.
+
+Return. At the end of the term the lessee returns the equipment in working order, allowing for normal wear. Patient data is erased from the storage of the unit before it leaves the premises, and the lessor confirms the erasure in writing. {{PII:PERSON_NAME:3}} is the lessor's contact person for the handover and return.

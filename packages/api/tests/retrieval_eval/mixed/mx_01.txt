@@ -1,0 +1,27 @@
+Bulut Yazılım Hizmet Sözleşmesi
+
+Bu sözleşme, {{PII:ORGANIZATION_NAME:1}} (bundan sonra Hizmet Sağlayıcı) ile {{PII:ORGANIZATION_NAME:2}} (bundan sonra Müşteri) arasında, {{PII:LOCATION:1}} şehrinde imzalanmıştır. Hizmet Sağlayıcı adına {{PII:PERSON_NAME:1}}, Müşteri adına {{PII:PERSON_NAME:2}} yetkili olarak hazır bulunmuştur. Taraflar, aşağıdaki hükümlerin kendileri için bağlayıcı olduğunu kabul eder.
+
+Madde 1. Sözleşmenin konusu. Hizmet Sağlayıcı, Müşterinin belge yönetim uygulamasını kendi sunucu altyapısında çalıştırmayı, yedeklemeyi ve güncel tutmayı üstlenir. Müşteri ise bu hizmet karşılığında kararlaştırılan bedeli zamanında ödemeyi kabul eder. Hizmetin kapsamına yeni özelliklerin geliştirilmesi girmez; bu tür talepler ayrı bir iş emriyle fiyatlandırılır.
+
+Madde 2. Süre ve yenileme. Sözleşme imza tarihinde başlar ve iki yıl sürer. Taraflardan biri süre bitiminden en az doksan gün önce yazılı bildirimde bulunmazsa sözleşme, aynı koşullarla birer yıllık dönemler hâlinde kendiliğinden uzar. Müşteri, ilk yılın sonunda yalnızca ağır bir ihlal durumunda sözleşmeyi erken feshedebilir.
+
+Madde 3. Bedel ve ödeme. Aylık hizmet bedeli, her ayın ilk iş gününde faturalandırılır ve fatura tarihinden itibaren otuz gün içinde ödenir. Geciken ödemelere aylık yüzde bir oranında gecikme faizi işletilir. Bedel, her sözleşme yılının başında en çok yüzde sekiz oranında güncellenebilir; güncelleme için Müşteriye altmış gün önceden bildirim yapılması gerekir.
+
+Madde 4. Gizlilik ve veri koruma. Taraflar, sözleşme süresince ve sona erdikten sonra beş yıl boyunca, karşı tarafın ticari ve teknik bilgilerini üçüncü kişilere açıklamamayı taahhüt eder. Hizmet Sağlayıcı, Müşteri verilerini yalnızca hizmetin sunulması amacıyla işler ve verilerin yetkisiz erişime karşı şifrelenmesini sağlar. Bir veri ihlali fark edildiğinde Müşteri yetmiş iki saat içinde bilgilendirilir.
+
+Madde 5. Sorumluluk sınırı. Hizmet Sağlayıcının sözleşmeden doğan toplam sorumluluğu, olayın yaşandığı tarihten önceki on iki ay içinde ödenen bedellerle sınırlıdır. Kasıt ve ağır kusur hâlleri bu sınırın dışındadır. Dolaylı zararlar ve kâr kaybı için hiçbir tarafın sorumluluğu doğmaz.
+
+Madde 6. Uyuşmazlıkların çözümü. Taraflar, sözleşmeden doğan uyuşmazlıkları önce üst düzey yöneticilerin yapacağı görüşmelerle çözmeye çalışır. Otuz gün içinde çözüm bulunamazsa {{PII:LOCATION:2}} mahkemeleri ve icra daireleri yetkilidir. Sözleşme iki nüsha olarak düzenlenmiş ve taraflarca imzalanmıştır.
+
+Annex A. Service Levels (English)
+
+This annex forms part of the agreement and applies to every service listed in Article 1. The provider operates the hosted application from the primary data centre and keeps a second site ready for failover. Planned maintenance is announced at least five Business Days in advance and takes place outside office hours whenever possible.
+
+Availability. The provider commits to a monthly availability of 99.5 percent, measured on the application login page from outside the provider's network. Downtime caused by planned maintenance, by the customer's own systems, or by events beyond reasonable control does not count against this figure. If availability falls below the commitment in a month, the customer receives a credit of five percent of that month's fee for each full percentage point of shortfall.
+
+Support response. A critical incident, meaning a complete outage or a loss of data integrity, receives a first response within two hours and a workaround within one Business Day. A major incident receives a first response within four hours. Minor requests are answered within three Business Days. The customer reports incidents through the support portal or by telephone to the service desk.
+
+Backups and recovery. Full backups run nightly and are kept for thirty days; incremental backups run hourly. The recovery point objective is one hour and the recovery time objective is eight hours. The provider tests a full restore at least once every six months and shares the written result with the customer on request.
+
+Reporting. By the tenth day of each month the provider delivers a report covering availability, incidents, response times and open change requests. The service managers of both parties meet quarterly to review the report and agree on improvements. {{PII:PERSON_NAME:3}} acts as the provider's service manager for the first contract year.

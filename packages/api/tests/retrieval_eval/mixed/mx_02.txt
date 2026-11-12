@@ -1,0 +1,25 @@
+Uzaktan Çalışma ve Esnek Saat Politikası
+
+Bu politika, {{PII:ORGANIZATION_NAME:1}} bünyesinde çalışan tüm personelin uzaktan çalışma ve esnek çalışma saatlerinden nasıl yararlanacağını düzenler. Politikanın sahibi İnsan Kaynakları Müdürü {{PII:PERSON_NAME:1}}'dır. Sorular için çalışanlar doğrudan bağlı oldukları yöneticiye ya da insan kaynakları birimine başvurabilir.
+
+1. Kapsam. Politika, deneme süresini tamamlamış tüm tam zamanlı ve yarı zamanlı çalışanlar için geçerlidir. Üretim hattında ve depoda vardiyalı çalışan personel, işin niteliği gereği uzaktan çalışamaz; bu çalışanlar için esnek vardiya değişimi hakkı ayrıca düzenlenmiştir. Stajyerler yalnızca yöneticilerinin yazılı onayıyla uzaktan çalışabilir.
+
+2. Uzaktan çalışma hakkı. Uygun görevlerde çalışanlar yılda en çok yüz yirmi gün uzaktan çalışabilir. Uzaktan çalışılacak günler, en geç bir hafta önceden ekip takvimine işlenir. Ekip toplantısı, müşteri ziyareti ya da eğitim bulunan günlerde yönetici, uzaktan çalışma talebini gerekçesini belirterek reddedebilir. Reddedilen talep için çalışan, insan kaynaklarına itiraz edebilir.
+
+3. Çalışma saatleri. Çekirdek saatler hafta içi 10.00 ile 15.00 arasıdır. Bu saatler dışında çalışan, günlük sekiz saatlik süreyi tamamlamak koşuluyla başlangıç ve bitiş saatini serbestçe belirleyebilir. Fazla mesai yalnızca yöneticinin önceden onayıyla yapılır ve çalışanın isteğine göre ya ücret ya da izin olarak karşılanır.
+
+4. Ekipman ve gider desteği. Şirket, uzaktan çalışan her personele bir dizüstü bilgisayar ve bir kulaklık sağlar. Evden çalışma için ayrıca yıllık sabit bir internet ve elektrik gideri desteği ödenir; tutar her yılın ocak ayında bütçe kurulunca belirlenir. Şirket ekipmanı yalnızca iş amacıyla kullanılır ve ayrılışta iade edilir.
+
+5. Bilgi güvenliği. Uzaktan çalışırken şirket verilerine yalnızca şirketin sağladığı güvenli bağlantı üzerinden erişilir. Ortak ağlarda, kafelerde ya da havalimanlarında müşteri verisi içeren belgeler açılmaz. Cihazın kaybolması ya da çalınması durumunda çalışan, durumu aynı gün bilgi güvenliği birimine bildirir.
+
+6. Yürürlük. Bu politika yayımlandığı tarihte yürürlüğe girer ve her yıl gözden geçirilir. Değişiklikler çalışanlara en az otuz gün önce duyurulur. {{PII:LOCATION:1}} ofisindeki uygulamaya ilişkin ayrıntılar ofis yöneticisinden öğrenilebilir.
+
+Annex. Guidance for managers (English)
+
+Managers decide remote working requests on the same criteria for every team member. The decision depends on the nature of the task, the team calendar and the employee's record of meeting deadlines, never on personal preference or on how long the person has worked with the manager. A refusal must be explained in writing within three Business Days.
+
+Measuring results rather than presence. A manager agrees goals with each employee at the start of the quarter and reviews progress in a short weekly conversation. Employees who work remotely are not asked to report their hours more often than colleagues who work on site. Complaints about unequal treatment are handled by the HR business partner, {{PII:PERSON_NAME:2}}.
+
+Onboarding remote colleagues. New employees spend their first two weeks mainly on site so that they meet their team and learn the tools. After that period the manager and the employee review whether remote days suit the role. A buddy is assigned for the first three months and meets the new colleague at least once a week.
+
+Health and safety. Employers remain responsible for safe working conditions at home. Managers remind employees to set up a proper workstation, take regular breaks and report any work-related accident, even a minor one, on the day it happens. The company offers an ergonomic assessment on request and pays for reasonable adjustments.

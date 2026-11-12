@@ -34,6 +34,7 @@ Run the full study:  HF_HUB_OFFLINE=1 pytest tests/benchmark_retrieval.py -k ful
 from __future__ import annotations
 
 import asyncio
+import bisect
 import copy
 import hashlib
 import json
@@ -44,7 +45,7 @@ import re
 import subprocess
 import time
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -85,10 +86,14 @@ from tests.retrieval_eval import (
     SLOT_PATTERN,
     EvalDoc,
     EvalQuery,
+    MixedDoc,
     fixture_digest,
     load_docs,
+    load_mixed_docs,
     load_queries,
+    mixed_fixture_digest,
     resolve_gold_spans,
+    split_segments,
 )
 from tests.retrieval_metrics import (
     Opcode,
@@ -123,6 +128,8 @@ LEAK_MIN_CROSSING = 50
 LEAK_MAX_DOCS = 12
 LEAK_VIEW_PAD = 60
 LEAK_GAP_CHARS = (120, 180)
+MIXED_LEAK_DOC_VALUES = 400
+MIXED_LEAK_ROUNDS = 3
 DEFAULT_CHUNK_OVERLAP = 200
 GATE_MIN_RECALL_AT_5 = 0.951
 GATE_MIN_MRR = 0.709
@@ -738,12 +745,16 @@ def _snap_to_boundary(text: str, end: int) -> int:
     return end
 
 
-def _leak_text(lang: str, n_values: int, part: int) -> tuple[str, list[tuple[str, str, int, int]]]:
-    """Filler text with one synthetic value after every 120 to 180 filler characters; ``part`` seeds each document."""
-    filler = _filler_text(lang)
-    rng = random.Random(f"{SEED}|leak|{lang}|{n_values}|{part}")
+def _place_values(
+    filler: str, lang_at: Callable[[int], str], rng: random.Random, n_values: int
+) -> tuple[str, list[tuple[str, str, int, int, str]]]:
+    """Filler with one synthetic value after every ``LEAK_GAP_CHARS`` filler characters.
+
+    ``lang_at`` gives the language of the filler character at an index; each value is drawn from the
+    pool of the language at the cut it follows. Returns the text and ``(type, value, start, end, lang)``.
+    """
     pieces: list[str] = []
-    placed: list[tuple[str, str, int, int]] = []
+    placed: list[tuple[str, str, int, int, str]] = []
     position = 0
     cursor = 0
     for _ in range(n_values):
@@ -752,16 +763,88 @@ def _leak_text(lang: str, n_values: int, part: int) -> tuple[str, list[tuple[str
             cursor = 0
         end = _snap_to_boundary(filler, cursor + gap)
         filler_piece = filler[cursor:end] + " "
+        value_lang = lang_at(max(end - 1, 0))
         cursor = end
         pieces.append(filler_piece)
         position += len(filler_piece)
         slot_type = LEAK_TYPES[rng.randrange(len(LEAK_TYPES))]
-        pool = _pool(slot_type, lang)
+        pool = _pool(slot_type, value_lang)
         value = pool[rng.randrange(len(pool))]
         pieces.append(value + " ")
-        placed.append((slot_type, value, position, position + len(value)))
+        placed.append((slot_type, value, position, position + len(value), value_lang))
         position += len(value) + 1
     return "".join(pieces), placed
+
+
+def _leak_text(lang: str, n_values: int, part: int) -> tuple[str, list[tuple[str, str, int, int]]]:
+    """Filler text with one synthetic value after every 120 to 180 filler characters; ``part`` seeds each document."""
+    rng = random.Random(f"{SEED}|leak|{lang}|{n_values}|{part}")
+    text, placed = _place_values(_filler_text(lang), lambda _: lang, rng, n_values)
+    return text, [(slot_type, value, start, end) for slot_type, value, start, end, _ in placed]
+
+
+def _mixed_filler(doc: MixedDoc) -> tuple[str, list[tuple[int, str]]]:
+    """Slot-free blocks of a mixed document joined, with ``(start offset, language)`` of every block."""
+    parts: list[str] = []
+    starts: list[tuple[int, str]] = []
+    position = 0
+    for lang, block in doc.segments():
+        stripped = block.strip()
+        if not stripped or "{{" in stripped:
+            continue
+        starts.append((position, lang))
+        parts.append(stripped)
+        position += len(stripped) + 2
+    if not parts:
+        raise ValueError(f"no slot-free filler paragraphs in {doc.doc_id}")
+    return "\n\n".join(parts), starts
+
+
+def _mixed_leak_text(
+    doc: MixedDoc, n_values: int, part: int
+) -> tuple[str, list[tuple[str, str, int, int, str]]]:
+    """Leak text over a mixed document's own paragraphs; every value carries the language of its segment."""
+    filler, starts = _mixed_filler(doc)
+    offsets = [offset for offset, _ in starts]
+
+    def lang_at(index: int) -> str:
+        return starts[bisect.bisect_right(offsets, index) - 1][1]
+
+    rng = random.Random(f"{SEED}|leak|mixed|{doc.doc_id}|{n_values}|{part}")
+    return _place_values(filler, lang_at, rng, n_values)
+
+
+def fill_mixed_document(
+    doc_key: int, template: str, segment_langs: Sequence[str]
+) -> tuple[str, dict[tuple[str, int], str]]:
+    """Fill a mixed document's slots, each from the pool of the language of the block it sits in.
+
+    A slot may only occur in blocks of one language; values stay distinct within the document where
+    the pool allows.
+    """
+    values: dict[tuple[str, int], str] = {}
+    slot_lang: dict[tuple[str, int], str] = {}
+    taken: set[str] = set()
+    scope = f"doc{doc_key}"
+    blocks: list[str] = []
+    for block_lang, block in split_segments(template, segment_langs):
+
+        def _sub(match: re.Match[str], block_lang: str = block_lang) -> str:
+            key = (match.group(1), int(match.group(2)))
+            if slot_lang.setdefault(key, block_lang) != block_lang:
+                raise ValueError(f"slot {key} occurs in {slot_lang[key]} and {block_lang} blocks")
+            if key not in values:
+                salt = 0
+                value = _pick(scope, block_lang, key[0], key[1], salt)
+                while value in taken and salt < 50:
+                    salt += 1
+                    value = _pick(scope, block_lang, key[0], key[1], salt)
+                values[key] = value
+                taken.add(value)
+            return values[key]
+
+        blocks.append(SLOT_PATTERN.sub(_sub, block))
+    return "\n\n".join(blocks), values
 
 
 def _leak_class(slot_type: str) -> str:
@@ -776,6 +859,8 @@ class _LeakRecord:
     fragment: bool
     fragment_scorable: bool
     violation: bool = False
+    segment_lang: str = ""
+    document_lang: str = ""
 
 
 def _rate(hits: int, total: int) -> Optional[float]:
@@ -933,6 +1018,150 @@ async def _leak_block(ctx: ChunkContext, lang: str, timing: dict) -> dict:
     }
 
 
+def _segment_block(records: list[_LeakRecord]) -> dict:
+    """Literal and fragment leak, boundary arms and per-type counts for records of one segment language."""
+    return {
+        "values": len(records),
+        **_summarise(records),
+        "arms": _arms(records),
+        "by_type": {
+            slot_type: _summarise([r for r in records if r.slot_type == slot_type]) for slot_type in LEAK_TYPES
+        },
+    }
+
+
+def _match_split(records: list[_LeakRecord]) -> dict:
+    """``matched`` (segment language == masking language) and ``mismatched`` blocks of ``records``."""
+    return {
+        "matched": _segment_block([r for r in records if r.segment_lang == r.document_lang]),
+        "mismatched": _segment_block([r for r in records if r.segment_lang != r.document_lang]),
+    }
+
+
+def segment_leak_report(records: list[_LeakRecord]) -> dict:
+    """Leak broken down by the language of the segment a value sits in.
+
+    ``by_segment_lang`` groups on the value's own segment; ``by_detection_match`` splits the same records
+    into values whose segment language equals the language the document was masked with (``matched``)
+    and values in any other language (``mismatched``), the part a single document language handles badly.
+    ``by_segment_lang_match`` makes that split per segment language, so the leak of a language's values
+    in documents masked with another language reads directly against the same language's values in
+    documents masked with it.
+    """
+    langs = sorted({r.segment_lang for r in records})
+    return {
+        "by_segment_lang": {lang: _segment_block([r for r in records if r.segment_lang == lang]) for lang in langs},
+        "by_detection_match": _match_split(records),
+        "by_segment_lang_match": {
+            lang: _match_split([r for r in records if r.segment_lang == lang]) for lang in langs
+        },
+    }
+
+
+async def _score_leak_text(
+    ctx: ChunkContext, text: str, placed: list[tuple[str, str, int, int, str]], lang: str, document_id: int
+) -> tuple[list[Optional[_LeakRecord]], int, float]:
+    """Mask ``text`` with ``lang`` the production way and score every placed value.
+
+    Returns one record per placed value (None when no chunk covers it), each carrying the value's own
+    language and the masking language, then the chunk count and the detect-plus-cut seconds.
+    """
+    chunked = await CHUNKERS["pipeline"](
+        ctx, "txt", text, lang, AnonymizationMap(document_id=document_id, language=lang)
+    )
+    spans = list(chunked.spans)
+    leak = _ChunkedLeak(chunked.texts, spans, chunked.sanitized, spans)
+    windows = [(max(vs - LEAK_VIEW_PAD, 0), min(ve + LEAK_VIEW_PAD, len(text))) for _, _, vs, ve, _ in placed]
+    masked_windows = await asyncio.to_thread(chunked.document_view, windows)
+    records: list[Optional[_LeakRecord]] = []
+    for (slot_type, value, vs, ve, value_lang), (w0, w1), masked in zip(placed, windows, masked_windows):
+        record = _score_value(leak, slot_type, value, vs, ve, (w0, text[w0:w1], masked))
+        records.append(None if record is None else replace(record, segment_lang=value_lang, document_lang=lang))
+    return records, len(chunked.texts), chunked.detect_s + chunked.cut_s
+
+
+async def _mixed_reference_block(ctx: ChunkContext, first_id: int) -> tuple[dict, float]:
+    """Single-language leak at the mixed slice's density, the like-for-like yardstick for its matched values.
+
+    The single-language ``leak`` block uses ``LEAK_DOC_VALUES`` values per document; with a pool of
+    ``POOL_SIZE`` per type and language most values recur there, and a detected person name masks its
+    other occurrences too. The mixed documents carry ``MIXED_LEAK_DOC_VALUES`` values, so this block
+    places the same number per document over each language's own filler, ``MIXED_LEAK_ROUNDS`` times.
+    """
+    block: dict = {}
+    elapsed = 0.0
+    document_id = first_id
+    for lang in LANGS:
+        records: list[_LeakRecord] = []
+        for part in range(MIXED_LEAK_ROUNDS):
+            text, placed = _leak_text(lang, MIXED_LEAK_DOC_VALUES, part)
+            document_id -= 1
+            scored, _, seconds = await _score_leak_text(
+                ctx, text, [(*p, lang) for p in placed], lang, document_id
+            )
+            elapsed += seconds
+            records.extend(r for r in scored if r is not None)
+        block[lang] = _segment_block(records)
+    return block, elapsed
+
+
+async def _mixed_leak_block(ctx: ChunkContext, timing: dict) -> dict:
+    """Leak of the mixed-language slice, scored like ``_leak_block`` but broken down by segment language.
+
+    Each mixed document is masked with the one language detection gives its text, as production does,
+    so values in the other language's segments show what that single choice costs. Reported apart from
+    ``leak`` so the single-language numbers stay comparable; ``single_language_reference`` is the
+    single-language leak at this slice's value density, the rate matched values compare against.
+    """
+    records: list[_LeakRecord] = []
+    documents: dict[str, dict] = {}
+    unknown = 0
+    chunk_total = 0
+    elapsed = 0.0
+    run = 0
+    for meta in load_mixed_docs():
+        langs: dict[str, int] = {}
+        detected: list[str] = []
+        doc_records: list[_LeakRecord] = []
+        for part in range(MIXED_LEAK_ROUNDS):
+            text, placed = _mixed_leak_text(meta, MIXED_LEAK_DOC_VALUES, part)
+            document_lang = detect_language(text, fallback=meta.lang)
+            detected.append(document_lang)
+            run += 1
+            scored, chunks, seconds = await _score_leak_text(ctx, text, placed, document_lang, -run)
+            elapsed += seconds
+            chunk_total += chunks
+            for (_, _, _, _, segment_lang), record in zip(placed, scored):
+                langs[segment_lang] = langs.get(segment_lang, 0) + 1
+                if record is None:
+                    unknown += 1
+                else:
+                    doc_records.append(record)
+        records.extend(doc_records)
+        documents[meta.doc_id] = {
+            "main_lang": meta.lang,
+            "layout": meta.layout,
+            "detected_lang": sorted(set(detected)),
+            "values_by_segment_lang": dict(sorted(langs.items())),
+            "leak_by_segment_lang": {
+                lang: _summarise([r for r in doc_records if r.segment_lang == lang]) for lang in sorted(langs)
+            },
+        }
+    reference, reference_s = await _mixed_reference_block(ctx, -run)
+    timing["mixed_leak_sanitize_s"] = round(elapsed, 3)
+    timing["mixed_reference_sanitize_s"] = round(reference_s, 3)
+    return {
+        "digest": mixed_fixture_digest(),
+        "values": len(load_mixed_docs()) * MIXED_LEAK_ROUNDS * MIXED_LEAK_DOC_VALUES,
+        "chunks": chunk_total,
+        "unknown": unknown,
+        "invariant_violations": sum(1 for r in records if r.violation),
+        "documents": documents,
+        **segment_leak_report(records),
+        "single_language_reference": reference,
+    }
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  RUN
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1083,6 +1312,7 @@ async def run_benchmark(
     leak = {}
     for lang in LANGS:
         leak[lang] = await _leak_block(ctx, lang, timing)
+    mixed_leak = await _mixed_leak_block(ctx, timing)
 
     answerable = [c for c in cases if c.doc_key is not None]
     timing["wall_s"] = round(time.perf_counter() - wall_started, 3)
@@ -1130,6 +1360,7 @@ async def run_benchmark(
         },
         "results": results,
         "leak": leak,
+        "mixed_leak": mixed_leak,
         "timing": timing,
     }
 
@@ -1217,7 +1448,32 @@ def render_markdown(result: dict) -> str:
         lines.append(f"\nFewer than {LEAK_MIN_CROSSING} crossing values for: {', '.join(low_crossing)}")
     violations = ", ".join(f"{lang} {b['invariant_violations']}" for lang, b in result["leak"].items())
     lines.append(f"\nInvariant violations (chunk exposes a value the whole-document view masks): {violations}")
+    lines += _mixed_leak_table(result.get("mixed_leak"))
     return "\n".join(lines)
+
+
+def _mixed_leak_table(mixed: Optional[dict]) -> list[str]:
+    """Rows of the mixed-language leak, literal / fragment leaks over n per segment language."""
+    if not mixed:
+        return []
+    lines = ["", "Mixed-language slice, leak by segment language, literal / fragment (leaks/n):", "",
+             "| segment | values | literal | fragment |", "|---|---|---|---|"]
+    groups = {**mixed["by_segment_lang"], **{f"({k})": v for k, v in mixed["by_detection_match"].items()}}
+    for name, block in groups.items():
+        lines.append(f"| {name} | {block['values']} | {_fmt_leaks(block['literal'])} | {_fmt_leaks(block['fragment'])} |")
+    lines += ["", "Per segment language: masked with its own language (matched), with another (mismatched), "
+              "and the single-language reference at the same value density, literal / fragment (leaks/n):", "",
+              "| segment | matched | mismatched | reference |", "|---|---|---|---|"]
+    reference = mixed.get("single_language_reference", {})
+    for lang, split in mixed["by_segment_lang_match"].items():
+        cells = [split["matched"], split["mismatched"]] + ([reference[lang]] if lang in reference else [])
+        rendered = [f"{_fmt_leaks(c['literal'])} / {_fmt_leaks(c['fragment'])}" for c in cells]
+        lines.append(f"| {lang} | " + " | ".join(rendered + ["-"] * (3 - len(rendered))) + " |")
+    return lines
+
+
+def _fmt_leaks(stats: dict) -> str:
+    return f"{_fmt_or_dash(stats['rate'])} ({stats['leaks']}/{stats['n']})"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
