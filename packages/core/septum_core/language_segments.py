@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import heapq
 import itertools
+import logging
 from bisect import bisect_right
 from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -21,24 +22,22 @@ from .language_resolution import (
     detection_sample,
     iso_language_code,
     resolve_language,
+    script_forced_language,
     script_letter_counts,
 )
 from .text_utils import normalize_unicode
 
-# Consecutive blocks shorter than this are joined into one unit before a
-# language is detected. A heading or a table row alone is too little text
-# for a reliable guess, and a document of many tiny blocks would otherwise
-# pay one detector call per block. Large blocks are never joined, so a
-# language change at a large block's edge is never blurred, and a short block
-# is never merged into a large one. The same for every script: measured on the
-# mixed-language evaluation documents, a smaller threshold for dense scripts
-# (40) or joining only blocks of one script left 92 of 577 Han values in
-# Latin segments against 67 of 577 with this single threshold.
-COALESCE_CHARS = 120
+logger = logging.getLogger(__name__)
 
 # A run of one language shorter than this is not trusted as a language of
 # its own: it inherits the language of its longer neighbour. A few lines of
-# quoted foreign text are not worth loading another model set.
+# quoted foreign text are not worth loading another model set. The same size
+# bounds how far short blocks are coalesced before a language is detected: a
+# piece shorter than this cannot stand as a segment, so it is judged together
+# with its short neighbours (a document of many tiny blocks, such as DOCX
+# paragraphs or audio segments, would otherwise pay one detector call per
+# block), while a block of at least this size is judged alone and a short block
+# is never joined to a long one that follows it.
 DEFAULT_MIN_RUN_CHARS = 400
 
 # Scripts whose characters each carry far more than a Latin letter does: a
@@ -56,6 +55,49 @@ MIN_RUN_CHARS_BY_SCRIPT = {
     "Thai": 120,
 }
 
+# A unit in a language other than the dominant one, whose detector probability
+# for that language (summed over its region variants) is at least this, is
+# trusted at the smaller sizes below. A language the scripts
+# alone settle (:func:`language_resolution.script_forced_language`) is certain.
+CONFIDENT_UNIT_PROBABILITY = 0.95
+
+# Shortest run that keeps its own label when its language is confident, by the
+# script deciding the run, in the unit of ``MIN_RUN_CHARS_BY_SCRIPT``. Measured
+# on isolated minority clauses between long dominant paragraphs: a Han clause
+# of 120 characters or more kept its own segment and its names leaked 0.06-0.10
+# instead of 0.80-0.88, while shorter ones (40 and 80) were absorbed and
+# stayed at today's rate. About a third of the full floors, with a quarter of
+# the Latin floor (80 against 400) and a third of the dense one (40 against
+# 120); below these a run is a clause, not a passage, whatever the detector
+# says.
+DEFAULT_CONFIDENT_MIN_RUN_CHARS = 80
+CONFIDENT_MIN_RUN_CHARS_BY_SCRIPT = {
+    "Han": 40,
+    "Kana": 40,
+    "Hangul": 40,
+    "Thai": 40,
+}
+
+# A unit with fewer letters than this is not shown to the detector: it takes
+# its neighbour's language, as a unit without letters does. A few words are too
+# little for a character n-gram detector to tell languages apart, and the unit
+# is far below the shortest run a confident unit keeps (80 characters of a
+# spaced script, some 60 letters), so only its context can decide it. Measured:
+# the smallest unit the detector was asked about in the evaluation documents
+# had 31 letters. Without this, one letter between long blocks of a script that
+# settles its own language (``"a"`` + 120 Han characters, repeated) cost one
+# detector call per 121 characters.
+MIN_DETECTION_LETTERS = 20
+
+# Most detector calls one document may make. Past it the document is
+# segmented no further and stays in its dominant language, exactly as without
+# segmentation. Measured on the evaluation documents: at most 2.5 calls per
+# 1 000 characters (151 for 69 000), about 1 ms each, so the budget covers some
+# 1.6 million characters of realistic text and bounds the detector work of any
+# document at a few seconds of realistic calls; the slowest measured call
+# (about 10 ms, on short repetitive text) puts the ceiling at about 40 seconds.
+MAX_DETECTOR_CALLS_PER_DOCUMENT = 4_000
+
 CandidateDetector = Callable[[str], Iterable[Tuple[str, float]]]
 
 
@@ -68,8 +110,49 @@ class Segment:
     language: str
 
 
-def _units(text: str, boundaries: Sequence[int]) -> List[Tuple[int, int]]:
+def _min_run_chars(counts: Dict[str, int], letters: int, confident: bool = False) -> int:
+    """Shortest trusted length for text with these script letter counts.
+
+    ``confident`` selects the smaller sizes for a run in a language the
+    detector (or the scripts) settled with high confidence.
+    """
+    script = deciding_script_from_counts(counts, letters)
+    if confident:
+        return CONFIDENT_MIN_RUN_CHARS_BY_SCRIPT.get(script, DEFAULT_CONFIDENT_MIN_RUN_CHARS)
+    return MIN_RUN_CHARS_BY_SCRIPT.get(script, DEFAULT_MIN_RUN_CHARS)
+
+
+def _is_confident(language: str, candidates: Sequence[Tuple[str, float]]) -> bool:
+    """Whether the detector gives ``language``, summed over its region variants, enough probability.
+
+    The probabilities share one unit, so a language at the threshold (above
+    one half) is also the detector's top one.
+    """
+    total = sum(
+        probability for code, probability in candidates if iso_language_code(code) == language
+    )
+    return total >= CONFIDENT_UNIT_PROBABILITY
+
+
+def _add_counts(into: Dict[str, int], other: Dict[str, int]) -> None:
+    for script, count in other.items():
+        into[script] += count
+
+
+_Unit = Tuple[int, int, str, Dict[str, int], int]
+
+
+def _units(text: str, boundaries: Sequence[int]) -> List[_Unit]:
     """Blocks cut at ``boundaries``, with consecutive short blocks coalesced.
+
+    Returns ``(start, end, sample, script counts, letters)`` per unit, where
+    ``sample`` is the unit's :func:`detection_sample` and the counts are its
+    :func:`script_letter_counts`. A block is short below the
+    :data:`MIN_RUN_CHARS_BY_SCRIPT` size of its own script (else
+    :data:`DEFAULT_MIN_RUN_CHARS`); consecutive short blocks join until the
+    joined text reaches the size of the script its letters mostly use. A long
+    block is its own unit and also ends the unit before it, so a language
+    change at a long block's edge is never blurred.
 
     Boundaries follow the detector's convention: offsets strictly inside
     ``text``; duplicates, unsorted values and offsets at or outside the ends
@@ -78,38 +161,65 @@ def _units(text: str, boundaries: Sequence[int]) -> List[Tuple[int, int]]:
     length = len(text)
     cuts = sorted({b for b in boundaries if 0 < b < length})
     edges = [0, *cuts, length]
-    units: List[Tuple[int, int]] = []
-    pending_start: Optional[int] = None
+    units: List[_Unit] = []
+    pending: List[_Unit] = []
+    pending_counts: Dict[str, int] = {}
+    pending_letters = 0
+
+    def flush() -> None:
+        nonlocal pending, pending_counts, pending_letters
+        if not pending:
+            return
+        if len(pending) == 1:
+            units.append(pending[0])
+        else:
+            start, end = pending[0][0], pending[-1][1]
+            sample = detection_sample(text[start:end])
+            units.append((start, end, sample, *script_letter_counts(sample)))
+        pending, pending_counts, pending_letters = [], {}, 0
+
     for start, end in zip(edges, edges[1:]):
-        if end - start >= COALESCE_CHARS:
-            if pending_start is not None:
-                units.append((pending_start, start))
-                pending_start = None
-            units.append((start, end))
+        sample = detection_sample(text[start:end])
+        counts, letters = script_letter_counts(sample)
+        block = (start, end, sample, counts, letters)
+        if end - start >= _min_run_chars(counts, letters):
+            flush()
+            units.append(block)
             continue
-        if pending_start is None:
-            pending_start = start
-        if end - pending_start >= COALESCE_CHARS:
-            units.append((pending_start, end))
-            pending_start = None
-    if pending_start is not None:
-        units.append((pending_start, length))
+        pending.append(block)
+        if pending_counts:
+            _add_counts(pending_counts, counts)
+        else:
+            pending_counts = dict(counts)
+        pending_letters += letters
+        if end - pending[0][0] >= _min_run_chars(pending_counts, pending_letters):
+            flush()
+    flush()
     return units
 
 
 class _Run:
     """A run of units in one language, with the summed script letter counts of its units."""
 
-    __slots__ = ("start", "end", "language", "counts", "letters", "alive", "version", "prev", "next")
+    __slots__ = (
+        "start", "end", "language", "counts", "letters", "confident", "alive", "version", "prev", "next"
+    )
 
     def __init__(
-        self, start: int, end: int, language: str, counts: Dict[str, int], letters: int
+        self,
+        start: int,
+        end: int,
+        language: str,
+        counts: Dict[str, int],
+        letters: int,
+        confident: bool = False,
     ) -> None:
         self.start = start
         self.end = end
         self.language = language
         self.counts = counts
         self.letters = letters
+        self.confident = confident
         self.alive = True
         self.version = 0
         self.prev: Optional[_Run] = None
@@ -119,11 +229,13 @@ class _Run:
     def length(self) -> int:
         return self.end - self.start
 
-    @property
-    def floor(self) -> int:
-        """Shortest trusted length, by the script that decides the run's own text."""
-        script = deciding_script_from_counts(self.counts, self.letters)
-        return MIN_RUN_CHARS_BY_SCRIPT.get(script, DEFAULT_MIN_RUN_CHARS)
+    def floor(self, dominant: str) -> int:
+        """Shortest trusted length, by the script that decides the run's own text.
+
+        The smaller size applies to a confident run in a language other than
+        ``dominant``.
+        """
+        return _min_run_chars(self.counts, self.letters, self.confident and self.language != dominant)
 
 
 def _absorb_short_runs(runs: List[_Run], dominant: str) -> List[_Run]:
@@ -143,7 +255,7 @@ def _absorb_short_runs(runs: List[_Run], dominant: str) -> List[_Run]:
     sequence = itertools.count()
 
     def push(run: _Run) -> None:
-        if run.length < run.floor:
+        if run.length < run.floor(dominant):
             heapq.heappush(heap, (run.length, run.start, run.version, next(sequence), run))
 
     for run in runs:
@@ -162,6 +274,7 @@ def _absorb_short_runs(runs: List[_Run], dominant: str) -> List[_Run]:
         low, high = (target, run) if target is run.prev else (run, target)
         low.end = high.end
         low.language = target.language
+        low.confident = target.confident
         for script, count in high.counts.items():
             low.counts[script] += count
         low.letters += high.letters
@@ -185,13 +298,21 @@ def segment_languages(
     """Cut ``text`` into contiguous language segments covering ``[0, len(text))``.
 
     ``boundaries`` are the block offsets passed to ``Detector.detect``.
-    Each unit (a block, or consecutive short blocks coalesced) is resolved
-    from at most its :func:`detection_sample`, with ``dominant_language`` as
-    context and default. A unit without letters takes its previous
-    neighbour's language (the next one for a leading unit). Adjacent units of
+    Each unit (a block, or consecutive short blocks coalesced up to the
+    minimum run size) is resolved from at most its :func:`detection_sample`,
+    with ``dominant_language`` as context and default; a unit whose scripts
+    allow only one language (:func:`script_forced_language`) never reaches
+    the detector. A unit without letters, or with fewer than
+    :data:`MIN_DETECTION_LETTERS`, takes its previous neighbour's language (the
+    next one for a leading unit) without asking the detector. A document that
+    would need more than :data:`MAX_DETECTOR_CALLS_PER_DOCUMENT` detector calls
+    is one ``Segment(0, len(text), dominant)``. Adjacent units of
     one language merge; runs shorter than their script's minimum
     (:data:`MIN_RUN_CHARS_BY_SCRIPT`, else :data:`DEFAULT_MIN_RUN_CHARS`) then
-    inherit from their longer neighbour. When every segment resolves to the dominant
+    inherit from their longer neighbour. A run in a language other than the
+    dominant one whose units were all confident (see
+    :data:`CONFIDENT_UNIT_PROBABILITY`) is trusted down to the smaller
+    :data:`CONFIDENT_MIN_RUN_CHARS_BY_SCRIPT` sizes. When every segment resolves to the dominant
     language the result is exactly one ``Segment(0, len(text), dominant)``.
     Empty text yields no segments. Raises ``ValueError`` for a
     ``dominant_language`` that is not an ISO 639 code.
@@ -202,26 +323,38 @@ def segment_languages(
     if not text:
         return ()
 
-    resolved: List[Tuple[int, int, Optional[str], Dict[str, int], int]] = []
-    for start, end in _units(text, boundaries):
-        sample = detection_sample(text[start:end])
-        counts, letters = script_letter_counts(sample)
-        if letters:
-            language: Optional[str] = resolve_language(
+    resolved: List[Tuple[int, int, Optional[str], Dict[str, int], int, Optional[bool]]] = []
+    calls = 0
+    for start, end, sample, counts, letters in _units(text, boundaries):
+        confident: Optional[bool] = None
+        # The scripts alone may leave one possible answer; then the detector
+        # cannot change it and is not asked.
+        language = script_forced_language(counts, letters)
+        if language is not None:
+            confident = True
+        elif letters >= MIN_DETECTION_LETTERS:
+            if calls == MAX_DETECTOR_CALLS_PER_DOCUMENT:
+                logger.warning(
+                    "Document needs more than %d language detector calls; masking it in its dominant language",
+                    MAX_DETECTOR_CALLS_PER_DOCUMENT,
+                )
+                return (Segment(0, len(text), dominant),)
+            calls += 1
+            candidates = list(detect_candidates(sample))
+            language = resolve_language(
                 sample,
-                detect_candidates(sample),
+                candidates,
                 context_language=dominant,
                 default=dominant,
                 script_counts=(counts, letters),
             )
-        else:
-            language = None
-        resolved.append((start, end, language, counts, letters))
+            confident = _is_confident(language, candidates)
+        resolved.append((start, end, language, counts, letters, confident))
 
-    known = [lang for _, _, lang, _, _ in resolved if lang is not None]
+    known = [lang for _, _, lang, _, _, _ in resolved if lang is not None]
     previous = known[0] if known else dominant
     runs: List[_Run] = []
-    for start, end, language, counts, letters in resolved:
+    for start, end, language, counts, letters, confident in resolved:
         language = language or previous
         previous = language
         if runs and runs[-1].language == language:
@@ -230,8 +363,9 @@ def segment_languages(
             for script, count in counts.items():
                 tail.counts[script] += count
             tail.letters += letters
+            tail.confident = tail.confident and confident is not False
         else:
-            runs.append(_Run(start, end, language, dict(counts), letters))
+            runs.append(_Run(start, end, language, dict(counts), letters, confident is not False))
 
     merged: List[List] = []
     for run in _absorb_short_runs(runs, dominant):

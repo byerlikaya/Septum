@@ -288,24 +288,23 @@ _NER_MIN_SPAN_LEN_PER_LANGUAGE: Dict[str, int] = {
 # Trade-off: a lone glyph the model scores lower (明 of 小明 at 0.85) is dropped.
 _NER_SINGLE_GLYPH_PERSON_MIN_SCORE = 0.95
 
-# Context the NER models see on each side of a language segment. A name at a
-# segment edge is scored with the words around it; a few sentences are enough
-# for a name, and the padding is a small fraction of a model's input.
+# Context the extra NER models of a language segment see on each side of it. A
+# name at a segment edge is scored with the words around it; a few sentences
+# are enough for a name, and the padding is a small fraction of a model's input.
+# The text on both sides of every edge between ranges that add different models
+# is also scored, in a window of this padding on each side, with the extra
+# models of both: a short minority section is then read by its own models in
+# more than one window. Measured: it closes the recall gap between a minority
+# section and the same text masked as a document of its language.
 _NER_SEGMENT_PADDING_CHARS = 500
 
 # More language segments than this and the document is detected as a single
-# dominant-language one, exactly as without segments: every segment can add its
-# own NER windows (about 3 x ``_NER_SEGMENT_PADDING_CHARS`` of extra text each),
-# so the count bounds the extra work at roughly 128 x 1 500 = 190 000 characters
-# per model. A real mixed-language document has 2-3 segments, and the most
-# fragmented evaluation text has 84 in 69 000 characters.
+# dominant-language one, exactly as without segments: every segment can add
+# windows for its extra NER models (about 3 x ``_NER_SEGMENT_PADDING_CHARS`` of
+# text each), so the count bounds the extra work at roughly 128 x 1 500 =
+# 190 000 characters per extra model. A real mixed-language document has 2-3
+# segments, and the most fragmented evaluation text has 84 in 69 000 characters.
 _MAX_SEGMENTS_PER_DOCUMENT = 128
-
-# The text on both sides of every edge between ranges that run different model
-# sets is also scored, in a window of this padding on each side, with the union
-# of both sets: a short minority section is then read by its own models in more
-# than one window. Measured: it closes the recall gap between a minority
-# section and the same text masked as a document of its language.
 
 
 def _language_span_floor(language: str) -> int:
@@ -345,9 +344,10 @@ class _SegmentContext:
     Offsets are in the coordinates of the text being detected; a window of a
     very large text gets its own context through :meth:`clipped`. ``models``
     comes from :meth:`NERModelRegistry.plan_segment_models` and is planned once
-    per document, so the cap on loaded models holds across windows. A segment
-    in the dominant language reports ``dominant`` exactly as the caller wrote
-    it, so the post-processing of such a span is the single-language one.
+    per document, so the cap on loaded models holds across windows; a
+    language's extra models are its planned set minus the dominant one. A
+    segment in the dominant language reports ``dominant`` exactly as the caller
+    wrote it, so the post-processing of such a span is the single-language one.
     """
 
     def __init__(
@@ -362,6 +362,23 @@ class _SegmentContext:
         self._dominant_key = canonical_language_code(dominant)
         self._lookup = SegmentLookup(self.segments)
 
+    def applied_languages(self) -> Tuple[str, ...]:
+        """Languages other than the dominant one that this call treated as segments of their own.
+
+        Canonical codes, most text first (first appearance breaks a tie). A
+        language the model plan sent to the dominant set alone ran no model of
+        its own and is left out; with the NER layer off there is no plan and
+        every segment language counts.
+        """
+        coverage: Dict[str, int] = {}
+        for segment in self.segments:
+            key = canonical_language_code(segment.language)
+            if key != self._dominant_key:
+                coverage[key] = coverage.get(key, 0) + segment.end - segment.start
+        base = self.models.get(self._dominant_key)
+        own = [key for key in coverage if not self.models or self.models.get(key) != base]
+        return tuple(sorted(own, key=lambda key: -coverage[key]))
+
     def language_at(self, position: int) -> str:
         """Language used for a span starting at ``position``."""
         language = self._lookup.language_at(position)
@@ -375,22 +392,26 @@ class _SegmentContext:
         return _SegmentContext(local, self.dominant, self.models)
 
     def ner_ranges(self) -> List[Tuple[int, int, Tuple[str, ...]]]:
-        """Ranges to run NER on, neighbouring segments with the same model set joined."""
+        """``(start, end, extra model ids)`` over all segments, neighbours adding the same models joined.
+
+        A range whose segments add nothing to the dominant set has no ids.
+        """
+        base = set(self.models[self._dominant_key])
         ranges: List[Tuple[int, int, Tuple[str, ...]]] = []
         for segment in self.segments:
-            ids = self.models[canonical_language_code(segment.language)]
+            planned = self.models[canonical_language_code(segment.language)]
+            ids = tuple(m for m in planned if m not in base)
             if ranges and ranges[-1][2] == ids:
                 ranges[-1] = (ranges[-1][0], segment.end, ids)
             else:
                 ranges.append((segment.start, segment.end, ids))
         return ranges
 
-
     @staticmethod
     def edge_unions(
         ranges: Sequence[Tuple[int, int, Tuple[str, ...]]],
     ) -> List[Tuple[int, Tuple[str, ...]]]:
-        """``(offset, model ids)`` per edge between ranges with different model sets: the union of both."""
+        """``(offset, extra model ids)`` per edge between :meth:`ner_ranges`: the extra models of both sides."""
         return [
             (right[0], tuple(dict.fromkeys((*left[2], *right[2]))))
             for left, right in zip(ranges, ranges[1:])
@@ -1840,13 +1861,16 @@ class Detector:
 
         ``segments`` (offsets into ``text``) tile a mixed-language document
         into ranges with a language each; ``language`` stays the dominant one.
-        Without them, or when every segment is in ``language``, the call is
-        exactly the single-language one. Otherwise NER runs per segment (with
-        context padding at its edges): a segment in another language runs the
-        union of its own language's model set and the dominant one, with at
-        most ``MAX_EXTRA_NER_MODELS`` models beyond the dominant set per
-        document (see :meth:`NERModelRegistry.plan_segment_models`). Presidio
-        and the pattern recognizers still run once over the whole text. A
+        Without them, when every segment is in ``language``, or when the NER
+        model plan gives no segment a model beyond the dominant set, the call
+        is exactly the single-language one. Otherwise the dominant model set
+        still runs over the whole text exactly as without segments, so no span
+        it finds there is lost; each segment in another language adds the
+        models of its own language's set that the dominant one lacks, run on
+        the segment with context padding at its edges, with at most
+        ``MAX_EXTRA_NER_MODELS`` such models per document (see
+        :meth:`NERModelRegistry.plan_segment_models`). Presidio and the pattern
+        recognizers still run once over the whole text. A
         span of another-language segment is never held to a stricter rule
         than ``language`` alone would apply: its NER length floor is the
         smaller of the two languages' floors, and the non-PII filter,
@@ -1855,6 +1879,9 @@ class Detector:
         and coreference stay on ``language``. More than
         ``_MAX_SEGMENTS_PER_DOCUMENT`` segments are ignored (single-language
         detection). Raises ``ValueError`` when ``segments`` do not tile ``text``.
+        ``DetectionResult.segment_languages`` reports the other languages the
+        call really applied (none when segments were absent, all in ``language``
+        or ignored).
         """
         checked = None if segments is None else validate_segments(segments, len(text))
         if not text:
@@ -1882,6 +1909,7 @@ class Detector:
             language=language,
             spans=tuple(spans),
             semantic_enabled=port_enabled,
+            segment_languages=() if context is None else context.applied_languages(),
         )
 
     def _segment_context(
@@ -1893,6 +1921,10 @@ class Detector:
         are moved onto its normalized form here. Languages are ranked by the
         text they cover (first appearance breaks a tie) so that, when the
         model cap bites, the languages with the most text keep their own models.
+        A plan that adds no model to the dominant set changes no NER pass, so
+        it is ``None`` too: the call stays byte-identical to the single-language
+        one. With the NER layer off there is no plan and the per-segment
+        post-processing still applies.
         """
         if segments is None:
             return None
@@ -1921,6 +1953,9 @@ class Detector:
                 )
             ranked = sorted(coverage, key=lambda code: -coverage[code])
             models = self._ner_registry.plan_segment_models(language, ranked)
+            base = set(models[dominant_key])
+            if all(set(ids) <= base for ids in models.values()):
+                return None
         return _SegmentContext(rebased, language, models)
 
     def _candidate_spans(
@@ -1932,8 +1967,9 @@ class Detector:
     ) -> List[DetectedSpan]:
         """Run every enabled detection layer on ``normalized_text``; no overlap resolution.
 
-        With a ``context`` NER runs per segment and the language-dependent
-        post-filters follow each span's own segment; Presidio still runs once.
+        With a ``context`` the segments' extra NER models also run (see
+        :meth:`_segmented_ner_spans`) and the language-dependent post-filters
+        follow each span's own segment; Presidio still runs once.
         """
         spans: List[DetectedSpan] = []
 
@@ -2145,8 +2181,9 @@ class Detector:
         title-cased text so the backstop model (e.g. savasy BERT for Turkish)
         still sees inputs whose only appearance is ALL CAPS.
 
-        With a ``context`` both passes run once per language segment (see
-        :meth:`_segmented_ner_spans`) instead of once over the text.
+        With a ``context`` the dominant ensemble still runs over the whole
+        text, and the segments' extra models run on their own segments (see
+        :meth:`_segmented_ner_spans`).
         """
         if context is None:
             ner_spans = self._ner_ensemble_spans(
@@ -2183,38 +2220,45 @@ class Detector:
     def _segmented_ner_spans(
         self, normalized_text: str, context: _SegmentContext
     ) -> List[DetectedSpan]:
-        """NER per language segment, merged in the coordinates of ``normalized_text``.
+        """NER of a mixed-language text: the dominant set over all of it, extra models per segment.
 
-        Each range of segments (neighbours that run the same model set are one
-        range) is scored on its own text widened by
-        ``_NER_SEGMENT_PADDING_CHARS``; spans of the widened windows join
-        through :func:`merge_window_spans`, which drops a fragment cut by a
-        window edge when a neighbour saw the entity whole. Spans in the padding
-        are kept: they come from models that also run on that text through the
-        neighbouring segment's range. Every edge between ranges that run
-        different model sets also gets a window of the same padding on both
-        sides, scored with the union of the two sets. The length floor of a
-        span follows the language of the segment holding its start.
+        The dominant ensemble runs over the whole text exactly as for a
+        single-language one, so every span it finds there is kept (the length
+        floor of a span follows the segment holding its start and is never
+        stricter than the dominant one). Each range of segments that adds the
+        same models to the dominant set (see :meth:`_SegmentContext.ner_ranges`)
+        is scored with those models only, on its own text widened by
+        ``_NER_SEGMENT_PADDING_CHARS``; a range that adds none gets no window.
+        Every edge between ranges also gets a window of the same padding on
+        both sides, scored with the extra models of both. Window spans join the
+        whole-text ones through :func:`merge_window_spans`, which drops a
+        fragment cut by a window edge when a span seen whole contains it.
         """
+        whole_text = self._ner_ensemble_spans(
+            normalized_text,
+            self._ner_registry.get_pipelines(context.dominant),
+            context.dominant,
+            context.language_at,
+        )
         ranges = context.ner_ranges()
-        windows = plan_padded_windows(
-            normalized_text, [(start, end) for start, end, _ in ranges], _NER_SEGMENT_PADDING_CHARS
+        scored = [(start, end, ids) for start, end, ids in ranges if ids]
+        range_windows = plan_padded_windows(
+            normalized_text, [(start, end) for start, end, _ in scored], _NER_SEGMENT_PADDING_CHARS
         )
         jobs = [
-            (window, model_ids, normalized_text[start:end])
-            for (start, end, model_ids), window in zip(ranges, windows)
+            (window, ids, normalized_text[start:end])
+            for (start, end, ids), window in zip(scored, range_windows)
         ]
         edges = context.edge_unions(ranges)
         edge_windows = plan_padded_windows(
             normalized_text, [(offset, offset) for offset, _ in edges], _NER_SEGMENT_PADDING_CHARS
         )
         jobs.extend(
-            (window, model_ids, normalized_text[window.start : window.end])
-            for (_, model_ids), window in zip(edges, edge_windows)
+            (window, ids, normalized_text[window.start : window.end])
+            for (_, ids), window in zip(edges, edge_windows)
         )
-        windows = [*windows, *edge_windows]
         per_window: List[List[DetectedSpan]] = []
-        for window, model_ids, core in jobs:
+        for window, ids, core in jobs:
             if not core.strip():
                 per_window.append([])
                 continue
@@ -2222,12 +2266,13 @@ class Detector:
             per_window.append(
                 self._ner_ensemble_spans(
                     normalized_text[window.start : window.end],
-                    self._ner_registry.get_pipelines_for_models(model_ids),
+                    self._ner_registry.get_pipelines_for_models(ids),
                     context.dominant,
                     lambda position, offset=offset: context.language_at(offset + position),
                 )
             )
-        return merge_window_spans(windows, per_window)
+        windows = [window for window, _, _ in jobs]
+        return merge_window_spans(windows, per_window, full_text_verdict_spans=whole_text)
 
     def _validate_semantically(
         self,

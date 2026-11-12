@@ -53,13 +53,17 @@ class DetectionResult:
     span offset. It holds raw, unmasked text: never log it, serialize it, cache
     it to disk or send it over septum-queue. ``semantic_enabled`` records
     whether the semantic port was on during detection so ``apply`` makes the
-    same coreference decision.
+    same coreference decision. ``segment_languages`` are the languages other
+    than ``language`` whose segments the detection really treated as their own
+    (canonical codes, most text first); it is empty for a single-language call,
+    including a call whose segments were ignored.
     """
 
     text: str = field(repr=False)
     language: str
     spans: Tuple[DetectedSpan, ...] = ()
     semantic_enabled: bool = field(kw_only=True)
+    segment_languages: Tuple[str, ...] = field(default=(), kw_only=True)
 
 
 def clip_core(

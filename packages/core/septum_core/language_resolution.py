@@ -480,6 +480,33 @@ def deciding_script_from_counts(counts: Dict[str, int], letters: int) -> Optiona
     return _deciding_script(_profile_from_counts(counts, letters))
 
 
+def script_forced_language(counts: Dict[str, int], letters: int) -> Optional[str]:
+    """The language :func:`resolve_language` returns for these script letter counts whatever the detector says.
+
+    When the deciding script implies one language (Hangul, kana, Thai, Han)
+    and the only language the scripts in the text allow is that one (``ja``
+    and ``ko`` are refused for Han without kana or Hangul), no candidate and
+    no context language can change the answer: a candidate the scripts
+    refuse is ignored, one they allow is that language, and the fallback is
+    the implied language itself. ``None`` when candidates could matter (a
+    script shared by many languages, a mixed text, no letters).
+    ``counts`` and ``letters`` come from :func:`script_letter_counts`.
+    """
+    profile = _profile_from_counts(counts, letters)
+    deciding = _deciding_script(profile)
+    if profile.letters == 0 or deciding is None:
+        return None
+    rule = _SCRIPT_RULES[deciding]
+    if rule.implied_language is None:
+        return None
+    allowed = {
+        language
+        for language in rule.compatible_languages
+        if _script_allows(profile, language, deciding)
+    }
+    return rule.implied_language if allowed <= {rule.implied_language} else None
+
+
 def _script_allows(profile: _ScriptProfile, language: str, deciding: Optional[str]) -> bool:
     """Whether the scripts in the text are consistent with ``language``.
 
