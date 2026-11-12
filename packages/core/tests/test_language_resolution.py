@@ -575,3 +575,18 @@ def test_override_sample_blanks_ignored_tokens_in_every_piece():
     sample = override_sample(text, token)
     assert "PERSON_NAME" not in sample
     assert "PERSON_NAME" in override_sample(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["", "plain english text here", HAN_ONLY, HANGUL, "mixed 中文 and english words"],
+)
+def test_precomputed_script_counts_give_the_same_language(text):
+    from septum_core.language_resolution import script_letter_counts
+
+    sample = detection_sample(text)
+    candidates = [("ko", 0.9), ("en", 0.1)]
+
+    assert resolve_sample(
+        sample, candidates, context_language="zh", script_counts=script_letter_counts(sample)
+    ) == resolve_sample(sample, candidates, context_language="zh")
