@@ -1,0 +1,23 @@
+Minutes of the Harbour District Residents' Council, Quarterly Meeting
+
+Present: {{PII:PERSON_NAME:1}} (chair), {{PII:PERSON_NAME:2}} (treasurer), six council members, and a representative of {{PII:ORGANIZATION_NAME:1}}, the company that manages the shared courtyard. The meeting opened at 19:00 in the community hall and the minutes were taken by the council secretary.
+
+1. Minutes of the previous meeting. The minutes were approved with one correction: the budget for the courtyard lighting was one thousand two hundred euros, not twelve hundred and fifty.
+
+2. Courtyard lighting. The representative reported that the new lamps were installed in the north courtyard last month and that residents have not complained about glare. Two lamps near the bicycle shelter still flicker and will be replaced under warranty. The council agreed to extend the project to the south courtyard, provided the quotation stays below the approved limit.
+
+3. Noise rules. Several residents complained about late-night noise from the ground-floor restaurant. The chair will write to the owner and propose that the terrace closes at 22:30 on weekdays and at 23:30 at weekends. The council asked the owner to attend the next meeting. A member noted that the existing house rules already set quiet hours from 22:00 and should simply be enforced.
+
+4. Waste collection. The city changed the collection day for paper and glass. The new schedule will be posted at every entrance and sent to residents by letter. The treasurer pointed out that additional bins would cost about six hundred euros per year and the council decided to postpone the purchase until the autumn.
+
+港区居民委员会季度会议纪要（中文部分）
+
+会议时间：本月第三个周四晚上七点。会议地点：社区活动室。出席人员：主任{{PII:PERSON_NAME:3}}、副主任{{PII:PERSON_NAME:4}}、委员六人，物业公司{{PII:ORGANIZATION_NAME:2}}的代表列席。因部分居民母语为中文，以下议题同时以中文记录，内容与上文英文部分一致，如有歧义以会议决议为准。
+
+一、关于庭院照明。物业代表汇报，北侧庭院的新路灯上月已经安装完毕，居民没有反映刺眼的问题。自行车棚附近有两盏灯仍然闪烁，将在保修期内更换。委员会同意把该项目延伸到南侧庭院，前提是报价不超过已批准的上限。
+
+二、关于噪音管理。有几位居民反映一楼餐厅夜间噪音较大。主任将致函店主，建议工作日露台二十二点三十分关闭，周末二十三点三十分关闭，并邀请店主出席下次会议。有委员指出，现行的住户守则已经规定二十二点起为安静时段，关键在于落实。
+
+三、关于垃圾分类。市政部门调整了纸张和玻璃的回收日期。新的时间表将张贴在每个出入口，并以信件形式通知住户。副主任提出，增设垃圾桶每年约需六百欧元，委员会决定推迟到秋季再决定是否购买。
+
+四、散会。会议于二十一点结束，下次例会时间由秘书另行通知。

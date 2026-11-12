@@ -1,0 +1,25 @@
+Neighbourhood Library Cooperative: Newsletter and Meeting Notes
+
+The cooperative met on the first Tuesday of the month. {{PII:PERSON_NAME:1}} chaired the meeting and {{PII:ORGANIZATION_NAME:1}} was thanked for donating shelves for the children's corner. About forty members attended, more than at any meeting this year, and the reading room was full.
+
+Kooperatif ayın ilk salı günü toplandı. Toplantıya {{PII:PERSON_NAME:2}} başkanlık etti ve çocuk köşesi için raf bağışlayan {{PII:ORGANIZATION_NAME:2}} teşekkür edilen kuruluşlar arasında yer aldı. Kırk kadar üye toplantıya katıldı; bu sayı yılın en yüksek katılımıydı ve okuma salonu tamamen doldu.
+
+合作社于本月第一个周二召开会议，由{{PII:PERSON_NAME:3}}主持。会议对为儿童角捐赠书架的{{PII:ORGANIZATION_NAME:3}}表示感谢。到会成员约四十人，是今年人数最多的一次，阅览室座无虚席。
+
+Opening hours. From next month the library opens on Saturdays from 10:00 to 16:00. Volunteers will staff the desk in two shifts, and the cooperative is still looking for three people to cover the afternoon. Members who can help should leave their names at the front desk or speak to the volunteer coordinator.
+
+Çalışma saatleri. Gelecek aydan itibaren kütüphane cumartesi günleri saat 10.00 ile 16.00 arasında açık olacak. Gönüllüler masada iki vardiya hâlinde görev yapacak; öğleden sonra vardiyası için üç kişi daha aranıyor. Yardım etmek isteyen üyeler adlarını danışma masasına bırakabilir ya da gönüllü koordinatörüyle görüşebilir.
+
+开放时间。从下个月起，图书馆每周六上午十点至下午四点开放。志愿者分两个班次轮流值守，下午班次还缺三个人手。愿意帮忙的成员可以在服务台留下姓名，或者直接联系志愿者协调员。
+
+Book sale. The annual book sale will take place in the garden of the community centre on the second weekend of June. Donated books can be dropped off during opening hours until the end of May. Proceeds will pay for a new heating system in the reading room, which was quoted at about four thousand euros.
+
+Kitap satışı. Yıllık kitap satışı, haziran ayının ikinci hafta sonunda toplum merkezinin bahçesinde yapılacak. Bağışlanan kitaplar mayıs sonuna kadar çalışma saatlerinde teslim edilebilir. Gelir, okuma salonunun yaklaşık dört bin avro olarak fiyatlandırılan yeni ısıtma sistemine ayrılacak.
+
+图书义卖。一年一度的图书义卖将于六月第二个周末在社区中心的花园举行。捐赠的图书可以在开放时间内送到馆里，截止到五月底。义卖所得将用于阅览室新的供暖系统，报价约为四千欧元。
+
+Membership fees. The council proposed to keep the annual fee unchanged for the third year in a row. The treasurer, {{PII:PERSON_NAME:4}}, reported that the cooperative closed the last year with a small surplus. The proposal was approved without objection.
+
+Üyelik aidatı. Kurul, yıllık aidatın üçüncü yıl da değiştirilmemesini önerdi. Sayman {{PII:PERSON_NAME:5}}, kooperatifin geçen yılı küçük bir fazlayla kapattığını bildirdi. Öneri itirazsız kabul edildi ve bir sonraki toplantı tarihi duyuruldu.
+
+会费。理事会建议年会费连续第三年保持不变。会计{{PII:PERSON_NAME:6}}报告，合作社去年结余略有盈余。该建议无异议通过，下次会议时间也已经通知。

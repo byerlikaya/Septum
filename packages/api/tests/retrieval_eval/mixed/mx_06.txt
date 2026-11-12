@@ -1,0 +1,31 @@
+门诊病历摘要
+
+患者{{PII:PERSON_NAME:1}}，因反复咳嗽、胸闷三周于{{PII:ORGANIZATION_NAME:1}}门诊就诊。患者出生于{{PII:DATE_OF_BIRTH:1}}，居住在{{PII:LOCATION:1}}，职业为中学教师。接诊医生为{{PII:PERSON_NAME:2}}。
+
+现病史：三周前受凉后出现干咳，夜间加重，伴有轻度胸闷，无发热，无咯血。自行服用止咳药后症状稍有缓解，但未完全消失。近一周活动后偶有气短，睡眠受到影响。患者否认近期外出旅行，家中无人有类似症状。
+
+既往史：十年前诊断为过敏性鼻炎，春季发作。否认高血压、糖尿病和心脏病史。否认药物过敏史，否认手术和外伤史。不吸烟，偶尔饮酒。母亲患有哮喘。
+
+个人史与生活习惯：患者长期在学校工作，每天讲课时间较长，教室内粉尘较多。平时作息规律，很少进行体育锻炼。家中饲养一只猫，近期没有更换居住环境。患者自述在空气寒冷或者说话较多时咳嗽明显加重。
+
+体格检查：体温三十六点五度，脉搏每分钟七十六次，呼吸每分钟十八次，血压一百一十八比七十五毫米汞柱。咽部轻度充血，双肺呼吸音粗，可闻及少量散在哮鸣音，未闻及湿啰音。心律齐，腹软，无压痛。
+
+辅助检查：血常规正常，C反应蛋白轻度升高。胸部影像检查未见明显实质性病变。肺功能检查显示轻度可逆性气流受限，支气管舒张试验阳性。
+
+鉴别诊断：需要与慢性支气管炎、胃食管反流引起的咳嗽、上气道咳嗽综合征以及药物引起的咳嗽相鉴别。患者无长期咳痰史，无反酸烧心症状，未服用血管紧张素转换酶抑制剂，鼻部症状轻微，结合肺功能结果，上述疾病可能性较小。
+
+诊断与处理：考虑咳嗽变异性哮喘。给予吸入性糖皮质激素联合支气管扩张剂治疗，教会患者正确使用吸入装置，建议避免接触冷空气和粉尘。两周后复诊，如症状加重随时就诊。
+
+用药指导：吸入药物每日早晚各一次，每次一吸，用药后用清水漱口，以减少口腔真菌感染的风险。症状明显时可以临时加用短效支气管扩张剂。患者应当随身携带急救药物，不得自行停药或者更改剂量。
+
+健康教育：向患者说明哮喘是一种可以控制的慢性疾病，规范治疗后大多数患者可以正常工作和生活。建议患者讲课时使用扩音设备，减少粉尘接触，注意保暖，适当进行散步等有氧运动，并按时接种流感疫苗。
+
+随访计划：复诊时评估治疗效果并复查肺功能。如果症状控制良好，连续四周无咳嗽，可以考虑逐步减少药物剂量。如出现呼吸困难加重、夜间憋醒或者急救药物使用次数增加，应当立即到急诊就诊。
+
+Clinical summary for the referring physician (English)
+
+The patient, a middle-aged teacher, presented with a three-week history of dry cough that is worse at night, mild chest tightness and slight breathlessness on exertion. There was no fever and no haemoptysis. A history of allergic rhinitis and a family history of asthma were noted.
+
+Examination and tests. Vital signs were normal. Auscultation revealed scattered expiratory wheezes without crackles. The blood count was normal and the C-reactive protein slightly raised. Chest imaging showed no parenchymal lesion. Spirometry showed mild reversible airflow limitation with a positive bronchodilator response.
+
+Assessment and plan. The findings are consistent with cough-variant asthma. Treatment with an inhaled corticosteroid combined with a bronchodilator was started and the inhaler technique was taught and checked. The patient was advised to avoid cold air and dust and will be reviewed after two weeks. The summary was prepared by {{PII:PERSON_NAME:3}} for the family doctor.
