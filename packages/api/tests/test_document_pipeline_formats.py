@@ -237,7 +237,7 @@ def test_block_starts_follow_normalized_blocks_after_a_shrinking_rule() -> None:
 
 async def test_detector_text_that_differs_from_the_blocks_stores_nothing(env) -> None:
     class _Diverging(PatternDetector):
-        def detect(self, text, language, *, boundaries=()):
+        def detect(self, text, language, *, boundaries=(), segments=None):
             return DetectionResult(
                 text=text + " ", language=language, spans=(), semantic_enabled=False
             )

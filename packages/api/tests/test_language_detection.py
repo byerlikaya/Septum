@@ -753,7 +753,7 @@ async def test_ingestion_pipeline_masks_in_the_override_language(monkeypatch):
             return None, None
 
     class _Sanitizer:
-        def detect(self, _text, language, *, boundaries=()):
+        def detect(self, _text, language, *, boundaries=(), segments=None):
             seen["detector_language"] = language
             raise _Stop
 
@@ -841,7 +841,7 @@ async def test_ingestion_audit_event_records_the_override_language(monkeypatch):
             return None, None
 
     class _Sanitizer:
-        def detect(self, text, language, *, boundaries=()):
+        def detect(self, text, language, *, boundaries=(), segments=None):
             return DetectionResult(text=text, language=language, semantic_enabled=False)
 
         def apply(self, detection, _anon_map):
@@ -1162,7 +1162,7 @@ async def test_ingestion_ignores_an_override_that_contradicts_the_script(
             return None, None
 
     class _Sanitizer:
-        def detect(self, _text, language, *, boundaries=()):
+        def detect(self, _text, language, *, boundaries=(), segments=None):
             seen["detector_language"] = language
             raise _Stop
 
@@ -1397,7 +1397,7 @@ async def test_pipeline_records_the_masking_language_it_used(monkeypatch):
             return None, SimpleNamespace(entity_types=["X"], digest="d")
 
     class _Sanitizer:
-        def detect(self, text, language, *, boundaries=()):
+        def detect(self, text, language, *, boundaries=(), segments=None):
             seen.append(language)
             return DetectionResult(text=text, language=language, semantic_enabled=False)
 

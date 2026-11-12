@@ -19,6 +19,7 @@ from septum_core.language_resolution import (
     resolve_language,
     script_permits_override,
 )
+from septum_core.language_segments import Segment, segment_languages
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -235,6 +236,24 @@ def effective_masking_language(document: Any) -> str:
     return document_language(document) or "en"
 
 
+def langdetect_candidates(sample: str) -> List[Tuple[str, float]]:
+    """langdetect's ranked ``(code, probability)`` guesses for ``sample``.
+
+    The one langdetect call behind :func:`detect_language` and
+    :func:`masking_segments`, so both read the same loaded profiles and the
+    same ``DetectorFactory.seed``. Text langdetect finds no features in
+    (empty, digits only) has no guesses; every other langdetect error
+    propagates.
+    """
+    ensure_language_profiles_loaded()
+    try:
+        return [(guess.lang, guess.prob) for guess in detect_langs(sample)]
+    except LangDetectException as exc:
+        if exc.get_code() != ErrorCode.CantDetectError:
+            raise
+        return []
+
+
 def detect_language(
     text: str,
     fallback: str = "en",
@@ -252,14 +271,8 @@ def detect_language(
     Text langdetect finds no features in (empty, digits only) resolves the
     same way with no guesses; every other langdetect error propagates.
     """
-    ensure_language_profiles_loaded()
     sample = detection_sample(text)
-    try:
-        candidates = [(guess.lang, guess.prob) for guess in detect_langs(sample)]
-    except LangDetectException as exc:
-        if exc.get_code() != ErrorCode.CantDetectError:
-            raise
-        candidates = []
+    candidates = langdetect_candidates(sample)
     language = resolve_language(
         sample, candidates, context_language=context_language, default=fallback
     )
@@ -269,6 +282,34 @@ def detect_language(
             language,
         )
     return language
+
+
+def masking_segments(
+    text: str,
+    boundaries: Sequence[int],
+    language: str,
+    source: str,
+) -> Optional[Tuple[Segment, ...]]:
+    """Language segments to mask ``text`` with, or ``None`` to mask it in ``language`` alone.
+
+    ``language`` and ``source`` are what :func:`masking_language` returned:
+    a language the user chose (``source == "override"``) is never
+    second-guessed, so the document gets no segments. Otherwise each block
+    (``boundaries`` are the block offsets given to the detector) is judged
+    with :func:`langdetect_candidates` and ``language`` as the dominant
+    language (see :func:`septum_core.language_segments.segment_languages`);
+    a text in one language yields one segment in ``language``, which the
+    detector treats as no segments. The result is CPU-bound: call it off the
+    event loop. Errors propagate.
+    """
+    if source == "override":
+        return None
+    return segment_languages(
+        text,
+        boundaries,
+        dominant_language=language,
+        detect_candidates=langdetect_candidates,
+    )
 
 
 def validate_regex(pattern: str) -> Optional[str]:

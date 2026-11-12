@@ -50,7 +50,7 @@ async def _run_pipeline(tmp_path, monkeypatch, rules=()):
         return None
 
     class _Sanitizer:
-        def detect(self, text, language, *, boundaries=()):
+        def detect(self, text, language, *, boundaries=(), segments=None):
             seen["sanitized"].append(text)
             return DetectionResult(
                 text=normalize_unicode(text), language=language, semantic_enabled=False

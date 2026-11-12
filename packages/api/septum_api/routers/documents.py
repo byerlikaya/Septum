@@ -1610,6 +1610,7 @@ async def claim_for_reingest(
             sanitized_entity_types=None,
             sanitized_policy_digest=None,
             sanitized_language=None,
+            sanitized_languages=None,
         )
         .execution_options(synchronize_session=False)
     )

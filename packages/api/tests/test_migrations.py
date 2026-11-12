@@ -633,6 +633,35 @@ def test_revision_024_dedupes_spreadsheet_schemas_on_postgres(
         _admin(f'DROP DATABASE "{name}" WITH (FORCE)')
 
 
+def test_revision_028_adds_nullable_sanitized_languages_and_is_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "at_027.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.upgrade(cfg, "027")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    before = {c["name"] for c in sa.inspect(engine).get_columns("documents")}
+
+    command.upgrade(cfg, "028")
+    columns = {c["name"]: c for c in sa.inspect(engine).get_columns("documents")}
+
+    command.stamp(cfg, "027")
+    command.upgrade(cfg, "028")
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+    after_rerun = [c["name"] for c in sa.inspect(engine).get_columns("documents")]
+
+    command.downgrade(cfg, "027")
+    after_downgrade = {c["name"] for c in sa.inspect(engine).get_columns("documents")}
+    engine.dispose()
+
+    assert "sanitized_languages" not in before
+    assert columns["sanitized_languages"]["nullable"] is True
+    assert after_rerun.count("sanitized_languages") == 1
+    assert "sanitized_languages" not in after_downgrade
+
+
 @pytest.mark.skipif(
     not os.getenv("SEPTUM_TEST_POSTGRES_URL"),
     reason="SEPTUM_TEST_POSTGRES_URL not set",
