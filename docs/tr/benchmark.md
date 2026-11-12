@@ -142,7 +142,7 @@ Bu benchmark PII tespitini değil erişimi (retrieval) ölçer. Sanitizer'ın NE
 | Sorular | 140: 129 cevaplanabilir, 11 olumsuz |
 | Cevaplanabilir, tipe göre | lexical 45 · paraphrase 45 · entity 24 · cross-lingual 15 |
 | Olumsuz | hiçbir belgenin cevaplamadığı 11 soru |
-| İndeks | 194 chunk; her chunk kaynak belgesinde bir aralığa eşlenmiş. Bunların 184'ü (%94,8) embedder'ın 128 token'lık penceresinden uzundur; embedder bu chunk'ları embedding sırasında keser (ölçüldü) |
+| İndeks | 191 chunk; her chunk kaynak belgesinde bir aralığa eşlenmiş. Bunların 179'u (%93,7) embedder'ın 128 token'lık penceresinden uzundur; embedder bu chunk'ları embedding sırasında keser (ölçüldü) |
 | Digest | `df81576cd611d809dd59eed997ec789cced8315301796ea75bcc11b97179efec` (her fixture dosyası üzerinde SHA-256) |
 
 Belgeler ve sorular elle yazılmıştır. Bir belgedeki her kişisel veri yuvası, sabit tohumlu (seed 42) bir üreticinin değeriyle doldurulur. Bir sorunun işaret ettiği değer, kendi belgesindeki değerdir; bu yüzden her çalıştırma aynı metni üretir.
@@ -153,14 +153,14 @@ Belgeler ve sorular elle yazılmıştır. Bir belgedeki her kişisel veri yuvas�
 |:---|:---|
 | Embedding modeli | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, revision `e8f8c211226b894fcb81acc59f3b34ba3efd5f42` (sabitlenmiş) |
 | Boyut | 384 |
-| Parçalayıcı | `pipeline`. Kişisel veri belgenin tamamında bir kez tespit edilir ve maskeler chunk'lara yansıtılır. Chunk'lar önce blok, sonra cümle ya da yazı sistemi, en son kelime sınırlarından kesilir; tespit edilmiş bir değerin içinden asla kesilmez. Bütçeler düz karakter sayısıdır: 800, PDF etiketli belgeler için 1.200 (metinleri doğrudan verilir, PDF ayrıştırması yapılmaz) ve 200 örtüşme. Embedder token üst sınırı yoktur: denendi ve kaliteyi düşürdüğü için bırakıldı (126 token'lık sınırla maskelenmiş hybrid Recall@5 0,853 ve MRR 0,633; sınırsız 0,992 ve 0,743) |
+| Parçalayıcı | `pipeline`. Kişisel veri belgenin tamamında bir kez tespit edilir ve maskeler chunk'lara yansıtılır. Chunk'lar önce blok, sonra cümle ya da yazı sistemi, en son kelime sınırlarından kesilir; tespit edilmiş bir değerin içinden asla kesilmez. Sonraki chunk'ın örtüşmesi, örtüşme penceresinin ilk yarısında en iyi düzeydeki (cümle, sonra boşluk, sonra kelime) en erken sınırdan başlar. Bütçeler düz karakter sayısıdır: 800, PDF etiketli belgeler için 1.200 (metinleri doğrudan verilir, PDF ayrıştırması yapılmaz) ve 200 örtüşme. Embedder token üst sınırı yoktur: denendi ve kaliteyi düşürdüğü için bırakıldı (126 token'lık sınırla maskelenmiş hybrid Recall@5 0,853 ve MRR 0,633; sınırsız 0,992 ve 0,743; o günkü kodla ölçüldü) |
 | Erişim | ilk 10; auto-RAG ilgililik eşiği 0,35 |
 | Sorgu modları | ham ve maskelenmiş; ana sonuç maskelenmiş sorgudur |
 | Güven aralıkları | Ortalama için %95 yüzdelik bootstrap, 1.000 yeniden örnekleme, seed 42 |
 | Gecikme | Sorgu başına 5 ölçülmüş tekrar, maskelenmiş sorgular, sorgu embedding'i dahil tek bir retriever çağrısı |
 | Donanım | Apple M4 Max, 14 CPU çekirdeği, 10 torch thread, Darwin 27.0.0 arm64 |
 | Seed | 42 |
-| Commit | `bc259d50` (çalıştırma çıktısındaki `git_sha`); buna token sınırının kaldırılması (`5342ce04`) ve aynı sürümdeki benchmark harness değişiklikleri eklenir |
+| Commit | `7d22460d` (çalıştırma çıktısındaki `git_sha`); buna örtüşme başlangıcı değişikliği (`012cfdd`) eklenir; ölçüm 2026-11-11 tarihinde 23:01 UTC'de yapıldı |
 
 ### Sonuçlar
 
@@ -168,36 +168,36 @@ Belgeler ve sorular elle yazılmıştır. Bir belgedeki her kişisel veri yuvas�
 
 | Dil | n | Recall@5 | Recall@10 | MRR | nDCG@10 |
 |:---|:---:|:---:|:---:|:---:|:---:|
-| en | 43 | 0,977 [0,930, 1,000] | 1,000 [1,000, 1,000] | 0,621 [0,511, 0,729] | 0,714 [0,630, 0,795] |
-| tr | 43 | 1,000 [1,000, 1,000] | 1,000 [1,000, 1,000] | 0,867 [0,791, 0,940] | 0,900 [0,843, 0,955] |
-| zh | 43 | 1,000 [1,000, 1,000] | 1,000 [1,000, 1,000] | 0,741 [0,642, 0,829] | 0,806 [0,732, 0,873] |
-| **genel** | **129** | **0,992 [0,969, 1,000]** | **1,000 [1,000, 1,000]** | **0,743 [0,682, 0,799]** | **0,807 [0,761, 0,848]** |
+| en | 43 | 1,000 [1,000, 1,000] | 1,000 [1,000, 1,000] | 0,700 [0,601, 0,802] | 0,774 [0,700, 0,852] |
+| tr | 43 | 1,000 [1,000, 1,000] | 1,000 [1,000, 1,000] | 0,858 [0,775, 0,935] | 0,894 [0,831, 0,951] |
+| zh | 43 | 0,977 [0,930, 1,000] | 1,000 [1,000, 1,000] | 0,717 [0,629, 0,807] | 0,788 [0,723, 0,856] |
+| **genel** | **129** | **0,992 [0,977, 1,000]** | **1,000 [1,000, 1,000]** | **0,758 [0,700, 0,807]** | **0,819 [0,775, 0,856]** |
 
-Önceden kaydedilen taban ölçümle karşılaştırıldığında maskelenmiş hybrid Recall@5 0,953'ten 0,992'ye, MRR 0,715'ten 0,743'e yükselir. Ham sorgularda hybrid Recall@5 0,961'den 0,992'ye, MRR 0,714'ten 0,757'ye çıkar. İndeks 210 yerine 194 chunk içerir; çünkü chunk'lar artık sabit konumlardan değil blok, cümle ve kelime sınırlarından kesilir. İngilizce MRR ters yöne gitti: 0,721'den 0,621'e düşerken İngilizce Recall@5 0,930'dan 0,977'ye çıktı; yani doğru chunk daha sık bulunuyor ama daha aşağıda sıralanıyor. Türkçe ve Çince MRR yükselir (0,798'den 0,867'ye ve 0,626'dan 0,741'e). Dil bazındaki aralıklar geniştir (n = 43) ve İngilizce düşüşün nedeni araştırılmadı.
+Önceden kaydedilen taban ölçümle karşılaştırıldığında maskelenmiş hybrid Recall@5 0,992'de değişmez, MRR 0,743'ten 0,758'e yükselir. Ham sorgularda hybrid Recall@5 0,992'den 1,000'e, MRR 0,757'den 0,773'e çıkar. İndeks 194 yerine 191 chunk içerir; önceki taban ölçümden bu yana parçalayıcıda değişen tek şey örtüşme başlangıcı kuralıdır. Dil bazında (maskelenmiş hybrid) İngilizce Recall@5 0,977'den 1,000'e, MRR 0,621'den 0,700'e yükselir; Türkçe MRR 0,867'den 0,858'e, Çince Recall@5 1,000'den 0,977'ye, Çince MRR 0,741'den 0,717'ye düşer. Dil bazındaki aralıklar geniştir (n = 43); bu yüzden dil bazındaki bu oynamalar bir etki olarak okunmaz.
 
 **Karşılaştırılan retriever'lar (genel, n = 129), ham ve maskelenmiş sorgu modları.**
 
 | Retriever | Mod | Recall@5 | Recall@10 | MRR | nDCG@10 |
 |:---|:---|:---:|:---:|:---:|:---:|
-| dense | ham | 0,953 [0,915, 0,984] | 1,000 [1,000, 1,000] | 0,718 [0,657, 0,774] | 0,784 [0,737, 0,827] |
-| dense | maskelenmiş | 0,953 [0,915, 0,984] | 1,000 [1,000, 1,000] | 0,693 [0,629, 0,748] | 0,765 [0,716, 0,808] |
-| bm25 | ham | 0,992 [0,969, 1,000] | 1,000 [1,000, 1,000] | 0,707 [0,643, 0,762] | 0,779 [0,731, 0,820] |
-| bm25 | maskelenmiş | 0,984 [0,961, 1,000] | 1,000 [1,000, 1,000] | 0,714 [0,648, 0,772] | 0,784 [0,735, 0,828] |
-| hybrid | ham | 0,992 [0,969, 1,000] | 1,000 [1,000, 1,000] | 0,757 [0,695, 0,811] | 0,816 [0,769, 0,858] |
-| hybrid | maskelenmiş | 0,992 [0,969, 1,000] | 1,000 [1,000, 1,000] | 0,743 [0,682, 0,799] | 0,807 [0,761, 0,848] |
-| auto_rag | ham | 0,550 [0,465, 0,628] | 0,682 [0,605, 0,752] | 0,444 [0,372, 0,512] | 0,497 [0,428, 0,563] |
-| auto_rag | maskelenmiş | 0,496 [0,403, 0,574] | 0,628 [0,543, 0,705] | 0,382 [0,313, 0,450] | 0,437 [0,369, 0,502] |
+| dense | ham | 0,961 [0,930, 0,992] | 1,000 [1,000, 1,000] | 0,720 [0,658, 0,774] | 0,789 [0,742, 0,830] |
+| dense | maskelenmiş | 0,961 [0,930, 0,992] | 1,000 [1,000, 1,000] | 0,696 [0,637, 0,754] | 0,771 [0,727, 0,815] |
+| bm25 | ham | 1,000 [1,000, 1,000] | 1,000 [1,000, 1,000] | 0,716 [0,653, 0,771] | 0,787 [0,739, 0,828] |
+| bm25 | maskelenmiş | 0,992 [0,977, 1,000] | 1,000 [1,000, 1,000] | 0,722 [0,658, 0,778] | 0,792 [0,743, 0,833] |
+| hybrid | ham | 1,000 [1,000, 1,000] | 1,000 [1,000, 1,000] | 0,773 [0,719, 0,820] | 0,830 [0,789, 0,866] |
+| hybrid | maskelenmiş | 0,992 [0,977, 1,000] | 1,000 [1,000, 1,000] | 0,758 [0,700, 0,807] | 0,819 [0,775, 0,856] |
+| auto_rag | ham | 0,550 [0,457, 0,628] | 0,682 [0,604, 0,760] | 0,429 [0,352, 0,497] | 0,488 [0,413, 0,553] |
+| auto_rag | maskelenmiş | 0,496 [0,411, 0,574] | 0,628 [0,543, 0,705] | 0,369 [0,295, 0,436] | 0,430 [0,358, 0,495] |
 
-**Olumsuzlarda auto-RAG (11 soru).** Bir soru, en az bir chunk 0,35 eşiğinin üstünde ya da eşitte skor aldığında yanlış erişim sayılır. Yanlış erişim oranı ham sorgularda 0,727 [0,455, 0,909], maskelenmiş sorgularda 0,818 [0,545, 1,000]'dır. En yüksek (top-1) skorlar örtüşür: ham sorgularda olumsuzların 90. yüzdeliği 0,618, cevaplanabilir soruların 10. yüzdeliği 0,459'dur.
+**Olumsuzlarda auto-RAG (11 soru).** Bir soru, en az bir chunk 0,35 eşiğinin üstünde ya da eşitte skor aldığında yanlış erişim sayılır. Yanlış erişim oranı ham sorgularda 0,727 [0,455, 0,909], maskelenmiş sorgularda 0,818 [0,545, 1,000]'dır. En yüksek (top-1) skorlar örtüşür: ham sorgularda olumsuzların 90. yüzdeliği 0,618, cevaplanabilir soruların 10. yüzdeliği 0,467'dir.
 
 **Gecikme** (maskelenmiş sorgular, milisaniye, tek makine):
 
 | Retriever | p50 (ms) | p95 (ms) | Örnek |
 |:---|:---:|:---:|:---:|
-| dense | 15,057 | 22,097 | 645 |
-| bm25 | 0,294 | 0,379 | 645 |
-| hybrid | 16,052 | 22,724 | 645 |
-| auto_rag | 414,493 | 490,195 | 700 |
+| dense | 11,025 | 12,337 | 645 |
+| bm25 | 0,237 | 0,286 | 645 |
+| hybrid | 11,562 | 13,061 | 645 |
+| auto_rag | 325,273 | 349,408 | 700 |
 
 Örnek sayısı, sorgu sayısının 5 tekrarla çarpımıdır; auto_rag tüm 140 soruyu, diğerleri 129 cevaplanabilir soruyu çalıştırır.
 
@@ -205,13 +205,13 @@ Belgeler ve sorular elle yazılmıştır. Bir belgedeki her kişisel veri yuvas�
 
 | Adım | Süre |
 |:---|:---:|
-| Parçalama, 30 belge | 0,060 s |
-| Embedding ve indeksleme | 2,982 s |
-| Sanitizasyon, 30 belge | 17,001 s |
-| Sızıntı bloğu sanitizasyonu, en / tr / zh | 114,465 s / 374,155 s / 422,228 s |
-| Tüm çalıştırma, duvar saati | 1483,163 s |
+| Parçalama, 30 belge | 0,034 s |
+| Embedding ve indeksleme | 1,36 s |
+| Sanitizasyon, 30 belge | 11,808 s |
+| Sızıntı bloğu sanitizasyonu, en / tr / zh | 189,216 s / 309,62 s / 474,507 s |
+| Tüm çalıştırma, duvar saati | 1465,178 s |
 
-Sızıntı bloğu artık en için 12.000, tr için 16.800, zh için 12.000 değer içerir; önceden bu sayılar 1.200, 1.200 ve 2.400'dü (aşağıya bakın).
+Sızıntı bloğu en için 24.000, tr için 28.800, zh için 28.800 değer içerir (aşağıya bakın).
 
 ### PII sızıntı kontrolü
 
@@ -226,41 +226,41 @@ Geçit bir oran değil, bir değişmezdir (invariant). Herhangi bir chunk'ta aç
 | Çapraz değer | İçinde bir chunk sınırı bulunan değer (bir chunk başlangıcı ya da bitişi değerin içine düşer). |
 | Kontrol değeri | İçinde hiçbir chunk sınırı bulunmayan değer. |
 
-Her dilin yuvasız korpus paragrafları dolgu olarak kullanılır; her 120 ile 180 dolgu karakterinden sonra bir sentetik değer eklenir. Her dil, en az 50 çapraz değer üretecek kadar dolgu belgesi kullanır (en 5, tr 7, zh 5); örnek en için 12.000, tr için 16.800, zh için 12.000 değer içerir ve bunların 57'si (en), 51'i (tr) ve 51'i (zh) çapraz değerdir.
+Her dilin yuvasız korpus paragrafları dolgu olarak kullanılır; her 120 ile 180 dolgu karakterinden sonra bir sentetik değer eklenir. Örnek en için 24.000, tr için 28.800, zh için 28.800 değer içerir ve bunların 56'sı (en), 20'si (tr) ve 0'ı (zh) çapraz değerdir. Harness, bir dil 50 çapraz değere ulaşana ya da en fazla 12 belgeye varana kadar dolgu belgesi (her biri 2.400 değer) ekler. en 10 belgeyle 50'ye ulaştı; tr ve zh 12 belgenin hepsini kullandı ve 50'nin altında kaldı (zh'de hiç yok); bu yüzden bu dillerin çapraz oranlarını ve farklarını örneklem belirlemez. Geçit değişmezdir.
 
 **Dil bazında** (tüm değerler; literal ve fragment sızıntı oranları):
 
 | Dil | Çapraz n | Literal: çapraz | Literal: kontrol | Literal: fark | Fragment: çapraz | Fragment: kontrol | Fragment: fark |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| en | 57 | 0,088 | 0,125 | -0,037 | 0,088 | 0,126 | -0,038 |
-| tr | 51 | 0,039 | 0,104 | -0,065 | 0,039 | 0,100 | -0,061 |
-| zh | 51 | 0,157 | 0,104 | +0,053 | 0,157 | 0,104 | +0,053 |
+| en | 56 | 0,018 | 0,124 | -0,106 | 0,018 | 0,125 | -0,107 |
+| tr | 20 | 0,050 | 0,104 | -0,054 | 0,100 | 0,100 | 0,000 |
+| zh | 0 | - | 0,105 | - | - | 0,105 | - |
 
 **ORGANIZATION_NAME hariç** (bu tip yalnızca NER katmanıyla tespit edilir, arkasında örüntü tanıyıcı yoktur; görünüm, sızıntı bloğunu bu tip olmadan raporlar):
 
 | Dil | Çapraz n | Literal: çapraz | Literal: kontrol | Literal: fark | Fragment: çapraz | Fragment: kontrol | Fragment: fark |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| en | 53 | 0,019 | 0,135 | -0,116 | 0,019 | 0,136 | -0,117 |
-| tr | 49 | 0,000 | 0,122 | -0,122 | 0,000 | 0,117 | -0,117 |
-| zh | 51 | 0,157 | 0,124 | +0,033 | 0,157 | 0,124 | +0,033 |
+| en | 55 | 0,000 | 0,137 | -0,137 | 0,000 | 0,137 | -0,137 |
+| tr | 18 | 0,000 | 0,121 | -0,121 | 0,000 | 0,116 | -0,116 |
+| zh | 0 | - | 0,125 | - | - | 0,125 | - |
 
 **Tipe göre literal sızıntı oranı** (tüm değerler, çapraz ve kontrol; sızıntı/n):
 
 | Tip | en | tr | zh |
 |:---|:---:|:---:|:---:|
-| PERSON_NAME | 0,081 (163/2006) | 0,000 (0/2819) | 0,423 (842/1991) |
-| LOCATION | 0,586 (1182/2016) | 0,611 (1708/2797) | 0,197 (399/2023) |
-| ORGANIZATION_NAME | 0,074 (148/2009) | 0,012 (32/2747) | 0,005 (10/1982) |
-| EMAIL_ADDRESS | 0,000 (0/1980) | 0,000 (0/2789) | 0,000 (0/1958) |
-| PHONE_NUMBER | 0,000 (0/2031) | 0,000 (0/2904) | 0,000 (0/2036) |
-| IBAN | 0,000 (0/1958) | 0,000 (0/2744) | 0,000 (0/2010) |
+| PERSON_NAME | 0,085 (332/3912) | 0,000 (0/4809) | 0,430 (2040/4748) |
+| LOCATION | 0,585 (2395/4091) | 0,617 (2924/4742) | 0,200 (975/4870) |
+| ORGANIZATION_NAME | 0,061 (242/3982) | 0,012 (57/4702) | 0,004 (20/4748) |
+| EMAIL_ADDRESS | 0,000 (0/4038) | 0,000 (0/4848) | 0,000 (0/4852) |
+| PHONE_NUMBER | 0,000 (0/3986) | 0,000 (0/4910) | 0,000 (0/4840) |
+| IBAN | 0,000 (0/3991) | 0,000 (0/4789) | 0,000 (0/4742) |
 
 Sayıların okunuşu:
 
 - Değişmez korunuyor: en, tr ve zh'de 0 ihlal. Parçalama, belge bütününde maskelenmiş hiçbir şeyi açığa çıkarmıyor.
-- Geriye kalan ham değerler dedektörün tespit kaçırmalarıdır ve belgenin bütününde de ham kalırlar; parçalamadan kaynaklanmazlar. Sızan tipler kişi adları ve konumlardır: içinde sınır bulunmayan kontrol değerleri literal olarak 0,104 ile 0,125 arasında sızar. Çince kişi adları 1.991 değerin 842'sinde, Çince yer adları 2.023 değerin 399'unda sızar; en belirgin örnek kısa Çince kişi ve yer adlarıdır. Bu, dedektörün bilinen bir sınırlamasıdır; bu benchmark onu gidermez.
+- Geriye kalan ham değerler dedektörün tespit kaçırmalarıdır ve belgenin bütününde de ham kalırlar; parçalamadan kaynaklanmazlar. Sızan tipler kişi adları ve konumlardır: içinde sınır bulunmayan kontrol değerleri literal olarak 0,104 ile 0,124 arasında sızar. Çince kişi adları 4.748 değerin 2.040'ında, Çince yer adları 4.870 değerin 975'inde sızar; en belirgin örnek kısa Çince kişi ve yer adlarıdır. Bu, dedektörün bilinen bir sınırlamasıdır; bu benchmark onu gidermez.
 - Bu sentetik değerlerde ve üretilen biçimlerde e-posta, telefon ve IBAN değerleri ne literal ne de fragment olarak sızar (her dilde 0 sızıntı). Gerçek dünyadaki biçimler farklı olabilir ve bu ölçümün kapsamında değildir.
-- Çapraz değerler en'de (-0,037) ve tr'de (-0,065) kontrol değerlerinden daha az, zh'de daha fazla sızar (+0,053; 51 çapraz değerin 8'i, kontrol oranı 0,104). Buradaki çapraz değerler yalnızca dedektörün kaçırdığı değerler olabileceğinden bu fark chunk sınırlarının etkisi diye okunmaz ve artık bir geçit değildir. Her çapraz örnek yaklaşık 50 değerdir; tek bir değer oranı yaklaşık 0,02 oynatır.
+- Artık hiçbir Çince değer chunk sınırını aşmıyor; bu yüzden zh için çapraz oran yok. en'de çapraz oran kontrol oranından düşüktür (-0,106; 56 çapraz değerin 1'i), tr'de de öyle (-0,054; 20 değerin 1'i). Buradaki çapraz değerler yalnızca dedektörün kaçırdığı değerler olabileceğinden bu fark chunk sınırlarının etkisi diye okunmaz ve geçit değildir. tr'de 20 çapraz değerle tek bir değer oranı 0,05, en'de yaklaşık 0,02 oynatır.
 
 ### Yeniden üretme
 
@@ -303,8 +303,8 @@ Rapor, farklı şema sürümüne ya da değerlendirme digest'ine sahip çalışt
 - Örneklem küçüktür: dil başına 43 cevaplanabilir soru ve 11 olumsuz soru. %95 aralıklar geniştir; özellikle auto-RAG yanlış erişiminde.
 - Dense, bm25 ve hybrid için küme Recall@10'da doygunluğa ulaşır (her satırda 1,000); bu nedenle ayırt edici metrikler Recall@5, MRR ve nDCG@10'dur. Dense, bm25 ve hybrid, Recall@5 ve MRR'de %95 CI'ları içinde örtüşür; aralarında fark varmış gibi okunmamalıdır.
 - Gecikme tek makineden ve tek çalıştırmadan gelir. Diğer donanımlar hakkında bir şey söylemez.
-- Chunk'ların çoğu (%94,8) embedder'ın 128 token'lık penceresinden uzundur; bu yüzden dense embedding her chunk'ın yalnızca başını kapsar.
-- İngilizce MRR düştü (0,721'den 0,621'e), İngilizce Recall@5 ise yükseldi; nedeni araştırılmadı.
+- Chunk'ların çoğu (%93,7) embedder'ın 128 token'lık penceresinden uzundur; bu yüzden dense embedding her chunk'ın yalnızca başını kapsar.
+- İngilizce MRR (0,700), sınır duyarlı parçalayıcıdan önce kaydedilen 0,721'in hâlâ altındadır; İngilizce Recall@5 ise daha yüksektir (1,000'e karşı 0,930). Nedeni araştırılmadı.
 - Sızıntı kontrolünde geriye kalan ham kişisel veri tespit kaçırmasıdır; çoğunlukla kişi ve yer adları, özellikle kısa Çince kişi ve yer adları. Belgenin bütününde de ham kalır ve parçalama bunu değiştirmez.
 - Han, kana ve Hangul için fragment kontrolü bir sezgiseldir. Kısmi isim eşleşmelerini fazla ya da eksik sayabilir.
 - Temel ölçüm tek embedder ve tek parçalayıcı kapsar. Diğer yapılandırmalar burada raporlanmamıştır.
