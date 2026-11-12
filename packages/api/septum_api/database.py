@@ -385,6 +385,10 @@ async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:
         ),
         (
             "documents",
+            "ALTER TABLE documents ADD COLUMN sanitized_languages JSON",
+        ),
+        (
+            "documents",
             "ALTER TABLE documents ADD COLUMN entity_index_version INTEGER",
         ),
         (

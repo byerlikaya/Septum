@@ -36,6 +36,15 @@ def literal(value: str, entity_type: str) -> Rule:
     return re.compile(re.escape(value)), entity_type
 
 
+def echoed_segment_languages(language, segments) -> tuple[str, ...]:
+    """What a detector that applies every requested segment reports: other languages, most text first."""
+    share: dict[str, int] = {}
+    for segment in segments or ():
+        if segment.language != language:
+            share[segment.language] = share.get(segment.language, 0) + segment.end - segment.start
+    return tuple(sorted(share, key=lambda code: -share[code]))
+
+
 class PatternDetector:
     """Detector double with the ``detect`` / ``apply`` split of the core detector.
 
@@ -49,7 +58,7 @@ class PatternDetector:
         self._rules = rules
         self.calls: list[tuple[str, int]] = []
 
-    def detect(self, text: str, language: str, *, boundaries=()) -> DetectionResult:
+    def detect(self, text: str, language: str, *, boundaries=(), segments=None) -> DetectionResult:
         self.calls.append(("detect", len(text)))
         spans = []
         for pattern, entity_type in self._rules:
@@ -57,7 +66,11 @@ class PatternDetector:
                 start, end = match.span(1) if pattern.groups else match.span()
                 spans.append(DetectedSpan(start, end, entity_type, 0.9))
         return DetectionResult(
-            text=text, language=language, spans=tuple(spans), semantic_enabled=False
+            text=text,
+            language=language,
+            spans=tuple(spans),
+            semantic_enabled=False,
+            segment_languages=echoed_segment_languages(language, segments),
         )
 
     def apply(self, detection: DetectionResult, anon_map: AnonymizationMap) -> SanitizeResult:

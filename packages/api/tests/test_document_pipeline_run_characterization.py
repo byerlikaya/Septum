@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from sanitizer_doubles import echoed_segment_languages
 from septum_core.spans import DetectedSpan, DetectionResult, SanitizeResult
 
 from septum_api.errors import ChunkTooLargeError, ExtractedTextTooLargeError
@@ -26,6 +27,7 @@ from septum_api.request_limits import MAX_PRE_APPROVED_CHUNK_CHARS
 from septum_api.services import document_pipeline as dp
 from septum_api.services.chunking import ChunkRecord
 from septum_api.services.ingestion.base import IngestionResult, TextBlock, block_starts
+from septum_api.utils import db_helpers
 
 
 class _Db:
@@ -72,16 +74,21 @@ class _Sanitizer:
     def __init__(self, events: list[tuple]) -> None:
         self.events = events
         self.maps: list[Any] = []
+        self.segments: list[Any] = []
 
-    def detect(self, text: str, language: str, *, boundaries=()) -> DetectionResult:
+    def detect(self, text: str, language: str, *, boundaries=(), segments=None) -> DetectionResult:
         self.events.append(("detect", text, language, tuple(boundaries)))
+        self.segments.append(segments)
         spans = []
         for name in NAMES:
             start = text.find(name)
             while start >= 0:
                 spans.append(DetectedSpan(start, start + len(name), "PERSON_NAME", 0.9))
                 start = text.find(name, start + 1)
-        return DetectionResult(text=text, language=language, spans=tuple(spans), semantic_enabled=False)
+        return DetectionResult(
+            text=text, language=language, spans=tuple(spans), semantic_enabled=False,
+            segment_languages=echoed_segment_languages(language, segments),
+        )
 
     def apply(self, detection: DetectionResult, anon_map: Any) -> SanitizeResult:
         from septum_core.detector import Detector
@@ -148,6 +155,15 @@ def env(monkeypatch):
 
     monkeypatch.setattr(dp, "TextNormalizer", _Normalizer)
     monkeypatch.setattr(dp, "supported_language_code", lambda code: f"sup:{code}")
+
+    def langdetect_candidates(sample: str):
+        if "合同" in sample:
+            return [("zh-cn", 0.99)]
+        if "Sözleşme" in sample:
+            return [("tr", 0.99)]
+        return [("en", 0.99)]
+
+    monkeypatch.setattr(db_helpers, "langdetect_candidates", langdetect_candidates)
 
     def chunk_records(self, file_format, blocks, protected):
         events.append(("chunk", file_format, list(protected)))
@@ -333,7 +349,7 @@ async def test_full_run_sequence(env):
         for k in (
             "transcription_text", "ocr_confidence", "chunk_count", "entity_count",
             "sanitized_entity_types", "sanitized_policy_digest", "sanitized_language",
-            "ingestion_status", "ingestion_error", "ingestion_error_code",
+            "sanitized_languages", "ingestion_status", "ingestion_error", "ingestion_error_code",
         )
     } == {
         "transcription_text": TRANSCRIPT,
@@ -343,6 +359,7 @@ async def test_full_run_sequence(env):
         "sanitized_entity_types": ["PERSON_NAME"],
         "sanitized_policy_digest": "d1",
         "sanitized_language": "en",
+        "sanitized_languages": ["en"],
         "ingestion_status": "completed",
         "ingestion_error": None,
         "ingestion_error_code": None,
@@ -417,6 +434,16 @@ async def test_empty_document_skips_detection_and_indexing(env):
     assert document.chunk_count == 0 and document.ingestion_status == "completed"
 
 
+async def test_empty_document_records_its_masking_language_alone(env):
+    env.state["blocks"] = []
+    env.state["masking_language"] = "de"
+
+    document, _, _ = await _run(env, confidence=None)
+
+    assert document.sanitized_language == "de"
+    assert document.sanitized_languages == ["de"]
+
+
 async def test_progress_callback_optional(env):
     document, ticks, _ = await _run(env, progress=False)
     assert ticks == [] and document.ingestion_status == "completed"
@@ -448,7 +475,7 @@ async def test_entity_index_failure_is_logged_and_rolled_back(env, caplog):
 
 
 async def test_detector_failure_propagates_before_persist(env, monkeypatch):
-    def boom(text, language, *, boundaries=()):
+    def boom(text, language, *, boundaries=(), segments=None):
         raise ValueError("x")
 
     monkeypatch.setattr(env.sanitizer, "detect", boom)
@@ -460,7 +487,7 @@ async def test_detector_failure_propagates_before_persist(env, monkeypatch):
 async def test_detector_text_that_differs_from_the_blocks_fails_closed(env, monkeypatch):
     real = env.sanitizer.detect
 
-    def shifted(text, language, *, boundaries=()):
+    def shifted(text, language, *, boundaries=(), segments=None):
         result = real(text, language, boundaries=boundaries)
         return DetectionResult(
             text=result.text + " ", language=language, spans=result.spans, semantic_enabled=False
@@ -495,7 +522,7 @@ async def test_extracted_text_over_the_cap_fails_before_detection_without_text(e
 async def test_masked_chunk_over_the_limit_fails_without_text(env):
     name = "Alice" * (MAX_PRE_APPROVED_CHUNK_CHARS // 5 + 1)
     env.state["blocks"] = [TextBlock(name, "text")]
-    env.sanitizer.detect = lambda text, language, *, boundaries=(): DetectionResult(
+    env.sanitizer.detect = lambda text, language, *, boundaries=(), segments=None: DetectionResult(
         text=text, language=language, semantic_enabled=False,
         spans=tuple(
             DetectedSpan(i, i + 5, "PERSON_NAME", 0.9) for i in range(2, len(text), 5)
@@ -511,7 +538,7 @@ async def test_masked_chunk_over_the_limit_fails_without_text(env):
 async def test_oversize_raw_chunk_is_allowed_when_its_masked_text_fits(env):
     name = "Alice" * (MAX_PRE_APPROVED_CHUNK_CHARS // 5 + 1)
     env.state["blocks"] = [TextBlock(name, "text")]
-    env.sanitizer.detect = lambda text, language, *, boundaries=(): DetectionResult(
+    env.sanitizer.detect = lambda text, language, *, boundaries=(), segments=None: DetectionResult(
         text=text, language=language, semantic_enabled=False,
         spans=(DetectedSpan(2, len(text), "PERSON_NAME", 0.9),),
     )
@@ -535,7 +562,7 @@ async def test_ingestion_runs_without_a_local_model_call_budget(env):
     def send(**kwargs: Any) -> str:
         return "[]"
 
-    def detect(text: str, language: str, *, boundaries=()) -> Any:
+    def detect(text: str, language: str, *, boundaries=(), segments=None) -> Any:
         seen.append(budget_module._current_budget.get())
         calls = [
             DetectionCall(
@@ -557,3 +584,172 @@ async def test_ingestion_runs_without_a_local_model_call_budget(env):
 
 
 MANY_CALLS = 200
+
+
+SEGMENT_EN = "The quarterly report describes the ongoing negotiations between both parties. " * 7
+SEGMENT_ZH = "本合同由双方根据平等自愿的原则订立，双方应当严格履行合同约定的各项义务，不得擅自变更。" * 3
+SEGMENT_TR = "Sözleşme taraflar arasındaki görüşmeleri ve yükümlülükleri ayrıntılı olarak düzenler. " * 6
+
+
+def _paragraphs(*texts: str) -> list[TextBlock]:
+    return [TextBlock(text, "paragraph", page=i + 1) for i, text in enumerate(texts)]
+
+
+async def test_single_language_document_gets_one_dominant_segment(env):
+    document, _, _ = await _run(env)
+
+    (segments,) = env.sanitizer.segments
+    assert [(s.start, s.end, s.language) for s in segments] == [(0, len(TEXT), "en")]
+    assert document.sanitized_language == "en"
+    assert document.sanitized_languages == ["en"]
+
+
+async def test_mixed_document_passes_its_segments_and_records_languages_by_share(
+    env
+):
+    """Segments reach the detector; the share order of the stored list comes from the detector double.
+
+    ``echoed_segment_languages`` stands in for the core detector's ordering,
+    so this pins that the pipeline keeps the order it is given; the core
+    tests pin the ordering itself.
+    """
+    env.state["blocks"] = _paragraphs(SEGMENT_EN, SEGMENT_ZH, SEGMENT_TR)
+    document, _, _ = await _run(env)
+
+    (segments,) = env.sanitizer.segments
+    (_, text, _, boundaries) = next(e for e in env.events if e[0] == "detect")
+    assert [s.language for s in segments] == ["en", "zh", "tr"]
+    assert segments[0].start == 0 and segments[-1].end == len(text)
+    assert [s.start for s in segments[1:]] == [s.end for s in segments[:-1]]
+    assert list(boundaries) == [s.start for s in segments]
+    assert document.sanitized_language == "en"
+    assert document.sanitized_languages == ["en", "tr", "zh"]
+
+
+async def test_user_chosen_language_disables_segmentation(env, monkeypatch):
+    def fail(sample: str):
+        raise AssertionError("an override must not run language detection")
+
+    monkeypatch.setattr(db_helpers, "langdetect_candidates", fail)
+    env.state["language_source"] = "override"
+    env.state["blocks"] = _paragraphs(SEGMENT_EN, SEGMENT_ZH)
+    document, _, _ = await _run(env)
+
+    assert env.sanitizer.segments == [None]
+    assert document.sanitized_languages == ["en"]
+
+
+async def test_segment_error_fails_the_run_instead_of_masking_in_one_language(
+    env, monkeypatch
+):
+    def malformed(text, boundaries, language, source):
+        raise ValueError("segment language must be an ISO 639 language code")
+
+    monkeypatch.setattr(dp, "masking_segments", malformed)
+    document = _document()
+
+    with pytest.raises(ValueError):
+        await _run(env, document=document)
+
+    kinds = [e[0] for e in env.events]
+    assert "detect" not in kinds and "persist" not in kinds
+    assert not hasattr(document, "sanitized_languages")
+
+
+async def test_detector_rejecting_segments_fails_the_run(env, monkeypatch):
+    def reject(text, language, *, boundaries=(), segments=None):
+        assert segments is not None
+        raise ValueError("segments must cover the whole text")
+
+    monkeypatch.setattr(env.sanitizer, "detect", reject)
+    env.state["blocks"] = _paragraphs(SEGMENT_EN, SEGMENT_ZH)
+
+    with pytest.raises(ValueError):
+        await _run(env)
+
+    assert all(e[0] != "persist" for e in env.events)
+
+
+async def test_segment_computation_runs_off_the_event_loop(env, monkeypatch):
+    import threading
+
+    threads: list[int] = []
+
+    def record(text, boundaries, language, source):
+        threads.append(threading.get_ident())
+        return None
+
+    monkeypatch.setattr(dp, "masking_segments", record)
+    await _run(env)
+
+    assert threads and threads[0] != threading.get_ident()
+
+
+def _real_language_document(override, detected="en"):
+    return SimpleNamespace(
+        id=7, user_id=None, language_override=override, detected_language=detected,
+        active_regulation_ids=["gdpr"], ingestion_status="processing",
+        ingestion_error=None, ingestion_error_code=None,
+    )
+
+
+async def test_accepted_override_masks_the_whole_document_in_its_language(env, monkeypatch):
+    monkeypatch.setattr(dp, "masking_language", db_helpers.masking_language)
+    env.state["blocks"] = _paragraphs(SEGMENT_EN, SEGMENT_ZH)
+    document = _real_language_document(override="tr")
+
+    await _run(env, document=document)
+
+    assert env.sanitizer.segments == [None]
+    assert document.sanitized_language == "tr"
+    assert document.sanitized_languages == ["tr"]
+
+
+async def test_refused_override_falls_back_to_detected_and_segments_the_document(env, monkeypatch):
+    monkeypatch.setattr(dp, "masking_language", db_helpers.masking_language)
+    env.state["blocks"] = _paragraphs(SEGMENT_EN, SEGMENT_TR)
+    document = _real_language_document(override="zh", detected="en")
+    assert not db_helpers.override_fits_text("zh", SEGMENT_EN + SEGMENT_TR)
+
+    await _run(env, document=document)
+
+    (segments,) = env.sanitizer.segments
+    assert [s.language for s in segments] == ["en", "tr"]
+    assert document.sanitized_language == "en"
+    assert document.sanitized_languages == ["en", "tr"]
+
+
+LOW_CONFIDENCE_BLOCK = "Ref 4471 qx zv mbr klt prn wsd. " * 15
+
+
+async def test_refused_override_segments_with_the_detected_language_as_dominant(env, monkeypatch):
+    """A block the detector is unsure of falls to the dominant language: the detected one, never the refused override."""
+    fixture_candidates = db_helpers.langdetect_candidates
+
+    def candidates(sample: str):
+        if "qx zv" in sample:
+            return [("tr", 0.4), ("en", 0.35)]
+        return fixture_candidates(sample)
+
+    monkeypatch.setattr(db_helpers, "langdetect_candidates", candidates)
+    monkeypatch.setattr(dp, "masking_language", db_helpers.masking_language)
+    env.state["blocks"] = _paragraphs(SEGMENT_EN, SEGMENT_TR, LOW_CONFIDENCE_BLOCK)
+    document = _real_language_document(override="zh", detected="en")
+
+    await _run(env, document=document)
+
+    (segments,) = env.sanitizer.segments
+    assert [s.language for s in segments] == ["en", "tr", "en"]
+    assert document.sanitized_language == "en"
+
+
+async def test_languages_follow_what_detection_applied_not_what_was_requested(env, monkeypatch):
+    def ignoring_segments(text, language, *, boundaries=(), segments=None):
+        return DetectionResult(text=text, language=language, semantic_enabled=False)
+
+    monkeypatch.setattr(env.sanitizer, "detect", ignoring_segments)
+    env.state["blocks"] = _paragraphs(SEGMENT_EN, SEGMENT_ZH, SEGMENT_TR)
+
+    document, _, _ = await _run(env)
+
+    assert document.sanitized_languages == ["en"]

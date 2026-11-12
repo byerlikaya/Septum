@@ -590,3 +590,93 @@ def test_precomputed_script_counts_give_the_same_language(text):
     assert resolve_sample(
         sample, candidates, context_language="zh", script_counts=script_letter_counts(sample)
     ) == resolve_sample(sample, candidates, context_language="zh")
+
+
+_FORCED_ALPHABETS = {
+    "Han": "温控器使用说明安全须知请先切断电源",
+    "Kana": "これはぶんしょうのしけんようのてすとです",
+    "Hangul": "이문서는시험용으로만들어진짧은글입니다",
+    "Thai": "เอกสารนี้ใช้สำหรับทดสอบการแบ่งภาษา",
+    "Latin": "abcdefghij klmnopq rstuvwxyz",
+    "Cyrillic": "документ для проверки языка",
+    "Arabic": "هذا مستند للاختبار",
+    "Hebrew": "דאָס איז אַ טעסט פֿון דער שפּראַך",
+    "Greek": "αυτό είναι ένα έγγραφο δοκιμής",
+    "Tamil": "இது ஒரு சோதனை ஆவணம்",
+    "Digits": "1234 5678 90",
+}
+
+
+def _random_text(rng):
+    pieces = rng.sample(sorted(_FORCED_ALPHABETS), rng.randint(1, 3))
+    return "".join(
+        "".join(rng.choices(_FORCED_ALPHABETS[name], k=rng.randint(1, 80))) for name in pieces
+    )
+
+
+@pytest.mark.parametrize("seed", range(30))
+def test_a_script_forced_language_is_what_resolve_language_returns_for_any_candidates(seed):
+    import random
+
+    from septum_core.language_resolution import (
+        script_forced_language,
+        script_letter_counts,
+    )
+
+    rng = random.Random(seed)
+    pool = ["zh", "zh-cn", "ja", "ko", "en", "tr", "th", "ru", "ar", "he", "yi", "el", "xx1", "fr"]
+    forced_seen = 0
+    for _ in range(60):
+        sample = detection_sample(_random_text(rng))
+        counts, letters = script_letter_counts(sample)
+        forced = script_forced_language(counts, letters)
+        if forced is None:
+            continue
+        forced_seen += 1
+        for _ in range(12):
+            candidates = [(rng.choice(pool), rng.random()) for _ in range(rng.randint(0, 4))]
+            context = rng.choice([None, *pool])
+            default = rng.choice(["en", "zh", "ja", "tr"])
+            assert resolve_sample(
+                sample, candidates, context_language=context, default=default
+            ) == forced
+    assert forced_seen > 0
+
+
+@pytest.mark.parametrize(
+    ("text", "forced"),
+    [
+        (HAN_ONLY, "zh"),
+        (HANGUL, "ko"),
+        ("これはぶんしょうのしけんようのてすとです", "ja"),
+        ("เอกสารนี้ใช้สำหรับทดสอบการแบ่งภาษา", "th"),
+        ("温控器使用说明安全须知请先切断电源 a few words", "zh"),
+    ],
+)
+def test_single_answer_scripts_are_forced(text, forced):
+    from septum_core.language_resolution import (
+        script_forced_language,
+        script_letter_counts,
+    )
+
+    assert script_forced_language(*script_letter_counts(detection_sample(text))) == forced
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "plain english",
+        "документ для проверки",
+        "1234 5678",
+        "",
+        "דאָס איז אַ טעסט פֿון דער שפּראַך",
+    ],
+)
+def test_shared_scripts_and_letterless_text_are_not_forced(text):
+    """A script several languages share (Hebrew script: Hebrew or Yiddish) or no letters settles nothing."""
+    from septum_core.language_resolution import (
+        script_forced_language,
+        script_letter_counts,
+    )
+
+    assert script_forced_language(*script_letter_counts(detection_sample(text))) is None

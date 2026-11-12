@@ -339,3 +339,63 @@ def test_mixed_leak_table_shows_matched_mismatched_and_reference_per_language():
             or line.startswith("| tr |")}
     assert rows["| en"].endswith("| 1.000 (1/1) / 0.000 (0/1) | 0.000 (0/1) / 0.000 (0/1) | 0.000 (0/1) / 0.000 (0/1) |")
     assert rows["| tr"].endswith("| 0.000 (0/1) / 0.000 (0/1) | - (0/0) / - (0/0) | - |")
+
+
+class _SegmentRecorder:
+    """Detector double that records the ``segments`` it was handed; finds nothing."""
+
+    def __init__(self) -> None:
+        self.seen: list[tuple] = []
+
+    def detect(self, text, language, *, boundaries=(), segments=None):
+        from septum_core.spans import DetectionResult
+
+        self.seen.append((tuple(boundaries), segments))
+        return DetectionResult(text=text, language=language, semantic_enabled=False)
+
+    def apply(self, detection, anon_map):
+        from septum_core.spans import SanitizeResult
+
+        return SanitizeResult(
+            sanitized_text=detection.text, entity_count=0, entity_type_counts={}, detected_spans=[]
+        )
+
+
+async def _chunked_with(monkeypatch, text, **kwargs):
+    from septum_api.database import build_default_app_settings
+    from septum_api.services.document_pipeline import DocumentPipeline
+    from septum_api.services.anonymization_map import AnonymizationMap
+    from septum_api.utils import db_helpers
+    from tests.benchmark_retrieval import ChunkContext, _chunk_document
+
+    monkeypatch.setattr(
+        db_helpers,
+        "langdetect_candidates",
+        lambda sample: [("zh-cn", 0.99)] if "合同" in sample else [("en", 0.99)],
+    )
+    recorder = _SegmentRecorder()
+    ctx = ChunkContext(DocumentPipeline(build_default_app_settings()), recorder)
+    await _chunk_document(
+        ctx, None, "txt", text, "en", AnonymizationMap(document_id=1, language="en"), **kwargs
+    )
+    return recorder.seen
+
+
+async def test_mixed_leak_path_masks_paragraph_segments_through_the_production_helper(monkeypatch):
+    english = "The quarterly report describes the ongoing negotiations between both parties. " * 7
+    chinese = "本合同由双方根据平等自愿的原则订立，双方应当严格履行合同约定的各项义务，不得擅自变更。" * 3
+    text = f"{english}\n\n{chinese}"
+
+    ((boundaries, segments),) = await _chunked_with(monkeypatch, text, paragraph_segments=True)
+
+    assert boundaries == (0, len(english) + 2)
+    assert [(s.start, s.end, s.language) for s in segments] == [
+        (0, len(english) + 2, "en"),
+        (len(english) + 2, len(text), "zh"),
+    ]
+
+
+async def test_single_language_path_detects_without_segments(monkeypatch):
+    text = "The quarterly report describes the ongoing negotiations between both parties."
+
+    assert await _chunked_with(monkeypatch, text) == [((0,), None)]

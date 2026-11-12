@@ -375,6 +375,7 @@ class TestStalenessFields:
         from septum_core import DETECTOR_VERSION
 
         from septum_api.services.chunking import CHUNKER_VERSION
+        from septum_api.services.policy_snapshot import LANGUAGE_SEGMENTATION_REVISION
 
         def digest_of(fields: dict) -> str:
             canonical = json.dumps(fields, sort_keys=True, ensure_ascii=False)
@@ -382,6 +383,7 @@ class TestStalenessFields:
 
         before_chunker = {
             "detector": DETECTOR_VERSION,
+            "language_segmentation": LANGUAGE_SEGMENTATION_REVISION,
             "custom": [],
             "non_pii": [],
             "settings": list(detection_settings(build_default_app_settings())),
@@ -391,6 +393,44 @@ class TestStalenessFields:
         doc_id = await env.add_document(_hipaa_types(), digest=digest)
 
         assert (await env.get_doc(doc_id))["needs_reprocessing"] is True
+
+    async def test_new_language_segmentation_revision_flags_documents(
+        self, env: _Env, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from septum_api.services import policy_snapshot
+
+        doc_id = await env.add_document(_hipaa_types())
+        assert (await env.get_doc(doc_id))["needs_reprocessing"] is False
+        monkeypatch.setattr(policy_snapshot, "LANGUAGE_SEGMENTATION_REVISION", "next")
+
+        doc = await env.get_doc(doc_id)
+        assert doc["needs_reprocessing"] is True
+        assert doc["missing_entity_types"] == []
+        assert doc["sanitized_policy_known"] is True
+
+    async def test_digest_recorded_before_language_segmentation_is_stale(self, env: _Env) -> None:
+        import hashlib
+        import json
+
+        from septum_api.services.chunking import CHUNKER_VERSION
+        from septum_api.services.policy_snapshot import detection_settings
+        from septum_core import DETECTOR_VERSION
+
+        before_segmentation = {
+            "detector": DETECTOR_VERSION,
+            "chunker": CHUNKER_VERSION,
+            "custom": [],
+            "non_pii": [],
+            "settings": list(detection_settings(build_default_app_settings())),
+        }
+        canonical = json.dumps(before_segmentation, sort_keys=True, ensure_ascii=False)
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        assert digest != _current_digest()
+
+        doc = await env.get_doc(await env.add_document(_hipaa_types(), digest=digest))
+
+        assert doc["needs_reprocessing"] is True
+        assert doc["missing_entity_types"] == []
 
     async def test_removed_non_pii_rule_flags_documents(self, env: _Env) -> None:
         from septum_api.models.regulation import NonPiiRule

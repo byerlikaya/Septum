@@ -140,6 +140,17 @@ now a match needs one of them nearby. Rules without context words detect the
 same as before and keep their digest.
 """
 
+LANGUAGE_SEGMENTATION_REVISION = "language-segments-1"
+"""Marks per-segment language detection in the digest.
+
+Before this revision a document was masked with the models of one language.
+Now each language segment of a mixed document runs its own model set, so a
+document processed earlier may have masked a minority segment with the wrong
+models. The marker changes every digest: all documents read as outdated and
+chat re-masks them until they are reprocessed. Bump it whenever segmentation
+starts finding what earlier documents did not.
+"""
+
 
 def custom_recognizer_definition(recognizer: Any) -> tuple:
     """Return the fields of a custom recognizer that decide what it detects.
@@ -252,7 +263,8 @@ def build_policy_snapshot(
     The entity types are the union the policy composer builds: every active
     regulation's types plus each active custom recognizer's type. The digest
     is the SHA-256 of a canonical JSON form of the detector and chunker
-    versions, the sorted custom recognizer and non-PII rule definitions and the detection
+    versions, :data:`LANGUAGE_SEGMENTATION_REVISION`, the sorted custom
+    recognizer and non-PII rule definitions and the detection
     settings (``detection``, from :func:`detection_settings`). ``None``
     stands for the default settings of a fresh install; production callers
     always pass the settings row their sanitizer uses.
@@ -270,6 +282,7 @@ def build_policy_snapshot(
         {
             "detector": DETECTOR_VERSION,
             "chunker": CHUNKER_VERSION,
+            "language_segmentation": LANGUAGE_SEGMENTATION_REVISION,
             "custom": _canonical(definitions),
             "non_pii": _canonical(non_pii_definitions),
             "settings": list(detection),
@@ -359,6 +372,7 @@ def document_staleness(
 __all__ = [
     "CONTEXT_GATE_REVISION",
     "DocumentStaleness",
+    "LANGUAGE_SEGMENTATION_REVISION",
     "PolicySnapshot",
     "active_entity_types",
     "build_policy_snapshot",

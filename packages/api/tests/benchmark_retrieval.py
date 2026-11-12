@@ -79,7 +79,7 @@ from septum_api.services.vector_store import (
     get_shared_sentence_transformer,
 )
 from septum_api.utils import crypto
-from septum_api.utils.db_helpers import detect_language
+from septum_api.utils.db_helpers import detect_language, masking_segments
 from tests import benchmark_detection as bd
 from tests.retrieval_eval import (
     EVAL_DIR,
@@ -450,7 +450,8 @@ class ChunkedDocument:
     """Masked text of arbitrary ranges of the document, as the whole-document view shows them."""
 
 
-Chunker = Callable[[ChunkContext, str, str, str, AnonymizationMap], Awaitable[ChunkedDocument]]
+Chunker = Callable[..., Awaitable[ChunkedDocument]]
+"""``(ctx, format, text, lang, anon_map, *, paragraph_segments=False)``; see :func:`_chunk_document`."""
 
 
 def _document_blocks(text: str) -> tuple[list[TextBlock], str]:
@@ -459,19 +460,40 @@ def _document_blocks(text: str) -> tuple[list[TextBlock], str]:
     return blocks, join_blocks(blocks)
 
 
+def _paragraph_starts(text: str) -> list[int]:
+    """Offset of each paragraph (text between blank lines) of ``text``."""
+    return [0, *(match.end() for match in re.finditer("\n\n", text))]
+
+
 async def _chunk_document(
-    ctx: ChunkContext, strategy_format: Optional[str], fmt: str, text: str, lang: str, anon_map: AnonymizationMap
+    ctx: ChunkContext,
+    strategy_format: Optional[str],
+    fmt: str,
+    text: str,
+    lang: str,
+    anon_map: AnonymizationMap,
+    *,
+    paragraph_segments: bool = False,
 ) -> ChunkedDocument:
     """Mirror ``DocumentPipeline._mask_document`` without the database and model-scope plumbing.
 
     Detect once on the whole text, apply to ``anon_map`` (placeholders in document order),
-    cut the chunks outside the protected ranges, project each chunk.
+    cut the chunks outside the protected ranges, project each chunk. With ``paragraph_segments``
+    the language segments come from the production helper over the paragraphs of ``text``
+    (``lang`` being its detected masking language); otherwise detection is the single-language call.
     """
     blocks, joined = _document_blocks(text)
     if joined != text:
         raise ValueError("block normalization changed the evaluation text; gold offsets would shift")
     started = time.perf_counter()
-    detection = await asyncio.to_thread(ctx.sanitizer.detect, joined, lang, boundaries=block_starts(blocks))
+    boundaries = block_starts(blocks)
+    segments = None
+    if paragraph_segments:
+        boundaries = _paragraph_starts(joined)
+        segments = await asyncio.to_thread(masking_segments, joined, boundaries, lang, "detected")
+    detection = await asyncio.to_thread(
+        ctx.sanitizer.detect, joined, lang, boundaries=boundaries, segments=segments
+    )
     if detection.text != joined:
         raise ValueError("the detector normalized the evaluation text differently from its blocks")
     applied = await asyncio.to_thread(ctx.sanitizer.apply, detection, anon_map)
@@ -499,8 +521,18 @@ async def _chunk_document(
 
 
 def _chunker_for(name: str) -> Chunker:
-    async def chunk(ctx: ChunkContext, fmt: str, text: str, lang: str, anon_map: AnonymizationMap) -> ChunkedDocument:
-        return await _chunk_document(ctx, CHUNKER_FORMATS[name], fmt, text, lang, anon_map)
+    async def chunk(
+        ctx: ChunkContext,
+        fmt: str,
+        text: str,
+        lang: str,
+        anon_map: AnonymizationMap,
+        *,
+        paragraph_segments: bool = False,
+    ) -> ChunkedDocument:
+        return await _chunk_document(
+            ctx, CHUNKER_FORMATS[name], fmt, text, lang, anon_map, paragraph_segments=paragraph_segments
+        )
 
     return chunk
 
@@ -1059,15 +1091,25 @@ def segment_leak_report(records: list[_LeakRecord]) -> dict:
 
 
 async def _score_leak_text(
-    ctx: ChunkContext, text: str, placed: list[tuple[str, str, int, int, str]], lang: str, document_id: int
+    ctx: ChunkContext,
+    text: str,
+    placed: list[tuple[str, str, int, int, str]],
+    lang: str,
+    document_id: int,
+    *,
+    segmented: bool = False,
 ) -> tuple[list[Optional[_LeakRecord]], int, float]:
     """Mask ``text`` with ``lang`` the production way and score every placed value.
+
+    ``segmented`` masks mixed-language text per paragraph segment, as ingestion does for a
+    detected language; ``lang`` stays the document's dominant language.
 
     Returns one record per placed value (None when no chunk covers it), each carrying the value's own
     language and the masking language, then the chunk count and the detect-plus-cut seconds.
     """
     chunked = await CHUNKERS["pipeline"](
-        ctx, "txt", text, lang, AnonymizationMap(document_id=document_id, language=lang)
+        ctx, "txt", text, lang, AnonymizationMap(document_id=document_id, language=lang),
+        paragraph_segments=segmented,
     )
     spans = list(chunked.spans)
     leak = _ChunkedLeak(chunked.texts, spans, chunked.sanitized, spans)
@@ -1108,8 +1150,9 @@ async def _mixed_reference_block(ctx: ChunkContext, first_id: int) -> tuple[dict
 async def _mixed_leak_block(ctx: ChunkContext, timing: dict) -> dict:
     """Leak of the mixed-language slice, scored like ``_leak_block`` but broken down by segment language.
 
-    Each mixed document is masked with the one language detection gives its text, as production does,
-    so values in the other language's segments show what that single choice costs. Reported apart from
+    Each mixed document is masked as ingestion does: the one language detection gives its text is the
+    dominant language, and the other languages of its paragraphs are masked as segments of their own
+    (``masking_segments``). Reported apart from
     ``leak`` so the single-language numbers stay comparable; ``single_language_reference`` is the
     single-language leak at this slice's value density, the rate matched values compare against.
     """
@@ -1128,7 +1171,9 @@ async def _mixed_leak_block(ctx: ChunkContext, timing: dict) -> dict:
             document_lang = detect_language(text, fallback=meta.lang)
             detected.append(document_lang)
             run += 1
-            scored, chunks, seconds = await _score_leak_text(ctx, text, placed, document_lang, -run)
+            scored, chunks, seconds = await _score_leak_text(
+                ctx, text, placed, document_lang, -run, segmented=True
+            )
             elapsed += seconds
             chunk_total += chunks
             for (_, _, _, _, segment_lang), record in zip(placed, scored):

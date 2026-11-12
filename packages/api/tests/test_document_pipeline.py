@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Tests for the document pipeline chunk indexing behaviour."""
 
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -178,12 +179,14 @@ async def _ingest(
     file_format="image",
     chunk_records=None,
     index_calls=None,
+    sanitizer=None,
     **settings,
 ):
     """Run the real pipeline (real chunker, projection and SQLite) with a pattern detector.
 
     Returns the stored chunks and detection rows in index order. Indexing and
-    the map store are stubbed; nothing else is.
+    the map store are stubbed; nothing else is. ``sanitizer`` replaces the
+    pattern detector (for example with the real core detector).
     """
     from contextlib import asynccontextmanager
 
@@ -213,7 +216,7 @@ async def _ingest(
     async def _noop(*args, **kwargs):
         return None
 
-    detector = PatternDetector(literal(NAME, "PERSON_NAME"))
+    detector = sanitizer or PatternDetector(literal(NAME, "PERSON_NAME"))
 
     async def _create_sanitizer(db, settings, enable_ollama=None, policy=None):
         return detector
@@ -263,8 +266,9 @@ async def _ingest(
             stored = await session.get(Document, doc.id)
     finally:
         await engine.dispose()
-    assert detector.calls[0][0] == "detect"
-    assert [c[0] for c in detector.calls] == ["detect", "apply"]
+    if sanitizer is None:
+        assert detector.calls[0][0] == "detect"
+        assert [c[0] for c in detector.calls] == ["detect", "apply"]
     return chunks, rows, stored
 
 
@@ -301,6 +305,39 @@ async def test_name_across_an_old_chunk_boundary_is_masked_whole_in_both_chunks(
     assert [(r.chunk_id, r.placeholder) for r in rows] == [
         (chunks[0].id, "[PERSON_NAME_1]"), (chunks[1].id, "[PERSON_NAME_1]")
     ]
+
+
+async def test_masked_language_list_is_stored_dominant_first_then_by_share(
+    tmp_path, monkeypatch
+) -> None:
+    """The list round-trips through the database: dominant first, then the order detection reported.
+
+    The share order comes from the detector double (``echoed_segment_languages``),
+    so this pins storage and order keeping; the core tests pin the ordering.
+    """
+    from septum_api.utils import db_helpers
+
+    def candidates(sample):
+        if "合同" in sample:
+            return [("zh-cn", 0.99)]
+        if "Hello" in sample:
+            return [("en", 0.99)]
+        return [("tr", 0.99)]
+
+    monkeypatch.setattr(db_helpers, "langdetect_candidates", candidates)
+    turkish = "Sözleşme taraflar arasındaki yükümlülükleri ayrıntılı olarak düzenler. " * 8
+    english = "Hello, this clause sets out the obligations of both parties in detail. " * 8
+    chinese = "本合同由双方根据平等自愿的原则订立，双方应当严格履行合同约定的各项义务。" * 5
+    blocks = [
+        TextBlock(turkish, "paragraph"),
+        TextBlock(chinese, "paragraph"),
+        TextBlock(english, "paragraph"),
+    ]
+
+    _, _, stored = await _ingest(tmp_path, monkeypatch, blocks)
+
+    assert stored.sanitized_language == "tr"
+    assert stored.sanitized_languages == ["tr", "en", "zh"]
 
 
 async def test_chunker_never_cuts_inside_a_detected_name(tmp_path, monkeypatch) -> None:
@@ -501,3 +538,80 @@ def test_rows_are_normalized_one_by_one_and_their_offsets_rebuilt() -> None:
     assert normalized.text == "ab\ncccd\nef"
     assert list(normalized.row_offsets) == [0, 3, 8]
     assert normalized.sheet == "S"
+
+
+class _NameFinder:
+    """Stand-in for a token-classification pipeline: tags the names it is told to."""
+
+    def __init__(self, names: dict[str, str]) -> None:
+        self._names = names
+
+    def __call__(self, text: str) -> list[dict]:
+        return [
+            {"entity_group": label, "score": 0.99, "start": m.start(), "end": m.end()}
+            for name, label in self._names.items()
+            for m in re.finditer(re.escape(name), text)
+        ]
+
+
+def _segment_registry(emits: dict[str, dict[str, str]]):
+    """Real model-set planning, one stub pipeline per model id; no model is downloaded."""
+    from septum_core.ner_model_registry import NERModelRegistry
+
+    class _Registry(NERModelRegistry):
+        def get_pipelines_for_models(self, model_ids):
+            return [_NameFinder(emits.get(model_id, {})) for model_id in model_ids]
+
+    return _Registry(_overrides={})
+
+
+MINORITY_NAME = "Brown Smith"
+DOMINANT_NAME = "Ayse Demir"
+
+
+@pytest.mark.parametrize("form", ["NFC", "NFD"])
+async def test_run_with_the_real_detector_masks_a_minority_language_name(
+    tmp_path, monkeypatch, form
+) -> None:
+    """Two-language blocks, ingested as composed or decomposed text, through the core detector."""
+    import unicodedata
+
+    from septum_core.config import SeptumCoreConfig
+    from septum_core.detector import Detector
+    from septum_core.ner_model_registry import NERModelRegistry
+    from septum_api.utils import db_helpers
+
+    monkeypatch.setattr(
+        db_helpers,
+        "langdetect_candidates",
+        lambda sample: [("en", 0.99)] if "committee" in sample else [("tr", 0.99)],
+    )
+    dominant_models = NERModelRegistry().model_ids("tr")
+    minority_models = NERModelRegistry().model_ids("en")
+    detector = Detector(
+        SeptumCoreConfig(use_presidio_layer=False, use_ner_layer=True),
+        ner_registry=_segment_registry({
+            dominant_models[0]: {DOMINANT_NAME: "PER"},
+            minority_models[0]: {MINORITY_NAME: "PER"},
+        }),
+    )
+    turkish = "Komite yıllık bütçeyi ayrıntılı olarak inceledi. " * 10 + f"Sayin {DOMINANT_NAME} katildi. "
+    english = (
+        "The committee reviewed the annual budget in detail. " * 10
+        + f"Mr {MINORITY_NAME} attended the meeting. "
+    )
+    blocks = [
+        TextBlock(unicodedata.normalize(form, turkish), "paragraph"),
+        TextBlock(unicodedata.normalize(form, english), "paragraph"),
+    ]
+
+    chunks, rows, stored = await _ingest(tmp_path, monkeypatch, blocks, sanitizer=detector)
+
+    assert stored.ingestion_status == "completed"
+    assert stored.sanitized_language == "tr"
+    assert stored.sanitized_languages == ["tr", "en"]
+    for chunk in chunks:
+        assert MINORITY_NAME not in chunk.sanitized_text
+        assert DOMINANT_NAME not in chunk.sanitized_text
+    assert any(MINORITY_NAME in chunk.raw_text for chunk in chunks)
+    assert stored.entity_count == 2

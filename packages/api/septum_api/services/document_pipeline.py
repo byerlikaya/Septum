@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from septum_core.anonymization_map import PLACEHOLDER_PATTERN
+from septum_core.language_resolution import iso_language_code
 from septum_core.span_projection import ProjectedChunk, project, protected_ranges
 from septum_core.spans import DetectionResult
 from septum_core.text_utils import normalize_unicode
@@ -31,6 +32,7 @@ from ..request_limits import (
 )
 from ..utils.db_helpers import (
     masking_language,
+    masking_segments,
     override_fits_text,
     supported_language_code,
 )
@@ -419,6 +421,23 @@ class _MaskedDocument:
     titles: List[Optional[str]]
     entity_count: int
     type_counts: Dict[str, int]
+    languages: List[str]
+
+
+def _masked_languages(language: str, applied: Optional[Sequence[str]]) -> List[str]:
+    """Distinct languages a document was masked in: ``language`` first, then ``applied`` in its order.
+
+    ``applied`` is what the detector reports it really treated as segments
+    (``DetectionResult.segment_languages``); it is empty when detection ran
+    in a single language, whatever segments were requested. Only well-formed
+    ISO 639 codes are kept.
+    """
+    languages = [language]
+    for code in applied or ():
+        canonical = iso_language_code(code)
+        if canonical is not None and canonical not in languages:
+            languages.append(canonical)
+    return languages
 
 
 class DocumentPipeline:
@@ -494,7 +513,15 @@ class DocumentPipeline:
         anon_map = AnonymizationMap(document_id=document.id, language=language)
 
         masked = await self._mask_document(
-            sanitizer, document, file_format, blocks, text, language, anon_map, emit
+            sanitizer,
+            document,
+            file_format,
+            blocks,
+            text,
+            language,
+            language_source,
+            anon_map,
+            emit,
         )
         records, projected = masked.records, masked.projected
 
@@ -545,6 +572,7 @@ class DocumentPipeline:
         document.sanitized_entity_types = policy_snapshot.entity_types
         document.sanitized_policy_digest = policy_snapshot.digest
         document.sanitized_language = language
+        document.sanitized_languages = masked.languages
         await self._clear_refused_override(
             db, document, text,
             judged=(judged_override, language_source == "override"),
@@ -562,11 +590,17 @@ class DocumentPipeline:
         blocks: Sequence[TextBlock],
         text: str,
         language: str,
+        language_source: str,
         anon_map: AnonymizationMap,
         emit: Callable[[int], None],
     ) -> _MaskedDocument:
         """Detect once on ``text``, fill ``anon_map``, cut and project the chunks.
 
+        Language segments are computed from the blocks
+        (:func:`~septum_api.utils.db_helpers.masking_segments`) and handed to
+        the detector; a user-chosen ``language_source`` gets none. A segment
+        error fails the document like any detection error, never falls back
+        to one language.
         An empty document has no chunks and calls neither the detector nor
         the embedder. Raises :class:`DocumentTextMismatchError` when the
         detector's normalized text is not ``text`` (the chunk offsets would
@@ -574,10 +608,14 @@ class DocumentPipeline:
         masked chunk over the limit; neither message holds document text.
         """
         if not text:
-            return _MaskedDocument([], [], [], 0, {})
+            return _MaskedDocument([], [], [], 0, {}, [language])
+        boundaries = block_starts(blocks)
         async with local_model_scope(document.user_id, budgeted=False):
+            segments = await asyncio.to_thread(
+                masking_segments, text, boundaries, language, language_source
+            )
             detection = await asyncio.to_thread(
-                sanitizer.detect, text, language, boundaries=block_starts(blocks)
+                sanitizer.detect, text, language, boundaries=boundaries, segments=segments
             )
             if detection.text != text:
                 raise DocumentTextMismatchError(
@@ -598,7 +636,12 @@ class DocumentPipeline:
         titles = _masked_titles(detection, resolved, anon_map, records)
         emit(90)
         return _MaskedDocument(
-            records, projected, titles, applied.entity_count, dict(applied.entity_type_counts)
+            records,
+            projected,
+            titles,
+            applied.entity_count,
+            dict(applied.entity_type_counts),
+            _masked_languages(language, detection.segment_languages),
         )
 
     def _chunk_records(
