@@ -43,6 +43,7 @@ import random
 import re
 import subprocess
 import time
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -713,9 +714,25 @@ def _filler_text(lang: str) -> str:
     return "\n\n".join(paragraphs)
 
 
-def _snap_to_space(text: str, end: int) -> int:
-    """Move a cut forward to the next whitespace within 20 characters so values never split a word."""
-    for probe in range(end, min(len(text), end + 20)):
+LEAK_SPACE_WINDOW = 20
+LEAK_PUNCT_WINDOW = 60
+
+
+def _snap_to_boundary(text: str, end: int) -> int:
+    """Move a cut forward to a word boundary so values never split a word.
+
+    The next whitespace within ``LEAK_SPACE_WINDOW`` characters wins. Unspaced text has none, so the
+    cut moves to just after the next punctuation character (Unicode category ``P*``) within
+    ``LEAK_PUNCT_WINDOW``, else to the next whitespace in that wider window, else stays at ``end``.
+    """
+    for probe in range(end, min(len(text), end + LEAK_SPACE_WINDOW)):
+        if text[probe].isspace():
+            return probe
+    wide = min(len(text), end + LEAK_PUNCT_WINDOW)
+    for probe in range(end, wide):
+        if unicodedata.category(text[probe]).startswith("P"):
+            return probe + 1
+    for probe in range(end, wide):
         if text[probe].isspace():
             return probe
     return end
@@ -733,7 +750,7 @@ def _leak_text(lang: str, n_values: int, part: int) -> tuple[str, list[tuple[str
         gap = rng.randint(*LEAK_GAP_CHARS)
         if cursor + gap > len(filler):
             cursor = 0
-        end = _snap_to_space(filler, cursor + gap)
+        end = _snap_to_boundary(filler, cursor + gap)
         filler_piece = filler[cursor:end] + " "
         cursor = end
         pieces.append(filler_piece)

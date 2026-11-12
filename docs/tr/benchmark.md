@@ -160,7 +160,7 @@ Belgeler ve sorular elle yazılmıştır. Bir belgedeki her kişisel veri yuvas�
 | Gecikme | Sorgu başına 5 ölçülmüş tekrar, maskelenmiş sorgular, sorgu embedding'i dahil tek bir retriever çağrısı |
 | Donanım | Apple M4 Max, 14 CPU çekirdeği, 10 torch thread, Darwin 27.0.0 arm64 |
 | Seed | 42 |
-| Commit | `7d22460d` (çalıştırma çıktısındaki `git_sha`); buna örtüşme başlangıcı değişikliği (`012cfdd`) eklenir; ölçüm 2026-11-11 tarihinde 23:01 UTC'de yapıldı |
+| Commit | `570d4488` (çalıştırma çıktısındaki `git_sha`); buna benchmark harness'indeki sızıntı değeri yerleştirme değişikliği eklenir; ölçüm 2026-11-12 tarihinde 06:56 UTC'de yapıldı |
 
 ### Sonuçlar
 
@@ -201,6 +201,8 @@ Belgeler ve sorular elle yazılmıştır. Bir belgedeki her kişisel veri yuvas�
 
 Örnek sayısı, sorgu sayısının 5 tekrarla çarpımıdır; auto_rag tüm 140 soruyu, diğerleri 129 cevaplanabilir soruyu çalıştırır.
 
+Gecikme ve ingestion süreleri, aynı erişim kodunun önceki çalıştırmasından alınmıştır (git `7d22460d` ve örtüşme başlangıcı değişikliği); çünkü son çalıştırmanın süreleri yüklü bir makinede ölçülmüştür.
+
 **Ingestion** (tek çalıştırma):
 
 | Adım | Süre |
@@ -226,31 +228,31 @@ Geçit bir oran değil, bir değişmezdir (invariant). Herhangi bir chunk'ta aç
 | Çapraz değer | İçinde bir chunk sınırı bulunan değer (bir chunk başlangıcı ya da bitişi değerin içine düşer). |
 | Kontrol değeri | İçinde hiçbir chunk sınırı bulunmayan değer. |
 
-Her dilin yuvasız korpus paragrafları dolgu olarak kullanılır; her 120 ile 180 dolgu karakterinden sonra bir sentetik değer eklenir. Örnek en için 24.000, tr için 28.800, zh için 28.800 değer içerir ve bunların 56'sı (en), 20'si (tr) ve 0'ı (zh) çapraz değerdir. Harness, bir dil 50 çapraz değere ulaşana ya da en fazla 12 belgeye varana kadar dolgu belgesi (her biri 2.400 değer) ekler. en 10 belgeyle 50'ye ulaştı; tr ve zh 12 belgenin hepsini kullandı ve 50'nin altında kaldı (zh'de hiç yok); bu yüzden bu dillerin çapraz oranlarını ve farklarını örneklem belirlemez. Geçit değişmezdir.
+Her dilin yuvasız korpus paragrafları dolgu olarak kullanılır; her 120 ile 180 dolgu karakterinden sonra bir sentetik değer eklenir. Değer, 20 karakter içindeki ilk boşluğa konur. Boşluk yoksa (zh gibi boşluksuz metinlerde), 60 karakter içindeki ilk noktalama işaretinin hemen arkasına, o da yoksa 60 karakter içindeki ilk boşluğa konur; hiçbiri yoksa konum değişmez. Böylece değer bir kelimenin iki glifi arasına düşmez. Örnek en için 24.000, tr için 28.800, zh için 28.800 değer içerir ve bunların 56'sı (en), 21'i (tr) ve 3'ü (zh) çapraz değerdir. Harness, bir dil 50 çapraz değere ulaşana ya da en fazla 12 belgeye varana kadar dolgu belgesi (her biri 2.400 değer) ekler. en 10 belgeyle 50'ye ulaştı; tr ve zh 12 belgenin hepsini kullandı ve 50'nin altında kaldı (zh'de 3); bu yüzden bu dillerin çapraz oranlarını ve farklarını örneklem belirlemez. Geçit değişmezdir.
 
 **Dil bazında** (tüm değerler; literal ve fragment sızıntı oranları):
 
 | Dil | Çapraz n | Literal: çapraz | Literal: kontrol | Literal: fark | Fragment: çapraz | Fragment: kontrol | Fragment: fark |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| en | 56 | 0,018 | 0,124 | -0,106 | 0,018 | 0,125 | -0,107 |
-| tr | 20 | 0,050 | 0,104 | -0,054 | 0,100 | 0,100 | 0,000 |
-| zh | 0 | - | 0,105 | - | - | 0,105 | - |
+| en | 56 | 0,018 | 0,124 | -0,106 | 0,018 | 0,126 | -0,108 |
+| tr | 21 | 0,048 | 0,103 | -0,056 | 0,095 | 0,100 | -0,004 |
+| zh | 3 | 0,000 | 0,050 | -0,050 | 0,000 | 0,050 | -0,050 |
 
 **ORGANIZATION_NAME hariç** (bu tip yalnızca NER katmanıyla tespit edilir, arkasında örüntü tanıyıcı yoktur; görünüm, sızıntı bloğunu bu tip olmadan raporlar):
 
 | Dil | Çapraz n | Literal: çapraz | Literal: kontrol | Literal: fark | Fragment: çapraz | Fragment: kontrol | Fragment: fark |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | en | 55 | 0,000 | 0,137 | -0,137 | 0,000 | 0,137 | -0,137 |
-| tr | 18 | 0,000 | 0,121 | -0,121 | 0,000 | 0,116 | -0,116 |
-| zh | 0 | - | 0,125 | - | - | 0,125 | - |
+| tr | 19 | 0,000 | 0,121 | -0,121 | 0,000 | 0,116 | -0,116 |
+| zh | 3 | 0,000 | 0,060 | -0,060 | 0,000 | 0,060 | -0,060 |
 
 **Tipe göre literal sızıntı oranı** (tüm değerler, çapraz ve kontrol; sızıntı/n):
 
 | Tip | en | tr | zh |
 |:---|:---:|:---:|:---:|
-| PERSON_NAME | 0,085 (332/3912) | 0,000 (0/4809) | 0,430 (2040/4748) |
-| LOCATION | 0,585 (2395/4091) | 0,617 (2924/4742) | 0,200 (975/4870) |
-| ORGANIZATION_NAME | 0,061 (242/3982) | 0,012 (57/4702) | 0,004 (20/4748) |
+| PERSON_NAME | 0,085 (334/3912) | 0,000 (0/4809) | 0,260 (1234/4748) |
+| LOCATION | 0,586 (2396/4091) | 0,615 (2917/4742) | 0,043 (211/4870) |
+| ORGANIZATION_NAME | 0,061 (244/3982) | 0,011 (53/4702) | 0,000 (0/4748) |
 | EMAIL_ADDRESS | 0,000 (0/4038) | 0,000 (0/4848) | 0,000 (0/4852) |
 | PHONE_NUMBER | 0,000 (0/3986) | 0,000 (0/4910) | 0,000 (0/4840) |
 | IBAN | 0,000 (0/3991) | 0,000 (0/4789) | 0,000 (0/4742) |
@@ -258,9 +260,10 @@ Her dilin yuvasız korpus paragrafları dolgu olarak kullanılır; her 120 ile 1
 Sayıların okunuşu:
 
 - Değişmez korunuyor: en, tr ve zh'de 0 ihlal. Parçalama, belge bütününde maskelenmiş hiçbir şeyi açığa çıkarmıyor.
-- Geriye kalan ham değerler dedektörün tespit kaçırmalarıdır ve belgenin bütününde de ham kalırlar; parçalamadan kaynaklanmazlar. Sızan tipler kişi adları ve konumlardır: içinde sınır bulunmayan kontrol değerleri literal olarak 0,104 ile 0,124 arasında sızar. Çince kişi adları 4.748 değerin 2.040'ında, Çince yer adları 4.870 değerin 975'inde sızar; en belirgin örnek kısa Çince kişi ve yer adlarıdır. Bu, dedektörün bilinen bir sınırlamasıdır; bu benchmark onu gidermez.
+- Geriye kalan ham değerler dedektörün tespit kaçırmalarıdır ve belgenin bütününde de ham kalırlar; parçalamadan kaynaklanmazlar. Sızan tipler kişi adları ve konumlardır: içinde sınır bulunmayan kontrol değerleri literal olarak tr'de 0,103, en'de 0,124, zh'de 0,050 oranında sızar. Çince kişi adları 4.748 değerin 1.234'ünde (0,260), Çince yer adları 4.870 değerin 211'inde (0,043) sızar. zh'deki en büyük kalan açık kişi adlarıdır; genel olarak en büyük sızıntılar ise en'de (0,586) ve tr'de (0,615) LOCATION tipindedir. Bu, dedektörün bilinen bir sınırlamasıdır; bu benchmark onu gidermez.
+- Önceki Çince sızıntının yaklaşık yarısı, benchmark'ın kendi değer yerleştirmesinden geliyordu. Boşluksuz metinde değer koyacak boşluk bulunmadığından önceki harness değerleri bir kelimenin iki glifi arasına koyuyordu ve bu, tespiti engelliyordu. Noktalama kuralıyla (yukarıya bakın) zh kontrol literal sızıntısı 0,105'ten 0,050'ye, PERSON_NAME 0,430'dan 0,260'a, LOCATION 0,200'den 0,043'e düştü. en'de sonuç esasen değişmedi (kontrol literal sızıntı oranı 0,124 → 0,124, 2968 → 2973 sızıntı); tr'de önceden uzun bir kelimenin içine düşen birkaç değer artık sonraki noktalama işaretinin arkasına konuyor. Ürün kodu değişmedi; yalnızca benchmark değişti.
 - Bu sentetik değerlerde ve üretilen biçimlerde e-posta, telefon ve IBAN değerleri ne literal ne de fragment olarak sızar (her dilde 0 sızıntı). Gerçek dünyadaki biçimler farklı olabilir ve bu ölçümün kapsamında değildir.
-- Artık hiçbir Çince değer chunk sınırını aşmıyor; bu yüzden zh için çapraz oran yok. en'de çapraz oran kontrol oranından düşüktür (-0,106; 56 çapraz değerin 1'i), tr'de de öyle (-0,054; 20 değerin 1'i). Buradaki çapraz değerler yalnızca dedektörün kaçırdığı değerler olabileceğinden bu fark chunk sınırlarının etkisi diye okunmaz ve geçit değildir. tr'de 20 çapraz değerle tek bir değer oranı 0,05, en'de yaklaşık 0,02 oynatır.
+- Yalnızca 3 Çince değer chunk sınırını aşıyor ve hiçbiri sızmıyor; bu yüzden zh çapraz oranı (0,000) 3 değere dayanır. en'de çapraz oran kontrol oranından düşüktür (-0,106; 56 çapraz değerin 1'i), tr'de de öyle (-0,056; 21 değerin 1'i). Buradaki çapraz değerler yalnızca dedektörün kaçırdığı değerler olabileceğinden bu fark chunk sınırlarının etkisi diye okunmaz ve geçit değildir. tr'de 21 çapraz değerle tek bir değer oranı yaklaşık 0,05, en'de yaklaşık 0,02 oynatır.
 
 ### Yeniden üretme
 
@@ -305,7 +308,7 @@ Rapor, farklı şema sürümüne ya da değerlendirme digest'ine sahip çalışt
 - Gecikme tek makineden ve tek çalıştırmadan gelir. Diğer donanımlar hakkında bir şey söylemez.
 - Chunk'ların çoğu (%93,7) embedder'ın 128 token'lık penceresinden uzundur; bu yüzden dense embedding her chunk'ın yalnızca başını kapsar.
 - İngilizce MRR (0,700), sınır duyarlı parçalayıcıdan önce kaydedilen 0,721'in hâlâ altındadır; İngilizce Recall@5 ise daha yüksektir (1,000'e karşı 0,930). Nedeni araştırılmadı.
-- Sızıntı kontrolünde geriye kalan ham kişisel veri tespit kaçırmasıdır; çoğunlukla kişi ve yer adları, özellikle kısa Çince kişi ve yer adları. Belgenin bütününde de ham kalır ve parçalama bunu değiştirmez.
+- Sızıntı kontrolünde geriye kalan ham kişisel veri tespit kaçırmasıdır; çoğunlukla en ve tr'de yer adları, zh'de kişi adları. Belgenin bütününde de ham kalır ve parçalama bunu değiştirmez.
 - Han, kana ve Hangul için fragment kontrolü bir sezgiseldir. Kısmi isim eşleşmelerini fazla ya da eksik sayabilir.
 - Temel ölçüm tek embedder ve tek parçalayıcı kapsar. Diğer yapılandırmalar burada raporlanmamıştır.
 

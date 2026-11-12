@@ -88,41 +88,41 @@
         },
         "LOCATION": {
           "fragment": {
-            "leaks": 2395,
+            "leaks": 2396,
             "n": 4091,
-            "rate": 0.5854314348570032
+            "rate": 0.5856758738694696
           },
           "fragment_unscorable": 0,
           "literal": {
-            "leaks": 2395,
+            "leaks": 2396,
             "n": 4091,
-            "rate": 0.5854314348570032
+            "rate": 0.5856758738694696
           }
         },
         "ORGANIZATION_NAME": {
           "fragment": {
-            "leaks": 262,
+            "leaks": 266,
             "n": 3982,
-            "rate": 0.065796082370668
+            "rate": 0.06680060271220492
           },
           "fragment_unscorable": 0,
           "literal": {
-            "leaks": 242,
+            "leaks": 244,
             "n": 3982,
-            "rate": 0.06077348066298342
+            "rate": 0.06127574083375188
           }
         },
         "PERSON_NAME": {
           "fragment": {
-            "leaks": 344,
+            "leaks": 347,
             "n": 3912,
-            "rate": 0.08793456032719836
+            "rate": 0.08870143149284254
           },
           "fragment_unscorable": 0,
           "literal": {
-            "leaks": 332,
+            "leaks": 334,
             "n": 3912,
-            "rate": 0.08486707566462168
+            "rate": 0.08537832310838446
           }
         },
         "PHONE_NUMBER": {
@@ -142,14 +142,14 @@
       "chunks": 7309,
       "control": {
         "fragment": {
-          "leaks": 3000,
+          "leaks": 3008,
           "n": 23944,
-          "rate": 0.12529234881389908
+          "rate": 0.1256264617440695
         },
         "literal": {
-          "leaks": 2968,
+          "leaks": 2973,
           "n": 23944,
-          "rate": 0.12395589709321751
+          "rate": 0.124164717674574
         }
       },
       "crossing": {
@@ -166,24 +166,24 @@
       },
       "difference": {
         "fragment": {
-          "rate": -0.10743520595675624
+          "rate": -0.10776931888692665
         },
         "literal": {
-          "rate": -0.10609875423607465
+          "rate": -0.10630757481743114
         }
       },
       "documents": 10,
       "excluding_organization_name": {
         "control": {
           "fragment": {
-            "leaks": 2739,
+            "leaks": 2743,
             "n": 19963,
-            "rate": 0.13720382708009818
+            "rate": 0.13740419776586685
           },
           "literal": {
-            "leaks": 2727,
+            "leaks": 2730,
             "n": 19963,
-            "rate": 0.13660271502279217
+            "rate": 0.13675299303711866
           }
         },
         "crossing": {
@@ -200,10 +200,10 @@
         },
         "difference": {
           "fragment": {
-            "rate": -0.13720382708009818
+            "rate": -0.13740419776586685
           },
           "literal": {
-            "rate": -0.13660271502279217
+            "rate": -0.13675299303711866
           }
         }
       },
@@ -244,28 +244,28 @@
         },
         "LOCATION": {
           "fragment": {
-            "leaks": 2794,
+            "leaks": 2789,
             "n": 4742,
-            "rate": 0.5892028679881907
+            "rate": 0.5881484605651623
           },
           "fragment_unscorable": 0,
           "literal": {
-            "leaks": 2924,
+            "leaks": 2917,
             "n": 4742,
-            "rate": 0.6166174609869254
+            "rate": 0.6151412905946858
           }
         },
         "ORGANIZATION_NAME": {
           "fragment": {
-            "leaks": 81,
+            "leaks": 78,
             "n": 4702,
-            "rate": 0.01722671203743088
+            "rate": 0.01658868566567418
           },
           "fragment_unscorable": 0,
           "literal": {
-            "leaks": 57,
+            "leaks": 53,
             "n": 4702,
-            "rate": 0.012122501063377287
+            "rate": 0.011271799234368354
           }
         },
         "PERSON_NAME": {
@@ -295,71 +295,71 @@
           }
         }
       },
-      "chunks": 8652,
+      "chunks": 8653,
       "control": {
         "fragment": {
-          "leaks": 2873,
-          "n": 28780,
-          "rate": 0.0998262682418346
+          "leaks": 2865,
+          "n": 28779,
+          "rate": 0.09955175648910664
         },
         "literal": {
-          "leaks": 2980,
-          "n": 28780,
-          "rate": 0.103544127866574
+          "leaks": 2969,
+          "n": 28779,
+          "rate": 0.10316550262344071
         }
       },
       "crossing": {
         "fragment": {
           "leaks": 2,
-          "n": 20,
-          "rate": 0.1
+          "n": 21,
+          "rate": 0.09523809523809523
         },
         "literal": {
           "leaks": 1,
-          "n": 20,
-          "rate": 0.05
+          "n": 21,
+          "rate": 0.047619047619047616
         }
       },
       "difference": {
         "fragment": {
-          "rate": 0.00017373175816540187
+          "rate": -0.0043136612510114025
         },
         "literal": {
-          "rate": -0.053544127866574004
+          "rate": -0.05554645500439309
         }
       },
       "documents": 12,
       "excluding_organization_name": {
         "control": {
           "fragment": {
-            "leaks": 2794,
-            "n": 24080,
-            "rate": 0.11602990033222592
+            "leaks": 2789,
+            "n": 24079,
+            "rate": 0.11582706923044978
           },
           "literal": {
-            "leaks": 2924,
-            "n": 24080,
-            "rate": 0.12142857142857143
+            "leaks": 2917,
+            "n": 24079,
+            "rate": 0.121142904605673
           }
         },
         "crossing": {
           "fragment": {
             "leaks": 0,
-            "n": 18,
+            "n": 19,
             "rate": 0.0
           },
           "literal": {
             "leaks": 0,
-            "n": 18,
+            "n": 19,
             "rate": 0.0
           }
         },
         "difference": {
           "fragment": {
-            "rate": -0.11602990033222592
+            "rate": -0.11582706923044978
           },
           "literal": {
-            "rate": -0.12142857142857143
+            "rate": -0.121142904605673
           }
         }
       },
@@ -400,41 +400,41 @@
         },
         "LOCATION": {
           "fragment": {
-            "leaks": 975,
+            "leaks": 211,
             "n": 4870,
-            "rate": 0.2002053388090349
+            "rate": 0.043326488706365504
           },
           "fragment_unscorable": 0,
           "literal": {
-            "leaks": 975,
+            "leaks": 211,
             "n": 4870,
-            "rate": 0.2002053388090349
+            "rate": 0.043326488706365504
           }
         },
         "ORGANIZATION_NAME": {
           "fragment": {
-            "leaks": 21,
+            "leaks": 0,
             "n": 4748,
-            "rate": 0.0044229149115417015
+            "rate": 0.0
           },
           "fragment_unscorable": 0,
           "literal": {
-            "leaks": 20,
+            "leaks": 0,
             "n": 4748,
-            "rate": 0.004212299915754001
+            "rate": 0.0
           }
         },
         "PERSON_NAME": {
           "fragment": {
-            "leaks": 2040,
+            "leaks": 1234,
             "n": 4748,
-            "rate": 0.42965459140690815
+            "rate": 0.2598989048020219
           },
           "fragment_unscorable": 0,
           "literal": {
-            "leaks": 2040,
+            "leaks": 1234,
             "n": 4748,
-            "rate": 0.42965459140690815
+            "rate": 0.2598989048020219
           }
         },
         "PHONE_NUMBER": {
@@ -451,71 +451,71 @@
           }
         }
       },
-      "chunks": 8003,
+      "chunks": 8279,
       "control": {
         "fragment": {
-          "leaks": 3036,
-          "n": 28800,
-          "rate": 0.10541666666666667
+          "leaks": 1445,
+          "n": 28797,
+          "rate": 0.05017883807341043
         },
         "literal": {
-          "leaks": 3035,
-          "n": 28800,
-          "rate": 0.10538194444444444
+          "leaks": 1445,
+          "n": 28797,
+          "rate": 0.05017883807341043
         }
       },
       "crossing": {
         "fragment": {
           "leaks": 0,
-          "n": 0,
-          "rate": null
+          "n": 3,
+          "rate": 0.0
         },
         "literal": {
           "leaks": 0,
-          "n": 0,
-          "rate": null
+          "n": 3,
+          "rate": 0.0
         }
       },
       "difference": {
         "fragment": {
-          "rate": null
+          "rate": -0.05017883807341043
         },
         "literal": {
-          "rate": null
+          "rate": -0.05017883807341043
         }
       },
       "documents": 12,
       "excluding_organization_name": {
         "control": {
           "fragment": {
-            "leaks": 3015,
-            "n": 24052,
-            "rate": 0.12535340096457676
+            "leaks": 1445,
+            "n": 24049,
+            "rate": 0.06008565844733669
           },
           "literal": {
-            "leaks": 3015,
-            "n": 24052,
-            "rate": 0.12535340096457676
+            "leaks": 1445,
+            "n": 24049,
+            "rate": 0.06008565844733669
           }
         },
         "crossing": {
           "fragment": {
             "leaks": 0,
-            "n": 0,
-            "rate": null
+            "n": 3,
+            "rate": 0.0
           },
           "literal": {
             "leaks": 0,
-            "n": 0,
-            "rate": null
+            "n": 3,
+            "rate": 0.0
           }
         },
         "difference": {
           "fragment": {
-            "rate": null
+            "rate": -0.06008565844733669
           },
           "literal": {
-            "rate": null
+            "rate": -0.06008565844733669
           }
         }
       },
@@ -2623,44 +2623,44 @@
   "run": {
     "cpu_cores": 14,
     "cpu_model": "Apple M4 Max",
-    "git_sha": "7d22460d",
+    "git_sha": "570d4488",
     "platform": "Darwin 27.0.0 arm64",
     "torch_threads": 10,
-    "utc": "2026-11-11T23:01:31+00:00"
+    "utc": "2026-11-12T06:56:00+00:00"
   },
   "schema_version": 1,
   "timing": {
-    "chunk_s": 0.034,
-    "embed_index_s": 1.36,
-    "ingest_embed_s": 13.202,
+    "chunk_s": 0.046,
+    "embed_index_s": 2.897,
+    "ingest_embed_s": 17.551,
     "latency": {
       "auto_rag": {
-        "p50_ms": 325.27279201895,
-        "p95_ms": 349.4081543176435,
+        "p50_ms": 671.4228540658951,
+        "p95_ms": 1097.3057482508011,
         "samples": 700
       },
       "bm25": {
-        "p50_ms": 0.23670820519328117,
-        "p95_ms": 0.28567505069077015,
+        "p50_ms": 0.27845893055200577,
+        "p95_ms": 0.5269422195851802,
         "samples": 645
       },
       "dense": {
-        "p50_ms": 11.025374988093972,
-        "p95_ms": 12.336832750588654,
+        "p50_ms": 23.850166937336326,
+        "p95_ms": 43.85344199836253,
         "samples": 645
       },
       "hybrid": {
-        "p50_ms": 11.5616659168154,
-        "p95_ms": 13.061332795768974,
+        "p50_ms": 25.819958886131644,
+        "p95_ms": 41.99433308094739,
         "samples": 645
       }
     },
     "leak_sanitize_s": {
-      "en": 189.216,
-      "tr": 309.62,
-      "zh": 474.507
+      "en": 287.093,
+      "tr": 479.344,
+      "zh": 649.92
     },
-    "sanitize_s": 11.808,
-    "wall_s": 1465.178
+    "sanitize_s": 14.608,
+    "wall_s": 2435.381
   }
 }
