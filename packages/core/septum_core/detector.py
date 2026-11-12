@@ -41,11 +41,23 @@ from .anonymization_map import SANITIZER_STOPWORDS, AnonymizationMap
 from .config import SeptumCoreConfig
 from .date_grammar import find_dates
 from .date_grammar import warm_up as warm_up_date_grammar
-from .document_windowing import WindowingPolicy, merge_window_spans, plan_text_windows
+from .document_windowing import (
+    WindowingPolicy,
+    merge_window_spans,
+    plan_padded_windows,
+    plan_text_windows,
+)
 from .language_resolution import (
     canonical_language_code,
     script_min_span_length,
     snaps_whole_run,
+)
+from .language_segments import (
+    Segment,
+    SegmentLookup,
+    clip_segments,
+    rebase_segments,
+    validate_segments,
 )
 from .model_integrity import ModelIntegrityError
 from .national_ids import IBANValidator
@@ -276,6 +288,32 @@ _NER_MIN_SPAN_LEN_PER_LANGUAGE: Dict[str, int] = {
 # Trade-off: a lone glyph the model scores lower (明 of 小明 at 0.85) is dropped.
 _NER_SINGLE_GLYPH_PERSON_MIN_SCORE = 0.95
 
+# Context the NER models see on each side of a language segment. A name at a
+# segment edge is scored with the words around it; a few sentences are enough
+# for a name, and the padding is a small fraction of a model's input.
+_NER_SEGMENT_PADDING_CHARS = 500
+
+# More language segments than this and the document is detected as a single
+# dominant-language one, exactly as without segments: every segment can add its
+# own NER windows (about 3 x ``_NER_SEGMENT_PADDING_CHARS`` of extra text each),
+# so the count bounds the extra work at roughly 128 x 1 500 = 190 000 characters
+# per model. A real mixed-language document has 2-3 segments, and the most
+# fragmented evaluation text has 84 in 69 000 characters.
+_MAX_SEGMENTS_PER_DOCUMENT = 128
+
+# The text on both sides of every edge between ranges that run different model
+# sets is also scored, in a window of this padding on each side, with the union
+# of both sets: a short minority section is then read by its own models in more
+# than one window. Measured: it closes the recall gap between a minority
+# section and the same text masked as a document of its language.
+
+
+def _language_span_floor(language: str) -> int:
+    """Minimum NER span length of ``language``'s own rule."""
+    return _NER_MIN_SPAN_LEN_PER_LANGUAGE.get(
+        canonical_language_code(language), _NER_DEFAULT_MIN_SPAN_LEN
+    )
+
 _LABEL_SEPARATORS = re.compile(r"[_\W]+")
 
 
@@ -294,6 +332,69 @@ def _comparable_label(text: str, language: str) -> str:
 def _label_vocabulary(terms: Tuple[str, ...], language: str) -> frozenset[str]:
     """``terms`` in :func:`_comparable_label` form, cached per policy and language."""
     return frozenset(_comparable_label(term, language) for term in terms)
+
+
+def _span_key(span: DetectedSpan) -> tuple:
+    """Identity of a span's content, for telling duplicates apart."""
+    return (span.start, span.end, span.entity_type, span.score, span.core)
+
+
+class _SegmentContext:
+    """Language segments of one detection call, with the NER models each language runs.
+
+    Offsets are in the coordinates of the text being detected; a window of a
+    very large text gets its own context through :meth:`clipped`. ``models``
+    comes from :meth:`NERModelRegistry.plan_segment_models` and is planned once
+    per document, so the cap on loaded models holds across windows. A segment
+    in the dominant language reports ``dominant`` exactly as the caller wrote
+    it, so the post-processing of such a span is the single-language one.
+    """
+
+    def __init__(
+        self,
+        segments: Sequence[Segment],
+        dominant: str,
+        models: Dict[str, Tuple[str, ...]],
+    ) -> None:
+        self.segments = tuple(segments)
+        self.dominant = dominant
+        self.models = models
+        self._dominant_key = canonical_language_code(dominant)
+        self._lookup = SegmentLookup(self.segments)
+
+    def language_at(self, position: int) -> str:
+        """Language used for a span starting at ``position``."""
+        language = self._lookup.language_at(position)
+        return self.dominant if canonical_language_code(language) == self._dominant_key else language
+
+    def clipped(self, start: int, end: int) -> Optional["_SegmentContext"]:
+        """Context of the window ``[start, end)``; ``None`` when it is all in the dominant language."""
+        local = clip_segments(self.segments, start, end)
+        if all(canonical_language_code(s.language) == self._dominant_key for s in local):
+            return None
+        return _SegmentContext(local, self.dominant, self.models)
+
+    def ner_ranges(self) -> List[Tuple[int, int, Tuple[str, ...]]]:
+        """Ranges to run NER on, neighbouring segments with the same model set joined."""
+        ranges: List[Tuple[int, int, Tuple[str, ...]]] = []
+        for segment in self.segments:
+            ids = self.models[canonical_language_code(segment.language)]
+            if ranges and ranges[-1][2] == ids:
+                ranges[-1] = (ranges[-1][0], segment.end, ids)
+            else:
+                ranges.append((segment.start, segment.end, ids))
+        return ranges
+
+
+    @staticmethod
+    def edge_unions(
+        ranges: Sequence[Tuple[int, int, Tuple[str, ...]]],
+    ) -> List[Tuple[int, Tuple[str, ...]]]:
+        """``(offset, model ids)`` per edge between ranges with different model sets: the union of both."""
+        return [
+            (right[0], tuple(dict.fromkeys((*left[2], *right[2]))))
+            for left, right in zip(ranges, ranges[1:])
+        ]
 
 
 class _NerGroup(NamedTuple):
@@ -1719,6 +1820,7 @@ class Detector:
         *,
         boundaries: Sequence[int] = (),
         windowing: WindowingPolicy = WindowingPolicy(),
+        segments: Optional[Sequence[Segment]] = None,
     ) -> DetectionResult:
         """Detect PII spans and resolve overlaps without touching any anonymization map.
 
@@ -1735,22 +1837,46 @@ class Detector:
         ends) into ``text``; they are honoured only when ``text`` is already
         normalized, since normalization can shift offsets, and never change
         which spans are found, only where windows are cut.
+
+        ``segments`` (offsets into ``text``) tile a mixed-language document
+        into ranges with a language each; ``language`` stays the dominant one.
+        Without them, or when every segment is in ``language``, the call is
+        exactly the single-language one. Otherwise NER runs per segment (with
+        context padding at its edges): a segment in another language runs the
+        union of its own language's model set and the dominant one, with at
+        most ``MAX_EXTRA_NER_MODELS`` models beyond the dominant set per
+        document (see :meth:`NERModelRegistry.plan_segment_models`). Presidio
+        and the pattern recognizers still run once over the whole text. A
+        span of another-language segment is never held to a stricter rule
+        than ``language`` alone would apply: its NER length floor is the
+        smaller of the two languages' floors, and the non-PII filter,
+        policy-label check and stopword check drop it only when both the
+        segment's language and ``language`` would. Semantic layers, blocklist
+        and coreference stay on ``language``. More than
+        ``_MAX_SEGMENTS_PER_DOCUMENT`` segments are ignored (single-language
+        detection). Raises ``ValueError`` when ``segments`` do not tile ``text``.
         """
+        checked = None if segments is None else validate_segments(segments, len(text))
         if not text:
             return DetectionResult(text=text, language=language, semantic_enabled=False)
 
         normalized_text = normalize_unicode(text)
         port_enabled = self._semantic_port.is_enabled()
+        context = self._segment_context(checked, text, language)
         if len(normalized_text) > windowing.max_whole_chars:
             hints = boundaries if normalized_text == text else ()
             spans = self._windowed_candidates(
-                normalized_text, language, port_enabled, windowing, hints
+                normalized_text, language, port_enabled, windowing, hints, context
             )
         else:
-            spans = self._candidate_spans(normalized_text, language, port_enabled)
+            spans = self._candidate_spans(normalized_text, language, port_enabled, context)
 
-        spans = self._apply_non_pii_filter(spans, normalized_text, language)
-        spans = self._resolve_overlaps(spans, normalized_text, language)
+        if context is None:
+            spans = self._apply_non_pii_filter(spans, normalized_text, language)
+            spans = self._resolve_overlaps(spans, normalized_text, language)
+        else:
+            spans = self._apply_non_pii_filter_by_segment(spans, normalized_text, context)
+            spans = self._resolve_overlaps_by_segment(spans, normalized_text, context)
         return DetectionResult(
             text=normalized_text,
             language=language,
@@ -1758,10 +1884,57 @@ class Detector:
             semantic_enabled=port_enabled,
         )
 
+    def _segment_context(
+        self, segments: Optional[Sequence[Segment]], text: str, language: str
+    ) -> Optional[_SegmentContext]:
+        """The context of a mixed-language call; ``None`` when ``language`` covers all of ``text``.
+
+        ``segments`` are validated and in the coordinates of ``text``; they
+        are moved onto its normalized form here. Languages are ranked by the
+        text they cover (first appearance breaks a tie) so that, when the
+        model cap bites, the languages with the most text keep their own models.
+        """
+        if segments is None:
+            return None
+        dominant_key = canonical_language_code(language)
+        if all(canonical_language_code(s.language) == dominant_key for s in segments):
+            return None
+        if len(segments) > _MAX_SEGMENTS_PER_DOCUMENT:
+            logger.warning(
+                "Document has %d language segments (limit %d); detecting it in a single language",
+                len(segments),
+                _MAX_SEGMENTS_PER_DOCUMENT,
+            )
+            return None
+        rebased = rebase_segments(segments, text)
+        if rebased is None:
+            logger.warning(
+                "Language segments cannot be mapped onto the normalized text; detecting it in a single language"
+            )
+            return None
+        models: Dict[str, Tuple[str, ...]] = {}
+        if self._config.use_ner_layer:
+            coverage: Dict[str, int] = {}
+            for segment in rebased:
+                coverage[segment.language] = (
+                    coverage.get(segment.language, 0) + segment.end - segment.start
+                )
+            ranked = sorted(coverage, key=lambda code: -coverage[code])
+            models = self._ner_registry.plan_segment_models(language, ranked)
+        return _SegmentContext(rebased, language, models)
+
     def _candidate_spans(
-        self, normalized_text: str, language: str, port_enabled: bool
+        self,
+        normalized_text: str,
+        language: str,
+        port_enabled: bool,
+        context: Optional[_SegmentContext] = None,
     ) -> List[DetectedSpan]:
-        """Run every enabled detection layer on ``normalized_text``; no overlap resolution."""
+        """Run every enabled detection layer on ``normalized_text``; no overlap resolution.
+
+        With a ``context`` NER runs per segment and the language-dependent
+        post-filters follow each span's own segment; Presidio still runs once.
+        """
         spans: List[DetectedSpan] = []
 
         if self._config.use_presidio_layer:
@@ -1771,8 +1944,11 @@ class Detector:
         # hold a name, and any length floor would leave it raw.
         if self._config.use_ner_layer and normalized_text.strip():
             spans.extend(
-                self._drop_policy_label_spans(
-                    self._ner_spans(normalized_text, language), normalized_text, language
+                self._drop_labels(
+                    self._ner_spans(normalized_text, language, context),
+                    normalized_text,
+                    language,
+                    context,
                 )
             )
 
@@ -1781,14 +1957,14 @@ class Detector:
         )
         if self._runs_semantic_detection(normalized_text, port_enabled):
             spans.extend(
-                self._drop_policy_label_spans(
-                    self._alias_spans(normalized_text), normalized_text, language
+                self._drop_labels(
+                    self._alias_spans(normalized_text), normalized_text, language, context
                 )
             )
         if self._runs_contextual_detection(normalized_text, port_enabled):
             spans.extend(
-                self._drop_policy_label_spans(
-                    self._contextual_spans(normalized_text), normalized_text, language
+                self._drop_labels(
+                    self._contextual_spans(normalized_text), normalized_text, language, context
                 )
             )
         return spans
@@ -1800,6 +1976,7 @@ class Detector:
         port_enabled: bool,
         windowing: WindowingPolicy,
         boundaries: Sequence[int],
+        context: Optional[_SegmentContext] = None,
     ) -> List[DetectedSpan]:
         """Candidate spans of a very large text, found window by window.
 
@@ -1811,12 +1988,17 @@ class Detector:
         those of their spans that no window saw whole. A context-gated custom
         rule's whole-text spans are always kept: a window can lack the context
         word that lies across its cut. The spaCy, NER and semantic layers
-        never see the whole text.
+        never see the whole text. With a ``context`` each window gets the part
+        of it inside the window (none when the window is all in the dominant
+        language, which then runs as a single-language window).
         """
         windows = plan_text_windows(normalized_text, windowing, boundaries)
         per_window = [
             self._candidate_spans(
-                normalized_text[w.start : w.end], language, port_enabled
+                normalized_text[w.start : w.end],
+                language,
+                port_enabled,
+                None if context is None else context.clipped(w.start, w.end),
             )
             for w in windows
         ]
@@ -1944,7 +2126,12 @@ class Detector:
         results = self._filter_presidio_results(results, normalized_text)
         return self._from_presidio_results(results)
 
-    def _ner_spans(self, normalized_text: str, language: str) -> List[DetectedSpan]:
+    def _ner_spans(
+        self,
+        normalized_text: str,
+        language: str,
+        context: Optional[_SegmentContext] = None,
+    ) -> List[DetectedSpan]:
         """Run the NER ensemble and return its unique spans for the active types.
 
         Pass 1: every ensemble member sees the original text. Different
@@ -1957,24 +2144,90 @@ class Detector:
         models in the first place. Every ensemble member also runs on the
         title-cased text so the backstop model (e.g. savasy BERT for Turkish)
         still sees inputs whose only appearance is ALL CAPS.
+
+        With a ``context`` both passes run once per language segment (see
+        :meth:`_segmented_ner_spans`) instead of once over the text.
         """
-        ner_pipelines = self._ner_registry.get_pipelines(language)
-        titlecased = _titlecase_upper_segments(normalized_text)
-        variants = [normalized_text]
-        if titlecased != normalized_text:
+        if context is None:
+            ner_spans = self._ner_ensemble_spans(
+                normalized_text, self._ner_registry.get_pipelines(language), language
+            )
+        else:
+            ner_spans = self._segmented_ner_spans(normalized_text, context)
+        if self._entity_types is None:
+            return ner_spans
+        allowed = set(self._expand_with_aliases(self._entity_types))
+        return [s for s in ner_spans if s.entity_type in allowed]
+
+    def _ner_ensemble_spans(
+        self,
+        text: str,
+        ner_pipelines: Sequence[object],
+        language: str,
+        language_at: Optional[Callable[[int], str]] = None,
+    ) -> List[DetectedSpan]:
+        """Both passes of every pipeline on ``text``, identical spans counted once."""
+        titlecased = _titlecase_upper_segments(text)
+        variants = [text]
+        if titlecased != text:
             variants.append(titlecased)
         unique: Dict[tuple[int, int, str], DetectedSpan] = {}
         for variant in variants:
             for ner_pipeline in ner_pipelines:
                 for span in self._from_ner_results(
-                    ner_pipeline(variant), normalized_text, language
+                    ner_pipeline(variant), text, language, language_at
                 ):
                     unique.setdefault((span.start, span.end, span.entity_type), span)
-        ner_spans = list(unique.values())
-        if self._entity_types is None:
-            return ner_spans
-        allowed = set(self._expand_with_aliases(self._entity_types))
-        return [s for s in ner_spans if s.entity_type in allowed]
+        return list(unique.values())
+
+    def _segmented_ner_spans(
+        self, normalized_text: str, context: _SegmentContext
+    ) -> List[DetectedSpan]:
+        """NER per language segment, merged in the coordinates of ``normalized_text``.
+
+        Each range of segments (neighbours that run the same model set are one
+        range) is scored on its own text widened by
+        ``_NER_SEGMENT_PADDING_CHARS``; spans of the widened windows join
+        through :func:`merge_window_spans`, which drops a fragment cut by a
+        window edge when a neighbour saw the entity whole. Spans in the padding
+        are kept: they come from models that also run on that text through the
+        neighbouring segment's range. Every edge between ranges that run
+        different model sets also gets a window of the same padding on both
+        sides, scored with the union of the two sets. The length floor of a
+        span follows the language of the segment holding its start.
+        """
+        ranges = context.ner_ranges()
+        windows = plan_padded_windows(
+            normalized_text, [(start, end) for start, end, _ in ranges], _NER_SEGMENT_PADDING_CHARS
+        )
+        jobs = [
+            (window, model_ids, normalized_text[start:end])
+            for (start, end, model_ids), window in zip(ranges, windows)
+        ]
+        edges = context.edge_unions(ranges)
+        edge_windows = plan_padded_windows(
+            normalized_text, [(offset, offset) for offset, _ in edges], _NER_SEGMENT_PADDING_CHARS
+        )
+        jobs.extend(
+            (window, model_ids, normalized_text[window.start : window.end])
+            for (_, model_ids), window in zip(edges, edge_windows)
+        )
+        windows = [*windows, *edge_windows]
+        per_window: List[List[DetectedSpan]] = []
+        for window, model_ids, core in jobs:
+            if not core.strip():
+                per_window.append([])
+                continue
+            offset = window.start
+            per_window.append(
+                self._ner_ensemble_spans(
+                    normalized_text[window.start : window.end],
+                    self._ner_registry.get_pipelines_for_models(model_ids),
+                    context.dominant,
+                    lambda position, offset=offset: context.language_at(offset + position),
+                )
+            )
+        return merge_window_spans(windows, per_window)
 
     def _validate_semantically(
         self,
@@ -2086,6 +2339,56 @@ class Detector:
                 keep_spans.append(original)
         return keep_spans
 
+    @staticmethod
+    def _by_language(
+        spans: List[DetectedSpan], context: _SegmentContext
+    ) -> Dict[str, List[DetectedSpan]]:
+        """``spans`` grouped by the language of the segment holding each span's start."""
+        groups: Dict[str, List[DetectedSpan]] = {}
+        for span in spans:
+            groups.setdefault(context.language_at(span.start), []).append(span)
+        return groups
+
+    def _apply_non_pii_filter_by_segment(
+        self, spans: List[DetectedSpan], normalized_text: str, context: _SegmentContext
+    ) -> List[DetectedSpan]:
+        """:meth:`_apply_non_pii_filter`, dropping a span only when its segment's language and the dominant one both would.
+
+        The dominant-language rules judge every span, as in a single-language
+        run; spans of other-language segments are judged by their own
+        language's rules as well, and a span either set keeps stays.
+        """
+        if self._non_pii_filter is None:
+            return spans
+        kept = self._apply_non_pii_filter(spans, normalized_text, context.dominant)
+        seen = {_span_key(span) for span in kept}
+        for language, group in self._by_language(spans, context).items():
+            if language == context.dominant:
+                continue
+            for span in self._apply_non_pii_filter(group, normalized_text, language):
+                if _span_key(span) not in seen:
+                    seen.add(_span_key(span))
+                    kept.append(span)
+        return sorted(kept, key=lambda s: (s.start, s.end))
+
+    def _drop_labels(
+        self,
+        spans: List[DetectedSpan],
+        normalized_text: str,
+        language: str,
+        context: Optional[_SegmentContext],
+    ) -> List[DetectedSpan]:
+        """:meth:`_drop_policy_label_spans`; with a ``context`` a span is dropped only when its segment's language and ``language`` both would."""
+        if context is None:
+            return self._drop_policy_label_spans(spans, normalized_text, language)
+        if not self._label_terms or not spans:
+            return spans
+        kept = {id(s) for s in self._drop_policy_label_spans(spans, normalized_text, language)}
+        for lang, group in self._by_language(spans, context).items():
+            if lang != language:
+                kept.update(id(s) for s in self._drop_policy_label_spans(group, normalized_text, lang))
+        return [s for s in spans if id(s) in kept]
+
     def _drop_policy_label_spans(
         self, spans: List[DetectedSpan], normalized_text: str, language: str
     ) -> List[DetectedSpan]:
@@ -2113,6 +2416,34 @@ class Detector:
         ]
 
     @staticmethod
+    def _merge_spans(spans: List[DetectedSpan], normalized_text: str) -> List[DetectedSpan]:
+        """Absorb, deduplicate, grow and merge spans (language-agnostic)."""
+        spans = absorb_overlapping_spans(spans, text=normalized_text)
+        spans = deduplicate_spans(
+            spans, _HIGH_PRIORITY_ENTITY_TYPES, text=normalized_text
+        )
+        spans = expand_person_name_spans(normalized_text, spans)
+        return merge_adjacent_person_name_spans(normalized_text, spans)
+
+    @staticmethod
+    def _resolve_overlaps_by_segment(
+        spans: List[DetectedSpan], normalized_text: str, context: _SegmentContext
+    ) -> List[DetectedSpan]:
+        """:meth:`_resolve_overlaps`, dropping a stopword span only when its segment's language and the dominant one both read it as one."""
+
+        def keeps(span: DetectedSpan) -> bool:
+            word = normalized_text[span.start : span.end].strip()
+            if normalize_for_comparison(word, context.dominant) not in SANITIZER_STOPWORDS:
+                return True
+            language = context.language_at(span.start)
+            return (
+                language != context.dominant
+                and normalize_for_comparison(word, language) not in SANITIZER_STOPWORDS
+            )
+
+        return [s for s in Detector._merge_spans(spans, normalized_text) if keeps(s)]
+
+    @staticmethod
     def _resolve_overlaps(
         spans: List[DetectedSpan], normalized_text: str, language: str
     ) -> List[DetectedSpan]:
@@ -2123,12 +2454,7 @@ class Detector:
         possible. This is language-agnostic and relies only on character
         casing and token boundaries.
         """
-        spans = absorb_overlapping_spans(spans, text=normalized_text)
-        spans = deduplicate_spans(
-            spans, _HIGH_PRIORITY_ENTITY_TYPES, text=normalized_text
-        )
-        spans = expand_person_name_spans(normalized_text, spans)
-        spans = merge_adjacent_person_name_spans(normalized_text, spans)
+        spans = Detector._merge_spans(spans, normalized_text)
         return [
             s
             for s in spans
@@ -2339,6 +2665,7 @@ class Detector:
         raw_results: List[dict],
         text: str,
         language: str = "en",
+        language_at: Optional[Callable[[int], str]] = None,
     ) -> List[DetectedSpan]:
         """Convert HuggingFace NER pipeline outputs to DetectedSpan.
 
@@ -2365,10 +2692,13 @@ class Detector:
         score gate (same shape as ORGANIZATION_NAME) to drop the locale-
         specific single-token mis-fires that motivated the earlier full
         suppression. See ``_map_ner_label`` for the rationale.
+
+        ``language_at`` maps a span's (snapped) start offset in ``text`` to its
+        segment's language; a span then needs the smaller of that language's
+        floor and ``language``'s, so a segment never keeps fewer spans than the
+        document language alone would.
         """
-        language_floor = _NER_MIN_SPAN_LEN_PER_LANGUAGE.get(
-            canonical_language_code(language), _NER_DEFAULT_MIN_SPAN_LEN
-        )
+        language_floor = _language_span_floor(language)
         groups = Detector._merge_touching_ner_groups(raw_results)
         ascii_text = text.isascii()
         whole_runs = [
@@ -2381,8 +2711,13 @@ class Detector:
             start, end = Detector._snap(text, start, end, whole_run, boundaries)
 
             span_text = text[start:end].strip()
+            span_floor = (
+                language_floor
+                if language_at is None
+                else min(language_floor, _language_span_floor(language_at(start)))
+            )
             if not Detector._clears_ner_floors(
-                entity_type, span_text, score, whole_run, language_floor
+                entity_type, span_text, score, whole_run, span_floor
             ):
                 continue
 
