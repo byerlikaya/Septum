@@ -193,7 +193,7 @@ Documents and questions are hand-written. Each personal-data slot in a document 
 | Latency | 5 timed repeats per query, sanitized queries, one retriever call including query embedding |
 | Hardware | Apple M4 Max, 14 CPU cores, 10 torch threads, Darwin 27.0.0 arm64 |
 | Seed | 42 |
-| Commit | `7d22460d` (the `git_sha` recorded in the run output) plus the overlap-start change (`012cfdd`); measured on 2026-11-11 at 23:01 UTC |
+| Commit | `570d4488` (the `git_sha` recorded in the run output) plus the leak value placement change in the benchmark harness; measured on 2026-11-12 at 06:56 UTC |
 
 ### Results
 
@@ -234,6 +234,8 @@ Compared with the previously recorded baseline, sanitized hybrid Recall@5 is unc
 
 Samples are queries times 5 repeats; auto_rag runs all 140 questions, the others the 129 answerable ones.
 
+The latency and ingestion timings come from the previous run on the same retrieval code (git `7d22460d` plus the overlap-start change), because the latest run's timings were taken on a loaded machine.
+
 **Ingestion** (one run):
 
 | Step | Time |
@@ -259,31 +261,31 @@ The gate is an invariant, not a rate. A value that is exposed in any chunk must 
 | Crossing value | A value that contains a chunk boundary (a chunk start or end falls strictly inside it). |
 | Control value | A value that no chunk boundary falls inside. |
 
-Each language's slot-free corpus paragraphs are the filler, and one synthetic value is inserted after every 120 to 180 filler characters. The sample holds 24,000 (en), 28,800 (tr) and 28,800 (zh) values, of which 56 (en), 20 (tr) and 0 (zh) are crossing values. The harness adds filler documents (2,400 values each) until a language has 50 crossing values or reaches the maximum of 12 documents. en reached 50 with 10 documents; tr and zh used all 12 and stayed below 50 (zh has none), which is why their crossing rates and differences are not decided by this sample. The gate is the invariant.
+Each language's slot-free corpus paragraphs are the filler, and one synthetic value is inserted after every 120 to 180 filler characters. A value goes at the next whitespace within 20 characters. Where there is none (text without spaces, as in zh), it goes just after the first punctuation mark within 60 characters, else at the next whitespace within 60 characters, else at the unchanged position. This keeps a value from landing between two glyphs of a word. The sample holds 24,000 (en), 28,800 (tr) and 28,800 (zh) values, of which 56 (en), 21 (tr) and 3 (zh) are crossing values. The harness adds filler documents (2,400 values each) until a language has 50 crossing values or reaches the maximum of 12 documents. en reached 50 with 10 documents; tr and zh used all 12 and stayed below 50 (zh has 3), which is why their crossing rates and differences are not decided by this sample. The gate is the invariant.
 
 **Per language** (all values; literal and fragment leak rates):
 
 | Lang | Crossing n | Literal: crossing | Literal: control | Literal: difference | Fragment: crossing | Fragment: control | Fragment: difference |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| en | 56 | 0.018 | 0.124 | -0.106 | 0.018 | 0.125 | -0.107 |
-| tr | 20 | 0.050 | 0.104 | -0.054 | 0.100 | 0.100 | 0.000 |
-| zh | 0 | - | 0.105 | - | - | 0.105 | - |
+| en | 56 | 0.018 | 0.124 | -0.106 | 0.018 | 0.126 | -0.108 |
+| tr | 21 | 0.048 | 0.103 | -0.056 | 0.095 | 0.100 | -0.004 |
+| zh | 3 | 0.000 | 0.050 | -0.050 | 0.000 | 0.050 | -0.050 |
 
 **Excluding ORGANIZATION_NAME** (this type is detected by the NER layer alone, with no pattern recognizer behind it; the view reports the leak block without it):
 
 | Lang | Crossing n | Literal: crossing | Literal: control | Literal: difference | Fragment: crossing | Fragment: control | Fragment: difference |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | en | 55 | 0.000 | 0.137 | -0.137 | 0.000 | 0.137 | -0.137 |
-| tr | 18 | 0.000 | 0.121 | -0.121 | 0.000 | 0.116 | -0.116 |
-| zh | 0 | - | 0.125 | - | - | 0.125 | - |
+| tr | 19 | 0.000 | 0.121 | -0.121 | 0.000 | 0.116 | -0.116 |
+| zh | 3 | 0.000 | 0.060 | -0.060 | 0.000 | 0.060 | -0.060 |
 
 **Literal leak rate by type** (all values, crossing and control; leaks/n):
 
 | Type | en | tr | zh |
 |:---|:---:|:---:|:---:|
-| PERSON_NAME | 0.085 (332/3912) | 0.000 (0/4809) | 0.430 (2040/4748) |
-| LOCATION | 0.585 (2395/4091) | 0.617 (2924/4742) | 0.200 (975/4870) |
-| ORGANIZATION_NAME | 0.061 (242/3982) | 0.012 (57/4702) | 0.004 (20/4748) |
+| PERSON_NAME | 0.085 (334/3912) | 0.000 (0/4809) | 0.260 (1234/4748) |
+| LOCATION | 0.586 (2396/4091) | 0.615 (2917/4742) | 0.043 (211/4870) |
+| ORGANIZATION_NAME | 0.061 (244/3982) | 0.011 (53/4702) | 0.000 (0/4748) |
 | EMAIL_ADDRESS | 0.000 (0/4038) | 0.000 (0/4848) | 0.000 (0/4852) |
 | PHONE_NUMBER | 0.000 (0/3986) | 0.000 (0/4910) | 0.000 (0/4840) |
 | IBAN | 0.000 (0/3991) | 0.000 (0/4789) | 0.000 (0/4742) |
@@ -291,9 +293,10 @@ Each language's slot-free corpus paragraphs are the filler, and one synthetic va
 Reading the numbers:
 
 - The invariant holds: 0 violations in en, tr and zh. Chunking exposes nothing that the whole-document masking hid.
-- The raw values that remain are detection-recall misses, and they are raw in the whole document as well. They are not caused by chunking. The leaking types are person names and locations: control values, with no boundary inside, leak literally at 0.104 to 0.124. Chinese person names leak in 2,040 of 4,748 values and Chinese places in 975 of 4,870; short Chinese names and place names are the clearest case. This is a known limitation of the detector, not something this benchmark fixes.
+- The raw values that remain are detection-recall misses, and they are raw in the whole document as well. They are not caused by chunking. The leaking types are person names and locations: control values, with no boundary inside, leak literally at 0.103 (tr) and 0.124 (en), and at 0.050 in zh. Chinese person names leak in 1,234 of 4,748 values (0.260) and Chinese places in 211 of 4,870 (0.043). Person names are the largest remaining gap in zh, while LOCATION in en (0.586) and tr (0.615) remains the largest leak overall. This is a known limitation of the detector, not something this benchmark fixes.
+- About half of the previous Chinese leak came from value placement in the benchmark itself. Text without spaces has no whitespace to insert at, so the earlier harness put values between two glyphs of a word, which suppressed detection. With the punctuation rule (see above) the zh control literal leak fell from 0.105 to 0.050, PERSON_NAME from 0.430 to 0.260 and LOCATION from 0.200 to 0.043. In en the result is essentially unchanged (control literal leak rate 0.124 → 0.124, 2968 → 2973 leaks), and in tr a few values that used to land inside a long word now go after the following punctuation mark. The product code is unchanged; only the benchmark changed.
 - For these synthetic values in these generated formats, email, phone and IBAN values never leak, literally or as fragments (0 leaks in every language). Real-world formats may differ and are not covered by this measurement.
-- No Chinese value crosses a chunk boundary any more, so zh has no crossing rate. In en the crossing rate is lower than the control rate (-0.106, 1 of 56 crossing values) and in tr as well (-0.054, 1 of 20). Because crossing values here can only be values the detector missed, this difference is not read as an effect of chunk boundaries, and it is not a gate. With 20 crossing values in tr a single value moves the rate by 0.05, and in en by about 0.02.
+- Only 3 Chinese values cross a chunk boundary, and none of them leaks, so the zh crossing rate (0.000) rests on 3 values. In en the crossing rate is lower than the control rate (-0.106, 1 of 56 crossing values) and in tr as well (-0.056, 1 of 21). Because crossing values here can only be values the detector missed, this difference is not read as an effect of chunk boundaries, and it is not a gate. With 21 crossing values in tr a single value moves the rate by about 0.05, and in en by about 0.02.
 
 ### Reproduce
 
@@ -338,7 +341,7 @@ The report refuses runs with a different schema version or evaluation digest, be
 - Latency comes from one machine and one run. It says nothing about other hardware.
 - Most chunks (93.7%) are longer than the embedder's 128-token window, so the dense embedding covers only the start of each chunk.
 - English MRR (0.700) is still below the 0.721 recorded before the boundary-aware chunker, while English Recall@5 is higher (1.000 against 0.930); the cause was not investigated.
-- The remaining raw personal data in the leak check is detection recall, mostly person and place names, and short Chinese names and places in particular. It is raw in the whole document too, and chunking does not change it.
+- The remaining raw personal data in the leak check is detection recall, mostly place names in en and tr, and person names in zh. It is raw in the whole document too, and chunking does not change it.
 - The fragment check for Han, kana and Hangul is a heuristic. It can over- or under-count partial name matches.
 - The baseline covers one embedder and one chunker. The other configurations are not reported here.
 
