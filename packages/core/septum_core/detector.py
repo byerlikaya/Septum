@@ -987,7 +987,7 @@ class StructuralAddressRecognizer(BaseCustomRecognizer):
         abbr_pattern = "|".join(re.escape(a) for a in sorted(abbrs, key=len, reverse=True))
 
         self._structural_cue = re.compile(
-            rf"(?:(?:{abbr_pattern}){TOKEN_END}\.?)"
+            rf"{TOKEN_START}(?:{abbr_pattern}){TOKEN_END}\.?"
             r"|"
             r"(?:(?<![A-Za-z])[A-Za-z]++\s*+[:./]\s*+\d+)",
             re.IGNORECASE | re.UNICODE,
