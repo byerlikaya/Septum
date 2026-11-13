@@ -10451,10 +10451,11 @@ null
 "logs": []
 },
 "validate_all": {
-"text": "[PHONE_NUMBER_1] Yılmaz works with Maria Garcia in Berlin and the team reviews contracts every single week without fail",
-"count": 1,
+"text": "[PHONE_NUMBER_1] Yılmaz works with Maria Garcia in B[LOCATION_1]and the team reviews contracts every single week without fail",
+"count": 2,
 "types": {
-"PHONE_NUMBER": 1
+"PHONE_NUMBER": 1,
+"LOCATION": 1
 },
 "spans": [
 [
@@ -10463,6 +10464,14 @@ null
 "PHONE_NUMBER",
 "[PHONE_NUMBER_1]",
 0.8,
+null
+],
+[
+41,
+47,
+"LOCATION",
+"[LOCATION_1]",
+0.9,
 null
 ]
 ],
@@ -10473,9 +10482,11 @@ null
 null
 ]
 ],
-"port_calls": [],
+"port_calls": [
+"validate:1:No specific regulations active (generic PII detection)."
+],
 "logs": [
-"DEBUG:Semantic validation: 1 candidates → 1 validated spans"
+"DEBUG:Semantic validation: 2 candidates → 2 validated spans"
 ]
 },
 "validate_first": {

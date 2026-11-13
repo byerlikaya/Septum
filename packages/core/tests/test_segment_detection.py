@@ -351,17 +351,21 @@ def test_presidio_runs_once_over_the_whole_text(monkeypatch) -> None:
         EMITS, config=SeptumCoreConfig(use_presidio_layer=True, use_ner_layer=True)
     )
     calls: list[int] = []
+    resolvers: list = []
     real = detector._presidio_spans
 
-    def counting(normalized_text):
+    def counting(normalized_text, language_at=None):
         calls.append(len(normalized_text))
-        return real(normalized_text)
+        resolvers.append(language_at)
+        return real(normalized_text, language_at)
 
     monkeypatch.setattr(detector, "_presidio_spans", counting)
 
     detector.detect(text, "en", segments=[Segment(0, cut, "en"), Segment(cut, len(text), "tr")])
 
     assert calls == [len(text)]
+    assert callable(resolvers[0])
+    assert resolvers[0](0) == "en" and resolvers[0](cut) == "tr"
 
 
 def test_single_segment_in_the_call_language_is_byte_identical() -> None:
