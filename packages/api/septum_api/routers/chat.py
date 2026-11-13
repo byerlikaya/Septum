@@ -144,6 +144,7 @@ from ..services.pii_gate import (
     DocumentGoneError,
     DocumentMapConflictError,
     DocumentMapMissingError,
+    LearnedValueMasker,
     TextSegmenter,
     create_user_text_sanitizer,
     gate_untrusted_texts,
@@ -306,12 +307,17 @@ async def _gate_edited_chunks(
     anon_map: AnonymizationMap,
     db: AsyncSession,
     settings: AppSettings,
+    masker: Optional[LearnedValueMasker] = None,
 ) -> List[str]:
     """Gate the chunk texts the approval modal sent back.
 
     Texts identical to one the server offered were already masked and pass
     through unchanged; any edited or added text goes through the PII gate.
+    When the gate learned a value from an edit, the unchanged texts are
+    masked again against the grown map. A caller that masks further prompt
+    fields passes the ``masker`` it created before this call.
     """
+    masker = masker or LearnedValueMasker(anon_map)
     offered = set(offered_texts)
     edited_idx = [i for i, t in enumerate(returned_texts) if t not in offered]
     if not edited_idx:
@@ -320,9 +326,40 @@ async def _gate_edited_chunks(
         [returned_texts[i] for i in edited_idx], anon_map, db, settings
     )
     result = list(returned_texts)
+    edited = set(edited_idx)
+    unchanged_idx = [i for i in range(len(result)) if i not in edited]
     for i, text in zip(edited_idx, gated):
         result[i] = text
+    for i, text in zip(unchanged_idx, masker.mask([result[i] for i in unchanged_idx])):
+        result[i] = text
     return result
+
+
+def _remask_prompt_fields(
+    masker: LearnedValueMasker,
+    sanitized_query: str,
+    regulation_names: List[str],
+    builtin_regulations: List[bool],
+    column_descriptions: List[str],
+) -> Tuple[str, List[str], List[str]]:
+    """Return the query, regulation names and column descriptions masked with what ``masker`` learned.
+
+    These prompt fields are gated before the approval wait, so a value an
+    edit teaches the map later is masked in them here. Built-in regulation
+    names (``builtin_regulations``, by position) are fixed seed data and
+    stay as they are; a name without a flag counts as custom.
+    """
+    if not masker.learned:
+        return sanitized_query, list(regulation_names), list(column_descriptions)
+    custom_idx = [
+        i for i in range(len(regulation_names))
+        if not (i < len(builtin_regulations) and builtin_regulations[i])
+    ]
+    names = list(regulation_names)
+    for i, name in zip(custom_idx, masker.mask([names[i] for i in custom_idx])):
+        names[i] = name
+    [query] = masker.mask([sanitized_query])
+    return query, names, masker.mask(column_descriptions)
 
 
 def _auto_rag_owner_filter(user: User):
@@ -2125,7 +2162,11 @@ async def _prepare_retry_context(turn: _ChatTurn, db: AsyncSession) -> Optional[
     # Entities first seen in the client text must not reuse a number the
     # client text already carries for someone else.
     reserve_placeholder_counters(turn.anon_map, client_texts)
+    masker = LearnedValueMasker(turn.anon_map)
     client_texts = await gate_untrusted_texts(client_texts, turn.anon_map, db, turn.settings)
+    # Regulation names, column descriptions and the typed placeholders are
+    # computed after this, against the grown map; only the query predates it.
+    [turn.sanitized_query] = masker.mask([turn.sanitized_query])
     turn.candidate_chunks = [
         ApprovalChunk(id=None, document_id=c.document_id, text=text)
         for c, text in zip(pre_approved, client_texts)
@@ -2405,6 +2446,7 @@ async def _approval_events(
             assembly_context={
                 "sanitized_query": turn.sanitized_query,
                 "regulation_names": turn.prompt_regulation_names,
+                "builtin_regulations": _builtin_regulation_flags(turn),
                 "language": turn.language,
                 "output_mode": turn.output_mode,
                 "column_descriptions": turn.column_descriptions,
@@ -2460,13 +2502,45 @@ async def _approval_events(
         yield _encode_sse({"type": "end"})
         return
 
+    masker = LearnedValueMasker(turn.anon_map)
     turn.context_texts = await _gate_edited_chunks(
         offered_texts=turn.context_texts,
         returned_texts=[c.text for c in decision.chunks],
         anon_map=turn.anon_map,
         db=db,
         settings=turn.settings,
+        masker=masker,
     )
+    _remask_turn_prompt_fields(turn, masker)
+
+
+def _remask_turn_prompt_fields(turn: _ChatTurn, masker: LearnedValueMasker) -> None:
+    """Mask the turn's prompt fields with what the edit gate taught the map (see :func:`_remask_prompt_fields`).
+
+    The typed query placeholders are read again from the re-masked query.
+    """
+    if not masker.learned:
+        return
+    turn.sanitized_query, turn.prompt_regulation_names, turn.column_descriptions = (
+        _remask_prompt_fields(
+            masker,
+            turn.sanitized_query,
+            turn.prompt_regulation_names,
+            _builtin_regulation_flags(turn),
+            turn.column_descriptions,
+        )
+    )
+    turn.query_placeholders = _typed_query_placeholders(
+        turn.message_text,
+        turn.sanitized_query,
+        turn.query_remap,
+        map_placeholders(turn.anon_map) | set(turn.anon_map.placeholder_lookup),
+    )
+
+
+def _builtin_regulation_flags(turn: _ChatTurn) -> List[bool]:
+    """Whether each active ruleset, in prompt order, is built in."""
+    return [is_builtin for _, is_builtin in turn.active_regulations]
 
 
 def _llm_turn_input(turn: _ChatTurn) -> _LlmTurnInput:

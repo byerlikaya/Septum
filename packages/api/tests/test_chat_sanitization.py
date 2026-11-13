@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from types import SimpleNamespace
 
 import pytest
+from sanitizer_doubles import PatternSanitizer
 from septum_api.models.settings import AppSettings
 from septum_api import request_limits
 from septum_api.routers import chat as chat_module
@@ -13,6 +15,7 @@ from septum_api.routers.chat import (
     _apply_chunk_placeholder_remap,
     _build_unified_placeholder_space,
 )
+from septum_api.services import pii_gate
 from septum_api.services.anonymization_map import AnonymizationMap
 from septum_api.services.policy_composer import ComposedPolicy
 from septum_api.services.sanitizer import PIISanitizer
@@ -441,3 +444,107 @@ def test_same_surname_in_two_documents_stays_two_people_and_restores_each() -> N
     assert jane_text != john_text
     assert Unmasker().unmask(jane_text, unified) == "Jane Smith signed the lease"
     assert Unmasker().unmask(john_text, unified) == "John Smith paid the deposit"
+
+
+_LATE_VALUE = "Zed Q"
+_LATE_TEXTS = ["Zed Q signed the deal.", "Name: Zed Q"]
+
+
+@pytest.fixture
+def context_only_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the PII gate detect an organization only right after a ``Name: `` label."""
+    async def _build(db, settings, **kwargs):
+        return PatternSanitizer((re.compile(r"Name: ([^;\n]+)"), "ORGANIZATION"))
+
+    monkeypatch.setattr(pii_gate, "create_user_text_sanitizer", _build)
+
+
+async def test_edited_chunks_mask_a_value_only_a_later_edit_reveals(context_only_gate) -> None:
+    anon_map = AnonymizationMap(document_id=0, language="en")
+
+    gated = await chat_module._gate_edited_chunks(
+        ["Offered chunk."], list(_LATE_TEXTS), anon_map, None, None
+    )
+
+    assert all(_LATE_VALUE not in text for text in gated)
+    assert all(anon_map.entity_map[_LATE_VALUE] in text for text in gated)
+
+
+async def test_retry_chunks_mask_a_value_only_a_later_chunk_reveals(context_only_gate) -> None:
+    anon_map = AnonymizationMap(document_id=0, language="en")
+    request = SimpleNamespace(
+        pre_approved_chunks=[SimpleNamespace(text=t, document_id=None) for t in _LATE_TEXTS],
+        numbering_token=None,
+    )
+    turn = SimpleNamespace(
+        request=request,
+        anon_map=anon_map,
+        documents_by_id={},
+        query_seed_document_id=None,
+        query_remap={},
+        settings=None,
+        sanitized_query=f"Who is {_LATE_VALUE}?",
+    )
+
+    assert await chat_module._prepare_retry_context(turn, None) is None
+
+    texts = [c.text for c in turn.candidate_chunks] + [turn.sanitized_query]
+    assert len(texts) == 3
+    assert all(_LATE_VALUE not in text for text in texts)
+    assert all(anon_map.entity_map[_LATE_VALUE] in text for text in texts)
+
+
+@pytest.fixture
+def person_retyping_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A gate that registers an original the map holds as an organization again as a person.
+
+    ``add_entity`` keeps the entity map as it is and only adds the original's
+    tokens to the blocklist, the growth a gate makes when it reads a known
+    value as a person.
+    """
+
+    async def _gate(texts, anon_map, db, settings, **kwargs):
+        anon_map.add_entity("Quinn Hale", "PERSON_NAME")
+        return list(texts)
+
+    monkeypatch.setattr(chat_module, "gate_untrusted_texts", _gate)
+
+
+def _organization_map() -> AnonymizationMap:
+    anon_map = AnonymizationMap(document_id=0, language="en")
+    anon_map.add_entity("Quinn Hale", "ORGANIZATION")
+    return anon_map
+
+
+async def test_edited_chunks_mask_a_token_the_gate_learned_without_a_new_original(
+    person_retyping_gate,
+) -> None:
+    anon_map = _organization_map()
+
+    gated = await chat_module._gate_edited_chunks(
+        ["Ask Quinn about it."], ["Ask Quinn about it.", "An added note."], anon_map, None, None
+    )
+
+    assert gated[0] == "Ask [ORGANIZATION_1] about it."
+
+
+async def test_retry_query_masks_a_token_the_gate_learned_without_a_new_original(
+    person_retyping_gate,
+) -> None:
+    request = SimpleNamespace(
+        pre_approved_chunks=[SimpleNamespace(text="A note.", document_id=None)],
+        numbering_token=None,
+    )
+    turn = SimpleNamespace(
+        request=request,
+        anon_map=_organization_map(),
+        documents_by_id={},
+        query_seed_document_id=None,
+        query_remap={},
+        settings=None,
+        sanitized_query="Ask Quinn about it",
+    )
+
+    assert await chat_module._prepare_retry_context(turn, None) is None
+
+    assert turn.sanitized_query == "Ask [ORGANIZATION_1] about it"

@@ -402,6 +402,41 @@ def _mask_with_state(
     return anon_map.apply_blocklist(_mask_originals(text, state), language=language)
 
 
+class LearnedValueMasker:
+    """Masks texts again with what ``anon_map`` learned after this masker was created.
+
+    Create one before untrusted text is gated. Afterwards :meth:`mask`
+    returns texts as they are while the map still holds what it held then,
+    in any of its three lookups (see :meth:`_MaskState.is_current`); once a
+    gate grew it, every text is masked against the grown map. One masking
+    state serves every text until the map changes again. ``language`` must
+    be the one the gate used (the map's by default). Deterministic, no
+    detector call.
+    """
+
+    def __init__(self, anon_map: AnonymizationMap, language: Optional[str] = None) -> None:
+        self._anon_map = anon_map
+        self._language = language or anon_map.language
+        self._before = _MaskState(anon_map)
+        self._after: Optional[_MaskState] = None
+
+    @property
+    def learned(self) -> bool:
+        """Whether the map changed since this masker was created."""
+        return not self._before.is_current(self._anon_map)
+
+    def mask(self, texts: Sequence[str]) -> List[str]:
+        """Return ``texts`` masked against the map as it is now, or unchanged if nothing was learned."""
+        if not self.learned:
+            return list(texts)
+        if self._after is None or not self._after.is_current(self._anon_map):
+            self._after = _MaskState(self._anon_map)
+        return [
+            _mask_with_state(text, self._after, self._anon_map, self._language) if text else text
+            for text in texts
+        ]
+
+
 def _heading_line(title: str, source_text: str) -> Optional[str]:
     """Return the whole line of ``source_text`` that ``title`` opens, or ``None``."""
     for line in source_text.splitlines():
@@ -964,8 +999,11 @@ async def gate_untrusted_texts(
     :func:`create_user_text_sanitizer`; a context-gated one raises
     :class:`ValueError`. With ``joined`` the texts are sanitized in one run
     (:func:`_gate_joined`), for many short texts such as column labels.
-    With a ``segmenter`` each text is detected per language segment,
-    ``language`` staying the dominant one; it needs an explicit
+    Either way, a value detected in any text is masked in every text and at
+    every mention: when the call grew the map, every text is masked again
+    against the final map, a deterministic pass with no detector call. With a ``segmenter``
+    each text is detected per language segment, ``language`` staying the
+    dominant one; it needs an explicit
     ``language`` and cannot be combined with ``joined`` (both raise
     :class:`ValueError`).
     """
@@ -982,12 +1020,18 @@ async def gate_untrusted_texts(
         if joined:
             return _gate_joined(texts, anon_map, sanitizer, lang)
         state: Optional[_MaskState] = None
+        before: Optional[_MaskState] = None
         gated: List[str] = []
         for text in texts:
             if text and (state is None or not state.is_current(anon_map)):
                 state = _MaskState(anon_map)
+                before = before or state
             gated.append(_gate_one(text, anon_map, sanitizer, lang, state, segmenter))
-        return gated
+        if before is None or before.is_current(anon_map):
+            return gated
+        if not state.is_current(anon_map):
+            state = _MaskState(anon_map)
+        return [_mask_with_state(text, state, anon_map, lang) if text else text for text in gated]
 
     return await asyncio.to_thread(gate_all)
 
@@ -1206,6 +1250,7 @@ __all__ = [
     "DocumentGoneError",
     "DocumentMapConflictError",
     "DocumentMapMissingError",
+    "LearnedValueMasker",
     "TextSegmenter",
     "all_placeholders_known",
     "create_user_text_sanitizer",

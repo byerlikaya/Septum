@@ -33,12 +33,13 @@ from ..services.approval_gate import (
     ApprovalSessionNotFoundError,
     get_approval_gate,
 )
-from ..services.pii_gate import reserve_placeholder_counters
+from ..services.pii_gate import LearnedValueMasker, reserve_placeholder_counters
 from ..utils.auth_dependency import get_current_user
 from ..utils.db_helpers import load_settings
 from .chat import (
     _assemble_user_prompt,
     _gate_edited_chunks,
+    _remask_prompt_fields,
 )
 
 router = APIRouter(prefix="/api/approval", tags=["approval"])
@@ -283,6 +284,8 @@ async def preview_prompt(
     Edited chunks pass the same PII gate the send path applies, against a
     copy of the session's anonymization map, so the preview shows exactly
     what would be sent and the session map is never changed by a preview.
+    A value an edit teaches that map is masked in the stored query, custom
+    regulation names and column descriptions too, as the send path does.
     A second preview for the same session within
     :data:`PREVIEW_MIN_INTERVAL_SECONDS` is refused with 429.
     """
@@ -324,21 +327,30 @@ async def preview_prompt(
             document_id=0, language=context.get("language", "en")
         )
         reserve_placeholder_counters(preview_map, offered_texts + returned_texts)
+    masker = LearnedValueMasker(preview_map)
     gated_texts = await _gate_edited_chunks(
         offered_texts=offered_texts,
         returned_texts=returned_texts,
         anon_map=preview_map,
         db=db,
         settings=await load_settings(db),
+        masker=masker,
+    )
+    sanitized_query, regulation_names, column_descriptions = _remask_prompt_fields(
+        masker,
+        context.get("sanitized_query", ""),
+        list(context.get("regulation_names", []) or []),
+        list(context.get("builtin_regulations", []) or []),
+        list(context.get("column_descriptions", []) or []),
     )
 
     assembled = _assemble_user_prompt(
-        sanitized_query=context.get("sanitized_query", ""),
+        sanitized_query=sanitized_query,
         context_chunks=gated_texts,
-        regulation_names=list(context.get("regulation_names", []) or []),
+        regulation_names=regulation_names,
         language=context.get("language", "en"),
         output_mode=context.get("output_mode", "chat"),
-        column_descriptions=list(context.get("column_descriptions", []) or []),
+        column_descriptions=column_descriptions,
         query_has_placeholder=bool(context.get("query_has_placeholder", False)),
     )
 
