@@ -15,6 +15,7 @@ names through the NER layer, which the gate calls the same way.
 
 import copy
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any, AsyncIterator, Optional
@@ -23,6 +24,10 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sanitizer_doubles import PatternSanitizer, literal
 from septum_api.database import build_default_app_settings, get_db
+from septum_api.errors import (
+    ORIGINALS_PATTERN_TOO_DEEP_CODE,
+    ORIGINALS_PATTERN_TOO_DEEP_DETAIL,
+)
 from septum_api.main import app
 from septum_api.models import Base
 from septum_api.models.chat_session import ChatMessage, ChatSession
@@ -1622,3 +1627,105 @@ class TestValueLearnedFromAnEdit:
         assert resp.status_code == 200, resp.text
         assert LEARNED not in sent
         assert resp.json()["assembled_prompt"] == sent
+
+
+DEEP_STEM = "Zorblaxquin"
+
+
+def _nested_chain_map(document_id: int, levels: int, first: int = 1) -> AnonymizationMap:
+    """A map whose originals ``DEEP_STEM + "q" * i`` nest as prefixes ``levels`` deep."""
+    amap = AnonymizationMap(document_id=document_id, language="en")
+    for i in range(first, first + levels):
+        amap.add_entity(DEEP_STEM + "q" * i, "ORGANIZATION")
+    return amap
+
+
+@pytest.fixture
+def stem_on_edit_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the PII gate detect the bare ``DEEP_STEM`` right after a ``Name: `` label."""
+
+    async def _build(db, settings, **kwargs):
+        return PatternSanitizer((re.compile(rf"Name: ({DEEP_STEM})\b"), "ORGANIZATION"))
+
+    monkeypatch.setattr(pii_gate, "create_user_text_sanitizer", _build)
+
+
+def _assert_refused_too_deep(events: list[dict[str, Any]], env: _Env, caplog: pytest.LogCaptureFixture) -> None:
+    errors = [e for e in events if e["type"] == "error"]
+    assert [e["code"] for e in errors] == [ORIGINALS_PATTERN_TOO_DEEP_CODE], events
+    assert errors[0]["message"] == ORIGINALS_PATTERN_TOO_DEEP_DETAIL
+    assert not [e for e in events if e["type"] == "answer_chunk"]
+    assert env.prompts == []
+    assert "Zorblax" not in json.dumps(events)
+    assert "Zorblax" not in caplog.text
+
+
+class TestOriginalsNestedTooDeep:
+    """A map nesting its originals past the depth cap refuses the turn; nothing reaches the LLM."""
+
+    async def test_approval_edit_that_deepens_the_map_past_the_cap_is_refused(
+        self, env: _Env, stem_on_edit_gate: None, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        caplog.set_level(logging.DEBUG)
+        await env.set_require_approval(True)
+        doc = await env.add_document(["The deal closed."])
+        await document_anon_store.set_document_map(
+            doc, _nested_chain_map(doc, pii_gate._MAX_FACTORED_DEPTH)
+        )
+        env.gate.edit = lambda texts: [texts[0] + f" Name: {DEEP_STEM}."]
+
+        events = await env.ask({"message": "When did the deal close?", "document_ids": [doc]})
+
+        assert env.gate.created, events
+        _assert_refused_too_deep(events, env, caplog)
+
+    async def test_stored_map_past_the_cap_refuses_the_turn(
+        self, env: _Env, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        caplog.set_level(logging.DEBUG)
+        await env.set_require_approval(False)
+        doc = await env.add_document(["The deal closed."])
+        await document_anon_store.set_document_map(
+            doc, _nested_chain_map(doc, pii_gate._MAX_FACTORED_DEPTH + 1)
+        )
+
+        events = await env.ask({"message": "When did the deal close?", "document_ids": [doc]})
+
+        _assert_refused_too_deep(events, env, caplog)
+
+    async def test_approval_preview_answers_422_with_the_code(
+        self,
+        env: _Env,
+        stem_on_edit_gate: None,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        from septum_api.routers import approval as approval_module
+        from septum_api.services.approval_gate import ApprovalGate
+
+        caplog.set_level(logging.DEBUG)
+        gate = ApprovalGate()
+        monkeypatch.setattr(approval_module, "_get_gate", lambda: gate)
+        monkeypatch.setattr(approval_module, "PREVIEW_MIN_INTERVAL_SECONDS", 0.0)
+        await gate.create(
+            session_id="preview-deep",
+            masked_prompt="q",
+            masked_chunks=["The deal closed."],
+            entity_count=0,
+            owner_user_id=env.user.id,
+            anon_map=_nested_chain_map(0, pii_gate._MAX_FACTORED_DEPTH),
+            assembly_context={"sanitized_query": "q", "language": "en"},
+        )
+
+        resp = await env.client.post(
+            "/api/approval/preview-deep/preview-prompt",
+            json={"chunks": [{"text": f"The deal closed. Name: {DEEP_STEM}."}]},
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json() == {
+            "detail": ORIGINALS_PATTERN_TOO_DEEP_DETAIL,
+            "code": ORIGINALS_PATTERN_TOO_DEEP_CODE,
+        }
+        assert "Zorblax" not in resp.text
+        assert "Zorblax" not in caplog.text

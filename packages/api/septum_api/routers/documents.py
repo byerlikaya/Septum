@@ -51,6 +51,7 @@ from ..errors import (
     ChunkTooLargeError,
     ExtractedTextTooLargeError,
     LocalModelUnavailableError,
+    OriginalsPatternTooDeepError,
     public_error_text,
 )
 from ..middleware.upload_limits import MAX_UPLOAD_BYTES, TOO_LARGE_DETAIL
@@ -874,6 +875,7 @@ async def record_background_failure(
                             LocalModelUnavailableError,
                             ChunkTooLargeError,
                             ExtractedTextTooLargeError,
+                            OriginalsPatternTooDeepError,
                         ),
                     )
                     else None

@@ -180,13 +180,16 @@ async def _ingest(
     chunk_records=None,
     index_calls=None,
     sanitizer=None,
+    on_failure=None,
     **settings,
 ):
     """Run the real pipeline (real chunker, projection and SQLite) with a pattern detector.
 
     Returns the stored chunks and detection rows in index order. Indexing and
     the map store are stubbed; nothing else is. ``sanitizer`` replaces the
-    pattern detector (for example with the real core detector).
+    pattern detector (for example with the real core detector). When the run
+    raises, ``on_failure(session, document_id, exc)`` is awaited in its
+    session instead of the error propagating.
     """
     from contextlib import asynccontextmanager
 
@@ -250,12 +253,18 @@ async def _ingest(
             )
             session.add(doc)
             await session.commit()
-            await dp.DocumentPipeline(settings=app_settings).run(
-                db=session, document=doc, file_format=file_format,
-                ingestion_result=IngestionResult(
-                    text=join_blocks(blocks), metadata={}, blocks=list(blocks)
-                ),
-            )
+            doc_id = doc.id
+            try:
+                await dp.DocumentPipeline(settings=app_settings).run(
+                    db=session, document=doc, file_format=file_format,
+                    ingestion_result=IngestionResult(
+                        text=join_blocks(blocks), metadata={}, blocks=list(blocks)
+                    ),
+                )
+            except Exception as exc:
+                if on_failure is None:
+                    raise
+                await on_failure(session, doc_id, exc)
         async with maker() as session:
             chunks = list(
                 (await session.execute(select(Chunk).order_by(Chunk.index))).scalars()
@@ -263,7 +272,7 @@ async def _ingest(
             rows = list(
                 (await session.execute(select(EntityDetection).order_by(EntityDetection.id))).scalars()
             )
-            stored = await session.get(Document, doc.id)
+            stored = await session.get(Document, doc_id)
     finally:
         await engine.dispose()
     if sanitizer is None:
@@ -615,3 +624,130 @@ async def test_run_with_the_real_detector_masks_a_minority_language_name(
         assert DOMINANT_NAME not in chunk.sanitized_text
     assert any(MINORITY_NAME in chunk.raw_text for chunk in chunks)
     assert stored.entity_count == 2
+
+
+_NESTED = "Zorblaxquin"
+
+
+def _nested_blocks(levels: int) -> list[TextBlock]:
+    """A document naming ``levels`` organisations, each name a prefix of the next one."""
+    return [TextBlock(f"Paid by {_NESTED + 'q' * i}.", "paragraph") for i in range(levels)]
+
+
+def _nested_detector():
+    """Detects every name of :func:`_nested_blocks` whole."""
+    from sanitizer_doubles import PatternDetector
+
+    return PatternDetector((re.compile(_NESTED + "q*"), "ORGANIZATION"))
+
+
+def _recording_map_store(monkeypatch) -> list:
+    """Replace the map store with one that records every map handed to it."""
+    from septum_api.services import document_pipeline as dp
+
+    stored_maps: list = []
+
+    async def _store(db, document_id, anon_map) -> None:
+        stored_maps.append(anon_map)
+
+    monkeypatch.setattr(dp, "_store_document_map", _store)
+    return stored_maps
+
+
+async def test_a_map_nesting_past_the_cap_fails_the_document_with_its_code(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    """Refused like an over-long text: coded, content-free, and nothing derived is kept."""
+    import logging
+
+    from septum_api.models.error_log import ErrorLog
+    from septum_api.routers import documents
+    from septum_api.services import pii_gate
+    from sqlalchemy import select
+
+    stored_maps = _recording_map_store(monkeypatch)
+    failures: list = []
+    logged: list = []
+
+    async def _record(session, document_id, exc) -> None:
+        failures.append(exc)
+        await documents.record_background_failure(session, document_id, exc, user_id=1)
+        logged.extend((await session.execute(select(ErrorLog))).scalars())
+
+    with caplog.at_level(logging.DEBUG):
+        chunks, rows, stored = await _ingest(
+            tmp_path, monkeypatch, _nested_blocks(pii_gate._MAX_FACTORED_DEPTH + 1),
+            sanitizer=_nested_detector(), on_failure=_record,
+        )
+
+    assert [type(exc).__name__ for exc in failures] == ["OriginalsPatternTooDeepError"]
+    assert stored.ingestion_status == "failed"
+    assert stored.ingestion_error_code == "originals_pattern_too_deep"
+    assert stored.ingestion_error == str(failures[0])
+    assert chunks == [] and rows == [] and stored_maps == []
+    assert stored.transcription_text is None
+    assert (stored.chunk_count, stored.entity_count) == (0, 0)
+    assert stored.sanitized_entity_types is None and stored.sanitized_policy_digest is None
+    assert stored.sanitized_language is None and stored.sanitized_languages is None
+    assert stored.entity_index_version is None
+    assert logged
+    for text in (
+        stored.ingestion_error,
+        *(record.getMessage() for record in caplog.records),
+        *(f"{entry.message} {entry.stack_trace} {entry.extra}" for entry in logged),
+    ):
+        assert _NESTED not in text
+
+
+async def test_a_map_nesting_exactly_to_the_cap_is_ingested(tmp_path, monkeypatch) -> None:
+    from septum_api.services import pii_gate
+
+    stored_maps = _recording_map_store(monkeypatch)
+
+    chunks, rows, stored = await _ingest(
+        tmp_path, monkeypatch, _nested_blocks(pii_gate._MAX_FACTORED_DEPTH),
+        sanitizer=_nested_detector(),
+    )
+
+    assert stored.ingestion_status == "completed"
+    assert stored.ingestion_error_code is None
+    assert len(stored_maps) == 1
+    assert len(stored_maps[0].entity_map) == pii_gate._MAX_FACTORED_DEPTH
+    assert chunks and stored.entity_count == pii_gate._MAX_FACTORED_DEPTH
+    for chunk in chunks:
+        assert _NESTED not in chunk.sanitized_text
+
+
+async def test_the_depth_check_runs_once_on_the_stored_map_and_compiles_nothing(
+    tmp_path, monkeypatch
+) -> None:
+    from septum_api.services import document_pipeline as dp
+    from septum_api.services import pii_gate
+
+    stored_maps = _recording_map_store(monkeypatch)
+    checked: list = []
+    compiles: list = []
+    real_check = dp.ensure_originals_searchable
+
+    def _spied_check(anon_map) -> None:
+        real_compile = pii_gate.re.compile
+
+        def _counting_compile(*args, **kwargs):
+            compiles.append(args[0])
+            return real_compile(*args, **kwargs)
+
+        pii_gate.re.compile = _counting_compile
+        try:
+            real_check(anon_map)
+        finally:
+            pii_gate.re.compile = real_compile
+        checked.append(anon_map)
+
+    monkeypatch.setattr(dp, "ensure_originals_searchable", _spied_check)
+
+    _, _, stored = await _ingest(tmp_path, monkeypatch, [TextBlock(f"Tenant {NAME} signed.", "text")])
+
+    assert stored.ingestion_status == "completed"
+    assert len(checked) == 1 and checked[0] is stored_maps[0]
+    assert NAME in checked[0].entity_map
+    assert compiles == []

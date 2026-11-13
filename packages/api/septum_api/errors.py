@@ -109,6 +109,35 @@ class ExtractedTextTooLargeError(ContentFreeError, RuntimeError):
     code = EXTRACTED_TEXT_TOO_LARGE_CODE
 
 
+ORIGINALS_PATTERN_TOO_DEEP_CODE = "originals_pattern_too_deep"
+ORIGINALS_PATTERN_TOO_DEEP_DETAIL = (
+    "The anonymization map holds values nested inside one another more deeply than "
+    "they can be searched for safely; the request was refused so that no unmasked "
+    "value is sent."
+)
+
+
+class OriginalsPatternTooDeepError(ContentFreeError, RuntimeError):
+    """The known originals nest as prefixes of one another deeper than the search allows.
+
+    Raised while the masking pattern is built, before anything is compiled or
+    scanned, so the text is refused rather than masked partially or sent on.
+    The message names the nesting level reached and the limit only, never an
+    original or any part of one.
+    """
+
+    code = ORIGINALS_PATTERN_TOO_DEEP_CODE
+    detail = ORIGINALS_PATTERN_TOO_DEEP_DETAIL
+
+    def __init__(self, depth: int, limit: int) -> None:
+        super().__init__(
+            f"Known values nest at least {depth} levels deep, more than the limit of "
+            f"{limit}; masking was refused."
+        )
+        self.depth = depth
+        self.limit = limit
+
+
 class DocumentTextMismatchError(ContentFreeError, RuntimeError):
     """The detector normalized the document text differently from the chunker's blocks."""
 

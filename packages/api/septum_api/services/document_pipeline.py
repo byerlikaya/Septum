@@ -57,6 +57,7 @@ from .entity_index_service import (
 )
 from .ingestion.base import IngestionResult, TextBlock, block_starts, join_blocks
 from .ollama_detection_runner import clear_detection_cache, local_model_scope
+from .pii_gate import ensure_originals_searchable
 from .policy_composer import PolicyComposer
 from .remask_cache import remask_cache
 from .sanitizer import PIISanitizer, ResolvedSpan
@@ -467,7 +468,10 @@ class DocumentPipeline:
         counts are those of the whole document, so overlapping chunks never
         count a value twice. A chunk still longer than the chunk limit after
         masking fails the run with :class:`ChunkTooLargeError` before
-        anything is stored.
+        anything is stored, and so does a map whose originals nest past the
+        masking depth limit (:class:`OriginalsPatternTooDeepError`, see
+        :func:`ensure_originals_searchable`): chat could never mask against
+        it.
 
         ``ingestion_status`` stays ``processing`` until every artifact (map,
         FAISS and BM25 indexes) is written, and the delete endpoint refuses
@@ -523,6 +527,7 @@ class DocumentPipeline:
             anon_map,
             emit,
         )
+        await asyncio.to_thread(ensure_originals_searchable, anon_map)
         records, projected = masked.records, masked.projected
 
         # The local preview joins the raw chunk texts and places each

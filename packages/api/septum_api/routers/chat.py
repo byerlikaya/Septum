@@ -83,6 +83,7 @@ from ..database import get_db
 from ..errors import (
     MODEL_REFUSED_DETAIL,
     LocalModelUnavailableError,
+    OriginalsPatternTooDeepError,
 )
 from ..middleware.rate_limit import route_limit
 from ..models.document import Chunk, Document
@@ -2652,6 +2653,16 @@ async def _turn_error_event(
             "type": "error",
             "code": MAP_CONFLICT,
             "message": "The document is being updated; please try again.",
+        }
+    if isinstance(exc, OriginalsPatternTooDeepError):
+        logger.warning(
+            "chat turn refused session_id=%s reason=%s", session_id, exc.code
+        )
+        await _record_backend_error(db, http_request, exc, 422)
+        return {
+            "type": "error",
+            "code": exc.code,
+            "message": exc.detail,
         }
     if isinstance(exc, LocalModelUnavailableError):
         logger.warning(
