@@ -497,6 +497,48 @@ class TestAnalyzeQueryOwnerScope:
         assert "bob_private.pdf" not in resp.text
 
 
+class TestAnalyzeQueryStatusScope:
+    async def test_picker_offers_only_completed_documents(
+        self, chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from septum_api.models.document import Document
+
+        alice = chat_env.users["alice"]
+        done = await chat_env.add_document(alice, "done.pdf", ["d"])
+        failed = await chat_env.add_document(alice, "failed.pdf", ["f"])
+        busy = await chat_env.add_document(alice, "busy.pdf", ["b"])
+        async with chat_env.session_maker() as session:
+            for doc_id, status in ((failed, "failed"), (busy, "processing")):
+                (await session.get(Document, doc_id)).ingestion_status = status
+            await session.commit()
+
+        async def _sanitize(message, language, settings, anon_map, db):
+            anon_map.add_entity(RAW_VALUE, "PERSON_NAME")
+            return message, 1, {"PERSON_NAME": 1}
+
+        async def _scores(db, entities, owner_id=None):
+            return {done: 1.0, failed: 1.0, busy: 1.0}
+
+        async def _clusters(db, ids):
+            return [[d] for d in sorted(ids)]
+
+        monkeypatch.setattr(chat_module, "_sanitize_query", _sanitize)
+        monkeypatch.setattr(chat_module, "find_documents_for_query_entities", _scores)
+        monkeypatch.setattr(chat_module, "cluster_documents_by_relationship", _clusters)
+        chat_env.act_as("alice")
+
+        resp = await chat_env.client.post(
+            "/api/chat/analyze_query", json={"message": f"Who is {RAW_VALUE}?"}
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        listed = {d for c in body["clusters"] for d in c["document_ids"]}
+        assert listed == {done}
+        assert body["narrowed_doc_ids"] == [done]
+        assert "failed.pdf" not in resp.text and "busy.pdf" not in resp.text
+
+
 class TestNoContextTurn:
     def test_no_context_turn_is_never_gated(self) -> None:
         assert chat_module._effective_require_approval(True, True, "none") is False

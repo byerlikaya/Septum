@@ -181,6 +181,7 @@ async def _ingest(
     index_calls=None,
     sanitizer=None,
     on_failure=None,
+    before_run=None,
     **settings,
 ):
     """Run the real pipeline (real chunker, projection and SQLite) with a pattern detector.
@@ -189,7 +190,8 @@ async def _ingest(
     the map store are stubbed; nothing else is. ``sanitizer`` replaces the
     pattern detector (for example with the real core detector). When the run
     raises, ``on_failure(session, document_id, exc)`` is awaited in its
-    session instead of the error propagating.
+    session instead of the error propagating. ``before_run(session, document)``
+    is awaited after the document row exists and before the run starts.
     """
     from contextlib import asynccontextmanager
 
@@ -254,6 +256,8 @@ async def _ingest(
             session.add(doc)
             await session.commit()
             doc_id = doc.id
+            if before_run is not None:
+                await before_run(session, doc)
             try:
                 await dp.DocumentPipeline(settings=app_settings).run(
                     db=session, document=doc, file_format=file_format,
@@ -751,3 +755,176 @@ async def test_the_depth_check_runs_once_on_the_stored_map_and_compiles_nothing(
     assert len(checked) == 1 and checked[0] is stored_maps[0]
     assert NAME in checked[0].entity_map
     assert compiles == []
+
+
+async def test_a_refused_reprocess_leaves_no_index_rows_relationships_or_version(
+    tmp_path, monkeypatch
+) -> None:
+    """A good document's old index goes with its chunks when the rebuild is refused."""
+    from septum_api.models.document import Document
+    from septum_api.models.document_relationship import DocumentRelationship
+    from septum_api.models.entity_index import EntityIndex
+    from septum_api.request_limits import MAX_PRE_APPROVED_CHUNK_CHARS
+    from septum_api.routers import documents
+    from septum_api.services.entity_index_service import ENTITY_INDEX_VERSION
+    from sanitizer_doubles import PatternDetector, literal
+    from sqlalchemy import select
+
+    neighbour_id = 0
+    seen: dict = {}
+
+    async def _before(session, doc) -> None:
+        nonlocal neighbour_id
+        neighbour = Document(
+            filename="n", original_filename="n", file_type="x", file_format="image",
+            detected_language="tr", encrypted_path="/n", file_size_bytes=1,
+            ingestion_status="completed", entity_index_version=ENTITY_INDEX_VERSION,
+        )
+        session.add(neighbour)
+        doc.ingestion_status = "completed"
+        doc.entity_index_version = ENTITY_INDEX_VERSION
+        await session.commit()
+        neighbour_id = neighbour.id
+        for owner in (doc.id, neighbour_id):
+            session.add(EntityIndex(
+                document_id=owner, entity_type="IBAN", value_hash="h" * 64, occurrences=1
+            ))
+        session.add(DocumentRelationship(
+            doc_a_id=doc.id, doc_b_id=neighbour_id, score=1.0, shared_entity_count=1,
+            shared_entity_types="{}",
+        ))
+        await session.commit()
+        assert await documents.claim_for_reingest(session, doc.id)
+        await session.refresh(doc)
+
+    async def _record(session, document_id, exc) -> None:
+        await documents.record_background_failure(session, document_id, exc, user_id=1)
+        seen["code"] = (await session.get(Document, document_id)).ingestion_error_code
+        seen["index"] = [
+            r.document_id for r in (await session.execute(select(EntityIndex))).scalars()
+        ]
+        seen["pairs"] = list((await session.execute(select(DocumentRelationship))).scalars())
+
+    _, _, stored = await _ingest(
+        tmp_path, monkeypatch, [TextBlock("Alice " * 7000, "text")],
+        sanitizer=PatternDetector(literal("Alice", "PERSON_NAME")),
+        on_failure=_record, before_run=_before,
+        chunk_size=MAX_PRE_APPROVED_CHUNK_CHARS, chunk_overlap=0,
+    )
+
+    assert seen["code"] == "chunk_too_large"
+    assert stored.ingestion_status == "failed"
+    assert stored.entity_index_version is None
+    assert seen["index"] == [neighbour_id]
+    assert seen["pairs"] == []
+
+
+async def test_a_failure_after_the_index_commit_drops_the_run_index_with_the_failed_status(
+    tmp_path, monkeypatch
+) -> None:
+    """A failed run cannot stay routable: its committed index goes in the failure transaction."""
+    from septum_api.models.document import Document
+    from septum_api.models.document_relationship import DocumentRelationship
+    from septum_api.models.entity_index import EntityIndex
+    from septum_api.routers import documents
+    from septum_api.services import document_pipeline as dp
+    from septum_api.services.entity_index_service import ENTITY_INDEX_VERSION
+    from sanitizer_doubles import PatternDetector, literal
+    from sqlalchemy import select
+
+    neighbour_id = 0
+    seen: dict = {}
+
+    async def _before(session, doc) -> None:
+        nonlocal neighbour_id
+        neighbour = Document(
+            filename="n", original_filename="n", file_type="x", file_format="image",
+            detected_language="tr", encrypted_path="/n", file_size_bytes=1,
+            ingestion_status="completed", entity_index_version=ENTITY_INDEX_VERSION,
+        )
+        other = Document(
+            filename="o", original_filename="o", file_type="x", file_format="image",
+            detected_language="tr", encrypted_path="/o", file_size_bytes=1,
+            ingestion_status="completed", entity_index_version=ENTITY_INDEX_VERSION,
+        )
+        session.add_all([neighbour, other])
+        await session.commit()
+        neighbour_id = neighbour.id
+        session.add_all([
+            EntityIndex(
+                document_id=neighbour_id, entity_type="IBAN", value_hash="h" * 64, occurrences=1
+            ),
+            DocumentRelationship(
+                doc_a_id=neighbour_id, doc_b_id=other.id, score=1.0, shared_entity_count=1,
+                shared_entity_types="{}",
+            ),
+        ])
+        await session.commit()
+
+    async def _index_then_commit(db, document_id, anon_map) -> bool:
+        db.add(EntityIndex(
+            document_id=document_id, entity_type="IBAN", value_hash="a" * 64, occurrences=1
+        ))
+        db.add(DocumentRelationship(
+            doc_a_id=document_id, doc_b_id=neighbour_id, score=1.0, shared_entity_count=1,
+            shared_entity_types="{}",
+        ))
+        await db.commit()
+        return True
+
+    async def _fail(self, *args, **kwargs):
+        raise RuntimeError("embedding step failed")
+
+    monkeypatch.setattr(dp, "_refresh_entity_index", _index_then_commit)
+    monkeypatch.setattr(dp.DocumentPipeline, "_clear_refused_override", _fail)
+
+    async def _record(session, document_id, exc) -> None:
+        assert isinstance(exc, RuntimeError)
+        await documents.record_background_failure(session, document_id, exc, user_id=1)
+        seen["index"] = sorted(
+            r.document_id for r in (await session.execute(select(EntityIndex))).scalars()
+        )
+        seen["pairs"] = [
+            (r.doc_a_id, r.doc_b_id)
+            for r in (await session.execute(select(DocumentRelationship))).scalars()
+        ]
+
+    _, _, stored = await _ingest(
+        tmp_path, monkeypatch, [TextBlock("Alice text", "text")],
+        sanitizer=PatternDetector(literal("Alice", "PERSON_NAME")),
+        on_failure=_record, before_run=_before,
+    )
+
+    assert stored.ingestion_status == "failed"
+    assert stored.entity_index_version is None
+    assert seen["index"] == [neighbour_id]
+    assert seen["pairs"] == [(neighbour_id, seen["pairs"][0][1])]
+    assert all(stored.id not in pair for pair in seen["pairs"])
+
+
+async def test_a_failing_index_drop_still_leaves_the_document_failed_not_processing(
+    tmp_path, monkeypatch
+) -> None:
+    from septum_api.routers import documents
+
+    async def _broken_drop(db, document_id) -> int:
+        raise RuntimeError("drop failed")
+
+    monkeypatch.setattr(documents, "drop_index_for_document", _broken_drop)
+
+    async def _record(session, document_id, exc) -> None:
+        await documents.record_background_failure(session, document_id, exc, user_id=1)
+
+    async def _fail(self, *args, **kwargs):
+        raise RuntimeError("embedding step failed")
+
+    from septum_api.services import document_pipeline as dp
+
+    monkeypatch.setattr(dp.DocumentPipeline, "_clear_refused_override", _fail)
+
+    _, _, stored = await _ingest(
+        tmp_path, monkeypatch, [TextBlock("Alice text", "text")], on_failure=_record
+    )
+
+    assert stored.ingestion_status == "failed"
+    assert stored.ingestion_error

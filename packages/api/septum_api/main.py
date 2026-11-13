@@ -211,10 +211,15 @@ async def _sweep_orphan_artifacts_once() -> None:
 
 
 async def _reindex_entity_index_once() -> None:
-    """Rebuild index rows written under an older hashing scheme; a failure is logged, never fatal."""
+    """Drop the index of failed documents, then rebuild rows written under an older hashing scheme.
+
+    A failure is logged, never fatal.
+    """
     from .services.entity_index_refresh import reindex_stale_documents
+    from .services.entity_index_service import drop_index_of_failed_documents
 
     try:
+        await drop_index_of_failed_documents(get_session_maker())
         await reindex_stale_documents(get_session_maker())
     except Exception as exc:
         logger.error("Entity index rebuild failed: %s", type(exc).__name__)

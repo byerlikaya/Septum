@@ -91,6 +91,7 @@ from ..services.document_pipeline import (
     erase_document_artifacts,
     log_artifact_erasure_failure,
 )
+from ..services.entity_index_service import drop_index_for_document
 from ..services.error_logger import log_backend_error, report_error_log_failure
 from ..services.ingestion.audio_ingester import AudioIngester
 from ..services.ingestion.docx_ingester import DocxIngester
@@ -854,41 +855,61 @@ async def record_background_failure(
     way to see the stack trace from the UI without poking at the database.
     The row draws on the requesting user's error-log budget, so repeated
     failing uploads cannot flood the table either.
+
+    A run that failed after committing its entity index would otherwise stay
+    routable in chat, so the index rows, relationship links and version are
+    dropped in the same transaction as the ``failed`` status. If that drop
+    cannot land, the status is still written on its own (the startup purge
+    then removes the leftover index), so the document never stays in
+    ``processing``.
     """
     try:
         await bg_db.rollback()
     except Exception as log_exc:
         logger.warning("Rollback during ingestion failure handling failed: %s", type(log_exc).__name__)
-    try:
-        await bg_db.execute(
-            update(Document)
-            .where(Document.id == doc_id)
-            .values(
-                ingestion_status="failed",
-                ingestion_error=public_error_text(exc, "Ingestion failed"),
-                ingestion_error_code=(
-                    exc.code
-                    if isinstance(
-                        exc,
-                        (
-                            ModelRefusal,
-                            LocalModelUnavailableError,
-                            ChunkTooLargeError,
-                            ExtractedTextTooLargeError,
-                            OriginalsPatternTooDeepError,
-                        ),
-                    )
-                    else None
+    failure_values = {
+        "ingestion_status": "failed",
+        "ingestion_error": public_error_text(exc, "Ingestion failed"),
+        "ingestion_error_code": (
+            exc.code
+            if isinstance(
+                exc,
+                (
+                    ModelRefusal,
+                    LocalModelUnavailableError,
+                    ChunkTooLargeError,
+                    ExtractedTextTooLargeError,
+                    OriginalsPatternTooDeepError,
                 ),
             )
+            else None
+        ),
+    }
+    try:
+        await drop_index_for_document(bg_db, doc_id)
+        await bg_db.execute(
+            update(Document).where(Document.id == doc_id).values(**failure_values)
         )
         await bg_db.commit()
-    except Exception as log_exc:
-        # If even the recovery UPDATE cannot land, the connection is
-        # unsalvageable; the original error is still surfaced via the caller's
-        # logs and the document will be picked up by the orphaned-cleanup pass
-        # on the next server restart.
-        logger.warning("Recovery update for failed ingestion did not land: %s", type(log_exc).__name__)
+    except Exception as drop_exc:
+        logger.warning(
+            "Dropping the entity index of a failed ingestion did not land: %s",
+            type(drop_exc).__name__,
+        )
+        try:
+            await bg_db.rollback()
+            await bg_db.execute(
+                update(Document).where(Document.id == doc_id).values(**failure_values)
+            )
+            await bg_db.commit()
+        except Exception as log_exc:
+            # If even the recovery UPDATE cannot land, the connection is
+            # unsalvageable; the original error is still surfaced via the
+            # caller's logs and the document will be picked up by the
+            # orphaned-cleanup pass on the next server restart.
+            logger.warning(
+                "Recovery update for failed ingestion did not land: %s", type(log_exc).__name__
+            )
 
     # Also write the failure to the centralized error log so it shows up in
     # the Error Logs UI alongside HTTP-handler failures. ``log_backend_error``
@@ -1588,8 +1609,9 @@ async def claim_for_reingest(
 ) -> bool:
     """Claim a document for a rebuild: set it to ``processing`` and drop its derived data.
 
-    Chunks, detections, the extracted text and the recorded sanitization
-    policy go, so a rebuild that is then refused leaves no stale copy behind.
+    Chunks, detections, the entity index with its relationship rows and
+    version, the extracted text and the recorded sanitization policy go, so a
+    rebuild that is then refused leaves no stale copy behind.
 
     The status is claimed with a conditional update, so two concurrent callers
     cannot both start a run. By default any status but ``processing`` is
@@ -1629,6 +1651,7 @@ async def claim_for_reingest(
     await db.execute(
         sa_delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
     )
+    await drop_index_for_document(db, document_id)
     await db.commit()
     return True
 

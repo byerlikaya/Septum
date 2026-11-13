@@ -13,6 +13,7 @@ import json
 from typing import AsyncIterator
 
 import pytest
+from sqlalchemy import event, select, update
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -31,8 +32,13 @@ from septum_api.models.entity_detection import EntityDetection  # noqa: F401
 from septum_api.models.entity_index import EntityIndex
 from septum_api.models.user import User  # noqa: F401
 from septum_api.services.entity_index_service import (
+    ENTITY_INDEX_VERSION,
     ENTITY_UNIQUENESS_WEIGHTS,
+    _failed_ids_with_index,
+    _purge_failed_batch,
     collect_entities_from_anon_map,
+    drop_index_for_document,
+    drop_index_of_failed_documents,
     find_documents_for_query_entities,
     hash_entity_value,
     recompute_relationships_for_document,
@@ -418,3 +424,189 @@ async def test_recompute_relationships_replaces_prior_rows(
         await session.execute(DocumentRelationship.__table__.select())
     ).all()
     assert len(rows) == 1
+
+
+async def _index_rows(session: AsyncSession, document_id: int) -> int:
+    rows = await session.execute(
+        select(EntityIndex).where(EntityIndex.document_id == document_id)
+    )
+    return len(rows.scalars().all())
+
+
+async def _pair_rows(session: AsyncSession) -> list[tuple[int, int]]:
+    rows = await session.execute(
+        select(DocumentRelationship.doc_a_id, DocumentRelationship.doc_b_id)
+    )
+    return sorted((a, b) for a, b in rows.all())
+
+
+async def _indexed_pair(session: AsyncSession, *ids: int) -> None:
+    """Index every id with one shared entity and score each pair against the others."""
+    for doc_id in ids:
+        await _seed_document(session, doc_id, f"d{doc_id}.pdf")
+        await replace_index_for_document(
+            session,
+            doc_id,
+            _build_anon_map(doc_id, {"TR940006200010100007123456": "[IBAN_1]"}),
+        )
+        await session.execute(
+            update(Document)
+            .where(Document.id == doc_id)
+            .values(entity_index_version=ENTITY_INDEX_VERSION)
+        )
+    await session.commit()
+    for doc_id in ids:
+        await recompute_relationships_for_document(session, doc_id)
+    await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_drop_index_removes_rows_both_relationship_sides_and_version(
+    session: AsyncSession,
+) -> None:
+    """The dropped document leaves nothing behind; its neighbours keep their own rows."""
+    await _indexed_pair(session, 1, 2, 3)
+    assert await _pair_rows(session) == [(1, 2), (1, 3), (2, 3)]
+
+    await drop_index_for_document(session, 2)
+    await session.commit()
+
+    assert await _index_rows(session, 2) == 0
+    assert await _pair_rows(session) == [(1, 3)]
+    assert await _index_rows(session, 1) == 1
+    assert await _index_rows(session, 3) == 1
+    assert (await session.get(Document, 2)).entity_index_version is None
+    assert (await session.get(Document, 1)).entity_index_version == ENTITY_INDEX_VERSION
+
+
+@pytest.mark.asyncio
+async def test_drop_index_twice_changes_nothing_more(session: AsyncSession) -> None:
+    await _indexed_pair(session, 1, 2)
+
+    await drop_index_for_document(session, 1)
+    await session.commit()
+    await drop_index_for_document(session, 1)
+    await session.commit()
+
+    assert await _index_rows(session, 1) == 0
+    assert await _index_rows(session, 2) == 1
+    assert await _pair_rows(session) == []
+
+
+@pytest.mark.asyncio
+async def test_failed_document_indexes_are_purged_and_others_kept(
+    session: AsyncSession,
+) -> None:
+    """Only documents in the ``failed`` status lose their index at startup."""
+    await _indexed_pair(session, 1, 2, 3, 4)
+    for doc_id, status in ((2, "failed"), (3, "processing"), (4, "failed")):
+        await session.execute(
+            update(Document).where(Document.id == doc_id).values(ingestion_status=status)
+        )
+    await session.commit()
+    maker = async_sessionmaker(session.bind, expire_on_commit=False)
+
+    purged = await drop_index_of_failed_documents(maker, batch_size=1)
+
+    session.expire_all()
+    assert purged == 2
+    assert [await _index_rows(session, d) for d in (1, 2, 3, 4)] == [1, 0, 1, 0]
+    assert await _pair_rows(session) == [(1, 3)]
+    assert (await session.get(Document, 2)).entity_index_version is None
+    assert (await session.get(Document, 3)).entity_index_version == ENTITY_INDEX_VERSION
+    assert await drop_index_of_failed_documents(maker) == 0
+
+
+@pytest.mark.asyncio
+async def test_purge_batch_leaves_a_document_that_is_no_longer_failed(
+    session: AsyncSession,
+) -> None:
+    """A document reprocessed to ``completed`` after it was selected keeps its new index."""
+    await _indexed_pair(session, 1, 2, 3)
+    for doc_id in (1, 2, 3):
+        await session.execute(
+            update(Document).where(Document.id == doc_id).values(ingestion_status="failed")
+        )
+    await session.commit()
+    maker = async_sessionmaker(session.bind, expire_on_commit=False)
+    selected = await _failed_ids_with_index(maker)
+    assert selected == [1, 2, 3]
+
+    await session.execute(
+        update(Document).where(Document.id == 2).values(ingestion_status="completed")
+    )
+    await session.commit()
+    async with maker() as db:
+        purged = await _purge_failed_batch(db, selected)
+        await db.commit()
+
+    session.expire_all()
+    assert purged == 2
+    assert [await _index_rows(session, d) for d in (1, 2, 3)] == [0, 1, 0]
+    assert await _pair_rows(session) == []
+    assert (await session.get(Document, 2)).entity_index_version == ENTITY_INDEX_VERSION
+
+
+@pytest.mark.asyncio
+async def test_purge_leaves_a_document_that_is_processing_again(
+    session: AsyncSession,
+) -> None:
+    await _indexed_pair(session, 1, 2)
+    for doc_id, status in ((1, "failed"), (2, "processing")):
+        await session.execute(
+            update(Document).where(Document.id == doc_id).values(ingestion_status=status)
+        )
+    await session.commit()
+    maker = async_sessionmaker(session.bind, expire_on_commit=False)
+
+    async with maker() as db:
+        purged = await _purge_failed_batch(db, [1, 2])
+        await db.commit()
+
+    session.expire_all()
+    assert purged == 1
+    assert [await _index_rows(session, d) for d in (1, 2)] == [0, 1]
+
+
+@pytest.mark.asyncio
+async def test_second_purge_selects_and_changes_nothing(session: AsyncSession) -> None:
+    """After one run the failed documents are clean, so the next run has no work."""
+    await _indexed_pair(session, 1, 2, 3)
+    for doc_id in (1, 2):
+        await session.execute(
+            update(Document).where(Document.id == doc_id).values(ingestion_status="failed")
+        )
+    await session.commit()
+    maker = async_sessionmaker(session.bind, expire_on_commit=False)
+
+    assert await _failed_ids_with_index(maker) == [1, 2]
+    assert await drop_index_of_failed_documents(maker) == 2
+    assert await _failed_ids_with_index(maker) == []
+
+    statements: list[str] = []
+    event.listen(
+        session.bind.sync_engine,
+        "before_cursor_execute",
+        lambda conn, cur, stmt, *a: statements.append(stmt),
+    )
+    assert await drop_index_of_failed_documents(maker) == 0
+    writes = [s for s in statements if s.lstrip().upper().startswith(("UPDATE", "DELETE"))]
+    assert writes == []
+
+
+@pytest.mark.asyncio
+async def test_failed_document_with_only_a_version_is_selected(
+    session: AsyncSession,
+) -> None:
+    await _seed_document(session, 1, "d1.pdf")
+    await session.execute(
+        update(Document)
+        .where(Document.id == 1)
+        .values(ingestion_status="failed", entity_index_version=ENTITY_INDEX_VERSION)
+    )
+    await session.commit()
+    maker = async_sessionmaker(session.bind, expire_on_commit=False)
+
+    assert await _failed_ids_with_index(maker) == [1]
+    assert await drop_index_of_failed_documents(maker) == 1
+    assert await _failed_ids_with_index(maker) == []
