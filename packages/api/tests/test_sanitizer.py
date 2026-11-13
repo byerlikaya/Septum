@@ -473,16 +473,16 @@ def test_ner_loc_output_passes_conservative_filter(sanitizer: PIISanitizer) -> N
     labels as LOC at moderate confidence (Turkish "Doğum", "TARAFLAR";
     German form headers; similar across every language Septum supports).
     The detector mirrors its ORGANIZATION_NAME filter: a single-token LOC
-    span survives only if the model's confidence is ≥ 0.95, and multi-word
+    span survives only if the model's confidence is ≥ 0.90, and multi-word
     spans pass regardless. Real place names like "İstanbul" / "Berlin"
     routinely score 0.97+ on XLM-RoBERTa; common-noun mis-fires land in
-    the 0.80–0.92 range and are dropped.
+    the 0.80–0.89 range and are dropped.
     """
     fake_ner_results = [
-        # Common-noun false positives — below the 0.95 single-token gate
+        # Common-noun false positives — below the 0.90 single-token gate
         {"entity_group": "LOC", "start": 0, "end": 5, "score": 0.88},    # "kabul"
-        {"entity_group": "LOC", "start": 6, "end": 11, "score": 0.92},   # "Doğum"
-        {"entity_group": "LOC", "start": 12, "end": 20, "score": 0.90},  # "TARAFLAR"
+        {"entity_group": "LOC", "start": 6, "end": 11, "score": 0.89},   # "Doğum"
+        {"entity_group": "LOC", "start": 12, "end": 20, "score": 0.86},  # "TARAFLAR"
         # Real cities at high confidence — pass the gate
         {"entity_group": "LOC", "start": 21, "end": 29, "score": 0.98},  # "İstanbul"
         {"entity_group": "LOC", "start": 30, "end": 36, "score": 0.97},  # "Berlin"

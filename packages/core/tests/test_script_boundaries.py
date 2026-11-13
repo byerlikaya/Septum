@@ -47,7 +47,7 @@ def test_two_glyph_han_location_is_not_gated_as_single_word() -> None:
 
 def test_single_latin_word_location_still_needs_the_single_word_floor() -> None:
     text = "Ankara'da yaşıyor"
-    assert _ner(text, [("LOC", 0, 6, 0.90)], "tr") == []
+    assert _ner(text, [("LOC", 0, 6, 0.89)], "tr") == []
     assert _ner(text, [("LOC", 0, 6, 0.97)], "tr") == [(0, 6, "LOCATION")]
 
 
@@ -59,7 +59,7 @@ def test_thai_person_hit_masks_the_whole_run() -> None:
 
 def test_thai_whole_run_location_still_needs_the_single_word_floor() -> None:
     text = "ทำงานที่กรุงเทพ วันนี้"
-    assert _ner(text, [("LOC", 8, 15, 0.90)], "th") == []
+    assert _ner(text, [("LOC", 8, 15, 0.89)], "th") == []
     assert _ner(text, [("LOC", 8, 15, 0.97)], "th") == [(0, 15, "LOCATION")]
 
 
@@ -158,7 +158,7 @@ def test_mixed_script_spans_stop_at_the_script_edge() -> None:
 
 def test_spaced_hangul_location_gate_counts_whitespace_words() -> None:
     text = "한국 서울"
-    assert _ner(text, [("LOC", 0, 2, 0.90)], "ko") == []
+    assert _ner(text, [("LOC", 0, 2, 0.89)], "ko") == []
     assert _ner(text, [("LOC", 0, 5, 0.90)], "ko") == [(0, 5, "LOCATION")]
 
 

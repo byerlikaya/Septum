@@ -268,9 +268,12 @@ _NER_MIN_SCORE_PER_TYPE: Dict[str, float] = {
 # Single-word entities of the chosen types are the dominant false-positive
 # shape for multilingual NER. They get a stricter floor than multi-word
 # spans of the same type. Multi-word spans bypass this gate entirely.
+# LOCATION sits lower than ORGANIZATION_NAME: real single-word placenames
+# routinely score in the 0.90-0.95 band, and a 0.95 floor leaked them; 0.90
+# is the lowest floor that admitted no extra common-noun spans on filler text.
 _NER_SINGLE_WORD_MIN_SCORE_PER_TYPE: Dict[str, float] = {
     "ORGANIZATION_NAME": 0.95,
-    "LOCATION": 0.95,
+    "LOCATION": 0.90,
 }
 
 # When the Presidio layer is run alongside the transformer NER layer,
@@ -2844,7 +2847,8 @@ class Detector:
         Four labels are mapped: PER → PERSON_NAME, EMAIL → EMAIL_ADDRESS,
         ORG → ORGANIZATION_NAME, LOC/GPE → LOCATION. ORGANIZATION_NAME
         and LOCATION then flow through a conservative confidence filter
-        in ``_extract_entities`` (multi-word span OR score > 0.95) —
+        in ``_extract_entities`` (multi-word span OR score above the per-type
+        single-word floor) —
         multilingual NER models (XLM-RoBERTa variants) are stochastic
         and produce locale-specific single-token false positives on
         every language Septum supports (Turkish "Doğum", German form
@@ -2853,7 +2857,7 @@ class Detector:
         keeping the zero-tolerance generic-architecture rule intact.
 
         Real placenames in free text ("Paris", "İstanbul", "New York")
-        routinely score above 0.95 on the XLM-RoBERTa variants used,
+        routinely score above 0.90 on the XLM-RoBERTa variants used,
         and multi-word locations ("New York", "San Francisco") bypass
         the score gate entirely. Structured address PII is still caught
         by ``StructuralAddressRecognizer`` and per-regulation
