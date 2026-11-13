@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-11-14
+
+- A very large placeholder number typed into an edited or retried chunk no longer pushes the numbers of later placeholders past the length the placeholder format allows, which kept them from being recognised as placeholders.
+
 ### 2026-11-13
 
 - A placeholder typed into a chunk edited in the approval step no longer shares its number with a value found in the same edit, so the answer maps each placeholder back to the right value and the preview shows the same numbering as what is sent.

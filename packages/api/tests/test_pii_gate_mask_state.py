@@ -13,8 +13,9 @@ import re
 
 import pytest
 from sanitizer_doubles import PatternSanitizer
+from septum_api.routers import chat as chat_module
 from septum_api.services import pii_gate
-from septum_api.services.anonymization_map import AnonymizationMap
+from septum_api.services.anonymization_map import PLACEHOLDER_PATTERN, AnonymizationMap
 
 _PERSON = re.compile(r"\bPerson\d{3}\b")
 _ACCOUNT = re.compile(r"\bAcct\d{4}\b")
@@ -395,3 +396,26 @@ def test_masker_builds_one_pattern_for_every_text(compile_calls: list[int]) -> N
 
     assert all("Zed Q" not in text for text in first + second)
     assert compile_calls == [1]
+
+
+async def test_edited_chunk_with_a_huge_typed_index_still_mints_a_matchable_placeholder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _build(db, settings, **kwargs):
+        return PatternSanitizer((re.compile(r"Name: ([^;\n]+?)(?= \[|$)"), "ORGANIZATION"))
+
+    monkeypatch.setattr(pii_gate, "create_user_text_sanitizer", _build)
+    anon_map = AnonymizationMap(document_id=0, language="en")
+
+    [gated] = await chat_module._gate_edited_chunks(
+        ["Offered chunk."], ["Name: Zed Q [ORGANIZATION_999999999]"], anon_map, None, None
+    )
+
+    minted = anon_map.entity_map["Zed Q"]
+    assert PLACEHOLDER_PATTERN.fullmatch(minted) is not None
+    assert minted in gated
+    assert pii_gate.all_placeholders_known(minted, anon_map)
+    assert [m.group(0) for m in PLACEHOLDER_PATTERN.finditer(gated)] == [
+        minted,
+        "[ORGANIZATION_999999999]",
+    ]
