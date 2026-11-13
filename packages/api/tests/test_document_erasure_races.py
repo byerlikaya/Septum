@@ -347,7 +347,9 @@ async def test_gate_refuses_to_write_the_map_under_a_lost_lock(
     ):
         return object()
 
-    async def _gate(texts, working, db, settings, language=None, sanitizer=None, joined=False):
+    async def _gate(
+        texts, working, db, settings, language=None, sanitizer=None, joined=False, segmenter=None
+    ):
         working.add_entity("Bob Jones", "PERSON")
         return list(texts)
 

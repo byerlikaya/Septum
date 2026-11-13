@@ -144,6 +144,7 @@ from ..services.pii_gate import (
     DocumentGoneError,
     DocumentMapConflictError,
     DocumentMapMissingError,
+    TextSegmenter,
     create_user_text_sanitizer,
     gate_untrusted_texts,
     mask_known_entities,
@@ -172,6 +173,7 @@ from ..utils.db_helpers import (
     detect_language,
     document_language,
     effective_masking_language,
+    effective_masking_source,
     get_owned_or_404,
     load_settings,
 )
@@ -428,9 +430,15 @@ def _take_cached_remasks(
     """Fill ``restored`` from :data:`remask_cache`; return the chunks it missed with their keys."""
     misses: list[tuple[Chunk, tuple]] = []
     language = effective_masking_language(doc)
+    source = effective_masking_source(doc)
     for c in doc_chunks:
         key = remask_cache.key(
-            doc.id, c.id, snapshot.cache_key, c.sanitized_text or "", language
+            doc.id,
+            c.id,
+            snapshot.cache_key,
+            c.sanitized_text or "",
+            language,
+            language_source=source,
         )
         hit = remask_cache.get(key, doc_map)
         if hit is None:
@@ -461,7 +469,11 @@ async def _resanitize_outdated_chunks(
     pipeline uses (same settings, same
     :data:`DOCUMENT_SANITIZER_ENABLE_OLLAMA`), but without custom rules'
     context-word gate (:func:`create_user_text_sanitizer`): a chunk alone
-    lacks the text around it, and may carry a user's edit. Placeholders the document map
+    lacks the text around it, and may carry a user's edit. Each chunk of a
+    document without a language override is detected per language segment,
+    as ingestion detects the document, under one :class:`TextSegmenter`
+    budget for the whole turn; a chunk the spent budget left in its dominant
+    language only is not cached, so a later turn segments it. Placeholders the document map
     already knows are never re-detected, and entities the current policy
     finds are added to the document's own (encrypted) map, so the turn's
     unified numbering, the de-anonymizer and a retry of the turn all resolve
@@ -483,6 +495,7 @@ async def _resanitize_outdated_chunks(
     restored: dict[int, str] = {}
     changed: set[int] = set()
     sanitizer = None
+    segmenter = TextSegmenter()
     for doc, doc_chunks in _outdated_documents(docs, current):
         doc_map = await get_document_map(doc.id)
         if doc_map is None:
@@ -494,14 +507,16 @@ async def _resanitize_outdated_chunks(
             sanitizer = await create_user_text_sanitizer(
                 db, settings, enable_ollama=DOCUMENT_SANITIZER_ENABLE_OLLAMA, policy=policy
             )
+        stored = [c.sanitized_text or "" for c, _ in misses]
         texts, written = await remask_document_texts(
-            db, settings, doc, [c.sanitized_text or "" for c, _ in misses], sanitizer
+            db, settings, doc, stored, sanitizer, segmenter=segmenter
         )
         if written:
             changed.add(doc.id)
-        for (c, key), text in zip(misses, texts):
+        for (c, key), stored_text, text in zip(misses, stored, texts):
             restored[c.id] = text
-            remask_cache.put(key, text)
+            if stored_text not in segmenter.degraded:
+                remask_cache.put(key, text)
     return restored, changed
 
 

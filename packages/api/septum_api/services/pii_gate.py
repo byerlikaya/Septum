@@ -20,13 +20,17 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import logging
 import re
 from bisect import bisect_left
 from functools import cached_property
 from typing import TYPE_CHECKING, Callable, Iterable, List, Optional, Sequence, Tuple
 
 from fastapi import HTTPException, status
+from septum_core.detector import _MAX_SEGMENTS_PER_DOCUMENT
 from septum_core.field_label_cues import field_label_cue_pattern
+from septum_core.language_resolution import iso_language_code
+from septum_core.language_segments import MAX_DETECTOR_CALLS_PER_DOCUMENT, Segment
 from septum_core.spans import entity_range
 from septum_core.text_boundaries import CAMEL_STEP, TOKEN_END, TOKEN_START
 from sqlalchemy import select
@@ -35,7 +39,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..errors import ContentFreeError
 from ..models.document import Chunk, Document
 from ..models.settings import AppSettings
-from ..utils.db_helpers import document_language, effective_masking_language
+from ..utils.db_helpers import (
+    document_language,
+    effective_masking_language,
+    effective_masking_source,
+    masking_segments,
+)
 from ..utils.text_utils import normalize_for_comparison, normalize_unicode
 from .anonymization_map import PLACEHOLDER_PATTERN, AnonymizationMap
 from .document_anon_store import (
@@ -48,6 +57,8 @@ from .sanitizer_factory import create_sanitizer
 
 if TYPE_CHECKING:
     from .sanitizer import PIISanitizer
+
+logger = logging.getLogger(__name__)
 
 _SPAN_EDGE_CHARS = " \t\r\n.,;:!?()[]{}\"'"
 _WORD_CHAR = re.compile(r"\w")
@@ -644,18 +655,21 @@ def _gate_one(
     sanitizer: "PIISanitizer",
     language: str,
     state: Optional[_MaskState] = None,
+    segmenter: Optional["TextSegmenter"] = None,
 ) -> str:
     """Mask one untrusted text against ``anon_map``, registering new entities.
 
     ``state`` must be current for ``anon_map`` (see :meth:`_MaskState.is_current`);
-    when it is omitted a fresh one is built.
+    when it is omitted a fresh one is built. With a ``segmenter`` the text
+    is detected per language segment (see :class:`TextSegmenter`).
     """
     if not text:
         return text
     if state is None:
         state = _MaskState(anon_map)
     masked = _premask(text, anon_map, state, language)
-    pieces = _detected_pieces(masked, sanitizer, language, state)
+    segments = None if segmenter is None else segmenter.segments(text, masked, state, language)
+    pieces = _detected_pieces(masked, sanitizer, language, state, segments)
     if not pieces:
         return masked
     reserve_placeholder_counters(anon_map)
@@ -681,13 +695,132 @@ def _premask(
     return _mask_with_state(normalize_unicode(text), state, anon_map, language)
 
 
+_LINE_BREAKS = re.compile(r"\n+")
+
+
+def _language_view(masked: str, state: _MaskState) -> str:
+    """``masked`` with placeholder tokens blanked to spaces, offsets unchanged.
+
+    A placeholder's Latin capitals would otherwise count as text of a
+    Latin-script language when the text's languages are judged.
+    """
+    chars = list(PLACEHOLDER_PATTERN.sub(lambda match: " " * len(match.group()), masked))
+    for start, end in state.protected_ranges(masked):
+        chars[start:end] = " " * (end - start)
+    return "".join(chars)
+
+
+class TextSegmenter:
+    """Language segments for the texts of one chat turn, under one budget they share.
+
+    Only texts masked in a detected language are given to it: a language
+    the user chose is never segmented (see
+    :func:`~septum_api.utils.db_helpers.effective_masking_source`), and the
+    caller leaves those texts out.
+
+    Ingestion bounds a document's segmentation by core's per-document caps
+    (:data:`~septum_core.language_segments.MAX_DETECTOR_CALLS_PER_DOCUMENT`
+    language detector calls, the detector's ``_MAX_SEGMENTS_PER_DOCUMENT``
+    segments). One segmenter applies the same caps to every text of every
+    document it serves, so a turn costs no more than one document would.
+    Once either is spent, every later text is detected in its dominant
+    language alone, exactly as without segmentation, and one content-free
+    warning says so. Such a text is recorded in :attr:`degraded` (by the
+    text the caller passed, before premasking), so a caller that caches the
+    result can leave it out. Results are remembered per premasked text and
+    language, so a retried map merge neither judges a text again nor spends
+    more budget. Not thread-safe: one gate call uses it from one thread.
+    """
+
+    def __init__(self) -> None:
+        self.calls_left = MAX_DETECTOR_CALLS_PER_DOCUMENT
+        self.segments_left = _MAX_SEGMENTS_PER_DOCUMENT
+        self.degraded: set[str] = set()
+        self._texts = 0
+        self._known: dict[Tuple[str, str], Tuple[Optional[Tuple[Segment, ...]], bool]] = {}
+
+    @property
+    def spent(self) -> bool:
+        """Whether the budget is used up, so no further text is segmented."""
+        return self.calls_left <= 0 or self.segments_left <= 0
+
+    def segments(
+        self, text: str, masked: str, state: _MaskState, language: str
+    ) -> Optional[Tuple[Segment, ...]]:
+        """Segments of ``masked`` (premasked from ``text``), or ``None`` to detect it in ``language`` alone.
+
+        A stored chunk keeps no block offsets, so it is cut after each run
+        of line breaks: blocks are joined by a newline or a blank line, and
+        short lines are coalesced before any is judged.
+        :func:`masking_segments` judges them on :func:`_language_view`;
+        segments all in ``language`` (a text in one language) are ``None``,
+        so such a text takes exactly the single-language path. A text the
+        budget did not cover (spent before it, used up part-way through it,
+        or its segments did not fit) is ``None`` and joins :attr:`degraded`.
+        CPU-bound: call it off the event loop. Errors propagate.
+        """
+        key = (masked, language)
+        if key not in self._known:
+            self._known[key] = self._judge(masked, state, language)
+        segments, degraded = self._known[key]
+        if degraded:
+            self.degraded.add(text)
+        return segments
+
+    def _judge(
+        self, masked: str, state: _MaskState, language: str
+    ) -> Tuple[Optional[Tuple[Segment, ...]], bool]:
+        """``(segments, degraded)`` of a text not judged before, spending the budget."""
+        if self.spent:
+            return None, True
+        self._texts += 1
+        segments = masking_segments(
+            _language_view(masked, state),
+            [0, *(match.end() for match in _LINE_BREAKS.finditer(masked))],
+            language,
+            "detected",
+            max_detector_calls=self.calls_left,
+            on_detector_call=self._count_call,
+        )
+        degraded = False
+        if segments is None or {s.language for s in segments} <= {iso_language_code(language)}:
+            # Core answers a text it ran out of calls on with its dominant language.
+            degraded = self.calls_left <= 0
+            segments = None
+        elif len(segments) > self.segments_left:
+            self.segments_left = 0
+            segments, degraded = None, True
+        else:
+            self.segments_left -= len(segments)
+        if self.spent:
+            logger.warning(
+                "Language segmentation budget spent on text %d of the turn; later texts are masked in their dominant language",
+                self._texts,
+            )
+        return segments, degraded
+
+    def _count_call(self) -> None:
+        self.calls_left -= 1
+
+
 def _detected_pieces(
-    masked: str, sanitizer: "PIISanitizer", language: str, state: _MaskState
+    masked: str,
+    sanitizer: "PIISanitizer",
+    language: str,
+    state: _MaskState,
+    segments: Optional[Sequence[Segment]] = None,
 ) -> List[_Piece]:
-    """Run the sanitizer over ``masked`` and return what it finds outside known placeholders, trimmed."""
-    result = sanitizer.sanitize(
-        masked, language, AnonymizationMap(document_id=0, language=language)
-    )
+    """Run the sanitizer over ``masked`` and return what it finds outside known placeholders, trimmed.
+
+    ``segments`` (offsets into ``masked``) go to the sanitizer's detector
+    with ``language`` as the dominant language; without them the call is
+    the single-language :meth:`~septum_core.detector.Detector.sanitize`.
+    """
+    scratch = AnonymizationMap(document_id=0, language=language)
+    if segments is None:
+        result = sanitizer.sanitize(masked, language, scratch)
+    else:
+        result = sanitizer.apply(sanitizer.detect(masked, language, segments=segments), scratch)
     protected = state.protected_ranges(masked)
     pieces: List[_Piece] = []
     for span in sorted(result.detected_spans, key=lambda s: s.start):
@@ -820,6 +953,7 @@ async def gate_untrusted_texts(
     language: Optional[str] = None,
     sanitizer: Optional["PIISanitizer"] = None,
     joined: bool = False,
+    segmenter: Optional[TextSegmenter] = None,
 ) -> List[str]:
     """Return ``texts`` with every known and newly detected PII value masked.
 
@@ -830,8 +964,14 @@ async def gate_untrusted_texts(
     :func:`create_user_text_sanitizer`; a context-gated one raises
     :class:`ValueError`. With ``joined`` the texts are sanitized in one run
     (:func:`_gate_joined`), for many short texts such as column labels.
+    With a ``segmenter`` each text is detected per language segment,
+    ``language`` staying the dominant one; it needs an explicit
+    ``language`` and cannot be combined with ``joined`` (both raise
+    :class:`ValueError`).
     """
     _require_ungated(sanitizer)
+    if segmenter is not None and (joined or language is None):
+        raise ValueError("Segmented gating needs a language and separate texts")
     if not any(texts):
         return list(texts)
     if sanitizer is None:
@@ -846,7 +986,7 @@ async def gate_untrusted_texts(
         for text in texts:
             if text and (state is None or not state.is_current(anon_map)):
                 state = _MaskState(anon_map)
-            gated.append(_gate_one(text, anon_map, sanitizer, lang, state))
+            gated.append(_gate_one(text, anon_map, sanitizer, lang, state, segmenter))
         return gated
 
     return await asyncio.to_thread(gate_all)
@@ -930,6 +1070,7 @@ async def _gate_and_merge(
     sanitizer: Optional["PIISanitizer"],
     require_existing_map: bool,
     joined: bool = False,
+    segmenter: Optional[TextSegmenter] = None,
 ) -> Tuple[List[str], bool]:
     """Gate ``texts`` outside the map lock, then merge and write under it.
 
@@ -944,12 +1085,17 @@ async def _gate_and_merge(
     :func:`effective_masking_language`), not the language the map was built
     in, and the written map carries that language so every later reader
     (chat's unified map, :func:`mask_known_entities`) sees the same value.
+    A ``segmenter`` detects each text per language segment, with its one
+    budget for every text and every attempt, unless the language is the
+    user's override.
     Returns the gated texts and whether the map was written. A context-gated
     ``sanitizer`` raises :class:`ValueError` before anything is read.
     """
     _require_ungated(sanitizer)
     if sanitizer is None and any(texts):
         sanitizer = await create_user_text_sanitizer(db, settings)
+    if effective_masking_source(document) == "override":
+        segmenter = None
     for _ in range(_MAP_MERGE_ATTEMPTS):
         await _require_row(db, document)
         base = await load_persisted_document_map(document.id)
@@ -959,7 +1105,14 @@ async def _gate_and_merge(
         language = effective_masking_language(document)
         working.language = language
         gated = await gate_untrusted_texts(
-            texts, working, db, settings, language=language, sanitizer=sanitizer, joined=joined
+            texts,
+            working,
+            db,
+            settings,
+            language=language,
+            sanitizer=sanitizer,
+            joined=joined,
+            segmenter=segmenter,
         )
         async with document_map_lock(document.id) as lock:
             await _require_row(db, document)
@@ -1022,6 +1175,7 @@ async def remask_document_texts(
     document: Document,
     texts: Sequence[str],
     sanitizer: "PIISanitizer",
+    segmenter: Optional[TextSegmenter] = None,
 ) -> Tuple[List[str], bool]:
     """Re-mask stored chunk texts of ``document`` for a chat turn.
 
@@ -1032,10 +1186,19 @@ async def remask_document_texts(
     map gained entities. ``sanitizer`` must come from
     :func:`create_user_text_sanitizer`: a chunk alone lacks the text around
     it that a context word may sit in, and its stored text may carry a
-    user's chunk edit.
+    user's chunk edit. Each text of a document without a language override
+    is detected per language segment, as ingestion detects the document,
+    under the budget of ``segmenter``: a chat turn passes one for all its
+    documents, and without one each call gets its own.
     """
     return await _gate_and_merge(
-        db, settings, document, texts, sanitizer, require_existing_map=True
+        db,
+        settings,
+        document,
+        texts,
+        sanitizer,
+        require_existing_map=True,
+        segmenter=segmenter or TextSegmenter(),
     )
 
 
@@ -1043,6 +1206,7 @@ __all__ = [
     "DocumentGoneError",
     "DocumentMapConflictError",
     "DocumentMapMissingError",
+    "TextSegmenter",
     "all_placeholders_known",
     "create_user_text_sanitizer",
     "gate_document_texts",

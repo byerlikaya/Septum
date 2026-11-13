@@ -1093,7 +1093,9 @@ async def test_remask_after_a_correction_uses_the_new_language(monkeypatch):
     async def _working(*_args):
         return working
 
-    async def _gate(texts, _map, _db, _settings, language=None, sanitizer=None, joined=False):
+    async def _gate(
+        texts, _map, _db, _settings, language=None, sanitizer=None, joined=False, segmenter=None
+    ):
         seen.append(language)
         return list(texts)
 
@@ -1208,14 +1210,14 @@ async def test_language_change_leaves_the_cache_alone_and_the_key_carries_the_la
         assert resp.status_code == 200, resp.text
     assert forgotten == []
 
-    keys = {RemaskCache.key(doc_id, 1, "p", "text", language) for language in ("en", "de", "en")}
+    keys = {RemaskCache.key(doc_id, 1, "p", "text", language, language_source="detected") for language in ("en", "de", "en")}
     assert len(keys) == 2
     cache = RemaskCache()
-    cache.put(RemaskCache.key(doc_id, 1, "p", "text", "en"), "[PERSON_NAME_1] signed.")
+    cache.put(RemaskCache.key(doc_id, 1, "p", "text", "en", language_source="detected"), "[PERSON_NAME_1] signed.")
     known = AnonymizationMap(document_id=doc_id, language="de")
     known.add_entity("Ahmet", "PERSON_NAME")
-    assert cache.get(RemaskCache.key(doc_id, 1, "p", "text", "de"), known) is None
-    assert cache.get(RemaskCache.key(doc_id, 1, "p", "text", "en"), known) == "[PERSON_NAME_1] signed."
+    assert cache.get(RemaskCache.key(doc_id, 1, "p", "text", "de", language_source="detected"), known) is None
+    assert cache.get(RemaskCache.key(doc_id, 1, "p", "text", "en", language_source="detected"), known) == "[PERSON_NAME_1] signed."
 
 
 @pytest.mark.parametrize(
@@ -1316,7 +1318,9 @@ async def test_remask_writes_the_effective_language_into_the_persisted_map(monke
     async def _load(_document_id):
         return stored
 
-    async def _gate(texts, _map, _db, _settings, language=None, sanitizer=None, joined=False):
+    async def _gate(
+        texts, _map, _db, _settings, language=None, sanitizer=None, joined=False, segmenter=None
+    ):
         return list(texts)
 
     async def _write(_document_id, anon_map):
