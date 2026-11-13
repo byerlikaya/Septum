@@ -1729,3 +1729,84 @@ class TestOriginalsNestedTooDeep:
         }
         assert "Zorblax" not in resp.text
         assert "Zorblax" not in caplog.text
+
+
+class TestChunkListingWithAnUnsearchableMap:
+    """A stored map nested past the cap drops its own titles; it never fails the listing."""
+
+    async def _two_documents(self, env: _Env) -> tuple[int, int]:
+        deep_title = f"Section {DEEP_STEM}qqq"
+        deep = await env.add_document(["Deep one.", "Deep two."], titles=[deep_title, deep_title])
+        await document_anon_store.set_document_map(
+            deep, _nested_chain_map(deep, pii_gate._MAX_FACTORED_DEPTH + 1)
+        )
+        other = await env.add_document(
+            ["[PERSON_NAME_1] signed."], titles=[f"Signed by {KNOWN_NAME}"]
+        )
+        await _store_known_map(other)
+        return deep, other
+
+    async def test_listing_drops_only_the_deep_documents_titles(self, env: _Env) -> None:
+        deep, other = await self._two_documents(env)
+
+        resp = await env.client.get("/api/chunks")
+
+        assert resp.status_code == 200, resp.text
+        titles = {}
+        for item in resp.json()["items"]:
+            titles.setdefault(item["document_id"], []).append(item["section_title"])
+        assert titles == {deep: [None, None], other: ["Signed by [PERSON_NAME_1]"]}
+        assert DEEP_STEM not in resp.text
+        assert KNOWN_NAME not in resp.text
+
+    async def test_a_single_chunk_of_the_deep_document_drops_its_title(self, env: _Env) -> None:
+        deep, _ = await self._two_documents(env)
+        async with env.session_maker() as session:
+            chunk_id = (
+                await session.execute(select(Chunk.id).where(Chunk.document_id == deep))
+            ).scalars().first()
+
+        resp = await env.client.get(f"/api/chunks/{chunk_id}")
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["section_title"] is None
+        assert DEEP_STEM not in resp.text
+
+    async def test_search_hits_drop_the_deep_documents_titles(
+        self, env: _Env, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        deep, _ = await self._two_documents(env)
+        async with env.session_maker() as session:
+            ids = (
+                await session.execute(select(Chunk.id).where(Chunk.document_id == deep))
+            ).scalars().all()
+
+        class _Hits:
+            def search(self, document_id, query, top_k):
+                return [(chunk_id, 0.9) for chunk_id in ids]
+
+        monkeypatch.setattr(chunks_module, "VectorStore", _Hits)
+
+        resp = await env.client.post(
+            "/api/chunks/search", json={"document_id": deep, "query": "deep"}
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert [h["chunk"]["section_title"] for h in resp.json()["items"]] == [None, None]
+        assert DEEP_STEM not in resp.text
+
+    async def test_a_chunk_edit_still_refuses_on_the_deep_map(
+        self, env: _Env, stem_on_edit_gate: None
+    ) -> None:
+        deep, _ = await self._two_documents(env)
+        async with env.session_maker() as session:
+            chunk_id = (
+                await session.execute(select(Chunk.id).where(Chunk.document_id == deep))
+            ).scalars().first()
+
+        resp = await env.client.patch(
+            f"/api/chunks/{chunk_id}", json={"section_title": f"Name: {DEEP_STEM}"}
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["code"] == ORIGINALS_PATTERN_TOO_DEEP_CODE
