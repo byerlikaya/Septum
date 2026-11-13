@@ -25,6 +25,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 ### 2026-11-13
 
 - Chat now re-masks the chunks of outdated documents per language segment as ingestion does, so a passage in a minority language no longer gets only the document language's models. The language-detection work of one chat turn is capped across all its documents; once spent, the remaining chunks are masked in the document language and not cached. A language override still disables segmentation.
+- The documents list now shows every language a mixed-language document was masked in ("masked as tr, en"), and the documents API returns it as `sanitized_languages`. The retrieval benchmark was re-recorded on an idle machine: Chinese passages masked as another language leak 0.046 instead of 0.358, with single-language leak rates and retrieval metrics unchanged.
 
 ### 2026-11-12
 
