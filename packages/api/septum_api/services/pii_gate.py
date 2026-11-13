@@ -24,7 +24,16 @@ import logging
 import re
 from bisect import bisect_left
 from functools import cached_property
-from typing import TYPE_CHECKING, Callable, Iterable, List, Optional, Sequence, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Callable,
+    Collection,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 from fastapi import HTTPException, status
 from septum_core.detector import _MAX_SEGMENTS_PER_DOCUMENT
@@ -173,7 +182,7 @@ class _MaskState:
         """Pattern matching known placeholders, or ``None`` when there are none."""
         if not self.known:
             return None
-        return re.compile(_guarded([re.escape(p) for p in _longest_first(self.known)], self.known))
+        return re.compile(_guarded_literals(self.known))
 
     def protected_ranges(self, text: str) -> List[Tuple[int, int]]:
         """Return ``(start, end)`` offsets of known placeholders in ``text``."""
@@ -209,15 +218,85 @@ def _longest_first(values: Iterable[str]) -> List[str]:
 def _guarded(alternatives: Sequence[str], values: Iterable[str], edge: str = "") -> str:
     """Alternation of ``alternatives`` behind a lookahead on the first characters of ``values``.
 
-    The regex engine tries every alternative at every position; the
-    lookahead fails at once where no value can start, so a group costs one
-    character test there. ``edge`` is a zero-width check placed after the
-    lookahead. Returns ``""`` for no alternatives.
+    The lookahead fails at once where no value can start, so a group costs
+    one character test there. ``edge`` is a zero-width check placed after
+    the lookahead. Returns ``""`` for no alternatives.
     """
     if not alternatives:
         return ""
     first = "".join(sorted({re.escape(v[0]) for v in values}))
     return f"(?=[{first}]){edge}(?:{'|'.join(alternatives)})"
+
+
+_MAX_FACTORED_DEPTH = 100
+
+
+def _guarded_literals(values: Collection[str], edge: str = "", digit_edges: bool = False) -> str:
+    """:func:`_guarded` over ``values`` matched literally (:func:`_factored`); ``""`` for none."""
+    if not values:
+        return ""
+    return _guarded([_factored(values, digit_edges)], values, edge)
+
+
+def _factored(values: Iterable[str], digit_edges: bool = False) -> str:
+    """Regex matching any of ``values`` literally, the longest first, with common prefixes shared.
+
+    It matches exactly what ``"|".join`` of the escaped values, longest
+    first, matches. The values that match at one position are prefixes of
+    one another, and at every branch the longer completions are tried
+    before the value that ends there, so the longest wins and backtracking
+    reaches the shorter ones in the same order. A flat alternation tries
+    every value at every position the engine reaches, which costs the
+    number of values times their shared prefix; shared, the prefix is read
+    once. With ``digit_edges`` each end of a value that is a digit may not
+    touch another digit, so ``3/15`` is never found inside ``13/150`` while
+    ``A4711``, ``XA4711`` and an IBAN glued to its label ("IBANTR33…")
+    still match. Past ``_MAX_FACTORED_DEPTH`` nested branches the rest is
+    a flat alternation, which bounds the recursion of the regex compiler.
+    Returns ``""`` for no values.
+    """
+    unique = sorted(set(values))
+    return _factor(unique, 0, 0, digit_edges) if unique else ""
+
+
+def _factor(values: List[str], offset: int, depth: int, digit_edges: bool) -> str:
+    """Regex for the rest of ``values`` from ``offset``; they share everything before it."""
+    parts: List[str] = []
+    while all(len(v) > offset for v in values) and len({v[offset] for v in values}) == 1:
+        parts.append(_edged_char(values[0][offset], offset, digit_edges))
+        offset += 1
+    if depth >= _MAX_FACTORED_DEPTH:
+        alternatives = [
+            "".join(_edged_char(ch, offset + i, digit_edges) for i, ch in enumerate(v[offset:]))
+            + _digit_end(v, digit_edges)
+            for v in _longest_first(values)
+        ]
+    else:
+        branches: dict[str, List[str]] = {}
+        for v in values:
+            if len(v) > offset:
+                branches.setdefault(v[offset], []).append(v)
+        alternatives = [
+            _edged_char(head, offset, digit_edges) + _factor(rest, offset + 1, depth + 1, digit_edges)
+            for head, rest in branches.items()
+        ]
+        alternatives.extend(_digit_end(v, digit_edges) for v in values if len(v) == offset)
+    if len(alternatives) == 1:
+        parts.append(alternatives[0])
+    else:
+        parts.append(f"(?:{'|'.join(alternatives)})")
+    return "".join(parts)
+
+
+def _edged_char(ch: str, offset: int, digit_edges: bool) -> str:
+    """``ch`` escaped; as the first character, a digit with ``digit_edges`` may not follow a digit."""
+    before = r"(?<!\d)" if digit_edges and offset == 0 and ch.isdigit() else ""
+    return f"{before}{re.escape(ch)}"
+
+
+def _digit_end(value: str, digit_edges: bool) -> str:
+    """The check at the end of ``value``: with ``digit_edges``, a digit there may not touch another."""
+    return r"(?!\d)" if digit_edges and value[-1].isdigit() else ""
 
 
 def _originals_pattern(entity_map: dict, known: set[str]) -> Optional[re.Pattern[str]]:
@@ -230,7 +309,7 @@ def _originals_pattern(entity_map: dict, known: set[str]) -> Optional[re.Pattern
     map has no originals left to search for.
 
     Edges: an original with a digit keeps digit boundaries only
-    (:func:`_original_alternative`). A letter original is open on the
+    (``digit_edges`` of :func:`_factored`). A letter original is open on the
     right, so a suffix written onto a name ("Yılmazın") does not hide it;
     masking "Ann" inside "Annäherung" is the accepted cost. Most letter
     originals are open on the left too (:func:`_opens_anywhere`: title case,
@@ -248,7 +327,7 @@ def _originals_pattern(entity_map: dict, known: set[str]) -> Optional[re.Pattern
     also hit every word that merely contains it. One that ends a longer
     word is masked there ("VALİ" -> "V[…]" when "ALİ" is an original), the
     accepted cost of not leaking a value glued to any label. A symbol
-    fragment ("A+") matches only as a whole token (:func:`_whole_token`).
+    fragment ("A+") matches only as a whole token (:func:`_whole_tokens`).
 
     The groups, in order, each longest first: originals with a digit,
     letter originals open on the left, short tokens glued to a field label
@@ -259,7 +338,8 @@ def _originals_pattern(entity_map: dict, known: set[str]) -> Optional[re.Pattern
     still holds: two originals only both match where one is a prefix of the
     other, a prefix never gains a digit, and an original that extends an
     open one is open too. Each group sits behind a lookahead on its first
-    characters (:func:`_guarded`).
+    characters (:func:`_guarded`) and shares the common prefixes of its
+    originals (:func:`_factored`).
     """
     originals = [o for o in entity_map if o and not is_letter_fragment(o)]
     if not originals:
@@ -272,21 +352,20 @@ def _originals_pattern(entity_map: dict, known: set[str]) -> Optional[re.Pattern
     open_left = [o for o in words if _WORD_CHAR.match(o[0]) and _opens_anywhere(o)]
     edged = [o for o in words if _WORD_CHAR.match(o[0]) and not _opens_anywhere(o)]
     unedged = [o for o in words if not _WORD_CHAR.match(o[0])]
-    edged_alternatives = [re.escape(o) for o in edged]
-    edged_alternation = "|".join(edged_alternatives)
+    edged_alternation = _factored(edged)
     groups = [
-        _guarded([re.escape(k) for k in _longest_first(known)], known),
-        _guarded([_original_alternative(o) for o in with_digit], with_digit),
-        _guarded([re.escape(o) for o in open_left], open_left),
+        _guarded_literals(known),
+        _guarded_literals(with_digit, digit_edges=True),
+        _guarded_literals(open_left),
         (
             f"{TOKEN_START}(?P<{_CUE}>(?i:{_FIELD_LABEL_CUE}))(?P<{_GLUED}>{edged_alternation})"
             if edged
             else ""
         ),
-        _guarded(edged_alternatives, edged, edge=f"(?:{TOKEN_START}|{CAMEL_STEP})"),
+        _guarded_literals(edged, edge=f"(?:{TOKEN_START}|{CAMEL_STEP})"),
         _word_end_group(edged),
-        "|".join(_whole_token(o) for o in symbols),
-        _guarded([re.escape(o) for o in unedged], unedged),
+        _whole_tokens(symbols),
+        _guarded_literals(unedged),
     ]
     return re.compile("|".join(g for g in groups if g))
 
@@ -309,7 +388,7 @@ def _word_end_group(edged: Sequence[str]) -> str:
         return ""
     reach = max(len(o) for o in words)
     near_end = rf"(?=\w{{1,{reach}}}{TOKEN_END})"
-    return f"{_guarded([re.escape(o) for o in words], words, edge=near_end)}(?={TOKEN_END})"
+    return f"{_guarded_literals(words, edge=near_end)}(?={TOKEN_END})"
 
 
 def _opens_anywhere(value: str) -> bool:
@@ -330,10 +409,18 @@ def _opens_anywhere(value: str) -> bool:
     return any(ch.isspace() for ch in value) or len(value) >= _SHORT_TOKEN_LENGTH
 
 
-def _whole_token(value: str) -> str:
-    """Regex for ``value`` standing as a whole token: no word character on either side."""
-    before = TOKEN_START if _WORD_CHAR.match(value[0]) else r"(?<!\w)"
-    return rf"{before}{re.escape(value)}(?!\w)"
+def _whole_tokens(values: Sequence[str]) -> str:
+    """Regex for any of ``values`` standing as a whole token: no word character on either side.
+
+    A value opening with a word character needs :data:`TOKEN_START` before
+    it, any other value no word character; the values that can match at one
+    position open with the same character, so each kind is one
+    :func:`_factored` alternation.
+    """
+    opening = [v for v in values if _WORD_CHAR.match(v[0])]
+    other = [v for v in values if not _WORD_CHAR.match(v[0])]
+    kinds = [(TOKEN_START, opening), (r"(?<!\w)", other)]
+    return "|".join(rf"{before}(?:{_factored(group)})(?!\w)" for before, group in kinds if group)
 
 
 def _is_title_case(value: str) -> bool:
@@ -354,21 +441,6 @@ def _mask_known_originals(text: str, state: _MaskState) -> str:
     if state.originals_pattern is None:
         return text
     return state.originals_pattern.sub(state.placeholder_for, text)
-
-
-def _original_alternative(original: str) -> str:
-    """Return the regex alternative that matches an original holding a digit.
-
-    Such an original (a date, an amount, an id such as ``3/15`` or an IBAN)
-    must not extend a number: each end that is a digit may not touch another
-    digit, so ``3/15`` is never found inside ``13/150`` while ``A4711``,
-    ``XA4711`` and an IBAN glued to its label ("IBANTR33…") still mask.
-    Letter originals are grouped in :func:`_originals_pattern`.
-    """
-    escaped = re.escape(original)
-    before = r"(?<!\d)" if original[0].isdigit() else ""
-    after = r"(?!\d)" if original[-1].isdigit() else ""
-    return f"{before}{escaped}{after}"
 
 
 def mask_known_entities(text: str, anon_map: AnonymizationMap) -> str:
@@ -652,7 +724,7 @@ def _standalone_fragments_pattern(entity_map: dict, known: set[str]) -> Optional
     if not values:
         return None
     alone = rf"(?<![\w.])(?:{'|'.join(re.escape(v) for v in values)})(?!\.?\w)"
-    protected = _guarded([re.escape(p) for p in _longest_first(known)], known)
+    protected = _guarded_literals(known)
     return re.compile(f"{protected}|{alone}" if protected else alone)
 
 
