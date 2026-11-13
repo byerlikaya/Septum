@@ -434,6 +434,10 @@ export const trMessages: Record<string, string> = {
     "LLM istemi kuralı için bir istem gerekir; modelin neyi bulması gerektiğini yazın.",
   "errors.localModelBudget.exceeded":
     "Bu istek, tek bir turda izin verilenden fazla yerel model kontrolü gerektirdiği için hiçbir şey gönderilmedi. Soruyu veya bağlamı kısaltın, etkin özel yapay zeka kurallarını azaltın ya da yöneticinize danışın.",
+  "errors.originalsPatternTooDeep.request":
+    "İstek reddedildi: bu belgeler için bilinen değerler, güvenle gizlenemeyecek kadar iç içe geçmiş. Bulut modeline hiçbir şey gönderilmedi.",
+  "errors.originalsPatternTooDeep.document":
+    "Belge reddedildi: içindeki değerler, güvenle maskelenemeyecek kadar iç içe geçmiş. Maskelenmemiş hiçbir metin bir yere gönderilmedi. Alışılmadık biçimde tekrarlanan veya şişirilmiş bölümleri çıkarıp belgeyi yeniden yükleyin ya da belgeyi silin.",
   "errors.chunkTooLarge":
     "Belgenin bir bölümü maskelendikten sonra bile güvenle işlenemeyecek kadar uzun. Belgeyi bölüp yeniden yükleyin.",
   "errors.extractedTextTooLarge":

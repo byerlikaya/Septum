@@ -15,6 +15,7 @@ export const SEMANTIC_LAYER_UNAVAILABLE = "semantic_layer_unavailable";
 export const LOCAL_MODEL_BUDGET_EXCEEDED = "local_model_budget_exceeded";
 export const CHUNK_TOO_LARGE = "chunk_too_large";
 export const EXTRACTED_TEXT_TOO_LARGE = "extracted_text_too_large";
+export const ORIGINALS_PATTERN_TOO_DEEP = "originals_pattern_too_deep";
 
 const MODEL_ERROR_KEYS: CodeKeys = {
   [MODEL_INTEGRITY_FAILED]: "errors.model.integrityFailed",
@@ -27,6 +28,7 @@ export const HTTP_ERROR_KEYS: CodeKeys = {
   [CUSTOM_RULE_UNAVAILABLE]: "errors.customRule.unavailable",
   [SEMANTIC_LAYER_UNAVAILABLE]: "errors.semanticLayer.unavailable",
   [LOCAL_MODEL_BUDGET_EXCEEDED]: "errors.localModelBudget.exceeded",
+  [ORIGINALS_PATTERN_TOO_DEEP]: "errors.originalsPatternTooDeep.request",
   [LLM_PROMPT_REQUIRED]: "errors.customRule.promptRequired",
   ...MODEL_ERROR_KEYS,
 };
@@ -46,6 +48,7 @@ export const CHAT_STREAM_ERROR_KEYS: CodeKeys = {
   [CUSTOM_RULE_UNAVAILABLE]: "errors.customRule.unavailable",
   [SEMANTIC_LAYER_UNAVAILABLE]: "errors.semanticLayer.unavailable",
   [LOCAL_MODEL_BUDGET_EXCEEDED]: "errors.localModelBudget.exceeded",
+  [ORIGINALS_PATTERN_TOO_DEEP]: "errors.originalsPatternTooDeep.request",
   ...MODEL_ERROR_KEYS,
 };
 
@@ -55,6 +58,7 @@ export const INGESTION_ERROR_KEYS: CodeKeys = {
   [CUSTOM_RULE_UNAVAILABLE]: "errors.customRule.unavailable",
   [SEMANTIC_LAYER_UNAVAILABLE]: "errors.semanticLayer.unavailable",
   [LOCAL_MODEL_BUDGET_EXCEEDED]: "errors.localModelBudget.exceeded",
+  [ORIGINALS_PATTERN_TOO_DEEP]: "errors.originalsPatternTooDeep.document",
   ...MODEL_ERROR_KEYS,
 };
 

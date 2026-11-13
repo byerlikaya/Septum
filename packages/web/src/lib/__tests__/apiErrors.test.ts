@@ -99,6 +99,25 @@ describe("local model budget refusal code", () => {
   });
 });
 
+describe("originals pattern too deep refusal code", () => {
+  it("maps the code per surface to keys present in en and tr", () => {
+    const en: Record<string, string> = enMessages;
+    const tr: Record<string, string> = trMessages;
+    for (const keys of [HTTP_ERROR_KEYS, CHAT_STREAM_ERROR_KEYS]) {
+      expect(translateErrorCode("originals_pattern_too_deep", t, keys)).toBe(
+        "errors.originalsPatternTooDeep.request",
+      );
+    }
+    expect(translateErrorCode("originals_pattern_too_deep", t, INGESTION_ERROR_KEYS)).toBe(
+      "errors.originalsPatternTooDeep.document",
+    );
+    for (const key of ["errors.originalsPatternTooDeep.request", "errors.originalsPatternTooDeep.document"]) {
+      expect(en[key].trim()).not.toBe("");
+      expect(tr[key].trim()).not.toBe("");
+    }
+  });
+});
+
 describe("chunk too large ingestion code", () => {
   it("maps chunk_too_large in the ingestion map to a key present in en and tr", () => {
     const en: Record<string, string> = enMessages;

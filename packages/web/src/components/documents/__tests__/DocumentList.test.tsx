@@ -119,6 +119,22 @@ it("maps the unpinned NER code to its translated message", () => {
   expect(screen.getByText("errors.model.nerUnpinned")).toBeInTheDocument();
 });
 
+it("maps the too-deep refusal code to its translated document message", () => {
+  render(
+    <DocumentList
+      documents={[
+        failedDocument({
+          ingestion_error: "English server text",
+          ingestion_error_code: "originals_pattern_too_deep",
+        }),
+      ]}
+      {...handlers}
+    />
+  );
+  expect(screen.getByText("errors.originalsPatternTooDeep.document")).toBeInTheDocument();
+  expect(screen.queryByText("English server text")).not.toBeInTheDocument();
+});
+
 it("falls back to the stored error text when the code is null", () => {
   render(
     <DocumentList

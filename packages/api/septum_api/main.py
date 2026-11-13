@@ -58,6 +58,7 @@ from .env_flags import (
 from .errors import (
     MODEL_REFUSED_DETAIL,
     LocalModelUnavailableError,
+    OriginalsPatternTooDeepError,
 )
 from .models.settings import AppSettings
 from .routers import api_keys as api_keys_router
@@ -705,6 +706,34 @@ async def local_model_unavailable_handler(
         report_error_log_failure(log_exc)
     return JSONResponse(
         status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": exc.detail, "code": exc.code},
+    )
+
+
+@app.exception_handler(OriginalsPatternTooDeepError)
+async def originals_pattern_too_deep_handler(
+    request: Request, exc: OriginalsPatternTooDeepError
+) -> JSONResponse:
+    """Turn a map whose known values nest past the masking depth limit into 422 with its code.
+
+    The text that map should have masked is refused, never passed on
+    partially masked. The detail is fixed text; the error log keeps the
+    code and the nesting counts, never a value.
+    """
+    try:
+        if engine_is_ready():
+            async with get_session_maker()() as db:
+                await log_backend_error(
+                    db=db,
+                    request=request,
+                    exc=exc,
+                    level="WARNING",
+                    status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
+                )
+    except Exception as log_exc:
+        report_error_log_failure(log_exc)
+    return JSONResponse(
+        status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={"detail": exc.detail, "code": exc.code},
     )
 

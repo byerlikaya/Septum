@@ -5,17 +5,21 @@ so that many originals sharing a long prefix do not cost their number times
 that prefix at every position. A differential test pins the behaviour against
 the flat builder it replaced, kept here as ``_flat_reference_pattern``:
 identical spans and named groups on seeded random maps and texts. The timing
-tests compare the two builders in the same process, as ratios only.
+tests compare the two builders in the same process, as ratios only. Originals
+nesting deeper than the factoring cap are refused before anything compiles.
 """
 
 import random
 import re
 import time
+import tracemalloc
 import unicodedata
 from typing import Callable, List, Optional, Sequence, Tuple
 
 import pytest
+from septum_api.errors import OriginalsPatternTooDeepError, public_error_text
 from septum_api.services import pii_gate as g
+from septum_api.services.anonymization_map import AnonymizationMap
 from septum_core.text_boundaries import CAMEL_STEP, TOKEN_END, TOKEN_START
 
 
@@ -240,15 +244,15 @@ def test_factored_placeholder_patterns_match_the_flat_reference() -> None:
 @pytest.mark.parametrize(
     "originals",
     [
-        ["a" * depth + "b" for depth in range(1, 260)],
+        ["a" * depth + "b" for depth in range(1, 100)],
         ["x" * 40 + format(i, "b") for i in range(300)] + ["z1"],
         ["KAYA", "KAY", "KA", "K.", "kaya", "Kaya", "KAYALAR", "ALİ", "ALI", "ALICI", "ADI"],
         ["3/15", "13/150", "3/1", "315", "٣/١٥", "A4711", "4711", "47", "TR33 0006 1005"],
     ],
-    ids=["nested-beyond-the-depth-cap", "shared-prefix-binary", "short-tokens", "digit-edges"],
+    ids=["nested-just-under-the-depth-cap", "shared-prefix-binary", "short-tokens", "digit-edges"],
 )
 def test_structured_maps_match_the_flat_reference(originals: List[str]) -> None:
-    """Prefix chains deeper than the factoring cap and the documented edge cases agree too."""
+    """Nesting just under the depth cap and the documented edge cases agree too."""
     entity_map = {o: f"[ENTITY_{i}]" for i, o in enumerate(originals)}
     known = set(entity_map.values())
     factored = g._originals_pattern(entity_map, known)
@@ -332,3 +336,155 @@ def test_benign_maps_are_not_slower_than_the_flat_alternation() -> None:
         reference_time = min(reference_time, _best_of(1, run(_flat_reference_pattern)))
         factored_time = min(factored_time, _best_of(1, run(g._originals_pattern)))
     assert factored_time / reference_time < 1.5, (reference_time, factored_time)
+
+
+_SENTINEL = "Zorblaxquin"
+
+
+def _nested_chain(levels: int) -> dict:
+    """``levels`` originals, each a prefix of the next: the prefix tree nests ``levels`` levels deep."""
+    return {_SENTINEL + "q" * i: f"[ENTITY_{i}]" for i in range(levels)}
+
+
+class _CompileSpy:
+    """Stands in for ``re.compile`` and records every pattern it is asked to compile."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self._compile = re.compile
+
+    def __call__(self, *args, **kwargs):
+        self.calls += 1
+        return self._compile(*args, **kwargs)
+
+
+@pytest.fixture
+def compile_spy(monkeypatch: pytest.MonkeyPatch) -> _CompileSpy:
+    spy = _CompileSpy()
+    monkeypatch.setattr(g.re, "compile", spy)
+    return spy
+
+
+@pytest.mark.parametrize("levels", [g._MAX_FACTORED_DEPTH + 1, 599, 1500])
+def test_nesting_deeper_than_the_cap_is_refused_before_anything_compiles(
+    levels: int, compile_spy: _CompileSpy
+) -> None:
+    """The refusal comes while the pattern string is built: no compile, no scan, no flat fallback."""
+    entity_map = _nested_chain(levels)
+    started = time.perf_counter()
+    with pytest.raises(OriginalsPatternTooDeepError) as refused:
+        g._originals_pattern(entity_map, set(entity_map.values()))
+    elapsed = time.perf_counter() - started
+    assert compile_spy.calls == 0
+    assert refused.value.code == "originals_pattern_too_deep"
+    assert refused.value.depth == g._MAX_FACTORED_DEPTH + 1
+    assert refused.value.limit == g._MAX_FACTORED_DEPTH
+    assert elapsed < 1.0, elapsed
+
+
+@pytest.mark.parametrize("levels", [g._MAX_FACTORED_DEPTH - 1, g._MAX_FACTORED_DEPTH])
+def test_nesting_up_to_the_cap_is_masked_quickly_and_in_little_memory(levels: int) -> None:
+    """``_MAX_FACTORED_DEPTH`` nested levels are the most accepted: 20,000 characters in well under a second."""
+    entity_map = _nested_chain(levels)
+    known = set(entity_map.values())
+    text = (_SENTINEL + "q" * (levels + 5) + " ") * (20_000 // (len(_SENTINEL) + levels + 6) + 1)
+    text = text[:20_000]
+    re.purge()
+    tracemalloc.start()
+    try:
+        pattern = g._originals_pattern(entity_map, known)
+        matches = sum(1 for _ in pattern.finditer(text))
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert matches > 0
+    assert peak < 20 * 1024 * 1024, peak
+    assert _best_of(3, _scan(pattern, text)) < 1.0
+    assert _best_of(3, _scan(pattern, "a" * 20_000)) < 1.0
+    assert _matches(pattern, text) == _matches(_flat_reference_pattern(entity_map, known), text)
+
+
+def test_refusal_names_no_original() -> None:
+    """Message, ``str`` and ``repr`` carry counts only."""
+    entity_map = _nested_chain(600)
+    with pytest.raises(OriginalsPatternTooDeepError) as refused:
+        g._originals_pattern(entity_map, set(entity_map.values()))
+    for text in (str(refused.value), repr(refused.value), refused.value.detail, public_error_text(refused.value)):
+        assert _SENTINEL not in text
+        assert "Zorblax" not in text
+        assert not any(original in text for original in entity_map)
+
+
+def test_a_refused_build_leaves_nothing_cached(compile_spy: _CompileSpy) -> None:
+    """A later call on the same state refuses again; no half-built pattern is ever used."""
+    amap = AnonymizationMap(document_id=0, language="en")
+    for original in _nested_chain(g._MAX_FACTORED_DEPTH + 1):
+        amap.add_entity(original, "ORGANIZATION")
+    state = g._MaskState(amap)
+    for _ in range(2):
+        with pytest.raises(OriginalsPatternTooDeepError):
+            state.originals_pattern
+        assert "originals_pattern" not in vars(state)
+        with pytest.raises(OriginalsPatternTooDeepError):
+            g._mask_with_state(f"Paid by {_SENTINEL}q.", state, amap)
+    with pytest.raises(OriginalsPatternTooDeepError):
+        g.mask_known_entities(f"Paid by {_SENTINEL}q.", amap)
+    assert compile_spy.calls == 0
+
+
+def _state_refuses(amap: AnonymizationMap) -> bool:
+    """Whether a masking state of ``amap`` refuses any pattern it compiles."""
+    state = g._MaskState(amap)
+    try:
+        state.originals_pattern
+        state.fragments_pattern
+        state.protect_pattern
+    except OriginalsPatternTooDeepError:
+        return True
+    return False
+
+
+def _check_refuses(amap: AnonymizationMap) -> bool:
+    try:
+        g.ensure_originals_searchable(amap)
+    except OriginalsPatternTooDeepError:
+        return True
+    return False
+
+
+@pytest.mark.parametrize("seed", range(6))
+@pytest.mark.parametrize(
+    "levels", [0, g._MAX_FACTORED_DEPTH - 1, g._MAX_FACTORED_DEPTH, g._MAX_FACTORED_DEPTH + 1, 400]
+)
+def test_the_ingestion_check_refuses_exactly_what_masking_refuses(
+    levels: int, seed: int, compile_spy: _CompileSpy
+) -> None:
+    """Same verdict as a masking state on chains around the cap, mixed with fragments and other originals.
+
+    A chain of exactly the cap is refused once another original branches
+    off above it (one more level), so at the cap only the agreement is pinned.
+    """
+    rng = random.Random(seed)
+    amap = AnonymizationMap(document_id=0, language="en")
+    for original in _nested_chain(levels):
+        amap.add_entity(original, "ORGANIZATION")
+    for original in _random_originals(rng):
+        if original:
+            amap.add_entity(original, rng.choice(["PERSON_NAME", "ID_NUMBER"]))
+    if seed % 2:
+        amap.add_entity("K", "GENDER")
+    refused = _check_refuses(amap)
+    assert compile_spy.calls == 0
+    assert refused == _state_refuses(amap)
+    if levels > g._MAX_FACTORED_DEPTH:
+        assert refused
+    elif levels < g._MAX_FACTORED_DEPTH:
+        assert not refused
+
+
+def test_the_ingestion_check_passes_maps_without_searchable_originals() -> None:
+    amap = AnonymizationMap(document_id=0, language="en")
+    g.ensure_originals_searchable(amap)
+    amap.add_entity("K", "GENDER")
+    g.ensure_originals_searchable(amap)
+    assert not _state_refuses(amap)

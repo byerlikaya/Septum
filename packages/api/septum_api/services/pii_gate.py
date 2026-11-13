@@ -45,7 +45,7 @@ from septum_core.text_boundaries import CAMEL_STEP, TOKEN_END, TOKEN_START
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..errors import ContentFreeError
+from ..errors import ContentFreeError, OriginalsPatternTooDeepError
 from ..models.document import Chunk, Document
 from ..models.settings import AppSettings
 from ..utils.db_helpers import (
@@ -150,7 +150,9 @@ class _MaskState:
     of entities, so a gate call reuses one state across texts. The state
     keeps a copy of the map it was built from: :meth:`is_current` compares
     that copy with the live map, so a state is rebuilt whenever the map has
-    changed, however it changed. Patterns compile on first use.
+    changed, however it changed. Patterns compile on first use; a build that
+    raises (:class:`OriginalsPatternTooDeepError`) caches nothing, so every
+    later use raises again.
     """
 
     def __init__(self, anon_map: AnonymizationMap) -> None:
@@ -251,36 +253,39 @@ def _factored(values: Iterable[str], digit_edges: bool = False) -> str:
     once. With ``digit_edges`` each end of a value that is a digit may not
     touch another digit, so ``3/15`` is never found inside ``13/150`` while
     ``A4711``, ``XA4711`` and an IBAN glued to its label ("IBANTR33…")
-    still match. Past ``_MAX_FACTORED_DEPTH`` nested branches the rest is
-    a flat alternation, which bounds the recursion of the regex compiler.
-    Returns ``""`` for no values.
+    still match. ``values`` whose shared prefixes branch more than
+    ``_MAX_FACTORED_DEPTH`` levels deep (it takes more values than that, such
+    as a chain each a prefix of the next) raise
+    :class:`OriginalsPatternTooDeepError` while the string is built, before
+    anything compiles: a flat alternation for the rest costs seconds per
+    text, and leaving any value out would leave it unmasked. Returns ``""``
+    for no values.
     """
     unique = sorted(set(values))
     return _factor(unique, 0, 0, digit_edges) if unique else ""
 
 
 def _factor(values: List[str], offset: int, depth: int, digit_edges: bool) -> str:
-    """Regex for the rest of ``values`` from ``offset``; they share everything before it."""
+    """Regex for the rest of ``values`` from ``offset``; they share everything before it.
+
+    ``depth`` counts the branch levels above this one, from 0; reaching
+    ``_MAX_FACTORED_DEPTH`` raises :class:`OriginalsPatternTooDeepError`.
+    """
+    if depth >= _MAX_FACTORED_DEPTH:
+        raise OriginalsPatternTooDeepError(depth + 1, _MAX_FACTORED_DEPTH)
     parts: List[str] = []
     while all(len(v) > offset for v in values) and len({v[offset] for v in values}) == 1:
         parts.append(_edged_char(values[0][offset], offset, digit_edges))
         offset += 1
-    if depth >= _MAX_FACTORED_DEPTH:
-        alternatives = [
-            "".join(_edged_char(ch, offset + i, digit_edges) for i, ch in enumerate(v[offset:]))
-            + _digit_end(v, digit_edges)
-            for v in _longest_first(values)
-        ]
-    else:
-        branches: dict[str, List[str]] = {}
-        for v in values:
-            if len(v) > offset:
-                branches.setdefault(v[offset], []).append(v)
-        alternatives = [
-            _edged_char(head, offset, digit_edges) + _factor(rest, offset + 1, depth + 1, digit_edges)
-            for head, rest in branches.items()
-        ]
-        alternatives.extend(_digit_end(v, digit_edges) for v in values if len(v) == offset)
+    branches: dict[str, List[str]] = {}
+    for v in values:
+        if len(v) > offset:
+            branches.setdefault(v[offset], []).append(v)
+    alternatives = [
+        _edged_char(head, offset, digit_edges) + _factor(rest, offset + 1, depth + 1, digit_edges)
+        for head, rest in branches.items()
+    ]
+    alternatives.extend(_digit_end(v, digit_edges) for v in values if len(v) == offset)
     if len(alternatives) == 1:
         parts.append(alternatives[0])
     else:
@@ -299,8 +304,30 @@ def _digit_end(value: str, digit_edges: bool) -> str:
     return r"(?!\d)" if digit_edges and value[-1].isdigit() else ""
 
 
+def ensure_originals_searchable(anon_map: AnonymizationMap) -> None:
+    """Raise :class:`OriginalsPatternTooDeepError` when masking against ``anon_map`` would refuse.
+
+    Builds, from the inputs a masking state (:class:`_MaskState`) reads (the
+    entity map and :func:`_known_placeholders`), every factored alternation
+    that state compiles, through the same builders, so the limit and its
+    accounting have one definition. The originals pattern holds the known
+    placeholders' alternation; without originals, that alternation alone is
+    what the fragments and placeholder patterns factor. Nothing is compiled
+    or scanned.
+    """
+    known = _known_placeholders(anon_map)
+    if _originals_source(anon_map.entity_map, known) is None:
+        _guarded_literals(known)
+
+
 def _originals_pattern(entity_map: dict, known: set[str]) -> Optional[re.Pattern[str]]:
-    """Compile the alternation that matches known placeholders and originals.
+    """Compile :func:`_originals_source`; ``None`` when the map has no originals to search for."""
+    source = _originals_source(entity_map, known)
+    return None if source is None else re.compile(source)
+
+
+def _originals_source(entity_map: dict, known: set[str]) -> Optional[str]:
+    """Build, without compiling, the alternation that matches known placeholders and originals.
 
     Known placeholders are tried first and are emitted unchanged, so an
     original can never be substituted inside an existing placeholder.
@@ -367,7 +394,7 @@ def _originals_pattern(entity_map: dict, known: set[str]) -> Optional[re.Pattern
         _whole_tokens(symbols),
         _guarded_literals(unedged),
     ]
-    return re.compile("|".join(g for g in groups if g))
+    return "|".join(g for g in groups if g)
 
 
 _SHORT_TOKEN_LENGTH = 5
@@ -1326,6 +1353,7 @@ __all__ = [
     "TextSegmenter",
     "all_placeholders_known",
     "create_user_text_sanitizer",
+    "ensure_originals_searchable",
     "gate_document_texts",
     "gate_untrusted_texts",
     "is_letter_fragment",
