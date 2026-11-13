@@ -959,3 +959,29 @@ async def test_user_text_gates_refuse_a_sanitizer_without_a_gate_flag() -> None:
     with pytest.raises(ValueError):
         await pii_gate.remask_document_texts(None, None, document, ["text"], object())
     assert anon_map.entity_map == {}
+
+
+async def test_pure_chat_turn_carries_no_ruleset_name_into_the_prompt_fields() -> None:
+    """Without document context nothing but the query is sent, so no admin-typed name is staged."""
+    sentinel = "Zorblax Ruleset"
+    turn = chat_module._ChatTurn(
+        request=SimpleNamespace(output_mode=None),
+        message_text="hello",
+        user=SimpleNamespace(id=1),
+        session_id="s",
+        debug_id="d",
+        settings=_settings(),
+        active_regulations=[("GDPR", True), (sentinel, False)],
+        documents_by_id={},
+        document=None,
+        language="en",
+        query_seed_document_id=None,
+        anon_map=AnonymizationMap(document_id=0, language="en"),
+        rag_mode="none",
+        sanitized_query="hello",
+    )
+
+    await chat_module._prepare_prompt_inputs(turn, None)
+
+    assert turn.prompt_regulation_names == []
+    assert sentinel in turn.regulation_names

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
+from ..errors import OriginalsPatternTooDeepError
 from ..models.document import Chunk, Document
 from ..models.user import User
 from ..request_limits import MAX_PRE_APPROVED_CHUNK_CHARS, MAX_SECTION_TITLE_CHARS
@@ -73,18 +74,28 @@ async def _chunk_responses(chunks: Sequence[Chunk]) -> List[ChunkResponse]:
 
     Rows ingested before titles were masked at ingestion still hold the raw
     heading, so a stored title is never returned as it is: it is masked like
-    the chat path masks it, and dropped when the document has no map.
+    the chat path masks it, and dropped when the document has no map. A map
+    stored with originals nested past the masking depth cap cannot be
+    searched (:class:`OriginalsPatternTooDeepError`): that document's titles
+    are dropped the same way, so one such map never fails the whole listing
+    and no raw title is shown.
     """
     maskers = {}
     for document_id in {c.document_id for c in chunks if c.section_title}:
         maskers[document_id] = section_title_masker(await get_document_map(document_id))
+    unsearchable: set[int] = set()
     responses: List[ChunkResponse] = []
     for chunk in chunks:
         response = ChunkResponse.model_validate(chunk)
         if chunk.section_title:
-            response.section_title = maskers[chunk.document_id](
-                chunk.section_title, chunk.raw_text or ""
-            )
+            response.section_title = None
+            if chunk.document_id not in unsearchable:
+                try:
+                    response.section_title = maskers[chunk.document_id](
+                        chunk.section_title, chunk.raw_text or ""
+                    )
+                except OriginalsPatternTooDeepError:
+                    unsearchable.add(chunk.document_id)
         responses.append(response)
     return responses
 
