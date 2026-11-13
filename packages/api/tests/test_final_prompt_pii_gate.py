@@ -1479,3 +1479,146 @@ class TestDocumentDeleteErasure:
         assert f"tier={tier}" in caplog.text
         assert KNOWN_NAME not in caplog.text
         assert "/secret/" not in caplog.text
+
+
+LEARNED = "blue heron"
+"""A value Presidio does not detect, so only the gate's ``Name: `` rule reveals it."""
+
+
+@pytest.fixture
+def label_only_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the PII gate detect an organization only right after a ``Name: `` label."""
+
+    async def _build(db, settings, **kwargs):
+        return PatternSanitizer((re.compile(r"Name: ([^;\n.]+)"), "ORGANIZATION"))
+
+    monkeypatch.setattr(pii_gate, "create_user_text_sanitizer", _build)
+
+
+class TestValueLearnedFromAnEdit:
+    """A value the gate learns from edited text is masked in the whole prompt it goes into."""
+
+    async def test_approval_edit_masks_the_value_in_unedited_chunks_and_the_query(
+        self, env: _Env, label_only_gate: None
+    ) -> None:
+        await env.set_require_approval(True)
+        doc = await env.add_document(
+            ["The deal closed.", f"{LEARNED} paid the deposit."]
+        )
+        await _store_known_map(doc)
+        env.gate.edit = lambda texts: [texts[0] + f" Name: {LEARNED}.", *texts[1:]]
+
+        answer = _answer(
+            await env.ask({"message": f"What did {LEARNED} pay?", "document_ids": [doc]})
+        )
+
+        prompt = env.prompts[-1]
+        assert LEARNED not in prompt
+        assert LEARNED in answer
+
+    async def test_retry_chunk_masks_the_value_in_the_query(
+        self, env: _Env, label_only_gate: None
+    ) -> None:
+        await env.set_require_approval(False)
+
+        answer = _answer(
+            await env.ask(
+                {
+                    "message": f"What did {LEARNED} pay?",
+                    "pre_approved_chunks": [{"text": f"Name: {LEARNED}; paid in full."}],
+                }
+            )
+        )
+
+        prompt = env.prompts[-1]
+        assert LEARNED not in prompt
+        assert LEARNED in answer
+
+    async def _document_teaching_on_edit(self, env: _Env) -> int:
+        """A document whose first chunk the approval edit extends with the ``Name: `` rule."""
+        await env.set_require_approval(True)
+        doc = await env.add_document(["The deal closed.", "The deposit was paid."])
+        await _store_known_map(doc)
+        env.gate.edit = lambda texts: [texts[0] + f" Name: {LEARNED}.", *texts[1:]]
+        return doc
+
+    async def _add_custom_regulation(self, env: _Env) -> None:
+        async with env.session_maker() as session:
+            session.add_all(
+                [
+                    RegulationRuleset(
+                        id="gdpr", display_name="GDPR", region="EU", is_builtin=True,
+                        is_active=True, entity_types=[],
+                    ),
+                    RegulationRuleset(
+                        id="custom_1", display_name=f"Rules for {LEARNED}", region="",
+                        is_builtin=False, is_active=True, entity_types=[],
+                    ),
+                ]
+            )
+            await session.commit()
+
+    async def test_approval_edit_masks_the_value_in_a_column_description(
+        self, env: _Env, label_only_gate: None
+    ) -> None:
+        doc = await self._document_teaching_on_edit(env)
+        await _add_schema(env, doc, [(0, "COLUMN_1", f"Fees of {LEARNED}")])
+
+        _answer(await env.ask({"message": "What are the fees?", "document_ids": [doc]}))
+
+        prompt = env.prompts[-1]
+        assert "COLUMN_1" not in prompt
+        assert "Fees of [ORGANIZATION_" in prompt
+        assert LEARNED not in prompt
+
+    async def test_approval_edit_masks_the_value_in_a_custom_regulation_name(
+        self, env: _Env, label_only_gate: None
+    ) -> None:
+        doc = await self._document_teaching_on_edit(env)
+        await self._add_custom_regulation(env)
+
+        _answer(await env.ask({"message": "What applies?", "document_ids": [doc]}))
+
+        prompt = env.prompts[-1]
+        assert "GDPR" in prompt
+        assert "Rules for [ORGANIZATION_" in prompt
+        assert LEARNED not in prompt
+
+    async def test_approval_preview_equals_the_sent_prompt_after_an_edit_taught_a_value(
+        self, env: _Env, label_only_gate: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from septum_api.routers import approval as approval_module
+        from septum_api.services.approval_gate import ApprovalGate
+
+        doc = await self._document_teaching_on_edit(env)
+        await _add_schema(env, doc, [(0, "COLUMN_1", f"Fees of {LEARNED}")])
+        await self._add_custom_regulation(env)
+        created: list[dict[str, Any]] = []
+        record = env.gate.create
+
+        async def _snapshot_create(**kwargs: Any) -> None:
+            created.append(copy.deepcopy(kwargs))
+            await record(**kwargs)
+
+        monkeypatch.setattr(env.gate, "create", _snapshot_create)
+
+        _answer(
+            await env.ask({"message": f"What did {LEARNED} pay?", "document_ids": [doc]})
+        )
+        sent = env.prompts[-1]
+
+        real_gate = ApprovalGate()
+        monkeypatch.setattr(approval_module, "_get_gate", lambda: real_gate)
+        monkeypatch.setattr(approval_module, "PREVIEW_MIN_INTERVAL_SECONDS", 0.0)
+        await real_gate.create(**created[-1])
+        session_id = created[-1]["session_id"]
+        edited = env.gate.edit(list(created[-1]["masked_chunks"]))
+
+        resp = await env.client.post(
+            f"/api/approval/{session_id}/preview-prompt",
+            json={"chunks": [{"text": t} for t in edited]},
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert LEARNED not in sent
+        assert resp.json()["assembled_prompt"] == sent

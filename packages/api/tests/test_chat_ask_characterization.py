@@ -726,6 +726,7 @@ class TestApproval:
         assert created["assembly_context"] == {
             "sanitized_query": MASKED_QUERY,
             "regulation_names": [],
+            "builtin_regulations": [],
             "language": "en",
             "output_mode": "chat",
             "column_descriptions": [],
