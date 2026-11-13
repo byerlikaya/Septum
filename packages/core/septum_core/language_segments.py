@@ -294,6 +294,7 @@ def segment_languages(
     *,
     dominant_language: str,
     detect_candidates: CandidateDetector,
+    max_detector_calls: Optional[int] = None,
 ) -> Tuple[Segment, ...]:
     """Cut ``text`` into contiguous language segments covering ``[0, len(text))``.
 
@@ -306,7 +307,10 @@ def segment_languages(
     :data:`MIN_DETECTION_LETTERS`, takes its previous neighbour's language (the
     next one for a leading unit) without asking the detector. A document that
     would need more than :data:`MAX_DETECTOR_CALLS_PER_DOCUMENT` detector calls
-    is one ``Segment(0, len(text), dominant)``. Adjacent units of
+    is one ``Segment(0, len(text), dominant)``; a caller that spends one
+    budget over several texts passes what is left of it as
+    ``max_detector_calls``, and then reports the overrun itself (nothing is
+    logged here). Adjacent units of
     one language merge; runs shorter than their script's minimum
     (:data:`MIN_RUN_CHARS_BY_SCRIPT`, else :data:`DEFAULT_MIN_RUN_CHARS`) then
     inherit from their longer neighbour. A run in a language other than the
@@ -315,11 +319,15 @@ def segment_languages(
     :data:`CONFIDENT_MIN_RUN_CHARS_BY_SCRIPT` sizes. When every segment resolves to the dominant
     language the result is exactly one ``Segment(0, len(text), dominant)``.
     Empty text yields no segments. Raises ``ValueError`` for a
-    ``dominant_language`` that is not an ISO 639 code.
+    ``dominant_language`` that is not an ISO 639 code or a negative
+    ``max_detector_calls``.
     """
     dominant = iso_language_code(dominant_language)
     if dominant is None:
         raise ValueError("dominant_language must be an ISO 639 language code")
+    if max_detector_calls is not None and max_detector_calls < 0:
+        raise ValueError("max_detector_calls must not be negative")
+    budget = MAX_DETECTOR_CALLS_PER_DOCUMENT if max_detector_calls is None else max_detector_calls
     if not text:
         return ()
 
@@ -333,11 +341,12 @@ def segment_languages(
         if language is not None:
             confident = True
         elif letters >= MIN_DETECTION_LETTERS:
-            if calls == MAX_DETECTOR_CALLS_PER_DOCUMENT:
-                logger.warning(
-                    "Document needs more than %d language detector calls; masking it in its dominant language",
-                    MAX_DETECTOR_CALLS_PER_DOCUMENT,
-                )
+            if calls == budget:
+                if max_detector_calls is None:
+                    logger.warning(
+                        "Document needs more than %d language detector calls; masking it in its dominant language",
+                        budget,
+                    )
                 return (Segment(0, len(text), dominant),)
             calls += 1
             candidates = list(detect_candidates(sample))

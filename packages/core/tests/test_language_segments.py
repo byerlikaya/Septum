@@ -650,3 +650,45 @@ def test_a_document_past_the_detector_call_budget_is_one_dominant_segment(
     else:
         assert segments == (Segment(0, len(text), "tr"),)
         assert str(budget) in caplog.text and "sözleşme" not in caplog.text
+
+
+@pytest.mark.parametrize(("budget", "split"), [(0, False), (3, False), (4, True)])
+def test_a_caller_budget_caps_detector_calls_and_logs_nothing(caplog, budget, split):
+    text, bounds = build(TR, EN, TR, EN)
+    detector, calls = _counting(fake_detector)
+
+    with caplog.at_level("WARNING"):
+        segments = segment_languages(
+            text,
+            bounds,
+            dominant_language="tr",
+            detect_candidates=detector,
+            max_detector_calls=budget,
+        )
+
+    assert len(calls) == min(budget, 4)
+    if split:
+        assert [s.language for s in segments] == ["tr", "en", "tr", "en"]
+    else:
+        assert segments == (Segment(0, len(text), "tr"),)
+    assert caplog.text == ""
+
+
+def test_a_caller_budget_does_not_stop_languages_the_scripts_settle():
+    han = "本合同由双方根据平等自愿的原则订立，双方应当严格履行合同约定的各项义务。" * 4
+    text, bounds = build(han, han)
+    detector, calls = _counting(fake_detector)
+
+    segments = segment_languages(
+        text, bounds, dominant_language="tr", detect_candidates=detector, max_detector_calls=0
+    )
+
+    assert calls == []
+    assert segments == (Segment(0, len(text), "zh"),)
+
+
+def test_a_negative_caller_budget_is_refused():
+    with pytest.raises(ValueError):
+        segment_languages(
+            EN, [], dominant_language="en", detect_candidates=fake_detector, max_detector_calls=-1
+        )
