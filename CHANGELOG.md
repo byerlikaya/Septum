@@ -24,6 +24,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ### 2026-11-13
 
+- The document suggestions in chat no longer list documents that are still processing or have failed, only documents chat can actually retrieve from.
 - A document whose rebuild fails no longer keeps the entity index and document links of its previous version, so it can no longer be routed to in chat or linked to newly added documents; the index is dropped when a rebuild starts and rebuilt when it succeeds, and existing failed documents are cleaned once at startup.
 - Masking a text against a large set of known values no longer slows down when many values share a long beginning: the lookup is now organised by common prefix and finds exactly the same matches, a few thousand times faster on the worst shape measured. Values nested inside one another more than 100 levels deep, a shape no measured document comes near (the deepest nests 8 levels), are refused instead, at upload and in chat with a message, so no unmasked text is sent; a map stored that deep only leaves its own section titles out of chunk listings.
 - Text that reaches the cloud model after an edit in the approval step, or on a retry, is now masked against everything the edit revealed. Before, a value found only in one edited chunk could stay raw in another chunk, a second mention of it in the same chunk, the question, a column description or a custom ruleset name, and the approval preview could differ from what was sent. Existing stored documents are not affected.

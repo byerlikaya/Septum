@@ -1604,11 +1604,14 @@ async def chat_analyze_query(
         owner_id=None if user.role == "admin" else user.id,
     )
     if scores:
-        # Same scope as auto-RAG in ``/ask``: the picker must never list a
-        # document the chat turn would then refuse to retrieve from.
+        # Same scope as auto-RAG in ``/ask`` (owner and completed status): the
+        # picker must never list a document the chat turn would then refuse to
+        # retrieve from.
         visible = await db.execute(
             select(Document.id).where(
-                Document.id.in_(list(scores)), _auto_rag_owner_filter(user)
+                Document.id.in_(list(scores)),
+                _auto_rag_owner_filter(user),
+                Document.ingestion_status == "completed",
             )
         )
         visible_ids = set(visible.scalars().all())
