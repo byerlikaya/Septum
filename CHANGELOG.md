@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-11-13
+
+- Chat now re-masks the chunks of outdated documents per language segment as ingestion does, so a passage in a minority language no longer gets only the document language's models. The language-detection work of one chat turn is capped across all its documents; once spent, the remaining chunks are masked in the document language and not cached. A language override still disables segmentation.
+
 ### 2026-11-12
 
 - The detection engine can now mask a mixed-language document per language segment instead of with one document language, running each minority segment through its own models as well as the dominant ones. Uploaded documents are now masked this way, while the dominant language's models still read the whole text, so nothing single-language masking finds is lost. On synthetic mixed documents, the leak rate of Chinese values in documents masked under another language fell from 0.358 to 0.046. Existing documents show as needing reprocessing.
