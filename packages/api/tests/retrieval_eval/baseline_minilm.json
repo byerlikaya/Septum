@@ -526,6 +526,1995 @@
       "values": 28800
     }
   },
+  "mixed_leak": {
+    "by_detection_match": {
+      "matched": {
+        "arms": {
+          "control": {
+            "fragment": {
+              "leaks": 477,
+              "n": 5082,
+              "rate": 0.09386068476977567
+            },
+            "literal": {
+              "leaks": 480,
+              "n": 5082,
+              "rate": 0.09445100354191263
+            }
+          },
+          "crossing": {
+            "fragment": {
+              "leaks": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "difference": {
+            "fragment": {
+              "rate": -0.09386068476977567
+            },
+            "literal": {
+              "rate": -0.09445100354191263
+            }
+          }
+        },
+        "by_type": {
+          "EMAIL_ADDRESS": {
+            "fragment": {
+              "leaks": 0,
+              "n": 786,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 786,
+              "rate": 0.0
+            }
+          },
+          "IBAN": {
+            "fragment": {
+              "leaks": 0,
+              "n": 916,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 916,
+              "rate": 0.0
+            }
+          },
+          "LOCATION": {
+            "fragment": {
+              "leaks": 301,
+              "n": 856,
+              "rate": 0.3516355140186916
+            },
+            "literal": {
+              "leaks": 309,
+              "n": 856,
+              "rate": 0.36098130841121495
+            }
+          },
+          "ORGANIZATION_NAME": {
+            "fragment": {
+              "leaks": 36,
+              "n": 842,
+              "rate": 0.04275534441805225
+            },
+            "literal": {
+              "leaks": 32,
+              "n": 842,
+              "rate": 0.03800475059382423
+            }
+          },
+          "PERSON_NAME": {
+            "fragment": {
+              "leaks": 140,
+              "n": 890,
+              "rate": 0.15730337078651685
+            },
+            "literal": {
+              "leaks": 139,
+              "n": 890,
+              "rate": 0.15617977528089888
+            }
+          },
+          "PHONE_NUMBER": {
+            "fragment": {
+              "leaks": 0,
+              "n": 797,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 797,
+              "rate": 0.0
+            }
+          }
+        },
+        "fragment": {
+          "leaks": 477,
+          "n": 5087,
+          "rate": 0.09376842932966385
+        },
+        "literal": {
+          "leaks": 480,
+          "n": 5087,
+          "rate": 0.09435816787890702
+        },
+        "values": 5087
+      },
+      "mismatched": {
+        "arms": {
+          "control": {
+            "fragment": {
+              "leaks": 143,
+              "n": 3308,
+              "rate": 0.04322853688029021
+            },
+            "literal": {
+              "leaks": 140,
+              "n": 3308,
+              "rate": 0.04232164449818621
+            }
+          },
+          "crossing": {
+            "fragment": {
+              "leaks": 0,
+              "n": 5,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 5,
+              "rate": 0.0
+            }
+          },
+          "difference": {
+            "fragment": {
+              "rate": -0.04322853688029021
+            },
+            "literal": {
+              "rate": -0.04232164449818621
+            }
+          }
+        },
+        "by_type": {
+          "EMAIL_ADDRESS": {
+            "fragment": {
+              "leaks": 0,
+              "n": 594,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 594,
+              "rate": 0.0
+            }
+          },
+          "IBAN": {
+            "fragment": {
+              "leaks": 0,
+              "n": 545,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 545,
+              "rate": 0.0
+            }
+          },
+          "LOCATION": {
+            "fragment": {
+              "leaks": 74,
+              "n": 554,
+              "rate": 0.13357400722021662
+            },
+            "literal": {
+              "leaks": 74,
+              "n": 554,
+              "rate": 0.13357400722021662
+            }
+          },
+          "ORGANIZATION_NAME": {
+            "fragment": {
+              "leaks": 16,
+              "n": 538,
+              "rate": 0.02973977695167286
+            },
+            "literal": {
+              "leaks": 15,
+              "n": 538,
+              "rate": 0.027881040892193308
+            }
+          },
+          "PERSON_NAME": {
+            "fragment": {
+              "leaks": 53,
+              "n": 538,
+              "rate": 0.09851301115241635
+            },
+            "literal": {
+              "leaks": 51,
+              "n": 538,
+              "rate": 0.09479553903345725
+            }
+          },
+          "PHONE_NUMBER": {
+            "fragment": {
+              "leaks": 0,
+              "n": 544,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 544,
+              "rate": 0.0
+            }
+          }
+        },
+        "fragment": {
+          "leaks": 143,
+          "n": 3313,
+          "rate": 0.04316329610624811
+        },
+        "literal": {
+          "leaks": 140,
+          "n": 3313,
+          "rate": 0.04225777241171144
+        },
+        "values": 3313
+      }
+    },
+    "by_segment_lang": {
+      "en": {
+        "arms": {
+          "control": {
+            "fragment": {
+              "leaks": 279,
+              "n": 4382,
+              "rate": 0.06366955727978092
+            },
+            "literal": {
+              "leaks": 272,
+              "n": 4382,
+              "rate": 0.06207211319032405
+            }
+          },
+          "crossing": {
+            "fragment": {
+              "leaks": 0,
+              "n": 9,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 9,
+              "rate": 0.0
+            }
+          },
+          "difference": {
+            "fragment": {
+              "rate": -0.06366955727978092
+            },
+            "literal": {
+              "rate": -0.06207211319032405
+            }
+          }
+        },
+        "by_type": {
+          "EMAIL_ADDRESS": {
+            "fragment": {
+              "leaks": 0,
+              "n": 744,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 744,
+              "rate": 0.0
+            }
+          },
+          "IBAN": {
+            "fragment": {
+              "leaks": 0,
+              "n": 728,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 728,
+              "rate": 0.0
+            }
+          },
+          "LOCATION": {
+            "fragment": {
+              "leaks": 165,
+              "n": 759,
+              "rate": 0.21739130434782608
+            },
+            "literal": {
+              "leaks": 165,
+              "n": 759,
+              "rate": 0.21739130434782608
+            }
+          },
+          "ORGANIZATION_NAME": {
+            "fragment": {
+              "leaks": 50,
+              "n": 732,
+              "rate": 0.06830601092896176
+            },
+            "literal": {
+              "leaks": 45,
+              "n": 732,
+              "rate": 0.06147540983606557
+            }
+          },
+          "PERSON_NAME": {
+            "fragment": {
+              "leaks": 64,
+              "n": 716,
+              "rate": 0.0893854748603352
+            },
+            "literal": {
+              "leaks": 62,
+              "n": 716,
+              "rate": 0.08659217877094973
+            }
+          },
+          "PHONE_NUMBER": {
+            "fragment": {
+              "leaks": 0,
+              "n": 712,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 712,
+              "rate": 0.0
+            }
+          }
+        },
+        "fragment": {
+          "leaks": 279,
+          "n": 4391,
+          "rate": 0.0635390571623776
+        },
+        "literal": {
+          "leaks": 272,
+          "n": 4391,
+          "rate": 0.06194488726941471
+        },
+        "values": 4391
+      },
+      "tr": {
+        "arms": {
+          "control": {
+            "fragment": {
+              "leaks": 213,
+              "n": 1898,
+              "rate": 0.11222339304531086
+            },
+            "literal": {
+              "leaks": 220,
+              "n": 1898,
+              "rate": 0.11591148577449947
+            }
+          },
+          "crossing": {
+            "fragment": {
+              "leaks": 0,
+              "n": 1,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 1,
+              "rate": 0.0
+            }
+          },
+          "difference": {
+            "fragment": {
+              "rate": -0.11222339304531086
+            },
+            "literal": {
+              "rate": -0.11591148577449947
+            }
+          }
+        },
+        "by_type": {
+          "EMAIL_ADDRESS": {
+            "fragment": {
+              "leaks": 0,
+              "n": 320,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 320,
+              "rate": 0.0
+            }
+          },
+          "IBAN": {
+            "fragment": {
+              "leaks": 0,
+              "n": 364,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 364,
+              "rate": 0.0
+            }
+          },
+          "LOCATION": {
+            "fragment": {
+              "leaks": 196,
+              "n": 293,
+              "rate": 0.6689419795221843
+            },
+            "literal": {
+              "leaks": 204,
+              "n": 293,
+              "rate": 0.6962457337883959
+            }
+          },
+          "ORGANIZATION_NAME": {
+            "fragment": {
+              "leaks": 2,
+              "n": 312,
+              "rate": 0.00641025641025641
+            },
+            "literal": {
+              "leaks": 2,
+              "n": 312,
+              "rate": 0.00641025641025641
+            }
+          },
+          "PERSON_NAME": {
+            "fragment": {
+              "leaks": 15,
+              "n": 328,
+              "rate": 0.04573170731707317
+            },
+            "literal": {
+              "leaks": 14,
+              "n": 328,
+              "rate": 0.042682926829268296
+            }
+          },
+          "PHONE_NUMBER": {
+            "fragment": {
+              "leaks": 0,
+              "n": 282,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 282,
+              "rate": 0.0
+            }
+          }
+        },
+        "fragment": {
+          "leaks": 213,
+          "n": 1899,
+          "rate": 0.11216429699842022
+        },
+        "literal": {
+          "leaks": 220,
+          "n": 1899,
+          "rate": 0.11585044760400211
+        },
+        "values": 1899
+      },
+      "zh": {
+        "arms": {
+          "control": {
+            "fragment": {
+              "leaks": 128,
+              "n": 2110,
+              "rate": 0.06066350710900474
+            },
+            "literal": {
+              "leaks": 128,
+              "n": 2110,
+              "rate": 0.06066350710900474
+            }
+          },
+          "crossing": {
+            "fragment": {
+              "leaks": 0,
+              "n": 0,
+              "rate": null
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 0,
+              "rate": null
+            }
+          },
+          "difference": {
+            "fragment": {
+              "rate": null
+            },
+            "literal": {
+              "rate": null
+            }
+          }
+        },
+        "by_type": {
+          "EMAIL_ADDRESS": {
+            "fragment": {
+              "leaks": 0,
+              "n": 316,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 316,
+              "rate": 0.0
+            }
+          },
+          "IBAN": {
+            "fragment": {
+              "leaks": 0,
+              "n": 369,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 369,
+              "rate": 0.0
+            }
+          },
+          "LOCATION": {
+            "fragment": {
+              "leaks": 14,
+              "n": 358,
+              "rate": 0.03910614525139665
+            },
+            "literal": {
+              "leaks": 14,
+              "n": 358,
+              "rate": 0.03910614525139665
+            }
+          },
+          "ORGANIZATION_NAME": {
+            "fragment": {
+              "leaks": 0,
+              "n": 336,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 336,
+              "rate": 0.0
+            }
+          },
+          "PERSON_NAME": {
+            "fragment": {
+              "leaks": 114,
+              "n": 384,
+              "rate": 0.296875
+            },
+            "literal": {
+              "leaks": 114,
+              "n": 384,
+              "rate": 0.296875
+            }
+          },
+          "PHONE_NUMBER": {
+            "fragment": {
+              "leaks": 0,
+              "n": 347,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 347,
+              "rate": 0.0
+            }
+          }
+        },
+        "fragment": {
+          "leaks": 128,
+          "n": 2110,
+          "rate": 0.06066350710900474
+        },
+        "literal": {
+          "leaks": 128,
+          "n": 2110,
+          "rate": 0.06066350710900474
+        },
+        "values": 2110
+      }
+    },
+    "by_segment_lang_match": {
+      "en": {
+        "matched": {
+          "arms": {
+            "control": {
+              "fragment": {
+                "leaks": 170,
+                "n": 1819,
+                "rate": 0.09345794392523364
+              },
+              "literal": {
+                "leaks": 166,
+                "n": 1819,
+                "rate": 0.09125893347993402
+              }
+            },
+            "crossing": {
+              "fragment": {
+                "leaks": 0,
+                "n": 4,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 4,
+                "rate": 0.0
+              }
+            },
+            "difference": {
+              "fragment": {
+                "rate": -0.09345794392523364
+              },
+              "literal": {
+                "rate": -0.09125893347993402
+              }
+            }
+          },
+          "by_type": {
+            "EMAIL_ADDRESS": {
+              "fragment": {
+                "leaks": 0,
+                "n": 271,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 271,
+                "rate": 0.0
+              }
+            },
+            "IBAN": {
+              "fragment": {
+                "leaks": 0,
+                "n": 324,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 324,
+                "rate": 0.0
+              }
+            },
+            "LOCATION": {
+              "fragment": {
+                "leaks": 95,
+                "n": 324,
+                "rate": 0.2932098765432099
+              },
+              "literal": {
+                "leaks": 95,
+                "n": 324,
+                "rate": 0.2932098765432099
+              }
+            },
+            "ORGANIZATION_NAME": {
+              "fragment": {
+                "leaks": 34,
+                "n": 315,
+                "rate": 0.10793650793650794
+              },
+              "literal": {
+                "leaks": 30,
+                "n": 315,
+                "rate": 0.09523809523809523
+              }
+            },
+            "PERSON_NAME": {
+              "fragment": {
+                "leaks": 41,
+                "n": 306,
+                "rate": 0.13398692810457516
+              },
+              "literal": {
+                "leaks": 41,
+                "n": 306,
+                "rate": 0.13398692810457516
+              }
+            },
+            "PHONE_NUMBER": {
+              "fragment": {
+                "leaks": 0,
+                "n": 283,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 283,
+                "rate": 0.0
+              }
+            }
+          },
+          "fragment": {
+            "leaks": 170,
+            "n": 1823,
+            "rate": 0.09325287986834888
+          },
+          "literal": {
+            "leaks": 166,
+            "n": 1823,
+            "rate": 0.09105869445968184
+          },
+          "values": 1823
+        },
+        "mismatched": {
+          "arms": {
+            "control": {
+              "fragment": {
+                "leaks": 109,
+                "n": 2563,
+                "rate": 0.0425282871634803
+              },
+              "literal": {
+                "leaks": 106,
+                "n": 2563,
+                "rate": 0.041357783847054234
+              }
+            },
+            "crossing": {
+              "fragment": {
+                "leaks": 0,
+                "n": 5,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 5,
+                "rate": 0.0
+              }
+            },
+            "difference": {
+              "fragment": {
+                "rate": -0.0425282871634803
+              },
+              "literal": {
+                "rate": -0.041357783847054234
+              }
+            }
+          },
+          "by_type": {
+            "EMAIL_ADDRESS": {
+              "fragment": {
+                "leaks": 0,
+                "n": 473,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 473,
+                "rate": 0.0
+              }
+            },
+            "IBAN": {
+              "fragment": {
+                "leaks": 0,
+                "n": 404,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 404,
+                "rate": 0.0
+              }
+            },
+            "LOCATION": {
+              "fragment": {
+                "leaks": 70,
+                "n": 435,
+                "rate": 0.16091954022988506
+              },
+              "literal": {
+                "leaks": 70,
+                "n": 435,
+                "rate": 0.16091954022988506
+              }
+            },
+            "ORGANIZATION_NAME": {
+              "fragment": {
+                "leaks": 16,
+                "n": 417,
+                "rate": 0.03836930455635491
+              },
+              "literal": {
+                "leaks": 15,
+                "n": 417,
+                "rate": 0.03597122302158273
+              }
+            },
+            "PERSON_NAME": {
+              "fragment": {
+                "leaks": 23,
+                "n": 410,
+                "rate": 0.05609756097560976
+              },
+              "literal": {
+                "leaks": 21,
+                "n": 410,
+                "rate": 0.05121951219512195
+              }
+            },
+            "PHONE_NUMBER": {
+              "fragment": {
+                "leaks": 0,
+                "n": 429,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 429,
+                "rate": 0.0
+              }
+            }
+          },
+          "fragment": {
+            "leaks": 109,
+            "n": 2568,
+            "rate": 0.04244548286604361
+          },
+          "literal": {
+            "leaks": 106,
+            "n": 2568,
+            "rate": 0.04127725856697819
+          },
+          "values": 2568
+        }
+      },
+      "tr": {
+        "matched": {
+          "arms": {
+            "control": {
+              "fragment": {
+                "leaks": 213,
+                "n": 1898,
+                "rate": 0.11222339304531086
+              },
+              "literal": {
+                "leaks": 220,
+                "n": 1898,
+                "rate": 0.11591148577449947
+              }
+            },
+            "crossing": {
+              "fragment": {
+                "leaks": 0,
+                "n": 1,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 1,
+                "rate": 0.0
+              }
+            },
+            "difference": {
+              "fragment": {
+                "rate": -0.11222339304531086
+              },
+              "literal": {
+                "rate": -0.11591148577449947
+              }
+            }
+          },
+          "by_type": {
+            "EMAIL_ADDRESS": {
+              "fragment": {
+                "leaks": 0,
+                "n": 320,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 320,
+                "rate": 0.0
+              }
+            },
+            "IBAN": {
+              "fragment": {
+                "leaks": 0,
+                "n": 364,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 364,
+                "rate": 0.0
+              }
+            },
+            "LOCATION": {
+              "fragment": {
+                "leaks": 196,
+                "n": 293,
+                "rate": 0.6689419795221843
+              },
+              "literal": {
+                "leaks": 204,
+                "n": 293,
+                "rate": 0.6962457337883959
+              }
+            },
+            "ORGANIZATION_NAME": {
+              "fragment": {
+                "leaks": 2,
+                "n": 312,
+                "rate": 0.00641025641025641
+              },
+              "literal": {
+                "leaks": 2,
+                "n": 312,
+                "rate": 0.00641025641025641
+              }
+            },
+            "PERSON_NAME": {
+              "fragment": {
+                "leaks": 15,
+                "n": 328,
+                "rate": 0.04573170731707317
+              },
+              "literal": {
+                "leaks": 14,
+                "n": 328,
+                "rate": 0.042682926829268296
+              }
+            },
+            "PHONE_NUMBER": {
+              "fragment": {
+                "leaks": 0,
+                "n": 282,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 282,
+                "rate": 0.0
+              }
+            }
+          },
+          "fragment": {
+            "leaks": 213,
+            "n": 1899,
+            "rate": 0.11216429699842022
+          },
+          "literal": {
+            "leaks": 220,
+            "n": 1899,
+            "rate": 0.11585044760400211
+          },
+          "values": 1899
+        },
+        "mismatched": {
+          "arms": {
+            "control": {
+              "fragment": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              }
+            },
+            "crossing": {
+              "fragment": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              }
+            },
+            "difference": {
+              "fragment": {
+                "rate": null
+              },
+              "literal": {
+                "rate": null
+              }
+            }
+          },
+          "by_type": {
+            "EMAIL_ADDRESS": {
+              "fragment": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              }
+            },
+            "IBAN": {
+              "fragment": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              }
+            },
+            "LOCATION": {
+              "fragment": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              }
+            },
+            "ORGANIZATION_NAME": {
+              "fragment": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              }
+            },
+            "PERSON_NAME": {
+              "fragment": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              }
+            },
+            "PHONE_NUMBER": {
+              "fragment": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              }
+            }
+          },
+          "fragment": {
+            "leaks": 0,
+            "n": 0,
+            "rate": null
+          },
+          "literal": {
+            "leaks": 0,
+            "n": 0,
+            "rate": null
+          },
+          "values": 0
+        }
+      },
+      "zh": {
+        "matched": {
+          "arms": {
+            "control": {
+              "fragment": {
+                "leaks": 94,
+                "n": 1365,
+                "rate": 0.06886446886446887
+              },
+              "literal": {
+                "leaks": 94,
+                "n": 1365,
+                "rate": 0.06886446886446887
+              }
+            },
+            "crossing": {
+              "fragment": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              }
+            },
+            "difference": {
+              "fragment": {
+                "rate": null
+              },
+              "literal": {
+                "rate": null
+              }
+            }
+          },
+          "by_type": {
+            "EMAIL_ADDRESS": {
+              "fragment": {
+                "leaks": 0,
+                "n": 195,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 195,
+                "rate": 0.0
+              }
+            },
+            "IBAN": {
+              "fragment": {
+                "leaks": 0,
+                "n": 228,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 228,
+                "rate": 0.0
+              }
+            },
+            "LOCATION": {
+              "fragment": {
+                "leaks": 10,
+                "n": 239,
+                "rate": 0.04184100418410042
+              },
+              "literal": {
+                "leaks": 10,
+                "n": 239,
+                "rate": 0.04184100418410042
+              }
+            },
+            "ORGANIZATION_NAME": {
+              "fragment": {
+                "leaks": 0,
+                "n": 215,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 215,
+                "rate": 0.0
+              }
+            },
+            "PERSON_NAME": {
+              "fragment": {
+                "leaks": 84,
+                "n": 256,
+                "rate": 0.328125
+              },
+              "literal": {
+                "leaks": 84,
+                "n": 256,
+                "rate": 0.328125
+              }
+            },
+            "PHONE_NUMBER": {
+              "fragment": {
+                "leaks": 0,
+                "n": 232,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 232,
+                "rate": 0.0
+              }
+            }
+          },
+          "fragment": {
+            "leaks": 94,
+            "n": 1365,
+            "rate": 0.06886446886446887
+          },
+          "literal": {
+            "leaks": 94,
+            "n": 1365,
+            "rate": 0.06886446886446887
+          },
+          "values": 1365
+        },
+        "mismatched": {
+          "arms": {
+            "control": {
+              "fragment": {
+                "leaks": 34,
+                "n": 745,
+                "rate": 0.04563758389261745
+              },
+              "literal": {
+                "leaks": 34,
+                "n": 745,
+                "rate": 0.04563758389261745
+              }
+            },
+            "crossing": {
+              "fragment": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 0,
+                "rate": null
+              }
+            },
+            "difference": {
+              "fragment": {
+                "rate": null
+              },
+              "literal": {
+                "rate": null
+              }
+            }
+          },
+          "by_type": {
+            "EMAIL_ADDRESS": {
+              "fragment": {
+                "leaks": 0,
+                "n": 121,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 121,
+                "rate": 0.0
+              }
+            },
+            "IBAN": {
+              "fragment": {
+                "leaks": 0,
+                "n": 141,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 141,
+                "rate": 0.0
+              }
+            },
+            "LOCATION": {
+              "fragment": {
+                "leaks": 4,
+                "n": 119,
+                "rate": 0.03361344537815126
+              },
+              "literal": {
+                "leaks": 4,
+                "n": 119,
+                "rate": 0.03361344537815126
+              }
+            },
+            "ORGANIZATION_NAME": {
+              "fragment": {
+                "leaks": 0,
+                "n": 121,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 121,
+                "rate": 0.0
+              }
+            },
+            "PERSON_NAME": {
+              "fragment": {
+                "leaks": 30,
+                "n": 128,
+                "rate": 0.234375
+              },
+              "literal": {
+                "leaks": 30,
+                "n": 128,
+                "rate": 0.234375
+              }
+            },
+            "PHONE_NUMBER": {
+              "fragment": {
+                "leaks": 0,
+                "n": 115,
+                "rate": 0.0
+              },
+              "literal": {
+                "leaks": 0,
+                "n": 115,
+                "rate": 0.0
+              }
+            }
+          },
+          "fragment": {
+            "leaks": 34,
+            "n": 745,
+            "rate": 0.04563758389261745
+          },
+          "literal": {
+            "leaks": 34,
+            "n": 745,
+            "rate": 0.04563758389261745
+          },
+          "values": 745
+        }
+      }
+    },
+    "chunks": 2522,
+    "digest": "5b0fbfc7b00b7b43a82f2583ebe83a72fbb76878d1925901edc36b30ca7712b2",
+    "documents": {
+      "mx_01": {
+        "detected_lang": [
+          "tr"
+        ],
+        "layout": "annex",
+        "leak_by_segment_lang": {
+          "en": {
+            "fragment": {
+              "leaks": 22,
+              "n": 565,
+              "rate": 0.03893805309734513
+            },
+            "literal": {
+              "leaks": 22,
+              "n": 565,
+              "rate": 0.03893805309734513
+            }
+          },
+          "tr": {
+            "fragment": {
+              "leaks": 100,
+              "n": 635,
+              "rate": 0.15748031496062992
+            },
+            "literal": {
+              "leaks": 103,
+              "n": 635,
+              "rate": 0.16220472440944883
+            }
+          }
+        },
+        "main_lang": "tr",
+        "values_by_segment_lang": {
+          "en": 565,
+          "tr": 635
+        }
+      },
+      "mx_02": {
+        "detected_lang": [
+          "tr"
+        ],
+        "layout": "annex",
+        "leak_by_segment_lang": {
+          "en": {
+            "fragment": {
+              "leaks": 16,
+              "n": 451,
+              "rate": 0.03547671840354767
+            },
+            "literal": {
+              "leaks": 15,
+              "n": 451,
+              "rate": 0.03325942350332594
+            }
+          },
+          "tr": {
+            "fragment": {
+              "leaks": 68,
+              "n": 749,
+              "rate": 0.09078771695594126
+            },
+            "literal": {
+              "leaks": 71,
+              "n": 749,
+              "rate": 0.09479305740987984
+            }
+          }
+        },
+        "main_lang": "tr",
+        "values_by_segment_lang": {
+          "en": 451,
+          "tr": 749
+        }
+      },
+      "mx_03": {
+        "detected_lang": [
+          "en"
+        ],
+        "layout": "section",
+        "leak_by_segment_lang": {
+          "en": {
+            "fragment": {
+              "leaks": 77,
+              "n": 942,
+              "rate": 0.08174097664543524
+            },
+            "literal": {
+              "leaks": 76,
+              "n": 942,
+              "rate": 0.08067940552016985
+            }
+          },
+          "zh": {
+            "fragment": {
+              "leaks": 6,
+              "n": 258,
+              "rate": 0.023255813953488372
+            },
+            "literal": {
+              "leaks": 6,
+              "n": 258,
+              "rate": 0.023255813953488372
+            }
+          }
+        },
+        "main_lang": "en",
+        "values_by_segment_lang": {
+          "en": 942,
+          "zh": 258
+        }
+      },
+      "mx_04": {
+        "detected_lang": [
+          "en"
+        ],
+        "layout": "section",
+        "leak_by_segment_lang": {
+          "en": {
+            "fragment": {
+              "leaks": 93,
+              "n": 881,
+              "rate": 0.10556186152099886
+            },
+            "literal": {
+              "leaks": 90,
+              "n": 881,
+              "rate": 0.1021566401816118
+            }
+          },
+          "zh": {
+            "fragment": {
+              "leaks": 20,
+              "n": 319,
+              "rate": 0.06269592476489028
+            },
+            "literal": {
+              "leaks": 20,
+              "n": 319,
+              "rate": 0.06269592476489028
+            }
+          }
+        },
+        "main_lang": "en",
+        "values_by_segment_lang": {
+          "en": 881,
+          "zh": 319
+        }
+      },
+      "mx_05": {
+        "detected_lang": [
+          "zh"
+        ],
+        "layout": "section",
+        "leak_by_segment_lang": {
+          "en": {
+            "fragment": {
+              "leaks": 23,
+              "n": 486,
+              "rate": 0.047325102880658436
+            },
+            "literal": {
+              "leaks": 23,
+              "n": 486,
+              "rate": 0.047325102880658436
+            }
+          },
+          "zh": {
+            "fragment": {
+              "leaks": 32,
+              "n": 714,
+              "rate": 0.04481792717086835
+            },
+            "literal": {
+              "leaks": 32,
+              "n": 714,
+              "rate": 0.04481792717086835
+            }
+          }
+        },
+        "main_lang": "zh",
+        "values_by_segment_lang": {
+          "en": 486,
+          "zh": 714
+        }
+      },
+      "mx_06": {
+        "detected_lang": [
+          "zh"
+        ],
+        "layout": "section",
+        "leak_by_segment_lang": {
+          "en": {
+            "fragment": {
+              "leaks": 27,
+              "n": 549,
+              "rate": 0.04918032786885246
+            },
+            "literal": {
+              "leaks": 27,
+              "n": 549,
+              "rate": 0.04918032786885246
+            }
+          },
+          "zh": {
+            "fragment": {
+              "leaks": 62,
+              "n": 651,
+              "rate": 0.09523809523809523
+            },
+            "literal": {
+              "leaks": 62,
+              "n": 651,
+              "rate": 0.09523809523809523
+            }
+          }
+        },
+        "main_lang": "zh",
+        "values_by_segment_lang": {
+          "en": 549,
+          "zh": 651
+        }
+      },
+      "mx_07": {
+        "detected_lang": [
+          "tr"
+        ],
+        "layout": "interleaved",
+        "leak_by_segment_lang": {
+          "en": {
+            "fragment": {
+              "leaks": 21,
+              "n": 517,
+              "rate": 0.04061895551257253
+            },
+            "literal": {
+              "leaks": 19,
+              "n": 517,
+              "rate": 0.0367504835589942
+            }
+          },
+          "tr": {
+            "fragment": {
+              "leaks": 45,
+              "n": 515,
+              "rate": 0.08737864077669903
+            },
+            "literal": {
+              "leaks": 46,
+              "n": 515,
+              "rate": 0.08932038834951456
+            }
+          },
+          "zh": {
+            "fragment": {
+              "leaks": 8,
+              "n": 168,
+              "rate": 0.047619047619047616
+            },
+            "literal": {
+              "leaks": 8,
+              "n": 168,
+              "rate": 0.047619047619047616
+            }
+          }
+        },
+        "main_lang": "en",
+        "values_by_segment_lang": {
+          "en": 517,
+          "tr": 515,
+          "zh": 168
+        }
+      }
+    },
+    "invariant_violations": 0,
+    "single_language_reference": {
+      "en": {
+        "arms": {
+          "control": {
+            "fragment": {
+              "leaks": 197,
+              "n": 1199,
+              "rate": 0.16430358632193495
+            },
+            "literal": {
+              "leaks": 194,
+              "n": 1199,
+              "rate": 0.16180150125104253
+            }
+          },
+          "crossing": {
+            "fragment": {
+              "leaks": 0,
+              "n": 1,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 1,
+              "rate": 0.0
+            }
+          },
+          "difference": {
+            "fragment": {
+              "rate": -0.16430358632193495
+            },
+            "literal": {
+              "rate": -0.16180150125104253
+            }
+          }
+        },
+        "by_type": {
+          "EMAIL_ADDRESS": {
+            "fragment": {
+              "leaks": 0,
+              "n": 209,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 209,
+              "rate": 0.0
+            }
+          },
+          "IBAN": {
+            "fragment": {
+              "leaks": 0,
+              "n": 203,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 203,
+              "rate": 0.0
+            }
+          },
+          "LOCATION": {
+            "fragment": {
+              "leaks": 126,
+              "n": 188,
+              "rate": 0.6702127659574468
+            },
+            "literal": {
+              "leaks": 125,
+              "n": 188,
+              "rate": 0.6648936170212766
+            }
+          },
+          "ORGANIZATION_NAME": {
+            "fragment": {
+              "leaks": 11,
+              "n": 209,
+              "rate": 0.05263157894736842
+            },
+            "literal": {
+              "leaks": 9,
+              "n": 209,
+              "rate": 0.0430622009569378
+            }
+          },
+          "PERSON_NAME": {
+            "fragment": {
+              "leaks": 60,
+              "n": 200,
+              "rate": 0.3
+            },
+            "literal": {
+              "leaks": 60,
+              "n": 200,
+              "rate": 0.3
+            }
+          },
+          "PHONE_NUMBER": {
+            "fragment": {
+              "leaks": 0,
+              "n": 191,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 191,
+              "rate": 0.0
+            }
+          }
+        },
+        "fragment": {
+          "leaks": 197,
+          "n": 1200,
+          "rate": 0.16416666666666666
+        },
+        "literal": {
+          "leaks": 194,
+          "n": 1200,
+          "rate": 0.16166666666666665
+        },
+        "values": 1200
+      },
+      "tr": {
+        "arms": {
+          "control": {
+            "fragment": {
+              "leaks": 139,
+              "n": 1198,
+              "rate": 0.11602671118530884
+            },
+            "literal": {
+              "leaks": 140,
+              "n": 1198,
+              "rate": 0.11686143572621036
+            }
+          },
+          "crossing": {
+            "fragment": {
+              "leaks": 0,
+              "n": 2,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 2,
+              "rate": 0.0
+            }
+          },
+          "difference": {
+            "fragment": {
+              "rate": -0.11602671118530884
+            },
+            "literal": {
+              "rate": -0.11686143572621036
+            }
+          }
+        },
+        "by_type": {
+          "EMAIL_ADDRESS": {
+            "fragment": {
+              "leaks": 0,
+              "n": 174,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 174,
+              "rate": 0.0
+            }
+          },
+          "IBAN": {
+            "fragment": {
+              "leaks": 0,
+              "n": 218,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 218,
+              "rate": 0.0
+            }
+          },
+          "LOCATION": {
+            "fragment": {
+              "leaks": 120,
+              "n": 189,
+              "rate": 0.6349206349206349
+            },
+            "literal": {
+              "leaks": 126,
+              "n": 189,
+              "rate": 0.6666666666666666
+            }
+          },
+          "ORGANIZATION_NAME": {
+            "fragment": {
+              "leaks": 12,
+              "n": 210,
+              "rate": 0.05714285714285714
+            },
+            "literal": {
+              "leaks": 7,
+              "n": 210,
+              "rate": 0.03333333333333333
+            }
+          },
+          "PERSON_NAME": {
+            "fragment": {
+              "leaks": 7,
+              "n": 195,
+              "rate": 0.035897435897435895
+            },
+            "literal": {
+              "leaks": 7,
+              "n": 195,
+              "rate": 0.035897435897435895
+            }
+          },
+          "PHONE_NUMBER": {
+            "fragment": {
+              "leaks": 0,
+              "n": 214,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 214,
+              "rate": 0.0
+            }
+          }
+        },
+        "fragment": {
+          "leaks": 139,
+          "n": 1200,
+          "rate": 0.11583333333333333
+        },
+        "literal": {
+          "leaks": 140,
+          "n": 1200,
+          "rate": 0.11666666666666667
+        },
+        "values": 1200
+      },
+      "zh": {
+        "arms": {
+          "control": {
+            "fragment": {
+              "leaks": 62,
+              "n": 1200,
+              "rate": 0.051666666666666666
+            },
+            "literal": {
+              "leaks": 62,
+              "n": 1200,
+              "rate": 0.051666666666666666
+            }
+          },
+          "crossing": {
+            "fragment": {
+              "leaks": 0,
+              "n": 0,
+              "rate": null
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 0,
+              "rate": null
+            }
+          },
+          "difference": {
+            "fragment": {
+              "rate": null
+            },
+            "literal": {
+              "rate": null
+            }
+          }
+        },
+        "by_type": {
+          "EMAIL_ADDRESS": {
+            "fragment": {
+              "leaks": 0,
+              "n": 214,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 214,
+              "rate": 0.0
+            }
+          },
+          "IBAN": {
+            "fragment": {
+              "leaks": 0,
+              "n": 202,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 202,
+              "rate": 0.0
+            }
+          },
+          "LOCATION": {
+            "fragment": {
+              "leaks": 11,
+              "n": 209,
+              "rate": 0.05263157894736842
+            },
+            "literal": {
+              "leaks": 11,
+              "n": 209,
+              "rate": 0.05263157894736842
+            }
+          },
+          "ORGANIZATION_NAME": {
+            "fragment": {
+              "leaks": 0,
+              "n": 185,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 185,
+              "rate": 0.0
+            }
+          },
+          "PERSON_NAME": {
+            "fragment": {
+              "leaks": 51,
+              "n": 194,
+              "rate": 0.26288659793814434
+            },
+            "literal": {
+              "leaks": 51,
+              "n": 194,
+              "rate": 0.26288659793814434
+            }
+          },
+          "PHONE_NUMBER": {
+            "fragment": {
+              "leaks": 0,
+              "n": 196,
+              "rate": 0.0
+            },
+            "literal": {
+              "leaks": 0,
+              "n": 196,
+              "rate": 0.0
+            }
+          }
+        },
+        "fragment": {
+          "leaks": 62,
+          "n": 1200,
+          "rate": 0.051666666666666666
+        },
+        "literal": {
+          "leaks": 62,
+          "n": 1200,
+          "rate": 0.051666666666666666
+        },
+        "values": 1200
+      }
+    },
+    "unknown": 0,
+    "values": 8400
+  },
   "results": {
     "auto_rag": {
       "raw": {
@@ -2623,44 +4612,46 @@
   "run": {
     "cpu_cores": 14,
     "cpu_model": "Apple M4 Max",
-    "git_sha": "570d4488",
+    "git_sha": "c1f2100b",
     "platform": "Darwin 27.0.0 arm64",
     "torch_threads": 10,
-    "utc": "2026-11-12T06:56:00+00:00"
+    "utc": "2026-11-13T08:00:06+00:00"
   },
   "schema_version": 1,
   "timing": {
-    "chunk_s": 0.046,
-    "embed_index_s": 2.897,
-    "ingest_embed_s": 17.551,
+    "chunk_s": 0.06,
+    "embed_index_s": 2.701,
+    "ingest_embed_s": 20.788,
     "latency": {
       "auto_rag": {
-        "p50_ms": 671.4228540658951,
-        "p95_ms": 1097.3057482508011,
+        "p50_ms": 394.351708499471,
+        "p95_ms": 615.9753395997536,
         "samples": 700
       },
       "bm25": {
-        "p50_ms": 0.27845893055200577,
-        "p95_ms": 0.5269422195851802,
+        "p50_ms": 0.3180409994456568,
+        "p95_ms": 0.4147003997786669,
         "samples": 645
       },
       "dense": {
-        "p50_ms": 23.850166937336326,
-        "p95_ms": 43.85344199836253,
+        "p50_ms": 15.093625000190514,
+        "p95_ms": 19.181641200157173,
         "samples": 645
       },
       "hybrid": {
-        "p50_ms": 25.819958886131644,
-        "p95_ms": 41.99433308094739,
+        "p50_ms": 14.40229099989665,
+        "p95_ms": 16.96183380045113,
         "samples": 645
       }
     },
     "leak_sanitize_s": {
-      "en": 287.093,
-      "tr": 479.344,
-      "zh": 649.92
+      "en": 247.857,
+      "tr": 362.559,
+      "zh": 707.973
     },
-    "sanitize_s": 14.608,
-    "wall_s": 2435.381
+    "mixed_leak_sanitize_s": 245.0,
+    "mixed_reference_sanitize_s": 55.001,
+    "sanitize_s": 18.027,
+    "wall_s": 2305.847
   }
 }

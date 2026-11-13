@@ -40,6 +40,7 @@ function staleDocument(overrides: Partial<Document> = {}): Document {
     missing_entity_types: ["EMAIL"],
     sanitized_policy_known: true,
     sanitized_language: "en",
+    sanitized_languages: null,
     override_refused_language: null,
     override_refused_reason: null,
     ...overrides,

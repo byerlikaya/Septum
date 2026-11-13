@@ -194,24 +194,24 @@ Belgeler ve sorular elle yazılmıştır. Bir belgedeki her kişisel veri yuvas�
 
 | Retriever | p50 (ms) | p95 (ms) | Örnek |
 |:---|:---:|:---:|:---:|
-| dense | 11,025 | 12,337 | 645 |
-| bm25 | 0,237 | 0,286 | 645 |
-| hybrid | 11,562 | 13,061 | 645 |
-| auto_rag | 325,273 | 349,408 | 700 |
+| dense | 15,094 | 19,182 | 645 |
+| bm25 | 0,318 | 0,415 | 645 |
+| hybrid | 14,402 | 16,962 | 645 |
+| auto_rag | 394,352 | 615,975 | 700 |
 
 Örnek sayısı, sorgu sayısının 5 tekrarla çarpımıdır; auto_rag tüm 140 soruyu, diğerleri 129 cevaplanabilir soruyu çalıştırır.
 
-Gecikme ve ingestion süreleri, aynı erişim kodunun önceki çalıştırmasından alınmıştır (git `7d22460d` ve örtüşme başlangıcı değişikliği); çünkü son çalıştırmanın süreleri yüklü bir makinede ölçülmüştür.
+Gecikme değerleri bu belgenin önceki sürümündekilerden farklıdır, çünkü farklı bir çalıştırmadan gelir. Süreler boşta bir makinede ölçülmüştür: 2026-11-13, M4 Max, git `c1f2100b`.
 
 **Ingestion** (tek çalıştırma):
 
 | Adım | Süre |
 |:---|:---:|
-| Parçalama, 30 belge | 0,034 s |
-| Embedding ve indeksleme | 1,36 s |
-| Sanitizasyon, 30 belge | 11,808 s |
-| Sızıntı bloğu sanitizasyonu, en / tr / zh | 189,216 s / 309,62 s / 474,507 s |
-| Tüm çalıştırma, duvar saati | 1465,178 s |
+| Parçalama, 30 belge | 0,06 s |
+| Embedding ve indeksleme | 2,701 s |
+| Sanitizasyon, 30 belge | 18,027 s |
+| Sızıntı bloğu sanitizasyonu, en / tr / zh | 247,857 s / 362,559 s / 707,973 s |
+| Tüm çalıştırma, duvar saati | 2305,847 s |
 
 Sızıntı bloğu en için 24.000, tr için 28.800, zh için 28.800 değer içerir (aşağıya bakın).
 
@@ -269,20 +269,22 @@ Sayıların okunuşu:
 
 Ayrı bir dilim, tek belgede birden fazla dil bulunduğunda sızıntıyı ölçer: 7 sentetik karma dilli belge. Bunlar İngilizce ekli Türkçe metin (2), Çince bölümlü İngilizce metin (2), İngilizce bölümlü Çince metin (2) ve en, tr ve zh paragraflarını iç içe geçiren bir belgedir. Her çalıştırma belge başına 400 değer yerleştirir; 3 çalıştırma yapılır (8.400 değer). Her değer, ardından geldiği paragrafın dilinin havuzundan seçilir. Dilimin kendi fixture özeti vardır ve retrieval sayılarını değiştirmez.
 
-Bugün bir belge, başlangıcından tespit edilen tek bir dille maskelenir. Dili bu maskeleme diliyle aynı olan bir segmentteki değer eşleşen, diğerleri eşleşmeyen sayılır. Tek dilli referans aynı yoğunlukta (belge başına 400 değer) verilir; çünkü yukarıdaki 2.400 değerlik belgelerde değerler tekrar eder ve tekrar eden bir isim, bir kez tespit edildiğinde her yerde maskelenir.
+Belgeler hem alım hem sohbet aşamasında segment başına dille maskelenir. Dili belgenin tespit edilen diliyle aynı olan bir segmentteki değer eşleşen, diğerleri eşleşmeyen sayılır. Tek dilli referans aynı yoğunlukta (belge başına 400 değer) verilir; çünkü yukarıdaki 2.400 değerlik belgelerde değerler tekrar eder ve tekrar eden bir isim, bir kez tespit edildiğinde her yerde maskelenir.
 
 | Segment dili | Literal sızıntı: eşleşen | Literal sızıntı: eşleşmeyen | Tek dilli referans |
 |:---|:---:|:---:|:---:|
-| en | 0,235 (n=1.823) | 0,048 (n=2.568) | 0,162 (n=1.200) |
-| tr | 0,127 (n=1.899) | — (n=0) | 0,117 (n=1.200) |
-| zh | 0,072 (n=1.365) | 0,358 (n=745) | 0,052 (n=1.200) |
+| en | 0,091 (n=1.823) | 0,041 (n=2.568) | 0,162 (n=1.200) |
+| tr | 0,116 (n=1.899) | — (n=0) | 0,117 (n=1.200) |
+| zh | 0,069 (n=1.365) | 0,046 (n=745) | 0,052 (n=1.200) |
 
-- Başka bir dille maskelenen belgelerdeki Çince segmentler, Çince olarak maskelenenlere göre yaklaşık beş kat sık sızar (0,358 ve 0,072). Bu, belge başına dil seçiminin bilinen sınırlamasıdır; segment başına dil tespiti planlanmaktadır.
+- Segment başına maskelemeden önce, başka bir dille maskelenen Çince segmentler 0,358 oranında sızıyordu (n=745); şimdi 0,046, yani eşleşen Çince oranının (0,069) altında. Eşleşen en 0,235'ten 0,091'e, eşleşen tr 0,127'den 0,116'ya indi. Bu ölçüm, her oranın neden değiştiğini ortaya koymaz.
+- Geçit (dilim içinde, her dil için eşleşmeyen oran eşleşen orana eşit veya ondan düşük) en ve zh için sağlanır. tr'de karşılaştırılacak eşleşmeyen değer yoktur.
 - İç içe geçmiş belge Türkçe olarak tespit edilir; bu yüzden tr sütununda eşleşmeyen değer yoktur.
-- Ayrı bir tanılama ölçümünde, aynı belgeye Çince paragraflar eklendiğinde İngilizce kurum adı yakalaması düştü: İngilizce ORGANIZATION_NAME literal sızıntısı Çince blok yokken 0,044, her 4 paragrafta bir Çince blok varken 0,166 oldu (her biri n≈175–180). Bu, eşleşen en değerlerinin referanstan fazla sızmasıyla uyumludur; modelin içindeki neden belirlenmemiştir.
-- Eşleşmeyen en değerleri (0,048), en referansından (0,162) daha az sızar. Bu sonuç ölçüldüğü gibi verilmiştir ve burada açıklanmamaktadır.
+- Tek dilli sızıntı oranları (en, tr, zh; kontrol ve çapraz kollar) ile tüm retrieval metrikleri önceki baseline ile bayt düzeyinde aynıdır.
+- Segment başına maskelemeden önce yapılan ayrı bir tanılama ölçümünde, aynı belgeye Çince paragraflar eklendiğinde İngilizce kurum adı yakalaması düştü: İngilizce ORGANIZATION_NAME literal sızıntısı Çince blok yokken 0,044, her 4 paragrafta bir Çince blok varken 0,166 oldu (her biri n≈175–180). Modelin içindeki neden belirlenmemiştir; tanılama güncel kodda yinelenmemiştir.
+- Eşleşmeyen en değerleri (0,041), en referansından (0,162) daha az sızar. Bu sonuç ölçüldüğü gibi verilmiştir ve burada açıklanmamaktadır.
 
-Ölçüm tek bir tam çalıştırmadan alınmıştır: 2026-11-12, M4 Max.
+Ölçüm tek bir tam çalıştırmadan alınmıştır: 2026-11-13, M4 Max, boşta makine, git `c1f2100b`.
 
 ### Yeniden üretme
 

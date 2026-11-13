@@ -227,24 +227,24 @@ Compared with the previously recorded baseline, sanitized hybrid Recall@5 is unc
 
 | Retriever | p50 (ms) | p95 (ms) | Samples |
 |:---|:---:|:---:|:---:|
-| dense | 11.025 | 12.337 | 645 |
-| bm25 | 0.237 | 0.286 | 645 |
-| hybrid | 11.562 | 13.061 | 645 |
-| auto_rag | 325.273 | 349.408 | 700 |
+| dense | 15.094 | 19.182 | 645 |
+| bm25 | 0.318 | 0.415 | 645 |
+| hybrid | 14.402 | 16.962 | 645 |
+| auto_rag | 394.352 | 615.975 | 700 |
 
 Samples are queries times 5 repeats; auto_rag runs all 140 questions, the others the 129 answerable ones.
 
-The latency and ingestion timings come from the previous run on the same retrieval code (git `7d22460d` plus the overlap-start change), because the latest run's timings were taken on a loaded machine.
+The latency figures differ from the previous version of this document because they come from a different run. Timings were measured on an idle machine, 2026-11-13, M4 Max, git `c1f2100b`.
 
 **Ingestion** (one run):
 
 | Step | Time |
 |:---|:---:|
-| Chunking, 30 documents | 0.034 s |
-| Embedding and indexing | 1.36 s |
-| Sanitization, 30 documents | 11.808 s |
-| Leak-block sanitization, en / tr / zh | 189.216 s / 309.62 s / 474.507 s |
-| Whole run, wall clock | 1465.178 s |
+| Chunking, 30 documents | 0.06 s |
+| Embedding and indexing | 2.701 s |
+| Sanitization, 30 documents | 18.027 s |
+| Leak-block sanitization, en / tr / zh | 247.857 s / 362.559 s / 707.973 s |
+| Whole run, wall clock | 2305.847 s |
 
 The leak block holds 24,000 (en), 28,800 (tr) and 28,800 (zh) values (see below).
 
@@ -302,20 +302,22 @@ Reading the numbers:
 
 A separate slice of 7 synthetic mixed-language documents measures leaks when one document holds more than one language: Turkish text with an English annex (2), English text with a Chinese section (2), Chinese text with English sections (2), and one document that interleaves en, tr and zh paragraphs. Each run places 400 values per document and there are 3 runs (8,400 values); each value comes from the pool of the language of the paragraph it follows. The slice has its own fixture digest and does not change the retrieval numbers.
 
-Today a document is masked with one language, detected from its beginning. A value in a segment whose language equals that masking language is matched; any other is mismatched. The single-language reference uses the same density (400 values per document), because the 2,400-value documents above repeat values, and a repeated name is masked everywhere once it is detected.
+Documents are masked per language segment, in ingestion and in chat. A value in a segment whose language equals the document's detected language is matched; any other is mismatched. The single-language reference uses the same density (400 values per document), because the 2,400-value documents above repeat values, and a repeated name is masked everywhere once it is detected.
 
 | Segment language | Literal leak: matched | Literal leak: mismatched | Single-language reference |
 |:---|:---:|:---:|:---:|
-| en | 0.235 (n=1,823) | 0.048 (n=2,568) | 0.162 (n=1,200) |
-| tr | 0.127 (n=1,899) | — (n=0) | 0.117 (n=1,200) |
-| zh | 0.072 (n=1,365) | 0.358 (n=745) | 0.052 (n=1,200) |
+| en | 0.091 (n=1,823) | 0.041 (n=2,568) | 0.162 (n=1,200) |
+| tr | 0.116 (n=1,899) | — (n=0) | 0.117 (n=1,200) |
+| zh | 0.069 (n=1,365) | 0.046 (n=745) | 0.052 (n=1,200) |
 
-- Chinese segments inside documents masked as another language leak about five times as often as Chinese segments masked as Chinese (0.358 vs 0.072). This is the known limitation of per-document language; per-segment language detection is planned.
+- Before per-segment masking, Chinese segments masked as another language leaked at 0.358 (n=745); now they leak at 0.046, below the matched Chinese rate of 0.069. Matched en went from 0.235 to 0.091 and matched tr from 0.127 to 0.116. This benchmark does not establish why each rate moved.
+- The gate (mismatched at most matched, per language, within the slice) holds for en and zh. tr has no mismatched values to compare.
 - The interleaved document is detected as Turkish, so the tr column has no mismatched values.
-- In a separate diagnostic, English organization-name recall dropped when Chinese paragraphs were added to the same document: the English ORGANIZATION_NAME literal leak was 0.044 with no Chinese blocks and 0.166 with a Chinese block every 4 paragraphs (n≈175–180 each). This is consistent with matched en leaking more than its reference; the cause inside the model is not established.
-- Mismatched en (0.048) leaks less than the en reference (0.162). This is reported as measured and is not explained here.
+- Single-language leak rates (en, tr, zh; control and crossing arms) and all retrieval metrics are byte-identical to the previous baseline.
+- In a separate diagnostic taken before per-segment masking, English organization-name recall dropped when Chinese paragraphs were added to the same document: the English ORGANIZATION_NAME literal leak was 0.044 with no Chinese blocks and 0.166 with a Chinese block every 4 paragraphs (n≈175–180 each). The cause inside the model is not established, and the diagnostic was not repeated on the current code.
+- Mismatched en (0.041) leaks less than the en reference (0.162). This is reported as measured and is not explained here.
 
-Measured on one full run, 2026-11-12, M4 Max.
+Measured on one full run, 2026-11-13, M4 Max, idle machine, git `c1f2100b`.
 
 ### Reproduce
 

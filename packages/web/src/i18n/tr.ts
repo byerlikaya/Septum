@@ -175,6 +175,7 @@ export const trMessages: Record<string, string> = {
   "documents.table.column.actions": "İşlemler",
   "documents.table.languageLabel": "Dil",
   "documents.table.maskedAs": "maskeleme dili: {lang}",
+  "documents.table.maskedAsMixed": "maskeleme dilleri: {langs}",
   "documents.table.maskingUnknown": "maskeleme dili bilinmiyor, yeniden işleyin",
   "documents.table.overrideRefused": "Elle seçilen dil ({lang}) yok sayıldı: dokümanın yazı sistemiyle eşleşmiyor.",
   "documents.table.regulationsLabel": "Regülasyonlar",

@@ -214,6 +214,7 @@ class DocumentResponse(BaseModel):
     missing_entity_types: List[str] = []
     sanitized_policy_known: bool = True
     sanitized_language: Optional[str] = None
+    sanitized_languages: Optional[List[str]] = None
     override_refused_language: Optional[str] = None
     override_refused_reason: Optional[str] = None
 
