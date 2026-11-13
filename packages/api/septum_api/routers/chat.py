@@ -2382,7 +2382,7 @@ async def _prepare_prompt_inputs(turn: _ChatTurn, db: AsyncSession) -> None:
     )
     turn.context_texts = [c.text for c in turn.candidate_chunks]
     if turn.rag_mode == "none":
-        turn.prompt_regulation_names = turn.regulation_names
+        turn.prompt_regulation_names = []
         turn.column_descriptions = []
         return
     turn.prompt_regulation_names = await _prompt_regulation_names(
