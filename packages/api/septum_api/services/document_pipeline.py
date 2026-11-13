@@ -132,6 +132,14 @@ async def erase_document_artifacts(
     dropped first. ``clear_reply_cache=False`` skips the reply cache tier;
     a caller erasing many documents at once then clears it once, after
     the last of them.
+
+    A run that is then refused (oversize text or chunk, too-deep originals
+    pattern) deliberately does not clear the detection reply cache again
+    afterwards. It lives in memory only, is keyed per owner and the identical
+    text slice (so only the user who already holds that text can read an
+    entry), expires after 300 seconds and holds what a successful ingestion
+    would have cached. :func:`clear_detection_cache` is global and would
+    empty every user's cache, so a per-refusal clear is rejected.
     """
     remask_cache.forget_document(document_id)
     steps: list[tuple[str, Callable[[], None]]] = []

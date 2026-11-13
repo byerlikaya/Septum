@@ -22,6 +22,7 @@ The service drives two privacy-aware features:
 import hashlib
 import hmac
 import json
+import logging
 import re
 import unicodedata
 from collections import defaultdict
@@ -30,12 +31,14 @@ from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
 from septum_core.anonymization_map import AnonymizationMap
 from septum_core.text_utils import lower_preserving_offsets, normalize_unicode
-from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..models.document_relationship import DocumentRelationship
 from ..models.entity_index import EntityIndex
 from ..utils.crypto import get_encryption_key
+
+logger = logging.getLogger(__name__)
 
 _PLACEHOLDER_RE = re.compile(r"^\[([A-Z][A-Z_]*)_(\d+)\]$")
 
@@ -291,6 +294,114 @@ async def replace_index_for_document(
     return len(rows)
 
 
+async def drop_index_for_document(db: AsyncSession, document_id: int) -> int:
+    """Remove everything the entity index holds about one document.
+
+    Deletes its :class:`EntityIndex` rows and the :class:`DocumentRelationship`
+    rows where it is either side, and clears its ``entity_index_version`` so
+    no later rebuild or lookup mistakes it for an indexed document. Safe to
+    repeat. Returns the number of rows deleted. Caller is responsible for
+    committing.
+    """
+    from ..models.document import Document
+
+    index_result = await db.execute(
+        delete(EntityIndex).where(EntityIndex.document_id == document_id)
+    )
+    pair_result = await db.execute(
+        delete(DocumentRelationship).where(
+            (DocumentRelationship.doc_a_id == document_id)
+            | (DocumentRelationship.doc_b_id == document_id)
+        )
+    )
+    await db.execute(
+        update(Document)
+        .where(Document.id == document_id)
+        .values(entity_index_version=None)
+    )
+    return (index_result.rowcount or 0) + (pair_result.rowcount or 0)
+
+
+async def _failed_ids_with_index(
+    session_maker: async_sessionmaker[AsyncSession],
+) -> List[int]:
+    """Ids of ``failed`` documents that still hold an index version, rows or links."""
+    from ..models.document import Document
+
+    has_rows = select(EntityIndex.id).where(EntityIndex.document_id == Document.id)
+    has_links = select(DocumentRelationship.id).where(
+        (DocumentRelationship.doc_a_id == Document.id)
+        | (DocumentRelationship.doc_b_id == Document.id)
+    )
+    async with session_maker() as db:
+        rows = await db.execute(
+            select(Document.id)
+            .where(
+                Document.ingestion_status == "failed",
+                (Document.entity_index_version.is_not(None))
+                | has_rows.exists()
+                | has_links.exists(),
+            )
+            .order_by(Document.id)
+        )
+        return list(rows.scalars().all())
+
+
+async def _purge_failed_batch(db: AsyncSession, document_ids: List[int]) -> int:
+    """Drop the index of the documents in ``document_ids`` that are still ``failed``.
+
+    The first statement is a status-guarded UPDATE ... RETURNING that clears
+    ``entity_index_version``. It takes the row locks (a write lock on SQLite,
+    row locks on PostgreSQL) and rechecks the status under them, so a document
+    reprocessed since it was selected is skipped and one that is ``failed`` now
+    cannot change status until this transaction ends; the deletes then act
+    only on the returned ids. Caller commits.
+    """
+    from ..models.document import Document
+
+    locked = await db.execute(
+        update(Document)
+        .where(Document.id.in_(document_ids), Document.ingestion_status == "failed")
+        .values(entity_index_version=None)
+        .returning(Document.id)
+    )
+    still_failed = list(locked.scalars().all())
+    if not still_failed:
+        return 0
+    await db.execute(delete(EntityIndex).where(EntityIndex.document_id.in_(still_failed)))
+    await db.execute(
+        delete(DocumentRelationship).where(
+            DocumentRelationship.doc_a_id.in_(still_failed)
+            | DocumentRelationship.doc_b_id.in_(still_failed)
+        )
+    )
+    return len(still_failed)
+
+
+async def drop_index_of_failed_documents(
+    session_maker: async_sessionmaker[AsyncSession], batch_size: int = 100
+) -> int:
+    """Drop the index of every ``failed`` document that still has one.
+
+    A failed rebuild used to leave the document's previous index behind (see
+    :func:`drop_index_for_document`); this clears what such runs left on an
+    existing install. Only documents that still hold something are selected,
+    so once cleaned the next startup does no work. Each batch is its own
+    transaction and purges only documents still ``failed`` when it runs, so a
+    document reprocessed meanwhile keeps its new index. Returns how many
+    documents were purged; only that count is logged, never hashes.
+    """
+    document_ids = await _failed_ids_with_index(session_maker)
+    purged = 0
+    for start in range(0, len(document_ids), batch_size):
+        async with session_maker() as db:
+            purged += await _purge_failed_batch(db, document_ids[start : start + batch_size])
+            await db.commit()
+    if purged:
+        logger.info("Dropped the stale entity index of %d failed documents", purged)
+    return purged
+
+
 async def find_documents_for_query_entities(
     db: AsyncSession,
     entities: Iterable[Tuple[str, str]],
@@ -432,6 +543,8 @@ __all__ = [
     "hash_entity_value",
     "collect_entities_from_anon_map",
     "replace_index_for_document",
+    "drop_index_for_document",
+    "drop_index_of_failed_documents",
     "find_documents_for_query_entities",
     "recompute_relationships_for_document",
 ]
