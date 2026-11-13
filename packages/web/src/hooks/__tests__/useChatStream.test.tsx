@@ -215,7 +215,12 @@ it.each([
   ["the Ollama URL is refused", "ollama_url_not_allowed", "chat.error.ollamaUrlNotAllowed"],
   ["a model fails its integrity check", "model_integrity_failed", "errors.model.integrityFailed"],
   ["the custom NER model is not pinned", "ner_model_unpinned", "errors.model.nerUnpinned"],
-  ["the language model is unavailable", "llm_unavailable", "chat.error.llmUnavailable"]
+  ["the language model is unavailable", "llm_unavailable", "chat.error.llmUnavailable"],
+  [
+    "the known values nest too deeply",
+    "originals_pattern_too_deep",
+    "errors.originalsPatternTooDeep.request"
+  ]
 ])("shows the translated message when %s", async (_label, code, translationKey) => {
   const { result } = renderStream();
 

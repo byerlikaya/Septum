@@ -423,6 +423,10 @@ export const enMessages = {
     "An LLM-prompt rule needs a prompt; enter what the model should find.",
   "errors.localModelBudget.exceeded":
     "This request would need more local-model checks than one turn allows, so nothing was sent. Shorten the question or the context, reduce the active custom AI rules, or ask your administrator.",
+  "errors.originalsPatternTooDeep.request":
+    "This request was refused because the values already known for these documents are nested too deeply to be hidden safely. Nothing was sent to the cloud model.",
+  "errors.originalsPatternTooDeep.document":
+    "This document was refused: the values found in it are nested too deeply to be masked safely. No unmasked text was sent anywhere. Remove unusual repeated or padded sections and upload it again, or delete the document.",
   "errors.chunkTooLarge":
     "A section of this document is too long to process safely, even after masking. Split the document and upload it again.",
   "errors.extractedTextTooLarge":
