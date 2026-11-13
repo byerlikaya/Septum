@@ -112,7 +112,9 @@ from .text_utils import (
 use_bundled_suffix_list()
 install_fast_remove_duplicates()
 
-_SPACY_MODEL = "en_core_web_sm"
+_SPACY_MODELS: Dict[str, str] = {"en": "en_core_web_sm"}
+"""Language code -> spaCy model package of the Presidio NLP engine; the engine
+is built from this table and LOCATION filtering reads it, so they cannot drift."""
 _cached_nlp_engine: object | None = None
 _nlp_engine_lock = threading.Lock()
 
@@ -138,14 +140,18 @@ def _get_shared_nlp_engine() -> object:
         import spacy.util
         from presidio_analyzer.nlp_engine import NlpEngineProvider
 
-        if not spacy.util.is_package(_SPACY_MODEL):
-            raise ModelIntegrityError(
-                _SPACY_MODEL,
-                "spaCy model package is not installed; it is never downloaded at runtime",
-            )
+        for model_name in _SPACY_MODELS.values():
+            if not spacy.util.is_package(model_name):
+                raise ModelIntegrityError(
+                    model_name,
+                    "spaCy model package is not installed; it is never downloaded at runtime",
+                )
         conf = {
             "nlp_engine_name": "spacy",
-            "models": [{"lang_code": "en", "model_name": _SPACY_MODEL}],
+            "models": [
+                {"lang_code": lang_code, "model_name": model_name}
+                for lang_code, model_name in _SPACY_MODELS.items()
+            ],
         }
         _cached_nlp_engine = NlpEngineProvider(nlp_configuration=conf).create_engine()
         _adjust_spacy_max_length(_cached_nlp_engine)
@@ -1974,7 +1980,12 @@ class Detector:
         spans: List[DetectedSpan] = []
 
         if self._config.use_presidio_layer:
-            spans.extend(self._presidio_spans(normalized_text))
+            spans.extend(
+                self._presidio_spans(
+                    normalized_text,
+                    context.language_at if context is not None else (lambda _: language),
+                )
+            )
 
         # NER runs on text of any length: a short chat question or chunk can
         # hold a name, and any length floor would leave it raw.
@@ -2152,14 +2163,22 @@ class Detector:
         """Run the multi-layer sanitizer on the given text (``detect`` then ``apply``)."""
         return self.apply(self.detect(text, language), anon_map)
 
-    def _presidio_spans(self, normalized_text: str) -> List[DetectedSpan]:
-        """Run the Presidio layer and return its filtered results as spans."""
+    def _presidio_spans(
+        self,
+        normalized_text: str,
+        language_at: Optional[Callable[[int], str]] = None,
+    ) -> List[DetectedSpan]:
+        """Run the Presidio layer and return its filtered results as spans.
+
+        ``language_at`` maps a result's start offset to its language; see
+        :meth:`_filter_presidio_results`.
+        """
         results = self._analyzer.analyze(
             text=normalized_text,
             language=_PRESIDIO_DEFAULT_LANGUAGE,
             entities=self._expand_with_aliases(self._entity_types),
         )
-        results = self._filter_presidio_results(results, normalized_text)
+        results = self._filter_presidio_results(results, normalized_text, language_at)
         return self._from_presidio_results(results)
 
     def _ner_spans(
@@ -2527,6 +2546,7 @@ class Detector:
         self,
         results: List[RecognizerResult],
         text: str,
+        language_at: Optional[Callable[[int], str]] = None,
     ) -> List[RecognizerResult]:
         """
         Filter Presidio results before conversion to DetectedSpan.
@@ -2536,12 +2556,21 @@ class Detector:
         by the language-specific NER models. This reduces false positives on
         ordinary title or heading text while preserving all other Presidio
         detections (for example, phone numbers and validated identifiers).
+
+        ``language_at`` maps a result's start offset to the language of its
+        span; with the NER layer on, a LOCATION result is kept only where that
+        language has a spaCy model. Without it every such result is dropped.
         """
         if not results:
             return results
-        return [r for r in results if not self._drops_presidio_result(r, text)]
+        return [r for r in results if not self._drops_presidio_result(r, text, language_at)]
 
-    def _drops_presidio_result(self, r: RecognizerResult, text: str) -> bool:
+    def _drops_presidio_result(
+        self,
+        r: RecognizerResult,
+        text: str,
+        language_at: Optional[Callable[[int], str]] = None,
+    ) -> bool:
         """Whether a Presidio result is advisory noise the other layers cover better."""
         if (
             self._config.use_ner_layer
@@ -2557,13 +2586,15 @@ class Detector:
             if has_dot_or_slash and digit_count <= 8:
                 return True
 
-        # Drop Presidio's spaCy-LOCATION output ONLY when the NER layer is
-        # also active — the transformer ensemble supplies higher-quality
-        # LOCATION spans anyway. With the NER layer disabled (e.g.
-        # transformers extra not installed) Presidio's LOCATION is the only
-        # signal, so let it through even though en_core_web_sm is noisy on
-        # non-English text.
-        return r.entity_type == "LOCATION" and self._config.use_ner_layer
+        # With the NER layer on, the transformer ensemble covers LOCATION, but
+        # its recall on long windows is low; spaCy's LOCATION is kept where the
+        # span's language has a spaCy model and dropped elsewhere, where the
+        # small model is noisy. With the layer off it is the only signal.
+        if r.entity_type == "LOCATION" and self._config.use_ner_layer:
+            return language_at is None or (
+                canonical_language_code(language_at(r.start)) not in _SPACY_MODELS
+            )
+        return False
 
     def _semantic_validate_candidates(
         self,
