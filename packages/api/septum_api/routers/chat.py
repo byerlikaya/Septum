@@ -316,13 +316,18 @@ async def _gate_edited_chunks(
     through unchanged; any edited or added text goes through the PII gate.
     When the gate learned a value from an edit, the unchanged texts are
     masked again against the grown map. A caller that masks further prompt
-    fields passes the ``masker`` it created before this call.
+    fields passes the ``masker`` it created before this call. Placeholder
+    indexes the returned texts already carry are reserved first, so a value
+    the gate newly detects never takes a number a typed token holds; the
+    reservation touches only the counters, which the masker does not count
+    as learned.
     """
     masker = masker or LearnedValueMasker(anon_map)
     offered = set(offered_texts)
     edited_idx = [i for i, t in enumerate(returned_texts) if t not in offered]
     if not edited_idx:
         return list(returned_texts)
+    reserve_placeholder_counters(anon_map, returned_texts)
     gated = await gate_untrusted_texts(
         [returned_texts[i] for i in edited_idx], anon_map, db, settings
     )

@@ -1292,6 +1292,48 @@ class TestApprovalPreviewGate:
         assert session_map.entity_map == amap.entity_map
 
 
+    async def test_preview_keeps_a_typed_placeholder_apart_from_a_new_entity(
+        self, env: _Env, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from septum_api.routers import approval as approval_module
+        from septum_api.services.approval_gate import ApprovalGate
+        from septum_api.utils.db_helpers import load_settings
+
+        async def _build(db, settings, **kwargs):
+            return PatternSanitizer((re.compile(r"Name: ([^;\n.]+?)(?= \[|$)"), "ORGANIZATION"))
+
+        monkeypatch.setattr(pii_gate, "create_user_text_sanitizer", _build)
+        await env.set_require_approval(True)
+        gate = ApprovalGate()
+        monkeypatch.setattr(approval_module, "_get_gate", lambda: gate)
+        monkeypatch.setattr(approval_module, "PREVIEW_MIN_INTERVAL_SECONDS", 0.0)
+        amap = AnonymizationMap(document_id=0, language="en")
+        offered = "Offered chunk."
+        await gate.create(
+            session_id="preview-typed",
+            masked_prompt="Who?",
+            masked_chunks=[offered],
+            entity_count=0,
+            owner_user_id=env.user.id,
+            anon_map=amap,
+            assembly_context={"sanitized_query": "Who?", "language": "en"},
+        )
+        edited = "Name: Zed Q [ORGANIZATION_1]"
+
+        response = await env.client.post(
+            "/api/approval/preview-typed/preview-prompt", json={"chunks": [{"text": edited}]}
+        )
+
+        assert response.status_code == 200, response.text
+        preview = response.json()["assembled_prompt"]
+        async with env.session_maker() as session:
+            [sent] = await chat_module._gate_edited_chunks(
+                [offered], [edited], copy.deepcopy(amap), session, await load_settings(session)
+            )
+        assert sent == "Name: [ORGANIZATION_2] [ORGANIZATION_1]"
+        assert sent in preview
+
+
 class _LostLock:
     def __init__(self, events: list[str]) -> None:
         self._events = events
