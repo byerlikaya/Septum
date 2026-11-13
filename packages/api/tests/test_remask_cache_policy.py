@@ -217,7 +217,7 @@ def test_character_budget_evicts_least_recently_used_entries() -> None:
 
     cache = RemaskCache(max_entries=100, max_chars=10)
     amap = AnonymizationMap(document_id=1, language="en")
-    first, second, third = (RemaskCache.key(1, i, "p", "t", "en") for i in range(3))
+    first, second, third = (RemaskCache.key(1, i, "p", "t", "en", language_source="detected") for i in range(3))
     cache.put(first, "aaaa")
     cache.put(second, "bbbb")
     assert cache.get(first, amap) == "aaaa"
@@ -230,7 +230,7 @@ def test_character_budget_evicts_least_recently_used_entries() -> None:
     assert cache.stored_chars == 8
     cache.put(first, "a")
     assert cache.stored_chars == 5
-    cache.put(RemaskCache.key(1, 9, "p", "t", "en"), "x" * 11)
+    cache.put(RemaskCache.key(1, 9, "p", "t", "en", language_source="detected"), "x" * 11)
     assert len(cache) == 2
     cache.forget_document(1)
     assert cache.stored_chars == 0
@@ -263,8 +263,12 @@ async def test_policy_change_between_reads_is_not_cached_under_the_old_key(
         after = await current_policy_snapshot(session)
         chunk = (await session.execute(select(Chunk))).scalars().one()
     amap = await document_anon_store.get_document_map(env["doc_id"])
-    old_key = remask_cache.key(env["doc_id"], chunk.id, seen["before"].cache_key, STORED_CHUNK, "en")
-    new_key = remask_cache.key(env["doc_id"], chunk.id, after.cache_key, STORED_CHUNK, "en")
+    old_key = remask_cache.key(
+        env["doc_id"], chunk.id, seen["before"].cache_key, STORED_CHUNK, "en", language_source="detected"
+    )
+    new_key = remask_cache.key(
+        env["doc_id"], chunk.id, after.cache_key, STORED_CHUNK, "en", language_source="detected"
+    )
     assert seen["before"].cache_key != after.cache_key
     assert remask_cache.get(old_key, amap) is None
     cached = remask_cache.get(new_key, amap)

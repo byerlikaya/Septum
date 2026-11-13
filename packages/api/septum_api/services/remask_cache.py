@@ -5,7 +5,7 @@ until the document is reprocessed. The result for one chunk depends only on
 the stored chunk text, the policy and the document map, and every
 placeholder it introduces is persisted in that map, so it can be reused:
 the key is ``(document id, chunk id, policy cache key, hash of the stored
-text, masking language)``, and a hit is used only while the current
+text, masking language, its source)``, and a hit is used only while the current
 document map still knows every placeholder in it. Entries hold masked
 text only, never an original.
 
@@ -32,7 +32,7 @@ from .pii_gate import all_placeholders_known
 REMASK_CACHE_MAX_ENTRIES = 4096
 REMASK_CACHE_MAX_CHARS = 8_000_000
 
-_Key = Tuple[int, int, str, str, str]
+_Key = Tuple[int, int, str, str, str, str]
 
 
 class RemaskCache:
@@ -50,15 +50,24 @@ class RemaskCache:
 
     @staticmethod
     def key(
-        document_id: int, chunk_id: int, policy_key: str, stored_text: str, language: str
+        document_id: int,
+        chunk_id: int,
+        policy_key: str,
+        stored_text: str,
+        language: str,
+        *,
+        language_source: str,
     ) -> _Key:
         """Return the cache key of one stored chunk under one policy and masking language.
 
         The language is part of the key so text re-masked in a language the
-        document has since been corrected away from is never served.
+        document has since been corrected away from is never served. Its
+        ``language_source`` is too: a detected language is masked per
+        language segment and a user's override is not, so the same language
+        from the two sources can mask a chunk differently.
         """
         text_hash = hashlib.sha256(stored_text.encode("utf-8")).hexdigest()
-        return (document_id, chunk_id, policy_key, text_hash, language)
+        return (document_id, chunk_id, policy_key, text_hash, language, language_source)
 
     def get(self, key: _Key, anon_map: AnonymizationMap) -> Optional[str]:
         """Return the cached text if its placeholders all resolve in ``anon_map``."""

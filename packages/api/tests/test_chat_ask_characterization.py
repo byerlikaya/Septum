@@ -954,7 +954,7 @@ class TestResanitize:
             row.ingestion_status = "processing"
             await session.commit()
 
-        async def _remask(db, settings, document, texts, sanitizer):
+        async def _remask(db, settings, document, texts, sanitizer, segmenter=None):
             env.maps[document.id].add_entity("John Poe", "PERSON_NAME")
             return [t.replace("John Poe", P2) for t in texts], True
 
@@ -982,7 +982,7 @@ class TestResanitize:
             row.ingestion_status = "processing"
             await session.commit()
 
-        async def _remask(db, settings, document, texts, sanitizer):
+        async def _remask(db, settings, document, texts, sanitizer, segmenter=None):
             env.maps.pop(document.id)
             return texts, True
 

@@ -6,7 +6,17 @@ import os
 import re
 import threading
 from functools import lru_cache
-from typing import Any, FrozenSet, List, Optional, Sequence, Tuple, Type, TypeVar
+from typing import (
+    Any,
+    Callable,
+    FrozenSet,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    TypeVar,
+)
 
 from fastapi import HTTPException, status
 from langdetect import detect_langs, detector_factory
@@ -236,6 +246,15 @@ def effective_masking_language(document: Any) -> str:
     return document_language(document) or "en"
 
 
+def effective_masking_source(document: Any) -> str:
+    """Where :func:`effective_masking_language` comes from: ``"override"`` or ``"detected"``.
+
+    The ``source`` to hand :func:`masking_segments` with that language, so a
+    language the user chose is never segmented.
+    """
+    return "override" if supported_language_code(document.language_override) else "detected"
+
+
 def langdetect_candidates(sample: str) -> List[Tuple[str, float]]:
     """langdetect's ranked ``(code, probability)`` guesses for ``sample``.
 
@@ -289,6 +308,9 @@ def masking_segments(
     boundaries: Sequence[int],
     language: str,
     source: str,
+    *,
+    max_detector_calls: Optional[int] = None,
+    on_detector_call: Optional[Callable[[], None]] = None,
 ) -> Optional[Tuple[Segment, ...]]:
     """Language segments to mask ``text`` with, or ``None`` to mask it in ``language`` alone.
 
@@ -299,16 +321,25 @@ def masking_segments(
     with :func:`langdetect_candidates` and ``language`` as the dominant
     language (see :func:`septum_core.language_segments.segment_languages`);
     a text in one language yields one segment in ``language``, which the
-    detector treats as no segments. The result is CPU-bound: call it off the
-    event loop. Errors propagate.
+    detector treats as no segments. A caller spending one budget over
+    several texts passes what is left of it as ``max_detector_calls`` and
+    counts the calls through ``on_detector_call``. The result is CPU-bound:
+    call it off the event loop. Errors propagate.
     """
     if source == "override":
         return None
+
+    def detect(sample: str) -> List[Tuple[str, float]]:
+        if on_detector_call is not None:
+            on_detector_call()
+        return langdetect_candidates(sample)
+
     return segment_languages(
         text,
         boundaries,
         dominant_language=language,
-        detect_candidates=langdetect_candidates,
+        detect_candidates=detect,
+        max_detector_calls=max_detector_calls,
     )
 
 
