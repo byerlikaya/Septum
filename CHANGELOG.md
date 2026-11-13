@@ -24,6 +24,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ### 2026-11-13
 
+- A placeholder typed into a chunk edited in the approval step no longer shares its number with a value found in the same edit, so the answer maps each placeholder back to the right value and the preview shows the same numbering as what is sent.
 - The document suggestions in chat no longer list documents that are still processing or have failed, only documents chat can actually retrieve from.
 - A document whose rebuild fails no longer keeps the entity index and document links of its previous version, so it can no longer be routed to in chat or linked to newly added documents; the index is dropped when a rebuild starts and rebuilt when it succeeds, and existing failed documents are cleaned once at startup.
 - Masking a text against a large set of known values no longer slows down when many values share a long beginning: the lookup is now organised by common prefix and finds exactly the same matches, a few thousand times faster on the worst shape measured. Values nested inside one another more than 100 levels deep, a shape no measured document comes near (the deepest nests 8 levels), are refused instead, at upload and in chat with a message, so no unmasked text is sent; a map stored that deep only leaves its own section titles out of chunk listings.

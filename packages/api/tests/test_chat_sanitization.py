@@ -16,6 +16,7 @@ from septum_api.routers.chat import (
     _build_unified_placeholder_space,
 )
 from septum_api.services import pii_gate
+from septum_api.services.pii_gate import LearnedValueMasker
 from septum_api.services.anonymization_map import AnonymizationMap
 from septum_api.services.policy_composer import ComposedPolicy
 from septum_api.services.sanitizer import PIISanitizer
@@ -468,6 +469,54 @@ async def test_edited_chunks_mask_a_value_only_a_later_edit_reveals(context_only
 
     assert all(_LATE_VALUE not in text for text in gated)
     assert all(anon_map.entity_map[_LATE_VALUE] in text for text in gated)
+
+
+_TYPED_TOKEN_TEXT = "Name: Zed Q [ORGANIZATION_1]"
+
+
+@pytest.fixture
+def label_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the PII gate detect the value after ``Name: `` up to a following token or the end."""
+    async def _build(db, settings, **kwargs):
+        return PatternSanitizer((re.compile(r"Name: ([^;\n]+?)(?= \[|$)"), "ORGANIZATION"))
+
+    monkeypatch.setattr(pii_gate, "create_user_text_sanitizer", _build)
+
+
+async def test_edited_chunk_typed_placeholder_keeps_its_number_to_itself(label_gate) -> None:
+    anon_map = AnonymizationMap(document_id=0, language="en")
+
+    [gated] = await chat_module._gate_edited_chunks(
+        ["Offered chunk."], [_TYPED_TOKEN_TEXT], anon_map, None, None
+    )
+
+    assert gated == "Name: [ORGANIZATION_2] [ORGANIZATION_1]"
+    assert anon_map.entity_map == {_LATE_VALUE: "[ORGANIZATION_2]"}
+    assert not any("[" in original for original in anon_map.entity_map)
+
+
+async def test_reserving_for_an_edit_does_not_count_as_learned(context_only_gate) -> None:
+    anon_map = AnonymizationMap(document_id=0, language="en")
+    masker = LearnedValueMasker(anon_map)
+
+    await chat_module._gate_edited_chunks(
+        ["Offered chunk."], ["Typed [ORGANIZATION_4] only."], anon_map, None, None, masker=masker
+    )
+
+    assert anon_map.token_counter == {"ORGANIZATION": 4}
+    assert masker.learned is False
+
+
+async def test_edit_without_placeholder_shaped_tokens_numbers_as_before(context_only_gate) -> None:
+    anon_map = AnonymizationMap(document_id=0, language="en")
+    anon_map.add_entity("Ann", "ORGANIZATION")
+
+    [gated] = await chat_module._gate_edited_chunks(
+        ["Offered chunk."], ["Name: Zed Q"], anon_map, None, None
+    )
+
+    assert gated == "Name: [ORGANIZATION_2]"
+    assert anon_map.entity_map == {"Ann": "[ORGANIZATION_1]", _LATE_VALUE: "[ORGANIZATION_2]"}
 
 
 async def test_retry_chunks_mask_a_value_only_a_later_chunk_reveals(context_only_gate) -> None:
