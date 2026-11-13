@@ -99,6 +99,28 @@ def _is_symbol_fragment(value: str) -> bool:
     )
 
 
+MAX_TYPED_PLACEHOLDER_INDEX = 1_000_000
+"""Highest ``[TYPE_N]`` index untrusted text may reserve.
+
+The cap exists so client-controlled text cannot push a counter to an index
+that makes the next minted placeholder ten digits long, which
+``PLACEHOLDER_PATTERN`` (nine digits at most) no longer matches. It sits far
+above what one request can mint: a request carries at most
+``MAX_CONTEXT_CHUNKS`` chunks of ``MAX_PRE_APPROVED_CHUNK_CHARS`` characters,
+about 200,000 placeholders. It is not a bound on a document's entity count,
+which is why text the system minted itself is reserved without the cap.
+
+Accepted residuals: an untrusted typed token between this cap and 999,999,999
+can only collide once a persisted map's counter for that type passes the cap
+(a huge document or many turns), and then only with a value the same local
+user can already see. Stored chunk text is trusted here, yet a chunk edit
+can store a token the owner typed as plain text; on a document that has no
+stored map (a legacy document or a rebuilt one) a later edit then reserves
+it and the next placeholder may be ten digits long. That takes the owner,
+two edits and such a document, and exposes no value.
+"""
+
+
 def _known_placeholders(anon_map: AnonymizationMap) -> set[str]:
     """Return every placeholder the map can resolve or has handed out."""
     known = set(anon_map.entity_map.values())
@@ -115,23 +137,35 @@ def all_placeholders_known(text: str, anon_map: AnonymizationMap) -> bool:
 
 
 def reserve_placeholder_counters(
-    anon_map: AnonymizationMap, extra_texts: Iterable[str] = ()
+    anon_map: AnonymizationMap,
+    extra_texts: Iterable[str] = (),
+    *,
+    trusted_texts: Iterable[str] = (),
 ) -> None:
     """Raise ``token_counter`` above every placeholder index already in use.
 
     Maps built by the chat-time unification (and maps reconstructed after a
     lost key) carry placeholders but no counters; minting a new entity on
     such a map would otherwise reuse ``[PERSON_NAME_1]`` for a different
-    person. ``extra_texts`` lets callers reserve indexes that only appear in
-    stored text.
+    person. ``trusted_texts`` carries text the system stored or masked itself
+    (stored chunk text, server-masked offered chunks); its indexes are
+    reserved at any size, like the map's own placeholders (see the residual
+    on :data:`MAX_TYPED_PLACEHOLDER_INDEX`). ``extra_texts`` is the untrusted,
+    client-controlled channel: an index above
+    :data:`MAX_TYPED_PLACEHOLDER_INDEX` is ignored there, so a typed token
+    cannot drive the counter to an index ``PLACEHOLDER_PATTERN`` no longer
+    matches. Counters are only ever raised, never lowered.
     """
-    sources: List[str] = list(_known_placeholders(anon_map))
-    sources.extend(t for t in extra_texts if t)
-    for source in sources:
-        for match in PLACEHOLDER_PATTERN.finditer(source):
-            entity_type, index = match.group(1), int(match.group(2))
-            if anon_map.token_counter.get(entity_type, 0) < index:
-                anon_map.token_counter[entity_type] = index
+    trusted = [*_known_placeholders(anon_map), *(t for t in trusted_texts if t)]
+    untrusted = [t for t in extra_texts if t]
+    for sources, cap in ((trusted, None), (untrusted, MAX_TYPED_PLACEHOLDER_INDEX)):
+        for source in sources:
+            for match in PLACEHOLDER_PATTERN.finditer(source):
+                entity_type, index = match.group(1), int(match.group(2))
+                if cap is not None and index > cap:
+                    continue
+                if anon_map.token_counter.get(entity_type, 0) < index:
+                    anon_map.token_counter[entity_type] = index
 
 
 def _map_snapshot(anon_map: AnonymizationMap) -> Tuple[dict, dict, dict]:
@@ -1179,9 +1213,10 @@ async def _working_copy(
     """Return the map to gate against, with counters above every index in use.
 
     A document without a map gets a fresh one whose counters are reserved
-    above the placeholders its stored chunks already carry. Indexes in
-    ``texts`` are reserved in both cases, so a placeholder the map does not
-    know is never handed to a different entity.
+    above the placeholders its stored chunks already carry (trusted, any
+    index). Indexes in ``texts`` (client text) are reserved in both cases, so
+    a placeholder the map does not know is never handed to a different
+    entity.
     """
     if base is not None:
         working = copy.deepcopy(base)
@@ -1194,7 +1229,9 @@ async def _working_copy(
     rows = await db.execute(
         select(Chunk.sanitized_text).where(Chunk.document_id == document.id)
     )
-    reserve_placeholder_counters(working, [*rows.scalars().all(), *texts])
+    reserve_placeholder_counters(
+        working, texts, trusted_texts=rows.scalars().all()
+    )
     return working
 
 

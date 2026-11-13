@@ -1333,6 +1333,39 @@ class TestApprovalPreviewGate:
         assert sent == "Name: [ORGANIZATION_2] [ORGANIZATION_1]"
         assert sent in preview
 
+    async def test_preview_without_a_map_reserves_offered_indexes_above_the_cap(
+        self, env: _Env, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from septum_api.routers import approval as approval_module
+        from septum_api.services.approval_gate import ApprovalGate
+
+        async def _build(db, settings, **kwargs):
+            return PatternSanitizer((re.compile(r"Name: ([^;\n.]+?)(?= \[|$)"), "ORGANIZATION"))
+
+        monkeypatch.setattr(pii_gate, "create_user_text_sanitizer", _build)
+        await env.set_require_approval(True)
+        gate = ApprovalGate()
+        monkeypatch.setattr(approval_module, "_get_gate", lambda: gate)
+        monkeypatch.setattr(approval_module, "PREVIEW_MIN_INTERVAL_SECONDS", 0.0)
+        offered = "Offered [ORGANIZATION_1500000]."
+        await gate.create(
+            session_id="preview-large",
+            masked_prompt="Who?",
+            masked_chunks=[offered],
+            entity_count=0,
+            owner_user_id=env.user.id,
+            assembly_context={"sanitized_query": "Who?", "language": "en"},
+        )
+
+        response = await env.client.post(
+            "/api/approval/preview-large/preview-prompt",
+            json={"chunks": [{"text": "Name: Zed Q"}]},
+        )
+
+        assert response.status_code == 200, response.text
+        preview = response.json()["assembled_prompt"]
+        assert "[ORGANIZATION_1500001]" in preview
+
 
 class _LostLock:
     def __init__(self, events: list[str]) -> None:

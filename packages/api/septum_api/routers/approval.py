@@ -326,7 +326,9 @@ async def preview_prompt(
         preview_map = AnonymizationMap(
             document_id=0, language=context.get("language", "en")
         )
-        reserve_placeholder_counters(preview_map, offered_texts + returned_texts)
+        reserve_placeholder_counters(
+            preview_map, returned_texts, trusted_texts=offered_texts
+        )
     masker = LearnedValueMasker(preview_map)
     gated_texts = await _gate_edited_chunks(
         offered_texts=offered_texts,
