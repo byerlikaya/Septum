@@ -16,4 +16,4 @@ fails the suite.
 
 from __future__ import annotations
 
-DETECTOR_VERSION = "2026.11.13.2"
+DETECTOR_VERSION = "2026.11.13.3"
