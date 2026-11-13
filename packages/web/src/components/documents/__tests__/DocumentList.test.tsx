@@ -31,6 +31,7 @@ function failedDocument(overrides: Partial<Document>): Document {
     missing_entity_types: [],
     sanitized_policy_known: true,
     sanitized_language: "en",
+    sanitized_languages: null,
     override_refused_language: null,
     override_refused_reason: null,
     ...overrides,
@@ -219,6 +220,46 @@ describe("masking language and refused override", () => {
       />
     );
     expect(screen.queryByText(/documents\.table\.maskedAs/)).not.toBeInTheDocument();
+  });
+
+  it("lists every language when a mixed-language document was masked per segment", () => {
+    render(
+      <DocumentList
+        documents={[completedDocument({ detected_language: "tr", sanitized_language: "tr", sanitized_languages: ["tr", "en"] })]}
+        {...handlers}
+      />,
+    );
+    expect(screen.getByText("documents.table.maskedAsMixed:tr, en")).toBeInTheDocument();
+  });
+
+  it("keeps the single-language behaviour when sanitized_languages is null", () => {
+    render(
+      <DocumentList
+        documents={[completedDocument({ detected_language: "en", sanitized_language: "tr", sanitized_languages: null })]}
+        {...handlers}
+      />,
+    );
+    expect(screen.getByText("documents.table.maskedAs:tr")).toBeInTheDocument();
+    expect(screen.queryByText(/maskedAsMixed/)).not.toBeInTheDocument();
+  });
+
+  it("renders the single-language badge when sanitized_languages is missing", () => {
+    const doc = completedDocument({ detected_language: "en", sanitized_language: "tr" });
+    delete (doc as Partial<Document>).sanitized_languages;
+    render(<DocumentList documents={[doc]} {...handlers} />);
+    expect(screen.getByText("documents.table.maskedAs:tr")).toBeInTheDocument();
+    expect(screen.queryByText(/maskedAsMixed/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the single-language behaviour when sanitized_languages has one entry", () => {
+    render(
+      <DocumentList
+        documents={[completedDocument({ detected_language: "en", sanitized_language: "tr", sanitized_languages: ["tr"] })]}
+        {...handlers}
+      />,
+    );
+    expect(screen.getByText("documents.table.maskedAs:tr")).toBeInTheDocument();
+    expect(screen.queryByText(/maskedAsMixed/)).not.toBeInTheDocument();
   });
 
   it("warns that the masking language is unknown for a completed document with null sanitized_language", () => {

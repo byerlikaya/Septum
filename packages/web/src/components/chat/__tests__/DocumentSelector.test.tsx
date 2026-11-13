@@ -30,6 +30,7 @@ function makeDoc(id: number): Document {
     missing_entity_types: [],
     sanitized_policy_known: true,
     sanitized_language: "en",
+    sanitized_languages: null,
     override_refused_language: null,
     override_refused_reason: null
   };

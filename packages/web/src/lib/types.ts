@@ -88,6 +88,8 @@ export interface Document {
   sanitized_policy_known: boolean;
   /** Language the stored chunks were masked in; null when unknown and the document needs reprocessing. */
   sanitized_language: string | null;
+  /** Every language the chunks were masked in, dominant first; more than one means per-segment masking. */
+  sanitized_languages: string[] | null;
   /** ISO code of a language override the last processing run ignored because it did not match the script. */
   override_refused_language: string | null;
   /** Reason the override was refused; currently only "script_mismatch". */

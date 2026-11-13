@@ -175,6 +175,7 @@ export const enMessages = {
   "documents.table.column.actions": "Actions",
   "documents.table.languageLabel": "Language",
   "documents.table.maskedAs": "masked as {lang}",
+  "documents.table.maskedAsMixed": "masked as {langs}",
   "documents.table.maskingUnknown": "masking language unknown, reprocess",
   "documents.table.overrideRefused": "Manually selected language ({lang}) was ignored: it doesn't match the document's script.",
   "documents.table.regulationsLabel": "Regulations",

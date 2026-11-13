@@ -117,6 +117,14 @@ function MaskingLanguageBadge({ doc }: Readonly<{ doc: Document }>) {
       </span>
     );
   }
+  const maskedLanguages = doc.sanitized_languages ?? [];
+  if (maskedLanguages.length > 1) {
+    return (
+      <span className="rounded-full bg-slate-900 px-2 py-0.5">
+        {t("documents.table.maskedAsMixed", { langs: maskedLanguages.join(", ") })}
+      </span>
+    );
+  }
   const displayedLanguage = doc.language_override ?? doc.detected_language;
   if (baseLanguageCode(doc.sanitized_language) === baseLanguageCode(displayedLanguage)) return null;
   return (

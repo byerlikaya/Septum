@@ -127,6 +127,7 @@ class _Env:
         status: str = "completed",
         chunk_texts: tuple[str, ...] = (),
         digest: Optional[str] = _UNSET,
+        languages: Optional[list[str]] = None,
     ) -> int:
         if digest is _UNSET:
             digest = _current_digest() if snapshot is not None else None
@@ -144,6 +145,7 @@ class _Env:
                 sanitized_entity_types=snapshot,
                 sanitized_policy_digest=digest,
                 sanitized_language="en",
+                sanitized_languages=languages,
                 ingestion_status=status,
                 chunk_count=len(chunk_texts),
                 user_id=self.user.id,
@@ -949,3 +951,19 @@ class TestRemaskConfigAndScope:
                     session, build_default_app_settings(), chunks, {}
                 )
         assert not env.sanitizer.texts
+
+
+@pytest.mark.asyncio
+async def test_document_response_exposes_sanitized_languages(env: _Env) -> None:
+    doc_id = await env.add_document(["DATE"], languages=["tr", "en"])
+
+    assert (await env.get_doc(doc_id))["sanitized_languages"] == ["tr", "en"]
+    listed = (await env.client.get("/api/documents")).json()["items"]
+    assert [d["sanitized_languages"] for d in listed if d["id"] == doc_id] == [["tr", "en"]]
+
+
+@pytest.mark.asyncio
+async def test_document_response_sanitized_languages_null_when_unset(env: _Env) -> None:
+    doc_id = await env.add_document(["DATE"])
+
+    assert (await env.get_doc(doc_id))["sanitized_languages"] is None
