@@ -24,6 +24,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ### 2026-11-13
 
+- Placenames are now masked more reliably. The spaCy place results were always discarded when the transformer NER layer was on; they are now kept for any language that has a spaCy model, and the single-word placename score floor was lowered from 0.95 to 0.90 (organization names keep 0.95). On the benchmark documents the English placename leak fell from 0.586 to 0.055 and the Turkish one from 0.615 to 0.497, with retrieval quality unchanged and existing documents re-masked on reprocess.
 - Chat now re-masks the chunks of outdated documents per language segment as ingestion does, so a passage in a minority language no longer gets only the document language's models. The language-detection work of one chat turn is capped across all its documents; once spent, the remaining chunks are masked in the document language and not cached. A language override still disables segmentation.
 - The documents list now shows every language a mixed-language document was masked in ("masked as tr, en"), and the documents API returns it as `sanitized_languages`. The retrieval benchmark was re-recorded on an idle machine: Chinese passages masked as another language leak 0.046 instead of 0.358, with single-language leak rates and retrieval metrics unchanged.
 
