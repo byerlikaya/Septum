@@ -61,6 +61,10 @@ _TOMBSTONE_TTL = 2 * _REDIS_TTL
 _TOMBSTONE = "erased"
 _LOCK_TIMEOUT_SECONDS = 60
 _LOCK_WAIT_SECONDS = 60
+# Startup sweeps and the failure handler wait on one document lock at a
+# time; a stuck lock must not hold them for the full request-path wait,
+# and a timeout is retried at the next startup.
+SWEEP_LOCK_WAIT_SECONDS = 3
 # A temp file older than this cannot belong to a write still in flight.
 _STALE_TMP_SECONDS = 300
 

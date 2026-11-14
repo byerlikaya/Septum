@@ -24,6 +24,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ### 2026-11-14
 
+- A document whose ingestion fails after its text was stored no longer keeps that text, its chunks, its anonymization map or its search indexes: they are erased when the failure is recorded and by a one-time cleanup at startup, while the uploaded file and the error stay so the document can be reprocessed or deleted.
 - A very large placeholder number typed into an edited or retried chunk no longer pushes the numbers of later placeholders past the length the placeholder format allows, which kept them from being recognised as placeholders.
 
 ### 2026-11-13
