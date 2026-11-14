@@ -985,7 +985,7 @@ async def _record_failure_status(
         raise
     except Exception as drop_exc:
         logger.warning(
-            "Dropping the entity index of a failed ingestion did not land: %s",
+            "Recording a failed ingestion did not land on the first attempt: %s",
             type(drop_exc).__name__,
         )
         try:
@@ -1215,7 +1215,7 @@ async def _ingest_upload(
 ) -> None:
     """Ingest an uploaded source file and run the document pipeline over it.
 
-    Every commit on the document is fenced on ``run_token`` (:func:`fence_run`).
+    Every commit on the document row is fenced on ``run_token`` (:func:`fence_run`).
     """
     from ..services.document_progress import set_progress
 
