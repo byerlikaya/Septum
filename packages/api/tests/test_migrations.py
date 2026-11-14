@@ -662,6 +662,116 @@ def test_revision_028_adds_nullable_sanitized_languages_and_is_idempotent(
     assert "sanitized_languages" not in after_downgrade
 
 
+_CHUNKS_INDEX = "ix_chunks_document_id_index"
+_CHUNKS_INDEX_COLUMNS = ["document_id", "index"]
+
+_CHUNK_QUERY_SHAPES = {
+    "ordered read of one document": 'SELECT id FROM chunks WHERE document_id = ? ORDER BY "index"',
+    "read of several documents": "SELECT id FROM chunks WHERE document_id IN (?, ?)",
+    "delete of one document": "DELETE FROM chunks WHERE document_id = ?",
+    "delete of several documents": "DELETE FROM chunks WHERE document_id IN (?, ?)",
+    "documents holding chunks": "SELECT id FROM documents WHERE id IN (SELECT document_id FROM chunks)",
+}
+
+
+def _chunk_indexes(engine: sa.Engine) -> dict[str, list[str]]:
+    return {i["name"]: i["column_names"] for i in sa.inspect(engine).get_indexes("chunks")}
+
+
+def _chunk_query_plans(db_path: Path) -> dict[str, list[str]]:
+    """Plan on a fresh connection: a pooled one keeps a cached EXPLAIN from before a schema change."""
+    engine = sa.create_engine(f"sqlite:///{db_path}", poolclass=sa.pool.NullPool)
+    try:
+        with engine.connect() as conn:
+            return {
+                shape: [
+                    row[3]
+                    for row in conn.exec_driver_sql(
+                        f"EXPLAIN QUERY PLAN {sql}", (1,) * sql.count("?")
+                    )
+                ]
+                for shape, sql in _CHUNK_QUERY_SHAPES.items()
+            }
+    finally:
+        engine.dispose()
+
+
+def test_revision_029_adds_chunks_document_index_and_is_reversible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "at_028.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.upgrade(cfg, "028")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    before = _chunk_indexes(engine)
+
+    command.upgrade(cfg, "029")
+    after_upgrade = _chunk_indexes(engine)
+
+    command.stamp(cfg, "028")
+    command.upgrade(cfg, "029")
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+    after_rerun = _chunk_indexes(engine)
+
+    command.downgrade(cfg, "028")
+    after_downgrade = _chunk_indexes(engine)
+    command.stamp(cfg, "029")
+    command.downgrade(cfg, "028")
+    after_second_downgrade = _chunk_indexes(engine)
+
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+    after_reupgrade = _chunk_indexes(engine)
+    engine.dispose()
+
+    assert before == {}
+    assert after_upgrade == {_CHUNKS_INDEX: _CHUNKS_INDEX_COLUMNS}
+    assert after_rerun == {_CHUNKS_INDEX: _CHUNKS_INDEX_COLUMNS}
+    assert after_downgrade == {}
+    assert after_second_downgrade == {}
+    assert after_reupgrade == {_CHUNKS_INDEX: _CHUNKS_INDEX_COLUMNS}
+
+
+def test_create_all_database_has_chunks_document_index(tmp_path: Path) -> None:
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'create_all.db'}")
+    Base.metadata.create_all(engine)
+    indexes = _chunk_indexes(engine)
+    engine.dispose()
+
+    assert indexes == {_CHUNKS_INDEX: _CHUNKS_INDEX_COLUMNS}
+
+
+def test_sqlite_startup_adds_chunks_document_index_the_planner_uses(tmp_path: Path) -> None:
+    db_path = tmp_path / "pre_chunks_index.db"
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(sa.text(f"DROP INDEX IF EXISTS {_CHUNKS_INDEX}"))
+    plans_before = _chunk_query_plans(db_path)
+
+    async def ensure_twice() -> None:
+        async_engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+        try:
+            await database._sqlite_ensure_indexes(async_engine)
+            await database._sqlite_ensure_indexes(async_engine)
+        finally:
+            await async_engine.dispose()
+
+    asyncio.run(ensure_twice())
+    indexes = _chunk_indexes(engine)
+    plans_after = _chunk_query_plans(db_path)
+    engine.dispose()
+
+    assert all("SCAN chunks" in steps for steps in plans_before.values()), plans_before
+    assert indexes == {_CHUNKS_INDEX: _CHUNKS_INDEX_COLUMNS}
+    for shape, steps in plans_after.items():
+        assert "SCAN chunks" not in steps, (shape, steps)
+        assert any(_CHUNKS_INDEX in step for step in steps), (shape, steps)
+        assert not any("TEMP B-TREE" in step for step in steps), (shape, steps)
+
+
 @pytest.mark.skipif(
     not os.getenv("SEPTUM_TEST_POSTGRES_URL"),
     reason="SEPTUM_TEST_POSTGRES_URL not set",

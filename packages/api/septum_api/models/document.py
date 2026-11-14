@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -83,6 +84,12 @@ class Chunk(Base):
     """
 
     __tablename__ = "chunks"
+    __table_args__ = (
+        # Every chunk lookup filters on document_id and reads in chunk order:
+        # one index serves the per-document reads, deletes and IN checks
+        # without a table scan or a sort.
+        Index("ix_chunks_document_id_index", "document_id", "index"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     document_id: Mapped[int] = mapped_column(
