@@ -50,16 +50,16 @@ class _FakeDb:
 
 def _chat_run(
     store: _FakeStore, doc_ids: list[int], monkeypatch: pytest.MonkeyPatch
-) -> tuple[list[int], list[tuple[int, int]]]:
+) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
     monkeypatch.setattr(chat, "_get_vector_store", lambda: store)
     db = _FakeDb()
     documents = [SimpleNamespace(id=doc) for doc in doc_ids]
     asyncio.run(chat._retrieve_chunks_all_documents(db, "question", harness.TOP_K, documents))
-    chunk_ids: list[int] = []
+    pairs: list[tuple[int, int]] = []
     for stmt in db.statements:
         params = stmt.compile().params
-        chunk_ids.extend(next(iter(params.values())))
-    return chunk_ids, sorted(store.calls)
+        pairs.extend(next(iter(params.values())))
+    return pairs, sorted(store.calls)
 
 
 @pytest.mark.parametrize("doc_count", [1, 5, 9, 20])
@@ -68,7 +68,7 @@ def test_auto_rag_matches_chat_candidates_and_threshold(
 ) -> None:
     doc_ids = list(range(1, doc_count + 1))
     chat_store = _FakeStore(doc_ids)
-    chat_ids, chat_calls = _chat_run(chat_store, doc_ids, monkeypatch)
+    chat_pairs, chat_calls = _chat_run(chat_store, doc_ids, monkeypatch)
 
     harness_store = _FakeStore(doc_ids)
     index = harness.Index(store=harness_store, bm25=None, doc_keys=doc_ids, chunks={})
@@ -76,9 +76,11 @@ def test_auto_rag_matches_chat_candidates_and_threshold(
     retriever = harness.RETRIEVERS["auto_rag"]
     kept = harness._apply_threshold(merged, retriever.threshold)
 
-    assert chat_calls and chat_ids
+    assert chat_calls and chat_pairs
     assert sorted(harness_store.calls) == chat_calls
-    assert [cid for cid, _ in kept] == chat_ids
+    assert [cid for cid, _ in kept] == [cid for cid, _ in chat_pairs]
+    assert all(doc == cid // 100 for cid, doc in chat_pairs)
+    assert {doc for _, doc in chat_pairs} <= set(doc_ids)
     assert len(kept) <= min(harness.TOP_K * 3, MAX_CONTEXT_CHUNKS)
 
 

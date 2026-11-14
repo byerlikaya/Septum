@@ -75,7 +75,7 @@ from septum_core.placeholder_space import (
     settle_strays,
     unify_placeholder_spaces,
 )
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -964,7 +964,9 @@ async def _retrieve_chunks(
             filtered = normalized[:1]
 
         chunk_id_order = [cid for cid, _ in filtered]
-        stmt = select(Chunk).where(Chunk.id.in_(chunk_id_order))
+        stmt = select(Chunk).where(
+            Chunk.id.in_(chunk_id_order), Chunk.document_id == document_id
+        )
         db_result = await db.execute(stmt)
         base_chunks = db_result.scalars().all()
         # Preserve retrieval order (by normalized score desc) rather than
@@ -1049,19 +1051,18 @@ async def _retrieve_chunks_all_documents(
     cap = min(top_k * 3, MAX_CONTEXT_CHUNKS)
     filtered = filtered[:cap]
 
-    chunk_ids = [cid for cid, _, _ in filtered]
-    matched_doc_ids = sorted({did for _, _, did in filtered})
-
-    stmt = select(Chunk).where(Chunk.id.in_(chunk_ids))
+    hits = [(cid, did) for cid, _, did in filtered]
+    stmt = select(Chunk).where(tuple_(Chunk.id, Chunk.document_id).in_(hits))
     db_result = await db.execute(stmt)
     base_chunks = db_result.scalars().all()
 
-    order_index = {cid: idx for idx, (cid, _, _) in enumerate(filtered)}
+    order_index = {hit: idx for idx, hit in enumerate(hits)}
     chunks = sorted(
-        base_chunks, key=lambda c: order_index.get(c.id, len(filtered))
+        base_chunks,
+        key=lambda c: order_index.get((c.id, c.document_id), len(filtered)),
     )
 
-    return chunks, matched_doc_ids
+    return chunks, sorted({c.document_id for c in chunks})
 
 
 def _cap_context_chunks(chunks: List[Chunk], cap: int) -> List[Chunk]:
