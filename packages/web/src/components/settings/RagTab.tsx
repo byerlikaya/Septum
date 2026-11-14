@@ -2,9 +2,11 @@ import { useI18n } from "@/lib/i18n";
 import type { SettingsTabProps, SettingsUpdatePayload } from "./types";
 import {
   MAX_CHUNK_CHARS,
+  MAX_TOP_K,
   MIN_CHUNK_SIZE,
   MIN_OTHER_CHUNK_SIZE,
   MIN_PDF_CHUNK_SIZE,
+  MIN_TOP_K,
   maxOverlapFor
 } from "@/lib/chunkLimits";
 import { NumberField } from "./NumberField";
@@ -100,6 +102,8 @@ export function RagTab({
           onBlur={async (raw) =>
             handleNumberBlur("top_k_retrieval", raw, settings.top_k_retrieval)
           }
+          min={MIN_TOP_K}
+          max={MAX_TOP_K}
           saving={isSaving("top_k_retrieval")}
         />
 

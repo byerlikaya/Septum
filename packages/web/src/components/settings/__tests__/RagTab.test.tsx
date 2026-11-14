@@ -47,6 +47,16 @@ describe("RagTab chunk limits", () => {
     expect(fieldFor("settings.rag.pdfChunkSize.label")).toHaveAttribute("min", "800");
     expect(fieldFor("settings.rag.audioChunkSize.label")).toHaveAttribute("min", "1");
     expect(fieldFor("settings.rag.spreadsheetChunkSize.label")).toHaveAttribute("min", "1");
+    const topK = fieldFor("settings.rag.topK.label");
+    expect(topK).toHaveAttribute("min", "1");
+    expect(topK).toHaveAttribute("max", "25");
+  });
+
+  it("clamps a top-k above the API cap before sending", () => {
+    const { onChange, commit } = setup();
+    const input = commit("settings.rag.topK.label", "1000");
+    expect(onChange).toHaveBeenCalledWith("top_k_retrieval", 25);
+    expect(input).toHaveValue(25);
   });
 
   it("clamps an oversized chunk size before sending", () => {
