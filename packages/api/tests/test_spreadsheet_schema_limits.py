@@ -223,6 +223,10 @@ def _column(index: int = 0, **overrides: Any) -> dict[str, Any]:
     return column
 
 
+def _no_label(index: int) -> None:
+    return None
+
+
 def _payload(indexes: Any, label_of: Any = lambda i: f"L{i}") -> list[dict[str, Any]]:
     return [
         _column(index=i, technical_label=f"COLUMN_{i + 1}", semantic_label=label_of(i))
@@ -519,15 +523,15 @@ class TestConcurrentFirstCreate:
         calls = _hold_first_creates(monkeypatch, backend)
 
         first, second = await asyncio.gather(
-            _put(env, doc, _payload(range(3), lambda i: f"A{i}")),
-            _put(env, doc, _payload(range(3), lambda i: f"B{i}")),
+            _put(env, doc, _payload(range(3), _no_label)),
+            _put(env, doc, _payload(range(3), _no_label)),
         )
 
         assert first.status_code == 200, first.text
         assert second.status_code == 200, second.text
         [columns] = await _stored_schemas(env, doc)
         assert [index for index, _ in columns] == [0, 1, 2]
-        assert {label[0] for _, label in columns} in ({"A"}, {"B"})
+        assert all(label is None for _, label in columns)
         # On PostgreSQL the loser's insert hit the unique index and re-read the winner.
         assert calls.count(True) == (1 if backend == "postgresql" else 0)
 
@@ -537,7 +541,7 @@ class TestConcurrentFirstCreate:
     ) -> None:
         doc = await env.add_document()
         _hold_first_creates(monkeypatch, backend)
-        payloads = [_payload([0, 1]), _payload([2])]
+        payloads = [_payload([0, 1], _no_label), _payload([2], _no_label)]
 
         responses = await asyncio.gather(*(_put(env, doc, p) for p in payloads))
 
@@ -546,6 +550,36 @@ class TestConcurrentFirstCreate:
         winner = payloads[statuses.index(200)]
         [columns] = await _stored_schemas(env, doc)
         assert columns == [(c["index"], c["semantic_label"]) for c in winner]
+
+    @_BOTH_BACKENDS
+    async def test_concurrent_first_puts_with_typed_labels_serialize_on_the_document_row(
+        self, env: _Env, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Typed-label PUTs hold the document row, so the second sees the first's schema."""
+        doc = await env.add_document()
+        real = documents_router._lock_and_read_schema
+        reads: list[Any] = []
+
+        async def _recorded(db, document_id, *, required=False):
+            schema = await real(db, document_id, required=required)
+            reads.append(schema)
+            return schema
+
+        monkeypatch.setattr(documents_router, "_lock_and_read_schema", _recorded)
+        payloads = [
+            _payload(range(3), lambda i: f"A{i}"),
+            _payload(range(3), lambda i: f"B{i}"),
+        ]
+
+        responses = await asyncio.gather(*(_put(env, doc, p) for p in payloads))
+
+        assert [r.status_code for r in responses] == [200, 200], [r.text for r in responses]
+        assert sum(schema is None for schema in reads) == 1
+        [columns] = await _stored_schemas(env, doc)
+        assert columns in (
+            [(c["index"], c["semantic_label"]) for c in payloads[0]],
+            [(c["index"], c["semantic_label"]) for c in payloads[1]],
+        )
 
     @_BOTH_BACKENDS
     async def test_ingestion_create_losing_to_a_put_keeps_the_put_schema(
