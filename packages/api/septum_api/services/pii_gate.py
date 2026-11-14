@@ -42,7 +42,7 @@ from septum_core.language_resolution import iso_language_code
 from septum_core.language_segments import MAX_DETECTOR_CALLS_PER_DOCUMENT, Segment
 from septum_core.spans import entity_range
 from septum_core.text_boundaries import CAMEL_STEP, TOKEN_END, TOKEN_START
-from sqlalchemy import select
+from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..errors import ContentFreeError, OriginalsPatternTooDeepError
@@ -1183,6 +1183,16 @@ class DocumentGoneError(HTTPException):
         super().__init__(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
 
 
+class DocumentNotEditableError(HTTPException):
+    """HTTP 409: the document's ingestion has not completed, so it may not be edited."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only a document that finished processing can be edited.",
+        )
+
+
 class DocumentMapConflictError(HTTPException):
     """HTTP 409: the document map kept changing under concurrent writers."""
 
@@ -1235,11 +1245,70 @@ async def _working_copy(
     return working
 
 
-async def _require_row(db: AsyncSession, document: Document) -> None:
-    """Raise HTTP 404 when the document row no longer exists."""
-    still_exists = await db.scalar(select(Document.id).where(Document.id == document.id))
-    if still_exists is None:
+def _editable(run_token: Optional[str]):
+    """SQL condition: the document is ``completed`` and still carries the run token ``run_token``.
+
+    ``IS NOT DISTINCT FROM``, so a document without a token matches only
+    ``None``. A full reprocess between reading the document and writing to
+    it changes the token, so it is refused even though the status is
+    ``completed`` again.
+    """
+    return and_(
+        Document.ingestion_status == "completed",
+        Document.ingestion_run_id.is_not_distinct_from(run_token),
+    )
+
+
+async def _require_row(
+    db: AsyncSession,
+    document: Document,
+    *,
+    completed: bool,
+    run_token: Optional[str] = None,
+) -> None:
+    """Raise HTTP 404 when the document row no longer exists.
+
+    With ``completed``, also raise HTTP 409 (:class:`DocumentNotEditableError`)
+    unless the row is ``completed`` and still carries ``run_token``: a
+    running ingestion stores its own map over an edit's, a failed one has
+    had its map erased, and a reprocess has rebuilt it, so an edit must not
+    write a map for any of them.
+    """
+    row = (
+        await db.execute(
+            select(Document.id, _editable(run_token).label("editable")).where(
+                Document.id == document.id
+            )
+        )
+    ).first()
+    if row is None:
         raise DocumentGoneError()
+    if completed and not row.editable:
+        raise DocumentNotEditableError()
+
+
+async def hold_completed_document(
+    db: AsyncSession, document_id: int, run_token: Optional[str]
+) -> None:
+    """Hold the document in the open transaction while it is editable, or raise HTTP 409.
+
+    A no-op UPDATE of the row that matches only while the document is
+    ``completed`` and still carries ``run_token``. Issued before the edit's own writes so they
+    commit together: it takes the row lock (PostgreSQL) or the database
+    write lock (SQLite), so an ingestion claim or a failure purge either
+    landed already, failing the guard, or waits for this commit. On a
+    mismatch, a deleted row included, the transaction is rolled back.
+    """
+    held = await db.scalar(
+        update(Document)
+        .where(Document.id == document_id, _editable(run_token))
+        .values(ingestion_run_id=Document.ingestion_run_id)
+        .returning(Document.id)
+        .execution_options(synchronize_session=False)
+    )
+    if held is None:
+        await db.rollback()
+        raise DocumentNotEditableError()
 
 
 async def _gate_and_merge(
@@ -1260,7 +1329,9 @@ async def _gate_and_merge(
     gated copy is written if it gained anything. Changed (another worker
     added entities meanwhile): the attempt is discarded and redone on the
     new copy, so no placeholder number is ever reused or overwritten. The
-    row is checked before the sanitizer runs and again under the lock.
+    row is checked before the sanitizer is built or run and again under the
+    lock; an edit (``require_existing_map`` false) also requires it
+    ``completed`` with the run token it was read with.
     Texts are masked in the document's effective masking language (see
     :func:`effective_masking_language`), not the language the map was built
     in, and the written map carries that language so every later reader
@@ -1272,12 +1343,14 @@ async def _gate_and_merge(
     ``sanitizer`` raises :class:`ValueError` before anything is read.
     """
     _require_ungated(sanitizer)
-    if sanitizer is None and any(texts):
-        sanitizer = await create_user_text_sanitizer(db, settings)
     if effective_masking_source(document) == "override":
         segmenter = None
+    edit = not require_existing_map
+    run_token = document.ingestion_run_id if edit else None
     for _ in range(_MAP_MERGE_ATTEMPTS):
-        await _require_row(db, document)
+        await _require_row(db, document, completed=edit, run_token=run_token)
+        if sanitizer is None and any(texts):
+            sanitizer = await create_user_text_sanitizer(db, settings)
         base = await load_persisted_document_map(document.id)
         if base is None and require_existing_map:
             raise DocumentMapMissingError(f"Document {document.id} has no anonymization map")
@@ -1295,7 +1368,7 @@ async def _gate_and_merge(
             segmenter=segmenter,
         )
         async with document_map_lock(document.id) as lock:
-            await _require_row(db, document)
+            await _require_row(db, document, completed=edit, run_token=run_token)
             current = await load_persisted_document_map(document.id)
             if current is None and require_existing_map:
                 raise DocumentMapMissingError(
@@ -1339,6 +1412,11 @@ async def gate_document_texts(
     The delete endpoint erases the map and removes the row under the same
     lock, so the row is re-checked once the lock is held: a document
     deleted meanwhile aborts with HTTP 404 and its map is not recreated.
+    A document whose ingestion is not ``completed`` (running, failed or not
+    yet started), or that was reprocessed since ``document`` was read (its
+    run token changed), aborts with HTTP 409
+    (:class:`DocumentNotEditableError`), checked under the lock as well,
+    and nothing is written.
     A caller gating several documents may pass one ``sanitizer`` built
     beforehand by :func:`create_user_text_sanitizer`. ``joined`` gates the
     texts in one sanitizer run (see :func:`gate_untrusted_texts`).
@@ -1386,6 +1464,7 @@ __all__ = [
     "DocumentGoneError",
     "DocumentMapConflictError",
     "DocumentMapMissingError",
+    "DocumentNotEditableError",
     "LearnedValueMasker",
     "TextSegmenter",
     "all_placeholders_known",
@@ -1393,6 +1472,7 @@ __all__ = [
     "ensure_originals_searchable",
     "gate_document_texts",
     "gate_untrusted_texts",
+    "hold_completed_document",
     "is_letter_fragment",
     "mask_known_entities",
     "section_title_masker",

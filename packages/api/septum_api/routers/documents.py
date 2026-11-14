@@ -105,7 +105,7 @@ from ..services.ingestion.ods_ingester import OdsIngester
 from ..services.ingestion.pdf_ingester import PdfIngester
 from ..services.ingestion.router import IngestionRouter
 from ..services.ingestion.xlsx_ingester import XlsxIngester
-from ..services.pii_gate import gate_document_texts
+from ..services.pii_gate import gate_document_texts, hold_completed_document
 from ..services.policy_snapshot import (
     PolicySnapshot,
     current_policy_snapshot,
@@ -565,13 +565,16 @@ async def _schema_for_update(
 
 async def _gate_semantic_labels(
     db: AsyncSession, document: Document, payload: SpreadsheetSchemaUpdatePayload
-) -> None:
-    """Replace every typed semantic label in ``payload`` with its PII-gated form."""
+) -> bool:
+    """Replace every typed semantic label in ``payload`` with its PII-gated form.
+
+    Returns whether any label was typed (and so gated).
+    """
     typed_labels = [
         c.semantic_label for c in payload.columns if c.semantic_label
     ]
     if not typed_labels:
-        return
+        return False
     settings = await load_settings(db)
     gated_labels = iter(
         await gate_document_texts(db, settings, document, typed_labels, joined=True)
@@ -579,6 +582,7 @@ async def _gate_semantic_labels(
     for c in payload.columns:
         if c.semantic_label:
             c.semantic_label = next(gated_labels)
+    return True
 
 
 def _apply_column_updates(
@@ -623,7 +627,10 @@ async def update_spreadsheet_schema(
     Only ``semantic_label`` and ``is_numeric`` fields are mutable; ``index`` and
     ``technical_label`` must match the existing schema. Semantic labels are
     user-typed and end up in the cloud prompt, so they pass the PII gate
-    before they are stored. ``technical_label`` is never taken from the
+    before they are stored; typed labels are refused with 409 unless the
+    document's ingestion completed and it was not reprocessed before the
+    update commits (the document row is held before the schema row).
+    ``technical_label`` is never taken from the
     client: new columns get the server-generated ``COLUMN_<index+1>``.
     Once a schema exists the update may only touch its existing columns, and
     may not leave more labelled columns than ``MAX_SCHEMA_LABELED_COLUMNS``;
@@ -635,12 +642,14 @@ async def update_spreadsheet_schema(
     document = await get_owned_or_404(
         db, Document, document_id, user, _DOCUMENT_NOT_FOUND
     )
+    run_token = document.ingestion_run_id
     schema = await _read_schema(db, document_id)
     if schema is not None:
         _check_update_fits_schema(
             payload, {col.index: col for col in schema.columns}
         )
-    await _gate_semantic_labels(db, document, payload)
+    if await _gate_semantic_labels(db, document, payload):
+        await hold_completed_document(db, document_id, run_token)
 
     schema, columns_by_index = await _schema_for_update(db, document_id, payload)
     _apply_column_updates(db, schema, columns_by_index, payload)
@@ -1655,7 +1664,10 @@ async def _erase_document_locked(
     Caller holds the document's map lock. Raises HTTP 500 if a stored copy
     survives, or if the lock is no longer held right before the commit —
     a writer that took it over could store a map the erasure never saw.
-    Either way the row stays in place so the delete can be retried.
+    Either way the row stays in place so the delete can be retried. The
+    row is locked (a no-op UPDATE) before its audit events and chunks are
+    deleted, the order a chunk edit takes them in, so the two cannot
+    deadlock on PostgreSQL.
     """
     document_id = document.id
 
@@ -1676,6 +1688,12 @@ async def _erase_document_locked(
         ) from exc.error
 
     from sqlalchemy import delete as sa_delete
+    await db.execute(
+        update(Document)
+        .where(Document.id == document_id)
+        .values(ingestion_run_id=Document.ingestion_run_id)
+        .execution_options(synchronize_session=False)
+    )
     await db.execute(
         sa_delete(AuditEvent).where(AuditEvent.document_id == document_id)
     )

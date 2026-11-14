@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 from typing import List, Optional, Sequence
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
@@ -20,7 +20,12 @@ from ..request_limits import (
     TOP_K_RETRIEVAL_MAX_CAP,
 )
 from ..services.document_anon_store import get_document_map
-from ..services.pii_gate import gate_document_texts, section_title_masker
+from ..services.pii_gate import (
+    DocumentNotEditableError,
+    gate_document_texts,
+    hold_completed_document,
+    section_title_masker,
+)
 from ..services.vector_store import VectorStore
 from ..utils.auth_dependency import get_current_user, require_role
 from ..utils.db_helpers import get_or_404, get_owned_or_404, load_settings
@@ -50,6 +55,20 @@ from ..utils.text_utils import normalize_unicode
 _CHUNK_NOT_FOUND = "Chunk not found."
 
 router = APIRouter(prefix="/api/chunks", tags=["chunks"])
+
+
+async def _completed_document(db: AsyncSession, chunk: Chunk) -> Document:
+    """Return the chunk's document, or raise HTTP 409 unless its ingestion completed.
+
+    A running ingestion still writes the document's chunks, detections and
+    map, and a failed one has had them erased, so neither takes chunk edits.
+    The caller holds the document on the run token read here
+    (:func:`hold_completed_document`), so a reprocess in between is refused.
+    """
+    document = await get_or_404(db, Document, chunk.document_id, _CHUNK_NOT_FOUND)
+    if document.ingestion_status != "completed":
+        raise DocumentNotEditableError()
+    return document
 
 
 class ChunkResponse(BaseModel):
@@ -201,10 +220,14 @@ async def update_chunk(
     Edited text and section title are user-typed, so both pass the PII gate
     before they are stored: neither ever holds raw PII (the title is sent
     to the approval modal with the chunk), and entities first seen here are
-    added to the document's (encrypted) anonymization map.
+    added to the document's (encrypted) anonymization map. Only a chunk of
+    a ``completed`` document may be edited; any other status, or one that
+    changes before the edit commits, is refused with 409.
     """
     chunk = await get_or_404(db, Chunk, chunk_id, _CHUNK_NOT_FOUND)
     await _ensure_chunk_owner(db, chunk, user)
+    document = await _completed_document(db, chunk)
+    run_token = document.ingestion_run_id
 
     edits = {
         name: normalize_unicode(value)
@@ -215,11 +238,11 @@ async def update_chunk(
         if value is not None
     }
     if edits:
-        document = await get_or_404(db, Document, chunk.document_id, _CHUNK_NOT_FOUND)
         settings = await load_settings(db)
         gated = dict(
             zip(edits, await gate_document_texts(db, settings, document, list(edits.values())))
         )
+        await hold_completed_document(db, document.id, run_token)
         if "sanitized_text" in gated:
             chunk.sanitized_text = gated["sanitized_text"]
             chunk.char_count = len(chunk.sanitized_text)
@@ -241,11 +264,38 @@ async def delete_chunk(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin", "editor")),
 ) -> None:
-    """Delete a chunk."""
+    """Delete a chunk and recount its document's ``chunk_count``.
+
+    Only a chunk of a ``completed`` document may be deleted; any other
+    status, or one that changes before the delete commits, is refused with
+    409. The document row is held first, then the chunk deleted (the order
+    a reprocess claim takes them in); a chunk a concurrent delete removed
+    meanwhile yields 404, and ``chunk_count`` is set to the rows that remain.
+    """
     chunk = await get_or_404(db, Chunk, chunk_id, _CHUNK_NOT_FOUND)
     await _ensure_chunk_owner(db, chunk, user)
+    document = await _completed_document(db, chunk)
+    document_id = document.id
 
-    await db.delete(chunk)
+    await hold_completed_document(db, document_id, document.ingestion_run_id)
+    deleted = await db.scalar(
+        delete(Chunk)
+        .where(Chunk.id == chunk_id, Chunk.document_id == document_id)
+        .returning(Chunk.id)
+        .execution_options(synchronize_session=False)
+    )
+    if deleted is None:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_CHUNK_NOT_FOUND)
+    remaining = (
+        select(func.count()).select_from(Chunk).where(Chunk.document_id == document_id)
+    ).scalar_subquery()
+    await db.execute(
+        update(Document)
+        .where(Document.id == document_id)
+        .values(chunk_count=remaining)
+        .execution_options(synchronize_session=False)
+    )
     await db.commit()
 
 

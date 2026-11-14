@@ -26,6 +26,12 @@ def _col(index: int, tech: str, label: Any = None, numeric: Any = None) -> Any:
     return SimpleNamespace(index=index, technical_label=tech, semantic_label=label, is_numeric=numeric)
 
 
+class _Doc(str):
+    """The owned document: compares equal to ``"DOC"`` and carries a run token."""
+
+    ingestion_run_id = "RUN"
+
+
 class _Db:
     def __init__(self, events: list[tuple]) -> None:
         self.events = events
@@ -51,7 +57,7 @@ def env(monkeypatch):
 
     async def owned(db, model, document_id, user, detail):
         events.append(("owned", document_id, user, detail))
-        return "DOC"
+        return _Doc("DOC")
 
     async def read_schema(db, document_id, *, required=False):
         events.append(("read", document_id, required))
@@ -66,6 +72,9 @@ def env(monkeypatch):
         events.append(("gate", settings, document, list(texts)))
         return [f"G({t})" for t in texts]
 
+    async def hold(db, document_id, run_token):
+        events.append(("hold", document_id, run_token))
+
     async def schema_for_update(db, document_id, payload):
         events.append(("schema_for_update", document_id, [c.semantic_label for c in payload.columns]))
         return state["target"], state["target_columns"]
@@ -74,6 +83,7 @@ def env(monkeypatch):
     monkeypatch.setattr(documents, "_read_schema", read_schema)
     monkeypatch.setattr(documents, "load_settings", load_settings)
     monkeypatch.setattr(documents, "gate_document_texts", gate)
+    monkeypatch.setattr(documents, "hold_completed_document", hold)
     monkeypatch.setattr(documents, "_schema_for_update", schema_for_update)
     return SimpleNamespace(events=events, state=state)
 
@@ -103,6 +113,7 @@ async def test_new_schema_gates_labels_and_adds_columns(env):
         ("read", 9, False),
         ("settings",),
         ("gate", "SETTINGS", "DOC", ["Salary"]),
+        ("hold", 9, "RUN"),
         ("schema_for_update", 9, ["G(Salary)", None, ""]),
         ("add", 1),
         ("add", 0),
@@ -129,7 +140,7 @@ async def test_new_schema_gates_labels_and_adds_columns(env):
 async def test_without_labels_the_gate_is_skipped(env):
     await _update(env, _payload((0, "COLUMN_1", None, True)))
     kinds = [e[0] for e in env.events]
-    assert "settings" not in kinds and "gate" not in kinds
+    assert "settings" not in kinds and "gate" not in kinds and "hold" not in kinds
 
 
 async def test_existing_columns_update_only_on_matching_technical_label(env):

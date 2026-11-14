@@ -78,7 +78,7 @@ def _seed_langdetect():
 
 @pytest.fixture
 async def stored_map(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[None]:
-    async def _row_exists(_db, _document):
+    async def _row_exists(_db, _document, **_kwargs):
         return None
 
     monkeypatch.setattr(document_anon_store, "_ANON_MAP_DIR", tmp_path / "maps")
@@ -101,7 +101,9 @@ def clean_cache() -> Iterator[None]:
 
 
 def _document(detected: str = "en", override: str | None = None) -> SimpleNamespace:
-    return SimpleNamespace(id=DOC_ID, detected_language=detected, language_override=override)
+    return SimpleNamespace(
+        id=DOC_ID, detected_language=detected, language_override=override, ingestion_run_id=None
+    )
 
 
 async def _stored() -> AnonymizationMap:
