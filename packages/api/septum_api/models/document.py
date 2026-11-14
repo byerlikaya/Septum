@@ -70,6 +70,9 @@ class Document(Base):
     # Entity-index hashing scheme the document's index rows were written
     # under (``ENTITY_INDEX_VERSION``); NULL or older = rebuild at startup.
     entity_index_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Token of the ingestion run that holds the current claim; a stale run
+    # whose token no longer matches must not write over a newer claim.
+    ingestion_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
 
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"

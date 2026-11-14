@@ -11,7 +11,7 @@ from septum_core.language_resolution import iso_language_code
 from septum_core.span_projection import ProjectedChunk, project, protected_ranges
 from septum_core.spans import DetectionResult
 from septum_core.text_utils import normalize_unicode
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..errors import (
@@ -84,11 +84,63 @@ _ARTIFACT_TIER_LABELS = {
 
 
 class DocumentRunSupersededError(ContentFreeError, RuntimeError):
-    """The document stopped being ``processing`` before the run could mark it ``completed``.
+    """The document no longer holds this run's claim, so the run may not write to it.
 
-    A restart elsewhere reset it to ``failed``, or a newer run claimed it; the
-    run's own data then belongs to neither, so the run counts as failed.
+    A newer run claimed it (its run token changed), a restart elsewhere reset
+    it to ``failed`` before completion, or the row is gone; the run's own data
+    then belongs to neither, so the run counts as failed.
     """
+
+
+def _holds_claim(document_id: int, run_token: Optional[str], *, require_processing: bool):
+    """SQL condition: the document exists and its claim is still the run ``run_token``.
+
+    ``IS NOT DISTINCT FROM``, so a run without a token matches only a row
+    without one. ``require_processing`` also requires the ``processing``
+    status: an orphan reset keeps the token but sets ``failed``, and a run's
+    data must not land on a failed row.
+    """
+    condition = and_(
+        Document.id == document_id,
+        Document.ingestion_run_id.is_not_distinct_from(run_token),
+    )
+    if require_processing:
+        condition = and_(condition, Document.ingestion_status == "processing")
+    return condition
+
+
+async def fence_run(
+    db: AsyncSession,
+    document_id: int,
+    run_token: Optional[str],
+    *,
+    require_processing: bool,
+) -> None:
+    """Hold the document for run ``run_token`` in the open transaction, or refuse.
+
+    A no-op UPDATE of the row's own token that matches only while the token
+    is still ``run_token`` and, with ``require_processing``, the document is
+    still ``processing`` (every data write; a failure write passes ``False``
+    so a run can still record its failure on a row an orphan reset already
+    failed). Called at the start of each transaction a run commits, so the
+    writes that follow commit only with it: the UPDATE takes the row lock
+    (PostgreSQL) or the database write lock (SQLite), and a newer claim
+    either already landed, making this fence fail, or waits for this commit.
+    On a mismatch, a deleted row included, the transaction is rolled back and
+    :class:`DocumentRunSupersededError` is raised.
+    """
+    held = await db.scalar(
+        update(Document)
+        .where(_holds_claim(document_id, run_token, require_processing=require_processing))
+        .values(ingestion_run_id=Document.ingestion_run_id)
+        .returning(Document.id)
+        .execution_options(synchronize_session=False)
+    )
+    if held is None:
+        await db.rollback()
+        raise DocumentRunSupersededError(
+            "A newer run holds the document; this run's writes were refused."
+        )
 
 
 class ArtifactCleanupError(ContentFreeError, RuntimeError):
@@ -360,9 +412,17 @@ def _detection_rows(
 
 
 async def _store_document_map(
-    db: AsyncSession, document_id: int, anon_map: AnonymizationMap
+    db: AsyncSession,
+    document_id: int,
+    anon_map: AnonymizationMap,
+    *,
+    run_token: Optional[str],
 ) -> None:
-    """Store the map under its lock, refusing when the row was deleted meanwhile."""
+    """Store the map under its lock, refusing when the row was deleted or claimed by a newer run.
+
+    The fence (:func:`fence_run`) stays open until the map is written, so a
+    newer claim cannot land between the check and the write.
+    """
     async with document_map_lock(document_id) as lock:
         still_exists = await db.scalar(
             select(Document.id).where(Document.id == document_id)
@@ -371,27 +431,44 @@ async def _store_document_map(
             raise DocumentDeletedDuringIngestionError(
                 f"Document {document_id} was deleted during ingestion"
             )
-        await lock.ensure_held()
-        await set_document_map(document_id, anon_map)
+        await fence_run(db, document_id, run_token, require_processing=True)
+        try:
+            await lock.ensure_held()
+            await set_document_map(document_id, anon_map)
+        except BaseException:
+            await db.rollback()
+            raise
+        await db.commit()
 
 
 async def _refresh_entity_index(
-    db: AsyncSession, document_id: int, anon_map: AnonymizationMap
+    db: AsyncSession,
+    document: Document,
+    anon_map: AnonymizationMap,
+    *,
+    run_token: Optional[str],
 ) -> bool:
-    """Populate the cross-document entity index and relationship rows.
+    """Populate the cross-document entity index and relationship rows, and record its version.
 
     Lets future chat queries route narrowly to the documents that actually
     contain the entities the user asked about, and keeps the visualisation
     graph and the auto-cluster suggester in sync. The index only stores
     HMAC-SHA256 hashes of the originals under the local encryption key —
-    no raw PII is persisted here. A failure is logged by error class and
-    rolled back; the ingestion itself still completes. Returns whether the
-    rows were written, so the caller records the index version only then.
+    no raw PII is persisted here. The rows and ``entity_index_version`` are
+    written in one transaction fenced on ``run_token`` (:func:`fence_run`);
+    a refused fence raises :class:`DocumentRunSupersededError`. Any other
+    failure is logged by error class and rolled back, and the ingestion
+    itself still completes. Returns whether the rows were written.
     """
+    document_id = document.id
     try:
+        await fence_run(db, document_id, run_token, require_processing=True)
         await replace_index_for_document(db, document_id, anon_map)
         await recompute_relationships_for_document(db, document_id)
+        document.entity_index_version = ENTITY_INDEX_VERSION
         await db.commit()
+    except DocumentRunSupersededError:
+        raise
     except Exception as exc:
         logger.error(
             "Failed to populate entity index / relationships for document %s: %s",
@@ -411,8 +488,15 @@ async def _audit_detections(
     anon_map: AnonymizationMap,
     extra: Dict[str, str],
     detection_rows: Sequence[EntityDetection],
+    run_token: Optional[str],
 ) -> None:
-    """Record the PII-detected audit event and link the detection rows to it."""
+    """Record the PII-detected audit event and link the detection rows to it.
+
+    The link is fenced on ``run_token`` (:func:`fence_run`): once a newer
+    claim deleted this run's rows, their ids may already belong to the newer
+    run's rows. The event itself is a record of a detection that did happen
+    and is kept either way.
+    """
     placeholder_samples = list(anon_map.entity_map.values())[:5] if anon_map.entity_map else []
     audit_event = await log_pii_detected(
         db,
@@ -424,6 +508,7 @@ async def _audit_detections(
         placeholder_samples=placeholder_samples,
     )
     if audit_event is not None and detection_rows:
+        await fence_run(db, document.id, run_token, require_processing=True)
         await db.execute(
             update(EntityDetection)
             .where(EntityDetection.id.in_([r.id for r in detection_rows]))
@@ -473,6 +558,8 @@ class DocumentPipeline:
         file_format: str,
         ingestion_result: IngestionResult,
         on_progress: Callable[[int], None] | None = None,
+        *,
+        run_token: Optional[str],
     ) -> None:
         """Detect PII once on the whole document, cut chunks, store and index them.
 
@@ -504,6 +591,23 @@ class DocumentPipeline:
         The policy is composed once, and its snapshot (entity types and
         policy digest) is recorded when the run completes, so staleness is
         judged against the policy these chunks were actually masked under.
+
+        ``run_token`` is the token the claim that started this run handed
+        out, passed in and never re-read from the row. Every transaction the
+        run commits on the document (the chunk insert, the detection rows and
+        counts, the map store, the entity index with its version, the audit
+        link, completion) is fenced by :func:`fence_run` with ``processing``
+        required, so once a newer claim holds the document, or an orphan
+        reset failed it, this run writes none of them and raises
+        :class:`DocumentRunSupersededError`.
+
+        Accepted residual: the FAISS and BM25 files are not fenced. A run
+        that passed its last fence before a newer claim can still write them
+        after that newer run finished first; they then hold this run's chunk
+        ids, which may by then point at rows of another claim or, where the
+        database reuses freed ids, of another document, until the document
+        is reprocessed. Retrieval for the document can be wrong in that
+        window; chunk lookups by id are being hardened separately.
         """
         emit = _progress_emitter(on_progress)
 
@@ -552,26 +656,25 @@ class DocumentPipeline:
         # The local preview joins the raw chunk texts and places each
         # detection row by its chunk-relative offsets (see ``_detection_rows``).
         transcription_text = "\n\n".join(r.text for r in records)
+        await fence_run(db, document.id, run_token, require_processing=True)
         document.transcription_text = transcription_text
         document.ocr_confidence = ingestion_result.confidence
-
         chunks = await self._persist_chunks(
             db,
             _chunk_rows(document.id, records, projected, masked.titles, _sheet_numbers(blocks)),
         )
 
+        await fence_run(db, document.id, run_token, require_processing=True)
         detection_rows = _detection_rows(document.id, chunks, projected)
         if detection_rows:
             db.add_all(detection_rows)
-
         document.chunk_count = len(chunks)
         document.entity_count = masked.entity_count
         await db.commit()
         await db.refresh(document)
 
-        await _store_document_map(db, document.id, anon_map)
-        if await _refresh_entity_index(db, document.id, anon_map):
-            document.entity_index_version = ENTITY_INDEX_VERSION
+        await _store_document_map(db, document.id, anon_map, run_token=run_token)
+        await _refresh_entity_index(db, document, anon_map, run_token=run_token)
 
         if masked.entity_count > 0:
             await _audit_detections(
@@ -586,6 +689,7 @@ class DocumentPipeline:
                     "language_source": language_source,
                 },
                 detection_rows,
+                run_token,
             )
 
         if chunks:
@@ -601,25 +705,28 @@ class DocumentPipeline:
             db, document, text,
             judged=(judged_override, language_source == "override"),
         )
-        await self._mark_completed(db, document)
+        await self._mark_completed(db, document, run_token)
 
     @staticmethod
-    async def _mark_completed(db: AsyncSession, document: Document) -> None:
-        """Commit the run, setting ``completed`` only on a document still ``processing``.
+    async def _mark_completed(
+        db: AsyncSession, document: Document, run_token: Optional[str]
+    ) -> None:
+        """Commit the run, setting ``completed`` only on a document still ``processing`` for ``run_token``.
 
-        The status write is a conditional UPDATE, so a run whose document was
-        reset to ``failed`` (a restart in another process) or claimed by a
-        newer run meanwhile never marks it ``completed`` over data that is
-        no longer its own: the final transaction is rolled back and
-        :class:`DocumentRunSupersededError` is raised instead (chunks, map and
-        indexes of this run were already written and are left to the failure
-        handler's status-guarded purge). The in-memory status is set only after
-        that UPDATE matched, inside its transaction. The check reads the
-        status only, so it cannot tell one ``processing`` claim from another.
+        The status write is a conditional UPDATE that is also this
+        transaction's fence (the :func:`fence_run` condition, ``processing``
+        required), so a run whose document was reset to ``failed`` (a restart
+        in another process) or claimed by a newer run meanwhile never marks
+        it ``completed`` over data that is no longer its own: the final
+        transaction is rolled back and :class:`DocumentRunSupersededError` is
+        raised instead (chunks, map and indexes of this run were already
+        written and are left to the failure handler's status-guarded purge).
+        The in-memory status is set only after that UPDATE matched, inside
+        its transaction.
         """
         marked = await db.execute(
             update(Document)
-            .where(Document.id == document.id, Document.ingestion_status == "processing")
+            .where(_holds_claim(document.id, run_token, require_processing=True))
             .values(ingestion_status="completed", ingestion_error=None, ingestion_error_code=None)
             .execution_options(synchronize_session=False)
         )
@@ -798,7 +905,11 @@ class DocumentPipeline:
     async def _persist_chunks(
         self, db: AsyncSession, chunks: Sequence[DocumentChunk]
     ) -> List[DocumentChunk]:
-        """Store ``chunks``; the insert assigns each its id (sessions keep loaded state on commit)."""
+        """Store ``chunks`` in the caller's open transaction and commit it (the insert assigns the ids).
+
+        :meth:`run` opens that transaction with :func:`fence_run`, so the
+        chunks land only together with its fence.
+        """
         db.add_all(chunks)
         await db.commit()
         return list(chunks)
@@ -839,7 +950,12 @@ class DocumentPipeline:
         )
 
     @staticmethod
-    async def cleanup_artifacts(document_id: int) -> None:
+    async def cleanup_artifacts(
+        document_id: int,
+        *,
+        db: Optional[AsyncSession] = None,
+        run_token: Optional[str] = None,
+    ) -> None:
         """Remove FAISS index, BM25 index, and anonymization map for a document.
 
         Runs under :func:`document_map_lock`, so a concurrent map edit can
@@ -847,8 +963,27 @@ class DocumentPipeline:
         :class:`ArtifactCleanupError` naming the document, the tier and the error
         class only, with the original exception suppressed, so the path never
         reaches the error log or the document row.
+
+        A run passes its session as ``db``: its claim (``run_token``, still
+        ``processing``) is then re-read under the lock with a plain SELECT,
+        whose transaction is committed (no row lock, so the map-lock-then-row
+        order of the map store holds), and a run that no longer holds the
+        document erases nothing and raises
+        :class:`DocumentRunSupersededError`. A claim landing after that read
+        cleans up under this lock after this erasure, before it writes anything.
         """
         async with document_map_lock(document_id):
+            if db is not None:
+                held = await db.scalar(
+                    select(Document.id).where(
+                        _holds_claim(document_id, run_token, require_processing=True)
+                    )
+                )
+                await db.commit()
+                if held is None:
+                    raise DocumentRunSupersededError(
+                        "A newer run holds the document; this run's writes were refused."
+                    )
             try:
                 await erase_document_artifacts(document_id)
             except ArtifactErasureError as exc:

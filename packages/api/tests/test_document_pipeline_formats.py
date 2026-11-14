@@ -112,6 +112,7 @@ async def _ingest(env, blocks, file_format, **settings):
             ingestion_result=IngestionResult(
                 text=join_blocks(blocks), metadata={}, blocks=list(blocks)
             ),
+            run_token=None,
         )
     return await _read(env.maker)
 
@@ -253,6 +254,7 @@ async def test_detector_text_that_differs_from_the_blocks_stores_nothing(env) ->
                 ingestion_result=IngestionResult(
                     text=join_blocks(blocks), metadata={}, blocks=blocks
                 ),
+                run_token=None,
             )
     assert NAME not in str(caught.value) and "Tenant" not in str(caught.value)
     chunks, rows, stored = await _read(env.maker)
@@ -315,7 +317,7 @@ async def reingest_env(env, monkeypatch):
                 text=join_blocks(state.blocks), metadata={}, blocks=list(state.blocks)
             )
 
-    async def _cleanup(document_id):
+    async def _cleanup(document_id, *, db=None, run_token=None):
         state.cleaned.append(document_id)
 
     async def _load_settings(db):
@@ -338,7 +340,7 @@ async def test_reingest_document_runs_the_pipeline_and_finishes_the_row(reingest
     env = reingest_env.env
     async with env.maker() as session:
         doc = await _new_document(session, "pdf")
-        await reingest_env.documents.reingest_document(session, doc)
+        await reingest_env.documents.reingest_document(session, doc, run_token=None)
 
     chunks, rows, stored = await _read(env.maker)
     assert reingest_env.cleaned == [doc.id]
@@ -355,7 +357,7 @@ async def test_reingest_document_fails_an_audio_file_without_text(reingest_env) 
     env = reingest_env.env
     async with env.maker() as session:
         doc = await _new_document(session, "audio")
-        await reingest_env.documents.reingest_document(session, doc)
+        await reingest_env.documents.reingest_document(session, doc, run_token=None)
 
     chunks, _, stored = await _read(env.maker)
     assert chunks == []
@@ -394,8 +396,36 @@ def script(reingest_env, monkeypatch):
     return module
 
 
+@pytest.fixture
+def script_calls(script, reingest_env, monkeypatch):
+    """The tokens ``claim_for_reingest`` returned, and what ``reingest_document`` and the failure writer got."""
+    documents = reingest_env.documents
+    calls = SimpleNamespace(claimed=[], reingested=[], failed=[])
+    real_claim = documents.claim_for_reingest
+    real_reingest = documents.reingest_document
+    real_failure = documents.record_background_failure
+
+    async def _claim(*args, **kwargs):
+        token = await real_claim(*args, **kwargs)
+        calls.claimed.append(token)
+        return token
+
+    async def _reingest(*args, **kwargs):
+        calls.reingested.append(kwargs.get("run_token"))
+        return await real_reingest(*args, **kwargs)
+
+    async def _failure(*args, **kwargs):
+        calls.failed.append(kwargs.get("run_token"))
+        return await real_failure(*args, **kwargs)
+
+    monkeypatch.setattr(documents, "claim_for_reingest", _claim)
+    monkeypatch.setattr(documents, "reingest_document", _reingest)
+    monkeypatch.setattr(documents, "record_background_failure", _failure)
+    return calls
+
+
 async def test_reprocess_script_rebuilds_completed_documents_and_prints_no_text(
-    script, reingest_env, capsys
+    script, reingest_env, capsys, script_calls
 ) -> None:
     reingest_env.blocks = [TextBlock(f"Tenant {NAME} signed the lease.", "page", page=1)]
     env = reingest_env.env
@@ -418,10 +448,13 @@ async def test_reprocess_script_rebuilds_completed_documents_and_prints_no_text(
     assert "old" not in [c.sanitized_text for c in chunks]
     assert stored.entity_count == 1 and stored.ingestion_status == "completed"
     _assert_masked(chunks, rows)
+    [token] = script_calls.claimed
+    assert token and script_calls.reingested == [token]
+    assert stored.ingestion_run_id == token
 
 
 async def test_reprocess_script_counts_a_failure_and_prints_only_its_type(
-    script, reingest_env, capsys
+    script, reingest_env, capsys, script_calls
 ) -> None:
     reingest_env.error = ValueError(f"cannot read {NAME}")
     env = reingest_env.env
@@ -436,6 +469,12 @@ async def test_reprocess_script_counts_a_failure_and_prints_only_its_type(
     assert failed == 1
     assert "failed (ValueError)" in out
     assert NAME not in out
+    _, _, stored = await _read(env.maker)
+    assert stored.ingestion_status == "failed"
+    assert stored.ingestion_error and NAME not in stored.ingestion_error
+    [token] = script_calls.claimed
+    assert token and script_calls.reingested == [token] and script_calls.failed == [token]
+    assert stored.ingestion_run_id == token
 
 
 async def test_overlapping_sliding_chunks_store_offsets_that_slice_the_joined_text(env) -> None:

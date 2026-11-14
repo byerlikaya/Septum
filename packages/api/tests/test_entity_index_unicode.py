@@ -185,12 +185,18 @@ async def test_refresh_after_ingestion_reports_whether_rows_were_written(
     from septum_api.services import document_pipeline as dp
 
     async with maker() as db:
-        await _add_document(db, 1)
-        assert await dp._refresh_entity_index(db, 1, _map(1, "新宿区")) is True
+        await _add_document(db, 1, status="processing")
+        document = await db.get(Document, 1)
+        assert await dp._refresh_entity_index(
+            db, document, _map(1, "新宿区"), run_token=None
+        ) is True
 
     async def _boom(*args, **kwargs):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(dp, "replace_index_for_document", _boom)
     async with maker() as db:
-        assert await dp._refresh_entity_index(db, 1, _map(1, "新宿区")) is False
+        document = await db.get(Document, 1)
+        assert await dp._refresh_entity_index(
+            db, document, _map(1, "新宿区"), run_token=None
+        ) is False

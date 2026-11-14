@@ -8,7 +8,10 @@ counts and placeholders are therefore exactly what a fresh upload produces,
 and the document's policy snapshot is refreshed, so it no longer reports as
 outdated.
 
-Run it with the API stopped, from ``packages/api/``. It reads the same
+Run it with the API stopped, from ``packages/api/``. Each document is
+claimed like the endpoint claims it, and its run fences every write on the
+run token that claim returned, so a run an API process still had in flight
+cannot write over it. It reads the same
 configuration as the server (``config.json`` and environment overrides).
 Only document ids, statuses and counts are printed; never file names or
 document text.
@@ -68,14 +71,18 @@ async def _reprocess_all() -> int:
             if document is None:
                 continue
             old_count = str(document.entity_count)
-            if not await claim_for_reingest(db, document_id, only_completed=True):
+            user_id = document.user_id
+            run_token = await claim_for_reingest(db, document_id, only_completed=True)
+            if run_token is None:
                 print(f"{document_id:<6} {old_count:<6} {'-':<6} skipped")
                 continue
             await db.refresh(document)
             try:
-                await reingest_document(db, document)
+                await reingest_document(db, document, run_token=run_token)
             except Exception as exc:
-                await record_background_failure(db, document_id, exc, document.user_id)
+                await record_background_failure(
+                    db, document_id, exc, user_id, run_token=run_token
+                )
                 failed += 1
                 print(f"{document_id:<6} {old_count:<6} {'-':<6} failed ({type(exc).__name__})")
                 continue
