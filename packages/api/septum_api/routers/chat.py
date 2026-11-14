@@ -216,7 +216,7 @@ class ChatRequest(BaseModel):
 
     message: Optional[str] = Field(default=None, max_length=MAX_CHAT_MESSAGE_CHARS)
     document_id: Optional[DocumentId] = None
-    top_k: Optional[int] = None
+    top_k: Optional[int] = Field(default=None, ge=0, le=TOP_K_RETRIEVAL_MAX_CAP)
     session_id: Optional[str] = Field(default=None, max_length=MAX_SESSION_ID_LENGTH)
 
     query: Optional[str] = Field(default=None, max_length=MAX_CHAT_MESSAGE_CHARS)
