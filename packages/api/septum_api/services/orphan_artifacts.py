@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..models.document import Document
 from .bm25_retriever import BM25Retriever
 from .document_anon_store import (
+    SWEEP_LOCK_WAIT_SECONDS,
     DocumentMapErasureError,
     DocumentMapLockLost,
     DocumentMapLockTimeout,
@@ -48,9 +49,6 @@ logger = logging.getLogger(__name__)
 # Upload writes the encrypted source before its row is committed; a file
 # younger than this may belong to an upload still in flight in another worker.
 SOURCE_MIN_AGE_SECONDS = 300
-# Startup waits on each orphan in turn, so a stuck lock must not hold the
-# API back for the full request-path wait; a timeout is retried next startup.
-SWEEP_LOCK_WAIT_SECONDS = 3
 
 
 @dataclass

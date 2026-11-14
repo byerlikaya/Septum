@@ -86,10 +86,13 @@ from ..services.document_anon_store import (
     document_map_lock,
 )
 from ..services.document_pipeline import (
+    DERIVED_DATA_RESET,
     ArtifactErasureError,
     DocumentPipeline,
+    DocumentRunSupersededError,
     erase_document_artifacts,
     log_artifact_erasure_failure,
+    purge_failed_derived_data,
 )
 from ..services.entity_index_service import drop_index_for_document
 from ..services.error_logger import log_backend_error, report_error_log_failure
@@ -862,11 +865,77 @@ async def record_background_failure(
     cannot land, the status is still written on its own (the startup purge
     then removes the leftover index), so the document never stays in
     ``processing``.
+
+    Last, :func:`purge_failed_derived_data` erases what the run left behind
+    (chunks, detections, extracted text, map, indexes); it never raises and
+    never changes the recorded failure.
+
+    A :class:`DocumentRunSupersededError` means the row is no longer this
+    run's: it is ``failed`` already or claimed by a newer run. No status is
+    written then, and the entity index is dropped only if the row is still
+    ``failed``, so a newer run is never clobbered.
     """
     try:
         await bg_db.rollback()
     except Exception as log_exc:
         logger.warning("Rollback during ingestion failure handling failed: %s", type(log_exc).__name__)
+    if isinstance(exc, DocumentRunSupersededError):
+        await _drop_index_if_still_failed(bg_db, doc_id)
+    else:
+        await _record_failure_status(bg_db, doc_id, exc)
+
+    # Also write the failure to the centralized error log so it shows up in
+    # the Error Logs UI alongside HTTP-handler failures. ``log_backend_error``
+    # opens its own commit, so we want to call it AFTER the document UPDATE
+    # has either landed or been given up on. Best-effort: if logging itself
+    # fails (e.g. broken connection), swallow so the original error is still
+    # at least attached to the Document row.
+    try:
+        await log_backend_error(
+            bg_db,
+            None,
+            exc,
+            extra={"source": "ingestion", "document_id": doc_id},
+            identity=f"user:{user_id}",
+        )
+    except Exception as log_exc:
+        report_error_log_failure(log_exc)
+
+    await purge_failed_derived_data(bg_db, doc_id, clear_reply_cache=False)
+
+
+async def _drop_index_if_still_failed(bg_db: AsyncSession, doc_id: int) -> None:
+    """Drop the entity index of a superseded run's document only while it is ``failed``.
+
+    The status-guarded UPDATE takes the row lock first, so a document
+    claimed meanwhile keeps its index. A failure is logged by error class.
+    """
+    try:
+        locked = await bg_db.execute(
+            update(Document)
+            .where(Document.id == doc_id, Document.ingestion_status == "failed")
+            .values(entity_index_version=None)
+            .returning(Document.id)
+        )
+        if locked.scalar_one_or_none() is not None:
+            await drop_index_for_document(bg_db, doc_id)
+        await bg_db.commit()
+    except Exception as drop_exc:
+        logger.warning(
+            "Dropping the entity index of a superseded ingestion did not land: %s",
+            type(drop_exc).__name__,
+        )
+        try:
+            await bg_db.rollback()
+        except Exception as rollback_exc:
+            logger.warning(
+                "Rollback during ingestion failure handling failed: %s",
+                type(rollback_exc).__name__,
+            )
+
+
+async def _record_failure_status(bg_db: AsyncSession, doc_id: int, exc: BaseException) -> None:
+    """Write the ``failed`` status with the run's public error, dropping its entity index too."""
     failure_values = {
         "ingestion_status": "failed",
         "ingestion_error": public_error_text(exc, "Ingestion failed"),
@@ -910,23 +979,6 @@ async def record_background_failure(
             logger.warning(
                 "Recovery update for failed ingestion did not land: %s", type(log_exc).__name__
             )
-
-    # Also write the failure to the centralized error log so it shows up in
-    # the Error Logs UI alongside HTTP-handler failures. ``log_backend_error``
-    # opens its own commit, so we want to call it AFTER the document UPDATE
-    # has either landed or been given up on. Best-effort: if logging itself
-    # fails (e.g. broken connection), swallow so the original error is still
-    # at least attached to the Document row.
-    try:
-        await log_backend_error(
-            bg_db,
-            None,
-            exc,
-            extra={"source": "ingestion", "document_id": doc_id},
-            identity=f"user:{user_id}",
-        )
-    except Exception as log_exc:
-        report_error_log_failure(log_exc)
 
 
 _MIME_SNIFF_BYTES = 7 * 1024 * 1024
@@ -1629,13 +1681,7 @@ async def claim_for_reingest(
             ingestion_status="processing",
             ingestion_error=None,
             ingestion_error_code=None,
-            chunk_count=0,
-            entity_count=0,
-            transcription_text=None,
-            sanitized_entity_types=None,
-            sanitized_policy_digest=None,
-            sanitized_language=None,
-            sanitized_languages=None,
+            **DERIVED_DATA_RESET,
         )
         .execution_options(synchronize_session=False)
     )

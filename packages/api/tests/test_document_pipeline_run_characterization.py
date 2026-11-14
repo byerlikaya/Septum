@@ -52,8 +52,12 @@ class _Db:
         self.events.append(("exists_check",))
         return 7 if self.exists else None
 
-    async def execute(self, stmt: Any) -> None:
-        self.events.append(("execute", str(stmt).split()[0]))
+    async def execute(self, stmt: Any) -> Any:
+        sql = str(stmt)
+        if "ingestion_status" in sql:
+            self.events.append(("mark_completed",))
+            return SimpleNamespace(rowcount=1)
+        self.events.append(("execute", sql.split()[0]))
 
     async def rollback(self) -> None:
         self.events.append(("rollback",))
@@ -314,6 +318,7 @@ async def test_full_run_sequence(env):
         ("faiss", 7, [11, 12, 13], RAW_CHUNKS),
         ("bm25", 7, [11, 12, 13], RAW_CHUNKS),
         ("clear_override", TEXT, ("sup:tr", False), "processing"),
+        ("mark_completed",),
         ("commit",),
     ]
     assert env.persisted["stored"] == [

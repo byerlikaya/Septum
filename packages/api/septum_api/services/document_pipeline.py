@@ -11,8 +11,8 @@ from septum_core.language_resolution import iso_language_code
 from septum_core.span_projection import ProjectedChunk, project, protected_ranges
 from septum_core.spans import DetectionResult
 from septum_core.text_utils import normalize_unicode
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, or_, select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..errors import (
     ChunkTooLargeError,
@@ -45,9 +45,12 @@ from .audit_logger import (
 from .bm25_retriever import BM25Retriever, bm25_index_lock
 from .chunking import ChunkRecord, chunk_blocks
 from .document_anon_store import (
+    SWEEP_LOCK_WAIT_SECONDS,
     DocumentMapErasureError,
+    disk_map_document_ids,
     document_map_lock,
     pop_document_map,
+    redis_map_document_ids,
     set_document_map,
 )
 from .entity_index_service import (
@@ -78,6 +81,14 @@ _ARTIFACT_TIER_LABELS = {
     "anonymization_map": "anonymization map",
     "detection_cache": "local-model detection cache",
 }
+
+
+class DocumentRunSupersededError(ContentFreeError, RuntimeError):
+    """The document stopped being ``processing`` before the run could mark it ``completed``.
+
+    A restart elsewhere reset it to ``failed``, or a newer run claimed it; the
+    run's own data then belongs to neither, so the run counts as failed.
+    """
 
 
 class ArtifactCleanupError(ContentFreeError, RuntimeError):
@@ -590,6 +601,33 @@ class DocumentPipeline:
             db, document, text,
             judged=(judged_override, language_source == "override"),
         )
+        await self._mark_completed(db, document)
+
+    @staticmethod
+    async def _mark_completed(db: AsyncSession, document: Document) -> None:
+        """Commit the run, setting ``completed`` only on a document still ``processing``.
+
+        The status write is a conditional UPDATE, so a run whose document was
+        reset to ``failed`` (a restart in another process) or claimed by a
+        newer run meanwhile never marks it ``completed`` over data that is
+        no longer its own: the final transaction is rolled back and
+        :class:`DocumentRunSupersededError` is raised instead (chunks, map and
+        indexes of this run were already written and are left to the failure
+        handler's status-guarded purge). The in-memory status is set only after
+        that UPDATE matched, inside its transaction. The check reads the
+        status only, so it cannot tell one ``processing`` claim from another.
+        """
+        marked = await db.execute(
+            update(Document)
+            .where(Document.id == document.id, Document.ingestion_status == "processing")
+            .values(ingestion_status="completed", ingestion_error=None, ingestion_error_code=None)
+            .execution_options(synchronize_session=False)
+        )
+        if marked.rowcount != 1:
+            await db.rollback()
+            raise DocumentRunSupersededError(
+                "The document stopped being processed before this run could complete it."
+            )
         document.ingestion_status = "completed"
         document.ingestion_error = None
         document.ingestion_error_code = None
@@ -819,3 +857,251 @@ class DocumentPipeline:
                     f"({type(exc.error).__name__})"
                 ) from None
 
+
+
+DERIVED_DATA_RESET: Dict[str, object] = {
+    "chunk_count": 0,
+    "entity_count": 0,
+    "transcription_text": None,
+    "sanitized_entity_types": None,
+    "sanitized_policy_digest": None,
+    "sanitized_language": None,
+    "sanitized_languages": None,
+}
+"""Document columns a run derives from its text, reset whenever its chunks go."""
+
+
+def _holds_derived_data():
+    """SQL condition: the document still holds extracted text, chunks or detection rows."""
+    return or_(
+        Document.transcription_text.is_not(None),
+        Document.id.in_(select(DocumentChunk.document_id)),
+        Document.id.in_(select(EntityDetection.document_id)),
+    )
+
+
+def _log_purge_failure(document_id: int, exc: BaseException) -> None:
+    logger.error(
+        "Purging the derived data of failed document_id=%s did not land: %s",
+        document_id,
+        type(exc).__name__,
+    )
+
+
+async def _rollback_quietly(db: AsyncSession) -> None:
+    try:
+        await db.rollback()
+    except Exception as exc:
+        logger.warning("Rollback after a failed purge did not land: %s", type(exc).__name__)
+
+
+async def _erase_failed_artifacts(
+    db: AsyncSession, document_id: int, *, clear_reply_cache: bool
+) -> bool:
+    """Erase the indexes and map of a document that is still ``failed``; never raises.
+
+    The status is read again under :func:`document_map_lock`, and the read
+    transaction ends before anything is erased. A reprocess claims the
+    document before its own cleanup takes that lock, so a document claimed
+    meanwhile is left to that run, and one claimed while the lock is held
+    rebuilds only after this erasure. The source file is never touched.
+
+    The wait for another worker's lock is :data:`SWEEP_LOCK_WAIT_SECONDS`
+    (the process-local lock has no limit, as in the orphan sweep), and the lock
+    is confirmed held right before the erasure. A timeout, or a failure before
+    the erasure, erases nothing; a lock lost only when it is released comes
+    after a successful erasure. Either way the failure is logged by error
+    class only and the function returns ``False``, so the rows stay as the
+    startup sweep's marker. Returns whether the erasure ran.
+    """
+    try:
+        async with document_map_lock(document_id, wait_seconds=SWEEP_LOCK_WAIT_SECONDS) as lock:
+            still_failed = await db.scalar(
+                select(Document.id).where(
+                    Document.id == document_id, Document.ingestion_status == "failed"
+                )
+            )
+            await db.rollback()
+            if still_failed is None:
+                return False
+            await lock.ensure_held()
+            await erase_document_artifacts(document_id, clear_reply_cache=clear_reply_cache)
+    except ArtifactErasureError as exc:
+        log_artifact_erasure_failure(document_id, exc)
+        await _rollback_quietly(db)
+        return False
+    except Exception as exc:
+        _log_purge_failure(document_id, exc)
+        await _rollback_quietly(db)
+        return False
+    return True
+
+
+async def _purge_failed_rows(db: AsyncSession, document_ids: Sequence[int]) -> List[int]:
+    """Drop the chunks, detections and derived columns of the documents still ``failed``.
+
+    The status-guarded UPDATE ... RETURNING runs first and takes the row
+    locks, so a document reprocessed since it was checked is skipped and the
+    deletes act only on the returned ids. Caller commits.
+    """
+    locked = await db.execute(
+        update(Document)
+        .where(Document.id.in_(document_ids), Document.ingestion_status == "failed")
+        .values(**DERIVED_DATA_RESET)
+        .returning(Document.id)
+    )
+    still_failed = list(locked.scalars().all())
+    if still_failed:
+        await db.execute(
+            delete(EntityDetection).where(EntityDetection.document_id.in_(still_failed))
+        )
+        await db.execute(delete(DocumentChunk).where(DocumentChunk.document_id.in_(still_failed)))
+    return still_failed
+
+
+async def purge_failed_derived_data(
+    db: AsyncSession, document_id: int, *, clear_reply_cache: bool = True
+) -> bool:
+    """Erase everything a failed run derived from a document; never raises.
+
+    A reprocess rebuilds it all from the source and a delete erases it, so a
+    failed document's chunks (raw and masked text), detection rows, extracted
+    text, counts, recorded policy, anonymization map and FAISS / BM25 indexes
+    serve no purpose. The indexes and map go first (:func:`_erase_failed_artifacts`),
+    then the rows in one status-guarded transaction: if the erasure fails the
+    rows stay, marking the document for :func:`purge_failed_documents` at the
+    next startup. The document row, its source file, its recorded error and
+    its audit events (placeholders only) are kept. A document that holds no
+    text, chunk or detection row (a run refused before storing anything) is
+    left alone without taking the map lock. Each failure is logged by error
+    class only and leaves the ``failed`` status as it is. Returns whether
+    rows were purged.
+    """
+    try:
+        candidate = await db.scalar(
+            select(Document.id).where(
+                Document.id == document_id,
+                Document.ingestion_status == "failed",
+                _holds_derived_data(),
+            )
+        )
+    except Exception as exc:
+        _log_purge_failure(document_id, exc)
+        await _rollback_quietly(db)
+        return False
+    if candidate is None:
+        return False
+    if not await _erase_failed_artifacts(db, document_id, clear_reply_cache=clear_reply_cache):
+        return False
+    try:
+        purged = await _purge_failed_rows(db, [document_id])
+        await db.commit()
+    except Exception as exc:
+        _log_purge_failure(document_id, exc)
+        await _rollback_quietly(db)
+        return False
+    return bool(purged)
+
+
+async def _failed_ids_with_derived_data(
+    session_maker: async_sessionmaker[AsyncSession],
+) -> List[int]:
+    """Ids of ``failed`` documents that still hold rows, extracted text, a map or index files.
+
+    The rows are found in one query. The stored map and index files are
+    listed once per tier and intersected with the ``failed`` ids, which
+    catches what a reprocess left when its own cleanup failed after its
+    claim had already cleared the rows; with no ``failed`` document nothing
+    is listed. A listing failure is logged by tier and error class, and the
+    other tiers still count.
+    """
+    async with session_maker() as db:
+        rows = await db.execute(
+            select(Document.id, _holds_derived_data()).where(Document.ingestion_status == "failed")
+        )
+        failed = {document_id: bool(holds) for document_id, holds in rows}
+    if not failed:
+        return []
+    candidates = {document_id for document_id, holds in failed.items() if holds}
+    candidates |= await _stored_artifact_ids() & failed.keys()
+    return sorted(candidates)
+
+
+async def _stored_artifact_ids() -> set[int]:
+    """Ids that have a stored FAISS or BM25 index or an anonymization map in any tier."""
+    stored: set[int] = set()
+    listings: List[Tuple[str, Callable[[], set[int]]]] = [
+        ("vector_index", lambda: VectorStore().stored_document_ids()),
+        ("bm25_index", lambda: BM25Retriever().stored_document_ids()),
+        ("anonymization_map", disk_map_document_ids),
+    ]
+    for tier, listing in listings:
+        try:
+            stored |= listing()
+        except Exception as exc:
+            _log_listing_failure(tier, exc)
+    try:
+        stored |= await redis_map_document_ids()
+    except Exception as exc:
+        _log_listing_failure("anonymization_map_cache", exc)
+    return stored
+
+
+def _log_listing_failure(tier: str, exc: BaseException) -> None:
+    logger.error(
+        "Could not list stored artifacts of failed documents tier=%s error=%s",
+        tier,
+        type(exc).__name__,
+    )
+
+
+async def purge_failed_documents(
+    session_maker: async_sessionmaker[AsyncSession], batch_size: int = 100
+) -> int:
+    """Purge the derived data every ``failed`` document still holds (startup sweep).
+
+    Covers runs that failed before :func:`purge_failed_derived_data` existed,
+    purges whose erasure failed, and runs interrupted by a restart. Each
+    document's indexes and map are erased first, without the reply cache;
+    then each batch's rows go in one status-guarded transaction, so a
+    document reprocessed meanwhile is skipped. One failing document or batch
+    is logged by error class and the rest still run. The detection reply
+    cache is cleared once at the end. Once clean, a run selects nothing.
+    Returns how many documents were purged; only that count is logged.
+
+    Accepted limits: a failed erasure is retried only at the next process
+    start (the orphan sweep's model), so its data stays until then; and a
+    chunk edit does not check the document status, so it can write a map
+    between a purge's erasure and its row delete, which the next sweep
+    then removes.
+    """
+    document_ids = await _failed_ids_with_derived_data(session_maker)
+    purged = 0
+    erased_any = False
+    for start in range(0, len(document_ids), batch_size):
+        async with session_maker() as db:
+            erased: List[int] = []
+            for document_id in document_ids[start : start + batch_size]:
+                if await _erase_failed_artifacts(db, document_id, clear_reply_cache=False):
+                    erased.append(document_id)
+            if not erased:
+                continue
+            erased_any = True
+            try:
+                batch_purged = len(await _purge_failed_rows(db, erased))
+                await db.commit()
+                purged += batch_purged
+            except Exception as exc:
+                logger.error(
+                    "Purging the rows of a failed document batch did not land: %s",
+                    type(exc).__name__,
+                )
+                await _rollback_quietly(db)
+    if erased_any:
+        try:
+            await clear_detection_cache()
+        except Exception as exc:
+            logger.error("Clearing the detection reply cache did not land: %s", type(exc).__name__)
+    if purged:
+        logger.info("Purged the derived data of %d failed documents", purged)
+    return purged

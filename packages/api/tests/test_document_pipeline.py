@@ -209,13 +209,15 @@ async def _ingest(
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     maker = async_sessionmaker(bind=engine, expire_on_commit=False)
+    monkeypatch.setenv("VECTOR_INDEX_DIR", str(tmp_path / "faiss"))
+    monkeypatch.setenv("BM25_INDEX_DIR", str(tmp_path / "bm25"))
 
     class _Lock:
         async def ensure_held(self) -> None:
             return None
 
     @asynccontextmanager
-    async def _map_lock(document_id):
+    async def _map_lock(document_id, **kwargs):
         yield _Lock()
 
     async def _noop(*args, **kwargs):
@@ -928,3 +930,934 @@ async def test_a_failing_index_drop_still_leaves_the_document_failed_not_process
 
     assert stored.ingestion_status == "failed"
     assert stored.ingestion_error
+
+
+_SENTINEL = "Quorvexdaltine"
+
+
+def _index_paths(tmp_path, document_id: int):
+    """The FAISS and BM25 index files of ``document_id`` under the test's index dirs."""
+    from septum_api.services.bm25_retriever import BM25Retriever
+    from septum_api.services.vector_store import VectorStore
+
+    return (
+        VectorStore(base_dir=tmp_path / "faiss")._index_path(document_id),
+        BM25Retriever(base_dir=tmp_path / "bm25")._index_path(document_id),
+    )
+
+
+def _assert_content_free(caplog, tmp_path) -> None:
+    for record in caplog.records:
+        message = record.getMessage()
+        assert _SENTINEL not in message
+        assert str(tmp_path) not in message
+
+
+async def test_a_failure_after_the_artifacts_are_written_purges_every_derived_copy(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    """Chunks, detections, text, counts, policy, map and indexes go; source, status and audit stay."""
+    import logging
+
+    from httpx import ASGITransport, AsyncClient
+    from septum_api.database import get_db
+    from septum_api.main import app
+    from septum_api.models.audit_event import AuditEvent
+    from septum_api.models.user import User
+    from septum_api.routers import documents
+    from septum_api.services import document_pipeline as dp
+    from septum_api.services.document_anon_store import get_document_map, set_document_map
+    from septum_api.utils.auth_dependency import get_current_user
+    from sanitizer_doubles import PatternDetector, literal
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    source = tmp_path / "source.enc"
+    source.write_bytes(b"ciphertext")
+    seen: dict = {}
+
+    async def _index_for_real(self, document_id, chunks, raw_texts, language, emit) -> None:
+        dp.DocumentPipeline._index_chunks_bm25(document_id, chunks, raw_texts, language)
+        _index_paths(tmp_path, document_id)[0].write_bytes(b"index")
+
+    async def _before(session, doc) -> None:
+        doc.encrypted_path = str(source)
+        await session.commit()
+        monkeypatch.setattr(dp, "set_document_map", set_document_map)
+        monkeypatch.setattr(dp.DocumentPipeline, "_index_document", _index_for_real)
+
+    async def _fail(self, *args, **kwargs):
+        raise RuntimeError("embedding step failed")
+
+    monkeypatch.setattr(dp.DocumentPipeline, "_clear_refused_override", _fail)
+
+    async def _audit_events(session, document_id) -> list:
+        rows = await session.execute(
+            select(AuditEvent.event_type).where(AuditEvent.document_id == document_id)
+        )
+        return list(rows.scalars())
+
+    async def _record(session, document_id, exc) -> None:
+        seen["stored"] = (
+            await get_document_map(document_id) is not None,
+            *(path.exists() for path in _index_paths(tmp_path, document_id)),
+        )
+        seen["audit_before"] = await _audit_events(session, document_id)
+        await documents.record_background_failure(session, document_id, exc, user_id=1)
+        seen["map"] = await get_document_map(document_id)
+        seen["audit_after"] = await _audit_events(session, document_id)
+
+    with caplog.at_level(logging.DEBUG):
+        chunks, rows, stored = await _ingest(
+            tmp_path, monkeypatch, [TextBlock(f"Alice {_SENTINEL} text", "text")],
+            sanitizer=PatternDetector(literal("Alice", "PERSON_NAME")),
+            on_failure=_record, before_run=_before,
+        )
+
+    assert seen["stored"] == (True, True, True)
+    assert stored.ingestion_status == "failed"
+    assert stored.ingestion_error and stored.ingestion_error_code is None
+    assert chunks == [] and rows == []
+    assert stored.transcription_text is None
+    assert (stored.chunk_count, stored.entity_count) == (0, 0)
+    assert stored.sanitized_entity_types is None and stored.sanitized_policy_digest is None
+    assert stored.sanitized_language is None and stored.sanitized_languages is None
+    assert seen["map"] is None
+    assert not any(path.exists() for path in _index_paths(tmp_path, stored.id))
+    assert source.exists()
+    assert "pii_detected" in seen["audit_before"]
+    assert seen["audit_after"] == seen["audit_before"]
+    _assert_content_free(caplog, tmp_path)
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'accept.db'}")
+    maker = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+    async def _db():
+        async with maker() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _db
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id=1, email="admin@example.com", hashed_password="x", role="admin"
+    )
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/api/chunks", params={"document_id": stored.id})
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_current_user, None)
+        await engine.dispose()
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+
+
+async def test_a_refusal_before_anything_was_stored_purges_nothing(tmp_path, monkeypatch) -> None:
+    from contextlib import asynccontextmanager
+
+    from septum_api.routers import documents
+    from septum_api.services import document_pipeline as dp
+    from septum_api.services import pii_gate
+
+    _recording_map_store(monkeypatch)
+    erased: list = []
+    locked: list = []
+
+    async def _erase(*args, **kwargs) -> None:
+        erased.append(args)
+
+    monkeypatch.setattr(dp, "erase_document_artifacts", _erase)
+
+    async def _before(session, doc) -> None:
+        inner = dp.document_map_lock
+
+        @asynccontextmanager
+        async def _spied_lock(document_id, **kwargs):
+            locked.append(document_id)
+            async with inner(document_id, **kwargs) as handle:
+                yield handle
+
+        monkeypatch.setattr(dp, "document_map_lock", _spied_lock)
+
+    async def _record(session, document_id, exc) -> None:
+        await documents.record_background_failure(session, document_id, exc, user_id=1)
+
+    _, _, stored = await _ingest(
+        tmp_path, monkeypatch, _nested_blocks(pii_gate._MAX_FACTORED_DEPTH + 1),
+        sanitizer=_nested_detector(), on_failure=_record, before_run=_before,
+    )
+
+    assert stored.ingestion_status == "failed"
+    assert stored.ingestion_error_code == "originals_pattern_too_deep"
+    assert erased == [] and locked == []
+
+
+async def test_a_failed_artifact_erasure_keeps_the_rows_as_the_sweep_marker(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    import logging
+
+    from septum_api.routers import documents
+    from septum_api.services import document_pipeline as dp
+
+    async def _erase(*args, **kwargs) -> None:
+        raise dp.ArtifactErasureError(
+            "vector_index", PermissionError(13, "denied", str(tmp_path / _SENTINEL))
+        )
+
+    monkeypatch.setattr(dp, "erase_document_artifacts", _erase)
+
+    async def _fail(self, *args, **kwargs):
+        raise RuntimeError("embedding step failed")
+
+    monkeypatch.setattr(dp.DocumentPipeline, "_clear_refused_override", _fail)
+
+    async def _record(session, document_id, exc) -> None:
+        await documents.record_background_failure(session, document_id, exc, user_id=1)
+
+    with caplog.at_level(logging.DEBUG):
+        chunks, rows, stored = await _ingest(
+            tmp_path, monkeypatch, [TextBlock(f"Alice {_SENTINEL} text", "text")],
+            on_failure=_record,
+        )
+
+    assert stored.ingestion_status == "failed"
+    assert stored.ingestion_error
+    assert chunks and stored.transcription_text
+    assert "PermissionError" in caplog.text
+    _assert_content_free(caplog, tmp_path)
+
+
+async def _sweep_db(tmp_path, monkeypatch):
+    """An isolated SQLite store with index dirs under ``tmp_path``; returns ``(engine, maker)``."""
+    from septum_api.models import Base
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    monkeypatch.setenv("VECTOR_INDEX_DIR", str(tmp_path / "faiss"))
+    monkeypatch.setenv("BM25_INDEX_DIR", str(tmp_path / "bm25"))
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'sweep.db'}")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    return engine, async_sessionmaker(bind=engine, expire_on_commit=False)
+
+
+async def _seed_derived(maker, tmp_path, status: str) -> int:
+    """A document in ``status`` holding a chunk, a detection, text, map, both indexes and a source."""
+    from septum_api.models.document import Chunk, Document
+    from septum_api.models.entity_detection import EntityDetection
+    from septum_api.services.anonymization_map import AnonymizationMap
+    from septum_api.services.bm25_retriever import BM25Retriever
+    from septum_api.services.document_anon_store import set_document_map
+
+    async with maker() as session:
+        source = tmp_path / f"source-{status}.enc"
+        source.write_bytes(b"ciphertext")
+        doc = Document(
+            filename="f", original_filename="f", file_type="x", file_format="pdf",
+            detected_language="en", encrypted_path=str(source), file_size_bytes=1,
+            ingestion_status=status, ingestion_error="boom" if status == "failed" else None,
+            transcription_text=f"Alice {_SENTINEL}", chunk_count=1, entity_count=1,
+            sanitized_entity_types=["PERSON_NAME"], sanitized_policy_digest="d",
+            sanitized_language="en", sanitized_languages=["en"],
+        )
+        session.add(doc)
+        await session.flush()
+        chunk = Chunk(
+            document_id=doc.id, index=0, sanitized_text="[PERSON_NAME_1] x",
+            raw_text=f"Alice {_SENTINEL}", char_count=17,
+        )
+        session.add(chunk)
+        await session.flush()
+        session.add(EntityDetection(
+            document_id=doc.id, chunk_id=chunk.id, entity_type="PERSON_NAME",
+            placeholder="[PERSON_NAME_1]", start_offset=0, end_offset=5, score=1.0,
+        ))
+        await session.commit()
+        doc_id = doc.id
+    await set_document_map(doc_id, AnonymizationMap(document_id=doc_id, language="en"))
+    BM25Retriever(base_dir=tmp_path / "bm25").index_document(doc_id, [1], [f"Alice {_SENTINEL}"])
+    _index_paths(tmp_path, doc_id)[0].write_bytes(b"index")
+    return doc_id
+
+
+async def _derived_state(maker, tmp_path, document_id: int) -> dict:
+    """What a document still holds: rows, text, counts, policy, map, indexes and source."""
+    from pathlib import Path
+
+    from septum_api.models.document import Chunk, Document
+    from septum_api.models.entity_detection import EntityDetection
+    from septum_api.services.document_anon_store import get_document_map
+    from sqlalchemy import func, select
+
+    async with maker() as session:
+        doc = await session.get(Document, document_id)
+        counts = [
+            (await session.execute(
+                select(func.count()).select_from(model).where(model.document_id == document_id)
+            )).scalar_one()
+            for model in (Chunk, EntityDetection)
+        ]
+    return {
+        "status": doc.ingestion_status,
+        "rows": counts,
+        "text": doc.transcription_text,
+        "counts": (doc.chunk_count, doc.entity_count),
+        "policy": (
+            doc.sanitized_entity_types, doc.sanitized_policy_digest,
+            doc.sanitized_language, doc.sanitized_languages,
+        ),
+        "map": await get_document_map(document_id) is not None,
+        "indexes": [path.exists() for path in _index_paths(tmp_path, document_id)],
+        "source": Path(doc.encrypted_path).exists(),
+        "error": doc.ingestion_error,
+    }
+
+
+def _assert_purged(state: dict) -> None:
+    assert state["status"] == "failed"
+    assert state["rows"] == [0, 0]
+    assert state["text"] is None
+    assert state["counts"] == (0, 0)
+    assert state["policy"] == (None, None, None, None)
+    assert state["map"] is False
+    assert state["indexes"] == [False, False]
+    assert state["source"] is True
+    assert state["error"]
+
+
+def _assert_untouched(state: dict) -> None:
+    assert state["rows"] == [1, 1]
+    assert state["text"] == f"Alice {_SENTINEL}"
+    assert state["counts"] == (1, 1)
+    assert state["map"] is True
+    assert state["indexes"] == [True, True]
+
+
+async def test_the_startup_sweep_purges_failed_documents_once_and_spares_the_rest(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    import logging
+
+    from septum_api.services import document_pipeline as dp
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    erased: list = []
+    real_erase = dp.erase_document_artifacts
+
+    async def _counting_erase(document_id, **kwargs) -> None:
+        erased.append(document_id)
+        await real_erase(document_id, **kwargs)
+
+    monkeypatch.setattr(dp, "erase_document_artifacts", _counting_erase)
+    try:
+        failed = await _seed_derived(maker, tmp_path, "failed")
+        completed = await _seed_derived(maker, tmp_path, "completed")
+        processing = await _seed_derived(maker, tmp_path, "processing")
+        with caplog.at_level(logging.DEBUG):
+            assert await dp.purge_failed_documents(maker) == 1
+            assert erased == [failed]
+            assert await dp.purge_failed_documents(maker) == 0
+        assert erased == [failed]
+        _assert_purged(await _derived_state(maker, tmp_path, failed))
+        _assert_untouched(await _derived_state(maker, tmp_path, completed))
+        _assert_untouched(await _derived_state(maker, tmp_path, processing))
+        _assert_content_free(caplog, tmp_path)
+    finally:
+        await engine.dispose()
+
+
+async def test_the_sweep_skips_a_document_reprocessed_after_it_was_selected(
+    tmp_path, monkeypatch
+) -> None:
+    from septum_api.models.document import Document
+    from septum_api.services import document_pipeline as dp
+    from sqlalchemy import update
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    real_select = dp._failed_ids_with_derived_data
+
+    async def _select_then_reprocess(session_maker) -> list:
+        ids = await real_select(session_maker)
+        async with session_maker() as session:
+            await session.execute(
+                update(Document).where(Document.id.in_(ids)).values(ingestion_status="processing")
+            )
+            await session.commit()
+        return ids
+
+    monkeypatch.setattr(dp, "_failed_ids_with_derived_data", _select_then_reprocess)
+    try:
+        failed = await _seed_derived(maker, tmp_path, "failed")
+        assert await dp.purge_failed_documents(maker) == 0
+        _assert_untouched(await _derived_state(maker, tmp_path, failed))
+    finally:
+        await engine.dispose()
+
+
+async def test_one_failing_erasure_does_not_stop_the_sweep(tmp_path, monkeypatch, caplog) -> None:
+    import logging
+
+    from septum_api.services import document_pipeline as dp
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    real_erase = dp.erase_document_artifacts
+    stuck: list = []
+
+    async def _erase(document_id, **kwargs) -> None:
+        if document_id == stuck[0]:
+            raise dp.ArtifactErasureError("bm25_index", PermissionError(13, "denied", str(tmp_path)))
+        await real_erase(document_id, **kwargs)
+
+    monkeypatch.setattr(dp, "erase_document_artifacts", _erase)
+    try:
+        stuck.append(await _seed_derived(maker, tmp_path, "failed"))
+        other = await _seed_derived(maker, tmp_path, "failed")
+        with caplog.at_level(logging.DEBUG):
+            assert await dp.purge_failed_documents(maker) == 1
+        _assert_purged(await _derived_state(maker, tmp_path, other))
+        assert (await _derived_state(maker, tmp_path, stuck[0]))["rows"] == [1, 1]
+        _assert_content_free(caplog, tmp_path)
+    finally:
+        await engine.dispose()
+
+
+async def test_an_interrupted_run_leaves_no_derived_data_after_reset_and_sweep(
+    tmp_path, monkeypatch
+) -> None:
+    from septum_api import database, main
+    from septum_api.services import document_pipeline as dp
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(database, "get_session_maker", lambda: maker)
+    try:
+        interrupted = await _seed_derived(maker, tmp_path, "processing")
+        await main._reset_orphaned_processing_docs()
+        assert await dp.purge_failed_documents(maker) == 1
+        _assert_purged(await _derived_state(maker, tmp_path, interrupted))
+    finally:
+        await engine.dispose()
+
+
+async def test_the_startup_task_runs_each_step_even_when_an_earlier_one_fails(
+    monkeypatch, caplog
+) -> None:
+    import logging
+
+    from septum_api import main
+    from septum_api.services import document_pipeline as dp
+    from septum_api.services import entity_index_refresh, entity_index_service
+
+    ran: list = []
+
+    def _step(name: str, fail: bool):
+        async def _run(session_maker) -> int:
+            ran.append(name)
+            if fail:
+                raise OSError(13, "denied", f"/secret/{_SENTINEL}")
+            return 0
+
+        return _run
+
+    monkeypatch.setattr(main, "get_session_maker", lambda: object())
+    monkeypatch.setattr(
+        entity_index_service, "drop_index_of_failed_documents", _step("drop", True)
+    )
+    monkeypatch.setattr(dp, "purge_failed_documents", _step("purge", True))
+    monkeypatch.setattr(entity_index_refresh, "reindex_stale_documents", _step("rebuild", False))
+
+    with caplog.at_level(logging.DEBUG):
+        await main._reindex_entity_index_once()
+
+    assert ran == ["drop", "purge", "rebuild"]
+    assert caplog.text.count("PermissionError") == 2
+    assert _SENTINEL not in caplog.text
+
+
+def _recording_lock(events: list, *, enter_error=None, held_error=None):
+    """A map lock double that records each enter (with its wait), ``ensure_held`` and exit."""
+    from contextlib import asynccontextmanager
+
+    class _Handle:
+        async def ensure_held(self) -> None:
+            events.append(("ensure_held",))
+            if held_error is not None:
+                raise held_error
+
+    @asynccontextmanager
+    async def _lock(document_id, **kwargs):
+        events.append(("enter", document_id, kwargs.get("wait_seconds")))
+        if enter_error is not None:
+            raise enter_error
+        try:
+            yield _Handle()
+        finally:
+            events.append(("exit", document_id))
+
+    return _lock
+
+
+def _fail_at_the_override_step(monkeypatch) -> None:
+    from septum_api.services import document_pipeline as dp
+
+    async def _fail(self, *args, **kwargs):
+        raise RuntimeError("embedding step failed")
+
+    monkeypatch.setattr(dp.DocumentPipeline, "_clear_refused_override", _fail)
+
+
+async def test_the_failure_handler_erases_under_a_short_held_lock_without_the_reply_cache(
+    tmp_path, monkeypatch
+) -> None:
+    from septum_api.routers import documents
+    from septum_api.services import document_pipeline as dp
+    from septum_api.services.document_anon_store import SWEEP_LOCK_WAIT_SECONDS
+
+    events: list = []
+
+    async def _erase(document_id, **kwargs) -> None:
+        events.append(("erase", document_id, kwargs))
+
+    monkeypatch.setattr(dp, "erase_document_artifacts", _erase)
+    _fail_at_the_override_step(monkeypatch)
+
+    async def _record(session, document_id, exc) -> None:
+        monkeypatch.setattr(dp, "document_map_lock", _recording_lock(events))
+        await documents.record_background_failure(session, document_id, exc, user_id=1)
+
+    chunks, rows, stored = await _ingest(
+        tmp_path, monkeypatch, [TextBlock(f"{NAME} text", "text")], on_failure=_record,
+    )
+
+    assert events == [
+        ("enter", stored.id, SWEEP_LOCK_WAIT_SECONDS),
+        ("ensure_held",),
+        ("erase", stored.id, {"clear_reply_cache": False}),
+        ("exit", stored.id),
+    ]
+    assert stored.ingestion_status == "failed"
+    assert chunks == [] and rows == []
+
+
+@pytest.mark.parametrize(
+    "lock_kwargs, error_class",
+    [
+        ({"enter_error": "timeout"}, "DocumentMapLockTimeout"),
+        ({"held_error": "lost"}, "DocumentMapLockLost"),
+    ],
+)
+async def test_a_lock_that_times_out_or_is_lost_erases_nothing_and_keeps_the_rows(
+    tmp_path, monkeypatch, caplog, lock_kwargs, error_class
+) -> None:
+    import logging
+
+    from septum_api.services import document_pipeline as dp
+    from septum_api.services.document_anon_store import (
+        DocumentMapLockLost,
+        DocumentMapLockTimeout,
+    )
+
+    errors = {
+        "timeout": DocumentMapLockTimeout(f"lock {tmp_path / _SENTINEL}"),
+        "lost": DocumentMapLockLost(f"lock {tmp_path / _SENTINEL}"),
+    }
+    events: list = []
+    erased: list = []
+
+    async def _erase(document_id, **kwargs) -> None:
+        erased.append(document_id)
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(dp, "erase_document_artifacts", _erase)
+    monkeypatch.setattr(
+        dp, "document_map_lock",
+        _recording_lock(events, **{key: errors[value] for key, value in lock_kwargs.items()}),
+    )
+    try:
+        failed = await _seed_derived(maker, tmp_path, "failed")
+        with caplog.at_level(logging.DEBUG):
+            async with maker() as session:
+                assert await dp.purge_failed_derived_data(session, failed) is False
+        assert erased == []
+        state = await _derived_state(maker, tmp_path, failed)
+        _assert_untouched(state)
+        assert (state["status"], state["error"]) == ("failed", "boom")
+        assert error_class in caplog.text
+        _assert_content_free(caplog, tmp_path)
+    finally:
+        await engine.dispose()
+
+
+async def test_the_sweep_erases_without_the_reply_cache_and_clears_it_once_only_after_an_erasure(
+    tmp_path, monkeypatch
+) -> None:
+    from septum_api.services import document_pipeline as dp
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    real_erase = dp.erase_document_artifacts
+    calls: list = []
+    cleared: list = []
+    stuck: list = []
+
+    async def _erase(document_id, **kwargs) -> None:
+        calls.append((document_id, kwargs))
+        if document_id in stuck:
+            raise dp.ArtifactErasureError("bm25_index", PermissionError(13, "denied"))
+        await real_erase(document_id, **kwargs)
+
+    async def _clear() -> None:
+        cleared.append(True)
+
+    monkeypatch.setattr(dp, "erase_document_artifacts", _erase)
+    monkeypatch.setattr(dp, "clear_detection_cache", _clear)
+    try:
+        first = await _seed_derived(maker, tmp_path, "failed")
+        second = await _seed_derived(maker, tmp_path, "failed")
+        assert await dp.purge_failed_documents(maker) == 2
+        assert calls == [
+            (first, {"clear_reply_cache": False}),
+            (second, {"clear_reply_cache": False}),
+        ]
+        assert cleared == [True]
+
+        assert await dp.purge_failed_documents(maker) == 0
+        assert cleared == [True]
+
+        stuck.append(await _seed_derived(maker, tmp_path, "failed"))
+        assert await dp.purge_failed_documents(maker) == 0
+        assert calls[-1] == (stuck[0], {"clear_reply_cache": False})
+        assert cleared == [True]
+    finally:
+        await engine.dispose()
+
+
+async def test_a_completed_document_is_never_purged_directly(tmp_path, monkeypatch) -> None:
+    from septum_api.services import document_pipeline as dp
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    try:
+        completed = await _seed_derived(maker, tmp_path, "completed")
+        async with maker() as session:
+            assert await dp.purge_failed_derived_data(session, completed) is False
+        state = await _derived_state(maker, tmp_path, completed)
+        _assert_untouched(state)
+        assert state["status"] == "completed"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.parametrize("new_status", ["processing", "completed"])
+async def test_the_row_purge_skips_a_document_claimed_after_its_artifacts_were_erased(
+    tmp_path, monkeypatch, new_status
+) -> None:
+    """The status re-read under the lock passes; only the UPDATE's guard is left to stop the purge."""
+    from septum_api.models.document import Document
+    from septum_api.services import document_pipeline as dp
+    from sqlalchemy import update
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    erased: list = []
+
+    async def _erase_then_claim(document_id, **kwargs) -> None:
+        erased.append(document_id)
+        async with maker() as other:
+            await other.execute(
+                update(Document)
+                .where(Document.id == document_id)
+                .values(ingestion_status=new_status)
+            )
+            await other.commit()
+
+    monkeypatch.setattr(dp, "erase_document_artifacts", _erase_then_claim)
+    try:
+        failed = await _seed_derived(maker, tmp_path, "failed")
+        async with maker() as session:
+            assert await dp.purge_failed_derived_data(session, failed) is False
+        assert erased == [failed]
+        state = await _derived_state(maker, tmp_path, failed)
+        assert state["status"] == new_status
+        _assert_untouched(state)
+        assert state["policy"] == (["PERSON_NAME"], "d", "en", ["en"])
+    finally:
+        await engine.dispose()
+
+
+async def test_a_reingest_claim_resets_every_derived_column(tmp_path, monkeypatch) -> None:
+    from septum_api.models.document import Document
+    from septum_api.routers import documents
+    from septum_api.services import document_pipeline as dp
+
+    assert set(dp.DERIVED_DATA_RESET) == {
+        "chunk_count", "entity_count", "transcription_text", "sanitized_entity_types",
+        "sanitized_policy_digest", "sanitized_language", "sanitized_languages",
+    }
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    try:
+        completed = await _seed_derived(maker, tmp_path, "completed")
+        async with maker() as session:
+            seeded = await session.get(Document, completed)
+            for column, reset in dp.DERIVED_DATA_RESET.items():
+                assert getattr(seeded, column) != reset, column
+        async with maker() as session:
+            assert await documents.claim_for_reingest(session, completed) is True
+        async with maker() as session:
+            claimed = await session.get(Document, completed)
+            for column, reset in dp.DERIVED_DATA_RESET.items():
+                assert getattr(claimed, column) == reset, column
+            assert claimed.ingestion_status == "processing"
+    finally:
+        await engine.dispose()
+
+
+def _leaked_error() -> OSError:
+    return PermissionError(13, "denied", f"/secret/{_SENTINEL}")
+
+
+def _break_candidate_select(monkeypatch, session) -> None:
+    from septum_api.services import document_pipeline as dp
+
+    def _raise():
+        raise _leaked_error()
+
+    monkeypatch.setattr(dp, "_holds_derived_data", _raise)
+
+
+def _break_erasure(monkeypatch, session) -> None:
+    from septum_api.services import document_pipeline as dp
+
+    async def _raise(document_id, **kwargs) -> None:
+        raise _leaked_error()
+
+    monkeypatch.setattr(dp, "erase_document_artifacts", _raise)
+
+
+def _break_row_purge(monkeypatch, session) -> None:
+    from septum_api.services import document_pipeline as dp
+
+    async def _raise(db, document_ids):
+        raise _leaked_error()
+
+    monkeypatch.setattr(dp, "_purge_failed_rows", _raise)
+
+
+def _break_commit(monkeypatch, session) -> None:
+    async def _raise() -> None:
+        raise _leaked_error()
+
+    monkeypatch.setattr(session, "commit", _raise)
+
+
+def _break_rollback(monkeypatch, session) -> None:
+    async def _raise() -> None:
+        raise _leaked_error()
+
+    monkeypatch.setattr(session, "rollback", _raise)
+
+
+@pytest.mark.parametrize(
+    "breakage",
+    [_break_candidate_select, _break_erasure, _break_row_purge, _break_commit, _break_rollback],
+)
+async def test_a_failing_purge_step_never_raises_nor_changes_the_failure(
+    tmp_path, monkeypatch, caplog, breakage
+) -> None:
+    import logging
+
+    from septum_api.services import document_pipeline as dp
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    try:
+        failed = await _seed_derived(maker, tmp_path, "failed")
+        with caplog.at_level(logging.DEBUG):
+            async with maker() as session:
+                breakage(monkeypatch, session)
+                assert await dp.purge_failed_derived_data(session, failed) is False
+        state = await _derived_state(maker, tmp_path, failed)
+        assert (state["status"], state["error"]) == ("failed", "boom")
+        assert state["rows"] == [1, 1] and state["text"] == f"Alice {_SENTINEL}"
+        assert "PermissionError" in caplog.text
+        assert _SENTINEL not in caplog.text
+    finally:
+        await engine.dispose()
+
+
+async def test_a_failing_batch_row_purge_in_the_sweep_is_logged_not_raised(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    import logging
+
+    from septum_api.services import document_pipeline as dp
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    try:
+        failed = await _seed_derived(maker, tmp_path, "failed")
+        _break_row_purge(monkeypatch, None)
+        with caplog.at_level(logging.DEBUG):
+            assert await dp.purge_failed_documents(maker) == 0
+        state = await _derived_state(maker, tmp_path, failed)
+        assert (state["status"], state["rows"]) == ("failed", [1, 1])
+        assert "PermissionError" in caplog.text and _SENTINEL not in caplog.text
+    finally:
+        await engine.dispose()
+
+
+async def _strip_rows(maker, document_id: int) -> None:
+    """Leave only the stored map and index files, as a reprocess whose cleanup failed does."""
+    from septum_api.models.document import Chunk, Document
+    from septum_api.models.entity_detection import EntityDetection
+    from septum_api.services.document_pipeline import DERIVED_DATA_RESET
+    from sqlalchemy import delete, update
+
+    async with maker() as session:
+        await session.execute(delete(EntityDetection).where(EntityDetection.document_id == document_id))
+        await session.execute(delete(Chunk).where(Chunk.document_id == document_id))
+        await session.execute(
+            update(Document).where(Document.id == document_id).values(**DERIVED_DATA_RESET)
+        )
+        await session.commit()
+
+
+async def test_the_sweep_purges_a_failed_document_that_kept_only_its_files(
+    tmp_path, monkeypatch
+) -> None:
+    from septum_api.services import document_pipeline as dp
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    try:
+        leftover = await _seed_derived(maker, tmp_path, "failed")
+        await _strip_rows(maker, leftover)
+        completed = await _seed_derived(maker, tmp_path, "completed")
+        await _strip_rows(maker, completed)
+        before = await _derived_state(maker, tmp_path, leftover)
+        assert before["rows"] == [0, 0] and before["map"] is True
+        assert before["indexes"] == [True, True]
+
+        assert await dp._failed_ids_with_derived_data(maker) == [leftover]
+        assert await dp.purge_failed_documents(maker) == 1
+        _assert_purged(await _derived_state(maker, tmp_path, leftover))
+        assert await dp._failed_ids_with_derived_data(maker) == []
+        assert await dp.purge_failed_documents(maker) == 0
+
+        kept = await _derived_state(maker, tmp_path, completed)
+        assert kept["status"] == "completed"
+        assert kept["map"] is True and kept["indexes"] == [True, True]
+    finally:
+        await engine.dispose()
+
+
+async def test_the_sweep_lists_no_stored_files_when_no_document_failed(
+    tmp_path, monkeypatch
+) -> None:
+    from septum_api.services import document_pipeline as dp
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    listed: list = []
+
+    async def _listing() -> set:
+        listed.append(True)
+        return set()
+
+    monkeypatch.setattr(dp, "_stored_artifact_ids", _listing)
+    try:
+        await _seed_derived(maker, tmp_path, "completed")
+        assert await dp.purge_failed_documents(maker) == 0
+        assert listed == []
+    finally:
+        await engine.dispose()
+
+
+async def test_a_failing_file_listing_still_counts_the_other_tiers(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    import logging
+
+    from septum_api.services import document_pipeline as dp
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+
+    def _broken_listing() -> set:
+        raise _leaked_error()
+
+    monkeypatch.setattr(dp, "disk_map_document_ids", _broken_listing)
+    try:
+        leftover = await _seed_derived(maker, tmp_path, "failed")
+        await _strip_rows(maker, leftover)
+        with caplog.at_level(logging.DEBUG):
+            assert await dp._failed_ids_with_derived_data(maker) == [leftover]
+        assert "tier=anonymization_map error=PermissionError" in caplog.text
+        assert _SENTINEL not in caplog.text
+    finally:
+        await engine.dispose()
+
+
+async def _flip_status_before_completion(monkeypatch, status: str, error: str) -> None:
+    """Make another session set ``status`` on the document just before the run's final write."""
+    from septum_api.models.document import Document
+    from septum_api.services import document_pipeline as dp
+    from sqlalchemy import update
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    real_clear = dp.DocumentPipeline._clear_refused_override
+
+    async def _flip_then_clear(db, document, text, judged=None) -> None:
+        async with AsyncSession(db.bind) as other:
+            await other.execute(
+                update(Document)
+                .where(Document.id == document.id)
+                .values(ingestion_status=status, ingestion_error=error)
+            )
+            await other.commit()
+        await real_clear(db, document, text, judged=judged)
+
+    monkeypatch.setattr(dp.DocumentPipeline, "_clear_refused_override", staticmethod(_flip_then_clear))
+
+
+async def test_a_run_reset_to_failed_mid_run_never_ends_completed(tmp_path, monkeypatch) -> None:
+    from septum_api.routers import documents
+    from septum_api.services import document_pipeline as dp
+
+    restart_error = "Processing interrupted by server restart. Please reprocess."
+    await _flip_status_before_completion(monkeypatch, "failed", restart_error)
+    raised: list = []
+
+    async def _record(session, document_id, exc) -> None:
+        raised.append(type(exc))
+        await documents.record_background_failure(session, document_id, exc, user_id=1)
+
+    chunks, rows, stored = await _ingest(
+        tmp_path, monkeypatch, [TextBlock(f"{NAME} text", "text")], on_failure=_record,
+    )
+
+    assert raised == [dp.DocumentRunSupersededError]
+    assert stored.ingestion_status == "failed"
+    assert stored.ingestion_error == restart_error
+    assert stored.sanitized_policy_digest is None and stored.sanitized_language is None
+    assert chunks == [] and rows == [] and stored.transcription_text is None
+
+
+async def test_a_superseded_run_leaves_a_newer_runs_status_and_data_alone(
+    tmp_path, monkeypatch
+) -> None:
+    from septum_api.routers import documents
+    from septum_api.services import document_pipeline as dp
+
+    await _flip_status_before_completion(monkeypatch, "completed", None)
+    erased: list = []
+    raised: list = []
+
+    async def _erase(document_id, **kwargs) -> None:
+        erased.append(document_id)
+
+    monkeypatch.setattr(dp, "erase_document_artifacts", _erase)
+
+    async def _record(session, document_id, exc) -> None:
+        raised.append(type(exc))
+        await documents.record_background_failure(session, document_id, exc, user_id=1)
+
+    chunks, rows, stored = await _ingest(
+        tmp_path, monkeypatch, [TextBlock(f"{NAME} text", "text")], on_failure=_record,
+    )
+
+    assert raised == [dp.DocumentRunSupersededError]
+    assert stored.ingestion_status == "completed"
+    assert stored.ingestion_error is None
+    assert chunks and stored.transcription_text
+    assert erased == []

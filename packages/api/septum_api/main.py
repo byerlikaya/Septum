@@ -211,15 +211,25 @@ async def _sweep_orphan_artifacts_once() -> None:
 
 
 async def _reindex_entity_index_once() -> None:
-    """Drop the index of failed documents, then rebuild rows written under an older hashing scheme.
+    """Clean up after failed documents, then rebuild index rows written under an older hashing scheme.
 
-    A failure is logged, never fatal.
+    Drops the entity index of failed documents, purges the derived data they
+    still hold, then runs the rebuild. Each step has its own guard: a failure
+    is logged by error class, never fatal, and the next step still runs.
     """
+    from .services.document_pipeline import purge_failed_documents
     from .services.entity_index_refresh import reindex_stale_documents
     from .services.entity_index_service import drop_index_of_failed_documents
 
     try:
         await drop_index_of_failed_documents(get_session_maker())
+    except Exception as exc:
+        logger.error("Index purge of failed documents failed: %s", type(exc).__name__)
+    try:
+        await purge_failed_documents(get_session_maker())
+    except Exception as exc:
+        logger.error("Data purge of failed documents failed: %s", type(exc).__name__)
+    try:
         await reindex_stale_documents(get_session_maker())
     except Exception as exc:
         logger.error("Entity index rebuild failed: %s", type(exc).__name__)
