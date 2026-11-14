@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-11-15
+
+- A spreadsheet column label that names a person now names the same person in chat: the label is renumbered into the turn's shared placeholder numbering exactly like the document's text, so a label can no longer show another person's name in the answer or mislead the model when that numbering swaps or compacts placeholders. A placeholder the document does not know restores to nobody.
+
 ### 2026-11-14
 
 - Chunk search and chat retrieval now look up each search hit only within the document it came from, so a stale chunk id left in a document's search index can no longer return another user's chunk after that id was reused (on SQLite, deleting the most recently stored chunks freed ids that a later upload took over). The chunk search endpoint also caps `top_k` at the same limit chat uses.

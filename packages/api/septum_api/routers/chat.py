@@ -1181,17 +1181,23 @@ async def _schema_column_descriptions(
     document_id: Optional[int],
     anon_map: AnonymizationMap,
     settings: AppSettings,
+    label_remap: Optional[dict[str, str]] = None,
+    label_strays: Optional[Tuple[set[str], AnonymizationMap]] = None,
 ) -> List[str]:
     """Return the spreadsheet column descriptions for the cloud prompt.
 
     Only the first ``MAX_SCHEMA_LABELED_COLUMNS`` columns, in index order, are
     described; a single summary entry states how many further columns are
-    omitted. Semantic labels are gated against the turn's request-local
-    ``anon_map`` before use, so a label stored before write-time gating existed
-    (or any raw value in it) never reaches the cloud LLM unmasked. Only the
-    labelled columns that are described are gated and shown by their label; the
-    rest, like a column without one, are shown by their generated technical
-    label, never the stored one.
+    omitted. A label is stored in its document's numbering, so it is first
+    renumbered into the turn's space exactly as that document's chunks are
+    (``label_remap`` and ``label_strays``, see :func:`_renumbered`): a
+    placeholder names the person the label meant, and one the document map
+    does not hold restores to nobody. Semantic labels are then gated against
+    the turn's request-local ``anon_map``, so a label stored before
+    write-time gating existed (or any raw value in it) never reaches the
+    cloud LLM unmasked. Only the labelled columns that are described are
+    gated and shown by their label; the rest, like a column without one, are
+    shown by their generated technical label, never the stored one.
     """
     if document_id is None:
         return []
@@ -1209,7 +1215,11 @@ async def _schema_column_descriptions(
     gated: List[str] = []
     if labelled:
         gated = await gate_untrusted_texts(
-            [_stored_label(c) for c in labelled], anon_map, db, settings, joined=True
+            [_renumbered(_stored_label(c), label_remap, label_strays) for c in labelled],
+            anon_map,
+            db,
+            settings,
+            joined=True,
         )
     label_by_index = {c.index: label for c, label in zip(labelled, gated)}
     descriptions: List[str] = []
@@ -1730,6 +1740,9 @@ class _ChatTurn:
     matched_document_names: List[str] = field(default_factory=list)
     chunks: List[Chunk] = field(default_factory=list)
     query_remap: dict[str, str] = field(default_factory=dict)
+    doc_maps: dict[int, AnonymizationMap] = field(default_factory=dict, repr=False)
+    doc_remaps: dict[int, dict[str, str]] = field(default_factory=dict)
+    doc_placeholders: dict[int, set[str]] = field(default_factory=dict)
     numbering_fp: bytes = b""
     candidate_chunks: List[ApprovalChunk] = field(default_factory=list)
     output_mode: str = "chat"
@@ -2152,9 +2165,10 @@ async def _prepare_retry_context(turn: _ChatTurn, db: AsyncSession) -> Optional[
         # The client returns chunks numbered in the unified space of the
         # turn that produced them; rebuild that same space so every
         # placeholder resolves to the entity it meant.
-        doc_maps, _, turn.query_remap, turn.anon_map = await _unify_turn_placeholders(
+        doc_maps, turn.doc_remaps, turn.query_remap, turn.anon_map = await _unify_turn_placeholders(
             query_map, list(turn.documents_by_id.keys()), turn.language
         )
+        turn.doc_maps = doc_maps
         _settle_query_strays(turn, query_map)
     turn.numbering_fp = numbering_fingerprint(query_map, doc_maps, turn.query_seed_document_id)
     # A rebuilt numbering is only trusted when it matches the one the chunks
@@ -2221,20 +2235,19 @@ def _settle_query_strays(turn: _ChatTurn, query_map: AnonymizationMap) -> None:
     settle_strays(turn.sanitized_query, turn.query_remap, map_placeholders(query_map), turn.anon_map)
 
 
-async def _unify_fresh_turn(
-    turn: _ChatTurn,
-) -> tuple[dict[int, AnonymizationMap], dict[int, dict[str, str]]]:
+async def _unify_fresh_turn(turn: _ChatTurn) -> None:
     """Unify the query map with every turn document's reloaded map.
 
     The query map may be the empty map auto-RAG started with, and query
     entities must share the document's placeholder so the LLM sees one
     entity. A turn without chunks is unified too, so its retry rebuilds the
-    same numbering. Returns ``(document maps, per-document remap)``.
+    same numbering. The document maps and their renames are kept on the turn.
     """
     query_anon_map = turn.anon_map
-    anon_maps, per_doc_remap, turn.query_remap, turn.anon_map = await _unify_turn_placeholders(
+    anon_maps, turn.doc_remaps, turn.query_remap, turn.anon_map = await _unify_turn_placeholders(
         query_anon_map, list(turn.documents_by_id.keys()), turn.language
     )
+    turn.doc_maps = anon_maps
     turn.numbering_fp = numbering_fingerprint(
         query_anon_map, anon_maps, turn.query_seed_document_id
     )
@@ -2255,7 +2268,25 @@ async def _unify_fresh_turn(
         len(turn.query_remap),
         sorted(set(turn.anon_map.entity_map.values()))[:20],
     )
-    return anon_maps, per_doc_remap
+
+
+def _document_renumbering(
+    turn: _ChatTurn, document_id: Optional[int]
+) -> Tuple[Optional[dict[str, str]], Optional[Tuple[set[str], AnonymizationMap]]]:
+    """Return ``document_id``'s rename into the turn's space and its stray context.
+
+    The pair is what :func:`_renumbered` takes. Every text of one document
+    (chunks, column labels) shares them, so a stray settled in one keeps its
+    placeholder in the others. ``(None, None)`` when the turn holds no map
+    for the document.
+    """
+    doc_map = turn.doc_maps.get(document_id) if document_id is not None else None
+    if doc_map is None:
+        return None, None
+    known = turn.doc_placeholders.get(document_id)
+    if known is None:
+        known = turn.doc_placeholders[document_id] = map_placeholders(doc_map)
+    return turn.doc_remaps.setdefault(document_id, {}), (known, turn.anon_map)
 
 
 def _renumbered(
@@ -2312,8 +2343,6 @@ def _masked_chunk_title(
 def _masked_chunk_texts(
     turn: _ChatTurn,
     restored_chunk_texts: dict[int, str],
-    anon_maps: dict[int, AnonymizationMap],
-    per_doc_remap: dict[int, dict[str, str]],
 ) -> Tuple[List[str], List[Optional[str]]]:
     """Return the turn's chunk texts as the cloud LLM sees them, and their masked titles.
 
@@ -2324,7 +2353,6 @@ def _masked_chunk_texts(
     multi_document = len(turn.documents_by_id) > 1
     document_labels: dict[int, int] = {}
     prev_doc_id: Optional[int] = None
-    known: dict[int, set[str]] = {}
     title_maskers: dict[int, Callable[[Optional[str], str], Optional[str]]] = {}
     texts: List[str] = []
     titles: List[Optional[str]] = []
@@ -2334,14 +2362,9 @@ def _masked_chunk_texts(
             label = document_labels.setdefault(c.document_id, len(document_labels) + 1)
             header = PromptCatalog.document_context_header(label)
             prev_doc_id = c.document_id
-        doc_map = anon_maps.get(c.document_id)
-        strays = None
-        if doc_map is not None:
-            if c.document_id not in known:
-                known[c.document_id] = map_placeholders(doc_map)
-            strays = (known[c.document_id], turn.anon_map)
+        doc_map = turn.doc_maps.get(c.document_id)
+        chunk_remap, strays = _document_renumbering(turn, c.document_id)
         chunk_map = doc_map or turn.anon_map
-        chunk_remap = per_doc_remap.setdefault(c.document_id, {}) if doc_map is not None else None
         masked_chunk = _masked_chunk_text(
             c, restored_chunk_texts, chunk_map, chunk_remap, strays
         )
@@ -2365,10 +2388,8 @@ async def _prepare_fresh_context(turn: _ChatTurn, db: AsyncSession) -> None:
         )
     if turn.query_seed_document_id in remasked_doc_ids:
         await _reseed_query_map(turn, db)
-    anon_maps, per_doc_remap = await _unify_fresh_turn(turn)
-    sanitized_chunk_texts, chunk_titles = _masked_chunk_texts(
-        turn, restored_chunk_texts, anon_maps, per_doc_remap
-    )
+    await _unify_fresh_turn(turn)
+    sanitized_chunk_texts, chunk_titles = _masked_chunk_texts(turn, restored_chunk_texts)
     if turn.chunks:
         turn.candidate_chunks = _build_approval_chunks(
             turn.chunks, sanitized_chunk_texts, chunk_titles
@@ -2408,8 +2429,9 @@ async def _prepare_prompt_inputs(turn: _ChatTurn, db: AsyncSession) -> None:
         turn.active_regulations, turn.anon_map, db, turn.settings
     )
     column_document_id = turn.document.id if turn.document is not None else None
+    label_remap, label_strays = _document_renumbering(turn, column_document_id)
     turn.column_descriptions = await _schema_column_descriptions(
-        db, column_document_id, turn.anon_map, turn.settings
+        db, column_document_id, turn.anon_map, turn.settings, label_remap, label_strays
     )
 
 
