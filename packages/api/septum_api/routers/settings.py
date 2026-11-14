@@ -39,6 +39,7 @@ from ..request_limits import (
     MAX_PRE_APPROVED_CHUNK_CHARS,
     MIN_CHUNK_SIZE,
     MIN_PDF_CHUNK_SIZE,
+    TOP_K_RETRIEVAL_MAX_CAP,
     chunk_overlap_fits,
 )
 from ..services.contextual_coverage import (
@@ -212,6 +213,9 @@ WindowSize = Annotated[int, Field(ge=1, le=MAX_PRE_APPROVED_CHUNK_CHARS)]
 ChunkOverlap = Annotated[int, Field(ge=0, le=MAX_CHUNK_OVERLAP)]
 """A chunk overlap setting, in characters; see :func:`_refuse_chunk_overlap_above_half`."""
 
+TopK = Annotated[int, Field(ge=1, le=TOP_K_RETRIEVAL_MAX_CAP)]
+"""The default number of chunks one chat turn retrieves; the cap chat itself enforces."""
+
 _CHUNK_OVERLAP_ABOVE_HALF = "chunk_overlap must be at most half of chunk_size."
 
 _CHUNK_FIELDS = (
@@ -245,7 +249,7 @@ class SettingsUpdatePayload(BaseModel):
 
     chunk_size: Optional[TextChunkSize] = None
     chunk_overlap: Optional[ChunkOverlap] = None
-    top_k_retrieval: Optional[int] = None
+    top_k_retrieval: Optional[TopK] = None
     pdf_chunk_size: Optional[PdfChunkSize] = None
     audio_chunk_size: Optional[WindowSize] = None
     spreadsheet_chunk_size: Optional[WindowSize] = None
@@ -266,9 +270,9 @@ class SettingsUpdatePayload(BaseModel):
 
     setup_completed: Optional[bool] = None
 
-    @field_validator(*_CHUNK_FIELDS, mode="before")
+    @field_validator(*_CHUNK_FIELDS, "top_k_retrieval", mode="before")
     @classmethod
-    def _refuse_null_chunk_setting(cls, value: Any) -> Any:
+    def _refuse_null_numeric_setting(cls, value: Any) -> Any:
         """Refuse an explicit ``null``: the columns are NOT NULL, and omitting the field keeps it."""
         if value is None:
             raise ValueError("must not be null")

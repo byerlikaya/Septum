@@ -677,6 +677,16 @@ def _effective_top_k(base_top_k: int, chunk_count: int) -> int:
     return min(TOP_K_RETRIEVAL_MAX_CAP, max(base_top_k, base_top_k + bonus))
 
 
+def _stored_top_k(settings: AppSettings) -> int:
+    """Return the stored retrieval top-k within ``1..TOP_K_RETRIEVAL_MAX_CAP``.
+
+    The settings API refuses values outside that range, but a row written
+    before the bound (or seeded from a larger ``TOP_K_RETRIEVAL_DEFAULT``)
+    may still hold one, and a negative ``LIMIT`` means no limit on SQLite.
+    """
+    return min(max(settings.top_k_retrieval, 1), TOP_K_RETRIEVAL_MAX_CAP)
+
+
 # Module-level singleton instances to avoid parallel model loading issues
 _vector_store_singleton: Optional["VectorStore"] = None
 _bm25_retriever_singleton: Optional["BM25Retriever"] = None
@@ -1839,7 +1849,7 @@ async def _retrieve_manual_chunks(turn: _ChatTurn, db: AsyncSession) -> None:
     documents = turn.documents_by_id
     relevance_threshold = turn.settings.rag_relevance_threshold
     async with _phase_timer(turn.session_id, "retrieve_chunks"):
-        base_top_k = turn.request.top_k or turn.settings.top_k_retrieval
+        base_top_k = turn.request.top_k or _stored_top_k(turn.settings)
         total_chunk_count = sum(d.chunk_count for d in documents.values())
         top_k = _effective_top_k(base_top_k, total_chunk_count)
         if len(documents) == 1:
@@ -2020,7 +2030,7 @@ async def _retrieve_auto_chunks(
 ) -> None:
     """Retrieve across the candidates; a turn with no relevant chunk becomes pure chat."""
     async with _phase_timer(turn.session_id, "retrieve_chunks_auto"):
-        base_top_k = turn.request.top_k or turn.settings.top_k_retrieval
+        base_top_k = turn.request.top_k or _stored_top_k(turn.settings)
         turn.chunks, turn.matched_document_ids = await _retrieve_chunks_all_documents(
             db=db,
             query=turn.sanitized_query,
