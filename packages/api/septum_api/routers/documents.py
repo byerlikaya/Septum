@@ -76,6 +76,7 @@ from ..request_limits import (
     MAX_SHEET_COLUMNS,
     MAX_TECHNICAL_LABEL_CHARS,
 )
+from ..services.anonymization_map import PLACEHOLDER_SHAPE
 from ..services.audit_logger import (
     DOCUMENT_LANGUAGE_CHANGED,
     OVERRIDE_REFUSAL_REASONS,
@@ -1736,7 +1737,8 @@ async def claim_for_reingest(
 
     Chunks, detections, the entity index with its relationship rows and
     version, the extracted text and the recorded sanitization policy go, so a
-    rebuild that is then refused leaves no stale copy behind.
+    rebuild that is then refused leaves no stale copy behind. Column labels
+    holding a placeholder of the map the rebuild erases are cleared too.
 
     The status is claimed with a conditional update, so two concurrent callers
     cannot both start a run. By default any status but ``processing`` is
@@ -1778,8 +1780,40 @@ async def claim_for_reingest(
         sa_delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
     )
     await drop_index_for_document(db, document_id)
+    await _clear_placeholder_labels(db, document_id)
     await db.commit()
     return run_token
+
+
+async def _clear_placeholder_labels(db: AsyncSession, document_id: int) -> None:
+    """Clear the document's column labels that hold a placeholder; caller commits.
+
+    The rebuild numbers a new map, so such a label could restore to another
+    person. Any ``[TYPE_N]`` shape counts, custom entity types included, so
+    plain bracketed text of that shape is cleared too. Plain labels, the
+    columns and the schema row stay. Called once the
+    document row is held, the lock order :func:`update_spreadsheet_schema` uses.
+    """
+    labelled = await db.execute(
+        select(SpreadsheetColumn.id, SpreadsheetColumn.semantic_label)
+        .join(SpreadsheetSchema)
+        .where(
+            SpreadsheetSchema.document_id == document_id,
+            SpreadsheetColumn.semantic_label.is_not(None),
+        )
+    )
+    stale = [
+        column_id
+        for column_id, label in labelled.all()
+        if PLACEHOLDER_SHAPE.search(label)
+    ]
+    if stale:
+        await db.execute(
+            update(SpreadsheetColumn)
+            .where(SpreadsheetColumn.id.in_(stale))
+            .values(semantic_label=None)
+            .execution_options(synchronize_session=False)
+        )
 
 
 async def reingest_document(

@@ -32,6 +32,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 - Editing or deleting a chunk, or saving typed spreadsheet column labels, is now refused with a 409 unless the document has finished processing, and a refused edit can no longer recreate an erased anonymization map or reuse a placeholder of another person. Deleting a chunk now keeps the document's chunk count correct, even when the same chunk is deleted twice.
 - Chat requests with an out-of-range `top_k` (below zero or above the retrieval cap) are now rejected with a 422 instead of being passed to the chunk lookup.
 - The retrieval top-k setting is now limited to 1-25: the settings API rejects other values with a 422, and chat clamps a value stored before this limit into that range.
+- Reprocessing a spreadsheet now clears typed column labels that contain placeholders of the erased anonymization map, of any entity type (plain labels stay), so such a label can no longer restore to a different person.
 
 ### 2026-11-13
 
