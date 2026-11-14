@@ -139,7 +139,7 @@ async def fence_run(
     if held is None:
         await db.rollback()
         raise DocumentRunSupersededError(
-            "A newer run holds the document; this run's writes were refused."
+            "This run no longer holds the document; its writes were refused."
         )
 
 
@@ -447,7 +447,7 @@ async def _refresh_entity_index(
     anon_map: AnonymizationMap,
     *,
     run_token: Optional[str],
-) -> bool:
+) -> None:
     """Populate the cross-document entity index and relationship rows, and record its version.
 
     Lets future chat queries route narrowly to the documents that actually
@@ -458,7 +458,7 @@ async def _refresh_entity_index(
     written in one transaction fenced on ``run_token`` (:func:`fence_run`);
     a refused fence raises :class:`DocumentRunSupersededError`. Any other
     failure is logged by error class and rolled back, and the ingestion
-    itself still completes. Returns whether the rows were written.
+    itself still completes.
     """
     document_id = document.id
     try:
@@ -476,8 +476,6 @@ async def _refresh_entity_index(
             type(exc).__name__,
         )
         await db.rollback()
-        return False
-    return True
 
 
 async def _audit_detections(
@@ -953,8 +951,8 @@ class DocumentPipeline:
     async def cleanup_artifacts(
         document_id: int,
         *,
-        db: Optional[AsyncSession] = None,
-        run_token: Optional[str] = None,
+        db: AsyncSession,
+        run_token: Optional[str],
     ) -> None:
         """Remove FAISS index, BM25 index, and anonymization map for a document.
 
@@ -964,7 +962,7 @@ class DocumentPipeline:
         class only, with the original exception suppressed, so the path never
         reaches the error log or the document row.
 
-        A run passes its session as ``db``: its claim (``run_token``, still
+        The run passes its session as ``db``: its claim (``run_token``, still
         ``processing``) is then re-read under the lock with a plain SELECT,
         whose transaction is committed (no row lock, so the map-lock-then-row
         order of the map store holds), and a run that no longer holds the
@@ -973,17 +971,16 @@ class DocumentPipeline:
         cleans up under this lock after this erasure, before it writes anything.
         """
         async with document_map_lock(document_id):
-            if db is not None:
-                held = await db.scalar(
-                    select(Document.id).where(
-                        _holds_claim(document_id, run_token, require_processing=True)
-                    )
+            held = await db.scalar(
+                select(Document.id).where(
+                    _holds_claim(document_id, run_token, require_processing=True)
                 )
-                await db.commit()
-                if held is None:
-                    raise DocumentRunSupersededError(
-                        "A newer run holds the document; this run's writes were refused."
-                    )
+            )
+            await db.commit()
+            if held is None:
+                raise DocumentRunSupersededError(
+                    "This run no longer holds the document; its writes were refused."
+                )
             try:
                 await erase_document_artifacts(document_id)
             except ArtifactErasureError as exc:
