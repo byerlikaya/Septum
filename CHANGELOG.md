@@ -29,6 +29,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 - Reading, deleting or rebuilding the chunks of one document no longer scans the whole chunk table: a new index (migration 029 on PostgreSQL, created at startup on SQLite) makes those lookups tens to hundreds of times faster in a 200,000-chunk SQLite test database.
 - A document whose ingestion fails after its text was stored no longer keeps that text, its chunks, its anonymization map or its search indexes: they are erased when the failure is recorded and by a one-time cleanup at startup, while the uploaded file and the error stay so the document can be reprocessed or deleted.
 - A very large placeholder number typed into an edited or retried chunk no longer pushes the numbers of later placeholders past the length the placeholder format allows, which kept them from being recognised as placeholders.
+- Editing or deleting a chunk, or saving typed spreadsheet column labels, is now refused with a 409 unless the document has finished processing, and a refused edit can no longer recreate an erased anonymization map or reuse a placeholder of another person. Deleting a chunk now keeps the document's chunk count correct, even when the same chunk is deleted twice.
 
 ### 2026-11-13
 
