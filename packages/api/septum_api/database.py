@@ -512,6 +512,7 @@ async def _sqlite_ensure_indexes(eng: AsyncEngine) -> None:
     statements: list[str] = [
         "CREATE INDEX IF NOT EXISTS ix_audit_events_document_event_id "
         "ON audit_events (document_id, event_type, id)",
+        'CREATE INDEX IF NOT EXISTS ix_chunks_document_id_index ON chunks (document_id, "index")',
         # Superseded by ix_audit_events_document_event_id (same leading column).
         "DROP INDEX IF EXISTS ix_audit_events_document_id",
     ]
