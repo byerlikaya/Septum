@@ -14,7 +14,11 @@ from ..database import get_db
 from ..errors import OriginalsPatternTooDeepError
 from ..models.document import Chunk, Document
 from ..models.user import User
-from ..request_limits import MAX_PRE_APPROVED_CHUNK_CHARS, MAX_SECTION_TITLE_CHARS
+from ..request_limits import (
+    MAX_PRE_APPROVED_CHUNK_CHARS,
+    MAX_SECTION_TITLE_CHARS,
+    TOP_K_RETRIEVAL_MAX_CAP,
+)
 from ..services.document_anon_store import get_document_map
 from ..services.pii_gate import gate_document_texts, section_title_masker
 from ..services.vector_store import VectorStore
@@ -111,7 +115,7 @@ class ChunkSearchRequest(BaseModel):
 
     document_id: int
     query: str
-    top_k: int = 10
+    top_k: int = Field(default=10, le=TOP_K_RETRIEVAL_MAX_CAP)
 
 
 class ChunkSearchHit(BaseModel):
@@ -271,7 +275,9 @@ async def search_chunks(
         return ChunkSearchResponse(items=[])
 
     chunk_ids = [chunk_id for chunk_id, _ in search_results]
-    stmt = select(Chunk).where(Chunk.id.in_(chunk_ids))
+    stmt = select(Chunk).where(
+        Chunk.id.in_(chunk_ids), Chunk.document_id == payload.document_id
+    )
     db_result = await db.execute(stmt)
     chunks = list(db_result.scalars().all())
 
