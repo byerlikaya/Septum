@@ -89,6 +89,7 @@ async def _run_pipeline(tmp_path, monkeypatch, rules=()):
             await dp.DocumentPipeline(settings=build_default_app_settings()).run(
                 db=session, document=doc, file_format="pdf",
                 ingestion_result=IngestionResult(text=_DECOMPOSED, metadata={}),
+                run_token=None,
             )
 
         async with maker() as session:

@@ -24,6 +24,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ### 2026-11-14
 
+- A document ingestion that was replaced by a newer run of the same document, for example after another worker restarted and the document was reprocessed, can no longer complete, fail or erase the newer run: every write of a run is checked against a per-run token stored with the document (migration 030 on PostgreSQL, added at startup on SQLite). Only the encrypted search index files of a replaced run can still be written late.
 - Reading, deleting or rebuilding the chunks of one document no longer scans the whole chunk table: a new index (migration 029 on PostgreSQL, created at startup on SQLite) makes those lookups tens to hundreds of times faster in a 200,000-chunk SQLite test database.
 - A document whose ingestion fails after its text was stored no longer keeps that text, its chunks, its anonymization map or its search indexes: they are erased when the failure is recorded and by a one-time cleanup at startup, while the uploaded file and the error stay so the document can be reprocessed or deleted.
 - A very large placeholder number typed into an edited or retried chunk no longer pushes the numbers of later placeholders past the length the placeholder format allows, which kept them from being recognised as placeholders.

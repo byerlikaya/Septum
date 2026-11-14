@@ -191,6 +191,7 @@ async def test_pipeline_digest_uses_the_settings_it_sanitized_with(
         await dp.DocumentPipeline(settings=settings).run(
             db=session, document=doc, file_format="pdf",
             ingestion_result=IngestionResult(text="", metadata={}),
+            run_token=None,
         )
         expected = (await current_policy_snapshot(session)).digest
 

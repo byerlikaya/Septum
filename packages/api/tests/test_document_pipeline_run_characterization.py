@@ -35,6 +35,7 @@ class _Db:
         self.events = events
         self.exists = exists
         self.added: list[Any] = []
+        self.statements: list[Any] = []
 
     def add_all(self, rows: list[Any]) -> None:
         for i, row in enumerate(rows):
@@ -49,10 +50,15 @@ class _Db:
         self.events.append(("refresh",))
 
     async def scalar(self, stmt: Any) -> Any:
+        self.statements.append(stmt)
+        if str(stmt).startswith("UPDATE"):
+            self.events.append(("fence",))
+            return 7
         self.events.append(("exists_check",))
         return 7 if self.exists else None
 
     async def execute(self, stmt: Any) -> Any:
+        self.statements.append(stmt)
         sql = str(stmt)
         if "ingestion_status" in sql:
             self.events.append(("mark_completed",))
@@ -265,7 +271,7 @@ def _document() -> Any:
     )
 
 
-async def _run(env, document=None, progress=True, confidence=0.5):
+async def _run(env, document=None, progress=True, confidence=0.5, run_token=None):
     ticks: list[int] = []
     db = _Db(env.events, exists=env.state["exists"])
     document = document or _document()
@@ -279,6 +285,7 @@ async def _run(env, document=None, progress=True, confidence=0.5):
             blocks=blocks,
         ),
         on_progress=ticks.append if progress else None,
+        run_token=run_token,
     )
     return document, ticks, db
 
@@ -300,19 +307,25 @@ async def test_full_run_sequence(env):
         ("detect", TEXT, "en", (0, 14, 21)),
         ("apply", 3),
         ("chunk", "pdf", [(8, 13), (29, 32), (33, 37)]),
+        ("fence",),
         ("persist", 3),
+        ("fence",),
         ("add_all", 3),
         ("commit",),
         ("refresh",),
         ("lock_enter", 7),
         ("exists_check",),
+        ("fence",),
         ("ensure_held",),
         ("set_map", 7),
+        ("commit",),
         ("lock_exit", 7),
+        ("fence",),
         ("replace_index", 7),
         ("recompute", 7),
         ("commit",),
         ("log_pii",),
+        ("fence",),
         ("execute", "UPDATE"),
         ("commit",),
         ("faiss", 7, [11, 12, 13], RAW_CHUNKS),
@@ -369,6 +382,29 @@ async def test_full_run_sequence(env):
         "ingestion_error": None,
         "ingestion_error_code": None,
     }
+
+
+def _compiled(stmt: Any) -> Any:
+    from sqlalchemy.dialects import sqlite
+
+    return stmt.compile(dialect=sqlite.dialect())
+
+
+async def test_every_fenced_write_of_a_run_carries_the_token_it_was_given(env):
+    token = "run-token-0123456789abcdef"
+
+    _, _, db = await _run(env, run_token=token)
+
+    fenced = [
+        _compiled(stmt)
+        for stmt in db.statements
+        if str(stmt).startswith("UPDATE") and "ingestion_run_id" in str(stmt)
+    ]
+    # chunk insert, detection rows, map store, entity index, audit link, completion
+    assert len(fenced) == 6
+    for compiled in fenced:
+        assert token in compiled.params.values()
+        assert "processing" in compiled.params.values()
 
 
 async def test_bm25_index_is_tokenized_in_the_masking_language(env):

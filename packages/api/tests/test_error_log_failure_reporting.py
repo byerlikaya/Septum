@@ -112,7 +112,9 @@ async def test_ingestion_recovery_survives_a_failing_error_log(sessions, monkeyp
     monkeypatch.setattr(documents, "log_backend_error", AsyncMock(side_effect=OSError("disk")))
     before = _failures()
     async with sessions() as bg_db:
-        await documents.record_background_failure(bg_db, doc_id, ValueError("boom"), 7)
+        await documents.record_background_failure(
+            bg_db, doc_id, ValueError("boom"), 7, run_token=None
+        )
     assert _failures() == before + 1
     async with sessions() as db:
         stored = await db.get(Document, doc_id)
@@ -123,7 +125,9 @@ async def test_ingestion_failure_row_is_charged_to_the_owner(sessions, monkeypat
     spy = AsyncMock()
     monkeypatch.setattr(documents, "log_backend_error", spy)
     async with sessions() as bg_db:
-        await documents.record_background_failure(bg_db, 999, ValueError("boom"), 7)
+        await documents.record_background_failure(
+            bg_db, 999, ValueError("boom"), 7, run_token=None
+        )
     assert spy.await_args.kwargs["identity"] == "user:7"
     assert spy.await_args.args[1] is None
 

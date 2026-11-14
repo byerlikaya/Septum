@@ -469,7 +469,7 @@ async def test_ingestion_marks_the_document_failed_with_the_code(
     monkeypatch.setattr(documents_module._INGESTION_ROUTER, "ingest", _ingest)
     source = documents_module._UploadedSource(env.tmp / "unused", "application/pdf", "pdf")
 
-    await documents_module._run_upload_ingestion(doc_id, source, env.user.id)
+    await documents_module._run_upload_ingestion(doc_id, source, env.user.id, run_token=None)
 
     document = await env.document(doc_id)
     assert document is not None

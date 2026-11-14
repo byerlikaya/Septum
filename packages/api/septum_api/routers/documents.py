@@ -12,6 +12,7 @@ import asyncio
 import logging
 import os
 import re
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import (
@@ -91,6 +92,7 @@ from ..services.document_pipeline import (
     DocumentPipeline,
     DocumentRunSupersededError,
     erase_document_artifacts,
+    fence_run,
     log_artifact_erasure_failure,
     purge_failed_derived_data,
 )
@@ -839,7 +841,12 @@ async def _ensure_spreadsheet_schema(
 
 
 async def record_background_failure(
-    bg_db: AsyncSession, doc_id: int, exc: BaseException, user_id: int
+    bg_db: AsyncSession,
+    doc_id: int,
+    exc: BaseException,
+    user_id: int,
+    *,
+    run_token: Optional[str],
 ) -> None:
     """Record an ingestion failure on a document, recovering the session if needed.
 
@@ -873,7 +880,9 @@ async def record_background_failure(
     A :class:`DocumentRunSupersededError` means the row is no longer this
     run's: it is ``failed`` already or claimed by a newer run. No status is
     written then, and the entity index is dropped only if the row is still
-    ``failed``, so a newer run is never clobbered.
+    ``failed``, so a newer run is never clobbered. The same holds when the
+    failure write itself is refused because the row's run token is no longer
+    ``run_token`` (the token of the claim that started the failed run).
     """
     try:
         await bg_db.rollback()
@@ -882,7 +891,10 @@ async def record_background_failure(
     if isinstance(exc, DocumentRunSupersededError):
         await _drop_index_if_still_failed(bg_db, doc_id)
     else:
-        await _record_failure_status(bg_db, doc_id, exc)
+        try:
+            await _record_failure_status(bg_db, doc_id, exc, run_token)
+        except DocumentRunSupersededError:
+            await _drop_index_if_still_failed(bg_db, doc_id)
 
     # Also write the failure to the centralized error log so it shows up in
     # the Error Logs UI alongside HTTP-handler failures. ``log_backend_error``
@@ -934,8 +946,16 @@ async def _drop_index_if_still_failed(bg_db: AsyncSession, doc_id: int) -> None:
             )
 
 
-async def _record_failure_status(bg_db: AsyncSession, doc_id: int, exc: BaseException) -> None:
-    """Write the ``failed`` status with the run's public error, dropping its entity index too."""
+async def _record_failure_status(
+    bg_db: AsyncSession, doc_id: int, exc: BaseException, run_token: Optional[str]
+) -> None:
+    """Write the ``failed`` status with the run's public error, dropping its entity index too.
+
+    Both attempts are fenced on the token alone (:func:`fence_run` without
+    ``processing`` required, so a run can still record its failure on a row
+    an orphan reset already failed): when a newer run holds the document
+    nothing is written and :class:`DocumentRunSupersededError` is raised.
+    """
     failure_values = {
         "ingestion_status": "failed",
         "ingestion_error": public_error_text(exc, "Ingestion failed"),
@@ -955,11 +975,14 @@ async def _record_failure_status(bg_db: AsyncSession, doc_id: int, exc: BaseExce
         ),
     }
     try:
+        await fence_run(bg_db, doc_id, run_token, require_processing=False)
         await drop_index_for_document(bg_db, doc_id)
         await bg_db.execute(
             update(Document).where(Document.id == doc_id).values(**failure_values)
         )
         await bg_db.commit()
+    except DocumentRunSupersededError:
+        raise
     except Exception as drop_exc:
         logger.warning(
             "Dropping the entity index of a failed ingestion did not land: %s",
@@ -967,10 +990,13 @@ async def _record_failure_status(bg_db: AsyncSession, doc_id: int, exc: BaseExce
         )
         try:
             await bg_db.rollback()
+            await fence_run(bg_db, doc_id, run_token, require_processing=False)
             await bg_db.execute(
                 update(Document).where(Document.id == doc_id).values(**failure_values)
             )
             await bg_db.commit()
+        except DocumentRunSupersededError:
+            raise
         except Exception as log_exc:
             # If even the recovery UPDATE cannot land, the connection is
             # unsalvageable; the original error is still surfaced via the
@@ -1084,7 +1110,7 @@ async def upload_document(
         file.file, getattr(file, "content_type", None), encrypted_path
     )
     source = _UploadedSource(encrypted_path, mime_type, file_format)
-    document = await _insert_upload_row(
+    document, run_token = await _insert_upload_row(
         db,
         source,
         original_filename=file.filename or "",
@@ -1093,7 +1119,9 @@ async def upload_document(
     )
     await db.refresh(document)
 
-    background_tasks.add_task(_run_upload_ingestion, document.id, source, current_user.id)
+    background_tasks.add_task(
+        _run_upload_ingestion, document.id, source, current_user.id, run_token=run_token
+    )
 
     return _document_response(document, None)
 
@@ -1113,14 +1141,19 @@ async def _insert_upload_row(
     original_filename: str,
     file_size: int,
     user_id: int,
-) -> Document:
-    """Create and commit the row of a fresh upload in ``processing`` state.
+) -> Tuple[Document, str]:
+    """Create and commit the row of a fresh upload in ``processing`` state; return it and its run token.
+
+    The row holds a new run token (``ingestion_run_id``); the ingestion task
+    is handed that token, so a later claim of the same document fences this
+    run out.
 
     On any failure the sealed source file is removed before the error
     propagates: no row will ever point at it, so it must not outlive the
     failed upload.
     """
     encrypted_path = source.encrypted_path
+    run_token = uuid.uuid4().hex
     try:
         active_reg_ids = await _snapshot_active_regulations(db)
 
@@ -1138,6 +1171,7 @@ async def _insert_upload_row(
             active_regulation_ids=active_reg_ids,
             ingestion_status="processing",
             ingestion_error=None,
+            ingestion_run_id=run_token,
             user_id=user_id,
         )
         db.add(document)
@@ -1151,14 +1185,17 @@ async def _insert_upload_row(
                 type(unlink_exc).__name__,
             )
         raise
-    return document
+    return document, run_token
 
 
 _EMPTY_AUDIO_ERROR = "Audio transcription failed: decoder produced no samples or text."
 
 
-async def _fail_empty_audio(bg_db: AsyncSession, bg_doc: Document, warnings: Sequence[str]) -> None:
-    """Mark an audio upload whose transcription produced no text as failed."""
+async def _fail_empty_audio(
+    bg_db: AsyncSession, bg_doc: Document, warnings: Sequence[str], run_token: Optional[str]
+) -> None:
+    """Mark an audio upload whose transcription produced no text as failed, fenced on ``run_token``."""
+    await fence_run(bg_db, bg_doc.id, run_token, require_processing=False)
     bg_doc.ingestion_status = "failed"
     if warnings:
         bg_doc.ingestion_error = f"{_EMPTY_AUDIO_ERROR} ({'; '.join(warnings)})"
@@ -1170,9 +1207,16 @@ async def _fail_empty_audio(bg_db: AsyncSession, bg_doc: Document, warnings: Seq
 
 
 async def _ingest_upload(
-    bg_db: AsyncSession, bg_doc: Document, doc_id: int, source: _UploadedSource
+    bg_db: AsyncSession,
+    bg_doc: Document,
+    doc_id: int,
+    source: _UploadedSource,
+    run_token: Optional[str],
 ) -> None:
-    """Ingest an uploaded source file and run the document pipeline over it."""
+    """Ingest an uploaded source file and run the document pipeline over it.
+
+    Every commit on the document is fenced on ``run_token`` (:func:`fence_run`).
+    """
     from ..services.document_progress import set_progress
 
     file_format = source.file_format
@@ -1193,13 +1237,14 @@ async def _ingest_upload(
     # Flush these two fields immediately so they cannot become
     # stale dirty state that a query-invoked autoflush inside the
     # pipeline tries to write under SQLite write-lock contention.
+    await fence_run(bg_db, doc_id, run_token, require_processing=True)
     await bg_db.commit()
 
     if file_format in {"xlsx", "ods", "csv", "tsv"}:
         await _ensure_spreadsheet_schema(bg_db, bg_doc.id, ingestion_result.metadata)
 
     if file_format == "audio" and not (ingestion_result.text or "").strip():
-        await _fail_empty_audio(bg_db, bg_doc, ingestion_result.warnings)
+        await _fail_empty_audio(bg_db, bg_doc, ingestion_result.warnings, run_token)
         return
 
     bg_pipeline = DocumentPipeline(settings=bg_settings)
@@ -1209,11 +1254,19 @@ async def _ingest_upload(
         file_format=file_format,
         ingestion_result=ingestion_result,
         on_progress=lambda pct: set_progress(doc_id, pct),
+        run_token=run_token,
     )
 
 
-async def _run_upload_ingestion(doc_id: int, source: _UploadedSource, user_id: int) -> None:
-    """Run ingestion + pipeline for a fresh upload in a background task."""
+async def _run_upload_ingestion(
+    doc_id: int, source: _UploadedSource, user_id: int, *, run_token: Optional[str]
+) -> None:
+    """Run ingestion + pipeline for a fresh upload in a background task.
+
+    ``run_token`` is the token :func:`_insert_upload_row` handed out. It is
+    passed in, never re-read from the row: the task may start after the
+    semaphore wait, when a newer claim already set a different token.
+    """
     from ..database import get_session_maker
     from ..services.document_progress import clear_progress
 
@@ -1222,9 +1275,11 @@ async def _run_upload_ingestion(doc_id: int, source: _UploadedSource, user_id: i
         if bg_doc is None:
             return
         try:
-            await _ingest_upload(bg_db, bg_doc, doc_id, source)
+            await _ingest_upload(bg_db, bg_doc, doc_id, source, run_token)
         except Exception as bg_exc:
-            await record_background_failure(bg_db, doc_id, bg_exc, user_id)
+            await record_background_failure(
+                bg_db, doc_id, bg_exc, user_id, run_token=run_token
+            )
         finally:
             clear_progress(doc_id)
 
@@ -1658,7 +1713,7 @@ def _processing_conflict() -> HTTPException:
 
 async def claim_for_reingest(
     db: AsyncSession, document_id: int, *, only_completed: bool = False
-) -> bool:
+) -> Optional[str]:
     """Claim a document for a rebuild: set it to ``processing`` and drop its derived data.
 
     Chunks, detections, the entity index with its relationship rows and
@@ -1667,9 +1722,15 @@ async def claim_for_reingest(
 
     The status is claimed with a conditional update, so two concurrent callers
     cannot both start a run. By default any status but ``processing`` is
-    claimable; ``only_completed`` narrows that to ``completed``. Returns
-    ``False`` (after a rollback) when the claim was lost.
+    claimable; ``only_completed`` narrows that to ``completed``.
+
+    The claim sets a new run token (``ingestion_run_id``) and returns it; the
+    run it starts is handed that token and fences every write on it
+    (:func:`fence_run`), so an older run still in flight elsewhere can no
+    longer write to the document. Returns ``None`` (after a rollback) when
+    the claim was lost.
     """
+    run_token = uuid.uuid4().hex
     if only_completed:
         claimable = Document.ingestion_status == "completed"
     else:
@@ -1681,13 +1742,14 @@ async def claim_for_reingest(
             ingestion_status="processing",
             ingestion_error=None,
             ingestion_error_code=None,
+            ingestion_run_id=run_token,
             **DERIVED_DATA_RESET,
         )
         .execution_options(synchronize_session=False)
     )
     if claimed.rowcount != 1:
         await db.rollback()
-        return False
+        return None
 
     from sqlalchemy import delete as sa_delete
 
@@ -1699,23 +1761,31 @@ async def claim_for_reingest(
     )
     await drop_index_for_document(db, document_id)
     await db.commit()
-    return True
+    return run_token
 
 
 async def reingest_document(
     bg_db: AsyncSession,
     bg_doc: Document,
     on_progress: Optional[Callable[[int], None]] = None,
+    *,
+    run_token: Optional[str],
 ) -> None:
     """Erase a claimed document's artifacts and run ingestion and the pipeline again.
 
     The caller has set the row to ``processing`` and deleted its chunks and
     detection rows. Shared by the reprocess endpoint and the maintenance
-    script, so both rebuild a document the same way.
+    script, so both rebuild a document the same way. ``run_token`` is the
+    token :func:`claim_for_reingest` returned; every commit on the document
+    is fenced on it (:func:`fence_run`). The claim is also re-read under the
+    map lock before the artifacts are erased
+    (:meth:`DocumentPipeline.cleanup_artifacts`), so a run that starts after
+    a newer claim (it waited on the ingestion semaphore) does not erase that
+    newer run's map and indexes.
     """
     doc_id = bg_doc.id
     file_format = bg_doc.file_format
-    await DocumentPipeline.cleanup_artifacts(doc_id)
+    await DocumentPipeline.cleanup_artifacts(doc_id, db=bg_db, run_token=run_token)
 
     bg_doc.active_regulation_ids = await _snapshot_active_regulations(bg_db)
     bg_settings = await load_settings(bg_db)
@@ -1734,9 +1804,11 @@ async def reingest_document(
         _detect_document_language, file_format, ingestion_result
     )
     bg_doc.ocr_confidence = ingestion_result.confidence
+    await fence_run(bg_db, doc_id, run_token, require_processing=True)
     await bg_db.commit()
 
     if file_format == "audio" and not (ingestion_result.text or "").strip():
+        await fence_run(bg_db, doc_id, run_token, require_processing=False)
         bg_doc.ingestion_status = "failed"
         bg_doc.ingestion_error = "Audio transcription produced no text."
         await bg_db.commit()
@@ -1749,6 +1821,7 @@ async def reingest_document(
         file_format=file_format,
         ingestion_result=ingestion_result,
         on_progress=on_progress,
+        run_token=run_token,
     )
 
 
@@ -1780,11 +1853,12 @@ async def reprocess_document(
             detail="Encrypted source file not found on disk.",
         )
 
-    if not await claim_for_reingest(db, document_id):
+    run_token = await claim_for_reingest(db, document_id)
+    if run_token is None:
         raise _processing_conflict()
     await db.refresh(document)
 
-    async def _reprocess_background(doc_id: int) -> None:
+    async def _reprocess_background(doc_id: int, *, run_token: str) -> None:
         from ..database import get_session_maker
         from ..services.document_progress import clear_progress, set_progress
 
@@ -1794,14 +1868,19 @@ async def reprocess_document(
                 return
             try:
                 await reingest_document(
-                    bg_db, bg_doc, on_progress=lambda pct: set_progress(doc_id, pct)
+                    bg_db,
+                    bg_doc,
+                    on_progress=lambda pct: set_progress(doc_id, pct),
+                    run_token=run_token,
                 )
             except Exception as bg_exc:  # noqa: BLE001
-                await record_background_failure(bg_db, doc_id, bg_exc, user.id)
+                await record_background_failure(
+                    bg_db, doc_id, bg_exc, user.id, run_token=run_token
+                )
             finally:
                 clear_progress(doc_id)
 
-    background_tasks.add_task(_reprocess_background, document.id)
+    background_tasks.add_task(_reprocess_background, document.id, run_token=run_token)
 
     return _document_response(document, None)
 

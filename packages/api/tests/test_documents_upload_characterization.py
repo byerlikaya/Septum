@@ -144,10 +144,15 @@ class _BackgroundDb:
         self.commits = 0
         self.gets: list[tuple[Any, int]] = []
         self.snapshots: list[dict[str, Any]] = []
+        self.fences: list[Any] = []
 
     async def get(self, model: Any, doc_id: int) -> Any:
         self.gets.append((model, doc_id))
         return self.document
+
+    async def scalar(self, stmt: Any) -> Any:
+        self.fences.append(stmt)
+        return self.document.id
 
     async def commit(self) -> None:
         self.commits += 1
@@ -257,8 +262,8 @@ def upload_env(monkeypatch, tmp_path):
 
     monkeypatch.setattr(documents, "DocumentPipeline", _Pipeline)
 
-    async def fake_failure(bg_db, doc_id, exc, user_id):
-        rec.events.append(("failure", doc_id, exc, user_id))
+    async def fake_failure(bg_db, doc_id, exc, user_id, *, run_token):
+        rec.events.append(("failure", doc_id, exc, user_id, run_token))
 
     monkeypatch.setattr(documents, "record_background_failure", fake_failure)
     monkeypatch.setattr(
@@ -379,7 +384,9 @@ async def test_failed_unlink_is_logged_and_original_error_kept(upload_env, monke
 
 
 async def test_background_success_runs_ingestion_and_pipeline(upload_env):
-    _, tasks, _ = await _upload(upload_env)
+    _, tasks, db = await _upload(upload_env)
+    run_token = db.added[0].ingestion_run_id
+    assert run_token
     upload_env.rec.events.clear()
     await _run_tasks(tasks)
     bg = upload_env.bg["db"]
@@ -407,6 +414,7 @@ async def test_background_success_runs_ingestion_and_pipeline(upload_env):
                 "document": upload_env.state["bg_doc"],
                 "file_format": "pdf",
                 "ingestion_result": upload_env.state["ingested"],
+                "run_token": run_token,
             },
         ),
         ("clear", 7),
@@ -484,10 +492,55 @@ async def test_background_missing_document_does_nothing(upload_env):
 async def test_background_failure_is_recorded_and_progress_cleared(upload_env):
     boom = ValueError("pipeline broke")
     upload_env.state["pipeline_error"] = boom
-    _, tasks, _ = await _upload(upload_env)
+    _, tasks, db = await _upload(upload_env)
+    run_token = db.added[0].ingestion_run_id
     upload_env.rec.events.clear()
     await _run_tasks(tasks)
-    assert upload_env.rec.events[-2:] == [("failure", 7, boom, 5), ("clear", 7)]
+    assert upload_env.rec.events[-2:] == [("failure", 7, boom, 5, run_token), ("clear", 7)]
+
+
+async def test_the_task_is_handed_the_token_the_row_was_persisted_with(upload_env):
+    _, tasks, db = await _upload(upload_env)
+    persisted = db.added[0].ingestion_run_id
+
+    assert isinstance(persisted, str) and persisted
+    assert [task.kwargs for task in tasks.tasks] == [{"run_token": persisted}]
+
+
+async def test_each_upload_row_gets_its_own_token(upload_env):
+    _, _, first = await _upload(upload_env)
+    _, _, second = await _upload(upload_env)
+
+    assert first.added[0].ingestion_run_id != second.added[0].ingestion_run_id
+
+
+def _fence_params(stmt: Any) -> tuple[list[Any], str]:
+    from sqlalchemy.dialects import sqlite
+
+    compiled = stmt.compile(dialect=sqlite.dialect())
+    return list(compiled.params.values()), str(compiled)
+
+
+async def test_the_metadata_commit_is_fenced_on_the_upload_token_and_processing(upload_env):
+    _, tasks, db = await _upload(upload_env)
+    run_token = db.added[0].ingestion_run_id
+    await _run_tasks(tasks)
+
+    [fence] = upload_env.bg["db"].fences
+    params, sql = _fence_params(fence)
+    assert run_token in params and "processing" in params
+
+
+async def test_the_empty_audio_failure_is_fenced_on_the_token_alone(upload_env):
+    upload_env.state["seal"] = ("audio/mpeg", "audio", 10)
+    upload_env.state["text"] = ""
+    _, tasks, db = await _upload(upload_env)
+    run_token = db.added[0].ingestion_run_id
+    await _run_tasks(tasks)
+
+    metadata, failure = (_fence_params(f) for f in upload_env.bg["db"].fences)
+    assert run_token in metadata[0] and "processing" in metadata[0]
+    assert run_token in failure[0] and "processing" not in failure[0]
 
 
 async def test_background_base_exception_propagates_after_clearing(upload_env):

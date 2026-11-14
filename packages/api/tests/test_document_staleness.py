@@ -286,6 +286,7 @@ class TestSnapshot:
                 document=doc,
                 file_format="pdf",
                 ingestion_result=IngestionResult(text="", metadata={}),
+                run_token=None,
             )
 
         async with env.session_maker() as session:

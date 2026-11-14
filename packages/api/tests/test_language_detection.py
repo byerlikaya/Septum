@@ -771,13 +771,13 @@ async def test_ingestion_pipeline_masks_in_the_override_language(monkeypatch):
     pipeline = document_pipeline.DocumentPipeline(build_default_app_settings())
     document = SimpleNamespace(id=9, user_id=None, language_override="tr", detected_language="en")
     with pytest.raises(_Stop):
-        await pipeline.run(None, document, "pdf", IngestionResult(text="Ahmet Yılmaz", metadata={}))
+        await pipeline.run(None, document, "pdf", IngestionResult(text="Ahmet Yılmaz", metadata={}), run_token=None)
     assert seen == {"map_language": "tr", "detector_language": "tr"}
 
     seen.clear()
     legacy = SimpleNamespace(id=9, user_id=None, language_override="tur", detected_language="en")
     with pytest.raises(_Stop):
-        await pipeline.run(None, legacy, "pdf", IngestionResult(text="Ahmet Yılmaz", metadata={}))
+        await pipeline.run(None, legacy, "pdf", IngestionResult(text="Ahmet Yılmaz", metadata={}), run_token=None)
     assert seen == {"map_language": "en", "detector_language": "en"}
 
 
@@ -916,7 +916,7 @@ async def test_ingestion_audit_event_records_the_override_language(monkeypatch):
     for override, expected in (("tr", "tr"), ("tur", "en"), (None, "en")):
         audit.clear()
         with pytest.raises(_Stop):
-            await pipeline.run(_Db(), _document(override), "pdf", IngestionResult(text="Ahmet Yılmaz", metadata={}))
+            await pipeline.run(_Db(), _document(override), "pdf", IngestionResult(text="Ahmet Yılmaz", metadata={}), run_token=None)
         source = "override" if override == expected else "detected"
         assert audit == {
             "source": "document_ingestion", "language": expected, "language_source": source,
@@ -1183,7 +1183,7 @@ async def test_ingestion_ignores_an_override_that_contradicts_the_script(
     document = SimpleNamespace(id=9, user_id=None, language_override=override, detected_language=detected)
     with caplog.at_level(logging.WARNING, logger=db_helpers.__name__):
         with pytest.raises(_Stop):
-            await pipeline.run(None, document, "pdf", IngestionResult(text=text, metadata={}))
+            await pipeline.run(None, document, "pdf", IngestionResult(text=text, metadata={}), run_token=None)
     assert seen == {"map_language": expected, "detector_language": expected}
     assert db_helpers.masking_language(document, text) == (expected, source)
     records = [r.getMessage() for r in caplog.records if r.name == db_helpers.__name__]
@@ -1477,7 +1477,7 @@ async def test_pipeline_records_the_masking_language_it_used(monkeypatch):
         )
         added.clear()
         stored["override"] = override
-        await pipeline.run(_Db(), document, "pdf", IngestionResult(text=text, metadata={}))
+        await pipeline.run(_Db(), document, "pdf", IngestionResult(text=text, metadata={}), run_token=None)
         assert seen == [expected]
         assert document.sanitized_language == expected
         assert document.ingestion_status == "completed"

@@ -526,7 +526,9 @@ async def test_failed_ingestion_records_the_refusal_code(
         doc_id = doc.id
 
     async with doc_session() as session:
-        await documents_router.record_background_failure(session, doc_id, exc, user_id=1)
+        await documents_router.record_background_failure(
+            session, doc_id, exc, user_id=1, run_token=None
+        )
 
     async with doc_session() as session:
         row = (await session.execute(select(Document).where(Document.id == doc_id))).scalar_one()
@@ -859,6 +861,7 @@ async def test_successful_pipeline_run_clears_a_previous_error_code(
             document=doc,
             file_format="pdf",
             ingestion_result=IngestionResult(text="", metadata={}),
+            run_token=None,
         )
 
     async with doc_session() as session:
