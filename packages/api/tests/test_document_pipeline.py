@@ -2495,9 +2495,8 @@ async def test_a_stale_entity_index_refresh_is_refused_and_the_newer_claim_keeps
 
         async with maker() as session:
             document = await session.get(Document, document_id)
-            assert await dp._refresh_entity_index(
-                session, document, anon_map, run_token=token_b
-            ) is True
+            await dp._refresh_entity_index(session, document, anon_map, run_token=token_b)
+            assert document.entity_index_version == dp.ENTITY_INDEX_VERSION
         async with maker() as session:
             assert (
                 await session.get(Document, document_id)

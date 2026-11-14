@@ -12,7 +12,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
 from document_env_fixtures import _Env
 from septum_api.models.document import Chunk, Document
 from septum_api.models.user import User
@@ -109,14 +108,14 @@ class _RecordingStore(_StaleVectorStore):
         return super().search(document_id, query, top_k)
 
 
+async def _no_bm25_rebuild(*_: Any) -> None:
+    return None
+
+
 def _stub_approval_indexes(monkeypatch: pytest.MonkeyPatch, store: _StaleVectorStore) -> None:
     monkeypatch.setattr(chat, "_get_vector_store", lambda: store)
     monkeypatch.setattr(chat, "_get_bm25_retriever", lambda: None)
     monkeypatch.setattr(chat, "_rebuild_outdated_bm25_index", _no_bm25_rebuild)
-
-
-async def _no_bm25_rebuild(*_: Any) -> None:
-    return None
 
 
 async def test_chunk_search_never_returns_another_documents_chunk(
@@ -154,11 +153,7 @@ async def test_approval_retrieval_never_returns_another_documents_chunk(
     env: _Env, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     owner_doc, stale_id, _ = await _reused_id_setup(env)
-    monkeypatch.setattr(
-        chat, "_get_vector_store", lambda: _StaleVectorStore({owner_doc: [(stale_id, 1.0)]})
-    )
-    monkeypatch.setattr(chat, "_get_bm25_retriever", lambda: None)
-    monkeypatch.setattr(chat, "_rebuild_outdated_bm25_index", _no_bm25_rebuild)
+    _stub_approval_indexes(monkeypatch, _StaleVectorStore({owner_doc: [(stale_id, 1.0)]}))
 
     async with env.session_maker() as db:
         found = await chat._retrieve_chunks(db, owner_doc, "account", top_k=5)

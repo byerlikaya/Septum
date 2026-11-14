@@ -206,8 +206,22 @@ def cleanup_env(monkeypatch: pytest.MonkeyPatch):
     return popped
 
 
+class _HeldClaimSession:
+    """A session whose claim check finds the row held by the run."""
+
+    async def scalar(self, statement) -> int:
+        return 1
+
+    async def commit(self) -> None:
+        return None
+
+
+async def _cleanup(document_id: int) -> None:
+    await DocumentPipeline.cleanup_artifacts(document_id, db=_HeldClaimSession(), run_token="t")
+
+
 async def test_cleanup_artifacts_removes_all_tiers(cleanup_env: list[int]) -> None:
-    await DocumentPipeline.cleanup_artifacts(3)
+    await _cleanup(3)
 
     assert _FakeVectorStore.deleted == [3]
     assert _FakeBM25Retriever.deleted == [3]
@@ -222,7 +236,7 @@ async def test_cleanup_artifacts_faiss_failure_propagates_without_path(
     )
 
     with pytest.raises(RuntimeError) as excinfo:
-        await DocumentPipeline.cleanup_artifacts(4)
+        await _cleanup(4)
 
     message = str(excinfo.value)
     assert "document 4" in message
@@ -240,7 +254,7 @@ async def test_cleanup_artifacts_bm25_failure_propagates_without_path(
     _FakeBM25Retriever.failure = OSError(5, "I/O error", "/secret/bm25_indexes/doc_5.bm25.enc")
 
     with pytest.raises(RuntimeError) as excinfo:
-        await DocumentPipeline.cleanup_artifacts(5)
+        await _cleanup(5)
 
     message = str(excinfo.value)
     assert "BM25" in message
@@ -263,7 +277,7 @@ async def test_cleanup_artifacts_map_erasure_failure_propagates_without_path(
     monkeypatch.setattr(pipeline_module, "pop_document_map", _pop)
 
     with pytest.raises(RuntimeError) as excinfo:
-        await DocumentPipeline.cleanup_artifacts(6)
+        await _cleanup(6)
 
     message = str(excinfo.value)
     assert "anonymization map" in message
@@ -282,7 +296,7 @@ async def test_cleanup_artifacts_non_os_error_is_also_path_free(
     _FakeVectorStore.failure = ValueError("/secret/vector_indexes/doc_7.faiss.enc is corrupt")
 
     with pytest.raises(RuntimeError) as excinfo:
-        await DocumentPipeline.cleanup_artifacts(7)
+        await _cleanup(7)
 
     message = str(excinfo.value)
     assert "document 7" in message

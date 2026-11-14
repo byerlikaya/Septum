@@ -179,7 +179,7 @@ async def test_reindex_leaves_current_and_mapless_documents_alone(
     assert versions == {1: ENTITY_INDEX_VERSION, 2: None}
 
 
-async def test_refresh_after_ingestion_reports_whether_rows_were_written(
+async def test_refresh_after_ingestion_writes_rows_only_when_the_index_succeeds(
     maker: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from septum_api.services import document_pipeline as dp
@@ -187,9 +187,13 @@ async def test_refresh_after_ingestion_reports_whether_rows_were_written(
     async with maker() as db:
         await _add_document(db, 1, status="processing")
         document = await db.get(Document, 1)
-        assert await dp._refresh_entity_index(
-            db, document, _map(1, "新宿区"), run_token=None
-        ) is True
+        await dp._refresh_entity_index(db, document, _map(1, "新宿区"), run_token=None)
+    async with maker() as db:
+        assert (await db.execute(select(EntityIndex.id))).scalars().all() != []
+        assert (await db.get(Document, 1)).entity_index_version == ENTITY_INDEX_VERSION
+        await db.execute(EntityIndex.__table__.delete())
+        (await db.get(Document, 1)).entity_index_version = None
+        await db.commit()
 
     async def _boom(*args, **kwargs):
         raise RuntimeError("boom")
@@ -197,6 +201,7 @@ async def test_refresh_after_ingestion_reports_whether_rows_were_written(
     monkeypatch.setattr(dp, "replace_index_for_document", _boom)
     async with maker() as db:
         document = await db.get(Document, 1)
-        assert await dp._refresh_entity_index(
-            db, document, _map(1, "新宿区"), run_token=None
-        ) is False
+        await dp._refresh_entity_index(db, document, _map(1, "新宿区"), run_token=None)
+    async with maker() as db:
+        assert (await db.execute(select(EntityIndex.id))).scalars().all() == []
+        assert (await db.get(Document, 1)).entity_index_version is None

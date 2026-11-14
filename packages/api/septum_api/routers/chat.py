@@ -952,15 +952,15 @@ async def _retrieve_chunks(
         # Drop any candidate below the absolute relevance floor. The top
         # result (normalized score 1.0) always survives, so the filter can
         # shrink the count below ``top_k`` when the tail of the retrieval
-        # is clearly unrelated, but never returns an empty set.
+        # is clearly unrelated, but never empties a non-empty retrieval.
         filtered = [
             (cid, score)
             for cid, score in normalized
             if score >= relevance_threshold
         ]
         if not filtered:
-            # Defensive: keep at least the top result so the caller never
-            # has to deal with "retrieval returned nothing".
+            # Defensive: keep the top result of a non-empty retrieval. The
+            # lookup below can still return nothing when every hit is stale.
             filtered = normalized[:1]
 
         chunk_id_order = [cid for cid, _ in filtered]
