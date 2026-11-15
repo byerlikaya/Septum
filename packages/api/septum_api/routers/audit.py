@@ -184,6 +184,12 @@ async def get_event_entity_detections(
 
     Empty ``items`` list for older events whose EntityDetection rows do
     not carry an ``audit_event_id`` back-reference yet.
+
+    The list is read live, while the event's ``entity_count`` is the
+    figure recorded when the event was written. After a chunk edit, a
+    chunk delete or a reprocess removes detection rows, ``total`` here can
+    therefore be smaller than ``entity_count``; the event keeps what was
+    detected at the time, the list only what is still stored.
     """
     stmt = (
         select(EntityDetection)
