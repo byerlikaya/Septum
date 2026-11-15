@@ -8,9 +8,11 @@ half of a file and a crash mid-write leaves the previous index in place.
 Readers never delete a file they cannot read.
 """
 
+import asyncio
 import logging
 import os
 import time
+import weakref
 from pathlib import Path
 from typing import Optional
 from uuid import uuid4
@@ -18,6 +20,34 @@ from uuid import uuid4
 from ..request_limits import MAX_DOCUMENT_ID
 
 logger = logging.getLogger(__name__)
+
+_index_write_locks: "weakref.WeakValueDictionary[int, asyncio.Lock]" = (
+    weakref.WeakValueDictionary()
+)
+
+
+def document_index_lock(document_id: int) -> asyncio.Lock:
+    """Return this process's lock for writing ``document_id``'s FAISS and BM25 indexes.
+
+    Every writer of either file holds it: ingestion while it builds both,
+    the chat-time rebuild of an outdated BM25 index, and the removal of a
+    deleted chunk's id. A writer that also needs :func:`document_map_lock`
+    takes this lock first, then the map lock, so the two never wait on each
+    other in a cycle. A rebuild from chunk rows read before a reprocess can
+    therefore never land after the reprocess wrote the fresh index. The
+    caller must keep the returned lock referenced while it uses it.
+
+    The lock is local to one process: it orders writers of a single worker
+    only. Writers that must also be ordered across workers (the rebuild's
+    validity check, the chunk-id removal) do that part under the document
+    map lock, which is shared across workers only when Redis is configured:
+    a multi-worker deployment needs Redis for it, as for every other
+    map-lock guarantee.
+    """
+    lock = _index_write_locks.get(document_id)
+    if lock is None:
+        lock = _index_write_locks[document_id] = asyncio.Lock()
+    return lock
 
 # A temp file older than this is a leftover of a crashed save; a younger one
 # may be a save still in flight in another worker.

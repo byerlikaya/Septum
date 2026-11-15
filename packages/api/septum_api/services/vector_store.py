@@ -336,6 +336,27 @@ class VectorStore:
         combined.sort(key=lambda x: x[1], reverse=True)
         return combined[:top_k]
 
+    def remove_ids(self, document_id: int, chunk_ids: Sequence[int]) -> None:
+        """Drop the vectors of ``chunk_ids`` from a document's stored FAISS index.
+
+        No embedding model is needed: the vectors are removed by id from the
+        stored :class:`faiss.IndexIDMap`. A missing or unreadable index, or
+        one holding none of the ids, is left as it is; an index left empty is
+        removed, as :meth:`index_document` does for a document without
+        chunks. The write is atomic; the caller holds
+        :func:`~.index_file_io.document_index_lock`.
+        """
+        index = self._load_index(document_id)
+        if index is None:
+            return
+        selector = faiss.IDSelectorBatch(np.asarray(list(chunk_ids), dtype="int64"))
+        if index.remove_ids(selector) == 0:
+            return
+        if index.ntotal == 0:
+            self.delete_index(document_id)
+            return
+        self._save_index(document_id, index)
+
     def delete_index(self, document_id: int) -> None:
         """Remove the stored FAISS index for a document.
 

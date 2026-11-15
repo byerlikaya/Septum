@@ -24,6 +24,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ### 2026-11-15
 
+- Deleting a chunk now also removes its id from the document's FAISS and BM25 search indexes, so a deleted chunk no longer takes up a retrieval slot; ingestion and the removal write both indexes under one per-document lock, and a removal that cannot be written answers with a 500 while the chunk stays deleted.
 - A spreadsheet column label that names a person now names the same person in chat: the label is renumbered into the turn's shared placeholder numbering exactly like the document's text, so a label can no longer show another person's name in the answer or mislead the model when that numbering swaps or compacts placeholders. A placeholder the document does not know restores to nobody.
 
 ### 2026-11-14

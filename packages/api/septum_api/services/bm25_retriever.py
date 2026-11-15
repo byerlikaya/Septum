@@ -19,12 +19,10 @@ Design notes
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
 import re
-import weakref
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Sequence, Set, Tuple
@@ -49,33 +47,6 @@ searched.
 """
 
 _DEFAULT_LANGUAGE = "en"
-
-_index_write_locks: "weakref.WeakValueDictionary[int, asyncio.Lock]" = (
-    weakref.WeakValueDictionary()
-)
-
-
-def bm25_index_lock(document_id: int) -> asyncio.Lock:
-    """Return this process's lock for writing ``document_id``'s BM25 index.
-
-    Ingestion and the chat-time rebuild of an outdated index both write
-    under it, so a rebuild from chunk rows read before a reprocess can
-    never land after the reprocess wrote the fresh index. The caller must
-    keep the returned lock referenced while it uses it.
-
-    The lock is local to one process: it orders writers of a single worker
-    only. With several workers a rebuild can still race a reprocess running
-    in another one, so the rebuild also compares what it indexed (chunk ids,
-    texts and language) with the document's current chunks after writing
-    and removes its index on a mismatch (see the chat router's rebuild).
-    That check runs under the document map lock, which is shared across
-    workers only when Redis is configured: a multi-worker deployment needs
-    Redis for it, as for every other map-lock guarantee.
-    """
-    lock = _index_write_locks.get(document_id)
-    if lock is None:
-        lock = _index_write_locks[document_id] = asyncio.Lock()
-    return lock
 
 
 # A placeholder ("[iban_1]" once lowercased) is one token; any other run of
@@ -239,6 +210,34 @@ class BM25Retriever:
         results.sort(key=lambda x: x[1], reverse=True)
 
         return results[:top_k]
+
+    def remove_ids(self, document_id: int, chunk_ids: Sequence[int]) -> None:
+        """Drop the entries of ``chunk_ids`` from a document's stored BM25 index.
+
+        The remaining entries keep their tokens, order, tokenizer version
+        and language, so the index scores like one built from the remaining
+        chunks alone. A missing or unreadable index, or one holding none of
+        the ids, is left as it is; an index left empty is removed (an empty
+        corpus cannot be scored). The write is atomic; the caller holds
+        :func:`~.index_file_io.document_index_lock`.
+        """
+        index_data = self._load_index(document_id)
+        if index_data is None:
+            return
+        drop = set(chunk_ids)
+        kept = [
+            (chunk_id, tokens)
+            for chunk_id, tokens in zip(index_data["chunk_ids"], index_data["corpus"])
+            if chunk_id not in drop
+        ]
+        if len(kept) == len(index_data["chunk_ids"]):
+            return
+        if not kept:
+            self.delete_index(document_id)
+            return
+        index_data["chunk_ids"] = [chunk_id for chunk_id, _ in kept]
+        index_data["corpus"] = [tokens for _, tokens in kept]
+        self._save_index(document_id, index_data)
 
     def delete_index(self, document_id: int) -> None:
         """Remove the stored BM25 index for a document.

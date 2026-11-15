@@ -140,6 +140,18 @@ def _fresh_rate_limits() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolated_index_dirs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Point the FAISS and BM25 index directories at the test's own temp directory.
+
+    Their default is relative to the working directory, which in a
+    checkout may hold a developer's real indexes; a test that sets its own
+    still wins.
+    """
+    monkeypatch.setenv("VECTOR_INDEX_DIR", str(tmp_path / "vector_indexes"))
+    monkeypatch.setenv("BM25_INDEX_DIR", str(tmp_path / "bm25_indexes"))
+
+
+@pytest.fixture(autouse=True)
 def _fresh_ollama_detection_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Start every test with no shared Ollama client, cached context window or detection reply, and no retry wait.
 
