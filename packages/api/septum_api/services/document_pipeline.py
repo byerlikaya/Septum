@@ -42,7 +42,7 @@ from .audit_logger import (
     language_override_event,
     log_pii_detected,
 )
-from .bm25_retriever import BM25Retriever, bm25_index_lock
+from .bm25_retriever import BM25Retriever
 from .chunking import ChunkRecord, chunk_blocks
 from .document_anon_store import (
     SWEEP_LOCK_WAIT_SECONDS,
@@ -58,6 +58,7 @@ from .entity_index_service import (
     recompute_relationships_for_document,
     replace_index_for_document,
 )
+from .index_file_io import document_index_lock
 from .ingestion.base import IngestionResult, TextBlock, block_starts, join_blocks
 from .ollama_detection_runner import clear_detection_cache, local_model_scope
 from .pii_gate import ensure_originals_searchable
@@ -840,11 +841,11 @@ class DocumentPipeline:
         language: str,
         emit: Callable[[int], None],
     ) -> None:
-        """Build the FAISS and BM25 indexes over the raw chunk texts."""
+        """Build the FAISS and BM25 indexes over the raw chunk texts under :func:`document_index_lock`."""
         emit(92)
-        await asyncio.to_thread(self._index_chunks, document_id, chunks, raw_texts)
-        emit(96)
-        async with bm25_index_lock(document_id):
+        async with document_index_lock(document_id):
+            await asyncio.to_thread(self._index_chunks, document_id, chunks, raw_texts)
+            emit(96)
             await asyncio.to_thread(
                 self._index_chunks_bm25, document_id, chunks, raw_texts, language
             )

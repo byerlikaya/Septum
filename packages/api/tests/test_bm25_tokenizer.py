@@ -25,8 +25,8 @@ from septum_api.services.bm25_retriever import (
     TOKENIZER_VERSION,
     BM25Retriever,
     _tokenize,
-    bm25_index_lock,
 )
+from septum_api.services.index_file_io import document_index_lock
 from septum_api.utils.crypto import encrypt
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -196,7 +196,7 @@ async def test_rebuild_waits_for_a_fresh_write_and_keeps_it(
     _write_legacy_index(store, doc_id, chunk_ids)
 
     async with session_maker() as db:
-        async with bm25_index_lock(doc_id):
+        async with document_index_lock(doc_id):
             rebuild = asyncio.create_task(
                 chat_module._rebuild_outdated_bm25_index(db, store, doc_id)
             )

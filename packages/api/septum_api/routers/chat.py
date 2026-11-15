@@ -848,15 +848,15 @@ async def _rebuild_outdated_bm25_index(
     the document's masking language. The write is atomic and replaces the
     old file in place; a document without chunk rows is left as it is.
 
-    Locks are always taken in one order, BM25 lock then map lock. Under
-    :func:`bm25_index_lock`, which ingestion holds for its own write, the
+    Locks are always taken in one order, index lock then map lock. Under
+    :func:`document_index_lock`, which ingestion holds for its own write, the
     rebuild checks again that the index is still outdated and the document
     still ``completed``, so a reprocess's fresh index is never overwritten.
     After the write it takes :func:`document_map_lock`, which a delete
     holds while it erases the document, and removes the file it wrote when
     the document is gone, no longer ``completed``, or would now index other
     content than it did (a reprocess in another worker, which the
-    process-local BM25 lock cannot see; compared by
+    process-local index lock cannot see; compared by
     :func:`_rebuilt_index_still_valid`); the index is then missing, so the
     next read of a ``completed`` document builds it again. The map lock
     spans workers only with Redis configured. If
@@ -865,9 +865,9 @@ async def _rebuild_outdated_bm25_index(
     """
     if await asyncio.to_thread(bm25_retriever.is_current, document_id):
         return
-    from ..services.bm25_retriever import bm25_index_lock
+    from ..services.index_file_io import document_index_lock
 
-    async with bm25_index_lock(document_id):
+    async with document_index_lock(document_id):
         if await asyncio.to_thread(bm25_retriever.is_current, document_id):
             return
         document = await _completed_document(db, document_id)

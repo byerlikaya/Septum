@@ -3,7 +3,8 @@ from __future__ import annotations
 """FastAPI router for accessing sanitized document chunks."""
 
 import asyncio
-from typing import List, Optional, Sequence
+import logging
+from typing import List, NoReturn, Optional, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -19,7 +20,13 @@ from ..request_limits import (
     MAX_SECTION_TITLE_CHARS,
     TOP_K_RETRIEVAL_MAX_CAP,
 )
-from ..services.document_anon_store import get_document_map
+from ..services.bm25_retriever import BM25Retriever
+from ..services.document_anon_store import (
+    DocumentMapLockLost,
+    document_map_lock,
+    get_document_map,
+)
+from ..services.index_file_io import document_index_lock
 from ..services.pii_gate import (
     DocumentNotEditableError,
     gate_document_texts,
@@ -53,6 +60,8 @@ async def _ensure_chunk_owner(db: AsyncSession, chunk: Chunk, user: User) -> Non
 from ..utils.text_utils import normalize_unicode
 
 _CHUNK_NOT_FOUND = "Chunk not found."
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/chunks", tags=["chunks"])
 
@@ -264,20 +273,24 @@ async def delete_chunk(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin", "editor")),
 ) -> None:
-    """Delete a chunk and recount its document's ``chunk_count``.
+    """Delete a chunk, recount its document's ``chunk_count`` and drop its id from the indexes.
 
     Only a chunk of a ``completed`` document may be deleted; any other
     status, or one that changes before the delete commits, is refused with
     409. The document row is held first, then the chunk deleted (the order
     a reprocess claim takes them in); a chunk a concurrent delete removed
     meanwhile yields 404, and ``chunk_count`` is set to the rows that remain.
+    Once the delete is committed, the chunk's id is removed from the
+    document's FAISS and BM25 indexes (:func:`_drop_from_indexes`); if that
+    fails the row stays deleted and the request answers 500.
     """
     chunk = await get_or_404(db, Chunk, chunk_id, _CHUNK_NOT_FOUND)
     await _ensure_chunk_owner(db, chunk, user)
     document = await _completed_document(db, chunk)
     document_id = document.id
+    run_token = document.ingestion_run_id
 
-    await hold_completed_document(db, document_id, document.ingestion_run_id)
+    await hold_completed_document(db, document_id, run_token)
     deleted = await db.scalar(
         delete(Chunk)
         .where(Chunk.id == chunk_id, Chunk.document_id == document_id)
@@ -297,6 +310,72 @@ async def delete_chunk(
         .execution_options(synchronize_session=False)
     )
     await db.commit()
+    await _drop_from_indexes(db, document_id, run_token, [chunk_id])
+
+
+async def _drop_from_indexes(
+    db: AsyncSession, document_id: int, run_token: Optional[str], chunk_ids: List[int]
+) -> None:
+    """Remove committed-deleted ``chunk_ids`` from the document's FAISS and BM25 indexes.
+
+    Lock order: :func:`document_index_lock`, then :func:`document_map_lock`,
+    the order the chat-time BM25 rebuild takes them in; no transaction is
+    open while either is awaited. The map lock spans workers when Redis is
+    configured, so two deletes on the same document never lose each other's
+    load-modify-write, and a reprocess's artifact cleanup (which erases
+    under the map lock) cannot interleave. Under both locks the document is
+    re-read with a plain SELECT whose transaction is ended at once: unless
+    it is still ``completed`` on ``run_token``, a reprocess claimed it and
+    its cleanup replaces both files, so nothing is written.
+
+    A failure is logged with the document id, the tier and the error class
+    only, and answered with a content-free 500; the row delete stays
+    committed. A map lock found expired only on release, after both writes,
+    is logged as a warning.
+    """
+    tier = "lock"
+    try:
+        async with document_index_lock(document_id):
+            async with document_map_lock(document_id) as lock:
+                held = await db.scalar(
+                    select(Document.id).where(
+                        Document.id == document_id,
+                        Document.ingestion_status == "completed",
+                        Document.ingestion_run_id.is_not_distinct_from(run_token),
+                    )
+                )
+                await db.rollback()
+                if held is None:
+                    return
+                for tier, store in (("faiss", VectorStore), ("bm25", BM25Retriever)):
+                    await lock.ensure_held()
+                    await asyncio.to_thread(store().remove_ids, document_id, chunk_ids)
+                tier = "release"
+    except DocumentMapLockLost:
+        if tier != "release":
+            _raise_index_update_failed(document_id, tier, DocumentMapLockLost)
+        logger.warning(
+            "Map lock of document_id=%s expired after its index update", document_id
+        )
+    except Exception as exc:
+        _raise_index_update_failed(document_id, tier, type(exc))
+
+
+def _raise_index_update_failed(document_id: int, tier: str, error: type) -> NoReturn:
+    """Log a failed chunk-id removal and raise the content-free 500."""
+    logger.error(
+        "Removing deleted chunk ids from the %s index of document_id=%s failed: %s",
+        tier,
+        document_id,
+        error.__name__,
+    )
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=(
+            "The chunk was deleted, but the document's search index could not "
+            "be updated. Reprocess the document to rebuild it."
+        ),
+    ) from None
 
 
 @router.post(

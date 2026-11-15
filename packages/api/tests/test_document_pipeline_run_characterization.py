@@ -427,7 +427,7 @@ async def test_bm25_write_waits_for_the_index_lock(monkeypatch):
     )
     pipeline = dp.DocumentPipeline(settings="SETTINGS")
 
-    async with dp.bm25_index_lock(7):
+    async with dp.document_index_lock(7):
         task = asyncio.create_task(
             pipeline._index_document(7, [SimpleNamespace(id=1)], ["raw"], "en", lambda _: None)
         )
