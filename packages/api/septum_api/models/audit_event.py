@@ -55,6 +55,8 @@ class AuditEvent(Base):
     entity_types_detected: Mapped[Dict[str, int]] = mapped_column(
         JSON, nullable=False, default=dict
     )
+    # Figure recorded when the event was written; it is not recomputed when
+    # detection rows are later removed by a chunk edit, delete or reprocess.
     entity_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     extra: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
 
