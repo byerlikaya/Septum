@@ -326,7 +326,7 @@ export const trMessages: Record<string, string> = {
     "Ardışık parçalar arasındaki örtüşen karakter sayısı. En fazla parça boyutunun yarısı kadar olabilir.",
   "settings.rag.topK.label": "Top‑K getirme",
   "settings.rag.topK.description":
-    "Sorgu başına getirilen varsayılan parça sayısı; 1 ile 25 arasında olabilir.",
+    "Sorgu başına getirilen varsayılan parça sayısı; {min} ile {max} arasında olabilir.",
   "settings.rag.relevanceThreshold.label": "Alaka eşiği",
   "settings.rag.relevanceThreshold.description":
     "Bir parçanın prompt'a dahil edilmesi için gereken minimum skor (0–1). Düşük değerler daha fazla parça dahil eder; yüksek değerler daha seçicidir.",

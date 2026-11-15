@@ -97,7 +97,10 @@ export function RagTab({
 
         <NumberField
           label={t("settings.rag.topK.label")}
-          description={t("settings.rag.topK.description")}
+          description={t("settings.rag.topK.description", {
+            min: MIN_TOP_K,
+            max: MAX_TOP_K
+          })}
           value={settings.top_k_retrieval}
           onBlur={async (raw) =>
             handleNumberBlur("top_k_retrieval", raw, settings.top_k_retrieval)

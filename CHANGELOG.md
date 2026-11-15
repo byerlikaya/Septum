@@ -27,6 +27,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 - Deleting a chunk now also removes its id from the document's FAISS and BM25 search indexes, so a deleted chunk no longer takes up a retrieval slot; ingestion and the removal write both indexes under one per-document lock, and a removal that cannot be written answers with a 500 while the chunk stays deleted.
 - A spreadsheet column label that names a person now names the same person in chat: the label is renumbered into the turn's shared placeholder numbering exactly like the document's text, so a label can no longer show another person's name in the answer or mislead the model when that numbering swaps or compacts placeholders. A placeholder the document does not know restores to nobody.
 - Editing a chunk's text now re-indexes it: its entry in the document's FAISS and BM25 search indexes is rebuilt from the edited sanitized text, so retrieval no longer ranks the chunk by its original text, and its stored raw text and entity detections are removed because they no longer match the edit. The embedding model is loaded before the index locks are taken, and an index that cannot be written or a model that cannot be loaded answers with a 500 while the edit stays saved.
+- The Settings page hint for the default number of retrieved chunks now takes its minimum and maximum from the same constants that bound the field, so the text can no longer disagree with the limit.
 
 ### 2026-11-14
 

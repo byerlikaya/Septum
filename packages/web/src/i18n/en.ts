@@ -324,7 +324,7 @@ export const enMessages = {
     "Number of overlapping characters between consecutive chunks. At most half of the chunk size.",
   "settings.rag.topK.label": "Top‑K retrieval",
   "settings.rag.topK.description":
-    "Default number of chunks retrieved per query, from 1 to 25.",
+    "Default number of chunks retrieved per query, from {min} to {max}.",
   "settings.rag.relevanceThreshold.label": "Relevance threshold",
   "settings.rag.relevanceThreshold.description":
     "Minimum score (0–1) for a retrieved chunk to be included in the prompt. Lower values include more chunks; higher values are more selective.",
