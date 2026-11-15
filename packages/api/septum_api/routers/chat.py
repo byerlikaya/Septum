@@ -2867,7 +2867,8 @@ async def _owned_retry_documents(
     """Resolve the documents a retry's chunks name.
 
     The ids pass the same owner check as requested ids, so they can never
-    widen access.
+    widen access. A document that is not ``completed`` gets the same 404 as
+    a missing one, so its map is never loaded for numbering or gating.
     """
     retry_documents: dict[int, Document] = {}
     retry_ids = {
@@ -2876,9 +2877,14 @@ async def _owned_retry_documents(
         if c.document_id is not None
     }
     for did in sorted(retry_ids):
-        retry_documents[did] = requested_documents.get(did) or await get_owned_or_404(
+        document = requested_documents.get(did) or await get_owned_or_404(
             db, Document, did, user, _DOCUMENT_NOT_FOUND
         )
+        if document.ingestion_status != "completed":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=_DOCUMENT_NOT_FOUND
+            )
+        retry_documents[did] = document
     return retry_documents
 
 

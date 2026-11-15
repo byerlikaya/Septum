@@ -166,3 +166,102 @@ async def test_working_copy_reserves_stored_chunk_indexes_above_the_cap() -> Non
 
     assert working.token_counter == {"EMAIL": 1500000}
     assert working.add_entity("a@example.com", "EMAIL") == "[EMAIL_1500001]"
+
+
+class TestRetryRefusesNonCompletedDocuments:
+    async def _set_status(self, chat_env, document_id: int, ingestion_status: str) -> None:
+        from septum_api.models.document import Document
+
+        async with chat_env.session_maker() as session:
+            document = await session.get(Document, document_id)
+            document.ingestion_status = ingestion_status
+            await session.commit()
+
+    def _track_map_loads(self, monkeypatch) -> list[int]:
+        from septum_api.routers import chat as chat_module
+
+        loaded: list[int] = []
+
+        async def _tracking(document_id):
+            loaded.append(document_id)
+            return None
+
+        monkeypatch.setattr(chat_module, "get_document_map", _tracking)
+        return loaded
+
+    async def _retry(self, chat_env, document_id: int):
+        chat_env.act_as("alice")
+        return await chat_env.ask(
+            {
+                "message": "who?",
+                "pre_approved_chunks": [{"text": "alpha", "document_id": document_id}],
+            }
+        )
+
+    @pytest.mark.parametrize("ingestion_status", ["pending", "processing", "failed"])
+    async def test_retry_naming_a_non_completed_document_is_404_like_a_missing_one(
+        self, chat_env, ingestion_status: str
+    ) -> None:
+        doc = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha"])
+        await self._set_status(chat_env, doc, ingestion_status)
+
+        await chat_env.set_require_approval(False)
+        refused = await self._retry(chat_env, doc)
+        missing = await self._retry(chat_env, doc + 999)
+
+        assert refused[0] == missing[0] == 404
+        assert refused[2] == missing[2]
+        assert chat_env.prompts == []
+        assert chat_env.gate.created == []
+
+    @pytest.mark.parametrize("ingestion_status", ["pending", "processing", "failed"])
+    async def test_map_of_a_refused_non_completed_document_is_never_loaded(
+        self, chat_env, monkeypatch, ingestion_status: str
+    ) -> None:
+        loaded = self._track_map_loads(monkeypatch)
+        doc = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha"])
+        await self._set_status(chat_env, doc, ingestion_status)
+        await chat_env.set_require_approval(False)
+
+        status_code, _, _ = await self._retry(chat_env, doc)
+
+        assert status_code == 404
+        assert doc not in loaded
+
+    async def test_mixed_retry_with_a_non_completed_document_is_refused_before_any_map_load(
+        self, chat_env, monkeypatch
+    ) -> None:
+        loaded = self._track_map_loads(monkeypatch)
+        completed = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha"])
+        pending = await chat_env.add_document(chat_env.users["alice"], "b.pdf", ["beta"])
+        await self._set_status(chat_env, pending, "processing")
+        await chat_env.set_require_approval(False)
+
+        chat_env.act_as("alice")
+        status_code, _, _ = await chat_env.ask(
+            {
+                "message": "who?",
+                "pre_approved_chunks": [
+                    {"text": "alpha", "document_id": completed},
+                    {"text": "beta", "document_id": pending},
+                ],
+            }
+        )
+
+        assert status_code == 404
+        assert chat_env.prompts == []
+        assert chat_env.gate.created == []
+        assert loaded == []
+
+    async def test_retry_naming_a_completed_document_still_works(
+        self, chat_env, monkeypatch
+    ) -> None:
+        loaded = self._track_map_loads(monkeypatch)
+        doc = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha"])
+        await chat_env.set_require_approval(False)
+
+        status_code, events, _ = await self._retry(chat_env, doc)
+
+        assert status_code == 200
+        assert events
+        assert doc in loaded
