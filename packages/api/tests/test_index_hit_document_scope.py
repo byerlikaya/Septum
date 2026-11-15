@@ -1,8 +1,8 @@
 """Index hits resolve only to chunks of the document whose index produced them.
 
-FAISS and BM25 store bare chunk ids. A deleted chunk's id stays in its
-document's index, and SQLite hands a freed top id to the next insert, which may
-be another user's chunk. Every lookup of index hits must therefore be scoped to
+FAISS and BM25 store bare chunk ids. A deleted chunk's id can stay in its
+document's index (a delete whose index update failed), and SQLite hands a freed
+top id to the next insert, which may be another user's chunk. Every lookup of index hits must therefore be scoped to
 the document the hit came from.
 """
 

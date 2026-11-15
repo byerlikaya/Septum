@@ -843,9 +843,9 @@ async def _rebuild_outdated_bm25_index(
     An outdated index is never searched (its tokens would not meet the
     query's), and a missing one (never written, or removed by an earlier
     rebuild below) gives no keyword signal, so it is built here from the
-    stored chunks: the raw text
-    ingestion indexed, or the sanitized text for rows that predate it, in
-    the document's masking language. The write is atomic and replaces the
+    stored chunks: the raw text ingestion indexed, or the sanitized text
+    for rows without one (rows that predate it, and edited chunks, which an
+    edit re-indexes on that text), in the document's masking language. The write is atomic and replaces the
     old file in place; a document without chunk rows is left as it is.
 
     Locks are always taken in one order, index lock then map lock. Under
