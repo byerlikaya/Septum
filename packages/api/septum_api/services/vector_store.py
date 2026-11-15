@@ -374,6 +374,15 @@ class VectorStore:
         index.add_with_ids(self._encode_texts([text]), ids)
         self._save_index(document_id, index)
 
+    def warm_model(self, document_id: int) -> None:
+        """Load the encoder a :meth:`replace_entry` on ``document_id`` would need, ahead of its locks.
+
+        No model is loaded while the document has no stored index (that
+        replace is a no-op). Load errors propagate unchanged.
+        """
+        if self._index_path(document_id).exists():
+            self._get_model()
+
     def delete_index(self, document_id: int) -> None:
         """Remove the stored FAISS index for a document.
 

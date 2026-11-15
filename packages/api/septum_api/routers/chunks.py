@@ -378,7 +378,8 @@ async def _reindex_chunk(
     locks, not the text this request committed: of two edits of one chunk,
     whichever re-indexes last reads the edit committed last, so an earlier
     edit never puts its stale text back. A chunk deleted meanwhile is left
-    to its delete.
+    to its delete. The embedding model is loaded before the locks are
+    taken, so a cold load cannot spend the map lock's lifetime.
     """
     await _update_indexes(
         db,
@@ -389,6 +390,7 @@ async def _reindex_chunk(
         .join(Document, Document.id == Chunk.document_id)
         .where(Chunk.id == chunk_id),
         lambda store, text: store.replace_entry(document_id, chunk_id, text),
+        prepare=lambda: VectorStore().warm_model(document_id),
     )
 
 
@@ -399,15 +401,17 @@ async def _update_indexes(
     change: _IndexChange,
     reread: Select,
     write: Callable[[Any, Any], None],
+    prepare: Optional[Callable[[], None]] = None,
 ) -> None:
     """Apply a committed chunk change to the document's FAISS and BM25 indexes.
 
     Lock order: :func:`document_index_lock`, then :func:`document_map_lock`,
     the order the chat-time BM25 rebuild takes them in; the session's
     transaction (a read the caller made after its commit, if any) is ended
-    first, so none is open while either is awaited. The map lock spans workers when Redis is
-    configured, so two changes on the same document never lose each other's
-    load-modify-write, and a reprocess's artifact cleanup (which erases
+    first, so none is open while either is awaited, and ``prepare``, if
+    given, then runs in a worker thread before either lock is taken. The
+    map lock spans workers when Redis is configured, so two changes on the
+    same document never lose each other's load-modify-write, and a reprocess's artifact cleanup (which erases
     under the map lock) cannot interleave. Under both locks ``reread`` runs,
     narrowed to the document while it is still ``completed`` on
     ``run_token``, as a plain SELECT whose transaction is ended at once: no
@@ -416,15 +420,18 @@ async def _update_indexes(
     ``write(store, value)`` runs once per index, ``value`` being the
     re-read column.
 
-    A failure is logged with the document id, the tier (``lock``,
-    ``reread``, ``faiss`` or ``bm25``) and the error class only, and
-    answered with ``change``'s content-free 500; the row change stays
+    A failure is logged with the document id, the tier (``model``,
+    ``lock``, ``reread``, ``faiss`` or ``bm25``) and the error class only,
+    and answered with ``change``'s content-free 500; the row change stays
     committed. A map lock found expired only on release, after both
     writes, is logged as a warning.
     """
     tier = "reread"
     try:
         await db.rollback()
+        if prepare is not None:
+            tier = "model"
+            await asyncio.to_thread(prepare)
         tier = "lock"
         async with document_index_lock(document_id):
             async with document_map_lock(document_id) as lock:
