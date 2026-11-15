@@ -1,8 +1,12 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { RagTab } from "../RagTab";
+import { MAX_TOP_K, MIN_TOP_K } from "../../../lib/chunkLimits";
+import { enMessages } from "../../../i18n/en";
+import { trMessages } from "../../../i18n/tr";
 
 jest.mock("../../../lib/i18n", () => ({
-  useI18n: () => (key: string) => key
+  useI18n: () => (key: string, params?: Record<string, unknown>) =>
+    params ? `${key}|${JSON.stringify(params)}` : key
 }));
 
 const baseSettings = {
@@ -34,6 +38,27 @@ function setup(overrides: Partial<typeof baseSettings> = {}, onChangeImpl?: () =
   };
   return { onChange, fieldFor, commit };
 }
+
+describe("RagTab top-k hint", () => {
+  it("passes the top-k bounds from chunkLimits to the hint", () => {
+    setup();
+    expect(
+      screen.getByText(
+        `settings.rag.topK.description|${JSON.stringify({ min: MIN_TOP_K, max: MAX_TOP_K })}`
+      )
+    ).toBeInTheDocument();
+  });
+
+  it.each([
+    ["en", enMessages],
+    ["tr", trMessages]
+  ])("the %s hint takes the bounds as placeholders", (_lang, messages) => {
+    const text = (messages as Record<string, string>)["settings.rag.topK.description"];
+    expect(text).toContain("{min}");
+    expect(text).toContain("{max}");
+    expect(text).not.toContain(String(MAX_TOP_K));
+  });
+});
 
 describe("RagTab chunk limits", () => {
   it("exposes native min and max on the chunk inputs", () => {
