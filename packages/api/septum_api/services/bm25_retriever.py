@@ -239,6 +239,28 @@ class BM25Retriever:
         index_data["corpus"] = [tokens for _, tokens in kept]
         self._save_index(document_id, index_data)
 
+    def replace_entry(self, document_id: int, chunk_id: int, text: str) -> None:
+        """Replace ``chunk_id``'s entry in a document's stored BM25 index with the tokens of ``text``.
+
+        ``text`` is tokenized in the language the index was built with, so
+        the index scores like one built from the current chunk texts. The
+        entry keeps its position; an id the index does not hold is appended.
+        A missing or unreadable index is left as it is (no index is built
+        from one chunk). The write is atomic; the caller holds
+        :func:`~.index_file_io.document_index_lock`.
+        """
+        index_data = self._load_index(document_id)
+        if index_data is None:
+            return
+        tokens = _tokenize(text, index_data.get("language") or _DEFAULT_LANGUAGE)
+        chunk_ids = index_data["chunk_ids"]
+        if chunk_id in chunk_ids:
+            index_data["corpus"][chunk_ids.index(chunk_id)] = tokens
+        else:
+            chunk_ids.append(chunk_id)
+            index_data["corpus"].append(tokens)
+        self._save_index(document_id, index_data)
+
     def delete_index(self, document_id: int) -> None:
         """Remove the stored BM25 index for a document.
 

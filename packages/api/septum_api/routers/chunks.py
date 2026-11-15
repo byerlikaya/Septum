@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import List, NoReturn, Optional, Sequence
+from dataclasses import dataclass
+from typing import Any, Callable, List, NoReturn, Optional, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import Select, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..errors import OriginalsPatternTooDeepError
 from ..models.document import Chunk, Document
+from ..models.entity_detection import EntityDetection
 from ..models.user import User
 from ..request_limits import (
     MAX_PRE_APPROVED_CHUNK_CHARS,
@@ -232,6 +234,14 @@ async def update_chunk(
     added to the document's (encrypted) anonymization map. Only a chunk of
     a ``completed`` document may be edited; any other status, or one that
     changes before the edit commits, is refused with 409.
+
+    Edited text clears the chunk's ``raw_text`` and deletes its stored
+    entity detections in the same commit (the raw text and the detections'
+    offsets into it no longer match the edit and must not linger), and once
+    committed the chunk's entry in the document's FAISS and BM25 indexes is
+    rebuilt from the edited sanitized text (:func:`_reindex_chunk`); if that
+    fails the edit stays committed and the request answers 500. A
+    title-only edit touches none of them.
     """
     chunk = await get_or_404(db, Chunk, chunk_id, _CHUNK_NOT_FOUND)
     await _ensure_chunk_owner(db, chunk, user)
@@ -255,12 +265,23 @@ async def update_chunk(
         if "sanitized_text" in gated:
             chunk.sanitized_text = gated["sanitized_text"]
             chunk.char_count = len(chunk.sanitized_text)
+            chunk.raw_text = None
+            await db.execute(
+                delete(EntityDetection)
+                .where(
+                    EntityDetection.chunk_id == chunk_id,
+                    EntityDetection.document_id == document.id,
+                )
+                .execution_options(synchronize_session=False)
+            )
         if "section_title" in gated:
             chunk.section_title = gated["section_title"]
 
     await db.commit()
     await db.refresh(chunk)
     [response] = await _chunk_responses([chunk])
+    if "sanitized_text" in edits:
+        await _reindex_chunk(db, document.id, run_token, chunk_id)
     return response
 
 
@@ -281,8 +302,9 @@ async def delete_chunk(
     a reprocess claim takes them in); a chunk a concurrent delete removed
     meanwhile yields 404, and ``chunk_count`` is set to the rows that remain.
     Once the delete is committed, the chunk's id is removed from the
-    document's FAISS and BM25 indexes (:func:`_drop_from_indexes`); if that
-    fails the row stays deleted and the request answers 500.
+    document's FAISS and BM25 indexes (:func:`_drop_from_indexes`), under
+    the protocol of :func:`_update_indexes`; if that fails the row stays
+    deleted and the request answers 500.
     """
     chunk = await get_or_404(db, Chunk, chunk_id, _CHUNK_NOT_FOUND)
     await _ensure_chunk_owner(db, chunk, user)
@@ -313,68 +335,139 @@ async def delete_chunk(
     await _drop_from_indexes(db, document_id, run_token, [chunk_id])
 
 
+@dataclass(frozen=True)
+class _IndexChange:
+    """What an index update does, as named in its failure log line and 500 answer."""
+
+    action: str
+    detail: str
+
+
+_CHUNK_DELETED = _IndexChange(
+    "Removing deleted chunk ids from",
+    "The chunk was deleted, but the document's search index could not "
+    "be updated. Reprocess the document to rebuild it.",
+)
+_CHUNK_EDITED = _IndexChange(
+    "Re-indexing the edited chunk in",
+    "The chunk was edited, but the document's search index could not "
+    "be updated. Reprocess the document to rebuild it.",
+)
+
+
 async def _drop_from_indexes(
     db: AsyncSession, document_id: int, run_token: Optional[str], chunk_ids: List[int]
 ) -> None:
-    """Remove committed-deleted ``chunk_ids`` from the document's FAISS and BM25 indexes.
+    """Remove committed-deleted ``chunk_ids`` from the document's FAISS and BM25 indexes."""
+    await _update_indexes(
+        db,
+        document_id,
+        run_token,
+        _CHUNK_DELETED,
+        select(Document.id),
+        lambda store, _: store.remove_ids(document_id, chunk_ids),
+    )
+
+
+async def _reindex_chunk(
+    db: AsyncSession, document_id: int, run_token: Optional[str], chunk_id: int
+) -> None:
+    """Rebuild an edited chunk's entry in the document's FAISS and BM25 indexes.
+
+    The text indexed is the chunk's ``sanitized_text`` as re-read under the
+    locks, not the text this request committed: of two edits of one chunk,
+    whichever re-indexes last reads the edit committed last, so an earlier
+    edit never puts its stale text back. A chunk deleted meanwhile is left
+    to its delete.
+    """
+    await _update_indexes(
+        db,
+        document_id,
+        run_token,
+        _CHUNK_EDITED,
+        select(Chunk.sanitized_text)
+        .join(Document, Document.id == Chunk.document_id)
+        .where(Chunk.id == chunk_id),
+        lambda store, text: store.replace_entry(document_id, chunk_id, text),
+    )
+
+
+async def _update_indexes(
+    db: AsyncSession,
+    document_id: int,
+    run_token: Optional[str],
+    change: _IndexChange,
+    reread: Select,
+    write: Callable[[Any, Any], None],
+) -> None:
+    """Apply a committed chunk change to the document's FAISS and BM25 indexes.
 
     Lock order: :func:`document_index_lock`, then :func:`document_map_lock`,
-    the order the chat-time BM25 rebuild takes them in; no transaction is
-    open while either is awaited. The map lock spans workers when Redis is
-    configured, so two deletes on the same document never lose each other's
+    the order the chat-time BM25 rebuild takes them in; the session's
+    transaction (a read the caller made after its commit, if any) is ended
+    first, so none is open while either is awaited. The map lock spans workers when Redis is
+    configured, so two changes on the same document never lose each other's
     load-modify-write, and a reprocess's artifact cleanup (which erases
-    under the map lock) cannot interleave. Under both locks the document is
-    re-read with a plain SELECT whose transaction is ended at once: unless
-    it is still ``completed`` on ``run_token``, a reprocess claimed it and
-    its cleanup replaces both files, so nothing is written.
+    under the map lock) cannot interleave. Under both locks ``reread`` runs,
+    narrowed to the document while it is still ``completed`` on
+    ``run_token``, as a plain SELECT whose transaction is ended at once: no
+    row means a reprocess claimed the document (its cleanup replaces both
+    files) or the row is gone, so nothing is written. Otherwise
+    ``write(store, value)`` runs once per index, ``value`` being the
+    re-read column.
 
-    A failure is logged with the document id, the tier and the error class
-    only, and answered with a content-free 500; the row delete stays
-    committed. A map lock found expired only on release, after both writes,
-    is logged as a warning.
+    A failure is logged with the document id, the tier (``lock``,
+    ``reread``, ``faiss`` or ``bm25``) and the error class only, and
+    answered with ``change``'s content-free 500; the row change stays
+    committed. A map lock found expired only on release, after both
+    writes, is logged as a warning.
     """
-    tier = "lock"
+    tier = "reread"
     try:
+        await db.rollback()
+        tier = "lock"
         async with document_index_lock(document_id):
             async with document_map_lock(document_id) as lock:
-                held = await db.scalar(
-                    select(Document.id).where(
-                        Document.id == document_id,
-                        Document.ingestion_status == "completed",
-                        Document.ingestion_run_id.is_not_distinct_from(run_token),
+                tier = "reread"
+                held = (
+                    await db.execute(
+                        reread.where(
+                            Document.id == document_id,
+                            Document.ingestion_status == "completed",
+                            Document.ingestion_run_id.is_not_distinct_from(run_token),
+                        )
                     )
-                )
+                ).first()
                 await db.rollback()
                 if held is None:
                     return
                 for tier, store in (("faiss", VectorStore), ("bm25", BM25Retriever)):
                     await lock.ensure_held()
-                    await asyncio.to_thread(store().remove_ids, document_id, chunk_ids)
+                    await asyncio.to_thread(write, store(), held[0])
                 tier = "release"
     except DocumentMapLockLost:
         if tier != "release":
-            _raise_index_update_failed(document_id, tier, DocumentMapLockLost)
+            _raise_index_update_failed(document_id, change, tier, DocumentMapLockLost)
         logger.warning(
             "Map lock of document_id=%s expired after its index update", document_id
         )
     except Exception as exc:
-        _raise_index_update_failed(document_id, tier, type(exc))
+        _raise_index_update_failed(document_id, change, tier, type(exc))
 
 
-def _raise_index_update_failed(document_id: int, tier: str, error: type) -> NoReturn:
-    """Log a failed chunk-id removal and raise the content-free 500."""
+def _raise_index_update_failed(
+    document_id: int, change: _IndexChange, tier: str, error: type
+) -> NoReturn:
+    """Log a failed index update and raise ``change``'s content-free 500."""
     logger.error(
-        "Removing deleted chunk ids from the %s index of document_id=%s failed: %s",
+        "%s the %s index of document_id=%s failed: %s",
+        change.action,
         tier,
         document_id,
         error.__name__,
     )
     raise HTTPException(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail=(
-            "The chunk was deleted, but the document's search index could not "
-            "be updated. Reprocess the document to rebuild it."
-        ),
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=change.detail
     ) from None
 
 

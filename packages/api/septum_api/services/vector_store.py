@@ -357,6 +357,23 @@ class VectorStore:
             return
         self._save_index(document_id, index)
 
+    def replace_entry(self, document_id: int, chunk_id: int, text: str) -> None:
+        """Index ``text`` as ``chunk_id``'s only vector in a document's stored FAISS index.
+
+        Any vector stored for the id is removed and one fresh embedding of
+        ``text`` is added under it; every other vector stays as it is. A
+        missing or unreadable index is left as it is (no index is built from
+        one chunk) and no model is loaded for it. The write is atomic; the
+        caller holds :func:`~.index_file_io.document_index_lock`.
+        """
+        index = self._load_index(document_id)
+        if index is None:
+            return
+        ids = np.asarray([chunk_id], dtype="int64")
+        index.remove_ids(faiss.IDSelectorBatch(ids))
+        index.add_with_ids(self._encode_texts([text]), ids)
+        self._save_index(document_id, index)
+
     def delete_index(self, document_id: int) -> None:
         """Remove the stored FAISS index for a document.
 

@@ -105,9 +105,12 @@ class Chunk(Base):
     # highlight overlays use the document_pipeline-computed offsets,
     # which are relative to the raw text, not the masked text). Never
     # leaves the air-gapped zone — chat retrieval reads ``sanitized_text``.
-    # Nullable for backwards compatibility with chunks ingested before
-    # this column existed; preview UI falls back to ``sanitized_text``
-    # when ``raw_text`` is null.
+    # Ingestion builds the FAISS and BM25 indexes from it. NULL for chunks
+    # ingested before this column existed and for chunks whose text was
+    # edited (the edit clears it, deletes the chunk's entity detections,
+    # whose offsets point into it, and re-indexes the chunk on its edited
+    # ``sanitized_text``); the preview UI and the BM25 rebuild fall back
+    # to ``sanitized_text`` when ``raw_text`` is null.
     raw_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # Half-open [start_char, end_char) span of ``raw_text`` inside the
     # document's joined extracted text, so the preview can place chunks
