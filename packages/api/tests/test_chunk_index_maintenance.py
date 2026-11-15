@@ -18,6 +18,7 @@ import contextlib
 import hashlib
 import logging
 import os
+import threading
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -735,6 +736,114 @@ async def test_edit_chunk_index_failure_is_reported_not_swallowed(
     assert stored and all(row["status_code"] == 500 for row in stored)
     for secret in ("Jane Roe", EDITED, "Permission denied"):
         assert secret not in repr(stored)
+
+
+async def test_edit_loads_the_model_off_the_loop_before_the_index_lock(
+    env: SimpleNamespace,
+) -> None:
+    """A cold model is loaded before either lock is taken, so a slow load cannot outlast the map lock."""
+    document_id, (_, middle, _) = await _seed(env, RAW_TEXTS)
+    _allow_edits(env)
+    loop_thread = threading.get_ident()
+    events: List[str] = []
+    real_lock = chunks_module.document_index_lock
+
+    def _recording_model(self: VectorStore) -> _StubModel:
+        loaded = "load" in events
+        events.append("cached" if loaded else "load")
+        if not loaded:
+            assert threading.get_ident() != loop_thread
+        return _StubModel()
+
+    @contextlib.asynccontextmanager
+    async def _recording_lock(doc_id: int) -> AsyncIterator[None]:
+        events.append("index_lock")
+        async with real_lock(doc_id):
+            yield
+
+    env.monkeypatch.setattr(VectorStore, "_get_model", _recording_model)
+    env.monkeypatch.setattr(chunks_module, "document_index_lock", _recording_lock)
+
+    response = await env.client.patch(f"/api/chunks/{middle}", json={"sanitized_text": EDITED})
+
+    assert response.status_code == 200
+    assert events == ["load", "index_lock", "cached"]
+    np.testing.assert_allclose(
+        _faiss_vectors(VectorStore(), document_id)[middle], _unit(EDITED), rtol=1e-6
+    )
+
+
+async def test_edit_model_load_failure_is_reported_not_swallowed(
+    env: SimpleNamespace, caplog: pytest.LogCaptureFixture
+) -> None:
+    document_id, (_, middle, _) = await _seed(env, RAW_TEXTS)
+    _allow_edits(env)
+    before = (_faiss_bytes(document_id), _bm25_bytes(document_id))
+    locked: List[int] = []
+    real_lock = chunks_module.document_index_lock
+
+    def _unloadable(self: VectorStore) -> Any:
+        raise RuntimeError(f"cannot load {RAW_TEXTS[1]} {EDITED}")
+
+    @contextlib.asynccontextmanager
+    async def _recording_lock(doc_id: int) -> AsyncIterator[None]:
+        locked.append(doc_id)
+        async with real_lock(doc_id):
+            yield
+
+    env.monkeypatch.setattr(VectorStore, "_get_model", _unloadable)
+    env.monkeypatch.setattr(chunks_module, "document_index_lock", _recording_lock)
+
+    with caplog.at_level(logging.DEBUG):
+        response = await env.client.patch(f"/api/chunks/{middle}", json={"sanitized_text": EDITED})
+
+    assert response.status_code == 500
+    assert response.json() == EDIT_FAILURE_DETAIL
+    assert tuple(await _chunk_row(env, middle)) == (EDITED, None)
+    assert (_faiss_bytes(document_id), _bm25_bytes(document_id)) == before
+    assert locked == []
+    errors = [r for r in caplog.records if r.name == chunks_module.logger.name]
+    assert [r.getMessage() for r in errors] == [
+        "Re-indexing the edited chunk in the model index of "
+        f"document_id={document_id} failed: RuntimeError"
+    ]
+    assert errors[0].exc_info is None
+    for record in caplog.records:
+        rendered = record.getMessage() + (str(record.exc_info) if record.exc_info else "")
+        for secret in (RAW_TEXTS[1], "Jane Roe", EDITED, "cannot load"):
+            assert secret not in rendered
+    async with env.maker() as session:
+        stored = [
+            {column.name: getattr(row, column.key) for column in ErrorLog.__table__.columns}
+            for row in await session.scalars(select(ErrorLog))
+        ]
+    assert stored and all(row["status_code"] == 500 for row in stored)
+    for secret in ("Jane Roe", EDITED, "cannot load"):
+        assert secret not in repr(stored)
+
+
+async def test_edit_without_a_stored_faiss_index_loads_no_model(env: SimpleNamespace) -> None:
+    document_id, (_, middle, _) = await _seed(env, RAW_TEXTS)
+    _allow_edits(env)
+    VectorStore().delete_index(document_id)
+    env.monkeypatch.setattr(VectorStore, "_get_model", _no_model)
+
+    response = await env.client.patch(f"/api/chunks/{middle}", json={"sanitized_text": EDITED})
+
+    assert response.status_code == 200
+    assert tuple(await _chunk_row(env, middle)) == (EDITED, None)
+    assert not VectorStore()._index_path(document_id).exists()
+    assert BM25Retriever().search(document_id, "thirty days move", 1)[0][0] == middle
+
+
+async def test_delete_chunk_loads_no_model(env: SimpleNamespace) -> None:
+    document_id, (first, middle, last) = await _seed(env)
+    env.monkeypatch.setattr(VectorStore, "_get_model", _no_model)
+
+    response = await env.client.delete(f"/api/chunks/{middle}")
+
+    assert response.status_code == 204
+    assert _faiss_ids(VectorStore(), document_id) == [first, last]
 
 
 def _operation(env: SimpleNamespace, op: str, chunk_id: int) -> Any:
