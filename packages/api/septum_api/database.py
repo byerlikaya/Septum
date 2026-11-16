@@ -396,6 +396,10 @@ async def _sqlite_ensure_columns(eng: AsyncEngine) -> None:
             "ALTER TABLE documents ADD COLUMN ingestion_run_id VARCHAR(36)",
         ),
         (
+            "documents",
+            "ALTER TABLE documents ADD COLUMN ingestion_lease_expires_at DATETIME",
+        ),
+        (
             "chunks",
             "ALTER TABLE chunks ADD COLUMN start_char INTEGER",
         ),

@@ -73,6 +73,10 @@ class Document(Base):
     # Token of the ingestion run that holds the current claim; a stale run
     # whose token no longer matches must not write over a newer claim.
     ingestion_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    # When the current claim lapses unless its run renews it; NULL = expired.
+    ingestion_lease_expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
