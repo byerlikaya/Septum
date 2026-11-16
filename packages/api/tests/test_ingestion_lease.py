@@ -452,8 +452,12 @@ async def test_the_sweep_purges_failed_documents_only_every_nth_tick_and_survive
         done.set()
         return 0
 
+    async def _orphans(session_maker, source_dir) -> None:
+        return None
+
     monkeypatch.setattr(ingestion_lease, "fail_expired_ingestions", _sweep)
     monkeypatch.setattr(ingestion_lease, "purge_failed_documents", _purge)
+    monkeypatch.setattr(ingestion_lease, "sweep_orphan_artifacts", _orphans)
     with caplog.at_level(logging.DEBUG, logger=ingestion_lease.logger.name):
         task = asyncio.create_task(ingestion_lease.sweep_loop("MAKER", purge_every_ticks=3))
         try:
@@ -467,6 +471,57 @@ async def test_the_sweep_purges_failed_documents_only_every_nth_tick_and_survive
     errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
     assert errors == ["Periodic purge of failed documents failed: RuntimeError"]
     assert "/secret/faiss" not in caplog.text
+
+
+async def test_the_sweep_runs_the_orphan_sweep_on_each_purge_tick_and_survives_its_failure(
+    monkeypatch, caplog
+) -> None:
+    """Files a hung run wrote for a deleted document do not wait for a restart."""
+    from septum_api.services import ingestion_lease
+    from septum_api.services.source_files import SOURCE_FILE_DIR
+
+    monkeypatch.setattr(ingestion_lease, "SWEEP_SECONDS", 0)
+    ticks: list[int] = []
+    order: list[tuple[str, int]] = []
+    swept_with: list[tuple[Any, Any]] = []
+    done = asyncio.Event()
+
+    async def _sweep(session_maker) -> list[int]:
+        ticks.append(len(ticks) + 1)
+        return []
+
+    async def _purge(session_maker) -> int:
+        order.append(("purge", len(ticks)))
+        raise RuntimeError("listing /secret/faiss failed")
+
+    async def _orphans(session_maker, source_dir) -> None:
+        order.append(("orphans", len(ticks)))
+        swept_with.append((session_maker, source_dir))
+        if len(swept_with) == 1:
+            raise OSError("listing /secret/documents failed")
+        done.set()
+
+    monkeypatch.setattr(ingestion_lease, "fail_expired_ingestions", _sweep)
+    monkeypatch.setattr(ingestion_lease, "purge_failed_documents", _purge)
+    monkeypatch.setattr(ingestion_lease, "sweep_orphan_artifacts", _orphans)
+    with caplog.at_level(logging.DEBUG, logger=ingestion_lease.logger.name):
+        task = asyncio.create_task(ingestion_lease.sweep_loop("MAKER", purge_every_ticks=3))
+        try:
+            await asyncio.wait_for(done.wait(), timeout=5)
+        finally:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+    assert order == [("purge", 3), ("orphans", 3), ("purge", 6), ("orphans", 6)]
+    assert swept_with == [("MAKER", SOURCE_FILE_DIR)] * 2
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert errors == [
+        "Periodic purge of failed documents failed: RuntimeError",
+        "Periodic orphaned artifact sweep failed: OSError",
+        "Periodic purge of failed documents failed: RuntimeError",
+    ]
+    assert "/secret/" not in caplog.text
 
 
 async def test_the_lifespan_starts_the_sweep_and_cancels_it_on_shutdown(monkeypatch) -> None:
@@ -757,3 +812,219 @@ async def test_the_script_renews_the_lease_of_the_document_it_rebuilds(
     assert failed == 0
     assert seen == {"held": {(document_id, token)}, "renewed": True}
     assert ingestion_lease._held == set()
+
+
+# --------------------------------------------------------------- deadline
+
+
+async def _processing_run(store, tmp_path) -> tuple[int, str]:
+    document_id = await _add_document(store, tmp_path)
+    return document_id, await _claim(store, document_id)
+
+
+async def _row_state(maker, document_id: int) -> tuple[str, str | None, str | None]:
+    from septum_api.models.document import Document
+
+    async with maker() as session:
+        row = (
+            await session.execute(
+                select(
+                    Document.ingestion_status,
+                    Document.ingestion_run_id,
+                    Document.ingestion_error,
+                ).where(Document.id == document_id)
+            )
+        ).one()
+    return tuple(row)
+
+
+@pytest.fixture
+def effects(monkeypatch):
+    """Record the index drops and purges the deadline performs."""
+    from septum_api.services import ingestion_lease
+
+    calls = SimpleNamespace(dropped=[], purged=[])
+
+    async def _drop(db, document_id):
+        calls.dropped.append(document_id)
+
+    async def _purge(db, document_id, *, clear_reply_cache):
+        calls.purged.append((document_id, clear_reply_cache))
+
+    monkeypatch.setattr(ingestion_lease, "drop_index_for_document", _drop)
+    monkeypatch.setattr(ingestion_lease, "purge_failed_derived_data", _purge)
+    return calls
+
+
+async def test_a_run_past_the_deadline_is_failed_dropped_and_purged(
+    store, tmp_path, clock, effects
+) -> None:
+    from septum_api.services import ingestion_lease
+
+    document_id, token = await _processing_run(store, tmp_path)
+    with ingestion_lease.held(document_id, token):
+        ingestion_lease.mark_started(document_id, token)
+        clock.now = T0 + timedelta(seconds=ingestion_lease.MAX_RUN_SECONDS)
+        await ingestion_lease.renew_all(store)
+        assert (document_id, token) not in ingestion_lease._held
+
+    assert await _row_state(store, document_id) == (
+        "failed", token, ingestion_lease.TIMEOUT_ERROR
+    )
+    assert effects.dropped == [document_id]
+    assert effects.purged == [(document_id, False)]
+
+
+async def test_a_run_inside_the_deadline_is_renewed_as_before(
+    store, tmp_path, clock, effects
+) -> None:
+    from septum_api.services import ingestion_lease
+
+    document_id, token = await _processing_run(store, tmp_path)
+    with ingestion_lease.held(document_id, token):
+        ingestion_lease.mark_started(document_id, token)
+        clock.now = T0 + timedelta(seconds=ingestion_lease.MAX_RUN_SECONDS - 1)
+        await ingestion_lease.renew_all(store)
+        assert (document_id, token) in ingestion_lease._held
+
+    assert (await _row_state(store, document_id))[0] == "processing"
+    assert await _lease_equals(store, document_id, clock.now + _lease())
+    assert effects.dropped == [] and effects.purged == []
+
+
+async def test_an_overdue_run_whose_row_was_superseded_writes_nothing(
+    store, tmp_path, clock, effects
+) -> None:
+    from septum_api.services import ingestion_lease
+
+    document_id, old_token = await _processing_run(store, tmp_path)
+    await _fail_row(store, document_id)
+    new_token = await _claim(store, document_id)
+    with ingestion_lease.held(document_id, old_token):
+        ingestion_lease.mark_started(document_id, old_token)
+        clock.now = T0 + timedelta(seconds=ingestion_lease.MAX_RUN_SECONDS + 1)
+        await ingestion_lease.renew_all(store)
+        assert (document_id, old_token) not in ingestion_lease._held
+
+    assert await _row_state(store, document_id) == ("processing", new_token, None)
+    assert effects.dropped == [] and effects.purged == []
+
+
+async def test_time_queued_before_mark_started_does_not_count(
+    store, tmp_path, clock, effects
+) -> None:
+    from septum_api.services import ingestion_lease
+
+    document_id, token = await _processing_run(store, tmp_path)
+    with ingestion_lease.held(document_id, token):
+        clock.now = T0 + timedelta(seconds=ingestion_lease.MAX_RUN_SECONDS * 3)
+        await ingestion_lease.renew_all(store)
+        assert (document_id, token) in ingestion_lease._held
+        assert (await _row_state(store, document_id))[0] == "processing"
+
+        ingestion_lease.mark_started(document_id, token)
+        clock.now += timedelta(seconds=ingestion_lease.MAX_RUN_SECONDS - 1)
+        await ingestion_lease.renew_all(store)
+        assert (document_id, token) in ingestion_lease._held
+
+        clock.now += timedelta(seconds=1)
+        await ingestion_lease.renew_all(store)
+        assert (document_id, token) not in ingestion_lease._held
+
+    assert (await _row_state(store, document_id))[2] == ingestion_lease.TIMEOUT_ERROR
+
+
+async def test_mark_started_ignores_a_run_that_is_not_held(clock) -> None:
+    from septum_api.services import ingestion_lease
+
+    ingestion_lease.mark_started(1, "t")
+    assert ingestion_lease._started == {}
+
+
+async def test_an_overdue_run_whose_failure_raises_is_logged_and_the_other_runs_still_renew(
+    store, tmp_path, clock, effects, monkeypatch, caplog
+) -> None:
+    from septum_api.services import ingestion_lease
+
+    overdue_id, overdue_token = await _processing_run(store, tmp_path)
+    live_id = await _add_document(store, tmp_path, "pending")
+    live_token = await _claim(store, live_id)
+
+    async def _boom(*_args: Any) -> None:
+        raise RuntimeError("database gone")
+
+    monkeypatch.setattr(ingestion_lease, "_fail_overdue_run", _boom)
+    with ingestion_lease.held(overdue_id, overdue_token), ingestion_lease.held(
+        live_id, live_token
+    ):
+        ingestion_lease.mark_started(overdue_id, overdue_token)
+        clock.now = T0 + timedelta(seconds=ingestion_lease.MAX_RUN_SECONDS)
+        with caplog.at_level(logging.ERROR, logger=ingestion_lease.logger.name):
+            await ingestion_lease.renew_all(store)
+        assert ingestion_lease._held == {(live_id, live_token)}
+        assert ingestion_lease._started == {}
+
+    assert "RuntimeError" in caplog.text
+    assert "database gone" not in caplog.text
+    assert await _lease_equals(store, live_id, clock.now + _lease())
+
+
+async def test_the_deadline_clock_is_dropped_when_a_run_is_released_or_refused(
+    store, tmp_path, clock
+) -> None:
+    from septum_api.services import ingestion_lease
+
+    released_id, released_token = await _processing_run(store, tmp_path)
+    with ingestion_lease.held(released_id, released_token):
+        ingestion_lease.mark_started(released_id, released_token)
+        assert set(ingestion_lease._started) == {(released_id, released_token)}
+    assert ingestion_lease._started == {}
+
+    refused_id, refused_token = await _processing_run(store, tmp_path)
+    with ingestion_lease.held(refused_id, refused_token):
+        ingestion_lease.mark_started(refused_id, refused_token)
+        await _fail_row(store, refused_id)
+        await ingestion_lease.renew_all(store)
+        assert ingestion_lease._held == set()
+        assert ingestion_lease._started == {}
+
+
+async def test_an_upload_starts_its_deadline_only_after_it_holds_the_semaphore(
+    store, tmp_path, clock, monkeypatch, upload_run
+) -> None:
+    from septum_api.routers import documents
+
+    gate = _semaphore(monkeypatch)
+    started: list[tuple[int, str]] = []
+    monkeypatch.setattr(documents, "mark_started", lambda doc, tok: started.append((doc, tok)))
+    document_id = await _add_document(store, tmp_path)
+    token = await _claim(store, document_id)
+
+    await gate.acquire()
+    task = asyncio.create_task(upload_run.run(document_id, token))
+    await _settle()
+    assert started == []
+
+    gate.release()
+    await asyncio.wait_for(task, timeout=5)
+    assert started == [(document_id, token)]
+
+
+async def test_a_reprocess_starts_its_deadline_only_after_it_holds_the_semaphore(
+    store, tmp_path, clock, monkeypatch, reprocess_run
+) -> None:
+    from septum_api.routers import documents
+
+    gate = _semaphore(monkeypatch)
+    started: list[tuple[int, str]] = []
+    monkeypatch.setattr(documents, "mark_started", lambda doc, tok: started.append((doc, tok)))
+    document_id = await _add_document(store, tmp_path)
+
+    await gate.acquire()
+    task, token = await reprocess_run.start(document_id)
+    await _settle()
+    assert started == []
+
+    gate.release()
+    await asyncio.wait_for(task, timeout=5)
+    assert started == [(document_id, token)]

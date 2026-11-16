@@ -617,3 +617,43 @@ def test_cached_verdict_notices_an_index_deleted_elsewhere(tmp_path: Path) -> No
     BM25Retriever(base_dir=tmp_path).delete_index(1)
 
     assert store.is_current(1) is False
+
+
+def test_build_then_save_reads_back_identically_to_index_document(tmp_path: Path) -> None:
+    chunk_ids, texts = [10, 11, 12], [SIGNERS, PAYMENT, "Çalışma süresi 45 saattir."]
+    composed = BM25Retriever(base_dir=tmp_path / "composed")
+    composed.index_document(5, chunk_ids, texts, "tr")
+
+    split = BM25Retriever(base_dir=tmp_path / "split")
+    payload = split.build_index(5, chunk_ids, texts, "tr")
+    assert not split._index_path(5).exists()
+    assert not split.is_current(5)
+    split.save_index(5, payload)
+
+    reader = BM25Retriever(base_dir=tmp_path / "split")
+    assert reader._load_index(5) == BM25Retriever(base_dir=tmp_path / "composed")._load_index(5)
+    assert reader.search(5, "IBAN", top_k=3) == composed.search(5, "IBAN", top_k=3)
+    assert split.is_current(5)
+
+
+def test_build_index_binds_the_payload_to_its_document_id(tmp_path: Path) -> None:
+    store = BM25Retriever(base_dir=tmp_path)
+    payload = store.build_index(5, [1], [SIGNERS], "tr")
+
+    store.save_index(6, payload)
+
+    assert store._load_index(6) is None
+
+
+def test_build_index_rejects_unpaired_chunks_and_texts(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        BM25Retriever(base_dir=tmp_path).build_index(1, [1, 2], [SIGNERS], "tr")
+
+
+def test_index_document_without_chunks_deletes_the_stored_index(tmp_path: Path) -> None:
+    store = BM25Retriever(base_dir=tmp_path)
+    store.index_document(1, [1], [SIGNERS], "tr")
+
+    store.index_document(1, [], [], "tr")
+
+    assert not store._index_path(1).exists()

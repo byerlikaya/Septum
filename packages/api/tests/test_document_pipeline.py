@@ -3,6 +3,7 @@ from __future__ import annotations
 """Tests for the document pipeline chunk indexing behaviour."""
 
 import re
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -12,23 +13,19 @@ from septum_api.services.ingestion.base import IngestionResult, TextBlock
 
 
 class _FakeVectorStore:
-    """Capture calls to index_document for verification in tests."""
+    """Capture calls to build_index for verification in tests."""
 
     def __init__(self) -> None:
-        self.calls: list[tuple[int, list[int], list[str]]] = []
+        self.calls: list[tuple[list[int], list[str]]] = []
 
-    def index_document(
-        self,
-        document_id: int,
-        chunk_ids: list[int],
-        texts: list[str],
-    ) -> None:
-        self.calls.append((document_id, list(chunk_ids), list(texts)))
+    def build_index(self, chunk_ids: list[int], texts: list[str]) -> str:
+        self.calls.append((list(chunk_ids), list(texts)))
+        return "INDEX"
 
 
-def test_index_chunks_uses_raw_texts_for_embeddings(monkeypatch: object) -> None:
+def test_vector_index_is_built_from_raw_texts(monkeypatch: object) -> None:
     """
-    Ensure that DocumentPipeline._index_chunks forwards the provided raw_texts
+    Ensure that DocumentPipeline._build_vector_index forwards the provided raw_texts
     to the underlying VectorStore, rather than reading from sanitized fields.
     """
     from septum_api.services import document_pipeline as dp
@@ -39,14 +36,10 @@ def test_index_chunks_uses_raw_texts_for_embeddings(monkeypatch: object) -> None
     chunks = [SimpleNamespace(id=1), SimpleNamespace(id=2)]
     raw_texts = ["chunk one raw text", "chunk two raw text"]
 
-    DocumentPipeline._index_chunks(
-        document_id=42,
-        chunks=chunks,
-        raw_texts=raw_texts,
-    )
+    assert DocumentPipeline._build_vector_index(chunks=chunks, raw_texts=raw_texts) == "INDEX"
 
     assert fake_store.calls == [
-        (42, [1, 2], ["chunk one raw text", "chunk two raw text"])
+        ([1, 2], ["chunk one raw text", "chunk two raw text"])
     ]
 
 
@@ -140,21 +133,35 @@ async def test_run_records_entity_types_of_the_policy_it_sanitized_with(
     ).digest
 
 
-def test_index_chunks_bm25_passes_the_masking_language(monkeypatch: object) -> None:
+def test_build_bm25_index_passes_the_masking_language(monkeypatch: object) -> None:
     """The BM25 index is tokenized in the language the document was masked in."""
     from septum_api.services import document_pipeline as dp
 
-    seen: dict[str, str] = {}
+    seen: dict[str, object] = {}
 
     class _FakeRetriever:
-        def index_document(self, document_id, chunk_ids, texts, language="en") -> None:
-            seen["language"] = language
+        def build_index(self, document_id, chunk_ids, texts, language="en") -> bytes:
+            seen.update(document_id=document_id, chunk_ids=chunk_ids, texts=texts, language=language)
+            return b"PAYLOAD"
 
     monkeypatch.setattr(dp, "BM25Retriever", _FakeRetriever)
 
-    DocumentPipeline._index_chunks_bm25(1, [SimpleNamespace(id=1)], ["x"], "tr")
+    payload = DocumentPipeline._build_bm25_index(1, [SimpleNamespace(id=4)], ["x"], "tr")
 
-    assert seen["language"] == "tr"
+    assert payload == b"PAYLOAD"
+    assert seen == {"document_id": 1, "chunk_ids": [4], "texts": ["x"], "language": "tr"}
+
+
+def test_build_bm25_index_has_nothing_to_write_without_paired_chunks(monkeypatch: object) -> None:
+    from septum_api.services import document_pipeline as dp
+
+    class _UnusedRetriever:
+        def build_index(self, *args, **kwargs) -> bytes:
+            raise AssertionError("nothing to tokenize")
+
+    monkeypatch.setattr(dp, "BM25Retriever", _UnusedRetriever)
+
+    assert DocumentPipeline._build_bm25_index(1, [SimpleNamespace(id=1)], ["a", "b"], "en") is None
 
 
 def test_ingestion_bm25_index_records_the_document_language(tmp_path, monkeypatch) -> None:
@@ -164,9 +171,13 @@ def test_ingestion_bm25_index_records_the_document_language(tmp_path, monkeypatc
 
     monkeypatch.setattr(dp, "BM25Retriever", lambda: BM25Retriever(base_dir=tmp_path))
 
-    DocumentPipeline._index_chunks_bm25(7, [SimpleNamespace(id=1)], ["İŞVEREN"], "tr")
+    payload = DocumentPipeline._build_bm25_index(7, [SimpleNamespace(id=1)], ["İŞVEREN"], "tr")
+    assert not BM25Retriever(base_dir=tmp_path)._index_path(7).exists()
+    DocumentPipeline._write_bm25_index(7, payload)
 
-    assert BM25Retriever(base_dir=tmp_path)._load_index(7)["language"] == "tr"
+    stored = BM25Retriever(base_dir=tmp_path)._load_index(7)
+    assert stored["language"] == "tr"
+    assert stored["chunk_ids"] == [1]
 
 
 NAME = "Ayşe Yılmazoğlu"
@@ -236,7 +247,7 @@ async def _ingest(
     monkeypatch.setattr(dp, "replace_index_for_document", _noop)
     monkeypatch.setattr(dp, "recompute_relationships_for_document", _noop)
 
-    async def _record_index(self, document_id, chunks, raw_texts, language, emit):
+    async def _record_index(self, document_id, chunks, raw_texts, language, emit, **_fence):
         index_calls.append((document_id, [c.id for c in chunks], list(raw_texts)))
 
     monkeypatch.setattr(
@@ -992,8 +1003,11 @@ async def test_a_failure_after_the_artifacts_are_written_purges_every_derived_co
     source.write_bytes(b"ciphertext")
     seen: dict = {}
 
-    async def _index_for_real(self, document_id, chunks, raw_texts, language, emit) -> None:
-        dp.DocumentPipeline._index_chunks_bm25(document_id, chunks, raw_texts, language)
+    async def _index_for_real(self, document_id, chunks, raw_texts, language, emit, **_fence) -> None:
+        dp.DocumentPipeline._write_bm25_index(
+            document_id,
+            dp.DocumentPipeline._build_bm25_index(document_id, chunks, raw_texts, language),
+        )
         _index_paths(tmp_path, document_id)[0].write_bytes(b"index")
 
     async def _before(session, doc) -> None:
@@ -1437,7 +1451,7 @@ async def test_an_expired_lease_is_failed_with_its_token_kept_and_its_index_and_
     engine, maker = await _sweep_db(tmp_path, monkeypatch)
     clock = _lease_clock(monkeypatch)
     expiry = clock.start + timedelta(seconds=ingestion_lease.LEASE_SECONDS)
-    restart_error = "Processing interrupted by server restart. Please reprocess."
+    restart_error = "Processing stopped before it finished. Please reprocess."
     try:
         document_id = await _seed_derived(maker, tmp_path, "processing")
         async with maker() as session:
@@ -1474,7 +1488,7 @@ async def test_rows_without_a_lease_count_as_expired_whether_processing_or_pendi
 ) -> None:
     engine, maker = await _sweep_db(tmp_path, monkeypatch)
     _lease_clock(monkeypatch)
-    restart_error = "Processing interrupted by server restart. Please reprocess."
+    restart_error = "Processing stopped before it finished. Please reprocess."
     try:
         processing = await _seed_derived(maker, tmp_path, "processing")
         pending = await _seed_derived(maker, tmp_path, "pending")
@@ -2213,7 +2227,7 @@ async def test_a_run_reset_to_failed_mid_run_never_ends_completed(tmp_path, monk
     from septum_api.routers import documents
     from septum_api.services import document_pipeline as dp
 
-    restart_error = "Processing interrupted by server restart. Please reprocess."
+    restart_error = "Processing stopped before it finished. Please reprocess."
     await _flip_status_before_completion(monkeypatch, "failed", restart_error)
     raised: list = []
 
@@ -2906,7 +2920,7 @@ async def test_an_orphan_reset_that_kept_the_token_refuses_data_writes_but_not_t
         assert isinstance(token_a, str) and token_a
         clock.now += timedelta(seconds=ingestion_lease.LEASE_SECONDS + 1)
         await _lease_sweep(maker)
-        restart_error = "Processing interrupted by server restart. Please reprocess."
+        restart_error = "Processing stopped before it finished. Please reprocess."
         async with maker() as session:
             row = await session.get(Document, document_id)
             assert (row.ingestion_status, row.ingestion_run_id) == ("failed", token_a)
@@ -3318,3 +3332,151 @@ async def test_a_stale_empty_audio_upload_does_not_fail_the_newer_run(
     assert token_b and token_b != token_a
     assert state["status"] == "processing" and state["token"] == token_b
     assert state["error"] is None
+
+
+# ------------------------------------------------------- fenced index writes
+
+
+def _tiny_vector_index(chunks, raw_texts):
+    """A real FAISS index over fixed vectors, so no embedding model is loaded."""
+    import faiss
+    import numpy as np
+
+    index = faiss.IndexIDMap(faiss.IndexFlatIP(4))
+    index.add_with_ids(
+        np.ones((len(chunks), 4), dtype="float32"),
+        np.asarray([c.id for c in chunks], dtype="int64"),
+    )
+    return index
+
+
+async def _claimed_row(maker, token: str) -> int:
+    """A ``processing`` document claimed by run ``token``."""
+    from septum_api.models.document import Document
+
+    async with maker() as session:
+        doc = Document(
+            filename="f", original_filename="f", file_type="x", file_format="pdf",
+            detected_language="en", encrypted_path="/x", file_size_bytes=1,
+            ingestion_status="processing", ingestion_run_id=token,
+        )
+        session.add(doc)
+        await session.commit()
+        return doc.id
+
+
+async def _lose_claim(maker, document_id: int, how: str) -> None:
+    """Take the claim away from the run: deadline/reset failure, delete, or a newer claim."""
+    from septum_api.models.document import Document
+    from sqlalchemy import delete, update
+
+    async with maker() as session:
+        if how == "failed":
+            await session.execute(
+                update(Document).where(Document.id == document_id).values(ingestion_status="failed")
+            )
+        elif how == "deleted":
+            await session.execute(delete(Document).where(Document.id == document_id))
+        else:
+            await session.execute(
+                update(Document).where(Document.id == document_id).values(ingestion_run_id="run-b")
+            )
+        await session.commit()
+
+
+async def _index_as_run(maker, document_id: int, token: str) -> None:
+    from septum_api.services import document_pipeline as dp
+
+    async with maker() as session:
+        await dp.DocumentPipeline(settings=None)._index_document(
+            document_id, [SimpleNamespace(id=1), SimpleNamespace(id=2)],
+            [f"Alice {_SENTINEL}", "second"], "en", lambda _: None,
+            db=session, run_token=token,
+        )
+
+
+async def test_a_run_that_holds_its_claim_writes_both_index_files(tmp_path, monkeypatch) -> None:
+    from septum_api.services import document_pipeline as dp
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(dp.DocumentPipeline, "_build_vector_index", staticmethod(_tiny_vector_index))
+    try:
+        document_id = await _claimed_row(maker, "run-a")
+
+        await _index_as_run(maker, document_id, "run-a")
+
+        assert [path.exists() for path in _index_paths(tmp_path, document_id)] == [True, True]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.parametrize("how", ["failed", "deleted", "superseded"])
+async def test_a_run_that_lost_its_claim_before_the_write_writes_no_index_file(
+    tmp_path, monkeypatch, how
+) -> None:
+    from septum_api.services import document_pipeline as dp
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(dp.DocumentPipeline, "_build_vector_index", staticmethod(_tiny_vector_index))
+    real_lock = dp.document_map_lock
+    entered: list[int] = []
+
+    @asynccontextmanager
+    async def _claim_lost_after_the_build(document_id, **kwargs):
+        entered.append(document_id)
+        await _lose_claim(maker, document_id, how)
+        async with real_lock(document_id, **kwargs) as lock:
+            yield lock
+
+    monkeypatch.setattr(dp, "document_map_lock", _claim_lost_after_the_build)
+    try:
+        document_id = await _claimed_row(maker, "run-a")
+
+        with pytest.raises(dp.DocumentRunSupersededError):
+            await _index_as_run(maker, document_id, "run-a")
+
+        assert entered == [document_id]
+        assert [path.exists() for path in _index_paths(tmp_path, document_id)] == [False, False]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("lost_at", "written"),
+    [(1, [False, False]), (2, [True, False])],
+    ids=["before-the-faiss-write", "before-the-bm25-write"],
+)
+async def test_a_run_whose_map_lock_is_lost_writes_no_index_file_after_the_loss(
+    tmp_path, monkeypatch, lost_at, written
+) -> None:
+    """Each index write is preceded by ``ensure_held``; once it raises, no later file is written."""
+    from septum_api.services import document_pipeline as dp
+    from septum_api.services.document_anon_store import DocumentMapLockLost
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(dp.DocumentPipeline, "_build_vector_index", staticmethod(_tiny_vector_index))
+    real_lock = dp.document_map_lock
+    checks: list[int] = []
+
+    class _ExpiringHandle:
+        async def ensure_held(self) -> None:
+            checks.append(len(checks) + 1)
+            if len(checks) == lost_at:
+                raise DocumentMapLockLost("lost")
+
+    @asynccontextmanager
+    async def _lock_lost_mid_write(document_id, **kwargs):
+        async with real_lock(document_id, **kwargs):
+            yield _ExpiringHandle()
+
+    monkeypatch.setattr(dp, "document_map_lock", _lock_lost_mid_write)
+    try:
+        document_id = await _claimed_row(maker, "run-a")
+
+        with pytest.raises(DocumentMapLockLost):
+            await _index_as_run(maker, document_id, "run-a")
+
+        assert checks == list(range(1, lost_at + 1))
+        assert [path.exists() for path in _index_paths(tmp_path, document_id)] == written
+    finally:
+        await engine.dispose()

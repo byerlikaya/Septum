@@ -4,7 +4,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Sequence, Tuple
 
 from septum_core.anonymization_map import PLACEHOLDER_PATTERN
 from septum_core.language_resolution import iso_language_code
@@ -69,6 +69,9 @@ from .sanitizer_factory import DOCUMENT_SANITIZER_ENABLE_OLLAMA, create_sanitize
 from .text_normalizer import TextNormalizer
 from .vector_store import VectorStore
 
+if TYPE_CHECKING:
+    import faiss
+
 logger = logging.getLogger(__name__)
 
 
@@ -108,6 +111,23 @@ def _holds_claim(document_id: int, run_token: Optional[str], *, require_processi
     if require_processing:
         condition = and_(condition, Document.ingestion_status == "processing")
     return condition
+
+
+async def _confirm_claim(
+    db: AsyncSession, document_id: int, run_token: Optional[str], refused: str
+) -> None:
+    """Re-read the run's claim (still ``processing``) with a plain SELECT, commit it, and raise ``refused`` if lost.
+
+    The SELECT takes no row lock and its transaction is committed, so the
+    caller's map-lock-then-row order holds. Raises
+    :class:`DocumentRunSupersededError` with the message ``refused``.
+    """
+    held = await db.scalar(
+        select(Document.id).where(_holds_claim(document_id, run_token, require_processing=True))
+    )
+    await db.commit()
+    if held is None:
+        raise DocumentRunSupersededError(refused)
 
 
 async def fence_run(
@@ -707,7 +727,8 @@ class DocumentPipeline:
 
         if chunks:
             await self._index_document(
-                document.id, chunks, [r.text for r in records], language, emit
+                document.id, chunks, [r.text for r in records], language, emit,
+                db=db, run_token=run_token,
             )
 
         document.sanitized_entity_types = policy_snapshot.entity_types
@@ -854,15 +875,48 @@ class DocumentPipeline:
         raw_texts: Sequence[str],
         language: str,
         emit: Callable[[int], None],
+        *,
+        db: AsyncSession,
+        run_token: Optional[str],
     ) -> None:
-        """Build the FAISS and BM25 indexes over the raw chunk texts under :func:`document_index_lock`."""
+        """Build the FAISS and BM25 indexes over the raw chunk texts; write them only while the run holds the document.
+
+        Both indexes are built without writing anything. Under
+        :func:`document_map_lock` the run's claim is re-read, and each file is
+        written only if the run still holds it (a lost map lock raises before
+        the write it guards); a run that lost the document raises
+        :class:`DocumentRunSupersededError` and writes neither file.
+
+        The read and the writes are not one atomic step against the
+        database: the map lock is what orders them. Every eraser of these
+        files (delete, failure purge, a newer run's cleanup, the orphan
+        sweep) re-reads the row under that same lock, so a status change
+        landing after the read is erased after these writes. That holds
+        across workers only with Redis configured, and only while the Redis
+        lock has not expired between an ``ensure_held`` and the write after it;
+        files a run leaves for a deleted row then are removed by the
+        periodic orphan sweep, those of a failed row by the periodic purge.
+        """
         emit(92)
+        bm25_payload = await asyncio.to_thread(
+            self._build_bm25_index, document_id, chunks, raw_texts, language
+        )
         async with document_index_lock(document_id):
-            await asyncio.to_thread(self._index_chunks, document_id, chunks, raw_texts)
+            vector_index = await asyncio.to_thread(self._build_vector_index, chunks, raw_texts)
             emit(96)
-            await asyncio.to_thread(
-                self._index_chunks_bm25, document_id, chunks, raw_texts, language
-            )
+            async with document_map_lock(document_id) as lock:
+                await _confirm_claim(
+                    db,
+                    document_id,
+                    run_token,
+                    "This run no longer holds the document; its index writes were refused.",
+                )
+                if vector_index is not None:
+                    await lock.ensure_held()
+                    await asyncio.to_thread(self._write_vector_index, document_id, vector_index)
+                if bm25_payload is not None:
+                    await lock.ensure_held()
+                    await asyncio.to_thread(self._write_bm25_index, document_id, bm25_payload)
 
     @staticmethod
     async def _clear_refused_override(
@@ -928,39 +982,41 @@ class DocumentPipeline:
         return list(chunks)
 
     @staticmethod
-    def _index_chunks(
-        document_id: int,
+    def _build_vector_index(
         chunks: Sequence[DocumentChunk],
         raw_texts: Sequence[str],
-    ) -> None:
+    ) -> Optional[faiss.Index]:
+        """Embed the raw chunk texts into an in-memory FAISS index; ``None`` when the two do not pair up."""
         if len(chunks) != len(raw_texts):
-            return
-
-        vector_store = VectorStore()
-        vector_store.index_document(
-            document_id,
-            [c.id for c in chunks],
-            list(raw_texts),
-        )
+            return None
+        return VectorStore().build_index([c.id for c in chunks], list(raw_texts))
 
     @staticmethod
-    def _index_chunks_bm25(
+    def _write_vector_index(document_id: int, index: faiss.Index) -> None:
+        """Write ``index`` as the document's encrypted FAISS file (temp file, then rename)."""
+        VectorStore().save_index(document_id, index)
+
+    @staticmethod
+    def _build_bm25_index(
         document_id: int,
         chunks: Sequence[DocumentChunk],
         raw_texts: Sequence[str],
         language: str,
-    ) -> None:
-        """Build BM25 index for keyword-based retrieval, tokenized in the masking language."""
-        if len(chunks) != len(raw_texts):
-            return
+    ) -> Optional[bytes]:
+        """Tokenize the raw chunk texts in the masking language into an encrypted BM25 payload.
 
-        bm25_retriever = BM25Retriever()
-        bm25_retriever.index_document(
-            document_id,
-            [c.id for c in chunks],
-            list(raw_texts),
-            language,
+        ``None`` (nothing to write) when the chunks and texts do not pair up.
+        """
+        if len(chunks) != len(raw_texts):
+            return None
+        return BM25Retriever().build_index(
+            document_id, [c.id for c in chunks], list(raw_texts), language
         )
+
+    @staticmethod
+    def _write_bm25_index(document_id: int, payload: bytes) -> None:
+        """Write ``payload`` as the document's encrypted BM25 file (temp file, then rename)."""
+        BM25Retriever().save_index(document_id, payload)
 
     @staticmethod
     async def cleanup_artifacts(
@@ -986,16 +1042,12 @@ class DocumentPipeline:
         cleans up under this lock after this erasure, before it writes anything.
         """
         async with document_map_lock(document_id):
-            held = await db.scalar(
-                select(Document.id).where(
-                    _holds_claim(document_id, run_token, require_processing=True)
-                )
+            await _confirm_claim(
+                db,
+                document_id,
+                run_token,
+                "This run no longer holds the document; its writes were refused.",
             )
-            await db.commit()
-            if held is None:
-                raise DocumentRunSupersededError(
-                    "This run no longer holds the document; its writes were refused."
-                )
             try:
                 await erase_document_artifacts(document_id)
             except ArtifactErasureError as exc:

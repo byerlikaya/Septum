@@ -207,15 +207,16 @@ class VectorStore:
             self.delete_index(document_id)
             return
 
+        self._save_index(document_id, self.build_index(chunk_ids, texts))
+
+    def build_index(self, chunk_ids: Sequence[int], texts: Sequence[str]) -> faiss.Index:
+        """Embed ``texts`` into an in-memory FAISS index whose vector ids are ``chunk_ids``; writes nothing."""
+        if len(chunk_ids) != len(texts):
+            raise ValueError("chunk_ids and texts must have the same length.")
         embeddings = self._encode_texts(texts)
-        dim = embeddings.shape[1]
-        base_index = faiss.IndexFlatIP(dim)
-        index = faiss.IndexIDMap(base_index)
-
-        ids_array = np.asarray(chunk_ids, dtype="int64")
-        index.add_with_ids(embeddings, ids_array)
-
-        self._save_index(document_id, index)
+        index = faiss.IndexIDMap(faiss.IndexFlatIP(embeddings.shape[1]))
+        index.add_with_ids(embeddings, np.asarray(chunk_ids, dtype="int64"))
+        return index
 
     def search(
         self,
@@ -422,6 +423,10 @@ class VectorStore:
         """Return the filesystem path for a document's encrypted FAISS index."""
         filename = f"doc_{document_id}.faiss.enc"
         return self.base_dir / filename
+
+    def save_index(self, document_id: int, index: faiss.Index) -> None:
+        """Write an index from :meth:`build_index` as the document's encrypted file, atomically."""
+        self._save_index(document_id, index)
 
     def _save_index(self, document_id: int, index: faiss.Index) -> None:
         """Serialize, encrypt, and write a FAISS index to disk."""

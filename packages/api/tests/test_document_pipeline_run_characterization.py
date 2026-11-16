@@ -239,16 +239,24 @@ def env(monkeypatch):
     monkeypatch.setattr(dp, "log_pii_detected", log_pii)
     monkeypatch.setattr(
         dp.DocumentPipeline,
-        "_index_chunks",
-        staticmethod(lambda doc_id, chunks, raw: events.append(("faiss", doc_id, [c.id for c in chunks], list(raw)))),
+        "_build_vector_index",
+        staticmethod(lambda chunks, raw: events.append(("faiss_build", [c.id for c in chunks], list(raw))) or "INDEX"),
     )
     monkeypatch.setattr(
         dp.DocumentPipeline,
-        "_index_chunks_bm25",
-        staticmethod(lambda doc_id, chunks, raw, language: (
-            state.__setitem__("bm25_language", language),
-            events.append(("bm25", doc_id, [c.id for c in chunks], list(raw))),
-        )),
+        "_write_vector_index",
+        staticmethod(lambda doc_id, index: events.append(("faiss", doc_id, index))),
+    )
+    def build_bm25(doc_id, chunks, raw, language):
+        state["bm25_language"] = language
+        events.append(("bm25_build", doc_id, [c.id for c in chunks], list(raw)))
+        return b"BM25"
+
+    monkeypatch.setattr(dp.DocumentPipeline, "_build_bm25_index", staticmethod(build_bm25))
+    monkeypatch.setattr(
+        dp.DocumentPipeline,
+        "_write_bm25_index",
+        staticmethod(lambda doc_id, payload: events.append(("bm25", doc_id, payload))),
     )
 
     async def clear_override(db, document, text, judged=None):
@@ -328,8 +336,16 @@ async def test_full_run_sequence(env):
         ("fence",),
         ("execute", "UPDATE"),
         ("commit",),
-        ("faiss", 7, [11, 12, 13], RAW_CHUNKS),
-        ("bm25", 7, [11, 12, 13], RAW_CHUNKS),
+        ("bm25_build", 7, [11, 12, 13], RAW_CHUNKS),
+        ("faiss_build", [11, 12, 13], RAW_CHUNKS),
+        ("lock_enter", 7),
+        ("exists_check",),
+        ("commit",),
+        ("ensure_held",),
+        ("faiss", 7, "INDEX"),
+        ("ensure_held",),
+        ("bm25", 7, b"BM25"),
+        ("lock_exit", 7),
         ("clear_override", TEXT, ("sup:tr", False), "processing"),
         ("mark_completed",),
         ("commit",),
@@ -415,21 +431,29 @@ async def test_bm25_index_is_tokenized_in_the_masking_language(env):
     assert env.state["bm25_language"] == "de"
 
 
-async def test_bm25_write_waits_for_the_index_lock(monkeypatch):
+async def test_bm25_write_waits_for_the_index_lock(env, monkeypatch):
     written: list[int] = []
     monkeypatch.setattr(
-        dp.DocumentPipeline, "_index_chunks", staticmethod(lambda doc_id, chunks, raw: None)
+        dp.DocumentPipeline, "_build_vector_index", staticmethod(lambda chunks, raw: None)
     )
     monkeypatch.setattr(
         dp.DocumentPipeline,
-        "_index_chunks_bm25",
-        staticmethod(lambda doc_id, chunks, raw, language: written.append(doc_id)),
+        "_build_bm25_index",
+        staticmethod(lambda doc_id, chunks, raw, language: b"BM25"),
+    )
+    monkeypatch.setattr(
+        dp.DocumentPipeline,
+        "_write_bm25_index",
+        staticmethod(lambda doc_id, payload: written.append(doc_id)),
     )
     pipeline = dp.DocumentPipeline(settings="SETTINGS")
 
     async with dp.document_index_lock(7):
         task = asyncio.create_task(
-            pipeline._index_document(7, [SimpleNamespace(id=1)], ["raw"], "en", lambda _: None)
+            pipeline._index_document(
+                7, [SimpleNamespace(id=1)], ["raw"], "en", lambda _: None,
+                db=_Db(env.events), run_token=None,
+            )
         )
         await asyncio.sleep(0.05)
         assert not task.done()
@@ -469,7 +493,7 @@ async def test_empty_document_skips_detection_and_indexing(env):
     document, ticks, _ = await _run(env, progress=True, confidence=None)
     assert ticks == []
     kinds = [e[0] for e in env.events]
-    assert not {"faiss", "bm25", "detect", "apply", "chunk"} & set(kinds)
+    assert not {"faiss_build", "faiss", "bm25", "detect", "apply", "chunk"} & set(kinds)
     assert ("masking_language", "") in env.events
     assert document.transcription_text == "" and document.ocr_confidence is None
     assert document.chunk_count == 0 and document.ingestion_status == "completed"

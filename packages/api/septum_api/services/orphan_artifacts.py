@@ -1,8 +1,10 @@
-"""Startup sweep for stored document artifacts whose document row is gone.
+"""Sweep for stored document artifacts whose document row is gone.
 
-Deletions that predate full erasure (user deletion used to drop only the
-rows) left encrypted source files, search indexes and anonymization maps
-behind. The sweep finds them by name and erases them; it logs counts,
+Runs at startup and periodically from the ingestion lease sweep. Deletions
+that predate full erasure (user deletion used to drop only the rows) left
+encrypted source files, search indexes and anonymization maps behind, and a
+run that outlived its document can still leave index files for an id whose
+row is gone. The sweep finds them by name and erases them; it logs counts,
 document ids, tiers and error classes only, never a path or content.
 """
 
@@ -50,6 +52,10 @@ logger = logging.getLogger(__name__)
 # younger than this may belong to an upload still in flight in another worker.
 SOURCE_MIN_AGE_SECONDS = 300
 
+# What the last hold-back of this process was logged at ERROR for (held ids,
+# source file count); ``None`` once a sweep is not held back.
+_last_hold_back: tuple[frozenset[int], int] | None = None
+
 
 @dataclass
 class OrphanSweepResult:
@@ -76,10 +82,14 @@ async def sweep_orphan_artifacts(
     read, so a row committed before the listing always counts.
 
     With no document row at all but stored artifacts present, nothing is
-    erased and an error is logged: that is what pointing the API at another
-    or a restored database looks like. A failure is logged and counted, and
-    the sweep goes on; the next startup retries it.
+    erased: that is what pointing the API at another or a restored database
+    looks like. It is logged as an error the first time in a process and
+    whenever the held-back ids or source file count change, otherwise at
+    debug level, so the periodic sweep does not repeat it every tick. A
+    failure is logged and counted, and the sweep goes on; the next sweep
+    retries it.
     """
+    global _last_hold_back
     result = OrphanSweepResult()
 
     candidates = await _listed_artifact_ids(result)
@@ -88,7 +98,8 @@ async def sweep_orphan_artifacts(
     async with session_maker() as db:
         live, referenced = await _live_document_keys(db)
         if not live and (candidates or sources):
-            return _hold_back(result, len(candidates), len(sources))
+            return _hold_back(result, candidates, len(sources))
+        _last_hold_back = None
 
         await _erase_orphans(db, candidates - live, result)
 
@@ -132,13 +143,22 @@ async def _live_document_keys(db: AsyncSession) -> tuple[set[int], set[str]]:
     return live, referenced
 
 
-def _hold_back(result: OrphanSweepResult, candidate_count: int, source_count: int) -> OrphanSweepResult:
-    """Erase nothing when the documents table is empty but artifacts exist; log the likely cause."""
-    result.held_back = candidate_count + source_count
-    logger.error(
+def _hold_back(result: OrphanSweepResult, candidates: set[int], source_count: int) -> OrphanSweepResult:
+    """Erase nothing when the documents table is empty but artifacts exist; log the likely cause.
+
+    At ERROR unless the same ids and source count were already logged at
+    ERROR by this process, then at DEBUG.
+    """
+    global _last_hold_back
+    result.held_back = len(candidates) + source_count
+    state = (frozenset(candidates), source_count)
+    level = logging.DEBUG if state == _last_hold_back else logging.ERROR
+    _last_hold_back = state
+    logger.log(
+        level,
         "The documents table is empty but %d stored document ids and %d source "
         "files exist; erased nothing. Check the database the API is using.",
-        candidate_count,
+        len(candidates),
         source_count,
     )
     return result
@@ -155,7 +175,7 @@ async def _erase_orphans(db: AsyncSession, orphan_ids: set[int], result: OrphanS
 
 
 def _log_sweep_outcome(result: OrphanSweepResult) -> None:
-    """Log what the sweep erased and whether any failure is left for the next startup."""
+    """Log what the sweep erased and whether any failure is left for the next sweep."""
     if result.documents or result.source_files:
         logger.info(
             "Erased stored artifacts of %d deleted documents and %d orphaned source files",
@@ -164,7 +184,7 @@ def _log_sweep_outcome(result: OrphanSweepResult) -> None:
         )
     if result.failures:
         logger.error(
-            "Orphaned artifact sweep left %d failures; the next startup retries them",
+            "Orphaned artifact sweep left %d failures; the next sweep retries them",
             result.failures,
         )
 

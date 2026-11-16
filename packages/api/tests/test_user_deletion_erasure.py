@@ -465,8 +465,9 @@ async def test_sweep_erases_only_orphans(world: _World, redis_client) -> None:
 
 
 async def test_sweep_erases_nothing_when_the_documents_table_is_empty(
-    world: _World, caplog: pytest.LogCaptureFixture
+    world: _World, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(orphan_artifacts, "_last_hold_back", None)
     await write_artifacts(3)
     orphan = world.sources / uuid4().hex
     orphan.write_bytes(b"ciphertext")
@@ -480,6 +481,53 @@ async def test_sweep_erases_nothing_when_the_documents_table_is_empty(
     assert orphan.exists()
     assert "documents table is empty but 1 stored document ids and 1 source files" in caplog.text
     assert str(world.tmp) not in caplog.text
+
+
+def _hold_back_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if "documents table is empty" in r.getMessage()]
+
+
+async def test_a_repeated_hold_back_is_logged_as_an_error_once_until_it_changes(
+    world: _World, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The periodic sweep does not repeat the empty-table error each tick, but still erases nothing."""
+    monkeypatch.setattr(orphan_artifacts, "_last_hold_back", None)
+    await write_artifacts(3)
+
+    with caplog.at_level(logging.DEBUG, logger=orphan_artifacts.__name__):
+        first = await _sweep(world)
+        second = await _sweep(world)
+        await write_artifacts(4)
+        changed = await _sweep(world)
+        unchanged = await _sweep(world)
+
+    assert [r.held_back for r in (first, second, changed, unchanged)] == [1, 1, 2, 2]
+    assert [r.levelno for r in _hold_back_records(caplog)] == [
+        logging.ERROR, logging.DEBUG, logging.ERROR, logging.DEBUG,
+    ]
+    assert await stored_tiers(3) == ALL_DISK_TIERS
+    assert await stored_tiers(4) == ALL_DISK_TIERS
+    assert str(world.tmp) not in caplog.text
+
+
+async def test_a_hold_back_after_a_normal_sweep_is_logged_as_an_error_again(
+    world: _World, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(orphan_artifacts, "_last_hold_back", None)
+    await write_artifacts(3)
+    rows: list[set[int]] = [set(), {3}, set()]
+
+    async def _live_keys(db: Any) -> tuple[set[int], set[str]]:
+        return rows.pop(0), set()
+
+    monkeypatch.setattr(orphan_artifacts, "_live_document_keys", _live_keys)
+
+    with caplog.at_level(logging.DEBUG, logger=orphan_artifacts.__name__):
+        held = [(await _sweep(world)).held_back for _ in range(3)]
+
+    assert held == [1, 0, 1]
+    assert [r.levelno for r in _hold_back_records(caplog)] == [logging.ERROR, logging.ERROR]
+    assert await stored_tiers(3) == ALL_DISK_TIERS
 
 
 async def test_sweep_skips_a_document_created_before_it_takes_the_lock(

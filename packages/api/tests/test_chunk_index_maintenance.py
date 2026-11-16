@@ -474,17 +474,36 @@ async def test_ingestion_faiss_write_takes_the_document_index_lock(
 ) -> None:
     held: List[tuple[str, bool]] = []
 
-    def _faiss(doc_id: int, chunks: Any, raw: Any) -> None:
+    def _faiss(doc_id: int, index: Any) -> None:
         held.append(("faiss", index_file_io.document_index_lock(doc_id).locked()))
 
-    def _bm25(doc_id: int, chunks: Any, raw: Any, language: str) -> None:
+    def _bm25(doc_id: int, payload: bytes) -> None:
         held.append(("bm25", index_file_io.document_index_lock(doc_id).locked()))
 
-    monkeypatch.setattr(dp.DocumentPipeline, "_index_chunks", staticmethod(_faiss))
-    monkeypatch.setattr(dp.DocumentPipeline, "_index_chunks_bm25", staticmethod(_bm25))
+    class _Handle:
+        async def ensure_held(self) -> None:
+            return None
+
+    @contextlib.asynccontextmanager
+    async def _map_lock(doc_id: int, **_: Any):
+        yield _Handle()
+
+    class _HoldingDb:
+        async def scalar(self, stmt: Any) -> int:
+            return 7
+
+        async def commit(self) -> None:
+            return None
+
+    monkeypatch.setattr(dp.DocumentPipeline, "_build_vector_index", staticmethod(lambda chunks, raw: "INDEX"))
+    monkeypatch.setattr(dp.DocumentPipeline, "_write_vector_index", staticmethod(_faiss))
+    monkeypatch.setattr(dp.DocumentPipeline, "_build_bm25_index", staticmethod(lambda *_: b"BM25"))
+    monkeypatch.setattr(dp.DocumentPipeline, "_write_bm25_index", staticmethod(_bm25))
+    monkeypatch.setattr(dp, "document_map_lock", _map_lock)
 
     await dp.DocumentPipeline(settings="SETTINGS")._index_document(
-        7, [SimpleNamespace(id=1)], ["raw"], "en", lambda _: None
+        7, [SimpleNamespace(id=1)], ["raw"], "en", lambda _: None,
+        db=_HoldingDb(), run_token="run-a",
     )
 
     assert held == [("faiss", True), ("bm25", True)]
