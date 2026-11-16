@@ -190,8 +190,12 @@ async def erase_document_artifacts(
     index, the BM25 index, the anonymization map, then the local-model
     detection reply cache of every worker (:func:`clear_detection_cache`),
     last so a reply cached while the erasure ran is dropped too. A missing
-    file or index counts as already erased. The first tier that fails
-    raises :class:`ArtifactErasureError` and later tiers are not attempted.
+    file or index counts as already erased. Every tier is attempted even
+    when an earlier one fails, so a persistent index failure never keeps
+    the map; once all ran, the first failure is raised as
+    :class:`ArtifactErasureError` and any later one is logged by
+    :func:`log_artifact_erasure_failure`. An unexpected error of the reply
+    cache tier propagates as is, after every earlier failure is logged.
     This worker's re-masked chunk cache entries of the document are
     dropped first. ``clear_reply_cache=False`` skips the reply cache tier;
     a caller erasing many documents at once then clears it once, after
@@ -211,21 +215,31 @@ async def erase_document_artifacts(
         steps.append(("source_file", lambda: Path(source_path).unlink(missing_ok=True)))
     steps.append(("vector_index", lambda: VectorStore().delete_index(document_id)))
     steps.append(("bm25_index", lambda: BM25Retriever().delete_index(document_id)))
+    failures: list[ArtifactErasureError] = []
     for tier, erase in steps:
         try:
             erase()
         except Exception as exc:
-            raise ArtifactErasureError(tier, exc) from exc
+            failures.append(ArtifactErasureError(tier, exc))
     try:
         await pop_document_map(document_id)
     except Exception as exc:
-        raise ArtifactErasureError("anonymization_map", exc) from exc
-    if not clear_reply_cache:
+        failures.append(ArtifactErasureError("anonymization_map", exc))
+    if clear_reply_cache:
+        try:
+            await clear_detection_cache()
+        except DocumentMapErasureError as exc:
+            failures.append(ArtifactErasureError("detection_cache", exc))
+        except BaseException:
+            for failure in failures:
+                log_artifact_erasure_failure(document_id, failure)
+            raise
+    if not failures:
         return
-    try:
-        await clear_detection_cache()
-    except DocumentMapErasureError as exc:
-        raise ArtifactErasureError("detection_cache", exc) from exc
+    first, *later = failures
+    for failure in later:
+        log_artifact_erasure_failure(document_id, failure)
+    raise first from first.error
 
 
 def _progress_emitter(on_progress: Callable[[int], None] | None) -> Callable[[int], None]:
