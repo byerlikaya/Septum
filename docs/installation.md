@@ -371,6 +371,8 @@ Set these on the `api` service. The compose files do not pass `.env` values into
 
 Two limits are fixed in the code and have no variable. A request that sends no body data for 30 seconds gets `408`, so a `408` can come from this idle timeout or from the overall body deadline above. Audio decoding stops after `30 + MAX_AUDIO_SECONDS / 20` seconds, which is 210 seconds at the default; a file that runs past it is refused with a decoding error.
 
+**Several workers or instances on one database.** Each document ingestion holds a lease of 120 seconds, which the API process running it renews every 30 seconds. At startup and then every 60 seconds, a process marks as failed only the ingestions whose lease has expired or is missing. A restarting worker or instance therefore does not fail the live ingestions of the others. An ingestion interrupted by a crash is marked failed within about three minutes (the 120-second lease plus up to one 60-second sweep), and the document can then be reprocessed. A failed ingestion's derived data (extracted text, chunks, anonymization map and search indexes) is erased, so the document is reprocessed from its uploaded file; an erasure that fails is retried about every ten minutes. The lease uses each process's UTC clock, so hosts that run several instances against one database must keep their clocks synchronised through NTP or an internal time source.
+
 ### Monitoring
 
 The dashboard no longer proxies `/metrics`. Scrape the API directly: `api:8000` from inside the compose network, or `127.0.0.1:8000` on the host. The standalone container does not publish port 8000, and neither does the air-gapped file. In standalone, publish it yourself with `127.0.0.1:8000:8000` in a compose override. In the air-gapped file, scrape from inside the zone, for example with `docker compose -f docker-compose.airgap.yml exec api`. `/metrics` needs no login, so never publish it on a routable address. With `WEB_CONCURRENCY` above 1, each scrape reads one worker's counters.
@@ -569,6 +571,8 @@ docker compose -f docker-compose.standalone.yml up -d --build
 ```
 
 Volumes are preserved across the rebuild because they are named volumes.
+
+**Running several instances.** Stop all old instances before you start the upgraded ones. Old instances do not write an ingestion lease, so an upgraded instance fails their in-progress ingestions once, as soon as it starts. Reprocess any document that ends up failed this way. See [Several workers or instances on one database](#upload-and-audio-variables).
 
 **Breaking changes in this release.**
 
