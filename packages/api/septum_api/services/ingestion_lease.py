@@ -7,6 +7,15 @@ ends), :func:`heartbeat_loop` pushes the lease forward every
 ``HEARTBEAT_SECONDS``. A lease that passes without renewal belongs to a run
 that is gone.
 
+A live lease alone would keep a hung run (a worker thread that never
+returns) in ``processing`` forever, so a run also has an absolute deadline:
+``MAX_RUN_SECONDS`` from :func:`mark_started`, which the run calls once it
+holds an ingestion slot, so time spent queued does not count. Past it,
+:func:`renew_all` stops renewing the run and fails its row with
+``TIMEOUT_ERROR``, then erases its derived data as the sweep does. The task
+itself is not cancelled; it keeps its run token, so whatever it writes
+later is refused by the fence.
+
 :func:`fail_expired_ingestions` fails the ``processing`` and ``pending``
 rows whose lease lapsed (or that never had one), at startup and then every
 ``SWEEP_SECONDS`` (:func:`sweep_loop`), so one worker restarting no longer
@@ -30,7 +39,7 @@ from contextlib import asynccontextmanager, contextmanager, suppress
 from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator, Iterator, List, Optional
 
-from sqlalchemy import or_, update
+from sqlalchemy import ColumnElement, and_, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..models.document import Document
@@ -49,10 +58,13 @@ LEASE_SECONDS = 120
 HEARTBEAT_SECONDS = 30
 SWEEP_SECONDS = 60
 PURGE_EVERY_TICKS = 10
+MAX_RUN_SECONDS = 2 * 60 * 60
 
-INTERRUPTED_ERROR = "Processing interrupted by server restart. Please reprocess."
+INTERRUPTED_ERROR = "Processing stopped before it finished. Please reprocess."
+TIMEOUT_ERROR = "Processing exceeded the time limit and was stopped. Please reprocess."
 
 _held: set[tuple[int, Optional[str]]] = set()
+_started: dict[tuple[int, Optional[str]], datetime] = {}
 
 
 def lease_now() -> datetime:
@@ -78,7 +90,75 @@ def held(document_id: int, run_token: Optional[str]) -> Iterator[None]:
     try:
         yield
     finally:
-        _held.discard(run)
+        _release(run)
+
+
+def _release(run: tuple[int, Optional[str]]) -> None:
+    """Drop ``run`` from the renewal registry and clear its time-limit clock."""
+    _held.discard(run)
+    _started.pop(run, None)
+
+
+def mark_started(document_id: int, run_token: Optional[str]) -> None:
+    """Start the run's ``MAX_RUN_SECONDS`` clock; call once it holds an ingestion slot.
+
+    A run that is not held, or whose lease was already dropped, is ignored.
+    """
+    run = (document_id, run_token)
+    if run in _held:
+        _started[run] = lease_now()
+
+
+async def _fail_and_purge(
+    session_maker: async_sessionmaker[AsyncSession], condition: ColumnElement[bool], error: str
+) -> List[int]:
+    """Fail the rows matching ``condition`` with ``error``; erase their derived data; return their ids.
+
+    One conditional UPDATE ... RETURNING sets ``failed`` and keeps the run
+    token, so the lost run can still record its own failure
+    (:func:`fence_run` without ``processing``) but no data write; the entity
+    index of each failed document is dropped in the same transaction, as a
+    run's own failure does. Then :func:`purge_failed_derived_data` erases
+    what the run left (never raises; what it cannot erase is retried by
+    :func:`sweep_loop`'s periodic purge and the startup purge).
+    """
+    async with session_maker() as db:
+        failed = list(
+            await db.scalars(
+                update(Document)
+                .where(condition)
+                .values(ingestion_status="failed", ingestion_error=error)
+                .returning(Document.id)
+                .execution_options(synchronize_session=False)
+            )
+        )
+        for document_id in failed:
+            await drop_index_for_document(db, document_id)
+        await db.commit()
+    for document_id in failed:
+        async with session_maker() as db:
+            await purge_failed_derived_data(db, document_id, clear_reply_cache=False)
+    return failed
+
+
+async def _fail_overdue_run(
+    session_maker: async_sessionmaker[AsyncSession], document_id: int, run_token: Optional[str]
+) -> None:
+    """Fail the row of a run past ``MAX_RUN_SECONDS`` while it still holds its claim."""
+    failed = await _fail_and_purge(
+        session_maker, _holds_claim(document_id, run_token, require_processing=True), TIMEOUT_ERROR
+    )
+    if failed:
+        logger.error(
+            "Ingestion of document_id=%s exceeded %d seconds and was failed",
+            document_id,
+            MAX_RUN_SECONDS,
+        )
+    else:
+        logger.warning(
+            "Ingestion lease of document_id=%s is no longer held; renewal stopped",
+            document_id,
+        )
 
 
 async def renew_all(
@@ -89,8 +169,11 @@ async def renew_all(
     A renewal matches only while the run still holds its claim on a
     ``processing`` row (the condition :func:`fence_run` uses). A run that
     lost it, to a newer claim or to a reset that failed the row, leaves the
-    registry; the run itself finds out at its next fence. With nothing held,
-    no session is opened.
+    registry; the run itself finds out at its next fence. A run past
+    ``MAX_RUN_SECONDS`` since :func:`mark_started` is not renewed: it leaves
+    the registry and, if it still holds its claim, its row is failed with
+    ``TIMEOUT_ERROR`` and its derived data erased; the task is not cancelled.
+    With nothing held, no session is opened.
 
     One transaction per run, with the expiry read just before its statement:
     a renewal that waits on a row lock (PostgreSQL: a run's own fenced
@@ -107,6 +190,18 @@ async def renew_all(
 
         session_maker = database.get_session_maker()
     for document_id, run_token in list(_held):
+        began = _started.get((document_id, run_token))
+        if began is not None and lease_now() - began >= timedelta(seconds=MAX_RUN_SECONDS):
+            _release((document_id, run_token))
+            try:
+                await _fail_overdue_run(session_maker, document_id, run_token)
+            except Exception as exc:
+                logger.error(
+                    "Failing overdue ingestion of document_id=%s failed: %s",
+                    document_id,
+                    type(exc).__name__,
+                )
+            continue
         try:
             async with session_maker() as db:
                 renewed = await db.scalar(
@@ -125,7 +220,7 @@ async def renew_all(
             )
             continue
         if renewed is None:
-            _held.discard((document_id, run_token))
+            _release((document_id, run_token))
             logger.warning(
                 "Ingestion lease of document_id=%s is no longer held; renewal stopped",
                 document_id,
@@ -153,13 +248,8 @@ async def fail_expired_ingestions(session_maker: async_sessionmaker[AsyncSession
 
     A row without a lease counts as lapsed (written before leases existed,
     or never claimed with one). One conditional UPDATE ... RETURNING sets
-    ``failed`` with the restart error and keeps the run token, so the lost
-    run can still record its own failure (:func:`fence_run` without
-    ``processing``) but no data write; the entity index of each failed
-    document is dropped in the same transaction, as a run's own failure
-    does. Then :func:`purge_failed_derived_data` erases what the run left
-    (never raises; what it cannot erase is retried by :func:`sweep_loop`'s
-    periodic purge and the startup purge).
+    ``failed`` with ``INTERRUPTED_ERROR`` and erases the derived data
+    (:func:`_fail_and_purge`).
 
     The clock is read once, before the session opens, and compared in SQL.
     Waiting on a lock only moves that moment into the past, so the sweep
@@ -171,25 +261,14 @@ async def fail_expired_ingestions(session_maker: async_sessionmaker[AsyncSession
     """
     now = lease_now()
     lease = Document.ingestion_lease_expires_at
-    async with session_maker() as db:
-        failed = list(
-            await db.scalars(
-                update(Document)
-                .where(
-                    Document.ingestion_status.in_(("processing", "pending")),
-                    or_(lease.is_(None), lease < now),
-                )
-                .values(ingestion_status="failed", ingestion_error=INTERRUPTED_ERROR)
-                .returning(Document.id)
-                .execution_options(synchronize_session=False)
-            )
-        )
-        for document_id in failed:
-            await drop_index_for_document(db, document_id)
-        await db.commit()
-    for document_id in failed:
-        async with session_maker() as db:
-            await purge_failed_derived_data(db, document_id, clear_reply_cache=False)
+    failed = await _fail_and_purge(
+        session_maker,
+        and_(
+            Document.ingestion_status.in_(("processing", "pending")),
+            or_(lease.is_(None), lease < now),
+        ),
+        INTERRUPTED_ERROR,
+    )
     if failed:
         logger.info("Failed %d ingestions whose lease lapsed", len(failed))
     return failed

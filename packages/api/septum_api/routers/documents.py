@@ -106,7 +106,7 @@ from ..services.ingestion.ods_ingester import OdsIngester
 from ..services.ingestion.pdf_ingester import PdfIngester
 from ..services.ingestion.router import IngestionRouter
 from ..services.ingestion.xlsx_ingester import XlsxIngester
-from ..services.ingestion_lease import held, lease_expiry
+from ..services.ingestion_lease import held, lease_expiry, mark_started
 from ..services.pii_gate import gate_document_texts, hold_completed_document
 from ..services.policy_snapshot import (
     PolicySnapshot,
@@ -1286,6 +1286,7 @@ async def _run_upload_ingestion(
 
     with held(doc_id, run_token):
         async with _INGESTION_SEMAPHORE, get_session_maker()() as bg_db:
+            mark_started(doc_id, run_token)
             bg_doc = await bg_db.get(Document, doc_id)
             if bg_doc is None:
                 return
@@ -1923,6 +1924,7 @@ async def reprocess_document(
 
         with held(doc_id, run_token):
             async with _INGESTION_SEMAPHORE, get_session_maker()() as bg_db:
+                mark_started(doc_id, run_token)
                 bg_doc = await bg_db.get(Document, doc_id)
                 if bg_doc is None:
                     return

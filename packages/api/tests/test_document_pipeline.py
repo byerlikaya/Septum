@@ -1451,7 +1451,7 @@ async def test_an_expired_lease_is_failed_with_its_token_kept_and_its_index_and_
     engine, maker = await _sweep_db(tmp_path, monkeypatch)
     clock = _lease_clock(monkeypatch)
     expiry = clock.start + timedelta(seconds=ingestion_lease.LEASE_SECONDS)
-    restart_error = "Processing interrupted by server restart. Please reprocess."
+    restart_error = "Processing stopped before it finished. Please reprocess."
     try:
         document_id = await _seed_derived(maker, tmp_path, "processing")
         async with maker() as session:
@@ -1488,7 +1488,7 @@ async def test_rows_without_a_lease_count_as_expired_whether_processing_or_pendi
 ) -> None:
     engine, maker = await _sweep_db(tmp_path, monkeypatch)
     _lease_clock(monkeypatch)
-    restart_error = "Processing interrupted by server restart. Please reprocess."
+    restart_error = "Processing stopped before it finished. Please reprocess."
     try:
         processing = await _seed_derived(maker, tmp_path, "processing")
         pending = await _seed_derived(maker, tmp_path, "pending")
@@ -2227,7 +2227,7 @@ async def test_a_run_reset_to_failed_mid_run_never_ends_completed(tmp_path, monk
     from septum_api.routers import documents
     from septum_api.services import document_pipeline as dp
 
-    restart_error = "Processing interrupted by server restart. Please reprocess."
+    restart_error = "Processing stopped before it finished. Please reprocess."
     await _flip_status_before_completion(monkeypatch, "failed", restart_error)
     raised: list = []
 
@@ -2920,7 +2920,7 @@ async def test_an_orphan_reset_that_kept_the_token_refuses_data_writes_but_not_t
         assert isinstance(token_a, str) and token_a
         clock.now += timedelta(seconds=ingestion_lease.LEASE_SECONDS + 1)
         await _lease_sweep(maker)
-        restart_error = "Processing interrupted by server restart. Please reprocess."
+        restart_error = "Processing stopped before it finished. Please reprocess."
         async with maker() as session:
             row = await session.get(Document, document_id)
             assert (row.ingestion_status, row.ingestion_run_id) == ("failed", token_a)
