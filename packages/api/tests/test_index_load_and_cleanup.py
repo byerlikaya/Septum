@@ -244,8 +244,8 @@ async def test_cleanup_artifacts_faiss_failure_propagates_without_path(
     assert "/secret" not in message
     assert excinfo.value.__cause__ is None
     assert excinfo.value.__suppress_context__ is True
-    assert _FakeBM25Retriever.deleted == []
-    assert cleanup_env == []
+    assert _FakeBM25Retriever.deleted == [4]
+    assert cleanup_env == [4]
 
 
 async def test_cleanup_artifacts_bm25_failure_propagates_without_path(
@@ -260,7 +260,8 @@ async def test_cleanup_artifacts_bm25_failure_propagates_without_path(
     assert "BM25" in message
     assert "document 5" in message
     assert "/secret" not in message
-    assert cleanup_env == []
+    assert _FakeVectorStore.deleted == [5]
+    assert cleanup_env == [5]
 
 
 async def test_cleanup_artifacts_map_erasure_failure_propagates_without_path(
@@ -304,4 +305,4 @@ async def test_cleanup_artifacts_non_os_error_is_also_path_free(
     assert "/secret" not in message
     assert excinfo.value.__cause__ is None
     assert excinfo.value.__suppress_context__ is True
-    assert cleanup_env == []
+    assert cleanup_env == [7]
