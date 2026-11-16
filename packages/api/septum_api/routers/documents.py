@@ -894,7 +894,13 @@ async def record_background_failure(
     ``failed``, so a newer run is never clobbered. The same holds when the
     failure write itself is refused because the row's run token is no longer
     ``run_token`` (the token of the claim that started the failed run).
+
+    The failure is also written to the process log by document id and error
+    class only, since the message can carry raw personal data.
     """
+    logger.warning(
+        "Background ingestion failed for document %s: %s", doc_id, type(exc).__name__
+    )
     try:
         await bg_db.rollback()
     except Exception as log_exc:

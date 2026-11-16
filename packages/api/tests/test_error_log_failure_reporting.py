@@ -132,6 +132,21 @@ async def test_ingestion_failure_row_is_charged_to_the_owner(sessions, monkeypat
     assert spy.await_args.args[1] is None
 
 
+async def test_record_background_failure_logs_id_and_class_never_the_message(sessions, monkeypatch, caplog):
+    monkeypatch.setattr(documents, "log_backend_error", AsyncMock())
+    async with sessions() as bg_db:
+        with caplog.at_level("WARNING", logger=documents.logger.name):
+            await documents.record_background_failure(
+                bg_db, 4242, RuntimeError("Elif Demir 10000000146"), 7, run_token=None
+            )
+    records = [r for r in caplog.records if r.name == documents.logger.name and "4242" in r.getMessage()]
+    assert len(records) == 1
+    assert records[0].levelname == "WARNING"
+    assert "RuntimeError" in records[0].getMessage()
+    assert "Elif Demir" not in caplog.text
+    assert "10000000146" not in caplog.text
+
+
 async def test_global_handler_still_answers_500_when_logging_fails(monkeypatch):
     monkeypatch.setattr(main, "engine_is_ready", lambda: True)
     monkeypatch.setattr(main, "get_session_maker", lambda: (_ for _ in ()).throw(OSError("db gone")))
