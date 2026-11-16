@@ -12,7 +12,9 @@ rows whose lease lapsed (or that never had one), at startup and then every
 ``SWEEP_SECONDS`` (:func:`sweep_loop`), so one worker restarting no longer
 fails the live runs of another. Every ``PURGE_EVERY_TICKS`` sweep ticks the
 loop also retries :func:`purge_failed_documents`, so derived data whose
-erasure failed does not wait for a restart.
+erasure failed does not wait for a restart, and runs
+:func:`~.orphan_artifacts.sweep_orphan_artifacts`, which erases index and map
+files a hung run wrote for a document deleted meanwhile.
 
 Every lease is written and compared with :func:`lease_now`, the app's UTC
 clock, as a bound parameter: SQLite stores the value as naive text and
@@ -38,6 +40,8 @@ from .document_pipeline import (
     purge_failed_documents,
 )
 from .entity_index_service import drop_index_for_document
+from .orphan_artifacts import sweep_orphan_artifacts
+from .source_files import SOURCE_FILE_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -201,13 +205,16 @@ async def sweep_loop(
     a lease that lapsed while the heartbeat could not run (a host suspend
     stops the sleep, not the wall clock) is renewed, not swept, by its own
     process. Every ``purge_every_ticks``-th tick then runs
-    :func:`purge_failed_documents`, which retries the erasures that failed;
-    not every tick, since it lists the index directories and the cached map
-    keys. The first tick comes ``SWEEP_SECONDS`` after start, so the startup
-    purge is not repeated. Without a session maker, the app's is used once
-    the database is set up; until then a tick does nothing. A failed pass is
-    logged (class name only) and retried on the next tick (the purge on its
-    next turn).
+    :func:`purge_failed_documents`, which retries the erasures that failed,
+    then :func:`~.orphan_artifacts.sweep_orphan_artifacts`, which erases the
+    stored artifacts of documents whose row is gone; not every tick, since
+    both list the index directories and the cached map keys. The first tick
+    comes ``SWEEP_SECONDS`` after start, so the startup purge and sweep are
+    not repeated. Without a session maker, the app's is used once the
+    database is set up; until then a tick does nothing. A failed pass is
+    logged (class name only) and retried on the next tick (the purge and the
+    orphan sweep on their next turn); a failed purge does not skip the
+    orphan sweep.
     """
     tick = 0
     while True:
@@ -231,6 +238,10 @@ async def sweep_loop(
             await purge_failed_documents(maker)
         except Exception as exc:
             logger.error("Periodic purge of failed documents failed: %s", type(exc).__name__)
+        try:
+            await sweep_orphan_artifacts(maker, SOURCE_FILE_DIR)
+        except Exception as exc:
+            logger.error("Periodic orphaned artifact sweep failed: %s", type(exc).__name__)
 
 
 @asynccontextmanager

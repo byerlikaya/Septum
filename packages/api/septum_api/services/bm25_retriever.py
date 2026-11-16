@@ -125,14 +125,34 @@ class BM25Retriever:
             self.delete_index(document_id)
             return
 
+        self.save_index(document_id, self.build_index(document_id, chunk_ids, texts, language))
+
+    def build_index(
+        self,
+        document_id: int,
+        chunk_ids: Sequence[int],
+        texts: Sequence[str],
+        language: str = _DEFAULT_LANGUAGE,
+    ) -> bytes:
+        """Tokenize ``texts`` and return the document's encrypted index file contents; writes nothing.
+
+        Reads no stored index, so it can run outside any lock; the result
+        is bound to ``document_id`` (associated data) and is written by
+        :meth:`save_index`.
+        """
+        if len(chunk_ids) != len(texts):
+            raise ValueError("chunk_ids and texts must have the same length.")
         index_data = {
             "corpus": [_tokenize(text, language) for text in texts],
             "chunk_ids": list(chunk_ids),
             "tokenizer_version": TOKENIZER_VERSION,
             "language": language,
         }
+        return self._encrypt_index(document_id, index_data)
 
-        self._save_index(document_id, index_data)
+    def save_index(self, document_id: int, payload: bytes) -> None:
+        """Write a payload from :meth:`build_index` as the document's index file, atomically."""
+        write_index_atomically(self._index_path(document_id), payload, "BM25", document_id)
         self._current.add(document_id)
 
     def is_current(self, document_id: int) -> bool:
@@ -281,11 +301,14 @@ class BM25Retriever:
 
     def _save_index(self, document_id: int, index_data: dict) -> None:
         """Serialize, encrypt, and write a BM25 index to disk."""
-        raw_bytes = json.dumps(index_data).encode("utf-8")
-        associated_data = str(document_id).encode("utf-8")
-        encrypted = encrypt(raw_bytes, associated_data=associated_data)
-
+        encrypted = self._encrypt_index(document_id, index_data)
         write_index_atomically(self._index_path(document_id), encrypted, "BM25", document_id)
+
+    @staticmethod
+    def _encrypt_index(document_id: int, index_data: dict) -> bytes:
+        """Serialize ``index_data`` and encrypt it bound to ``document_id``."""
+        raw_bytes = json.dumps(index_data).encode("utf-8")
+        return encrypt(raw_bytes, associated_data=str(document_id).encode("utf-8"))
 
     def _load_index(self, document_id: int) -> dict | None:
         """Load and decrypt a BM25 index for a document, if present.

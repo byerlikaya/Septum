@@ -452,8 +452,12 @@ async def test_the_sweep_purges_failed_documents_only_every_nth_tick_and_survive
         done.set()
         return 0
 
+    async def _orphans(session_maker, source_dir) -> None:
+        return None
+
     monkeypatch.setattr(ingestion_lease, "fail_expired_ingestions", _sweep)
     monkeypatch.setattr(ingestion_lease, "purge_failed_documents", _purge)
+    monkeypatch.setattr(ingestion_lease, "sweep_orphan_artifacts", _orphans)
     with caplog.at_level(logging.DEBUG, logger=ingestion_lease.logger.name):
         task = asyncio.create_task(ingestion_lease.sweep_loop("MAKER", purge_every_ticks=3))
         try:
@@ -467,6 +471,57 @@ async def test_the_sweep_purges_failed_documents_only_every_nth_tick_and_survive
     errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
     assert errors == ["Periodic purge of failed documents failed: RuntimeError"]
     assert "/secret/faiss" not in caplog.text
+
+
+async def test_the_sweep_runs_the_orphan_sweep_on_each_purge_tick_and_survives_its_failure(
+    monkeypatch, caplog
+) -> None:
+    """Files a hung run wrote for a deleted document do not wait for a restart."""
+    from septum_api.services import ingestion_lease
+    from septum_api.services.source_files import SOURCE_FILE_DIR
+
+    monkeypatch.setattr(ingestion_lease, "SWEEP_SECONDS", 0)
+    ticks: list[int] = []
+    order: list[tuple[str, int]] = []
+    swept_with: list[tuple[Any, Any]] = []
+    done = asyncio.Event()
+
+    async def _sweep(session_maker) -> list[int]:
+        ticks.append(len(ticks) + 1)
+        return []
+
+    async def _purge(session_maker) -> int:
+        order.append(("purge", len(ticks)))
+        raise RuntimeError("listing /secret/faiss failed")
+
+    async def _orphans(session_maker, source_dir) -> None:
+        order.append(("orphans", len(ticks)))
+        swept_with.append((session_maker, source_dir))
+        if len(swept_with) == 1:
+            raise OSError("listing /secret/documents failed")
+        done.set()
+
+    monkeypatch.setattr(ingestion_lease, "fail_expired_ingestions", _sweep)
+    monkeypatch.setattr(ingestion_lease, "purge_failed_documents", _purge)
+    monkeypatch.setattr(ingestion_lease, "sweep_orphan_artifacts", _orphans)
+    with caplog.at_level(logging.DEBUG, logger=ingestion_lease.logger.name):
+        task = asyncio.create_task(ingestion_lease.sweep_loop("MAKER", purge_every_ticks=3))
+        try:
+            await asyncio.wait_for(done.wait(), timeout=5)
+        finally:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+    assert order == [("purge", 3), ("orphans", 3), ("purge", 6), ("orphans", 6)]
+    assert swept_with == [("MAKER", SOURCE_FILE_DIR)] * 2
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert errors == [
+        "Periodic purge of failed documents failed: RuntimeError",
+        "Periodic orphaned artifact sweep failed: OSError",
+        "Periodic purge of failed documents failed: RuntimeError",
+    ]
+    assert "/secret/" not in caplog.text
 
 
 async def test_the_lifespan_starts_the_sweep_and_cancels_it_on_shutdown(monkeypatch) -> None:
