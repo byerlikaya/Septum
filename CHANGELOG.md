@@ -27,6 +27,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 - A document ingestion now holds a short, renewed lease, so a run that dies (crash, kill, lost instance) is marked failed within a few minutes by a periodic sweep instead of only at the next restart, and several instances can share one database without resetting each other's live runs. A failed document's derived data (map, indexes, chunks) is erased as before, and an erasure that fails is retried periodically rather than only at startup.
 - Erasing a document's stored copies now attempts every tier even when an earlier one fails, so a FAISS or BM25 index that cannot be deleted no longer keeps the anonymization map (and its original values) behind; the first failure is still reported and later ones are logged.
 - An ingestion still running two hours after it started is failed with a time-limit error and its derived data erased, so a hung run no longer keeps a document in processing forever; a superseded or lapsed run can no longer write its FAISS or BM25 index, and orphaned index and map files are now swept every ten minutes instead of only at startup.
+- A failed background ingestion is now also written to the server log, by document id and error class only, so it no longer shows up solely on the document row and in the error-log table.
 
 ### 2026-11-15
 
