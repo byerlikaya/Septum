@@ -106,6 +106,7 @@ from ..services.ingestion.ods_ingester import OdsIngester
 from ..services.ingestion.pdf_ingester import PdfIngester
 from ..services.ingestion.router import IngestionRouter
 from ..services.ingestion.xlsx_ingester import XlsxIngester
+from ..services.ingestion_lease import held, lease_expiry
 from ..services.pii_gate import gate_document_texts, hold_completed_document
 from ..services.policy_snapshot import (
     PolicySnapshot,
@@ -1154,9 +1155,10 @@ async def _insert_upload_row(
 ) -> Tuple[Document, str]:
     """Create and commit the row of a fresh upload in ``processing`` state; return it and its run token.
 
-    The row holds a new run token (``ingestion_run_id``); the ingestion task
-    is handed that token, so a later claim of the same document fences this
-    run out.
+    The row holds a new run token (``ingestion_run_id``) and, in the same
+    insert, its first lease (``ingestion_lease_expires_at``); the ingestion
+    task is handed that token, so a later claim of the same document fences
+    this run out.
 
     On any failure the sealed source file is removed before the error
     propagates: no row will ever point at it, so it must not outlive the
@@ -1182,6 +1184,7 @@ async def _insert_upload_row(
             ingestion_status="processing",
             ingestion_error=None,
             ingestion_run_id=run_token,
+            ingestion_lease_expires_at=lease_expiry(),
             user_id=user_id,
         )
         db.add(document)
@@ -1275,23 +1278,25 @@ async def _run_upload_ingestion(
 
     ``run_token`` is the token :func:`_insert_upload_row` handed out. It is
     passed in, never re-read from the row: the task may start after the
-    semaphore wait, when a newer claim already set a different token.
+    semaphore wait, when a newer claim already set a different token. The
+    run's lease is renewed from before that wait until the task ends.
     """
     from ..database import get_session_maker
     from ..services.document_progress import clear_progress
 
-    async with _INGESTION_SEMAPHORE, get_session_maker()() as bg_db:
-        bg_doc = await bg_db.get(Document, doc_id)
-        if bg_doc is None:
-            return
-        try:
-            await _ingest_upload(bg_db, bg_doc, doc_id, source, run_token)
-        except Exception as bg_exc:
-            await record_background_failure(
-                bg_db, doc_id, bg_exc, user_id, run_token=run_token
-            )
-        finally:
-            clear_progress(doc_id)
+    with held(doc_id, run_token):
+        async with _INGESTION_SEMAPHORE, get_session_maker()() as bg_db:
+            bg_doc = await bg_db.get(Document, doc_id)
+            if bg_doc is None:
+                return
+            try:
+                await _ingest_upload(bg_db, bg_doc, doc_id, source, run_token)
+            except Exception as bg_exc:
+                await record_background_failure(
+                    bg_db, doc_id, bg_exc, user_id, run_token=run_token
+                )
+            finally:
+                clear_progress(doc_id)
 
 
 _PROGRESS_ID_RE = re.compile(r"\d{1,10}", re.ASCII)
@@ -1744,9 +1749,10 @@ async def claim_for_reingest(
     cannot both start a run. By default any status but ``processing`` is
     claimable; ``only_completed`` narrows that to ``completed``.
 
-    The claim sets a new run token (``ingestion_run_id``) and returns it; the
-    run it starts is handed that token and fences every write on it
-    (:func:`fence_run`), so an older run still in flight elsewhere can no
+    The claim sets a new run token (``ingestion_run_id``) and its first
+    lease (``ingestion_lease_expires_at``) in one update and returns the
+    token; the run it starts is handed that token and fences every write on
+    it (:func:`fence_run`), so an older run still in flight elsewhere can no
     longer write to the document. Returns ``None`` (after a rollback) when
     the claim was lost.
     """
@@ -1763,6 +1769,7 @@ async def claim_for_reingest(
             ingestion_error=None,
             ingestion_error_code=None,
             ingestion_run_id=run_token,
+            ingestion_lease_expires_at=lease_expiry(),
             **DERIVED_DATA_RESET,
         )
         .execution_options(synchronize_session=False)
@@ -1914,23 +1921,24 @@ async def reprocess_document(
         from ..database import get_session_maker
         from ..services.document_progress import clear_progress, set_progress
 
-        async with _INGESTION_SEMAPHORE, get_session_maker()() as bg_db:
-            bg_doc = await bg_db.get(Document, doc_id)
-            if bg_doc is None:
-                return
-            try:
-                await reingest_document(
-                    bg_db,
-                    bg_doc,
-                    on_progress=lambda pct: set_progress(doc_id, pct),
-                    run_token=run_token,
-                )
-            except Exception as bg_exc:  # noqa: BLE001
-                await record_background_failure(
-                    bg_db, doc_id, bg_exc, user.id, run_token=run_token
-                )
-            finally:
-                clear_progress(doc_id)
+        with held(doc_id, run_token):
+            async with _INGESTION_SEMAPHORE, get_session_maker()() as bg_db:
+                bg_doc = await bg_db.get(Document, doc_id)
+                if bg_doc is None:
+                    return
+                try:
+                    await reingest_document(
+                        bg_db,
+                        bg_doc,
+                        on_progress=lambda pct: set_progress(doc_id, pct),
+                        run_token=run_token,
+                    )
+                except Exception as bg_exc:
+                    await record_background_failure(
+                        bg_db, doc_id, bg_exc, user.id, run_token=run_token
+                    )
+                finally:
+                    clear_progress(doc_id)
 
     background_tasks.add_task(_reprocess_background, document.id, run_token=run_token)
 

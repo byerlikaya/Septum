@@ -1045,7 +1045,7 @@ async def _erase_failed_artifacts(
     the erasure, erases nothing; a lock lost only when it is released comes
     after a successful erasure. Either way the failure is logged by error
     class only and the function returns ``False``, so the rows stay as the
-    startup sweep's marker. Returns whether the erasure ran.
+    purge sweep's marker. Returns whether the erasure ran.
     """
     try:
         async with document_map_lock(document_id, wait_seconds=SWEEP_LOCK_WAIT_SECONDS) as lock:
@@ -1102,20 +1102,20 @@ async def purge_failed_derived_data(
     text, counts, recorded policy, anonymization map and FAISS / BM25 indexes
     serve no purpose. The indexes and map go first (:func:`_erase_failed_artifacts`),
     then the rows in one status-guarded transaction: if the erasure fails the
-    rows stay, marking the document for :func:`purge_failed_documents` at the
-    next startup. The document row, its source file, its recorded error and
-    its audit events (placeholders only) are kept. A document that holds no
-    text, chunk or detection row (a run refused before storing anything) is
-    left alone without taking the map lock. Each failure is logged by error
-    class only and leaves the ``failed`` status as it is. Returns whether
-    rows were purged.
+    rows stay, marking the document for :func:`purge_failed_documents`
+    (at startup and periodically from the lease sweep). The document row, its source file, its recorded error and
+    its audit events (placeholders only) are kept.
+
+    Every ``failed`` document is erased, including one whose rows a reingest
+    claim already cleared while its map and index files remain; a document in
+    any other status is left alone without taking the map lock. Each failure
+    is logged by error class only and leaves the ``failed`` status as it is.
+    Returns whether the purge landed on a still ``failed`` row.
     """
     try:
         candidate = await db.scalar(
             select(Document.id).where(
-                Document.id == document_id,
-                Document.ingestion_status == "failed",
-                _holds_derived_data(),
+                Document.id == document_id, Document.ingestion_status == "failed"
             )
         )
     except Exception as exc:
@@ -1191,7 +1191,7 @@ def _log_listing_failure(tier: str, exc: BaseException) -> None:
 async def purge_failed_documents(
     session_maker: async_sessionmaker[AsyncSession], batch_size: int = 100
 ) -> int:
-    """Purge the derived data every ``failed`` document still holds (startup sweep).
+    """Purge the derived data every ``failed`` document still holds (startup and periodic sweep).
 
     Covers runs that failed before :func:`purge_failed_derived_data` existed,
     purges whose erasure failed, and runs interrupted by a restart. Each
@@ -1202,11 +1202,9 @@ async def purge_failed_documents(
     cache is cleared once at the end. Once clean, a run selects nothing.
     Returns how many documents were purged; only that count is logged.
 
-    Accepted limits: a failed erasure is retried only at the next process
-    start (the orphan sweep's model), so its data stays until then; and a
-    chunk edit does not check the document status, so it can write a map
-    between a purge's erasure and its row delete, which the next sweep
-    then removes.
+    Runs at startup and every ``PURGE_EVERY_TICKS`` ticks of the lease
+    sweep (:func:`ingestion_lease.sweep_loop`, about ten minutes), so a
+    failed erasure keeps its data until the next successful pass.
     """
     document_ids = await _failed_ids_with_derived_data(session_maker)
     purged = 0

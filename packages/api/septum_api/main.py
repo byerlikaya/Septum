@@ -76,6 +76,7 @@ from .routers import settings as settings_router
 from .routers import setup as setup_router
 from .routers import text_normalization as text_normalization_router
 from .routers import users as users_router
+from .services import ingestion_lease
 from .services.document_anon_store import sweep_stale_temp_files
 from .services.error_logger import (
     log_backend_error,
@@ -158,35 +159,6 @@ def _preload_models(
     except Exception as exc:
         reason = exc.code if isinstance(exc, ModelRefusal) else type(exc).__name__
         logger.warning("Model warmup failed: %s", reason)
-
-
-async def _reset_orphaned_processing_docs() -> None:
-    """Mark documents stuck in 'processing' as 'failed' on startup.
-
-    Background tasks are lost when the server restarts. Documents left
-    in 'processing' status will never complete, so we mark them as
-    failed so the user can reprocess them manually.
-    """
-    from sqlalchemy import update
-
-    from .database import get_session_maker
-    from .models.document import Document
-
-    session_maker = get_session_maker()
-    if session_maker is None:
-        return
-    async with session_maker() as db:
-        result = await db.execute(
-            update(Document)
-            .where(Document.ingestion_status.in_(["processing", "pending"]))
-            .values(
-                ingestion_status="failed",
-                ingestion_error="Processing interrupted by server restart. Please reprocess.",
-            )
-        )
-        if result.rowcount > 0:
-            await db.commit()
-            logger.info("Reset %d orphaned processing documents to failed", result.rowcount)
 
 
 def _sweep_index_temp_files() -> None:
@@ -389,7 +361,7 @@ async def lifespan(app: FastAPI):
             url = build_database_url(config.database_url, config.db_path)
             initialize_engine(url)
             await init_db()
-            await _reset_orphaned_processing_docs()
+            await ingestion_lease.fail_expired_ingestions(get_session_maker())
             sweep_stale_temp_files()
             _sweep_index_temp_files()
             await _sweep_orphan_artifacts_once()
@@ -409,10 +381,16 @@ async def lifespan(app: FastAPI):
                 ).start()
         await _announce_setup_token()
         retention = asyncio.create_task(_error_log_retention_loop(), name="septum-error-log-retention")
+        heartbeat = asyncio.create_task(
+            ingestion_lease.heartbeat_loop(), name="septum-ingestion-lease-heartbeat"
+        )
+        lease_sweep = asyncio.create_task(
+            ingestion_lease.sweep_loop(), name="septum-ingestion-lease-sweep"
+        )
         try:
             yield
         finally:
-            for task in (retention, reindex):
+            for task in (lease_sweep, heartbeat, retention, reindex):
                 if task is not None:
                     task.cancel()
                     with suppress(asyncio.CancelledError):

@@ -11,7 +11,8 @@ outdated.
 Run it with the API stopped, from ``packages/api/``. Each document is
 claimed like the endpoint claims it, and its run fences every write on the
 run token that claim returned, so a run an API process still had in flight
-cannot write over it. It reads the same
+cannot write over it. No API lifespan runs here, so the script renews the
+lease of the document it is rebuilding on its own. It reads the same
 configuration as the server (``config.json`` and environment overrides).
 Only document ids, statuses and counts are printed; never file names or
 document text.
@@ -45,6 +46,7 @@ async def _reprocess_all() -> int:
         record_background_failure,
         reingest_document,
     )
+    from septum_api.services import ingestion_lease
     from sqlalchemy import select
 
     if bootstrap.needs_setup():
@@ -65,28 +67,30 @@ async def _reprocess_all() -> int:
 
     print(f"{'ID':<6} {'OLD':<6} {'NEW':<6} STATUS")
     failed = 0
-    for document_id in ids:
-        async with maker() as db:
-            document = await db.get(Document, document_id)
-            if document is None:
-                continue
-            old_count = str(document.entity_count)
-            user_id = document.user_id
-            run_token = await claim_for_reingest(db, document_id, only_completed=True)
-            if run_token is None:
-                print(f"{document_id:<6} {old_count:<6} {'-':<6} skipped")
-                continue
-            await db.refresh(document)
-            try:
-                await reingest_document(db, document, run_token=run_token)
-            except Exception as exc:
-                await record_background_failure(
-                    db, document_id, exc, user_id, run_token=run_token
-                )
-                failed += 1
-                print(f"{document_id:<6} {old_count:<6} {'-':<6} failed ({type(exc).__name__})")
-                continue
-            print(f"{document_id:<6} {old_count:<6} {str(document.entity_count):<6} {document.ingestion_status}")
+    async with ingestion_lease.heartbeat(maker):
+        for document_id in ids:
+            async with maker() as db:
+                document = await db.get(Document, document_id)
+                if document is None:
+                    continue
+                old_count = str(document.entity_count)
+                user_id = document.user_id
+                run_token = await claim_for_reingest(db, document_id, only_completed=True)
+                if run_token is None:
+                    print(f"{document_id:<6} {old_count:<6} {'-':<6} skipped")
+                    continue
+                with ingestion_lease.held(document_id, run_token):
+                    await db.refresh(document)
+                    try:
+                        await reingest_document(db, document, run_token=run_token)
+                    except Exception as exc:
+                        await record_background_failure(
+                            db, document_id, exc, user_id, run_token=run_token
+                        )
+                        failed += 1
+                        print(f"{document_id:<6} {old_count:<6} {'-':<6} failed ({type(exc).__name__})")
+                        continue
+                print(f"{document_id:<6} {old_count:<6} {str(document.entity_count):<6} {document.ingestion_status}")
     return failed
 
 

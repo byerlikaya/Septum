@@ -1069,12 +1069,16 @@ async def test_a_failure_after_the_artifacts_are_written_purges_every_derived_co
     assert response.json()["items"] == []
 
 
-async def test_a_refusal_before_anything_was_stored_purges_nothing(tmp_path, monkeypatch) -> None:
+async def test_a_refusal_before_anything_was_stored_erases_once_under_the_short_lock(
+    tmp_path, monkeypatch
+) -> None:
+    """A failed document is erased even with no rows: whatever map or index it kept goes too."""
     from contextlib import asynccontextmanager
 
     from septum_api.routers import documents
     from septum_api.services import document_pipeline as dp
     from septum_api.services import pii_gate
+    from septum_api.services.document_anon_store import SWEEP_LOCK_WAIT_SECONDS
 
     _recording_map_store(monkeypatch)
     erased: list = []
@@ -1090,7 +1094,7 @@ async def test_a_refusal_before_anything_was_stored_purges_nothing(tmp_path, mon
 
         @asynccontextmanager
         async def _spied_lock(document_id, **kwargs):
-            locked.append(document_id)
+            locked.append((document_id, kwargs))
             async with inner(document_id, **kwargs) as handle:
                 yield handle
 
@@ -1108,7 +1112,8 @@ async def test_a_refusal_before_anything_was_stored_purges_nothing(tmp_path, mon
 
     assert stored.ingestion_status == "failed"
     assert stored.ingestion_error_code == "originals_pattern_too_deep"
-    assert erased == [] and locked == []
+    assert erased == [(stored.id,)]
+    assert locked == [(stored.id, {"wait_seconds": SWEEP_LOCK_WAIT_SECONDS})]
 
 
 async def test_a_failed_artifact_erasure_keeps_the_rows_as_the_sweep_marker(
@@ -1166,9 +1171,6 @@ async def _seed_derived(maker, tmp_path, status: str) -> int:
     """A document in ``status`` holding a chunk, a detection, text, map, both indexes and a source."""
     from septum_api.models.document import Chunk, Document
     from septum_api.models.entity_detection import EntityDetection
-    from septum_api.services.anonymization_map import AnonymizationMap
-    from septum_api.services.bm25_retriever import BM25Retriever
-    from septum_api.services.document_anon_store import set_document_map
 
     async with maker() as session:
         source = tmp_path / f"source-{status}.enc"
@@ -1195,10 +1197,21 @@ async def _seed_derived(maker, tmp_path, status: str) -> int:
         ))
         await session.commit()
         doc_id = doc.id
-    await set_document_map(doc_id, AnonymizationMap(document_id=doc_id, language="en"))
-    BM25Retriever(base_dir=tmp_path / "bm25").index_document(doc_id, [1], [f"Alice {_SENTINEL}"])
-    _index_paths(tmp_path, doc_id)[0].write_bytes(b"index")
+    await _store_artifacts(tmp_path, doc_id)
     return doc_id
+
+
+async def _store_artifacts(tmp_path, document_id: int) -> None:
+    """Store an anonymization map and both indexes for ``document_id``, as a run that indexed does."""
+    from septum_api.services.anonymization_map import AnonymizationMap
+    from septum_api.services.bm25_retriever import BM25Retriever
+    from septum_api.services.document_anon_store import set_document_map
+
+    await set_document_map(document_id, AnonymizationMap(document_id=document_id, language="en"))
+    BM25Retriever(base_dir=tmp_path / "bm25").index_document(
+        document_id, [1], [f"Alice {_SENTINEL}"]
+    )
+    _index_paths(tmp_path, document_id)[0].write_bytes(b"index")
 
 
 async def _derived_state(maker, tmp_path, document_id: int) -> dict:
@@ -1345,16 +1358,352 @@ async def test_one_failing_erasure_does_not_stop_the_sweep(tmp_path, monkeypatch
 async def test_an_interrupted_run_leaves_no_derived_data_after_reset_and_sweep(
     tmp_path, monkeypatch
 ) -> None:
-    from septum_api import database, main
     from septum_api.services import document_pipeline as dp
 
     engine, maker = await _sweep_db(tmp_path, monkeypatch)
-    monkeypatch.setattr(database, "get_session_maker", lambda: maker)
     try:
         interrupted = await _seed_derived(maker, tmp_path, "processing")
-        await main._reset_orphaned_processing_docs()
-        assert await dp.purge_failed_documents(maker) == 1
+        await _lease_sweep(maker)
         _assert_purged(await _derived_state(maker, tmp_path, interrupted))
+        assert await dp.purge_failed_documents(maker) == 0
+    finally:
+        await engine.dispose()
+
+
+def _lease_clock(monkeypatch):
+    """A settable lease clock (:func:`ingestion_lease.lease_now`) starting at a fixed UTC moment."""
+    from datetime import datetime, timezone
+
+    from septum_api.services import ingestion_lease
+
+    clock = SimpleNamespace(now=datetime(2030, 1, 1, 12, 0, 0, tzinfo=timezone.utc))
+    clock.start = clock.now
+    monkeypatch.setattr(ingestion_lease, "lease_now", lambda: clock.now)
+    return clock
+
+
+async def _lease_sweep(maker) -> None:
+    """One pass of the reset that fails orphaned ingestions (startup and periodic sweep)."""
+    from septum_api.services import ingestion_lease
+
+    await ingestion_lease.fail_expired_ingestions(maker)
+
+
+async def _status_token_error(maker, document_id: int) -> tuple:
+    from septum_api.models.document import Document
+
+    async with maker() as session:
+        row = await session.get(Document, document_id)
+        return row.ingestion_status, row.ingestion_run_id, row.ingestion_error
+
+
+async def test_another_workers_live_lease_survives_the_startup_reset_and_its_fence_still_passes(
+    tmp_path, monkeypatch
+) -> None:
+    from datetime import timedelta
+
+    from septum_api.routers import documents
+    from septum_api.services import document_pipeline as dp
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    clock = _lease_clock(monkeypatch)
+    try:
+        document_id = await _seed_derived(maker, tmp_path, "completed")
+        async with maker() as session:
+            token = await documents.claim_for_reingest(session, document_id)
+        clock.now += timedelta(seconds=60)
+
+        await _lease_sweep(maker)
+
+        assert await _status_token_error(maker, document_id) == ("processing", token, None)
+        async with maker() as session:
+            await dp.fence_run(session, document_id, token, require_processing=True)
+            await session.commit()
+    finally:
+        await engine.dispose()
+
+
+async def test_an_expired_lease_is_failed_with_its_token_kept_and_its_index_and_data_purged(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    import logging
+    from datetime import timedelta
+
+    from septum_api.models.document import Document
+    from septum_api.models.entity_index import EntityIndex
+    from septum_api.services import ingestion_lease
+    from sqlalchemy import func, select, update
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    clock = _lease_clock(monkeypatch)
+    expiry = clock.start + timedelta(seconds=ingestion_lease.LEASE_SECONDS)
+    restart_error = "Processing interrupted by server restart. Please reprocess."
+    try:
+        document_id = await _seed_derived(maker, tmp_path, "processing")
+        async with maker() as session:
+            await session.execute(
+                update(Document)
+                .where(Document.id == document_id)
+                .values(ingestion_run_id="run-a", ingestion_lease_expires_at=expiry, entity_index_version=1)
+            )
+            session.add(EntityIndex(document_id=document_id, entity_type="PERSON_NAME", value_hash="h" * 64))
+            await session.commit()
+
+        clock.now = expiry
+        await _lease_sweep(maker)
+        assert await _status_token_error(maker, document_id) == ("processing", "run-a", None)
+
+        clock.now = expiry + timedelta(microseconds=1)
+        with caplog.at_level(logging.DEBUG):
+            await _lease_sweep(maker)
+
+        assert await _status_token_error(maker, document_id) == ("failed", "run-a", restart_error)
+        _assert_purged(await _derived_state(maker, tmp_path, document_id))
+        async with maker() as session:
+            assert (await session.get(Document, document_id)).entity_index_version is None
+            assert await session.scalar(
+                select(func.count()).select_from(EntityIndex).where(EntityIndex.document_id == document_id)
+            ) == 0
+        _assert_content_free(caplog, tmp_path)
+    finally:
+        await engine.dispose()
+
+
+async def test_rows_without_a_lease_count_as_expired_whether_processing_or_pending(
+    tmp_path, monkeypatch
+) -> None:
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    _lease_clock(monkeypatch)
+    restart_error = "Processing interrupted by server restart. Please reprocess."
+    try:
+        processing = await _seed_derived(maker, tmp_path, "processing")
+        pending = await _seed_derived(maker, tmp_path, "pending")
+        completed = await _seed_derived(maker, tmp_path, "completed")
+
+        await _lease_sweep(maker)
+
+        for document_id in (processing, pending):
+            assert await _status_token_error(maker, document_id) == ("failed", None, restart_error)
+            _assert_purged(await _derived_state(maker, tmp_path, document_id))
+        assert (await _derived_state(maker, tmp_path, completed))["status"] == "completed"
+        _assert_untouched(await _derived_state(maker, tmp_path, completed))
+    finally:
+        await engine.dispose()
+
+
+async def test_a_lease_renewed_before_the_sweep_is_not_failed(tmp_path, monkeypatch) -> None:
+    from datetime import timedelta
+
+    from septum_api.routers import documents
+    from septum_api.services import document_pipeline as dp
+    from septum_api.services import ingestion_lease
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    clock = _lease_clock(monkeypatch)
+    try:
+        document_id = await _seed_derived(maker, tmp_path, "completed")
+        async with maker() as session:
+            token = await documents.claim_for_reingest(session, document_id)
+        clock.now += timedelta(seconds=ingestion_lease.LEASE_SECONDS - 10)
+        with ingestion_lease.held(document_id, token):
+            await ingestion_lease.renew_all(maker)
+        clock.now += timedelta(seconds=ingestion_lease.LEASE_SECONDS - 10)
+
+        await _lease_sweep(maker)
+
+        assert await _status_token_error(maker, document_id) == ("processing", token, None)
+        async with maker() as session:
+            await dp.fence_run(session, document_id, token, require_processing=True)
+            await session.commit()
+    finally:
+        await engine.dispose()
+
+
+async def _claim_clearing_the_rows(maker, tmp_path) -> tuple:
+    """A completed document claimed for a reingest: the claim cleared its rows, its files remain."""
+    from septum_api.routers import documents
+
+    document_id = await _seed_derived(maker, tmp_path, "completed")
+    async with maker() as session:
+        token = await documents.claim_for_reingest(session, document_id)
+    claimed = await _derived_state(maker, tmp_path, document_id)
+    assert claimed["rows"] == [0, 0] and claimed["text"] is None
+    assert claimed["map"] is True and claimed["indexes"] == [True, True]
+    return document_id, token
+
+
+async def test_a_lapsed_claim_failed_by_the_sweep_leaves_no_map_or_index_files(
+    tmp_path, monkeypatch
+) -> None:
+    from datetime import timedelta
+
+    from septum_api.services import ingestion_lease
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    clock = _lease_clock(monkeypatch)
+    try:
+        document_id, token = await _claim_clearing_the_rows(maker, tmp_path)
+        clock.now += timedelta(seconds=ingestion_lease.LEASE_SECONDS + 1)
+
+        await _lease_sweep(maker)
+
+        assert (await _status_token_error(maker, document_id))[:2] == ("failed", token)
+        _assert_purged(await _derived_state(maker, tmp_path, document_id))
+    finally:
+        await engine.dispose()
+
+
+async def test_a_claimed_run_that_fails_leaves_no_map_or_index_files(tmp_path, monkeypatch) -> None:
+    from septum_api.routers import documents
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    try:
+        document_id, token = await _claim_clearing_the_rows(maker, tmp_path)
+
+        async with maker() as session:
+            await documents.record_background_failure(
+                session, document_id, RuntimeError("boom"), user_id=1, run_token=token
+            )
+
+        assert (await _status_token_error(maker, document_id))[:2] == ("failed", token)
+        _assert_purged(await _derived_state(maker, tmp_path, document_id))
+    finally:
+        await engine.dispose()
+
+
+async def test_a_claim_landing_before_the_purge_takes_the_map_lock_keeps_the_newer_runs_files(
+    tmp_path, monkeypatch
+) -> None:
+    """A failed row without rows passes the candidate check; the re-read under the lock stops it."""
+    from contextlib import asynccontextmanager
+
+    from septum_api.models.document import Document
+    from septum_api.routers import documents
+    from septum_api.services import document_pipeline as dp
+    from sqlalchemy import update
+
+    real_lock = dp.document_map_lock
+    claimed: list = []
+
+    @asynccontextmanager
+    async def _lock_after_a_claim(document_id, *args, **kwargs):
+        async with maker() as other:
+            claimed.append(await documents.claim_for_reingest(other, document_id))
+        async with real_lock(document_id, *args, **kwargs) as lock:
+            yield lock
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    try:
+        document_id, _ = await _claim_clearing_the_rows(maker, tmp_path)
+        async with maker() as session:
+            await session.execute(
+                update(Document).where(Document.id == document_id).values(ingestion_status="failed")
+            )
+            await session.commit()
+        monkeypatch.setattr(dp, "document_map_lock", _lock_after_a_claim)
+
+        async with maker() as session:
+            assert await dp.purge_failed_derived_data(session, document_id) is False
+
+        assert len(claimed) == 1 and claimed[0]
+        assert (await _status_token_error(maker, document_id))[:2] == ("processing", claimed[0])
+        kept = await _derived_state(maker, tmp_path, document_id)
+        assert kept["map"] is True and kept["indexes"] == [True, True]
+    finally:
+        await engine.dispose()
+
+
+async def test_a_purge_that_fails_inside_the_sweep_is_left_to_the_startup_purge(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    import logging
+
+    from septum_api.services import document_pipeline as dp
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    _lease_clock(monkeypatch)
+    real_erase = dp.erase_document_artifacts
+    attempts: list = []
+
+    async def _fail_once(document_id, **kwargs) -> None:
+        attempts.append(document_id)
+        if len(attempts) == 1:
+            raise dp.ArtifactErasureError("bm25_index", PermissionError(13, "denied", str(tmp_path)))
+        await real_erase(document_id, **kwargs)
+
+    monkeypatch.setattr(dp, "erase_document_artifacts", _fail_once)
+    try:
+        interrupted = await _seed_derived(maker, tmp_path, "processing")
+        with caplog.at_level(logging.DEBUG):
+            await _lease_sweep(maker)
+
+        left = await _derived_state(maker, tmp_path, interrupted)
+        assert left["status"] == "failed"
+        _assert_untouched(left)
+        assert await dp.purge_failed_documents(maker) == 1
+        assert attempts == [interrupted, interrupted]
+        _assert_purged(await _derived_state(maker, tmp_path, interrupted))
+        _assert_content_free(caplog, tmp_path)
+    finally:
+        await engine.dispose()
+
+
+async def test_a_failed_erasure_is_retried_by_the_periodic_sweep_without_a_restart(
+    tmp_path, monkeypatch
+) -> None:
+    """The lease sweep loop purges what a first erasure left, on its Nth tick, not before."""
+    import asyncio
+    from contextlib import suppress
+
+    from septum_api.services import document_pipeline as dp
+    from septum_api.services import ingestion_lease
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(ingestion_lease, "SWEEP_SECONDS", 0.001)
+    real_erase = dp.erase_document_artifacts
+    real_sweep = ingestion_lease.fail_expired_ingestions
+    real_purge = ingestion_lease.purge_failed_documents
+    attempts: list = []
+    ticks: list = []
+    purges: list = []
+    done = asyncio.Event()
+
+    async def _fail_once(document_id, **kwargs) -> None:
+        attempts.append(document_id)
+        if len(attempts) == 1:
+            raise dp.ArtifactErasureError("bm25_index", PermissionError(13, "denied", str(tmp_path)))
+        await real_erase(document_id, **kwargs)
+
+    async def _counting_sweep(session_maker) -> list:
+        ticks.append(True)
+        return await real_sweep(session_maker)
+
+    async def _spied_purge(session_maker) -> int:
+        purges.append(len(ticks))
+        purged = await real_purge(session_maker)
+        done.set()
+        return purged
+
+    monkeypatch.setattr(dp, "erase_document_artifacts", _fail_once)
+    monkeypatch.setattr(ingestion_lease, "fail_expired_ingestions", _counting_sweep)
+    monkeypatch.setattr(ingestion_lease, "purge_failed_documents", _spied_purge)
+    try:
+        failed = await _seed_derived(maker, tmp_path, "failed")
+        async with maker() as session:
+            assert await dp.purge_failed_derived_data(session, failed) is False
+        _assert_untouched(await _derived_state(maker, tmp_path, failed))
+
+        task = asyncio.create_task(ingestion_lease.sweep_loop(maker, purge_every_ticks=3))
+        try:
+            await asyncio.wait_for(done.wait(), timeout=5)
+        finally:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+        assert purges[0] == 3
+        assert attempts == [failed, failed]
+        _assert_purged(await _derived_state(maker, tmp_path, failed))
     finally:
         await engine.dispose()
 
@@ -1568,6 +1917,33 @@ async def test_a_completed_document_is_never_purged_directly(tmp_path, monkeypat
         await engine.dispose()
 
 
+@pytest.mark.parametrize("status", ["processing", "completed"])
+async def test_a_live_or_completed_document_takes_no_map_lock_and_loses_nothing(
+    tmp_path, monkeypatch, status
+) -> None:
+    from septum_api.services import document_pipeline as dp
+
+    events: list = []
+    erased: list = []
+
+    async def _erase(document_id, **kwargs) -> None:
+        erased.append(document_id)
+
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(dp, "erase_document_artifacts", _erase)
+    monkeypatch.setattr(dp, "document_map_lock", _recording_lock(events))
+    try:
+        document_id = await _seed_derived(maker, tmp_path, status)
+        async with maker() as session:
+            assert await dp.purge_failed_derived_data(session, document_id) is False
+        assert events == [] and erased == []
+        state = await _derived_state(maker, tmp_path, document_id)
+        _assert_untouched(state)
+        assert state["status"] == status
+    finally:
+        await engine.dispose()
+
+
 @pytest.mark.parametrize("new_status", ["processing", "completed"])
 async def test_the_row_purge_skips_a_document_claimed_after_its_artifacts_were_erased(
     tmp_path, monkeypatch, new_status
@@ -1637,12 +2013,10 @@ def _leaked_error() -> OSError:
 
 
 def _break_candidate_select(monkeypatch, session) -> None:
-    from septum_api.services import document_pipeline as dp
-
-    def _raise():
+    async def _raise(*_args, **_kwargs):
         raise _leaked_error()
 
-    monkeypatch.setattr(dp, "_holds_derived_data", _raise)
+    monkeypatch.setattr(session, "scalar", _raise)
 
 
 def _break_erasure(monkeypatch, session) -> None:
@@ -1906,16 +2280,22 @@ def _maker_of(session):
 
 
 async def _restart_and_claim(maker, monkeypatch, document_id: int) -> str:
-    """Another worker restarts (every ``processing`` row goes ``failed``), then a reprocess claims.
+    """Another worker restarts after the run's lease lapsed (every ``processing`` row goes ``failed``), then a reprocess claims.
 
-    Returns the run token the claim handed out, which the claiming run passes
-    as ``run_token`` to everything it writes.
+    The reset runs with the lease clock past any lease written so far,
+    which is how a run that stopped renewing looks to it. Returns the run
+    token the claim handed out, which the claiming run passes as
+    ``run_token`` to everything it writes.
     """
-    from septum_api import database, main
-    from septum_api.routers import documents
+    from datetime import timedelta
 
-    monkeypatch.setattr(database, "get_session_maker", lambda: maker)
-    await main._reset_orphaned_processing_docs()
+    from septum_api.routers import documents
+    from septum_api.services import ingestion_lease
+
+    lapsed = ingestion_lease.lease_now() + timedelta(seconds=ingestion_lease.LEASE_SECONDS + 1)
+    with monkeypatch.context() as patched:
+        patched.setattr(ingestion_lease, "lease_now", lambda: lapsed)
+        await ingestion_lease.fail_expired_ingestions(maker)
     async with maker() as other:
         token = await documents.claim_for_reingest(other, document_id)
     assert isinstance(token, str) and token, "a claim must return its run token"
@@ -2044,6 +2424,7 @@ async def test_a_stale_run_that_fails_leaves_the_newer_runs_status_and_data_alon
     ctx: dict = {}
 
     async def _stale_run_fails() -> None:
+        erased.clear()
         async with ctx["maker"]() as other:
             await documents.record_background_failure(
                 other, ctx["doc_id"], RuntimeError("stale run failed"), user_id=1,
@@ -2509,18 +2890,22 @@ async def test_a_stale_entity_index_refresh_is_refused_and_the_newer_claim_keeps
 async def test_an_orphan_reset_that_kept_the_token_refuses_data_writes_but_not_the_failure_write(
     tmp_path, monkeypatch
 ) -> None:
-    from septum_api import database, main
+    from datetime import timedelta
+
     from septum_api.models.document import Document
     from septum_api.routers import documents
     from septum_api.services import document_pipeline as dp
+    from septum_api.services import ingestion_lease
 
     engine, maker = await _sweep_db(tmp_path, monkeypatch)
+    clock = _lease_clock(monkeypatch)
     try:
-        document_id = await _seed_derived(maker, tmp_path, "processing")
+        document_id = await _seed_derived(maker, tmp_path, "completed")
         async with maker() as session:
             token_a = await documents.claim_for_reingest(session, document_id)
-        monkeypatch.setattr(database, "get_session_maker", lambda: maker)
-        await main._reset_orphaned_processing_docs()
+        assert isinstance(token_a, str) and token_a
+        clock.now += timedelta(seconds=ingestion_lease.LEASE_SECONDS + 1)
+        await _lease_sweep(maker)
         restart_error = "Processing interrupted by server restart. Please reprocess."
         async with maker() as session:
             row = await session.get(Document, document_id)
@@ -2582,6 +2967,48 @@ async def test_each_claim_hands_out_its_own_token_and_a_lost_claim_changes_nothi
         await engine.dispose()
 
 
+async def test_a_claim_writes_its_lease_with_its_token_and_a_lost_claim_keeps_the_lease(
+    tmp_path, monkeypatch
+) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from septum_api.models.document import Document
+    from septum_api.routers import documents
+    from septum_api.services import ingestion_lease
+    from sqlalchemy import select
+
+    claimed_at = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+    clock = SimpleNamespace(now=claimed_at)
+    monkeypatch.setattr(ingestion_lease, "lease_now", lambda: clock.now)
+    expiry = claimed_at + timedelta(seconds=ingestion_lease.LEASE_SECONDS)
+    engine, maker = await _sweep_db(tmp_path, monkeypatch)
+
+    async def _held_until(token: str, moment) -> bool:
+        async with maker() as session:
+            return (
+                await session.scalar(
+                    select(Document.id).where(
+                        Document.id == document_id,
+                        Document.ingestion_run_id == token,
+                        Document.ingestion_lease_expires_at == moment,
+                    )
+                )
+            ) is not None
+
+    try:
+        document_id = await _seed_derived(maker, tmp_path, "completed")
+        async with maker() as session:
+            token = await documents.claim_for_reingest(session, document_id)
+        assert await _held_until(token, expiry)
+
+        clock.now = claimed_at + timedelta(seconds=30)
+        async with maker() as session:
+            assert await documents.claim_for_reingest(session, document_id) is None
+        assert await _held_until(token, expiry)
+    finally:
+        await engine.dispose()
+
+
 async def test_a_failure_recovery_write_is_fenced_after_the_index_drop_fails(
     tmp_path, monkeypatch
 ) -> None:
@@ -2599,7 +3026,7 @@ async def test_a_failure_recovery_write_is_fenced_after_the_index_drop_fails(
         await real_drop(db, document_id)
 
     try:
-        document_id = await _seed_derived(maker, tmp_path, "processing")
+        document_id = await _seed_derived(maker, tmp_path, "completed")
         ctx["token_a"] = await _restart_and_claim(maker, monkeypatch, document_id)
         monkeypatch.setattr(documents, "drop_index_for_document", _drop)
 
@@ -2611,6 +3038,7 @@ async def test_a_failure_recovery_write_is_fenced_after_the_index_drop_fails(
                 await real_rollback()
                 if ctx["armed"] and "token_b" not in ctx:
                     ctx["token_b"] = await _restart_and_claim(maker, monkeypatch, document_id)
+                    await _store_artifacts(tmp_path, document_id)
 
             session.rollback = _rollback_then_claim
             await documents.record_background_failure(
@@ -2642,9 +3070,10 @@ async def test_a_reingest_with_a_stale_token_erases_nothing_and_ingests_nothing(
     monkeypatch.setattr(documents._INGESTION_ROUTER, "ingest", _ingest_spy)
     engine, maker = await _sweep_db(tmp_path, monkeypatch)
     try:
-        document_id = await _seed_derived(maker, tmp_path, "processing")
+        document_id = await _seed_derived(maker, tmp_path, "completed")
         token_a = await _restart_and_claim(maker, monkeypatch, document_id)
         token_b = await _restart_and_claim(maker, monkeypatch, document_id)
+        await _store_artifacts(tmp_path, document_id)
         before = await _derived_state(maker, tmp_path, document_id)
         assert before["map"] is True and before["indexes"] == [True, True]
 
@@ -2676,18 +3105,21 @@ async def test_a_claim_landing_while_the_cleanup_waits_for_the_map_lock_erases_n
     from septum_api.services import document_pipeline as dp
 
     real_lock = dp.document_map_lock
-    ctx: dict = {}
+    ctx: dict = {"claimed": False}
 
     @asynccontextmanager
     async def _lock_after_a_claim(document_id, *args, **kwargs):
-        ctx["token_b"] = await _restart_and_claim(ctx["maker"], monkeypatch, document_id)
+        if not ctx["claimed"]:
+            ctx["claimed"] = True
+            ctx["token_b"] = await _restart_and_claim(ctx["maker"], monkeypatch, document_id)
+            await _store_artifacts(tmp_path, document_id)
         async with real_lock(document_id, *args, **kwargs) as lock:
             yield lock
 
     engine, maker = await _sweep_db(tmp_path, monkeypatch)
     try:
         ctx["maker"] = maker
-        document_id = await _seed_derived(maker, tmp_path, "processing")
+        document_id = await _seed_derived(maker, tmp_path, "completed")
         token_a = await _restart_and_claim(maker, monkeypatch, document_id)
         monkeypatch.setattr(dp, "document_map_lock", _lock_after_a_claim)
 
