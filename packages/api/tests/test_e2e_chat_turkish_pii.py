@@ -9,6 +9,7 @@ from io import BytesIO
 from pathlib import Path
 
 import fitz  # type: ignore[import]
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from septum_api.database import init_db
@@ -105,16 +106,23 @@ def e2e_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         _no_ocr_replace,
     )
 
-    # Avoid HuggingFace downloads: no-op index_document, search returns [] (chat uses fallback chunks)
+    # No embedding model: the real one is absent on a runner without a model
+    # cache, so loading it fails ingestion. Indexing embeds with a fixed
+    # double; search returns [] (chat uses fallback chunks).
     from septum_api.services import vector_store as vs_module
 
-    def _no_op_index(self, document_id, chunk_ids, texts):  # noqa: ARG001
-        pass
+    class _StubModel:
+        def encode(self, texts, **_kwargs):
+            return np.ones((len(texts), 8), dtype="float32")
+
+    def _no_model(*_args, **_kwargs):
+        raise AssertionError("the e2e test must not load the embedding model")
 
     def _empty_search(self, document_id, query, top_k):  # noqa: ARG001
         return []  # Chat router falls back to first top_k chunks by order
 
-    monkeypatch.setattr(vs_module.VectorStore, "index_document", _no_op_index)
+    monkeypatch.setattr(vs_module, "get_shared_sentence_transformer", _no_model)
+    monkeypatch.setattr(vs_module.VectorStore, "_get_model", lambda self: _StubModel())
     monkeypatch.setattr(vs_module.VectorStore, "search", _empty_search)
 
     # Mock LLM return value; test sets it after upload to use document's real placeholders
@@ -193,6 +201,8 @@ def test_e2e_turkish_pii_upload_ask_approve_deanonymized(
         poll_doc = next((d for d in poll.json()["items"] if d["id"] == document_id), None)
         if poll_doc and poll_doc["ingestion_status"] == "completed":
             break
+        if poll_doc and poll_doc["ingestion_status"] == "failed":
+            pytest.fail(f"Document ingestion failed: {poll_doc.get('ingestion_error')}")
         time.sleep(1)
         # Pump the event loop so background tasks can progress
         try:
