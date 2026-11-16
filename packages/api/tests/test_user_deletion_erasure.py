@@ -627,7 +627,9 @@ def started_lifespan(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     monkeypatch.setattr(main.bootstrap, "needs_setup", lambda: False)
     monkeypatch.setattr(main, "initialize_engine", lambda _url: calls.append("initialize_engine"))
     monkeypatch.setattr(main, "init_db", lambda: _record("init_db"))
-    monkeypatch.setattr(main, "_reset_orphaned_processing_docs", lambda: _record("reset"))
+    monkeypatch.setattr(
+        main.ingestion_lease, "fail_expired_ingestions", lambda _maker: _record("reset")
+    )
     monkeypatch.setattr(main, "sweep_stale_temp_files", lambda: calls.append("temp_sweep"))
     monkeypatch.setattr(main, "get_session_maker", lambda: sentinel)
     monkeypatch.setattr(main, "_announce_setup_token", lambda: _record("announce"))
@@ -655,6 +657,31 @@ async def test_lifespan_sweeps_the_real_storage_dir_after_init_db(
     sweep = next(c for c in started_lifespan if isinstance(c, tuple))
     assert sweep == ("sweep", sentinel, source_files.SOURCE_FILE_DIR)
     assert started_lifespan.index("init_db") < started_lifespan.index(sweep)
+
+
+async def test_lifespan_fails_expired_ingestions_after_init_db_with_the_live_session_maker(
+    started_lifespan: list[Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from septum_api import main
+
+    sentinel = started_lifespan.pop(0)
+
+    async def _reset(session_maker: Any) -> list[int]:
+        started_lifespan.append(("reset", session_maker))
+        return []
+
+    async def _sweep_stub(*_args: Any) -> None:
+        return None
+
+    monkeypatch.setattr(main.ingestion_lease, "fail_expired_ingestions", _reset)
+    monkeypatch.setattr(main, "sweep_orphan_artifacts", _sweep_stub)
+
+    async with main.lifespan(main.app):
+        pass
+
+    resets = [c for c in started_lifespan if isinstance(c, tuple) and c[0] == "reset"]
+    assert resets == [("reset", sentinel)]
+    assert started_lifespan.index("init_db") < started_lifespan.index(resets[0])
 
 
 async def test_lifespan_survives_a_failing_sweep(

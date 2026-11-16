@@ -842,10 +842,77 @@ def test_revision_030_leaves_existing_documents_null(
     assert stored == [(None,)]
 
 
-def test_alembic_head_is_030() -> None:
+def test_revision_031_adds_nullable_ingestion_lease_and_is_reversible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "at_030.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.upgrade(cfg, "030")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    before = _document_columns(engine)
+
+    command.upgrade(cfg, "031")
+    columns = _document_columns(engine)
+
+    command.stamp(cfg, "030")
+    command.upgrade(cfg, "031")
+    command.check(cfg)
+    after_rerun = [c["name"] for c in sa.inspect(engine).get_columns("documents")]
+
+    command.downgrade(cfg, "030")
+    after_downgrade = _document_columns(engine)
+    command.stamp(cfg, "031")
+    command.downgrade(cfg, "030")
+    after_second_downgrade = _document_columns(engine)
+
+    command.upgrade(cfg, "head")
+    command.check(cfg)
+    after_reupgrade = _document_columns(engine)
+    engine.dispose()
+
+    assert "ingestion_lease_expires_at" not in before
+    assert columns["ingestion_lease_expires_at"]["nullable"] is True
+    assert isinstance(columns["ingestion_lease_expires_at"]["type"], sa.DateTime)
+    assert after_rerun.count("ingestion_lease_expires_at") == 1
+    assert "ingestion_lease_expires_at" not in after_downgrade
+    assert "ingestion_lease_expires_at" not in after_second_downgrade
+    assert "ingestion_lease_expires_at" in after_reupgrade
+
+
+def test_revision_031_leaves_existing_documents_null(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "at_030_with_row.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    cfg = _alembic_config()
+    command.upgrade(cfg, "030")
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text(
+                "INSERT INTO documents (filename, original_filename, file_type, file_format,"
+                " detected_language, encrypted_path, chunk_count, entity_count,"
+                " ingestion_status, file_size_bytes, active_regulation_ids, uploaded_at)"
+                " VALUES ('f', 'f', 'text/plain', 'txt', 'en', 'p', 0, 0, 'processing', 1,"
+                " '[]', CURRENT_TIMESTAMP)"
+            )
+        )
+
+    command.upgrade(cfg, "031")
+    with engine.connect() as conn:
+        stored = conn.execute(
+            sa.text("SELECT ingestion_lease_expires_at FROM documents")
+        ).all()
+    engine.dispose()
+
+    assert stored == [(None,)]
+
+
+def test_alembic_head_is_031() -> None:
     from alembic.script import ScriptDirectory
 
-    assert ScriptDirectory.from_config(_alembic_config()).get_heads() == ["030"]
+    assert ScriptDirectory.from_config(_alembic_config()).get_heads() == ["031"]
 
 
 def test_sqlite_startup_adds_ingestion_run_id_to_an_old_database(tmp_path: Path) -> None:
@@ -871,6 +938,31 @@ def test_sqlite_startup_adds_ingestion_run_id_to_an_old_database(tmp_path: Path)
     assert "ingestion_run_id" not in before
     assert after["ingestion_run_id"]["nullable"] is True
     assert after["ingestion_run_id"]["type"].length == 36
+
+
+def test_sqlite_startup_adds_ingestion_lease_to_an_old_database(tmp_path: Path) -> None:
+    db_path = tmp_path / "pre_ingestion_lease.db"
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(sa.text("ALTER TABLE documents DROP COLUMN ingestion_lease_expires_at"))
+    before = _document_columns(engine)
+
+    async def ensure_twice() -> None:
+        async_engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+        try:
+            await database._sqlite_ensure_columns(async_engine)
+            await database._sqlite_ensure_columns(async_engine)
+        finally:
+            await async_engine.dispose()
+
+    asyncio.run(ensure_twice())
+    after = _document_columns(engine)
+    engine.dispose()
+
+    assert "ingestion_lease_expires_at" not in before
+    assert after["ingestion_lease_expires_at"]["nullable"] is True
+    assert isinstance(after["ingestion_lease_expires_at"]["type"], sa.DateTime)
 
 
 @pytest.mark.skipif(

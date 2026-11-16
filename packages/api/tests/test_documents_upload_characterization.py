@@ -514,6 +514,21 @@ async def test_each_upload_row_gets_its_own_token(upload_env):
     assert first.added[0].ingestion_run_id != second.added[0].ingestion_run_id
 
 
+async def test_the_upload_row_is_inserted_with_its_lease(upload_env, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from septum_api.services import ingestion_lease
+
+    inserted_at = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(ingestion_lease, "lease_now", lambda: inserted_at)
+
+    _, _, db = await _upload(upload_env)
+
+    assert db.added[0].ingestion_lease_expires_at == inserted_at + timedelta(
+        seconds=ingestion_lease.LEASE_SECONDS
+    )
+
+
 def _fence_params(stmt: Any) -> tuple[list[Any], str]:
     from sqlalchemy.dialects import sqlite
 

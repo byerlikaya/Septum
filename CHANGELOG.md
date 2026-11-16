@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-11-16
+
+- A document ingestion now holds a short, renewed lease, so a run that dies (crash, kill, lost instance) is marked failed within a few minutes by a periodic sweep instead of only at the next restart, and several instances can share one database without resetting each other's live runs. A failed document's derived data (map, indexes, chunks) is erased as before, and an erasure that fails is retried periodically rather than only at startup.
+
 ### 2026-11-15
 
 - Deleting a chunk now also removes its id from the document's FAISS and BM25 search indexes, so a deleted chunk no longer takes up a retrieval slot; ingestion and the removal write both indexes under one per-document lock, and a removal that cannot be written answers with a 500 while the chunk stays deleted.

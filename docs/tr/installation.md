@@ -371,6 +371,8 @@ Bu değişkenleri `api` servisinde ayarlayın. Compose dosyaları `.env` değerl
 
 Kodda sabit olan ve ortam değişkeni bulunmayan iki sınır vardır. 30 saniye boyunca gövde verisi göndermeyen istek `408` alır; dolayısıyla `408`, bu boşta bekleme sınırından da yukarıdaki toplam gövde süresinden de gelebilir. Ses çözme, `30 + MAX_AUDIO_SECONDS / 20` saniye sonra durdurulur; varsayılanda bu 210 saniyedir ve bu süreyi aşan dosya çözme hatasıyla reddedilir.
 
+**Aynı veritabanında birden çok worker veya instance.** Her doküman işleme (ingestion) işi 120 saniyelik bir kira (lease) tutar; işi yürüten API süreci bu kirayı 30 saniyede bir yeniler. Süreç açılışta ve ardından her 60 saniyede bir yalnızca kirası dolmuş ya da hiç olmayan işleri başarısız işaretler. Bu yüzden yeniden başlayan bir worker ya da instance, diğerlerinin sürmekte olan işlemlerini bozmaz. Çökme yüzünden yarıda kalan bir iş yaklaşık üç dakika içinde (120 saniyelik kira artı en fazla bir 60 saniyelik tarama) başarısız işaretlenir ve doküman bundan sonra yeniden işlenebilir. Başarısız bir işin ürettiği her şey (çıkarılan metin, parçalar, anonimleştirme haritası ve arama indeksleri) silinir; doküman yeniden işlendiğinde yüklenen dosyasından baştan üretilir, silme başarısız olursa da yaklaşık on dakikada bir yeniden denenir. Kira her sürecin UTC saatine dayanır; bu yüzden aynı veritabanına bağlı birden çok instance çalıştıran host'ların saati NTP ya da kurum içi bir zaman kaynağıyla eşitli olmalıdır.
+
 ### İzleme
 
 Panel artık `/metrics` isteklerini proxy'lemez. API'yi doğrudan kazıyın: compose ağı içinden `api:8000`, host üzerinden `127.0.0.1:8000`. Standalone container 8000 portunu yayımlamaz; air-gapped dosyası da yayımlamaz. Standalone'da bir compose override'ında `127.0.0.1:8000:8000` ile kendiniz yayımlayın. Air-gapped dosyasında ise bölgenin içinden kazıyın, örneğin `docker compose -f docker-compose.airgap.yml exec api` ile. `/metrics` oturum gerektirmez, yönlendirilebilir bir adrese açmayın. `WEB_CONCURRENCY` 1'den büyükse her kazıma tek bir worker'ın sayaçlarını okur.
@@ -571,6 +573,8 @@ docker compose -f docker-compose.standalone.yml up -d --build
 ```
 
 Yeniden derleme boyunca veriler korunur çünkü volume'lar isimlendirilmiş volume'lardır.
+
+**Birden çok instance çalıştırıyorsanız.** Güncellenmiş instance'ları başlatmadan önce eski instance'ların hepsini durdurun. Eski instance'lar işleme kirası yazmaz; güncellenmiş bir instance açıldığı anda onların sürmekte olan işlemlerini bir kez başarısız işaretler. Bu şekilde başarısız olan dokümanları yeniden işleyin. Ayrıntı için [Aynı veritabanında birden çok worker veya instance](#yükleme-ve-ses-değişkenleri) bölümüne bakın.
 
 **Bu sürümdeki kırıcı değişiklikler.**
 
