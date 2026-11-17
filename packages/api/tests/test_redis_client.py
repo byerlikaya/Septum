@@ -6,6 +6,7 @@ import dataclasses
 import inspect
 
 import pytest
+from redis_doubles import reset_redis_client
 
 from septum_api import bootstrap
 from septum_api.services import redis_client
@@ -25,8 +26,7 @@ def test_get_redis_returns_none_without_a_configured_url(
         "_cached_config",
         dataclasses.replace(bootstrap.get_config(), redis_url=""),
     )
-    monkeypatch.setattr(redis_client, "_redis_pool", None)
-    monkeypatch.setattr(redis_client, "_redis_unavailable", False)
+    reset_redis_client(monkeypatch)
 
     assert redis_client.redis_configured() is False
     assert redis_client.get_redis() is None
@@ -46,8 +46,7 @@ def _configure(monkeypatch: pytest.MonkeyPatch, url: str = "redis://fake:6379/0"
         "_cached_config",
         dataclasses.replace(bootstrap.get_config(), redis_url=url),
     )
-    monkeypatch.setattr(redis_client, "_redis_pool", None)
-    monkeypatch.setattr(redis_client, "_redis_unavailable", False)
+    reset_redis_client(monkeypatch)
 
 
 def test_get_redis_creates_pool_once_and_caches_it(
@@ -67,7 +66,16 @@ def test_get_redis_creates_pool_once_and_caches_it(
 
     assert redis_client.get_redis() is fake
     assert redis_client.get_redis() is fake
-    assert calls == [("redis://fake:6379/0", {"decode_responses": False})]
+    assert calls == [
+        (
+            "redis://fake:6379/0",
+            {
+                "decode_responses": False,
+                "socket_connect_timeout": redis_client.SOCKET_CONNECT_TIMEOUT_SECONDS,
+                "socket_timeout": redis_client.SOCKET_TIMEOUT_SECONDS,
+            },
+        )
+    ]
 
 
 def test_get_redis_marks_unavailable_when_pool_creation_fails(
@@ -86,9 +94,38 @@ def test_get_redis_marks_unavailable_when_pool_creation_fails(
     monkeypatch.setattr(aioredis, "from_url", failing_from_url)
 
     assert redis_client.get_redis() is None
-    assert redis_client._redis_unavailable is True
+    assert redis_client._redis_retry_at is not None
     assert redis_client.get_redis() is None
     assert attempts == 1
+
+
+def test_get_redis_tries_again_once_the_backoff_passed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import redis.asyncio as aioredis
+
+    _configure(monkeypatch)
+    now = [1000.0]
+    monkeypatch.setattr(redis_client.time, "monotonic", lambda: now[0])
+    fake = _FakeClient()
+    outcomes: list = [ValueError("down"), fake]
+
+    def flaky_from_url(url: str, **kwargs):
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(aioredis, "from_url", flaky_from_url)
+
+    assert redis_client.get_redis() is None
+    now[0] += redis_client.RETRY_AFTER_SECONDS - 1
+    assert redis_client.get_redis() is None
+    assert redis_client.redis_configured() is True
+    now[0] += 1
+    assert redis_client.get_redis() is fake
+    assert redis_client._redis_retry_at is None
+    assert outcomes == []
 
 
 def test_get_redis_short_circuits_when_marked_unavailable(
@@ -97,7 +134,7 @@ def test_get_redis_short_circuits_when_marked_unavailable(
     import redis.asyncio as aioredis
 
     _configure(monkeypatch)
-    monkeypatch.setattr(redis_client, "_redis_unavailable", True)
+    monkeypatch.setattr(redis_client, "_redis_retry_at", float("inf"))
 
     def must_not_be_called(url: str, **kwargs):
         raise AssertionError("from_url must not be called")
@@ -116,3 +153,139 @@ async def test_redis_get_uses_client_without_awaiting_get_redis(
 
     assert await redis_client.redis_get("k") == b"v"
     assert await redis_client.redis_get("missing") is None
+
+
+def _unreachable_errors() -> list:
+    from redis.exceptions import ConnectionError as RedisConnectionError
+    from redis.exceptions import TimeoutError as RedisTimeoutError
+
+    return [
+        RedisConnectionError("refused"),
+        RedisTimeoutError("read timed out"),
+        OSError(111, "refused"),
+        TimeoutError(),
+    ]
+
+
+class _FailingClient:
+    """Answers every call with ``error`` while it is set, and normally once it is cleared."""
+
+    def __init__(self, error: BaseException | None) -> None:
+        self.error = error
+
+    def _answer(self, value):
+        if self.error is not None:
+            raise self.error
+        return value
+
+    async def get(self, key):
+        return self._answer(None)
+
+    async def set(self, key, value, **kwargs):
+        return self._answer(True)
+
+    async def delete(self, key):
+        return self._answer(1)
+
+    async def ping(self):
+        return self._answer(True)
+
+
+_HELPERS = {
+    "get": lambda: redis_client.redis_get("k"),
+    "set": lambda: redis_client.redis_set("k", b"v"),
+    "set_if_absent": lambda: redis_client.redis_set_if_absent("k", b"v"),
+    "delete": lambda: redis_client.redis_delete("k"),
+    "ping": lambda: redis_client.redis_ping(),
+}
+
+
+def _use_client(monkeypatch: pytest.MonkeyPatch, client) -> None:
+    _configure(monkeypatch)
+    monkeypatch.setattr(redis_client, "_redis_pool", client)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("helper", sorted(_HELPERS))
+@pytest.mark.parametrize("error_index", range(4))
+async def test_every_helper_opens_the_window_on_the_second_unreachable_call(
+    monkeypatch: pytest.MonkeyPatch, helper: str, error_index: int
+) -> None:
+    client = _FailingClient(_unreachable_errors()[error_index])
+    _use_client(monkeypatch, client)
+
+    assert not await _HELPERS[helper]()
+    assert redis_client._redis_retry_at is None
+    assert redis_client.get_redis() is client
+    assert not await _HELPERS[helper]()
+    assert redis_client._redis_retry_at is not None
+    assert redis_client.get_redis() is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("helper", sorted(_HELPERS))
+async def test_a_refused_command_never_opens_the_window(
+    monkeypatch: pytest.MonkeyPatch, helper: str
+) -> None:
+    from redis.exceptions import ResponseError
+
+    _use_client(monkeypatch, _FailingClient(ResponseError("WRONGTYPE")))
+
+    for _ in range(3):
+        assert not await _HELPERS[helper]()
+    assert redis_client._redis_retry_at is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("helper", sorted(_HELPERS))
+async def test_an_answered_call_resets_the_count(
+    monkeypatch: pytest.MonkeyPatch, helper: str
+) -> None:
+    from redis.exceptions import ConnectionError as RedisConnectionError
+
+    client = _FailingClient(RedisConnectionError("blip"))
+    _use_client(monkeypatch, client)
+
+    await _HELPERS[helper]()
+    client.error = None
+    await _HELPERS[helper]()
+    client.error = RedisConnectionError("blip")
+    await _HELPERS[helper]()
+    assert redis_client._redis_retry_at is None
+
+
+class _RecordingClient:
+    def __init__(self, error: BaseException | None = None) -> None:
+        self.error = error
+        self.deleted: list[tuple] = []
+
+    async def delete(self, *keys):
+        self.deleted.append(keys)
+        if self.error is not None:
+            raise self.error
+        return len(keys)
+
+
+@pytest.mark.asyncio
+async def test_redis_delete_sends_one_command_with_every_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _RecordingClient()
+    _use_client(monkeypatch, client)
+
+    assert await redis_client.redis_delete("a", "b") is True
+    assert client.deleted == [("a", "b")]
+
+
+@pytest.mark.asyncio
+async def test_redis_delete_reports_and_counts_a_failed_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from redis.exceptions import ConnectionError as RedisConnectionError
+
+    client = _RecordingClient(RedisConnectionError("refused"))
+    _use_client(monkeypatch, client)
+
+    assert await redis_client.redis_delete("a", "b") is False
+    assert client.deleted == [("a", "b")]
+    assert redis_client._consecutive_failures == 1

@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from redis_doubles import redis_unavailable, use_fake_redis
 from septum_api.database import _sqlite_wal_connect, get_db
 from septum_api.main import app
 from septum_api.models import Base
@@ -128,14 +129,8 @@ class _HeldLock:
 @pytest.fixture
 def fake_redis(monkeypatch: pytest.MonkeyPatch):
     """A configured, reachable Redis backed by fakeredis."""
-    import fakeredis
-    import septum_api.services.redis_client as redis_module
-
-    client = fakeredis.FakeAsyncRedis()
+    client = use_fake_redis(monkeypatch)
     monkeypatch.setattr(client, "lock", _HeldLock, raising=False)
-    monkeypatch.setattr(redis_module, "_get_redis_url", lambda: "redis://fake")
-    monkeypatch.setattr(redis_module, "_redis_pool", client)
-    monkeypatch.setattr(redis_module, "_redis_unavailable", False)
     return client
 
 
@@ -324,13 +319,6 @@ def _unlink_failing_for(suffix: str):
     return _unlink
 
 
-def _unreachable_redis(monkeypatch: pytest.MonkeyPatch) -> None:
-    import septum_api.services.redis_client as redis_module
-
-    monkeypatch.setattr(redis_module, "_get_redis_url", lambda: "redis://unreachable")
-    monkeypatch.setattr(redis_module, "_redis_unavailable", True)
-
-
 @pytest.mark.parametrize(
     ("failure", "artifacts_kept"), [("timeout", True), ("lost", False)], ids=["timeout", "lost"]
 )
@@ -379,7 +367,7 @@ async def test_unreachable_map_cache_returns_500_and_keeps_the_user(
 ) -> None:
     _, target = await _admin_and_target(world)
     doc = await world.add_document(target)
-    _unreachable_redis(monkeypatch)
+    redis_unavailable(monkeypatch)
 
     resp = await world.client.delete(f"/api/users/{target.id}")
 
@@ -620,7 +608,7 @@ async def test_sweep_with_an_unreachable_map_cache(
 ) -> None:
     live = await _live_document(world)
     await write_artifacts(5)
-    _unreachable_redis(monkeypatch)
+    redis_unavailable(monkeypatch)
 
     with caplog.at_level(logging.ERROR):
         result = await _sweep(world)

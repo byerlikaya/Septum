@@ -375,6 +375,8 @@ Kodda sabit olan ve ortam değişkeni bulunmayan iki sınır vardır. 30 saniye 
 
 İşlemeye başladıktan iki saat sonra hâlâ süren bir iş (boş bir işleme yuvası beklerken geçen süre sayılmaz) artık yenilenmez ve süreci ayakta olsa bile yaklaşık bir dakika içinde süre sınırı hatasıyla başarısız işaretlenir; görevin kendisi iptal edilmez. Sonradan yapmaya çalıştığı veritabanı ve arama indeksi yazmaları reddedilir, yine de geride bırakabildiği her şey yaklaşık on dakikada bir çalışan yeniden silme (başarısız doküman) ya da yetim dosya taraması (silinmiş doküman) ile temizlenir. Süresi dolan iş, işleme yuvasını (API süreci başına iki tane) o süreç yeniden başlayana kadar elinde tutar; yüklenen dosya ise doküman yeniden işlenene ya da silinene kadar saklanır.
 
+Redis yapılandırıldığında Redis çağrıları 5 saniyede zaman aşımına uğrar. Art arda iki çağrı başarısız olursa sunucu Redis'i yeniden denemeden önce 30 saniye bekler (tek bir hata yalnızca o çağrıyı başarısız kılar).
+
 ### İzleme
 
 Panel artık `/metrics` isteklerini proxy'lemez. API'yi doğrudan kazıyın: compose ağı içinden `api:8000`, host üzerinden `127.0.0.1:8000`. Standalone container 8000 portunu yayımlamaz; air-gapped dosyası da yayımlamaz. Standalone'da bir compose override'ında `127.0.0.1:8000:8000` ile kendiniz yayımlayın. Air-gapped dosyasında ise bölgenin içinden kazıyın, örneğin `docker compose -f docker-compose.airgap.yml exec api` ile. `/metrics` oturum gerektirmez, yönlendirilebilir bir adrese açmayın. `WEB_CONCURRENCY` 1'den büyükse her kazıma tek bir worker'ın sayaçlarını okur.

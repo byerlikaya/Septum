@@ -375,6 +375,8 @@ Two limits are fixed in the code and have no variable. A request that sends no b
 
 An ingestion that is still running two hours after it started working (time spent waiting for a free slot does not count) is no longer renewed and is marked failed with a time-limit error within about a minute, even if its process is alive; the task itself is not cancelled. Its later database and search index writes are refused, and anything it still manages to leave behind is erased by the retried purge (failed document) or the orphan sweep (deleted document), both about every ten minutes. A timed-out ingestion keeps its ingestion slot (two per API process) until that process restarts, and the uploaded file is kept until the document is reprocessed or deleted.
 
+When Redis is configured, Redis calls time out after 5 seconds. After two failed calls in a row the server waits 30 seconds before it tries Redis again (a single failure fails only that call).
+
 ### Monitoring
 
 The dashboard no longer proxies `/metrics`. Scrape the API directly: `api:8000` from inside the compose network, or `127.0.0.1:8000` on the host. The standalone container does not publish port 8000, and neither does the air-gapped file. In standalone, publish it yourself with `127.0.0.1:8000:8000` in a compose override. In the air-gapped file, scrape from inside the zone, for example with `docker compose -f docker-compose.airgap.yml exec api`. `/metrics` needs no login, so never publish it on a routable address. With `WEB_CONCURRENCY` above 1, each scrape reads one worker's counters.

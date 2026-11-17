@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from redis_doubles import redis_unavailable, use_fake_redis
 from septum_api.services.anonymization_map import AnonymizationMap
 from septum_api.services.document_anon_store import (
     get_document_map,
@@ -490,14 +491,7 @@ class _Worker:
 @pytest.fixture
 def fake_redis(monkeypatch: pytest.MonkeyPatch):
     """A configured, reachable Redis backed by fakeredis."""
-    import fakeredis
-    import septum_api.services.redis_client as redis_module
-
-    client = fakeredis.FakeAsyncRedis()
-    monkeypatch.setattr(redis_module, "_get_redis_url", lambda: "redis://fake")
-    monkeypatch.setattr(redis_module, "_redis_pool", client)
-    monkeypatch.setattr(redis_module, "_redis_unavailable", False)
-    return client
+    return use_fake_redis(monkeypatch)
 
 
 def _known(document_id: int, name: str = "Alice") -> AnonymizationMap:
@@ -580,10 +574,8 @@ async def test_pop_fails_when_redis_is_configured_but_unavailable(
     store_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import septum_api.services.document_anon_store as store_module
-    import septum_api.services.redis_client as redis_module
 
-    monkeypatch.setattr(redis_module, "_get_redis_url", lambda: "redis://unreachable")
-    monkeypatch.setattr(redis_module, "_redis_unavailable", True)
+    redis_unavailable(monkeypatch)
     store_module._document_maps[84] = _known(84)
 
     with pytest.raises(store_module.DocumentMapErasureError, match="redis"):
