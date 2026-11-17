@@ -39,6 +39,7 @@ from presidio_analyzer.predefined_recognizers import PhoneRecognizer
 
 from .anonymization_map import SANITIZER_STOPWORDS, AnonymizationMap
 from .config import SeptumCoreConfig
+from .context_enhancer import LinearContextEnhancer
 from .date_grammar import find_dates
 from .date_grammar import warm_up as warm_up_date_grammar
 from .document_windowing import (
@@ -1690,7 +1691,10 @@ class Detector:
         self._semantic_port: SemanticDetectionPort = (
             semantic_port or NullSemanticDetectionPort()
         )
-        self._analyzer = AnalyzerEngine(nlp_engine=_get_shared_nlp_engine())
+        self._analyzer = AnalyzerEngine(
+            nlp_engine=_get_shared_nlp_engine(),
+            context_aware_enhancer=LinearContextEnhancer(),
+        )
         self._entity_types: Optional[List[str]] = None
         self._non_pii_filter: Optional[NonPiiFilter] = None
         self._register_custom_recognizers()
