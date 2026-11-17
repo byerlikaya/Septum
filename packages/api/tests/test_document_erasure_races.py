@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 from document_env_fixtures import _Env
 from httpx import ASGITransport, AsyncClient
+from redis_doubles import redis_unavailable
 from septum_core.spans import SanitizeResult
 from sqlalchemy import select, text
 
@@ -24,6 +25,7 @@ from septum_api.routers import documents as documents_module
 from septum_api.services import document_anon_store, pii_gate
 from septum_api.services import document_pipeline as pipeline_module
 from septum_api.services.anonymization_map import AnonymizationMap
+from septum_api.services.redis_client import RETRY_AFTER_HEADERS
 
 
 async def _store_map(document_id: int) -> None:
@@ -395,6 +397,41 @@ async def test_chunk_edit_over_an_unreadable_map_fails_without_overwriting_it(
     assert resp.status_code >= 500
     assert "Bob Jones" not in resp.text
     assert map_file.read_bytes() == corrupted
+
+
+async def test_chunk_edit_whose_map_lock_cannot_be_taken_answers_503_and_changes_nothing(
+    env: _Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A configured Redis is down: the central handler answers 503 with Retry-After and no PII."""
+    doc, chunk_id = await env.add_document()
+    await _store_map(doc)
+
+    async def _sanitizer(_db, _settings):
+        return object()
+
+    async def _gate(texts, *_args, **_kwargs):
+        return list(texts)
+
+    monkeypatch.setattr(pii_gate, "create_user_text_sanitizer", _sanitizer)
+    monkeypatch.setattr(pii_gate, "gate_untrusted_texts", _gate)
+    redis_unavailable(monkeypatch)
+
+    resp = await env.client.patch(
+        f"/api/chunks/{chunk_id}", json={"sanitized_text": "Paid by Bob Jones."}
+    )
+
+    assert resp.status_code == 503
+    assert resp.headers["Retry-After"] == RETRY_AFTER_HEADERS["Retry-After"]
+    assert resp.json() == {
+        "detail": (
+            "The document's stored data could not be locked; nothing was changed. Try again."
+        ),
+        "code": "document_locked",
+    }
+    assert "Bob Jones" not in resp.text
+    async with env.session_maker() as session:
+        chunk = await session.get(Chunk, chunk_id)
+    assert chunk.sanitized_text == "[PERSON_1] signed."
 
 
 def test_every_map_write_is_guarded_by_a_held_lock() -> None:

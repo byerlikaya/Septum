@@ -126,7 +126,11 @@ from ..services.chat_debug_store import (
     set_chat_debug_record,
 )
 from ..services.deanonymizer import Deanonymizer
-from ..services.document_anon_store import document_map_lock, get_document_map
+from ..services.document_anon_store import (
+    DocumentMapLockTimeout,
+    document_map_lock,
+    get_document_map,
+)
 from ..services.document_cluster_service import cluster_documents_by_relationship
 from ..services.entity_index_service import (
     RELATIONSHIP_THRESHOLD_MEDIUM,
@@ -861,7 +865,10 @@ async def _rebuild_outdated_bm25_index(
     next read of a ``completed`` document builds it again. The map lock
     spans workers only with Redis configured. If
     anything fails or the turn is cancelled once the write has started,
-    the written file is removed too and the error is raised as it was.
+    the written file is removed too and the error is raised as it was;
+    only a map lock that cannot be taken (another worker holds it, or a
+    configured Redis is down) is not raised: the file is removed, and the
+    turn goes on without a keyword signal for this document.
     """
     if await asyncio.to_thread(bm25_retriever.is_current, document_id):
         return
@@ -892,6 +899,13 @@ async def _rebuild_outdated_bm25_index(
             async with document_map_lock(document_id):
                 if not await _rebuilt_index_still_valid(db, document_id, indexed):
                     await asyncio.to_thread(bm25_retriever.delete_index, document_id)
+        except DocumentMapLockTimeout as exc:
+            _discard_rebuilt_index(write, bm25_retriever, document_id)
+            logger.warning(
+                "BM25 index of document_id=%s not rebuilt this turn: %s",
+                document_id,
+                type(exc).__name__,
+            )
         except BaseException:
             _discard_rebuilt_index(write, bm25_retriever, document_id)
             raise

@@ -375,7 +375,12 @@ Two limits are fixed in the code and have no variable. A request that sends no b
 
 An ingestion that is still running two hours after it started working (time spent waiting for a free slot does not count) is no longer renewed and is marked failed with a time-limit error within about a minute, even if its process is alive; the task itself is not cancelled. Its later database and search index writes are refused, and anything it still manages to leave behind is erased by the retried purge (failed document) or the orphan sweep (deleted document), both about every ten minutes. A timed-out ingestion keeps its ingestion slot (two per API process) until that process restarts, and the uploaded file is kept until the document is reprocessed or deleted.
 
-When Redis is configured, Redis calls time out after 5 seconds. After two failed calls in a row the server waits 30 seconds before it tries Redis again (a single failure fails only that call).
+When Redis is configured, it carries the cross-worker lock for the anonymization map. If Redis is unreachable, Septum refuses map work instead of continuing without that lock: chunk edits, chat re-masks, the failed-document purge and the orphan sweep fail until Redis is back, and so do deletes:
+
+- **Deleting a document** answers HTTP 503 with `Retry-After: 30`. The document is kept and nothing is erased; retry the delete once Redis is back.
+- **Deleting a user** deactivates the account first, then erases the user's documents one by one. If a document cannot be erased, the answer says how many of the user's documents were erased and that the user was not deleted, and it keeps the same status (503 with `Retry-After: 30` when the document's stored data could not be locked). Retrying the same delete finishes the job. Once all of the user's documents are erased (or the user has none), a failure to erase the cached detection results also answers 503 with `Retry-After: 30`; the user stays deactivated, and a retry finishes the job.
+
+Nothing is written or erased without the lock, and leftover files wait for the next sweep. After two failed calls in a row the server waits 30 seconds before it tries Redis again (a single failure fails only that call), and Redis calls time out after 5 seconds. A malformed `REDIS_URL` is treated the same way: map work fails, and Septum does not run without the lock.
 
 ### Monitoring
 

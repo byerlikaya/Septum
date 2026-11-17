@@ -155,6 +155,38 @@ async def test_redis_get_uses_client_without_awaiting_get_redis(
     assert await redis_client.redis_get("missing") is None
 
 
+@pytest.mark.asyncio
+async def test_an_unreachable_redis_is_not_tried_again_within_the_window(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Two refused connections in a row start the window; erasure, map writes and the map lock then fail at once."""
+    import socket
+
+    from septum_api.services import document_anon_store
+    from septum_api.services.anonymization_map import AnonymizationMap
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    _configure(monkeypatch, f"redis://127.0.0.1:{port}/0")
+    monkeypatch.setattr(document_anon_store, "_ANON_MAP_DIR", tmp_path / "maps")
+
+    assert await redis_client.redis_get("k") is None
+    assert redis_client._redis_retry_at is None
+    assert await redis_client.redis_get("k") is None
+    assert redis_client._redis_retry_at is not None
+    assert redis_client.get_redis() is None
+    assert redis_client.redis_configured() is True
+
+    with pytest.raises(document_anon_store.DocumentMapErasureError):
+        await document_anon_store.pop_document_map(1)
+    with pytest.raises(document_anon_store.DocumentMapCacheError):
+        await document_anon_store.set_document_map(1, AnonymizationMap(document_id=1, language="en"))
+    with pytest.raises(document_anon_store.DocumentMapLockTimeout):
+        async with document_anon_store.document_map_lock(1):
+            pass
+
+
 def _unreachable_errors() -> list:
     from redis.exceptions import ConnectionError as RedisConnectionError
     from redis.exceptions import TimeoutError as RedisTimeoutError
@@ -252,6 +284,100 @@ async def test_an_answered_call_resets_the_count(
     client.error = RedisConnectionError("blip")
     await _HELPERS[helper]()
     assert redis_client._redis_retry_at is None
+
+
+class _FailingLock:
+    def __init__(self, acquire=None, extend=None, release=None) -> None:
+        self.errors = {"acquire": acquire, "extend": extend, "release": release}
+
+    async def _call(self, name: str, value):
+        if self.errors[name] is not None:
+            raise self.errors[name]
+        return value
+
+    async def acquire(self) -> bool:
+        return await self._call("acquire", True)
+
+    async def extend(self, *args, **kwargs) -> bool:
+        return await self._call("extend", True)
+
+    async def release(self) -> None:
+        return await self._call("release", None)
+
+
+class _LockClient(_FailingClient):
+    def __init__(self, lock: _FailingLock) -> None:
+        super().__init__(None)
+        self._lock = lock
+
+    def lock(self, name: str, **kwargs):
+        return self._lock
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["acquire", "extend", "release"])
+async def test_every_map_lock_call_counts_an_unreachable_redis(
+    monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    from redis.exceptions import ConnectionError as RedisConnectionError
+    from septum_api.services import document_anon_store
+
+    lock = _FailingLock(**{path: RedisConnectionError("refused")})
+    client = _LockClient(lock)
+    _use_client(monkeypatch, client)
+    monkeypatch.setattr(document_anon_store, "get_redis", redis_client.get_redis)
+
+    if path == "acquire":
+        with pytest.raises(document_anon_store.DocumentMapLockTimeout) as excinfo:
+            async with document_anon_store.document_map_lock(1):
+                pass
+        assert isinstance(excinfo.value.__cause__, RedisConnectionError)
+    elif path == "extend":
+        async with document_anon_store.document_map_lock(1) as held:
+            with pytest.raises(RedisConnectionError):
+                await held.ensure_held()
+            assert redis_client._consecutive_failures == 1
+        lock.errors["release"] = RedisConnectionError("refused")
+        async with document_anon_store.document_map_lock(1):
+            pass
+    else:
+        async with document_anon_store.document_map_lock(1):
+            pass
+    assert redis_client._redis_retry_at is None
+    client.error = RedisConnectionError("refused")
+    assert await redis_client.redis_get("k") is None
+    assert redis_client._redis_retry_at is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["extend", "release"])
+async def test_a_successful_lock_call_resets_the_failure_count(
+    monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    from redis.exceptions import ConnectionError as RedisConnectionError
+    from septum_api.services import document_anon_store
+
+    client = _LockClient(_FailingLock())
+    _use_client(monkeypatch, client)
+    monkeypatch.setattr(document_anon_store, "get_redis", redis_client.get_redis)
+
+    async def one_unreachable_call() -> None:
+        client.error = RedisConnectionError("refused")
+        await redis_client.redis_get("k")
+        client.error = None
+
+    async with document_anon_store.document_map_lock(1) as held:
+        await one_unreachable_call()
+        assert redis_client._consecutive_failures == 1
+        if path == "extend":
+            await held.ensure_held()
+            assert redis_client._consecutive_failures == 0
+            await one_unreachable_call()
+            assert redis_client._redis_retry_at is None
+    if path == "release":
+        assert redis_client._consecutive_failures == 0
+        await one_unreachable_call()
+        assert redis_client._redis_retry_at is None
 
 
 class _RecordingClient:

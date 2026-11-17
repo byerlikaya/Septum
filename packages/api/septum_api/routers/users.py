@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any, List, Literal, Optional
 
@@ -19,6 +20,7 @@ from ..services.audit_logger import forget_user_in_audit_events
 from ..services.auth import hash_password, run_password_work
 from ..services.document_anon_store import DocumentMapErasureError
 from ..services.ollama_detection_runner import clear_detection_cache
+from ..services.redis_client import RETRY_AFTER_HEADERS, redis_configured
 from ..utils.auth_dependency import require_interactive_session, require_role
 from ..utils.db_helpers import get_or_404
 from .auth import require_strong_password
@@ -31,6 +33,16 @@ _DETECTION_CACHE_NOT_ERASED = (
     "The user's cached detection results could not be erased; "
     "the user was not deleted. Try again."
 )
+_PARTIAL_ERASURE_LOCK_CAUSE = (
+    "the stored data of a remaining document could not be locked for erasure"
+)
+_PARTIAL_ERASURE_OTHER_CAUSE = "a remaining document could not be erased"
+_PARTIAL_ERASURE = (
+    "The user was deactivated and {erased} of {total} documents were erased; "
+    "{cause}; the user was not deleted. Try again."
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/users",
@@ -308,6 +320,18 @@ async def reset_password(
     return UserItemResponse.model_validate(target)
 
 
+async def _clear_cache_after_failed_delete(user_id: int) -> None:
+    """Drop the detection reply cache after a failed loop without masking its error."""
+    try:
+        await clear_detection_cache()
+    except Exception as exc:
+        logger.error(
+            "Could not clear the detection reply cache after a failed delete of user_id=%s: %s",
+            user_id,
+            type(exc).__name__,
+        )
+
+
 @router.delete(
     "/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -324,8 +348,11 @@ async def delete_user(
     committed transaction under the last-admin guard, so the last active
     admin is refused before any document is erased. Each document is then
     erased exactly like ``DELETE /api/documents/{id}`` and committed on its
-    own, so a failed erasure returns 500 with the user, now inactive, and
-    the remaining documents in place; a retry finishes the job. The user
+    own, so a failed erasure keeps its status (500, or 503 with
+    ``Retry-After`` when a document could not be locked) with a user-scoped
+    detail giving only how many documents were erased, the user, now
+    inactive, and the remaining documents staying in place; a retry
+    finishes the job. The user
     row goes last, in one statement that deletes it only while it is still
     inactive and no document is left: a reactivation or an upload meanwhile
     refuses with 409 and leaves the user inactive. Chat sessions and API
@@ -333,8 +360,11 @@ async def delete_user(
     The local-model detection reply cache of every worker is dropped
     (:func:`clear_detection_cache`) once, after the document loop and
     before the row goes, also when the loop fails part way; when that
-    fails the delete returns 500 with the user inactive, and a retry,
-    which always clears it again, finishes it.
+    fails the delete returns 503 with ``Retry-After`` while Redis is
+    configured (it is down) and 500 otherwise, with the user inactive, and
+    a retry, which always clears it again, finishes it. A loop that failed
+    keeps its own answer; a cache that could not be cleared then, for any
+    reason, is only logged by exception class name.
     """
     target = await get_or_404(db, User, user_id, _USER_NOT_FOUND)
     _forbid_self(current_user, target.id, "delete")
@@ -347,17 +377,40 @@ async def delete_user(
     for document in documents:
         refuse_while_processing(document)
     await _deactivate_for_deletion(db, user_id)
+    erased = 0
     try:
         for document in documents:
             await erase_document(db, document, clear_reply_cache=False)
-    finally:
-        try:
-            await clear_detection_cache()
-        except DocumentMapErasureError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=_DETECTION_CACHE_NOT_ERASED,
-            ) from exc
+            erased += 1
+    except BaseException as exc:
+        await _clear_cache_after_failed_delete(user_id)
+        if not isinstance(exc, HTTPException):
+            raise
+        cause = (
+            _PARTIAL_ERASURE_LOCK_CAUSE
+            if exc.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+            else _PARTIAL_ERASURE_OTHER_CAUSE
+        )
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=_PARTIAL_ERASURE.format(
+                erased=erased, total=len(documents), cause=cause
+            ),
+            headers=exc.headers,
+        ) from None
+    try:
+        await clear_detection_cache()
+    except DocumentMapErasureError as exc:
+        redis_down = redis_configured()
+        raise HTTPException(
+            status_code=(
+                status.HTTP_503_SERVICE_UNAVAILABLE
+                if redis_down
+                else status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=_DETECTION_CACHE_NOT_ERASED,
+            headers=RETRY_AFTER_HEADERS if redis_down else None,
+        ) from exc
 
     target = await db.scalar(
         select(User)

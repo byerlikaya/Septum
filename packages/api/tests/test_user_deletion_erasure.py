@@ -319,11 +319,18 @@ def _unlink_failing_for(suffix: str):
     return _unlink
 
 
+
 @pytest.mark.parametrize(
-    ("failure", "artifacts_kept"), [("timeout", True), ("lost", False)], ids=["timeout", "lost"]
+    ("failure", "status_code", "artifacts_kept"),
+    [("timeout", 503, True), ("lost", 500, False)],
+    ids=["timeout", "lost"],
 )
-async def test_lock_failure_is_a_500_like_the_document_route(
-    world: _World, monkeypatch: pytest.MonkeyPatch, failure: str, artifacts_kept: bool
+async def test_lock_failure_is_answered_like_the_document_route(
+    world: _World,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+    status_code: int,
+    artifacts_kept: bool,
 ) -> None:
     _, target = await _admin_and_target(world)
     doc = await world.add_document(target)
@@ -336,8 +343,14 @@ async def test_lock_failure_is_a_500_like_the_document_route(
         by_user = await client.delete(f"/api/users/{target.id}")
         by_document = await client.delete(f"/api/documents/{other.id}")
 
-    assert by_user.status_code == by_document.status_code == 500
-    assert by_user.json() == by_document.json()
+    assert by_user.status_code == by_document.status_code == status_code
+    assert by_user.headers.get("Retry-After") == by_document.headers.get("Retry-After")
+    assert by_user.json()["detail"] == _partial_detail(
+        0, 2, _NOT_LOCKED_CAUSE if status_code == 503 else _NOT_ERASED_CAUSE
+    )
+    assert by_document.json()["detail"] == (
+        _NOT_LOCKED if status_code == 503 else _CONCURRENT_UPDATE
+    )
     assert await world.row(User, target.id) is not None
     assert await world.row(Document, doc.id) is not None
     # A lost lock is detected right before the commit, after the erasure ran.
@@ -362,18 +375,52 @@ async def test_real_unlink_failure_returns_500_without_paths(
     assert await world.row(Document, doc.id) is not None
 
 
-async def test_unreachable_map_cache_returns_500_and_keeps_the_user(
-    world: _World, monkeypatch: pytest.MonkeyPatch
+_NOT_LOCKED = (
+    "The document's stored data could not be locked for erasure; "
+    "the document was not deleted. Try again."
+)
+_CONCURRENT_UPDATE = (
+    "The document could not be deleted because a concurrent update interfered. Try again."
+)
+_NOT_LOCKED_CAUSE = "the stored data of a remaining document could not be locked for erasure"
+_NOT_ERASED_CAUSE = "a remaining document could not be erased"
+
+
+def _partial_detail(erased: int, total: int, cause: str) -> str:
+    return (
+        f"The user was deactivated and {erased} of {total} documents were erased; "
+        f"{cause}; the user was not deleted. Try again."
+    )
+
+
+async def test_an_unreachable_redis_answers_both_deletes_with_503_and_erases_nothing(
+    world: _World, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
+    """The map lock cannot be taken; the real cause wins over the detection-cache failure after it."""
     _, target = await _admin_and_target(world)
     doc = await world.add_document(target)
+    other = await world.add_document(target)
     redis_unavailable(monkeypatch)
 
-    resp = await world.client.delete(f"/api/users/{target.id}")
+    with caplog.at_level(logging.WARNING):
+        async with AsyncClient(
+            transport=ASGITransport(app=app, raise_app_exceptions=False),
+            base_url="http://test",
+        ) as client:
+            by_user = await client.delete(f"/api/users/{target.id}")
+            by_document = await client.delete(f"/api/documents/{other.id}")
 
-    assert resp.status_code == 500
+    for resp in (by_user, by_document):
+        assert resp.status_code == 503
+        assert resp.headers["Retry-After"] == "30"
+    assert by_user.json()["detail"] == _partial_detail(0, 2, _NOT_LOCKED_CAUSE)
+    assert by_document.json()["detail"] == _NOT_LOCKED
     assert await world.row(User, target.id) is not None
-    assert await world.row(Document, doc.id) is not None
+    for kept in (doc, other):
+        assert await world.row(Document, kept.id) is not None
+        assert await stored_tiers(kept.id) == ALL_DISK_TIERS
+        assert Path(kept.encrypted_path).exists()
+    assert RAW_NAME not in caplog.text and str(world.tmp) not in caplog.text
 
 
 async def test_document_inserted_right_before_the_user_delete_refuses(world: _World) -> None:
@@ -613,11 +660,13 @@ async def test_sweep_with_an_unreachable_map_cache(
     with caplog.at_level(logging.ERROR):
         result = await _sweep(world)
 
-    # One failure for the unreadable cache listing, one for orphan 5's map,
-    # which pop_document_map cannot confirm erased from the cache tier.
+    # One failure for the unreadable cache listing, one for orphan 5: its map
+    # lock refuses to run without the cross-worker lock of a configured
+    # Redis, so nothing of it is erased and the next sweep retries it.
     assert (result.documents, result.source_files, result.failures) == (0, 0, 2)
     assert "tier=anonymization_map_cache" in caplog.text
-    assert await stored_tiers(5) == set()
+    assert "tier=map_lock error=DocumentMapLockTimeout" in caplog.text
+    assert await stored_tiers(5) == ALL_DISK_TIERS
     assert await stored_tiers(live.id) == ALL_DISK_TIERS
 
 
@@ -1016,9 +1065,11 @@ async def test_a_failure_mid_loop_still_bumps_the_epoch_and_a_retry_finishes(
     resp = await world.client.delete(f"/api/users/{target.id}")
 
     assert resp.status_code == 500
+    assert "Retry-After" not in resp.headers
     assert bumps == [bump_fails]
-    if bump_fails:
-        assert resp.json()["detail"] == users_module._DETECTION_CACHE_NOT_ERASED
+    # The document's erasure failure is the answer, also when clearing the
+    # detection cache after it failed too.
+    assert resp.json()["detail"] == _partial_detail(1, 2, _NOT_ERASED_CAUSE)
     remaining = await world.row(User, target.id)
     assert remaining is not None and not remaining.is_active
     assert await stored_tiers(first.id) == set()
@@ -1054,3 +1105,121 @@ async def test_a_failed_final_bump_keeps_the_inactive_user_and_a_retry_finishes(
     assert retry.status_code == 204, retry.text
     assert bumps == [True, False]
     assert await world.row(User, target.id) is None
+
+
+async def test_a_partial_erase_refused_by_the_lock_reports_counts_only(
+    world: _World, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _, target = await _admin_and_target(world)
+    first = await world.add_document(target)
+    second = await world.add_document(target)
+    real_lock = documents_module.document_map_lock
+
+    @contextlib.asynccontextmanager
+    async def _refusing_second(document_id: int, **kwargs: Any):
+        if document_id == second.id:
+            raise DocumentMapLockTimeout("busy")
+        async with real_lock(document_id, **kwargs) as handle:
+            yield handle
+
+    monkeypatch.setattr(documents_module, "document_map_lock", _refusing_second)
+
+    with caplog.at_level(logging.INFO):
+        resp = await world.client.delete(f"/api/users/{target.id}")
+
+    assert resp.status_code == 503
+    assert resp.headers["Retry-After"] == "30"
+    assert resp.json()["detail"] == _partial_detail(1, 2, _NOT_LOCKED_CAUSE)
+    assert RAW_NAME not in resp.text and str(world.tmp) not in resp.text
+    remaining = await world.row(User, target.id)
+    assert remaining is not None and not remaining.is_active
+    assert await world.row(Document, first.id) is None
+    assert await stored_tiers(first.id) == set()
+    assert await world.row(Document, second.id) is not None
+    assert await stored_tiers(second.id) == ALL_DISK_TIERS
+
+
+async def test_a_document_turning_busy_mid_loop_keeps_its_409_with_user_scoped_detail(
+    world: _World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, target = await _admin_and_target(world)
+    first = await world.add_document(target)
+    second = await world.add_document(target)
+    real_erase = users_module.erase_document
+
+    async def _second_starts_processing(db: Any, document: Document, **kwargs: Any) -> bool:
+        if document.id == second.id:
+            raise documents_module._processing_conflict()
+        return await real_erase(db, document, **kwargs)
+
+    monkeypatch.setattr(users_module, "erase_document", _second_starts_processing)
+
+    resp = await world.client.delete(f"/api/users/{target.id}")
+
+    assert resp.status_code == 409
+    assert "Retry-After" not in resp.headers
+    assert resp.json()["detail"] == _partial_detail(1, 2, _NOT_ERASED_CAUSE)
+    remaining = await world.row(User, target.id)
+    assert remaining is not None and not remaining.is_active
+    assert await world.row(Document, first.id) is None
+    assert await world.row(Document, second.id) is not None
+    assert await stored_tiers(second.id) == ALL_DISK_TIERS
+
+
+async def test_a_down_redis_at_the_final_bump_answers_503_with_retry_after(
+    world: _World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, target = await _admin_and_target(world)
+    redis_unavailable(monkeypatch)
+
+    resp = await world.client.delete(f"/api/users/{target.id}")
+
+    assert resp.status_code == 503
+    assert resp.headers["Retry-After"] == "30"
+    assert resp.json()["detail"] == users_module._DETECTION_CACHE_NOT_ERASED
+    remaining = await world.row(User, target.id)
+    assert remaining is not None and not remaining.is_active
+
+
+async def test_an_unexpected_cleanup_error_never_replaces_the_original_status(
+    world: _World, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _, target = await _admin_and_target(world)
+    await world.add_document(target)
+    monkeypatch.setattr(documents_module, "document_map_lock", _stub_lock("timeout"))
+
+    async def _exploding_clear() -> None:
+        raise RuntimeError(f"secret {RAW_NAME} {world.tmp}")
+
+    monkeypatch.setattr(users_module, "clear_detection_cache", _exploding_clear)
+
+    with caplog.at_level(logging.INFO):
+        resp = await world.client.delete(f"/api/users/{target.id}")
+
+    assert resp.status_code == 503
+    assert resp.headers["Retry-After"] == "30"
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert errors[0].getMessage().endswith(": RuntimeError")
+    assert RAW_NAME not in caplog.text and str(world.tmp) not in caplog.text
+
+
+async def test_a_failed_cache_clear_after_a_failed_loop_is_logged_without_pii(
+    world: _World, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _, target = await _admin_and_target(world)
+    await world.add_document(target)
+    monkeypatch.setattr(documents_module, "document_map_lock", _stub_lock("timeout"))
+    _counted_epoch_bumps(monkeypatch, [True])
+
+    with caplog.at_level(logging.INFO):
+        resp = await world.client.delete(f"/api/users/{target.id}")
+
+    assert resp.status_code == 503
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert errors[0].getMessage() == (
+        "Could not clear the detection reply cache after a failed delete of "
+        f"user_id={target.id}: DocumentMapErasureError"
+    )
+    assert RAW_NAME not in caplog.text and str(world.tmp) not in caplog.text
