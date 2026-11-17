@@ -299,13 +299,14 @@ def test_shared_prefix_originals_cost_far_less_than_the_flat_alternation() -> No
 
 
 def test_shared_prefix_cost_grows_linearly_with_the_text() -> None:
-    """Doubling the adversarial text roughly doubles the factored pattern's time."""
+    """8x the adversarial text costs about 8x, not the ~64x a quadratic scan would."""
     factored = g._originals_pattern(_shared_prefix_map(600), set())
-    single = double = float("inf")
+    short, long = "a" * 16_000, "a" * 128_000
+    single = longer = float("inf")
     for _ in range(5):
-        single = min(single, _best_of(3, _scan(factored, "a" * 8000)))
-        double = min(double, _best_of(3, _scan(factored, "a" * 16000)))
-    assert double / single < 3.5, (single, double)
+        single = min(single, _best_of(3, _scan(factored, short)))
+        longer = min(longer, _best_of(3, _scan(factored, long)))
+    assert longer / single < 20, (single, longer)
 
 
 def test_benign_maps_are_not_slower_than_the_flat_alternation() -> None:
