@@ -169,6 +169,14 @@ async def test_working_copy_reserves_stored_chunk_indexes_above_the_cap() -> Non
 
 
 class TestRetryRefusesNonCompletedDocuments:
+    def _assert_incomplete_refusal(self, status_code: int, events: list) -> None:
+        from septum_api.routers.chat import _RETRY_DOCUMENT_INCOMPLETE_MESSAGE
+
+        assert status_code == 200
+        assert events == [
+            {"type": "error", "message": _RETRY_DOCUMENT_INCOMPLETE_MESSAGE}
+        ]
+
     async def _set_status(self, chat_env, document_id: int, ingestion_status: str) -> None:
         from septum_api.models.document import Document
 
@@ -199,7 +207,7 @@ class TestRetryRefusesNonCompletedDocuments:
         )
 
     @pytest.mark.parametrize("ingestion_status", ["pending", "processing", "failed"])
-    async def test_retry_naming_a_non_completed_document_is_404_like_a_missing_one(
+    async def test_retry_naming_a_non_completed_document_gets_one_error_event(
         self, chat_env, ingestion_status: str
     ) -> None:
         doc = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha"])
@@ -209,8 +217,10 @@ class TestRetryRefusesNonCompletedDocuments:
         refused = await self._retry(chat_env, doc)
         missing = await self._retry(chat_env, doc + 999)
 
-        assert refused[0] == missing[0] == 404
-        assert refused[2] == missing[2]
+        assert missing[0] == 404
+        self._assert_incomplete_refusal(refused[0], refused[1])
+        assert str(doc) not in refused[1][0]["message"]
+        assert "a.pdf" not in refused[1][0]["message"]
         assert chat_env.prompts == []
         assert chat_env.gate.created == []
 
@@ -223,9 +233,9 @@ class TestRetryRefusesNonCompletedDocuments:
         await self._set_status(chat_env, doc, ingestion_status)
         await chat_env.set_require_approval(False)
 
-        status_code, _, _ = await self._retry(chat_env, doc)
+        status_code, events, _ = await self._retry(chat_env, doc)
 
-        assert status_code == 404
+        self._assert_incomplete_refusal(status_code, events)
         assert doc not in loaded
 
     async def test_mixed_retry_with_a_non_completed_document_is_refused_before_any_map_load(
@@ -238,7 +248,7 @@ class TestRetryRefusesNonCompletedDocuments:
         await chat_env.set_require_approval(False)
 
         chat_env.act_as("alice")
-        status_code, _, _ = await chat_env.ask(
+        status_code, events, _ = await chat_env.ask(
             {
                 "message": "who?",
                 "pre_approved_chunks": [
@@ -248,7 +258,7 @@ class TestRetryRefusesNonCompletedDocuments:
             }
         )
 
-        assert status_code == 404
+        self._assert_incomplete_refusal(status_code, events)
         assert chat_env.prompts == []
         assert chat_env.gate.created == []
         assert loaded == []
@@ -265,3 +275,36 @@ class TestRetryRefusesNonCompletedDocuments:
         assert status_code == 200
         assert events
         assert doc in loaded
+
+    @pytest.mark.parametrize("foreign_first", [True, False])
+    async def test_foreign_document_stays_404_even_when_another_is_incomplete(
+        self, chat_env, foreign_first: bool
+    ) -> None:
+        async def _seed_pending() -> int:
+            doc = await chat_env.add_document(chat_env.users["alice"], "a.pdf", ["alpha"])
+            await self._set_status(chat_env, doc, "processing")
+            return doc
+
+        async def _seed_foreign() -> int:
+            return await chat_env.add_document(chat_env.users["bob"], "b.pdf", ["beta"])
+
+        if foreign_first:
+            foreign = await _seed_foreign()
+            pending = await _seed_pending()
+        else:
+            pending = await _seed_pending()
+            foreign = await _seed_foreign()
+        await chat_env.set_require_approval(False)
+
+        chat_env.act_as("alice")
+        status_code, _, _ = await chat_env.ask(
+            {
+                "message": "who?",
+                "pre_approved_chunks": [
+                    {"text": "alpha", "document_id": pending},
+                    {"text": "beta", "document_id": foreign},
+                ],
+            }
+        )
+
+        assert status_code == 404
