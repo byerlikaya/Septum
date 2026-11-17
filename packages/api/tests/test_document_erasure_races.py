@@ -26,6 +26,7 @@ from septum_api.services import document_anon_store, pii_gate
 from septum_api.services import document_pipeline as pipeline_module
 from septum_api.services.anonymization_map import AnonymizationMap
 from septum_api.services.redis_client import RETRY_AFTER_HEADERS
+from septum_api.utils.db_helpers import load_settings
 
 
 async def _store_map(document_id: int) -> None:
@@ -92,6 +93,10 @@ async def test_chunk_edit_racing_a_delete_does_not_recreate_the_map(
 ) -> None:
     doc, chunk_id = await env.add_document()
     await _store_map(doc)
+    # The settings row exists, as in any running deployment: creating it is a
+    # write, which would wait for the delete's row lock held over the erasure.
+    async with env.session_maker() as session:
+        await load_settings(session)
     gate_entered = asyncio.Event()
     edit_task: list[asyncio.Task] = []
 

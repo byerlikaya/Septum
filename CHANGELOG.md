@@ -22,6 +22,10 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 
 ## Unreleased
 
+### 2026-11-17
+
+- The anonymization map's Redis tier no longer lets an older map overwrite a newer one: reads stopped writing back, the Redis copy carries its version, and every map writer and eraser holds the document row. While Redis is configured but unreachable, map edits and deletes now fail closed with 503 and Retry-After instead of running without the lock, and Redis calls time out and back off.
+
 ### 2026-11-16
 
 - A document ingestion now holds a short, renewed lease, so a run that dies (crash, kill, lost instance) is marked failed within a few minutes by a periodic sweep instead of only at the next restart, and several instances can share one database without resetting each other's live runs. A failed document's derived data (map, indexes, chunks) is erased as before, and an erasure that fails is retried periodically rather than only at startup.

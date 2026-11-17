@@ -65,7 +65,7 @@ def _note_success() -> None:
     _consecutive_failures = 0
 
 
-async def _tracked(awaitable: Awaitable[T]) -> T:
+async def tracked(awaitable: Awaitable[T]) -> T:
     """Await one Redis call and record whether the server answered; its error propagates."""
     try:
         result = await awaitable
@@ -137,7 +137,7 @@ async def redis_get(key: str) -> bytes | None:
     if client is None:
         return None
     try:
-        return await _tracked(client.get(key))
+        return await tracked(client.get(key))
     except Exception as exc:
         logger.warning("Redis GET failed for key=%s: %s", key, type(exc).__name__)
         return None
@@ -149,7 +149,7 @@ async def redis_set(key: str, value: bytes, ttl: int | None = None) -> bool:
     if client is None:
         return False
     try:
-        await _tracked(client.set(key, value, ex=ttl or None))
+        await tracked(client.set(key, value, ex=ttl or None))
     except Exception as exc:
         logger.warning("Redis SET failed for key=%s: %s", key, type(exc).__name__)
         return False
@@ -162,7 +162,7 @@ async def redis_set_if_absent(key: str, value: bytes, ttl: int | None = None) ->
     if client is None:
         return False
     try:
-        return bool(await _tracked(client.set(key, value, nx=True, ex=ttl or None)))
+        return bool(await tracked(client.set(key, value, nx=True, ex=ttl or None)))
     except Exception as exc:
         logger.warning("Redis SET NX failed for key=%s: %s", key, type(exc).__name__)
         return False
@@ -174,7 +174,7 @@ async def redis_delete(*keys: str) -> bool:
     if client is None:
         return False
     try:
-        await _tracked(client.delete(*keys))
+        await tracked(client.delete(*keys))
     except Exception as exc:
         logger.warning("Redis DELETE failed for key=%s: %s", " ".join(keys), type(exc).__name__)
         return False
@@ -187,6 +187,6 @@ async def redis_ping() -> bool:
     if client is None:
         return False
     try:
-        return await _tracked(client.ping())
+        return await tracked(client.ping())
     except Exception:
         return False

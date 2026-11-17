@@ -1,7 +1,8 @@
-"""Shared doubles for the optional Redis client."""
+"""Shared doubles for the optional Redis client and the map write's row fence."""
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 import pytest
@@ -41,3 +42,9 @@ def redis_unavailable(
 
     use_redis(monkeypatch, url)
     monkeypatch.setattr(redis_module, "_redis_retry_at", float("inf"))
+
+
+@contextlib.asynccontextmanager
+async def no_row_held(*_args: Any, **_kwargs: Any):
+    """Stands in for the row fence of a map write (``pii_gate._row_held``) in tests without a database."""
+    yield

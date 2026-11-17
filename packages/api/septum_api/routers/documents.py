@@ -108,7 +108,11 @@ from ..services.ingestion.pdf_ingester import PdfIngester
 from ..services.ingestion.router import IngestionRouter
 from ..services.ingestion.xlsx_ingester import XlsxIngester
 from ..services.ingestion_lease import held, lease_expiry, mark_started
-from ..services.pii_gate import gate_document_texts, hold_completed_document
+from ..services.pii_gate import (
+    gate_document_texts,
+    hold_completed_document,
+    hold_document_rows,
+)
 from ..services.policy_snapshot import (
     PolicySnapshot,
     current_policy_snapshot,
@@ -1696,12 +1700,16 @@ async def _erase_document_locked(
     survives, or if the lock is no longer held right before the commit —
     a writer that took it over could store a map the erasure never saw.
     Either way the row stays in place so the delete can be retried. The
-    row is locked (a no-op UPDATE) before its audit events and chunks are
-    deleted, the order a chunk edit takes them in, so the two cannot
-    deadlock on PostgreSQL.
+    row is locked (a no-op UPDATE) before anything is erased and held until
+    the commit, so a map writer holding the row (an edit or a chat re-mask)
+    either wrote before the erasure or finds the row gone, also when the
+    cross-worker map lock expired in between. The lock also comes before
+    the audit events and chunks are deleted, the order a chunk edit takes
+    them in, so the two cannot deadlock on PostgreSQL.
     """
     document_id = document.id
 
+    await db.execute(hold_document_rows(Document.id == document_id))
     try:
         await erase_document_artifacts(
             document_id,
@@ -1709,6 +1717,7 @@ async def _erase_document_locked(
             clear_reply_cache=clear_reply_cache,
         )
     except ArtifactErasureError as exc:
+        await db.rollback()
         log_artifact_erasure_failure(document_id, exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1717,14 +1726,11 @@ async def _erase_document_locked(
                 "the document was not deleted. Try again."
             ),
         ) from exc.error
+    except BaseException:
+        await db.rollback()
+        raise
 
     from sqlalchemy import delete as sa_delete
-    await db.execute(
-        update(Document)
-        .where(Document.id == document_id)
-        .values(ingestion_run_id=Document.ingestion_run_id)
-        .execution_options(synchronize_session=False)
-    )
     await db.execute(
         sa_delete(AuditEvent).where(AuditEvent.document_id == document_id)
     )

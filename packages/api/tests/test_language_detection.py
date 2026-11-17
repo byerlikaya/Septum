@@ -6,6 +6,7 @@ from collections import Counter
 
 import pytest
 from langdetect import DetectorFactory
+from redis_doubles import no_row_held
 from septum_core.language_resolution import language_table_codes
 from septum_core.spans import DetectionResult
 
@@ -1108,6 +1109,7 @@ async def test_remask_after_a_correction_uses_the_new_language(monkeypatch):
         yield _Lock()
 
     monkeypatch.setattr(pii_gate, "_require_row", _noop)
+    monkeypatch.setattr(pii_gate, "_row_held", no_row_held)
     monkeypatch.setattr(pii_gate, "load_persisted_document_map", _load)
     monkeypatch.setattr(pii_gate, "_working_copy", _working)
     monkeypatch.setattr(pii_gate, "gate_untrusted_texts", _gate)
@@ -1335,6 +1337,7 @@ async def test_remask_writes_the_effective_language_into_the_persisted_map(monke
         yield _Lock()
 
     monkeypatch.setattr(pii_gate, "_require_row", _noop)
+    monkeypatch.setattr(pii_gate, "_row_held", no_row_held)
     monkeypatch.setattr(pii_gate, "load_persisted_document_map", _load)
     monkeypatch.setattr(pii_gate, "gate_untrusted_texts", _gate)
     monkeypatch.setattr(pii_gate, "document_map_lock", _map_lock)

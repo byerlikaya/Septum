@@ -61,7 +61,7 @@ from .entity_index_service import (
 from .index_file_io import document_index_lock
 from .ingestion.base import IngestionResult, TextBlock, block_starts, join_blocks
 from .ollama_detection_runner import clear_detection_cache, local_model_scope
-from .pii_gate import ensure_originals_searchable
+from .pii_gate import ensure_originals_searchable, hold_document_rows
 from .policy_composer import PolicyComposer
 from .remask_cache import remask_cache
 from .sanitizer import PIISanitizer, ResolvedSpan
@@ -151,11 +151,9 @@ async def fence_run(
     :class:`DocumentRunSupersededError` is raised.
     """
     held = await db.scalar(
-        update(Document)
-        .where(_holds_claim(document_id, run_token, require_processing=require_processing))
-        .values(ingestion_run_id=Document.ingestion_run_id)
-        .returning(Document.id)
-        .execution_options(synchronize_session=False)
+        hold_document_rows(
+            _holds_claim(document_id, run_token, require_processing=require_processing)
+        ).returning(Document.id)
     )
     if held is None:
         await db.rollback()
@@ -456,17 +454,20 @@ async def _store_document_map(
     """Store the map under its lock, refusing when the row was deleted or claimed by a newer run.
 
     The fence (:func:`fence_run`) stays open until the map is written, so a
-    newer claim cannot land between the check and the write.
+    newer claim cannot land between the check and the write. A refused
+    fence is told apart only then: a row that is gone raises
+    :class:`DocumentDeletedDuringIngestionError`, any other refusal
+    :class:`DocumentRunSupersededError`.
     """
     async with document_map_lock(document_id) as lock:
-        still_exists = await db.scalar(
-            select(Document.id).where(Document.id == document_id)
-        )
-        if still_exists is None:
-            raise DocumentDeletedDuringIngestionError(
-                f"Document {document_id} was deleted during ingestion"
-            )
-        await fence_run(db, document_id, run_token, require_processing=True)
+        try:
+            await fence_run(db, document_id, run_token, require_processing=True)
+        except DocumentRunSupersededError:
+            if await db.scalar(select(Document.id).where(Document.id == document_id)) is None:
+                raise DocumentDeletedDuringIngestionError(
+                    f"Document {document_id} was deleted during ingestion"
+                ) from None
+            raise
         try:
             await lock.ensure_held()
             await set_document_map(document_id, anon_map)
@@ -1033,28 +1034,30 @@ class DocumentPipeline:
         class only, with the original exception suppressed, so the path never
         reaches the error log or the document row.
 
-        The run passes its session as ``db``: its claim (``run_token``, still
-        ``processing``) is then re-read under the lock with a plain SELECT,
-        whose transaction is committed (no row lock, so the map-lock-then-row
-        order of the map store holds), and a run that no longer holds the
-        document erases nothing and raises
-        :class:`DocumentRunSupersededError`. A claim landing after that read
-        cleans up under this lock after this erasure, before it writes anything.
+        The run passes its session as ``db``: under the lock its claim
+        (``run_token``, still ``processing``) is held with :func:`fence_run`
+        until the erasure is committed (map lock, then row, as every map
+        writer takes them), and a run that no longer holds the document
+        erases nothing and raises :class:`DocumentRunSupersededError`. A
+        claim landing after the fence cleans up under this lock after this
+        erasure, before it writes anything, and a map writer holding the row
+        (a chat re-mask) either wrote before this erasure or reads the map
+        after it.
         """
         async with document_map_lock(document_id):
-            await _confirm_claim(
-                db,
-                document_id,
-                run_token,
-                "This run no longer holds the document; its writes were refused.",
-            )
+            await fence_run(db, document_id, run_token, require_processing=True)
             try:
                 await erase_document_artifacts(document_id)
             except ArtifactErasureError as exc:
+                await db.rollback()
                 raise ArtifactCleanupError(
                     f"Could not remove {exc.label} for document {document_id} "
                     f"({type(exc.error).__name__})"
                 ) from None
+            except BaseException:
+                await db.rollback()
+                raise
+            await db.commit()
 
 
 
@@ -1099,10 +1102,12 @@ async def _erase_failed_artifacts(
 ) -> bool:
     """Erase the indexes and map of a document that is still ``failed``; never raises.
 
-    The status is read again under :func:`document_map_lock`, and the read
-    transaction ends before anything is erased. A reprocess claims the
-    document before its own cleanup takes that lock, so a document claimed
-    meanwhile is left to that run, and one claimed while the lock is held
+    Under :func:`document_map_lock` the row is held while it is still
+    ``failed`` (a no-op UPDATE) until the erasure is committed, so a map
+    writer holding the row (a chat re-mask) either wrote before this
+    erasure or reads the map after it. A reprocess claims the document
+    before its own cleanup takes that lock, so a document claimed
+    meanwhile is left to that run, and one claimed while the row is held
     rebuilds only after this erasure. The source file is never touched.
 
     The wait for another worker's lock is :data:`SWEEP_LOCK_WAIT_SECONDS`
@@ -1116,15 +1121,16 @@ async def _erase_failed_artifacts(
     try:
         async with document_map_lock(document_id, wait_seconds=SWEEP_LOCK_WAIT_SECONDS) as lock:
             still_failed = await db.scalar(
-                select(Document.id).where(
+                hold_document_rows(
                     Document.id == document_id, Document.ingestion_status == "failed"
-                )
+                ).returning(Document.id)
             )
-            await db.rollback()
             if still_failed is None:
+                await db.rollback()
                 return False
             await lock.ensure_held()
             await erase_document_artifacts(document_id, clear_reply_cache=clear_reply_cache)
+            await db.commit()
     except ArtifactErasureError as exc:
         log_artifact_erasure_failure(document_id, exc)
         await _rollback_quietly(db)

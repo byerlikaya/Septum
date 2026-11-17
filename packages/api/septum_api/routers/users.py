@@ -352,11 +352,11 @@ async def delete_user(
     ``Retry-After`` when a document could not be locked) with a user-scoped
     detail giving only how many documents were erased, the user, now
     inactive, and the remaining documents staying in place; a retry
-    finishes the job. The user
-    row goes last, in one statement that deletes it only while it is still
-    inactive and no document is left: a reactivation or an upload meanwhile
-    refuses with 409 and leaves the user inactive. Chat sessions and API
-    keys go with the row through their ``ON DELETE CASCADE`` foreign keys.
+    finishes the job. The user row goes last, in one statement that
+    deletes it only while it is still inactive and no document is left: a
+    reactivation or an upload meanwhile refuses with 409 and leaves the
+    user inactive. Chat sessions and API keys go with the row through
+    their ``ON DELETE CASCADE`` foreign keys.
     The local-model detection reply cache of every worker is dropped
     (:func:`clear_detection_cache`) once, after the document loop and
     before the row goes, also when the loop fails part way; when that
@@ -382,7 +382,7 @@ async def delete_user(
         for document in documents:
             await erase_document(db, document, clear_reply_cache=False)
             erased += 1
-    except BaseException as exc:
+    except BaseException as exc:  # a cancelled request must still clear the cache; non-HTTP errors re-raise unchanged
         await _clear_cache_after_failed_delete(user_id)
         if not isinstance(exc, HTTPException):
             raise

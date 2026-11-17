@@ -19,6 +19,7 @@ placeholder-shaped text the map does not know is treated as ordinary text.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 import logging
 import re
@@ -26,6 +27,8 @@ from bisect import bisect_left
 from functools import cached_property
 from typing import (
     TYPE_CHECKING,
+    Any,
+    AsyncIterator,
     Callable,
     Collection,
     Iterable,
@@ -42,7 +45,7 @@ from septum_core.language_resolution import iso_language_code
 from septum_core.language_segments import MAX_DETECTOR_CALLS_PER_DOCUMENT, Segment
 from septum_core.spans import entity_range
 from septum_core.text_boundaries import CAMEL_STEP, TOKEN_END, TOKEN_START
-from sqlalchemy import and_, select, update
+from sqlalchemy import Update, and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..errors import ContentFreeError, OriginalsPatternTooDeepError
@@ -1287,6 +1290,54 @@ async def _require_row(
         raise DocumentNotEditableError()
 
 
+def hold_document_rows(*conditions: Any) -> Update:
+    """A no-op UPDATE of the matching document rows that takes their row lock.
+
+    Rewrites each row's own ``ingestion_run_id``, so nothing changes, but
+    PostgreSQL locks the rows and SQLite takes the database write lock
+    until the transaction ends. Callers add ``.returning(...)`` as needed.
+    """
+    return (
+        update(Document)
+        .where(*conditions)
+        .values(ingestion_run_id=Document.ingestion_run_id)
+        .execution_options(synchronize_session=False)
+    )
+
+
+@contextlib.asynccontextmanager
+async def _row_held(
+    db: AsyncSession, document_id: int, *, completed: bool, run_token: Optional[str]
+) -> AsyncIterator[None]:
+    """Hold the document row for a map write; commit on exit, roll back on error.
+
+    A no-op UPDATE of the row (with ``completed``, only while it is
+    ``completed`` and still carries ``run_token``) takes the row lock
+    (PostgreSQL) or the database write lock (SQLite) for the block. Every
+    eraser of the map takes its own row lock before it erases, so it either
+    finished before the block, and the map read inside it is gone, or waits
+    for the map write, also when the cross-worker map lock expired in
+    between. On a mismatch the transaction is rolled back and HTTP 404 is
+    raised when the row is gone, HTTP 409 otherwise (as :func:`_require_row`).
+    """
+    condition = Document.id == document_id
+    if completed:
+        condition = and_(condition, _editable(run_token))
+    held = await db.scalar(hold_document_rows(condition).returning(Document.id))
+    if held is None:
+        exists = await db.scalar(select(Document.id).where(Document.id == document_id))
+        await db.rollback()
+        if exists is None:
+            raise DocumentGoneError()
+        raise DocumentNotEditableError()
+    try:
+        yield
+    except BaseException:
+        await db.rollback()
+        raise
+    await db.commit()
+
+
 async def hold_completed_document(
     db: AsyncSession, document_id: int, run_token: Optional[str]
 ) -> None:
@@ -1300,11 +1351,7 @@ async def hold_completed_document(
     mismatch, a deleted row included, the transaction is rolled back.
     """
     held = await db.scalar(
-        update(Document)
-        .where(Document.id == document_id, _editable(run_token))
-        .values(ingestion_run_id=Document.ingestion_run_id)
-        .returning(Document.id)
-        .execution_options(synchronize_session=False)
+        hold_document_rows(Document.id == document_id, _editable(run_token)).returning(Document.id)
     )
     if held is None:
         await db.rollback()
@@ -1331,7 +1378,14 @@ async def _gate_and_merge(
     new copy, so no placeholder number is ever reused or overwritten. The
     row is checked before the sanitizer is built or run and again under the
     lock; an edit (``require_existing_map`` false) also requires it
-    ``completed`` with the run token it was read with.
+    ``completed`` with the run token it was read with. A re-mask
+    (``require_existing_map`` true) compares first without the lock and
+    returns at once when it adds nothing, so it needs no lock (and works
+    while a configured Redis is down); an edit always takes the lock. Only
+    an attempt that will write takes the row (:func:`_row_held`): the disk
+    copy is read and compared again under it, and the write is committed
+    with it, which commits the caller's session (see
+    :func:`gate_document_texts`).
     Texts are masked in the document's effective masking language (see
     :func:`effective_masking_language`), not the language the map was built
     in, and the written map carries that language so every later reader
@@ -1345,15 +1399,16 @@ async def _gate_and_merge(
     _require_ungated(sanitizer)
     if effective_masking_source(document) == "override":
         segmenter = None
+    document_id = document.id
     edit = not require_existing_map
     run_token = document.ingestion_run_id if edit else None
     for _ in range(_MAP_MERGE_ATTEMPTS):
         await _require_row(db, document, completed=edit, run_token=run_token)
         if sanitizer is None and any(texts):
             sanitizer = await create_user_text_sanitizer(db, settings)
-        base = await load_persisted_document_map(document.id)
+        base = await load_persisted_document_map(document_id)
         if base is None and require_existing_map:
-            raise DocumentMapMissingError(f"Document {document.id} has no anonymization map")
+            raise DocumentMapMissingError(f"Document {document_id} has no anonymization map")
         working = await _working_copy(db, document, base, texts)
         language = effective_masking_language(document)
         working.language = language
@@ -1367,26 +1422,46 @@ async def _gate_and_merge(
             joined=joined,
             segmenter=segmenter,
         )
-        async with document_map_lock(document.id) as lock:
-            await _require_row(db, document, completed=edit, run_token=run_token)
-            current = await load_persisted_document_map(document.id)
-            if current is None and require_existing_map:
-                raise DocumentMapMissingError(
-                    f"Anonymization map of document {document.id} was erased mid-turn"
-                )
-            if not _same_map(current, base):
+        if not edit:
+            if await _map_moved(document_id, base, require_existing_map):
                 continue
-            changed = (
-                base is None
-                or not _same_map(working, base)
-                or base.language != working.language
-            )
-            written = bool(changed and working.entity_map)
-            if written:
-                await lock.ensure_held()
-                await set_document_map(document.id, working)
-            return gated, written
+            if not _gains(working, base):
+                return gated, False
+        async with document_map_lock(document_id) as lock:
+            await _require_row(db, document, completed=edit, run_token=run_token)
+            stale = await _map_moved(document_id, base, require_existing_map)
+            wanted = not stale and _gains(working, base)
+            if wanted:
+                async with _row_held(db, document_id, completed=edit, run_token=run_token):
+                    stale = await _map_moved(document_id, base, require_existing_map)
+                    if not stale:
+                        await lock.ensure_held()
+                        await set_document_map(document_id, working)
+        if not stale:
+            return gated, wanted
     raise DocumentMapConflictError()
+
+
+def _gains(working: AnonymizationMap, base: Optional[AnonymizationMap]) -> bool:
+    """Whether writing ``working`` over ``base`` would change the stored map."""
+    changed = (
+        base is None
+        or not _same_map(working, base)
+        or base.language != working.language
+    )
+    return bool(changed and working.entity_map)
+
+
+async def _map_moved(
+    document_id: int, base: Optional[AnonymizationMap], require_existing_map: bool
+) -> bool:
+    """Whether the stored map is no longer ``base``; raise if a required map was erased."""
+    current = await load_persisted_document_map(document_id)
+    if current is None and require_existing_map:
+        raise DocumentMapMissingError(
+            f"Anonymization map of document {document_id} was erased mid-turn"
+        )
+    return not _same_map(current, base)
 
 
 async def gate_document_texts(
@@ -1420,6 +1495,11 @@ async def gate_document_texts(
     A caller gating several documents may pass one ``sanitizer`` built
     beforehand by :func:`create_user_text_sanitizer`. ``joined`` gates the
     texts in one sanitizer run (see :func:`gate_untrusted_texts`).
+
+    Transaction contract: when the map is written, the document row is held
+    in ``db``'s transaction and that transaction is committed with the
+    write (rolled back if it fails), so ``db`` must carry no pending writes
+    of the caller when this is called; anything it read stays loaded.
     """
     gated, _ = await _gate_and_merge(
         db, settings, document, texts, sanitizer, require_existing_map=False, joined=joined
@@ -1447,7 +1527,9 @@ async def remask_document_texts(
     user's chunk edit. Each text of a document without a language override
     is detected per language segment, as ingestion detects the document,
     under the budget of ``segmenter``: a chat turn passes one for all its
-    documents, and without one each call gets its own.
+    documents, and without one each call gets its own. The same
+    transaction contract as :func:`gate_document_texts` applies; a turn
+    whose texts add nothing to the map leaves ``db``'s transaction alone.
     """
     return await _gate_and_merge(
         db,

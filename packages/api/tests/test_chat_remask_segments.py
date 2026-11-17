@@ -17,6 +17,7 @@ from typing import Any, AsyncIterator, Iterator
 
 import pytest
 from langdetect import DetectorFactory
+from redis_doubles import no_row_held
 from septum_api.routers import chat as chat_module
 from septum_api.services import document_anon_store, pii_gate, policy_snapshot
 from septum_api.services.anonymization_map import AnonymizationMap
@@ -84,6 +85,7 @@ async def stored_map(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIt
     monkeypatch.setattr(document_anon_store, "_ANON_MAP_DIR", tmp_path / "maps")
     monkeypatch.setattr(document_anon_store, "_document_maps", {})
     monkeypatch.setattr(pii_gate, "_require_row", _row_exists)
+    monkeypatch.setattr(pii_gate, "_row_held", no_row_held)
     anon_map = AnonymizationMap(document_id=DOC_ID, language="en")
     anon_map.add_entity(KNOWN_ORIGINAL, "PERSON_NAME")
     anon_map.add_entity(CUSTOM_ORIGINAL, "Project code")

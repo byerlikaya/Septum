@@ -207,12 +207,15 @@ def cleanup_env(monkeypatch: pytest.MonkeyPatch):
 
 
 class _HeldClaimSession:
-    """A session whose claim check finds the row held by the run."""
+    """A session whose claim fence finds the row held by the run."""
 
     async def scalar(self, statement) -> int:
         return 1
 
     async def commit(self) -> None:
+        return None
+
+    async def rollback(self) -> None:
         return None
 
 

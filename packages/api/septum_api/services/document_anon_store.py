@@ -35,13 +35,13 @@ from ..utils.crypto import decrypt, encrypt
 from .anonymization_map import AnonymizationMap
 from .index_file_io import document_ids_in, parse_document_id
 from .redis_client import (
-    _tracked,
     get_redis,
     redis_configured,
     redis_delete,
     redis_get,
     redis_set,
     redis_set_if_absent,
+    tracked,
 )
 
 logger = logging.getLogger(__name__)
@@ -113,7 +113,7 @@ class DocumentMapLockHandle:
         from redis.exceptions import LockError
 
         try:
-            await _tracked(self._redis_lock.extend(_LOCK_TIMEOUT_SECONDS, replace_ttl=True))
+            await tracked(self._redis_lock.extend(_LOCK_TIMEOUT_SECONDS, replace_ttl=True))
         except LockError as exc:
             raise DocumentMapLockLost(
                 f"Lost the anonymization map lock of document_id={self._document_id}"
@@ -229,7 +229,7 @@ async def document_map_lock(
             blocking_timeout=wait_seconds,
         )
         try:
-            acquired = await _tracked(lock.acquire())
+            acquired = await tracked(lock.acquire())
         except Exception as exc:
             raise DocumentMapLockTimeout(
                 f"Could not reach Redis to lock the anonymization map of document_id={document_id}"
@@ -246,7 +246,7 @@ async def document_map_lock(
             raise
         finally:
             try:
-                await _tracked(lock.release())
+                await tracked(lock.release())
             except LockError as exc:
                 logger.error(
                     "Anonymization map lock of document_id=%s expired before release",
