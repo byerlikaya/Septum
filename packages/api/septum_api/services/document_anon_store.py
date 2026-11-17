@@ -41,6 +41,7 @@ from .redis_client import (
     redis_get,
     redis_set,
     redis_set_if_absent,
+    tracked,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,10 +56,14 @@ _ANON_MAP_DIR = Path(
 
 _REDIS_MAP_PREFIX = "anon_map:"
 _REDIS_TTL = 86400  # 24 hours
-# Outlives any Redis map copy a racing backfill could still write after
-# the erasure, so that copy is never trusted.
+# Outlives the Redis map copy's TTL; once the tombstone expires the version
+# key is absent, which no cached memory copy matches either.
 _TOMBSTONE_TTL = 2 * _REDIS_TTL
 _TOMBSTONE = "erased"
+# The Redis map copy is stored as ``_COPY_PREFIX + version + b"|" + ciphertext``
+# and trusted only under that version (see :func:`_load_persisted`); a copy
+# without the prefix (written before) counts as absent.
+_COPY_PREFIX = b"v1|"
 _LOCK_TIMEOUT_SECONDS = 60
 _LOCK_WAIT_SECONDS = 60
 # Startup sweeps and the failure handler wait on one document lock at a
@@ -85,6 +90,10 @@ class DocumentMapUnreadableError(RuntimeError):
     """The encrypted map file exists but cannot be read or decrypted."""
 
 
+class DocumentMapCacheError(RuntimeError):
+    """A configured Redis may still hold an older map that a write could neither replace nor drop."""
+
+
 class DocumentMapLockHandle:
     """Held map lock; :meth:`ensure_held` is called right before a write."""
 
@@ -104,7 +113,7 @@ class DocumentMapLockHandle:
         from redis.exceptions import LockError
 
         try:
-            await self._redis_lock.extend(_LOCK_TIMEOUT_SECONDS, replace_ttl=True)
+            await tracked(self._redis_lock.extend(_LOCK_TIMEOUT_SECONDS, replace_ttl=True))
         except LockError as exc:
             raise DocumentMapLockLost(
                 f"Lost the anonymization map lock of document_id={self._document_id}"
@@ -187,11 +196,17 @@ async def document_map_lock(
     :meth:`DocumentMapLockHandle.ensure_held` right before writing it.
 
     ``wait_seconds`` bounds the wait for another worker's Redis lock
-    before :class:`DocumentMapLockTimeout` is raised.
+    before :class:`DocumentMapLockTimeout` is raised. A configured Redis
+    that is unavailable (unreachable, or a URL no client can be made from)
+    raises :class:`DocumentMapLockTimeout` at once rather than serialising
+    this worker only.
 
     A Redis lock found expired on release raises
     :class:`DocumentMapLockLost` — unless the body already raised, in which
-    case the loss is logged and the body's error propagates unchanged.
+    case the loss is logged and the body's error propagates unchanged. A
+    release that cannot reach Redis is logged (document id and error class)
+    and never raises: the body's outcome stands, and the lock expires on
+    its own after ``_LOCK_TIMEOUT_SECONDS``.
     """
     lock_guard = _map_write_locks.get(document_id)
     if lock_guard is None:
@@ -199,6 +214,11 @@ async def document_map_lock(
     async with lock_guard:
         client = get_redis()
         if client is None:
+            if redis_configured():
+                raise DocumentMapLockTimeout(
+                    "Redis is configured but unavailable; could not lock the "
+                    f"anonymization map of document_id={document_id}"
+                )
             yield DocumentMapLockHandle(document_id)
             return
         from redis.exceptions import LockError
@@ -208,7 +228,13 @@ async def document_map_lock(
             timeout=_LOCK_TIMEOUT_SECONDS,
             blocking_timeout=wait_seconds,
         )
-        if not await lock.acquire():
+        try:
+            acquired = await tracked(lock.acquire())
+        except Exception as exc:
+            raise DocumentMapLockTimeout(
+                f"Could not reach Redis to lock the anonymization map of document_id={document_id}"
+            ) from exc
+        if not acquired:
             raise DocumentMapLockTimeout(
                 f"Could not lock the anonymization map of document_id={document_id}"
             )
@@ -220,7 +246,7 @@ async def document_map_lock(
             raise
         finally:
             try:
-                await lock.release()
+                await tracked(lock.release())
             except LockError as exc:
                 logger.error(
                     "Anonymization map lock of document_id=%s expired before release",
@@ -230,6 +256,12 @@ async def document_map_lock(
                     raise DocumentMapLockLost(
                         f"Lost the anonymization map lock of document_id={document_id}"
                     ) from exc
+            except Exception as exc:
+                logger.error(
+                    "Could not release the anonymization map lock of document_id=%s: %s",
+                    document_id,
+                    type(exc).__name__,
+                )
 
 
 def _redis_key(document_id: int) -> str:
@@ -323,6 +355,11 @@ def _deserialize(document_id: int, data: bytes) -> AnonymizationMap:
     )
 
 
+async def _drop_redis_copy(document_id: int) -> bool:
+    """Delete the Redis map copy and its version key in one command; whether it landed."""
+    return await redis_delete(_redis_key(document_id), _version_key(document_id))
+
+
 async def set_document_map(document_id: int, anon_map: AnonymizationMap) -> None:
     """Store the anonymization map in all three tiers.
 
@@ -333,34 +370,58 @@ async def set_document_map(document_id: int, anon_map: AnonymizationMap) -> None
     operator never accidentally writes raw PII to either persistence
     layer.
 
-    The disk tier is written first and a write failure raises
-    :class:`OSError` without touching the other tiers, so no caller can
-    commit text that references a map which was never persisted. A failed
-    Redis write drops the Redis copy so readers fall through to disk
-    instead of seeing a stale map.
+    With Redis configured, the Redis copy and its version key are dropped
+    before the disk write and again right after it, then written anew, so
+    Redis holds the current map or none: a write cut short leaves no older
+    map under a version warm workers would trust, and the second drop
+    removes a version another worker claimed for the old file meanwhile.
+    Any failure drops the Redis keys once more before it propagates. If
+    neither the second drop, the writes nor a last drop landed,
+    :class:`DocumentMapCacheError` is raised and the caller rolls back.
+
+    The disk tier is the authoritative one: a disk write failure raises
+    :class:`OSError`, so no caller can commit text that references a map
+    which was never persisted.
     """
     serialized = _serialize(anon_map)
     associated_data = str(document_id).encode("utf-8")
     encrypted_bytes = encrypt(serialized, associated_data=associated_data)
-
-    # Tier 3: encrypted disk (durable; failure aborts the write)
-    disk_stat = _replace_atomically(_map_path(document_id), encrypted_bytes)
-
-    # Tier 2: Redis (encrypted), then the version other workers validate
-    # their memory copy against.
-    map_written = await redis_set(_redis_key(document_id), encrypted_bytes, ttl=_REDIS_TTL)
-    if not map_written:
-        await redis_delete(_redis_key(document_id))
-    if redis_configured():
-        version: Optional[str] = uuid4().hex
-        if not (map_written and await redis_set(_version_key(document_id), version.encode("ascii"))):
-            await redis_delete(_version_key(document_id))
-            version = None
-    else:
-        version = _disk_version(disk_stat)
+    with_redis = redis_configured()
+    if with_redis:
+        await _drop_redis_copy(document_id)
+    try:
+        disk_stat = _replace_atomically(_map_path(document_id), encrypted_bytes)
+        if with_redis:
+            dropped_after_write = await _drop_redis_copy(document_id)
+            version: Optional[str] = uuid4().hex
+            written = await redis_set(
+                _redis_key(document_id), _versioned_copy(version, encrypted_bytes), ttl=_REDIS_TTL
+            ) and await redis_set(_version_key(document_id), version.encode("ascii"))
+            if not written:
+                version = None
+                if not (await _drop_redis_copy(document_id) or dropped_after_write):
+                    logger.error(
+                        "The Redis copy of the anonymization map of document_id=%s "
+                        "could be neither replaced nor dropped",
+                        document_id,
+                    )
+                    raise DocumentMapCacheError(
+                        f"Redis may still hold an older map of document_id={document_id}"
+                    )
+        else:
+            version = _disk_version(disk_stat)
+    except BaseException:
+        if with_redis:
+            await asyncio.shield(_drop_redis_copy(document_id))
+        raise
 
     # Tier 1: memory (plaintext, in-process only)
     _remember(document_id, anon_map, version)
+
+
+def _is_erased(version: Optional[str]) -> bool:
+    """Whether ``version`` marks the map erased: a tombstone, or no disk file without Redis."""
+    return version == _TOMBSTONE or (version is None and not redis_configured())
 
 
 async def get_document_map(document_id: int) -> AnonymizationMap | None:
@@ -368,33 +429,40 @@ async def get_document_map(document_id: int) -> AnonymizationMap | None:
 
     Tier 1 (memory) → Tier 2 (Redis) → Tier 3 (encrypted disk). The memory
     copy is returned only while the persistent tier still reports the
-    version it was cached at; an erased map (tombstone, or no disk file
-    without Redis) returns ``None`` and drops the memory copy. On a miss
-    the map is loaded and higher tiers are backfilled.
+    version it was cached at; an erased map returns ``None`` and drops the
+    memory copy. On a miss the map is loaded (:func:`_load_persisted`) and
+    the version read again: an erasure seen then returns ``None``, any
+    other change returns the map uncached. A map without a version claims
+    one (expiring with the map copy's TTL) before it is loaded, so the
+    claim only covers a file read after it.
     """
     version = await _current_version(document_id)
-    if version == _TOMBSTONE:
+    if _is_erased(version):
         _forget(document_id)
         return None
     cached = _document_maps.get(document_id)
     if cached is not None and version is not None and _map_versions.get(document_id) == version:
         return cached
     _forget(document_id)
-    if version is None and not redis_configured():
-        return None
-    anon_map = await _load_persisted(document_id)
+    if version is None:
+        candidate = uuid4().hex
+        if await redis_set_if_absent(
+            _version_key(document_id), candidate.encode("ascii"), ttl=_REDIS_TTL
+        ):
+            version = candidate
+        else:
+            version = await _current_version(document_id)
+            if _is_erased(version):
+                return None
+    anon_map = await _load_persisted(document_id, version)
     if anon_map is None:
         return None
-    if version is None:
-        # Legacy map or lost version key: claim one unless another worker
-        # (or an erasure tombstone) got there first.
-        candidate = uuid4().hex
-        if await redis_set_if_absent(_version_key(document_id), candidate.encode("ascii")):
-            version = candidate
-        elif await _current_version(document_id) == _TOMBSTONE:
-            await redis_delete(_redis_key(document_id))
-            return None
-    _remember(document_id, anon_map, version)
+    current = await _current_version(document_id)
+    if _is_erased(current):
+        _forget(document_id)
+        return None
+    if current is not None and current == version:
+        _remember(document_id, anon_map, version)
     return anon_map
 
 
@@ -456,12 +524,35 @@ def _load_from_disk(document_id: int) -> Optional[Tuple[bytes, AnonymizationMap]
         ) from exc
 
 
-async def _load_persisted(document_id: int) -> AnonymizationMap | None:
-    """Load from Redis, then encrypted disk, backfilling Redis."""
+def _versioned_copy(version: str, encrypted_bytes: bytes) -> bytes:
+    """The Redis map copy: the ciphertext tagged with the version it is written under."""
+    return _COPY_PREFIX + version.encode("ascii") + b"|" + encrypted_bytes
+
+
+def _copy_ciphertext(stored: bytes, version: Optional[str]) -> Optional[bytes]:
+    """The ciphertext of a Redis map copy written under ``version``, or ``None`` for any other copy."""
+    if version is None or not stored.startswith(_COPY_PREFIX):
+        return None
+    tag, separator, ciphertext = stored[len(_COPY_PREFIX):].partition(b"|")
+    if not separator or tag != version.encode("ascii"):
+        return None
+    return ciphertext
+
+
+async def _load_persisted(document_id: int, version: Optional[str]) -> AnonymizationMap | None:
+    """Load from Redis, then encrypted disk; never write Redis.
+
+    Only :func:`set_document_map` writes the Redis copy: a read that copied
+    disk into Redis could land after a newer write and leave the older map
+    under the newer version. The Redis copy is used only when it was written
+    under ``version``; any other copy is skipped for the disk. The caller
+    re-reads the version afterwards to catch an erasure that raced the read.
+    """
     associated_data = str(document_id).encode("utf-8")
 
     # Tier 2: Redis (encrypted)
-    redis_data = await redis_get(_redis_key(document_id))
+    stored = await redis_get(_redis_key(document_id))
+    redis_data = _copy_ciphertext(stored, version) if stored is not None else None
     if redis_data is not None:
         try:
             plaintext = decrypt(redis_data, associated_data=associated_data)
@@ -481,18 +572,7 @@ async def _load_persisted(document_id: int) -> AnonymizationMap | None:
         if loaded is None:
             logger.debug("No anonymization map file for document_id=%s", document_id)
             return None
-        encrypted_bytes, anon_map = loaded
-
-        # Backfill Redis with ciphertext, not plaintext, so the bridge
-        # tier never holds raw originals. The caller backfills memory.
-        if await redis_set(_redis_key(document_id), encrypted_bytes, ttl=_REDIS_TTL):
-            # An erasure that ran while the file was read must not leave
-            # this copy behind.
-            if await _current_version(document_id) == _TOMBSTONE:
-                await redis_delete(_redis_key(document_id))
-                return None
-
-        return anon_map
+        return loaded[1]
     except Exception as e:
         logger.warning(
             "Could not load anonymization map for document_id=%s (deanonymization will be skipped): %s",
@@ -512,7 +592,7 @@ async def pop_document_map(document_id: int) -> None:
     configured but unreachable Redis counts as a failed tier, as does an
     orphaned temp file of an interrupted disk write. With Redis,
     the version key is replaced by a tombstone so other workers drop their
-    memory copy and ignore any Redis copy a racing backfill writes back.
+    memory copy.
     """
     # Tier 1: memory
     _forget(document_id)

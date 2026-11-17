@@ -53,7 +53,8 @@ class _Db:
         self.statements.append(stmt)
         if str(stmt).startswith("UPDATE"):
             self.events.append(("fence",))
-            return 7
+            # A deleted row is gone once the map store takes the map lock.
+            return 7 if self.exists or ("lock_enter", 7) not in self.events else None
         self.events.append(("exists_check",))
         return 7 if self.exists else None
 
@@ -322,7 +323,6 @@ async def test_full_run_sequence(env):
         ("commit",),
         ("refresh",),
         ("lock_enter", 7),
-        ("exists_check",),
         ("fence",),
         ("ensure_held",),
         ("set_map", 7),
@@ -520,7 +520,7 @@ async def test_deleted_document_aborts_before_indexes(env):
     with pytest.raises(dp.DocumentDeletedDuringIngestionError, match="^Document 7 was deleted during ingestion$"):
         await _run(env, document=document)
     kinds = [e[0] for e in env.events]
-    assert kinds[-2:] == ["lock_enter", "exists_check"]
+    assert kinds[-4:] == ["lock_enter", "fence", "rollback", "exists_check"]
     assert document.ingestion_status == "processing"
 
 

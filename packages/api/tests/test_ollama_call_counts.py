@@ -19,6 +19,7 @@ from typing import Any, Callable, Iterator, List, Optional
 
 import httpx
 import pytest
+from redis_doubles import redis_unavailable, use_fake_redis
 from septum_api.errors import (
     LOCAL_MODEL_BUDGET_EXCEEDED_CODE,
     CustomRuleUnavailableError,
@@ -266,12 +267,7 @@ async def test_an_epoch_bump_is_seen_by_every_worker(
     from septum_api.services import document_anon_store
 
     if with_redis:
-        import fakeredis
-        import septum_api.services.redis_client as redis_module
-
-        monkeypatch.setattr(redis_module, "_get_redis_url", lambda: "redis://fake")
-        monkeypatch.setattr(redis_module, "_redis_pool", fakeredis.FakeAsyncRedis())
-        monkeypatch.setattr(redis_module, "_redis_unavailable", False)
+        use_fake_redis(monkeypatch)
 
     first = await document_anon_store.read_erasure_epoch()
     assert first is not None
@@ -314,11 +310,9 @@ async def test_an_unreadable_disk_marker_gives_no_epoch(monkeypatch: pytest.Monk
 
 
 async def test_an_unreachable_redis_gives_no_epoch_and_refuses_the_bump(monkeypatch) -> None:
-    import septum_api.services.redis_client as redis_module
     from septum_api.services import document_anon_store
 
-    monkeypatch.setattr(redis_module, "_get_redis_url", lambda: "redis://unreachable")
-    monkeypatch.setattr(redis_module, "_redis_unavailable", True)
+    redis_unavailable(monkeypatch)
 
     assert await document_anon_store.read_erasure_epoch() is None
     with pytest.raises(document_anon_store.DocumentMapErasureError):

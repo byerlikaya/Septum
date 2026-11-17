@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 import pytest
+from redis_doubles import redis_unavailable
 from septum_api.models import Base
 from septum_api.models.document import Chunk, Document
 from septum_api.models.user import User
@@ -229,6 +230,28 @@ async def test_rebuild_of_a_document_deleted_meanwhile_leaves_no_index(
         await chat_module._rebuild_outdated_bm25_index(db, store, doc_id)
 
     assert not store._index_path(doc_id).exists()
+
+
+async def test_a_rebuild_whose_map_lock_cannot_be_taken_serves_the_turn_without_bm25(
+    session_maker: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog
+) -> None:
+    """A configured Redis is down: the rebuilt file is discarded and the turn goes on."""
+    doc_id, chunk_ids = await _add_document(session_maker)
+    store = BM25Retriever(base_dir=tmp_path / "bm25")
+    _write_legacy_index(store, doc_id, chunk_ids)
+    redis_unavailable(monkeypatch, "redis://127.0.0.1:1/0")
+
+    with caplog.at_level("WARNING", logger=chat_module.logger.name):
+        async with session_maker() as db:
+            await chat_module._rebuild_outdated_bm25_index(db, store, doc_id)
+        await asyncio.sleep(0)
+
+    assert not store._index_path(doc_id).exists()
+    assert (
+        f"BM25 index of document_id={doc_id} not rebuilt this turn: DocumentMapLockTimeout"
+        in caplog.text
+    )
+    assert SIGNERS not in caplog.text
 
 
 def test_capital_dotted_i_query_meets_the_index_in_its_language(tmp_path: Path) -> None:

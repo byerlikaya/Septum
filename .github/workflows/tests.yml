@@ -13,8 +13,8 @@ jobs:
   backend-tests:
     runs-on: ubuntu-latest
 
-    # Migrations and the PostgreSQL-only tests run against a real server;
-    # the rest of the suite stays on SQLite.
+    # Migrations, the PostgreSQL-only tests and the Redis map-tier tests run
+    # against real servers; the rest of the suite stays on SQLite.
     services:
       postgres:
         image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
@@ -26,6 +26,16 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd "pg_isready -U septum -d septum"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -101,6 +111,7 @@ jobs:
       - name: Run backend tests
         env:
           SEPTUM_TEST_POSTGRES_URL: postgresql+asyncpg://septum:ci@localhost:5432/septum
+          SEPTUM_TEST_REDIS_URL: redis://localhost:6379/0
         run: pytest packages/api/tests -q
 
   modular-tests:

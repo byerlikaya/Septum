@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from redis_doubles import redis_unavailable, use_fake_redis
 from septum_api.services.anonymization_map import AnonymizationMap
 from septum_api.services.document_anon_store import (
     get_document_map,
@@ -135,8 +137,13 @@ async def test_redis_tier_used_when_available(store_dir: Path) -> None:
 
     store_module._document_maps.pop(200, None)
 
+    copies = {
+        "anon_map:200": store_module._versioned_copy("v-200", ciphertext),
+        "anon_map_version:200": b"v-200",
+    }
+
     async def _redis_get(key):
-        return ciphertext if key == "anon_map:200" else None
+        return copies.get(key)
 
     with patch("septum_api.services.document_anon_store.redis_get", new=_redis_get), patch(
         "septum_api.services.document_anon_store.redis_configured", return_value=True
@@ -169,6 +176,13 @@ async def test_redis_payload_is_ciphertext_not_plaintext(store_dir: Path) -> Non
     with patch(
         "septum_api.services.document_anon_store.redis_set",
         new=fake_redis_set,
+    ), patch(
+        "septum_api.services.document_anon_store.redis_delete",
+        new_callable=AsyncMock,
+        return_value=True,
+    ), patch(
+        "septum_api.services.document_anon_store.redis_configured",
+        return_value=True,
     ):
         await set_document_map(999, amap)
 
@@ -311,23 +325,32 @@ async def test_disk_write_failure_raises_and_leaves_other_tiers_untouched(
 @patch("septum_api.services.document_anon_store.redis_set", new_callable=AsyncMock, return_value=False)
 @patch("septum_api.services.document_anon_store.redis_get", new_callable=AsyncMock, return_value=None)
 @patch("septum_api.services.document_anon_store.redis_delete", new_callable=AsyncMock, return_value=True)
+@patch("septum_api.services.document_anon_store.redis_configured", return_value=True)
 async def test_failed_redis_write_drops_the_redis_copy(
-    mock_del, _mock_get, _mock_set, store_dir: Path
+    _configured, mock_del, _mock_get, mock_set, store_dir: Path
 ) -> None:
     amap = AnonymizationMap(document_id=62, language="en")
     amap.entity_map["A"] = "[PERSON_1]"
 
     await set_document_map(62, amap)
 
-    mock_del.assert_awaited_once_with("anon_map:62")
+    mock_set.assert_awaited_once()
+    deleted = [call.args for call in mock_del.await_args_list]
+    assert deleted[-1] == ("anon_map:62", "anon_map_version:62")
 
 
 class _ScriptedLock:
     """Redis lock double whose extend/release can be told to fail."""
 
-    def __init__(self, extend_fails: bool = False, release_fails: bool = False) -> None:
+    def __init__(
+        self,
+        extend_fails: bool = False,
+        release_fails: bool = False,
+        release_error: BaseException | None = None,
+    ) -> None:
         self.extend_fails = extend_fails
         self.release_fails = release_fails
+        self.release_error = release_error
 
     async def acquire(self) -> bool:
         return True
@@ -342,6 +365,8 @@ class _ScriptedLock:
     async def release(self) -> None:
         from redis.exceptions import LockNotOwnedError
 
+        if self.release_error is not None:
+            raise self.release_error
         if self.release_fails:
             raise LockNotOwnedError("expired")
 
@@ -385,16 +410,73 @@ async def test_held_lock_passes_ensure_held(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 @pytest.mark.asyncio
-async def test_release_failure_does_not_mask_the_body_error(
+@pytest.mark.parametrize("body_fails", [False, True])
+async def test_a_release_that_cannot_reach_redis_neither_raises_nor_masks_the_body(
+    body_fails: bool, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The body's outcome stands (a committed delete stays a success); the lock expires on its own."""
+    import septum_api.services.document_anon_store as store_module
+    from redis.exceptions import ConnectionError as RedisConnectionError
+
+    monkeypatch.setattr(store_module, "redis_configured", lambda: True)
+    _use_redis(
+        monkeypatch,
+        _ScriptedRedis(_ScriptedLock(release_error=RedisConnectionError("reset"))),
+    )
+    with caplog.at_level("ERROR", logger=store_module.__name__):
+        if body_fails:
+            with pytest.raises(ValueError, match="body failed"):
+                async with store_module.document_map_lock(74):
+                    raise ValueError("body failed")
+        else:
+            async with store_module.document_map_lock(74):
+                pass
+    assert "document_id=74: ConnectionError" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_configured_redis_without_a_client_refuses_the_map_lock(
     monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import septum_api.services.document_anon_store as store_module
+
+    monkeypatch.setattr(store_module, "redis_configured", lambda: True)
+    _use_redis(monkeypatch, None)
+    with pytest.raises(store_module.DocumentMapLockTimeout):
+        async with store_module.document_map_lock(75):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_release_failure_does_not_mask_the_body_error(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     import septum_api.services.document_anon_store as store_module
 
     _use_redis(monkeypatch, _ScriptedRedis(_ScriptedLock(release_fails=True)))
 
-    with pytest.raises(ValueError, match="body failed"):
-        async with store_module.document_map_lock(72):
-            raise ValueError("body failed")
+    with caplog.at_level("ERROR", logger=store_module.__name__):
+        with pytest.raises(ValueError, match="body failed"):
+            async with store_module.document_map_lock(72):
+                raise ValueError("body failed")
+    assert [record.getMessage() for record in caplog.records] == [
+        "Anonymization map lock of document_id=72 expired before release"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_cancellation_during_release_is_not_swallowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import septum_api.services.document_anon_store as store_module
+
+    _use_redis(
+        monkeypatch, _ScriptedRedis(_ScriptedLock(release_error=asyncio.CancelledError()))
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        async with store_module.document_map_lock(76):
+            pass
 
 
 @pytest.mark.asyncio
@@ -490,14 +572,7 @@ class _Worker:
 @pytest.fixture
 def fake_redis(monkeypatch: pytest.MonkeyPatch):
     """A configured, reachable Redis backed by fakeredis."""
-    import fakeredis
-    import septum_api.services.redis_client as redis_module
-
-    client = fakeredis.FakeAsyncRedis()
-    monkeypatch.setattr(redis_module, "_get_redis_url", lambda: "redis://fake")
-    monkeypatch.setattr(redis_module, "_redis_pool", client)
-    monkeypatch.setattr(redis_module, "_redis_unavailable", False)
-    return client
+    return use_fake_redis(monkeypatch)
 
 
 def _known(document_id: int, name: str = "Alice") -> AnonymizationMap:
@@ -580,10 +655,8 @@ async def test_pop_fails_when_redis_is_configured_but_unavailable(
     store_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import septum_api.services.document_anon_store as store_module
-    import septum_api.services.redis_client as redis_module
 
-    monkeypatch.setattr(redis_module, "_get_redis_url", lambda: "redis://unreachable")
-    monkeypatch.setattr(redis_module, "_redis_unavailable", True)
+    redis_unavailable(monkeypatch)
     store_module._document_maps[84] = _known(84)
 
     with pytest.raises(store_module.DocumentMapErasureError, match="redis"):
@@ -685,8 +758,8 @@ async def test_reader_racing_an_erasure_does_not_cache_or_backfill_the_map(
     store_module._forget(91)
     real_load = store_module._load_persisted
 
-    async def _load_then_erased(document_id: int):
-        loaded = await real_load(document_id)
+    async def _load_then_erased(document_id: int, version):
+        loaded = await real_load(document_id, version)
         await pop_document_map(document_id)
         return loaded
 
@@ -697,15 +770,438 @@ async def test_reader_racing_an_erasure_does_not_cache_or_backfill_the_map(
     assert (await fake_redis.get("anon_map:91")) is None
 
 
-async def test_backfill_after_an_erasure_is_deleted_again(store_dir: Path, fake_redis) -> None:
+async def test_a_disk_read_after_an_erasure_returns_nothing_and_writes_no_redis_copy(
+    store_dir: Path, fake_redis
+) -> None:
     import septum_api.services.document_anon_store as store_module
 
     await set_document_map(92, _known(92))
     await fake_redis.delete("anon_map:92")
     await fake_redis.set("anon_map_version:92", b"erased")
 
-    assert (await store_module._load_persisted(92)) is None
+    await store_module._load_persisted(92, None)
     assert (await fake_redis.get("anon_map:92")) is None
+    assert (await get_document_map(92)) is None
+
+
+async def test_an_erasure_landing_during_the_disk_read_returns_nothing_and_writes_no_redis_copy(
+    store_dir: Path, fake_redis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import septum_api.services.document_anon_store as store_module
+
+    await set_document_map(93, _known(93))
+    await fake_redis.delete("anon_map:93")
+    real_load = store_module._load_persisted
+
+    async def _load_then_erase(document_id: int, version):
+        loaded = await real_load(document_id, version)
+        await fake_redis.set("anon_map_version:93", b"erased")
+        return loaded
+
+    monkeypatch.setattr(store_module, "_load_persisted", _load_then_erase)
+
+    store_module._forget(93)
+
+    assert (await get_document_map(93)) is None
+    assert (await fake_redis.get("anon_map:93")) is None
+    assert 93 not in store_module._document_maps
+
+
+async def test_a_read_racing_a_newer_write_never_leaves_the_older_map_in_redis(
+    store_dir: Path, fake_redis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reader whose Redis copy expired reads disk; another worker's newer write lands right after."""
+    import septum_api.services.document_anon_store as store_module
+
+    reader, writer, later = _Worker(), _Worker(), _Worker()
+    writer.activate(monkeypatch)
+    await set_document_map(94, _known(94, "Alice"))
+    await fake_redis.delete("anon_map:94")
+    newer = _known(94, "Alice")
+    newer.entity_map["Bob"] = "[PERSON_2]"
+    real_read, real_get, real_set = (
+        store_module._load_from_disk, store_module.redis_get, store_module.redis_set
+    )
+    race = {"read": False, "fired": False}
+
+    def _read(document_id: int):
+        race["read"] = True
+        return real_read(document_id)
+
+    async def _newer_write_first() -> None:
+        if race["read"] and not race["fired"]:
+            race["fired"] = True
+            writer.activate(monkeypatch)
+            await set_document_map(94, newer)
+            reader.activate(monkeypatch)
+
+    async def _get(key):
+        await _newer_write_first()
+        return await real_get(key)
+
+    async def _set(key, value, ttl=None):
+        await _newer_write_first()
+        return await real_set(key, value, ttl=ttl)
+
+    monkeypatch.setattr(store_module, "_load_from_disk", _read)
+    monkeypatch.setattr(store_module, "redis_get", _get)
+    monkeypatch.setattr(store_module, "redis_set", _set)
+    reader.activate(monkeypatch)
+    assert "Bob" not in (await get_document_map(94)).entity_map
+    assert race["fired"]
+    monkeypatch.setattr(store_module, "_load_from_disk", real_read)
+    monkeypatch.setattr(store_module, "redis_get", real_get)
+    monkeypatch.setattr(store_module, "redis_set", real_set)
+
+    later.activate(monkeypatch)
+    assert "Bob" in (await get_document_map(94)).entity_map
+    reader.activate(monkeypatch)
+    assert "Bob" in (await get_document_map(94)).entity_map
+
+
+async def test_a_write_cut_short_after_the_disk_write_leaves_no_older_map_trusted(
+    store_dir: Path, fake_redis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A warm worker never keeps the older map once the disk holds a newer one, even if the writer stops there."""
+    import septum_api.services.document_anon_store as store_module
+
+    writer, warm = _Worker(), _Worker()
+    writer.activate(monkeypatch)
+    await set_document_map(95, _known(95, "Alice"))
+    warm.activate(monkeypatch)
+    assert "Alice" in (await get_document_map(95)).entity_map
+    newer = _known(95, "Alice")
+    newer.entity_map["Bob"] = "[PERSON_2]"
+    real_replace = store_module._replace_atomically
+    seen_mid_write: list = []
+
+    def _replace_then_stop(path, data):
+        real_replace(path, data)
+        seen_mid_write.append(asyncio.ensure_future(_warm_read()))
+        raise asyncio.CancelledError()
+
+    async def _warm_read():
+        warm.activate(monkeypatch)
+        return await get_document_map(95)
+
+    monkeypatch.setattr(store_module, "_replace_atomically", _replace_then_stop)
+    writer.activate(monkeypatch)
+    with pytest.raises(asyncio.CancelledError):
+        await set_document_map(95, newer)
+    monkeypatch.setattr(store_module, "_replace_atomically", real_replace)
+
+    assert "Bob" in (await seen_mid_write[0]).entity_map
+    warm.activate(monkeypatch)
+    assert "Bob" in (await get_document_map(95)).entity_map
+
+
+async def test_a_write_that_can_neither_replace_nor_drop_the_redis_copy_raises(
+    store_dir: Path, fake_redis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import septum_api.services.document_anon_store as store_module
+
+    await set_document_map(96, _known(96))
+
+    async def _fails(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr(store_module, "redis_set", _fails)
+    monkeypatch.setattr(store_module, "redis_delete", _fails)
+    with pytest.raises(store_module.DocumentMapCacheError):
+        await set_document_map(96, _known(96, "Bob"))
+
+
+async def test_a_write_whose_redis_copy_fails_but_was_dropped_succeeds_without_a_version(
+    store_dir: Path, fake_redis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import septum_api.services.document_anon_store as store_module
+
+    await set_document_map(97, _known(97))
+
+    async def _fails(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr(store_module, "redis_set", _fails)
+    await set_document_map(97, _known(97, "Bob"))
+
+    assert await fake_redis.get("anon_map:97") is None
+    assert await fake_redis.get("anon_map_version:97") is None
+    assert 97 not in store_module._document_maps
+
+
+@pytest.mark.parametrize("with_redis", [False, True])
+async def test_a_read_racing_an_erasure_returns_nothing_and_caches_nothing(
+    with_redis: bool, store_dir: Path, monkeypatch: pytest.MonkeyPatch, request
+) -> None:
+    """The version is read before the load; an erasure during the load must still win."""
+    import septum_api.services.document_anon_store as store_module
+
+    if with_redis:
+        request.getfixturevalue("fake_redis")
+    writer, reader = _Worker(), _Worker()
+    writer.activate(monkeypatch)
+    await set_document_map(98, _known(98))
+    real_load = store_module._load_persisted
+
+    async def _load_then_erased(document_id: int, version):
+        loaded = await real_load(document_id, version)
+        writer.activate(monkeypatch)
+        await pop_document_map(document_id)
+        reader.activate(monkeypatch)
+        return loaded
+
+    monkeypatch.setattr(store_module, "_load_persisted", _load_then_erased)
+    reader.activate(monkeypatch)
+
+    assert (await get_document_map(98)) is None
+    assert 98 not in reader.maps
+
+
+def _ciphertext(anon_map: AnonymizationMap) -> bytes:
+    import septum_api.services.document_anon_store as store_module
+    from septum_api.utils.crypto import encrypt
+
+    data = store_module._serialize(anon_map)
+    return encrypt(data, associated_data=str(anon_map.document_id).encode("utf-8"))
+
+
+def _with_bob(document_id: int) -> AnonymizationMap:
+    anon_map = _known(document_id, "Alice")
+    anon_map.entity_map["Bob"] = "[PERSON_2]"
+    return anon_map
+
+
+async def test_a_claim_on_the_old_file_made_during_a_write_is_dropped_after_the_disk_write(
+    store_dir: Path, fake_redis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the drops before and after the disk write land; the Redis writes and the last drop fail."""
+    import septum_api.services.document_anon_store as store_module
+
+    writer, reader = _Worker(), _Worker()
+    writer.activate(monkeypatch)
+    await set_document_map(110, _known(110, "Alice"))
+    real_drop, real_set = store_module._drop_redis_copy, store_module.redis_set
+    real_replace = store_module._replace_atomically
+    phase = {"disk_written": False, "set_tried": False}
+
+    def _replace(path, data):
+        stat_result = real_replace(path, data)
+        phase["disk_written"] = True
+        return stat_result
+
+    async def _drop(document_id: int) -> bool:
+        if phase["set_tried"]:
+            return False
+        dropped = await real_drop(document_id)
+        if not phase["disk_written"]:
+            reader.activate(monkeypatch)
+            assert "Bob" not in (await get_document_map(document_id)).entity_map
+            writer.activate(monkeypatch)
+        return dropped
+
+    async def _set_fails(key, value, ttl=None):
+        phase["set_tried"] = True
+        return False
+
+    monkeypatch.setattr(store_module, "_replace_atomically", _replace)
+    monkeypatch.setattr(store_module, "_drop_redis_copy", _drop)
+    monkeypatch.setattr(store_module, "redis_set", _set_fails)
+    await set_document_map(110, _with_bob(110))
+    monkeypatch.setattr(store_module, "_replace_atomically", real_replace)
+    monkeypatch.setattr(store_module, "_drop_redis_copy", real_drop)
+    monkeypatch.setattr(store_module, "redis_set", real_set)
+
+    reader.activate(monkeypatch)
+    assert "Bob" in (await get_document_map(110)).entity_map
+
+
+async def test_a_redis_write_cut_short_while_the_drops_failed_drops_the_keys_on_the_way_out(
+    store_dir: Path, fake_redis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Redis kept the old copy (both drops failed); the map lands, the version write is cancelled."""
+    import septum_api.services.document_anon_store as store_module
+
+    writer, warm = _Worker(), _Worker()
+    writer.activate(monkeypatch)
+    await set_document_map(111, _known(111, "Alice"))
+    warm.activate(monkeypatch)
+    assert "Bob" not in (await get_document_map(111)).entity_map
+    real_drop, real_set = store_module._drop_redis_copy, store_module.redis_set
+    drops: list = []
+
+    async def _drop(document_id: int) -> bool:
+        drops.append(document_id)
+        return False if len(drops) <= 2 else await real_drop(document_id)
+
+    async def _set(key, value, ttl=None):
+        if key.startswith("anon_map_version:"):
+            raise asyncio.CancelledError()
+        return await real_set(key, value, ttl=ttl)
+
+    monkeypatch.setattr(store_module, "_drop_redis_copy", _drop)
+    monkeypatch.setattr(store_module, "redis_set", _set)
+    writer.activate(monkeypatch)
+    with pytest.raises(asyncio.CancelledError):
+        await set_document_map(111, _with_bob(111))
+    monkeypatch.setattr(store_module, "_drop_redis_copy", real_drop)
+    monkeypatch.setattr(store_module, "redis_set", real_set)
+
+    warm.activate(monkeypatch)
+    assert "Bob" in (await get_document_map(111)).entity_map
+
+
+async def test_a_first_drop_alone_does_not_make_a_failed_write_clean(
+    store_dir: Path, fake_redis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A version claimed between the first drop and the disk write survives unless a later drop lands."""
+    import septum_api.services.document_anon_store as store_module
+
+    await set_document_map(115, _known(115))
+    real_drop = store_module._drop_redis_copy
+    drops: list = []
+
+    async def _only_the_first(document_id: int) -> bool:
+        drops.append(document_id)
+        return await real_drop(document_id) if len(drops) == 1 else False
+
+    async def _set_fails(key, value, ttl=None):
+        return False
+
+    monkeypatch.setattr(store_module, "_drop_redis_copy", _only_the_first)
+    monkeypatch.setattr(store_module, "redis_set", _set_fails)
+    with pytest.raises(store_module.DocumentMapCacheError):
+        await set_document_map(115, _with_bob(115))
+
+
+async def test_a_drop_that_removes_the_map_but_not_its_version_does_not_count(
+    store_dir: Path, fake_redis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import septum_api.services.document_anon_store as store_module
+
+    await set_document_map(112, _known(112))
+
+    async def _set_fails(key, value, ttl=None):
+        return False
+
+    async def _only_the_map_key(*keys):
+        return all(key.startswith("anon_map:") for key in keys)
+
+    monkeypatch.setattr(store_module, "redis_set", _set_fails)
+    monkeypatch.setattr(store_module, "redis_delete", _only_the_map_key)
+    with pytest.raises(store_module.DocumentMapCacheError):
+        await set_document_map(112, _with_bob(112))
+
+
+async def test_a_version_is_claimed_before_the_file_is_read(
+    store_dir: Path, fake_redis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A writer that dies after its disk write and its second drop leaves no claim covering the old file."""
+    import septum_api.services.document_anon_store as store_module
+
+    reader = _Worker()
+    await set_document_map(113, _known(113, "Alice"))
+    await fake_redis.delete("anon_map:113", "anon_map_version:113")
+    real_load = store_module._load_persisted
+    died: list = []
+
+    async def _load_while_a_writer_dies(document_id: int, version):
+        loaded = await real_load(document_id, version)
+        if not died:
+            died.append(True)
+            store_module._replace_atomically(
+                store_module._map_path(document_id), _ciphertext(_with_bob(document_id))
+            )
+            await store_module._drop_redis_copy(document_id)
+        return loaded
+
+    monkeypatch.setattr(store_module, "_load_persisted", _load_while_a_writer_dies)
+    reader.activate(monkeypatch)
+    assert "Bob" not in (await get_document_map(113)).entity_map
+    assert "Bob" in (await get_document_map(113)).entity_map
+
+
+async def test_a_redis_copy_landing_after_a_newer_write_is_not_trusted(
+    store_dir: Path, fake_redis
+) -> None:
+    """A client-side-timed-out SET of the older copy lands after the newer version was set."""
+    import septum_api.services.document_anon_store as store_module
+
+    await set_document_map(116, _known(116, "Alice"))
+    late_copy = await fake_redis.get("anon_map:116")
+    await set_document_map(116, _with_bob(116))
+    await fake_redis.set("anon_map:116", late_copy)
+    store_module._forget(116)
+
+    assert "Bob" in (await get_document_map(116)).entity_map
+
+
+async def test_a_redis_copy_from_before_versioned_copies_counts_as_absent(
+    store_dir: Path, fake_redis
+) -> None:
+    import septum_api.services.document_anon_store as store_module
+
+    await set_document_map(117, _with_bob(117))
+    await fake_redis.set("anon_map:117", _ciphertext(_known(117, "Alice")))
+    store_module._forget(117)
+
+    assert "Bob" in (await get_document_map(117)).entity_map
+
+
+async def test_the_final_drop_survives_a_second_cancellation(
+    store_dir: Path, fake_redis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The writer is cancelled while its Redis write hangs, then again while its final drop waits."""
+    import septum_api.services.document_anon_store as store_module
+
+    await set_document_map(118, _known(118, "Alice"))
+    real_drop = store_module._drop_redis_copy
+    hang = asyncio.Event()
+    final_drop_waiting = asyncio.Event()
+    release_final_drop = asyncio.Event()
+    final_drop_done = asyncio.Event()
+    drops: list = []
+
+    async def _drop(document_id: int) -> bool:
+        drops.append(document_id)
+        if len(drops) <= 2:
+            return False
+        final_drop_waiting.set()
+        await release_final_drop.wait()
+        dropped = await real_drop(document_id)
+        final_drop_done.set()
+        return dropped
+
+    async def _set_hangs(key, value, ttl=None):
+        await hang.wait()
+        return True
+
+    monkeypatch.setattr(store_module, "_drop_redis_copy", _drop)
+    monkeypatch.setattr(store_module, "redis_set", _set_hangs)
+    writer = asyncio.create_task(set_document_map(118, _with_bob(118)))
+    while len(drops) < 2:
+        await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    writer.cancel()
+    await final_drop_waiting.wait()
+    writer.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await writer
+    release_final_drop.set()
+    await asyncio.wait_for(final_drop_done.wait(), timeout=5)
+
+    assert await fake_redis.get("anon_map:118") is None
+    assert await fake_redis.get("anon_map_version:118") is None
+
+
+async def test_a_reader_claim_expires_with_the_map_copy(store_dir: Path, fake_redis) -> None:
+    import septum_api.services.document_anon_store as store_module
+
+    await set_document_map(114, _known(114))
+    await fake_redis.delete("anon_map_version:114")
+    store_module._forget(114)
+
+    assert (await get_document_map(114)) is not None
+    assert 0 < await fake_redis.ttl("anon_map_version:114") <= store_module._REDIS_TTL
 
 
 @patch("septum_api.services.document_anon_store.redis_get", new_callable=AsyncMock, return_value=None)

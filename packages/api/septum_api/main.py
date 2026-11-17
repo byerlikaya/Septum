@@ -77,7 +77,7 @@ from .routers import setup as setup_router
 from .routers import text_normalization as text_normalization_router
 from .routers import users as users_router
 from .services import ingestion_lease
-from .services.document_anon_store import sweep_stale_temp_files
+from .services.document_anon_store import DocumentMapLockTimeout, sweep_stale_temp_files
 from .services.error_logger import (
     log_backend_error,
     log_backend_message,
@@ -87,6 +87,7 @@ from .services.error_logger import (
 from .services.llm_errors import GatewayStartupError
 from .services.llm_router import GatewayClientProtocol, set_gateway_client_factory
 from .services.orphan_artifacts import sweep_orphan_artifacts
+from .services.redis_client import RETRY_AFTER_HEADERS
 from .services.source_files import SOURCE_FILE_DIR
 from .utils.auth_dependency import setup_window_open
 from .utils.db_helpers import ensure_language_profiles_loaded
@@ -587,6 +588,31 @@ async def password_work_busy_handler(request: Request, exc: PasswordWorkBusy) ->
     )
 
 
+@app.exception_handler(DocumentMapLockTimeout)
+async def document_map_lock_timeout_handler(
+    request: Request, exc: DocumentMapLockTimeout
+) -> JSONResponse:
+    """503 with Retry-After when a document's map lock could not be taken; nothing was written.
+
+    Another worker holds the lock, or a configured Redis is down. The body
+    names no document, and the log carries only the path and error class.
+    """
+    logger.warning(
+        "Could not lock a document map for %s: %s", request.url.path, type(exc).__name__
+    )
+    return JSONResponse(
+        status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "detail": (
+                "The document's stored data could not be locked; nothing was changed. "
+                "Try again."
+            ),
+            "code": "document_locked",
+        },
+        headers=RETRY_AFTER_HEADERS,
+    )
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(
     request: Request, exc: HTTPException
@@ -646,7 +672,7 @@ async def http_exception_handler(
     content: dict[str, Any] = {"detail": exc.detail}
     if code is not None:
         content["code"] = code
-    return JSONResponse(status_code=exc.status_code, content=content)
+    return JSONResponse(status_code=exc.status_code, content=content, headers=exc.headers)
 
 
 @app.exception_handler(ModelRefusal)

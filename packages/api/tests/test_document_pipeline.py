@@ -1969,9 +1969,13 @@ async def test_the_row_purge_skips_a_document_claimed_after_its_artifacts_were_e
 
     engine, maker = await _sweep_db(tmp_path, monkeypatch)
     erased: list = []
+    real_erase = dp._erase_failed_artifacts
 
-    async def _erase_then_claim(document_id, **kwargs) -> None:
+    async def _record_erasure(document_id, **kwargs) -> None:
         erased.append(document_id)
+
+    async def _erase_then_claim(db, document_id, **kwargs) -> bool:
+        assert await real_erase(db, document_id, **kwargs) is True
         async with maker() as other:
             await other.execute(
                 update(Document)
@@ -1979,8 +1983,10 @@ async def test_the_row_purge_skips_a_document_claimed_after_its_artifacts_were_e
                 .values(ingestion_status=new_status)
             )
             await other.commit()
+        return True
 
-    monkeypatch.setattr(dp, "erase_document_artifacts", _erase_then_claim)
+    monkeypatch.setattr(dp, "erase_document_artifacts", _record_erasure)
+    monkeypatch.setattr(dp, "_erase_failed_artifacts", _erase_then_claim)
     try:
         failed = await _seed_derived(maker, tmp_path, "failed")
         async with maker() as session:
@@ -2058,7 +2064,10 @@ def _break_commit(monkeypatch, session) -> None:
     monkeypatch.setattr(session, "commit", _raise)
 
 
-def _break_rollback(monkeypatch, session) -> None:
+def _break_erasure_and_rollback(monkeypatch, session) -> None:
+    """The erasure fails, then so does the rollback after it (the purge rolls back only on failure)."""
+    _break_erasure(monkeypatch, session)
+
     async def _raise() -> None:
         raise _leaked_error()
 
@@ -2067,7 +2076,13 @@ def _break_rollback(monkeypatch, session) -> None:
 
 @pytest.mark.parametrize(
     "breakage",
-    [_break_candidate_select, _break_erasure, _break_row_purge, _break_commit, _break_rollback],
+    [
+        _break_candidate_select,
+        _break_erasure,
+        _break_row_purge,
+        _break_commit,
+        _break_erasure_and_rollback,
+    ],
 )
 async def test_a_failing_purge_step_never_raises_nor_changes_the_failure(
     tmp_path, monkeypatch, caplog, breakage
