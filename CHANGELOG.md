@@ -25,6 +25,7 @@ All notable changes to this project are documented here in a highâ€‘level, dateâ
 ### 2026-11-17
 
 - The anonymization map's Redis tier no longer lets an older map overwrite a newer one: reads stopped writing back, the Redis copy carries its version, and every map writer and eraser holds the document row. While Redis is configured but unreachable, map edits and deletes now fail closed with 503 and Retry-After instead of running without the lock, and Redis calls time out and back off.
+- Retrying a chat turn that used one of your documents while it is still processing or has failed now shows a clear error in the chat stream instead of "Document not found."; the retry is still refused, and missing or foreign documents still get 404.
 
 ### 2026-11-16
 
