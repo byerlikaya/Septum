@@ -20,7 +20,40 @@
 
 All notable changes to this project are documented here in a high‑level, date‑based format.
 
-## Unreleased
+## v3.1.0 — 2026-11-17 — Chunking v2 and ingestion robustness
+
+Documents are now scanned for personal data once over the whole text and
+masked per language segment, and chunks are cut on block, sentence or word
+boundaries and never inside a detected value. The local-model layers for
+sensitive categories and custom LLM-prompt rules, which were not applied
+before, run again and refuse a request they cannot check instead of sending
+it. Ingestion holds a renewed lease with a time limit, and erasure reaches
+every stored copy. The Redis map tier is locked and versioned, multi-document
+chats keep each person's placeholder distinct, settings are bounded, and
+detection no longer slows quadratically on long or crafted text.
+
+Upgrade notes (details in the dated entries below):
+
+- Stricter validation answers 422: a chat `top_k` outside the retrieval cap, a
+  retrieval top-k setting outside 1-25, chunk size outside 100-20,000
+  characters or overlap above half the chunk size (null included), and an
+  explicit null in a user update.
+- The `*_CHUNK_SIZE_DEFAULT` and `CHUNK_OVERLAP_DEFAULT` environment values
+  must fit the chunk limits, or startup stops with an error.
+- Custom rules with an entity type that would make a malformed placeholder are
+  refused, and an LLM-prompt rule without a prompt can no longer be saved.
+- Editing or deleting a chunk and saving typed column labels answer 409 until
+  the document has finished processing.
+- Documents whose extracted text exceeds `MAX_EXTRACTED_TEXT_CHARS` (default 10
+  million characters) are refused before detection.
+- The sensitive-category local-model layer and LLM-prompt custom rules now run
+  again and refuse a request they cannot check instead of sending it.
+- Uploads require authentication and can be refused with 503, 413 or 408; audio
+  longer than an hour is refused by default.
+- While Redis is configured but unreachable, anonymization map edits and
+  deletes answer 503 with Retry-After.
+- Existing documents show as needing reprocessing after the chunking and
+  detection changes.
 
 ### 2026-11-17
 
