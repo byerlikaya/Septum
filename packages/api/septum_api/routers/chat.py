@@ -664,6 +664,10 @@ async def _unify_turn_placeholders(
 
 
 _DOCUMENT_NOT_FOUND = "Document not found."
+_RETRY_DOCUMENT_INCOMPLETE_MESSAGE = (
+    "This turn cannot be retried: a document it used is still being processed "
+    "or failed to process. Try again after it completes."
+)
 THEME_SNIPPET_LEN = 400
 MIN_CHUNKS_FOR_LAST = 6
 _DEFAULT_RELEVANCE_THRESHOLD = 0.35
@@ -2880,9 +2884,8 @@ async def _owned_retry_documents(
 ) -> dict[int, Document]:
     """Resolve the documents a retry's chunks name.
 
-    The ids pass the same owner check as requested ids, so they can never
-    widen access. A document that is not ``completed`` gets the same 404 as
-    a missing one, so its map is never loaded for numbering or gating.
+    Every id passes the same owner check as requested ids, so none can widen
+    access; a missing or foreign id is a 404. Status is left to the caller.
     """
     retry_documents: dict[int, Document] = {}
     retry_ids = {
@@ -2891,15 +2894,17 @@ async def _owned_retry_documents(
         if c.document_id is not None
     }
     for did in sorted(retry_ids):
-        document = requested_documents.get(did) or await get_owned_or_404(
+        retry_documents[did] = requested_documents.get(did) or await get_owned_or_404(
             db, Document, did, user, _DOCUMENT_NOT_FOUND
         )
-        if document.ingestion_status != "completed":
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=_DOCUMENT_NOT_FOUND
-            )
-        retry_documents[did] = document
     return retry_documents
+
+
+async def _retry_incomplete_stream() -> AsyncGenerator[bytes, None]:
+    """Emit the single error event of a retry that names an unfinished document."""
+    yield _encode_sse(
+        {"type": "error", "message": _RETRY_DOCUMENT_INCOMPLETE_MESSAGE}
+    )
 
 
 @router.post(
@@ -2929,6 +2934,11 @@ async def chat_ask(
     retry_documents = await _owned_retry_documents(
         db, request, requested_documents, current_user
     )
+    # An unfinished document's map must never be loaded for numbering or gating.
+    if any(d.ingestion_status != "completed" for d in retry_documents.values()):
+        return StreamingResponse(
+            _retry_incomplete_stream(), media_type="text/event-stream"
+        )
     return StreamingResponse(
         _chat_event_stream(
             request,
